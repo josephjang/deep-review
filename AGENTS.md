@@ -30,6 +30,20 @@ the next run.
 The build replaces each `dist/<runtime>` tree wholesale, so a renamed or
 removed source never leaves a stale file behind.
 
+## The ledger is append-only and forward-compatible
+
+Events in the checkpoint ledger are never updated or deleted; the database
+refuses it. A wrong event is corrected by a later event that says so. Every
+event kind is declared once in `src/checkpoint/events.ts` with a strict
+schema per version, and gets a reducer in `src/checkpoint/fold.ts`; a
+changed payload shape is a new version, never an edit of the old schema,
+because a newer engine must always read an older ledger.
+
+A change to the ledger DDL or to the set of event kinds fails the golden
+test until a new fixture is committed with
+`npm run golden -- --output test/fixtures/checkpoints/schema-<n>`. Keep
+the two most recent fixtures.
+
 ## Before every commit
 
 `npm run check` and `npm run verify` must both pass. A commit that changes
