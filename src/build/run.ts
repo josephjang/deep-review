@@ -18,6 +18,8 @@ export interface BuildOptions {
   readonly verify: boolean;
   /** Targets to build; defaults to every runtime the repository ships. */
   readonly targets?: readonly ArtifactTarget[];
+  /** Directory the temporary staging tree is created under; defaults to the OS temp directory. */
+  readonly stagingParent?: string;
 }
 
 export interface TargetOutcome {
@@ -38,25 +40,26 @@ export interface BuildOutcome {
 
 /**
  * Assemble every target into a temporary staging directory, then either
- * compare each with its committed dist/ tree (verify) or replace that tree
- * with the staged one (build). Staging is removed whatever happens, so a
- * failed run leaves nothing behind but the unchanged repository.
+ * compare each with its committed dist/ tree (verify) or replace those trees
+ * with the staged ones (build). Every target is assembled before any is
+ * published, so a source that cannot be assembled leaves dist/ untouched.
+ * Staging is removed whatever happens, so a failed run leaves nothing behind
+ * but the unchanged repository.
  */
 export function runBuild(options: BuildOptions): BuildOutcome {
   const repositoryRoot = resolve(options.repositoryRoot);
   const targets = options.targets ?? artifactTargets;
-  const staging = mkdtempSync(join(tmpdir(), 'deep-review-build-'));
+  const staging = mkdtempSync(join(options.stagingParent ?? tmpdir(), 'deep-review-build-'));
   try {
-    const outcomes: TargetOutcome[] = [];
-    for (const target of targets) {
+    const assembled = targets.map((target) => {
       const staged = assembleArtifact(repositoryRoot, target, staging);
-      const assembled = digestTree(staged);
+      const digest = digestTree(staged);
       const destination = join(repositoryRoot, target.destination);
       const committed = existsSync(destination) ? digestTree(destination) : new Map<string, string>();
-      const differences = compareTrees(assembled, committed);
-      if (!options.verify) publishArtifact(repositoryRoot, target, staged);
-      outcomes.push({ target, files: assembled.size, differences, published: !options.verify });
-    }
+      return { target, staged, files: digest.size, differences: compareTrees(digest, committed) };
+    });
+    if (!options.verify) for (const { target, staged } of assembled) publishArtifact(repositoryRoot, target, staged);
+    const outcomes = assembled.map(({ target, files, differences }) => ({ target, files, differences, published: !options.verify }));
     return { ok: !options.verify || outcomes.every((outcome) => outcome.differences.length === 0), outcomes };
   } finally {
     rmSync(staging, { recursive: true, force: true });
