@@ -1,0 +1,230 @@
+import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
+import { describe, it } from 'node:test';
+import { z } from 'zod';
+import type { LaunchPlan } from '../../src/runtime/adapter.ts';
+import { codexAdapter, codexEnvironment, codexFlags } from '../../src/runtime/codex.ts';
+import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
+
+const thread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
+const schema = z.strictObject({ answer: z.string() });
+const compiled = compileOutputSchema(schema);
+const schemaFile = resolve('/checkpoint/io/w/schema.json');
+const finalMessageFile = resolve('/checkpoint/io/w/final-message');
+const scratch = resolve('/checkpoint/scratch/w');
+
+const invocation = (change: Partial<InvocationInput> = {}): Invocation =>
+  parseInvocation({
+    runtime: 'codex',
+    executable: resolve('/bin/codex'),
+    model: 'gpt-5.5',
+    effort: 'high',
+    access: 'read-only',
+    shell: true,
+    prompt: 'p',
+    outputSchema: schema,
+    timeoutMs: 60_000,
+    ...change,
+  });
+
+const plan = (change: Partial<LaunchPlan> = {}): LaunchPlan => ({
+  sessionId: null,
+  resume: null,
+  scratch: null,
+  schema: compiled,
+  schemaFile,
+  finalMessageFile,
+  platform: 'linux',
+  environment: {},
+  ...change,
+});
+
+const isolation = [
+  '--config', 'project_doc_max_bytes=0',
+  '--config', 'skills.include_instructions=false',
+  '--config', 'web_search="disabled"',
+  '--config', 'features.apps=false',
+  '--config', 'features.plugins=false',
+  '--config', 'features.remote_plugin=false',
+  '--config', 'features.skill_search=false',
+  '--config', 'features.skill_mcp_dependency_install=false',
+];
+const tail = (effort: string): string[] => [
+  '--model', 'gpt-5.5',
+  '--config', `model_reasoning_effort="${effort}"`,
+  '--json',
+  '--output-schema', schemaFile,
+  '--output-last-message', finalMessageFile,
+];
+
+describe('codex command', () => {
+  it('builds a read-only worker in a read-only sandbox with no scratch directory', () => {
+    assert.deepEqual(codexAdapter.command(invocation(), plan()).args, [
+      '--ask-for-approval', 'never', 'exec',
+      '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check',
+      '--config', 'sandbox_mode="read-only"',
+      ...isolation,
+      ...tail('high'),
+      '-',
+    ]);
+  });
+
+  it('never gives a read-only worker a writable root, even when handed a scratch directory', () => {
+    const args = codexAdapter.command(invocation(), plan({ scratch })).args;
+    assert.equal(args.some((arg) => arg.includes('writable_roots')), false);
+  });
+
+  it('builds an editor in a workspace-write sandbox with the scratch directory writable, on Windows unelevated', () => {
+    assert.deepEqual(codexAdapter.command(invocation({ access: 'edit', effort: 'xhigh' }), plan({ scratch, platform: 'win32' })).args, [
+      '--ask-for-approval', 'never', 'exec',
+      '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check',
+      '--config', 'sandbox_mode="workspace-write"',
+      '--config', `sandbox_workspace_write.writable_roots=[${JSON.stringify(scratch)}]`,
+      '--config', 'windows.sandbox="unelevated"',
+      ...isolation,
+      ...tail('xhigh'),
+      '-',
+    ]);
+  });
+
+  it('writes a Windows scratch path as a valid TOML string', () => {
+    const args = codexAdapter.command(invocation({ access: 'edit' }), plan({ scratch: 'C:\\repo\\.git\\deep-review-checkpoint\\scratch\\w "q"' })).args;
+    assert.ok(args.includes('sandbox_workspace_write.writable_roots=["C:\\\\repo\\\\.git\\\\deep-review-checkpoint\\\\scratch\\\\w \\"q\\""]'));
+  });
+
+  it('continues a session with exec resume, the same flags, and the session just before stdin', () => {
+    const fresh = codexAdapter.command(invocation({ access: 'edit' }), plan({ scratch })).args;
+    const continued = codexAdapter.command(invocation({ access: 'edit', resume: thread }), plan({ scratch, sessionId: thread, resume: thread })).args;
+    assert.deepEqual(continued.slice(0, 4), ['--ask-for-approval', 'never', 'exec', 'resume']);
+    assert.deepEqual(continued.slice(-2), [thread, '-']);
+    assert.deepEqual(continued.slice(4, -2), fresh.slice(3, -1));
+  });
+
+  it('uses no flag the preflight does not check, and checks resume separately', () => {
+    const variants = [
+      codexAdapter.command(invocation({ access: 'edit' }), plan({ scratch, platform: 'win32' })),
+      codexAdapter.command(invocation({ resume: thread }), plan({ sessionId: thread, resume: thread })),
+    ];
+    const used = new Set(variants.flatMap((command) => command.args.filter((arg) => arg.startsWith('--'))));
+    assert.deepEqual([...used].sort(), [...codexFlags].sort());
+    const probes = codexAdapter.qualification.help;
+    assert.deepEqual(probes.map((probe) => probe.args), [['--help'], ['exec', '--help'], ['exec', 'resume', '--help']]);
+    assert.deepEqual(probes[0]!.flags, ['--ask-for-approval']);
+    assert.deepEqual(probes[1]!.flags, probes[2]!.flags);
+  });
+});
+
+describe('codexEnvironment', () => {
+  it('merges every PATH spelling on Windows and drops WindowsApps', () => {
+    const environment = codexEnvironment(
+      { Path: 'C:\\Windows;C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps', PATH: 'C:\\tools;;D:\\windowsapps\\x', HOME: 'h' },
+      'win32',
+    );
+    assert.deepEqual(environment, { HOME: 'h', Path: 'C:\\Windows;C:\\tools' });
+  });
+
+  it('leaves the environment alone elsewhere', () => {
+    const inherited = { PATH: '/usr/bin:/opt/WindowsApps', HOME: '/h' };
+    assert.deepEqual(codexEnvironment(inherited, 'linux'), inherited);
+    assert.notEqual(codexEnvironment(inherited, 'darwin'), inherited);
+  });
+
+  it('is what the command runs with', () => {
+    assert.deepEqual(codexAdapter.command(invocation(), plan({ platform: 'win32', environment: { PATH: 'a;b\\WindowsApps' } })).environment, { Path: 'a' });
+  });
+});
+
+describe('codex decode', () => {
+  const message = '{"answer":"ok"}';
+  const line = (event: Record<string, unknown>): string => JSON.stringify(event);
+  const stream = (...events: Record<string, unknown>[]): string => `${events.map(line).join('\n')}\n`;
+  const started = { type: 'thread.started', thread_id: thread };
+  const turnStarted = { type: 'turn.started' };
+  const agent = (text: string, id = 'item_9'): Record<string, unknown>[] => [
+    { type: 'item.started', item: { id, type: 'agent_message', text: '' } },
+    { type: 'item.completed', item: { id, type: 'agent_message', text } },
+  ];
+  const usage = { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3 };
+  const done = { type: 'turn.completed', usage };
+  const happy = (): Record<string, unknown>[] => [started, turnStarted, ...agent(message), done];
+  const decode = (stdout: string, finalMessage: string | null = message, planChange: Partial<LaunchPlan> = {}): ReturnType<typeof codexAdapter.decode> =>
+    codexAdapter.decode(invocation(), plan(planChange), { stdout, stderr: '', finalMessage });
+
+  it('reads a completed turn: one thread, usage, the final message as the answer, no denial evidence', () => {
+    assert.deepEqual(decode(stream(...happy())), { sessionIds: [thread], usage, denials: null, answer: { value: { answer: 'ok' } }, budgetStop: false, error: null });
+  });
+
+  it('accepts CRLF line endings and a final message that differs only in surrounding whitespace', () => {
+    assert.equal(decode(happy().map(line).join('\r\n'), `${message}\r\n`).error, null);
+  });
+
+  it('keeps a command that exited nonzero, since a failing command can be the point', () => {
+    const command = [
+      { type: 'item.started', item: { id: 'item_1', type: 'command_execution', command: 'grep x', status: 'in_progress' } },
+      { type: 'item.completed', item: { id: 'item_1', type: 'command_execution', command: 'grep x', exit_code: 1, status: 'failed' } },
+    ];
+    assert.equal(decode(stream(started, turnStarted, ...command, ...agent(message), done)).error, null);
+  });
+
+  it('ignores events it does not read, such as item updates', () => {
+    const update = { type: 'item.updated', item: { id: 'todo', type: 'todo_list', items: [] } };
+    assert.equal(decode(stream(started, turnStarted, update, ...agent(message), done)).error, null);
+  });
+
+  const failures: [string, () => string, RegExp, (string | null)?][] = [
+    ['two thread.started events', () => stream(started, { ...started, thread_id: 'other' }, ...agent(message), done), /started 2 threads/],
+    ['no thread.started event', () => stream(turnStarted, ...agent(message), done), /started 0 threads/],
+    ['a thread without an id', () => stream({ type: 'thread.started' }, ...agent(message), done), /without an id/],
+    ['an incomplete turn', () => stream(started, turnStarted, ...agent(message)), /exactly one completed turn/],
+    ['two completed turns', () => stream(started, done, ...agent(message), done), /exactly one completed turn/],
+    ['a completed turn that is not last', () => stream(started, done, ...agent(message)), /exactly one completed turn/],
+    ['an error event', () => stream(started, { type: 'error', message: 'stream lost' }, ...agent(message), done), /reported error: stream lost/],
+    ['a failed turn', () => stream(started, { type: 'turn.failed', error: { message: 'quota' } }, done), /reported turn.failed: quota/],
+    ['an MCP tool call', () => stream(started, { type: 'item.started', item: { id: 'm', type: 'mcp_tool_call' } }, ...agent(message), done), /used mcp_tool_call/],
+    ['a web search', () => stream(started, { type: 'item.completed', item: { id: 'w', type: 'web_search' } }, ...agent(message), done), /used web_search/],
+    ['a failed file change', () => stream(started, { type: 'item.completed', item: { id: 'f', type: 'file_change', status: 'failed' } }, ...agent(message), done), /item f \(file_change\) failed/],
+    ['a failed command without an exit code', () => stream(started, { type: 'item.completed', item: { id: 'c', type: 'command_execution', status: 'failed' } }, ...agent(message), done), /item c \(command_execution\) failed/],
+    ['an error item', () => stream(started, { type: 'item.completed', item: { id: 'e', type: 'error', message: 'x' } }, ...agent(message), done), /item e \(error\) failed/],
+    ['an item without an id', () => stream(started, { type: 'item.completed', item: { type: 'agent_message' } }, ...agent(message), done), /without an item id/],
+    ['an item left started', () => stream(started, { type: 'item.started', item: { id: 'c', type: 'command_execution' } }, ...agent(message), done), /started without completing: c/],
+    ['a malformed line', () => `${line(started)}\n{"type":\n${line(done)}\n`, /line 2 that is not JSON/],
+    ['a line that is not an object', () => `${line(started)}\n[1]\n${line(done)}\n`, /line 2 that is not an event object/],
+    ['no final message file', () => stream(...happy()), /no final message file/, null],
+    ['a final message other than the last agent message', () => stream(...happy()), /not its last agent message/, '{"answer":"other"}'],
+    ['no agent message at all', () => stream(started, done), /not its last agent message/],
+    ['a final message that is not JSON', () => stream(started, ...agent('not json'), done), /final message that is not JSON/, 'not json'],
+  ];
+  for (const [name, stdout, pattern, finalMessage] of failures) {
+    it(`fails ${name}`, () => {
+      const decoded = decode(stdout(), finalMessage === undefined ? message : finalMessage);
+      assert.match(decoded.error ?? '', pattern);
+      assert.equal(decoded.answer, null);
+      assert.equal(decoded.denials, null);
+      assert.equal(decoded.budgetStop, false);
+    });
+  }
+
+  it('keeps the session id of every well-formed line even when another line is malformed', () => {
+    const decoded = decode(`${line(started)}\nnot json\n`);
+    assert.deepEqual(decoded.sessionIds, [thread]);
+    assert.match(decoded.error ?? '', /not JSON/);
+  });
+
+  it('keeps usage from the completed turn on a failure', () => {
+    assert.deepEqual(decode(stream(...happy()), '{"answer":"other"}').usage, usage);
+  });
+
+  it('expects the continued session and names both when the thread differs', () => {
+    assert.equal(decode(stream(...happy()), message, { sessionId: thread, resume: thread }).error, null);
+    const other = '0199a3c4-0000-7f80-9a1b-2c3d4e5f6a7b';
+    const decoded = decode(stream(...happy()), message, { sessionId: other, resume: other });
+    assert.match(decoded.error ?? '', new RegExp(`ran thread ${thread}, not the continued session ${other}`));
+    assert.deepEqual(decoded.sessionIds, [other, thread]);
+  });
+
+  it('keeps a continued session id when nothing was printed', () => {
+    const decoded = decode('', null, { sessionId: thread, resume: thread });
+    assert.deepEqual(decoded.sessionIds, [thread]);
+    assert.match(decoded.error ?? '', /started 0 threads/);
+  });
+});
