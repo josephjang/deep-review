@@ -11,6 +11,7 @@
     "build": "node scripts/build.ts",
     "verify": "node scripts/build.ts --verify",
     "golden": "node scripts/golden-checkpoint.ts",
+    "smoke": "node scripts/smoke-runtime.ts",
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
