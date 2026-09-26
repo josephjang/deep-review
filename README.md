@@ -22,6 +22,7 @@ dist/codex/              the Codex skill, built from skill/codex, committed
 src/build/               assembling and verifying dist/
 src/checkpoint/          the run ledger: location, SQLite, event registry, fold
 src/evidence/            content-addressed evidence store
+src/scope/               capturing the reviewed change from git and comparing the worktree to it
 scripts/                 build and fixture entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
@@ -42,6 +43,16 @@ wrote it. A newer engine always reads an older ledger; an older engine
 refuses a newer one by name. See
 `docs/changes/2026-09-26-checkpoint-ledger.md` for the reasoning.
 
+The change a run reviews is captured once, as a `scope.captured` event: the
+mode it was named in (the last commit of a clean tree, the dirty worktree,
+everything since a ref, or a range ending at HEAD), every changed path, and
+the bytes of each file before and after the change, frozen into the
+evidence store. Before bytes are read through git's checkout filters, so a
+CRLF checkout compares like for like. The after state is always the
+worktree at capture, so a later comparison of the worktree against the
+scope is a per-file question, answered by `compareWorktree`. See
+`docs/changes/2026-09-27-scope-capture.md`.
+
 ## Developing
 
 Node 26 or newer, npm and git. `.tool-versions` pins the Node major for
@@ -52,7 +63,7 @@ npm ci
 npm run check     # lint, typecheck, test
 npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ matches skill/ byte for byte
-npm run golden -- --output test/fixtures/checkpoints/schema-<n>   # after a ledger schema or registry change
+npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the

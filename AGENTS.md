@@ -41,8 +41,10 @@ because a newer engine must always read an older ledger.
 
 A change to the ledger DDL or to the set of event kinds fails the golden
 test until a new fixture is committed with
-`npm run golden -- --output test/fixtures/checkpoints/schema-<n>`. Keep
-the two most recent fixtures.
+`npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>`,
+using the next serial. Older fixtures stay: each must still open and fold
+under the current engine, which is the proof that a newer engine reads an
+older ledger.
 
 ## Before every commit
 
