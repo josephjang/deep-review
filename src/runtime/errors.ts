@@ -19,9 +19,10 @@ export class UnknownRuntimeError extends CheckpointError {
 export class UnsupportedCapabilityError extends CheckpointError {
   override readonly name = 'UnsupportedCapabilityError';
   readonly runtime: string;
+  /** The key of the missing capability in the adapter's capability table. */
   readonly capability: string;
-  constructor(runtime: string, capability: string) {
-    super(`Runtime ${runtime} cannot ${capability}`);
+  constructor(runtime: string, capability: string, action: string) {
+    super(`Runtime ${runtime} cannot ${action} (capability ${capability})`);
     this.runtime = runtime;
     this.capability = capability;
   }
