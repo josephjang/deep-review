@@ -12,7 +12,15 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ArtifactReference } from '../../src/evidence/store.ts';
 
 const fixturesRoot = resolve(import.meta.dirname, '../fixtures/checkpoints');
-const fixtures = readdirSync(fixturesRoot).filter((name) => name.startsWith('schema-')).sort((a, b) => Number(a.slice(7)) - Number(b.slice(7)));
+/** Fixture directories are schema-<schema>-<serial>; the serial advances when the registry changes. */
+const fixturePattern = /^schema-(\d+)-(\d+)$/;
+const fixtures = readdirSync(fixturesRoot)
+  .filter((name) => fixturePattern.test(name))
+  .sort((a, b) => {
+    const [, schemaA, serialA] = fixturePattern.exec(a)!;
+    const [, schemaB, serialB] = fixturePattern.exec(b)!;
+    return Number(schemaA) - Number(schemaB) || Number(serialA) - Number(serialB);
+  });
 
 interface Expected {
   readonly runs: RunState[];
@@ -41,7 +49,17 @@ describe('golden checkpoints', () => {
       const expected = JSON.parse(readFileSync(join(copy, 'expected.json'), 'utf8')) as Expected;
       const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
       opened.push(checkpoint);
-      assert.deepEqual(checkpoint.listRuns(), expected.runs);
+      const runs = checkpoint.listRuns();
+      if (name === fixtures.at(-1)) assert.deepEqual(runs, expected.runs);
+      else {
+        // An older fixture was recorded by an engine whose state had fewer
+        // fields. Every fact it recorded must still hold; new fields may exist.
+        assert.equal(runs.length, expected.runs.length);
+        for (const [index, recorded] of expected.runs.entries()) {
+          const actual: Record<string, unknown> = { ...runs[index] };
+          for (const [key, value] of Object.entries(recorded)) assert.deepEqual(actual[key], value, `${name} run ${String(index)} ${key}`);
+        }
+      }
       for (const reference of expected.evidence) {
         assert.doesNotThrow(() => checkpoint.evidence.verify(reference));
         assert.equal(checkpoint.evidence.read(reference).length, reference.bytes);
