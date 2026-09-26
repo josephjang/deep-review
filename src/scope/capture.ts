@@ -35,7 +35,7 @@ interface Observation {
  * `scope.captured` event. Nothing is written to the ledger unless every
  * check passes and the repository did not move meanwhile.
  */
-export function captureScope(checkpoint: Checkpoint, runId: string, request: ScopeRequest): RunState {
+export function captureScope(checkpoint: Checkpoint, runId: string, input: ScopeRequest): RunState {
   const state = checkpoint.fold(runId);
   if (state.status !== 'active') throw new RunClosedError(`Run ${runId} is ${state.status} and cannot capture a scope`);
   if (state.scope !== null) throw new ScopeAlreadyCapturedError(`Run ${runId} already captured its scope at sequence ${String(state.lastSequence)}`);
@@ -43,7 +43,10 @@ export function captureScope(checkpoint: Checkpoint, runId: string, request: Sco
   if (locateCheckpoint(repo).root !== checkpoint.root) {
     throw new InvalidScopeRequestError(`Worktree ${repo} belongs to a different checkpoint than ${checkpoint.root}`);
   }
-  validateRequest(request);
+  validateRequest(input);
+  // Backslashes become slashes once, here: a path typed Windows-style must
+  // select the same file on every platform, and git pathspecs want slashes.
+  const request = normalizeRequest(input);
   refuseUnsupportedState(repo);
 
   const guardBefore = guard(repo);
@@ -66,7 +69,7 @@ export function captureScope(checkpoint: Checkpoint, runId: string, request: Sco
     if (!sameEntry(observation.after, now)) throw new CaptureRacedError(`${observation.path} changed while the scope was being captured`);
   }
 
-  const payload: ScopeState = { mode, request: normalizeRequest(request), base, head: guardBefore.head, files, patch };
+  const payload: ScopeState = { mode, request, base, head: guardBefore.head, files, patch };
   return checkpoint.append(runId, state.lastSequence, [{ kind: 'scope.captured', version: 1, payload }]);
 }
 
@@ -174,10 +177,9 @@ function sameEntry(a: WorktreeEntry | null, b: WorktreeEntry | null): boolean {
 
 /** Every requested path must select at least one changed path, as itself or as a directory prefix. */
 function requirePathsMatched(paths: readonly string[], observations: readonly Observation[]): void {
-  for (const requested of paths) {
-    const prefix = requested.replaceAll('\\', '/').replace(/\/+$/, '');
+  for (const prefix of paths) {
     const matched = observations.some((observation) => observation.path === prefix || observation.path.startsWith(`${prefix}/`));
-    if (!matched) throw new InvalidScopeRequestError(`Scope path names nothing in the change: ${requested}`);
+    if (!matched) throw new InvalidScopeRequestError(`Scope path names nothing in the change: ${prefix}`);
   }
 }
 
