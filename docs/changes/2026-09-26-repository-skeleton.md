@@ -171,9 +171,14 @@ install.
   minutes cost ten times Linux minutes on a private repository; accepted, the
   suite is small.
 
-- **D12: One `.node-version` file pins the Node major for both mise and CI.**
-  A `mise.toml` was rejected because GitHub's `setup-node` reads
-  `.node-version` and mise reads it too, so one file serves both.
+- **D12: One `.tool-versions` file pins the Node major for both mise and CI.**
+  `.node-version` was the first choice and was rejected on trying it: mise
+  treats it as an idiomatic version file and ignores it unless the user
+  opts in on their machine, which a repository cannot do for them.
+  `.tool-versions` is read by mise and asdf without configuration and is
+  one of the files GitHub's `setup-node` accepts, so one file still serves
+  both. `mise.toml` would also work for both and was not taken only because
+  `.tool-versions` serves asdf users too.
 
 ## Risks
 

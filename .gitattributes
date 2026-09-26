@@ -1,0 +1,6 @@
+# The skill files under skill/ and dist/ are prompts: their exact bytes are
+# the product, and the verify step compares dist/ against the build byte for
+# byte. Any end-of-line translation on checkout would break that check on a
+# fresh clone and silently change what a runtime receives. Nothing in this
+# repository is EOL-converted, in either direction.
+* -text

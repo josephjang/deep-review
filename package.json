@@ -1,0 +1,24 @@
+{
+  "name": "deep-review",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Deep review of a change, driven by a Node engine and delivered as a Claude Code plugin and a Codex skill",
+  "type": "module",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "verify": "node scripts/build.ts --verify",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "check": "npm run lint && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "eslint": "10.11.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1"
+  }
+}
