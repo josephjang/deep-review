@@ -77,11 +77,90 @@ export const deniedToolSchema = z.strictObject({
 });
 export type DeniedTool = z.infer<typeof deniedToolSchema>;
 
+/**
+ * A session id as the runtimes print them: a UUID for Claude Code and Codex.
+ * Kept to a conservative alphabet rather than a UUID so a third runtime's ids
+ * fit, and it never starts with a dash, so it cannot be read as an option.
+ */
+export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/, 'must be a session id');
+
+/**
+ * A worker is about to be spawned (TD12). Written before the process exists,
+ * so a worker that never answers is still on the ledger with the session its
+ * transcript is under, whenever the runtime lets the engine choose it.
+ */
+export const workerLaunchedV1 = z.strictObject({
+  workerId: z.uuid(),
+  /** Free text from the caller; the role element gives it meaning. */
+  label: z.string().min(1).nullable(),
+  runtime: z.string().min(1),
+  executable: z.string().min(1),
+  executableArgs: z.array(z.string()),
+  /** The version the preflight observed at this launch. */
+  version: z.string().min(1),
+  model: z.string().min(1),
+  effort: effortSchema,
+  access: accessSchema,
+  shell: z.boolean(),
+  /** The session the worker runs under when known before launch: pinned, or the one it continues. */
+  sessionId: sessionIdSchema.nullable(),
+  /** The session this worker continues, or null for a fresh worker (R9). */
+  resumes: sessionIdSchema.nullable(),
+  /** The directory the worker may write temporary files to, or null when the runtime cannot allow it. */
+  scratch: z.string().min(1).nullable(),
+  budgetUsd: z.number().positive().nullable(),
+  timeoutMs: z.number().int().positive(),
+  /** The bytes sent on stdin, including the scratch note. */
+  prompt: artifactReferenceSchema,
+  /** The compiled draft-07 output schema, exactly as the runtime received it. */
+  schema: artifactReferenceSchema,
+});
+export type WorkerLaunch = z.infer<typeof workerLaunchedV1>;
+
+export const workerOutcomeSchema = z.enum(['completed', 'budget', 'timeout', 'failed']);
+export type WorkerOutcome = z.infer<typeof workerOutcomeSchema>;
+
+/**
+ * A launched worker is over, whatever became of it (TD5). The process, the
+ * runtime's own report, the refused tool calls and the validated answer
+ * are separate fields, and every byte exchanged is evidence (R6).
+ */
+export const workerFinishedV1 = z.strictObject({
+  workerId: z.uuid(),
+  outcome: workerOutcomeSchema,
+  exitCode: z.number().int().nullable(),
+  signal: z.string().min(1).nullable(),
+  /** `exited` on its own, `killed` by the launcher at the timeout, or `not-started` when the spawn failed. */
+  termination: z.enum(['exited', 'killed', 'not-started']),
+  /** Wall-clock start and end of the process, so a suspended machine's gap is visible later. */
+  startedAt: z.iso.datetime(),
+  endedAt: z.iso.datetime(),
+  sessionIds: z.array(sessionIdSchema),
+  /**
+   * Usage as the runtime reported it, as JSON text. Text rather than a JSON
+   * value, so nothing the runtime prints can be mistaken for an artifact
+   * reference and verified as one.
+   */
+  usage: z.string().nullable(),
+  /** Refused tool calls, or null when the runtime gives no evidence either way. */
+  denials: z.array(deniedToolSchema).nullable(),
+  error: z.string().min(1).nullable(),
+  stdout: artifactReferenceSchema,
+  stderr: artifactReferenceSchema,
+  /** The runtime's separate final answer file, for a runtime that writes one and did. */
+  finalMessage: artifactReferenceSchema.nullable(),
+  /** The validated answer as JSON, present exactly when the outcome is `completed`. */
+  output: artifactReferenceSchema.nullable(),
+});
+export type WorkerFinish = z.infer<typeof workerFinishedV1>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
   'run.abandoned': { 1: { schema: runAbandonedV1 } },
   'scope.captured': { 1: { schema: scopeCapturedV1 } },
+  'worker.launched': { 1: { schema: workerLaunchedV1 } },
+  'worker.finished': { 1: { schema: workerFinishedV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

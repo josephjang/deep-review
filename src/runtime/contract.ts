@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
-import { accessSchema, effortSchema } from '../checkpoint/events.ts';
+import { accessSchema, effortSchema, sessionIdSchema } from '../checkpoint/events.ts';
 import { InvalidInvocationError } from './errors.ts';
 
 const noNul = (value: string): boolean => !value.includes('\0');
@@ -12,13 +12,6 @@ const text = z.string().min(1).refine(noNul, 'must not contain a NUL character')
 const optionValue = text.refine((value) => !value.startsWith('-'), 'must not start with a dash');
 
 const absolutePath = text.refine((value) => isAbsolute(value), 'must be an absolute path');
-
-/**
- * A session id as the runtimes print them: a UUID for Claude Code and Codex.
- * Kept to a conservative alphabet rather than a UUID so a third runtime's ids
- * fit, and it never starts with a dash, so it cannot be read as an option.
- */
-export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/, 'must be a session id');
 
 /** Longest a worker may run: one hour. */
 export const maxTimeoutMs = 60 * 60 * 1000;

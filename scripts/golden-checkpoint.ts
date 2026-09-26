@@ -8,7 +8,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from '../src/checkpoint/checkpoint.ts';
-import type { ScopeState } from '../src/checkpoint/events.ts';
+import type { ScopeState, WorkerFinish, WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
 
@@ -43,10 +43,57 @@ try {
     ],
     patch: checkpoint.evidence.put('--- a/src/changed.ts\n+++ b/src/changed.ts\n@@ -1 +1 @@\n-before\n+after\n'),
   };
-  checkpoint.append(active.id, active.lastSequence, [{ kind: 'scope.captured', version: 1, payload: scope }]);
+  const scoped = checkpoint.append(active.id, active.lastSequence, [{ kind: 'scope.captured', version: 1, payload: scope }]);
+  // Two synthetic workers on the active run: one finished with every piece
+  // of evidence a receipt holds, one launched and still running, as a worker
+  // whose launcher died would be.
+  const launch = (workerId: string, runtime: string, sessionId: string | null): WorkerLaunch => ({
+    workerId,
+    label: `golden ${runtime} worker`,
+    runtime,
+    executable: `/fixture/bin/${runtime}`,
+    executableArgs: [],
+    version: '1.2.3',
+    model: 'fixture-model',
+    effort: 'high',
+    access: 'read-only',
+    shell: true,
+    sessionId,
+    resumes: null,
+    scratch: `/fixture/checkpoint/scratch/${workerId}`,
+    budgetUsd: runtime === 'claude' ? 1.5 : null,
+    timeoutMs: 600_000,
+    prompt: checkpoint.evidence.put(`Review the change as ${runtime}.\n`),
+    schema: checkpoint.evidence.put('{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}'),
+  });
+  const finishedId = '00000000-0000-4000-8000-00000000f001';
+  const runningId = '00000000-0000-4000-8000-00000000f002';
+  const session = '11111111-2222-4333-8444-555555555555';
+  const finish: WorkerFinish = {
+    workerId: finishedId,
+    outcome: 'completed',
+    exitCode: 0,
+    signal: null,
+    termination: 'exited',
+    startedAt: '2026-09-27T00:00:00.000Z',
+    endedAt: '2026-09-27T00:01:00.000Z',
+    sessionIds: [session],
+    usage: '{"input_tokens":12,"output_tokens":3}',
+    denials: [{ tool: 'Bash', detail: 'rm -rf build' }],
+    error: null,
+    stdout: checkpoint.evidence.put('{"type":"result","subtype":"success"}\n'),
+    stderr: checkpoint.evidence.put(''),
+    finalMessage: null,
+    output: checkpoint.evidence.put('{"answer":"ok"}'),
+  };
+  checkpoint.append(active.id, scoped.lastSequence, [
+    { kind: 'worker.launched', version: 1, payload: launch(finishedId, 'claude', session) },
+    { kind: 'worker.finished', version: 1, payload: finish },
+    { kind: 'worker.launched', version: 1, payload: launch(runningId, 'codex', null) },
+  ]);
   checkpoint.append(closed.id, closed.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'fixture run closed on purpose' } }]);
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
-  const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch] };
+  const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);
   writeFileSync(join(output, 'identity.json'), `${JSON.stringify(checkpointIdentity(), null, 2)}\n`);
 } finally {

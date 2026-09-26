@@ -1,6 +1,17 @@
 import type { z } from 'zod';
 import { InvalidHistoryError, UnknownEventError } from './errors.ts';
-import { eventRegistry, type EventRegistry, type ScopeState, type runAbandonedV1, type runCreatedV1, type scopeCapturedV1 } from './events.ts';
+import {
+  eventRegistry,
+  type EventRegistry,
+  type ScopeState,
+  type WorkerFinish,
+  type WorkerLaunch,
+  type runAbandonedV1,
+  type runCreatedV1,
+  type scopeCapturedV1,
+  type workerFinishedV1,
+  type workerLaunchedV1,
+} from './events.ts';
 import { lookupEvent, registryKeys, type Registry, type RegistryKey } from './registry.ts';
 
 /** An event as the fold sees it: the ledger row with its payload parsed. */
@@ -14,7 +25,16 @@ export interface DecodedEvent {
   readonly engine: string;
 }
 
-/** What the two initial event kinds say about a run. */
+/**
+ * One worker as the ledger knows it: launched and not yet finished, or
+ * launched and finished with its receipt. `launchedAt` is when the launch
+ * was recorded, before the process existed.
+ */
+export type WorkerState =
+  | { readonly status: 'running'; readonly launch: WorkerLaunch; readonly launchedAt: string }
+  | { readonly status: 'finished'; readonly launch: WorkerLaunch; readonly launchedAt: string; readonly finish: WorkerFinish };
+
+/** What the run's events say about it. */
 export interface RunState {
   readonly id: string;
   readonly worktree: string;
@@ -25,6 +45,8 @@ export interface RunState {
   readonly abandonReason: string | null;
   /** The captured change, or null until `scope.captured` is folded. */
   readonly scope: ScopeState | null;
+  /** Every worker launched in the run, by worker id. Empty for a run no worker has touched, including every run recorded before workers existed. */
+  readonly workers: Readonly<Record<string, WorkerState>>;
   /** Sequence of the last event folded; what a writer hands back to `append`. */
   readonly lastSequence: number;
 }
@@ -60,6 +82,7 @@ const created: Reducer<z.infer<typeof runCreatedV1>> = (state, payload, event) =
     status: 'active',
     abandonReason: null,
     scope: null,
+    workers: {},
     lastSequence: event.sequence,
   };
 };
@@ -68,6 +91,24 @@ const scopeCaptured: Reducer<z.infer<typeof scopeCapturedV1>> = (state, payload,
   const current = requireState(state, event);
   if (current.scope !== null) throw new InvalidHistoryError(`Run ${event.runId} captures its scope twice, at sequence ${String(event.sequence)}`);
   return { ...current, scope: payload, lastSequence: event.sequence };
+};
+
+const workerLaunched: Reducer<z.infer<typeof workerLaunchedV1>> = (state, payload, event) => {
+  const current = requireState(state, event);
+  if (Object.hasOwn(current.workers, payload.workerId)) {
+    throw new InvalidHistoryError(`Run ${event.runId} launches worker ${payload.workerId} twice, at sequence ${String(event.sequence)}`);
+  }
+  const worker: WorkerState = { status: 'running', launch: payload, launchedAt: event.recordedAt };
+  return { ...current, workers: { ...current.workers, [payload.workerId]: worker }, lastSequence: event.sequence };
+};
+
+const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payload, event) => {
+  const current = requireState(state, event);
+  const worker = Object.hasOwn(current.workers, payload.workerId) ? current.workers[payload.workerId] : undefined;
+  if (worker === undefined) throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} at sequence ${String(event.sequence)} without launching it`);
+  if (worker.status !== 'running') throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} twice, at sequence ${String(event.sequence)}`);
+  const finished: WorkerState = { status: 'finished', launch: worker.launch, launchedAt: worker.launchedAt, finish: payload };
+  return { ...current, workers: { ...current.workers, [payload.workerId]: finished }, lastSequence: event.sequence };
 };
 
 const abandoned: Reducer<z.infer<typeof runAbandonedV1>> = (state, payload, event) => {
@@ -80,6 +121,8 @@ export const reducers = {
   'run.created@1': created,
   'run.abandoned@1': abandoned,
   'scope.captured@1': scopeCaptured,
+  'worker.launched@1': workerLaunched,
+  'worker.finished@1': workerFinished,
 } satisfies Record<RegistryKey<EventRegistry>, Reducer<never>>;
 
 /** The engine's own model: its registry with its reducers. */
