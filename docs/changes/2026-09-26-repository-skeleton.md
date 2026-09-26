@@ -85,7 +85,7 @@ install.
 - R6: `README.md` describes the layout, the install steps for both runtimes
   and what each check proves.
 - R7: The repository exists at `github.com/josephjang/deep-review`, private,
-  with the skeleton as its first commit and CI green on that commit.
+  and CI is green on the commit that completes the skeleton.
 - R8: `provisional-plan.md` is excluded from git locally and absent from the
   first commit.
 
