@@ -62,6 +62,7 @@ describe('Checkpoint', () => {
       engine: '0.0.0-test',
       status: 'active',
       abandonReason: null,
+      scope: null,
       lastSequence: 1,
     });
     assert.deepEqual(checkpoint.fold(state.id), state);

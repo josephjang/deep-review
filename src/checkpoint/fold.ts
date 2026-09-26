@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { InvalidHistoryError, UnknownEventError } from './errors.ts';
-import { eventRegistry, type EventRegistry, type runAbandonedV1, type runCreatedV1 } from './events.ts';
+import { eventRegistry, type EventRegistry, type ScopeState, type runAbandonedV1, type runCreatedV1, type scopeCapturedV1 } from './events.ts';
 import { lookupEvent, registryKeys, type Registry, type RegistryKey } from './registry.ts';
 
 /** An event as the fold sees it: the ledger row with its payload parsed. */
@@ -23,6 +23,8 @@ export interface RunState {
   readonly engine: string;
   readonly status: 'active' | 'abandoned';
   readonly abandonReason: string | null;
+  /** The captured change, or null until `scope.captured` is folded. */
+  readonly scope: ScopeState | null;
   /** Sequence of the last event folded; what a writer hands back to `append`. */
   readonly lastSequence: number;
 }
@@ -57,8 +59,15 @@ const created: Reducer<z.infer<typeof runCreatedV1>> = (state, payload, event) =
     engine: event.engine,
     status: 'active',
     abandonReason: null,
+    scope: null,
     lastSequence: event.sequence,
   };
+};
+
+const scopeCaptured: Reducer<z.infer<typeof scopeCapturedV1>> = (state, payload, event) => {
+  const current = requireState(state, event);
+  if (current.scope !== null) throw new InvalidHistoryError(`Run ${event.runId} captures its scope twice, at sequence ${String(event.sequence)}`);
+  return { ...current, scope: payload, lastSequence: event.sequence };
 };
 
 const abandoned: Reducer<z.infer<typeof runAbandonedV1>> = (state, payload, event) => {
@@ -70,6 +79,7 @@ const abandoned: Reducer<z.infer<typeof runAbandonedV1>> = (state, payload, even
 export const reducers = {
   'run.created@1': created,
   'run.abandoned@1': abandoned,
+  'scope.captured@1': scopeCaptured,
 } satisfies Record<RegistryKey<EventRegistry>, Reducer<never>>;
 
 /** The engine's own model: its registry with its reducers. */

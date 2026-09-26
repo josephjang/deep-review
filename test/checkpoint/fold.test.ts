@@ -20,10 +20,10 @@ const created = (sequence = 1): DecodedEvent => event(sequence, 'run.created', {
 
 describe('registry', () => {
   it('lists every kind and version, sorted, and hashes that list', () => {
-    assert.deepEqual(registryKeys(eventRegistry), ['run.abandoned@1', 'run.created@1']);
+    assert.deepEqual(registryKeys(eventRegistry), ['run.abandoned@1', 'run.created@1', 'scope.captured@1']);
     assert.match(registryIdentity(eventRegistry), /^[a-f0-9]{64}$/);
     const extended = defineRegistry({ ...eventRegistry, 'a.b': { 2: { schema: z.strictObject({}) } } });
-    assert.deepEqual(registryKeys(extended), ['a.b@2', 'run.abandoned@1', 'run.created@1']);
+    assert.deepEqual(registryKeys(extended), ['a.b@2', 'run.abandoned@1', 'run.created@1', 'scope.captured@1']);
     assert.notEqual(registryIdentity(extended), registryIdentity(eventRegistry));
   });
 
@@ -57,6 +57,7 @@ describe('foldRun', () => {
       engine: '0.0.0',
       status: 'active',
       abandonReason: null,
+      scope: null,
       lastSequence: 1,
     });
   });
