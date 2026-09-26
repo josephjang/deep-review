@@ -62,6 +62,21 @@ export const scopeCapturedV1 = z.strictObject({
 });
 export type ScopeState = z.infer<typeof scopeCapturedV1>;
 
+/** How hard a worker's model thinks. Every level a runtime can take; an adapter declares which of them it has. */
+export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+export type Effort = z.infer<typeof effortSchema>;
+
+/** What a worker may do to the reviewed tree: read it, or also edit it. */
+export const accessSchema = z.enum(['read-only', 'edit']);
+export type Access = z.infer<typeof accessSchema>;
+
+/** One tool call the runtime refused: the tool, and its command or path when the runtime reports one. */
+export const deniedToolSchema = z.strictObject({
+  tool: z.string().min(1),
+  detail: z.string().nullable(),
+});
+export type DeniedTool = z.infer<typeof deniedToolSchema>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
