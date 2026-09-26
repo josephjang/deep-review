@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "deep-review",
+  "description": "The deep-review plugin, served from the committed build output under dist/",
+  "owner": {
+    "name": "Jeongho Jang",
+    "email": "josephjang@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "deep-review",
+      "description": "Deep review of a change, driven by a Node engine. This build is the repository skeleton and carries no engine yet.",
+      "source": "./dist/claude"
+    }
+  ]
+}

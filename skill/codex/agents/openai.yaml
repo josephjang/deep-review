@@ -1,0 +1,6 @@
+interface:
+  display_name: "Deep Review"
+  short_description: "Deep review of a change, driven by a Node engine (engine not shipped yet)"
+  default_prompt: "Use $deep-review to review my changes."
+policy:
+  allow_implicit_invocation: false

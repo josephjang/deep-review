@@ -1,0 +1,9 @@
+{
+  "name": "deep-review",
+  "description": "Deep review of a change, driven by a Node engine. This build is the repository skeleton and carries no engine yet.",
+  "author": {
+    "name": "Jeongho Jang",
+    "email": "josephjang@gmail.com"
+  },
+  "repository": "https://github.com/josephjang/deep-review"
+}
