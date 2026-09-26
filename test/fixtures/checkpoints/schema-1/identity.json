@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "ddl": "a551960a9c6792b3e1abeab1abed8361f0b4af510504339b32f11010859d6b82",
+  "registry": "1e87d594fe0d8d55e1be8b27cf2592407fe29e26e5c0dda13f061703fd14f6d8",
+  "kinds": [
+    "run.abandoned@1",
+    "run.created@1"
+  ]
+}

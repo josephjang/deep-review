@@ -1,0 +1,28 @@
+{
+  "runs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000000",
+      "worktree": "/fixture/active",
+      "createdAt": "2026-09-26T00:00:00.000Z",
+      "engine": "golden",
+      "status": "active",
+      "abandonReason": null,
+      "lastSequence": 1
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "worktree": "/fixture/abandoned",
+      "createdAt": "2026-09-26T00:00:01.000Z",
+      "engine": "golden",
+      "status": "abandoned",
+      "abandonReason": "fixture run closed on purpose",
+      "lastSequence": 3
+    }
+  ],
+  "evidence": [
+    {
+      "sha256": "f22c03b6fe6c889a7d79c996d640bdda9a3a4bad14ca298049f47b0131f89bdc",
+      "bytes": 33
+    }
+  ]
+}

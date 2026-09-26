@@ -10,6 +10,7 @@
   "scripts": {
     "build": "node scripts/build.ts",
     "verify": "node scripts/build.ts --verify",
+    "golden": "node scripts/golden-checkpoint.ts",
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
