@@ -26,7 +26,7 @@ src/scope/               capturing the reviewed change from git and comparing th
 scripts/                 build and fixture entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
-docs/changes/            change proposals, one per behavior change
+docs/changes/            change proposals, one per behavior change, in one file or a requirements and design pair
 AGENTS.md, CLAUDE.md     conventions every agent follows here
 ```
 
