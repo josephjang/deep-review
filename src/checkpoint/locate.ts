@@ -38,6 +38,9 @@ export function locateCheckpoint(directory: string): CheckpointLocation {
   if (commonDir === undefined || toplevel === undefined || rest.length > 0) {
     throw new NotInRepositoryError(`Unexpected git output while locating the checkpoint for ${cwd}: ${JSON.stringify(output)}`);
   }
-  const resolvedCommonDir = realpathSync(commonDir);
-  return { root: join(resolvedCommonDir, checkpointDirectoryName), worktree: realpathSync(toplevel), commonDir: resolvedCommonDir };
+  // The native realpath is what makes the result canonical on Windows: it
+  // expands an 8.3 alias such as RUNNER~1 to the long name, which the JavaScript
+  // realpath leaves as given, so two spellings of one directory give one answer.
+  const resolvedCommonDir = realpathSync.native(commonDir);
+  return { root: join(resolvedCommonDir, checkpointDirectoryName), worktree: realpathSync.native(toplevel), commonDir: resolvedCommonDir };
 }

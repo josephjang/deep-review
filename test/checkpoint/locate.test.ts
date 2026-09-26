@@ -23,7 +23,8 @@ const initRepository = (root: string): void => {
 describe('locateCheckpoint', () => {
   let sandbox: string;
   beforeEach(() => {
-    sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'deep-review-locate-')));
+    // Native, so an 8.3 temp path (GitHub's Windows runner uses RUNNER~1) becomes its long form, as the locator reports it.
+    sandbox = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-locate-')));
   });
   afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
 
@@ -48,8 +49,24 @@ describe('locateCheckpoint', () => {
     const fromLinked = locateCheckpoint(linked);
     assert.equal(fromLinked.root, main.root);
     assert.equal(fromLinked.commonDir, main.commonDir);
-    assert.equal(fromLinked.worktree, realpathSync(linked));
+    assert.equal(fromLinked.worktree, realpathSync.native(linked));
     assert.notEqual(fromLinked.worktree, main.worktree);
+  });
+
+  it('reports the long name when called through an 8.3 alias', (t) => {
+    if (process.platform !== 'win32') return t.skip('8.3 aliases exist only on Windows');
+    const repository = join(sandbox, 'a-name-long-enough-to-get-an-alias');
+    mkdirSync(repository);
+    initRepository(repository);
+    const alias = execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-Command', `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${repository}').ShortPath`],
+      { encoding: 'utf8', windowsHide: true },
+    ).trim();
+    if (alias === repository) return t.skip('8.3 name generation is disabled on this volume');
+    assert.notEqual(realpathSync(alias), repository, 'the JavaScript realpath keeps the alias, which is why the locator must not use it');
+    assert.deepEqual(locateCheckpoint(alias), locateCheckpoint(repository));
+    assert.equal(locateCheckpoint(alias).worktree, repository);
   });
 
   it('refuses a directory outside any repository', () => {
