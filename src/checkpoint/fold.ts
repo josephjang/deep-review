@@ -1,0 +1,106 @@
+import type { z } from 'zod';
+import { InvalidHistoryError, UnknownEventError } from './errors.ts';
+import { eventRegistry, type EventRegistry, type runAbandonedV1, type runCreatedV1 } from './events.ts';
+import { lookupEvent, registryKeys, type Registry, type RegistryKey } from './registry.ts';
+
+/** An event as the fold sees it: the ledger row with its payload parsed. */
+export interface DecodedEvent {
+  readonly sequence: number;
+  readonly runId: string;
+  readonly kind: string;
+  readonly version: number;
+  readonly payload: unknown;
+  readonly recordedAt: string;
+  readonly engine: string;
+}
+
+/** What the two initial event kinds say about a run. */
+export interface RunState {
+  readonly id: string;
+  readonly worktree: string;
+  readonly createdAt: string;
+  /** Engine version that created the run. */
+  readonly engine: string;
+  readonly status: 'active' | 'abandoned';
+  readonly abandonReason: string | null;
+  /** Sequence of the last event folded; what a writer hands back to `append`. */
+  readonly lastSequence: number;
+}
+
+export type Reducer<P> = (state: RunState | undefined, payload: P, event: DecodedEvent) => RunState;
+
+/**
+ * A registry and one reducer per `kind@version` it declares. The two are
+ * defined together so a kind cannot be declared without being understood.
+ */
+export interface RunModel {
+  readonly registry: Registry;
+  readonly reducers: Readonly<Record<string, Reducer<never>>>;
+}
+
+/** Build a model, refusing one whose reducers and registry do not cover each other exactly. */
+export function defineModel<R extends Registry>(registry: R, reducers: Record<RegistryKey<R>, Reducer<never>>): RunModel {
+  const declared = registryKeys(registry);
+  const reduced = Object.keys(reducers).sort();
+  if (declared.join('\n') !== reduced.join('\n')) {
+    throw new Error(`Reducers and registry disagree: registry has [${declared.join(', ')}], reducers have [${reduced.join(', ')}]`);
+  }
+  return { registry, reducers };
+}
+
+const created: Reducer<z.infer<typeof runCreatedV1>> = (state, payload, event) => {
+  if (state !== undefined) throw new InvalidHistoryError(`Run ${event.runId} is created twice, at sequence ${String(event.sequence)}`);
+  return {
+    id: event.runId,
+    worktree: payload.worktree,
+    createdAt: event.recordedAt,
+    engine: event.engine,
+    status: 'active',
+    abandonReason: null,
+    lastSequence: event.sequence,
+  };
+};
+
+const abandoned: Reducer<z.infer<typeof runAbandonedV1>> = (state, payload, event) => {
+  const current = requireState(state, event);
+  return { ...current, status: 'abandoned', abandonReason: payload.reason, lastSequence: event.sequence };
+};
+
+/** The engine's reducers. `satisfies` makes a registered kind without a reducer a type error; `defineModel` checks it again at load. */
+export const reducers = {
+  'run.created@1': created,
+  'run.abandoned@1': abandoned,
+} satisfies Record<RegistryKey<EventRegistry>, Reducer<never>>;
+
+/** The engine's own model: its registry with its reducers. */
+export const runModel: RunModel = defineModel(eventRegistry, reducers);
+
+/** Fold a run's events, in ledger order, into its state. Pure: the same events give the same state. */
+export function foldRun(events: readonly DecodedEvent[], model: RunModel = runModel): RunState {
+  let state: RunState | undefined;
+  for (const event of events) {
+    if (state !== undefined && state.status !== 'active') {
+      throw new InvalidHistoryError(`Run ${event.runId} was ${state.status} at sequence ${String(state.lastSequence)} but has an event at ${String(event.sequence)}`);
+    }
+    state = applyEvent(state, event, model);
+  }
+  if (state === undefined) throw new InvalidHistoryError('A run needs at least its creation event');
+  return state;
+}
+
+/** Apply one event, validating its payload against the model's registry. */
+export function applyEvent(state: RunState | undefined, event: DecodedEvent, model: RunModel = runModel): RunState {
+  const key = `${event.kind}@${String(event.version)}`;
+  const definition = lookupEvent(model.registry, event.kind, event.version);
+  const reduce = model.reducers[key] as Reducer<unknown> | undefined;
+  if (definition === undefined || reduce === undefined) throw new UnknownEventError(event.kind, event.version);
+  const parsed = definition.schema.safeParse(event.payload);
+  if (!parsed.success) throw new InvalidHistoryError(`Event ${String(event.sequence)} (${key}) has a payload its schema rejects: ${parsed.error.message}`);
+  return reduce(state, parsed.data, event);
+}
+
+/** For reducers of every kind but creation: the run must already exist. */
+export function requireState(state: RunState | undefined, event: DecodedEvent): RunState {
+  if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
+  return state;
+}
