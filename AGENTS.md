@@ -57,13 +57,23 @@ that text *lives* are different commits.
 
 ## Change proposals
 
-A change that alters observable behavior carries a change proposal at
-`docs/changes/YYYY-MM-DD-<slug>.md`, written before the work and committed
-with it, following the practice at
-<https://github.com/josephjang/change-proposal>. The proposal holds the
-judgment the code cannot: why, what was left out, what was rejected, what
-was knowingly accepted. A change with no behavior change says so in its
-commit message instead.
+A change that alters observable behavior carries a change proposal under
+`docs/changes/`, written before the work and committed with it, following
+the practice at <https://github.com/josephjang/change-proposal>. The
+proposal holds the judgment the code cannot: why, what was left out, what
+was rejected, what was knowingly accepted. A change with no behavior change
+says so in its commit message instead.
+
+The Unified form, one file `YYYY-MM-DD-<slug>.md` titled
+`Change Proposal: <name>`, is the default. A change whose technical side
+needs its own explanation and review (interacting state transitions, a
+migration, compatibility across components, a consequential architecture
+choice) takes the Split form: `YYYY-MM-DD-<slug>.requirements.md` titled
+`Product Requirements: <name>` and `YYYY-MM-DD-<slug>.design.md` titled
+`Technical Design: <name>`, each linking the other below its title. The
+two files together are one proposal. The design's Verification section
+starts as "no checks have run yet" and is filled by the commit that
+completes the element.
 
 `provisional-plan.md` at the repository root is a working note and is never
 committed. It is excluded through `.git/info/exclude`, which is local; set
