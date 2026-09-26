@@ -1,0 +1,190 @@
+{
+  "runs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000000",
+      "worktree": "/fixture/active",
+      "createdAt": "2026-09-26T00:00:00.000Z",
+      "engine": "golden",
+      "status": "active",
+      "abandonReason": null,
+      "scope": {
+        "mode": "worktree",
+        "request": {
+          "paths": []
+        },
+        "base": "1111111111111111111111111111111111111111",
+        "head": "2222222222222222222222222222222222222222",
+        "files": [
+          {
+            "path": "src/changed.ts",
+            "status": "modified",
+            "symlink": false,
+            "before": {
+              "blob": {
+                "sha256": "9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb",
+                "bytes": 7
+              }
+            },
+            "after": {
+              "blob": {
+                "sha256": "7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919",
+                "bytes": 6
+              }
+            }
+          },
+          {
+            "path": "assets/huge.bin",
+            "status": "added",
+            "symlink": false,
+            "before": null,
+            "after": {
+              "oversized": {
+                "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+                "size": 9000000
+              }
+            }
+          },
+          {
+            "path": "src/removed.ts",
+            "status": "deleted",
+            "symlink": false,
+            "before": {
+              "blob": {
+                "sha256": "6b95743f7339e0aff16c1d1b9f453711ffcdc3fed9b6787af264f9601c4e2961",
+                "bytes": 8
+              }
+            },
+            "after": null
+          }
+        ],
+        "patch": {
+          "sha256": "c4762d638e82d9b82b6bd94b6394700dff524ca20a20ccf8fc0fb56771cf9c5a",
+          "bytes": 69
+        }
+      },
+      "workers": {
+        "00000000-0000-4000-8000-00000000f001": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-00000000f001",
+            "label": "golden claude worker",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "1.2.3",
+            "model": "fixture-model",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-555555555555",
+            "resumes": null,
+            "scratch": "/fixture/checkpoint/scratch/00000000-0000-4000-8000-00000000f001",
+            "budgetUsd": 1.5,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "3995e91a36068821a7515254e686a5d35d4ad4231c6943a5872b15e62db48c34",
+              "bytes": 29
+            },
+            "schema": {
+              "sha256": "8aa6b8e71d80a6b3ca100683098234c23e868630d5c69ef66163e67d8ecb9a7d",
+              "bytes": 110
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:03.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-00000000f001",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T00:00:00.000Z",
+            "endedAt": "2026-09-27T00:01:00.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-555555555555"
+            ],
+            "usage": "{\"input_tokens\":12,\"output_tokens\":3}",
+            "denials": [
+              {
+                "tool": "Bash",
+                "detail": "rm -rf build"
+              }
+            ],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "2b82c37965faf7db40dae134cc94675e0f6dac048a0173a1861b6ed1b8db7d5b",
+              "bytes": 15
+            }
+          }
+        },
+        "00000000-0000-4000-8000-00000000f002": {
+          "status": "running",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-00000000f002",
+            "label": "golden codex worker",
+            "runtime": "codex",
+            "executable": "/fixture/bin/codex",
+            "executableArgs": [],
+            "version": "1.2.3",
+            "model": "fixture-model",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": null,
+            "resumes": null,
+            "scratch": "/fixture/checkpoint/scratch/00000000-0000-4000-8000-00000000f002",
+            "budgetUsd": null,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "6173ab06eb4db464645d597e5b5fe147914cedc1cdf8b68ba3d9f1ee01ab03e2",
+              "bytes": 28
+            },
+            "schema": {
+              "sha256": "8aa6b8e71d80a6b3ca100683098234c23e868630d5c69ef66163e67d8ecb9a7d",
+              "bytes": 110
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:05.000Z"
+        }
+      },
+      "lastSequence": 6
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "worktree": "/fixture/abandoned",
+      "createdAt": "2026-09-26T00:00:01.000Z",
+      "engine": "golden",
+      "status": "abandoned",
+      "abandonReason": "fixture run closed on purpose",
+      "scope": null,
+      "workers": {},
+      "lastSequence": 7
+    }
+  ],
+  "evidence": [
+    {
+      "sha256": "f22c03b6fe6c889a7d79c996d640bdda9a3a4bad14ca298049f47b0131f89bdc",
+      "bytes": 33
+    },
+    {
+      "sha256": "c4762d638e82d9b82b6bd94b6394700dff524ca20a20ccf8fc0fb56771cf9c5a",
+      "bytes": 69
+    },
+    {
+      "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+      "bytes": 38
+    },
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  ]
+}

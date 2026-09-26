@@ -20,10 +20,10 @@ const created = (sequence = 1): DecodedEvent => event(sequence, 'run.created', {
 
 describe('registry', () => {
   it('lists every kind and version, sorted, and hashes that list', () => {
-    assert.deepEqual(registryKeys(eventRegistry), ['run.abandoned@1', 'run.created@1', 'scope.captured@1']);
+    assert.deepEqual(registryKeys(eventRegistry), ['run.abandoned@1', 'run.created@1', 'scope.captured@1', 'worker.finished@1', 'worker.launched@1']);
     assert.match(registryIdentity(eventRegistry), /^[a-f0-9]{64}$/);
     const extended = defineRegistry({ ...eventRegistry, 'a.b': { 2: { schema: z.strictObject({}) } } });
-    assert.deepEqual(registryKeys(extended), ['a.b@2', 'run.abandoned@1', 'run.created@1', 'scope.captured@1']);
+    assert.deepEqual(registryKeys(extended), ['a.b@2', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'worker.finished@1', 'worker.launched@1']);
     assert.notEqual(registryIdentity(extended), registryIdentity(eventRegistry));
   });
 
@@ -58,6 +58,7 @@ describe('foldRun', () => {
       status: 'active',
       abandonReason: null,
       scope: null,
+      workers: {},
       lastSequence: 1,
     });
   });
@@ -106,5 +107,109 @@ describe('applyEvent', () => {
   it('applies one event to a prior state', () => {
     const state = applyEvent(foldRun([created()]), event(2, 'run.abandoned', { reason: 'r' }));
     assert.equal(state.status, 'abandoned');
+  });
+});
+
+describe('workers', () => {
+  const reference = (fill: string, bytes = 1): { sha256: string; bytes: number } => ({ sha256: fill.repeat(64), bytes });
+  const workerA = '00000000-0000-4000-8000-00000000000a';
+  const workerB = '00000000-0000-4000-8000-00000000000b';
+  const launch = (workerId: string, change: Record<string, unknown> = {}): Record<string, unknown> => ({
+    workerId,
+    label: null,
+    runtime: 'claude',
+    executable: '/bin/claude',
+    executableArgs: [],
+    version: '2.1.283',
+    model: 'sonnet',
+    effort: 'high',
+    access: 'read-only',
+    shell: true,
+    sessionId: '11111111-2222-4333-8444-555555555555',
+    resumes: null,
+    scratch: '/checkpoint/scratch/x',
+    budgetUsd: null,
+    timeoutMs: 60_000,
+    prompt: reference('a'),
+    schema: reference('b'),
+    ...change,
+  });
+  const finish = (workerId: string, change: Record<string, unknown> = {}): Record<string, unknown> => ({
+    workerId,
+    outcome: 'completed',
+    exitCode: 0,
+    signal: null,
+    termination: 'exited',
+    startedAt: '2026-09-27T00:00:00.000Z',
+    endedAt: '2026-09-27T00:00:05.000Z',
+    sessionIds: ['11111111-2222-4333-8444-555555555555'],
+    usage: '{"input_tokens":1}',
+    denials: [],
+    error: null,
+    stdout: reference('c'),
+    stderr: reference('d', 0),
+    finalMessage: null,
+    output: reference('e'),
+    ...change,
+  });
+
+  it('folds a launch into a running worker and a finish into a finished one', () => {
+    const running = foldRun([created(), event(2, 'worker.launched', launch(workerA))]);
+    assert.deepEqual(running.workers, { [workerA]: { status: 'running', launch: launch(workerA), launchedAt: '2026-09-26T00:00:02.000Z' } });
+    const finished = foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.finished', finish(workerA))]);
+    assert.deepEqual(finished.workers, { [workerA]: { status: 'finished', launch: launch(workerA), launchedAt: '2026-09-26T00:00:02.000Z', finish: finish(workerA) } });
+    assert.equal(finished.lastSequence, 3);
+  });
+
+  it('keeps workers apart, in any interleaving', () => {
+    const state = foldRun([
+      created(),
+      event(2, 'worker.launched', launch(workerA)),
+      event(3, 'worker.launched', launch(workerB, { runtime: 'codex', sessionId: null })),
+      event(4, 'worker.finished', finish(workerA, { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null })),
+    ]);
+    assert.equal(state.workers[workerA]?.status, 'finished');
+    assert.equal(state.workers[workerB]?.status, 'running');
+    assert.equal(state.workers[workerB]?.launch.runtime, 'codex');
+  });
+
+  it('keeps workers when the run is abandoned', () => {
+    const state = foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'run.abandoned', { reason: 'r' })]);
+    assert.equal(state.workers[workerA]?.status, 'running');
+  });
+
+  it('refuses a second launch of one worker, a finish without a launch and a second finish', () => {
+    assert.throws(() => foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.launched', launch(workerA))]), /launches worker .* twice, at sequence 3/);
+    assert.throws(() => foldRun([created(), event(2, 'worker.finished', finish(workerA))]), /finishes worker .* at sequence 2 without launching it/);
+    assert.throws(
+      () => foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.finished', finish(workerA)), event(4, 'worker.finished', finish(workerA))]),
+      /finishes worker .* twice, at sequence 4/,
+    );
+    assert.throws(() => foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.finished', finish(workerB))]), /without launching it/);
+  });
+
+  it('refuses a worker event before the run exists', () => {
+    assert.throws(() => foldRun([event(1, 'worker.launched', launch(workerA))]), /before its creation/);
+  });
+
+  it('refuses payloads the worker schemas reject', () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['worker.launched', launch('not-a-uuid')],
+      ['worker.launched', launch(workerA, { effort: 'extreme' })],
+      ['worker.launched', launch(workerA, { access: 'owned-edit' })],
+      ['worker.launched', launch(workerA, { sessionId: '-x' })],
+      ['worker.launched', launch(workerA, { budgetUsd: 0 })],
+      ['worker.launched', launch(workerA, { tools: ['Read'] })],
+      ['worker.finished', finish(workerA, { outcome: 'denied' })],
+      ['worker.finished', finish(workerA, { termination: 'lost' })],
+      ['worker.finished', finish(workerA, { startedAt: 'yesterday' })],
+      ['worker.finished', finish(workerA, { usage: { input_tokens: 1 } })],
+      ['worker.finished', finish(workerA, { denials: [{ tool: '', detail: null }] })],
+      ['worker.finished', finish(workerA, { error: '' })],
+    ];
+    for (const [kind, payload] of cases) {
+      const events = kind === 'worker.finished' ? [created(), event(2, 'worker.launched', launch(workerA)), event(3, kind, payload)] : [created(), event(2, kind, payload)];
+      assert.throws(() => foldRun(events), InvalidHistoryError, JSON.stringify(payload));
+    }
   });
 });

@@ -63,6 +63,7 @@ describe('Checkpoint', () => {
       status: 'active',
       abandonReason: null,
       scope: null,
+      workers: {},
       lastSequence: 1,
     });
     assert.deepEqual(checkpoint.fold(state.id), state);

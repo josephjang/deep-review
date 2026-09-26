@@ -58,6 +58,8 @@ describe('golden checkpoints', () => {
         for (const [index, recorded] of expected.runs.entries()) {
           const actual: Record<string, unknown> = { ...runs[index] };
           for (const [key, value] of Object.entries(recorded)) assert.deepEqual(actual[key], value, `${name} run ${String(index)} ${key}`);
+          // A run recorded before workers existed has none (R11 of the runtime adapter).
+          if (!('workers' in recorded)) assert.deepEqual(actual.workers, {}, `${name} run ${String(index)} workers`);
         }
       }
       for (const reference of expected.evidence) {
