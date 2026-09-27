@@ -6,7 +6,7 @@
  * test is a fold test.
  */
 import type { Blocker } from '../checkpoint/events.ts';
-import { poolCandidates, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
+import { poolCandidates, singleUnitKey, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
 import { blockerActions, finderAngles, maxRecordedTextLength, phases, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
@@ -58,7 +58,7 @@ export function groupsOf(review: ReviewState, phase: VerificationPhase): readonl
 
 /** The units of a phase (R2): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
-  const single = (role: string): Unit[] => [{ phase, key: phase === 'triage' ? 'SCAN' : phase, role, degrades: false }];
+  const single = (role: string): Unit[] => [{ phase, key: singleUnitKey(phase), role, degrades: false }];
   switch (phase) {
     case 'triage':
       return single('triage');
