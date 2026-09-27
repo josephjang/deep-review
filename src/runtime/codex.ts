@@ -114,10 +114,11 @@ function eventMessage(event: CodexEvent): string {
  * Codex has no denial evidence, so `denials` is always null (TD4); a sandbox
  * that could not run commands at all is a failure, not a denial. Every complete line
  * is parsed before any rule is applied, so a malformed later line cannot hide
- * the session id an earlier one recorded.
+ * the session id an earlier one recorded. The session ids are the threads the
+ * stream started; the launcher adds a continued one itself.
  */
 export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
-  const sessionIds: string[] = plan.sessionId === null ? [] : [plan.sessionId];
+  const sessionIds: string[] = [];
   const events: CodexEvent[] = [];
   let malformed: string | null = null;
   for (const [index, line] of outputs.stdout.split(/\r?\n/).entries()) {
@@ -140,7 +141,7 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
   }
   const completed = events.filter((event) => event.type === 'turn.completed');
   const usage = completed.at(-1)?.usage ?? null;
-  const failed = (error: string): Decoded => ({ sessionIds, usage, denials: null, answer: null, budgetStop: false, error });
+  const failed = (error: string): Decoded => ({ sessionIds, usage, denials: null, result: { kind: 'failed', error } });
 
   if (malformed !== null) return failed(malformed);
   const refusals = [...outputs.stderr.matchAll(refusedCommand)].map((match) => match[1]!.trim());
@@ -184,7 +185,7 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
   } catch (error) {
     return failed(`Codex wrote a final message that is not JSON: ${(error as Error).message}`);
   }
-  return { sessionIds, usage, denials: null, answer: { value }, budgetStop: false, error: null };
+  return { sessionIds, usage, denials: null, result: { kind: 'answer', value } };
 }
 
 /**
