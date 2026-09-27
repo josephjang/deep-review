@@ -117,7 +117,8 @@ returned and what it cost.
   and no version list exists.
 - R5: The receipt distinguishes four outcomes: completed (structured output
   validated against the schema), budget (the runtime stopped at the pinned
-  budget), timeout (the launcher killed the worker and its process tree)
+  budget), timeout (the launcher killed the worker and its process tree,
+  or its root alone when the tree could not be reached, which it says)
   and failed (anything else, with the reason). Denied tool calls are listed
   separately, as an array when the runtime reports them and as `unknown`
   when it cannot, and never change the outcome. Session ids, usage and
@@ -133,10 +134,18 @@ returned and what it cost.
   configuration sources (user settings, project instructions, MCP servers,
   plugins, hooks, auto memory) switched off, build servers told not to
   outlive the worker, and an inherited variable that would override the
-  pinned effort refused by name.
+  pinned effort refused by name. The one exception is what the engine's
+  caller hands an adapter explicitly when it builds it, for credentials
+  and providers that would otherwise live only in the switched-off
+  configuration: a Codex model provider, and Claude Code's credential
+  helpers and the variables of its settings `env` block. Each is an
+  allowlisted option, never read from the user's own configuration, and
+  none may set the pinned effort, auto memory or anything else the
+  engine pins.
 - R9: A session can be continued: a follow-up message to a recorded
   session is a new worker on the ledger that names the session it resumes,
-  with the same permissions, schema and limits.
+  with the same runtime, model, effort, permissions, schema and scratch
+  directory, and a budget and timeout of its own.
 - R10: A third runtime is one adapter module and one registration;
   nothing outside its module branches on its name.
 - R11: A ledger written before this element folds under the engine after
