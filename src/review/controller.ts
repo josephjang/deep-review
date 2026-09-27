@@ -27,7 +27,7 @@ import { readPolicy, resolvePolicy, rolesDigest, type PolicyFlags } from './poli
 import { scopeBlock } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { runSpendUsd, statisticsOf } from './spend.ts';
-import { reviewStatus } from './state.ts';
+import { currentPhase, reviewStatus } from './state.ts';
 import { driftBlocker, nextStep, type Live, type Unit } from './steps.ts';
 import { blockerActions, unitName, type Phase } from './vocabulary.ts';
 
@@ -426,8 +426,8 @@ function recordLostWorkers(checkpoint: Checkpoint, state: RunState, log: (line: 
 /** A phase left running or blocked by a previous engine is re-entered at the next attempt, which checks the worktree again and clears a blocker. */
 function reenterPhase(checkpoint: Checkpoint, state: RunState, log: (line: string) => void): RunState {
   const review = state.review!;
-  const phase = (Object.keys(review.phases) as Phase[]).find((candidate) => review.phases[candidate].status === 'running' || review.phases[candidate].status === 'blocked');
-  if (phase === undefined) return state;
+  const phase = currentPhase(review);
+  if (phase === null) return state;
   const attempt = review.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}`);
   return append(checkpoint, state, [{ kind: 'phase.started', version: 1, payload: { phase, attempt } }]);
@@ -440,7 +440,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const workers = Object.values(state.workers);
   const counts = { running: workers.filter((worker) => worker.status === 'running').length, finished: workers.filter((worker) => worker.status === 'finished').length, lost: workers.filter((worker) => worker.status === 'lost').length };
   const statistics = review === null ? null : statisticsOf(state, adapter);
-  const phase = review === null ? null : ((Object.keys(review.phases) as Phase[]).find((candidate) => review.phases[candidate].status === 'running' || review.phases[candidate].status === 'blocked') ?? null);
+  const phase = review === null ? null : currentPhase(review);
   const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
