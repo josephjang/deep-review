@@ -72,8 +72,11 @@ closed by `worker.finished` whatever the process did. The prompt, the
 schema, stdout, stderr and the answer are evidence. The outcome is
 `completed`, `budget`, `timeout` or `failed`, and refused tool calls are
 listed beside it without changing it. A worker writes temporary files to
-its own scratch directory under the checkpoint, never into the reviewed
-tree, and at a timeout its whole process tree is killed. See
+its own scratch directory under the system's temporary directory, never
+into the reviewed tree or the git directory, and at a timeout its whole
+process tree is killed. On Windows, Codex workers use Codex's unelevated
+sandbox unless the adapter is built with `windowsSandbox: 'elevated'`,
+which needs Codex's one-time elevated setup on the machine. See
 `docs/changes/2026-09-27-runtime-adapter.requirements.md` and its design.
 
 ## Developing
@@ -87,7 +90,7 @@ npm run check     # lint, typecheck, test
 npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
-npm run smoke -- --claude <path> --codex <path> --codex-model <model>   # real runtimes, by hand
+npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox elevated]   # real runtimes, by hand
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the
