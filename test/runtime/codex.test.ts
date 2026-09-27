@@ -62,7 +62,7 @@ describe('codex command', () => {
   it('builds a read-only worker in a read-only sandbox with no scratch directory', () => {
     assert.deepEqual(codexAdapter.command(invocation(), plan()).args, [
       '--ask-for-approval', 'never', 'exec',
-      '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check',
+      '--ignore-user-config', '--strict-config', '--ignore-rules', '--skip-git-repo-check',
       '--config', 'sandbox_mode="read-only"',
       ...isolation,
       ...tail('high'),
@@ -78,7 +78,7 @@ describe('codex command', () => {
   it('builds an editor in a workspace-write sandbox with the scratch directory writable, on Windows unelevated', () => {
     assert.deepEqual(codexAdapter.command(invocation({ access: 'edit', effort: 'xhigh' }), plan({ scratch, platform: 'win32' })).args, [
       '--ask-for-approval', 'never', 'exec',
-      '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check',
+      '--ignore-user-config', '--strict-config', '--ignore-rules', '--skip-git-repo-check',
       '--config', 'sandbox_mode="workspace-write"',
       '--config', `sandbox_workspace_write.writable_roots=[${JSON.stringify(scratch)}]`,
       '--config', 'windows.sandbox="unelevated"',
@@ -99,6 +99,13 @@ describe('codex command', () => {
     assert.deepEqual(continued.slice(0, 4), ['--ask-for-approval', 'never', 'exec', 'resume']);
     assert.deepEqual(continued.slice(-2), [thread, '-']);
     assert.deepEqual(continued.slice(4, -2), fresh.slice(3, -1));
+  });
+
+  it('makes Codex refuse a config key it does not know, fresh and continued, so a renamed isolation key cannot lapse unnoticed', () => {
+    const fresh = codexAdapter.command(invocation(), plan()).args;
+    const continued = codexAdapter.command(invocation({ resume: thread }), plan({ sessionId: thread, resume: thread })).args;
+    for (const args of [fresh, continued]) assert.ok(args.includes('--strict-config'), args.join(' '));
+    for (const probe of codexAdapter.qualification.help.slice(1)) assert.ok(probe.flags.includes('--strict-config'), probe.args.join(' '));
   });
 
   it('uses no flag the preflight does not check, and checks resume separately', () => {
@@ -293,6 +300,32 @@ describe('codex decode', () => {
   it('does not mistake other stderr lines for a refused command', () => {
     const noise = '2026-09-27T00:07:23Z WARN codex_core::tools::router: slow tool\nERROR somewhere else: exec_command failed\nmise WARN: chpwd\n';
     assert.deepEqual(codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: noise, finalMessage: message }).result, answered);
+  });
+
+  it('names what Codex said on stderr when it started no thread, such as a config key it does not know', () => {
+    // Exactly what codex-cli 0.157.1 printed for an unknown --config key under --strict-config.
+    const stderr = 'Error loading config.toml: unknown configuration field `project_doc_max_bytes` in -c/--config override\n';
+    const decoded = codexAdapter.decode(invocation(), plan(), { stdout: '', stderr, finalMessage: null });
+    assert.equal(
+      failure(decoded),
+      'Codex started 0 threads; a worker is exactly one; its stderr ends: Error loading config.toml: unknown configuration field `project_doc_max_bytes` in -c/--config override',
+    );
+  });
+
+  it('keeps only the end of a long stderr, and no half of a surrogate pair', () => {
+    const stderr = `${'x'.repeat(5000)}\u{1F600}${'y'.repeat(999)}`;
+    const error = failure(codexAdapter.decode(invocation(), plan(), { stdout: '', stderr, finalMessage: null }));
+    const excerpt = error.slice(error.indexOf('its stderr ends: ') + 'its stderr ends: '.length);
+    assert.equal(excerpt, `\uFFFD${'y'.repeat(999)}`);
+    assert.equal(excerpt.isWellFormed(), true);
+  });
+
+  it('adds no stderr excerpt when stderr is blank, or when Codex started more than one thread', () => {
+    const blank = codexAdapter.decode(invocation(), plan(), { stdout: '', stderr: ' \n\t\n', finalMessage: null });
+    assert.equal(failure(blank), 'Codex started 0 threads; a worker is exactly one');
+    const twice = stream(started, { ...started, thread_id: 'other' }, ...agent(message), done);
+    const two = codexAdapter.decode(invocation(), plan(), { stdout: twice, stderr: 'mise WARN: chpwd\n', finalMessage: message });
+    assert.equal(failure(two), 'Codex started 2 threads; a worker is exactly one');
   });
 
   it('reports no session when nothing was printed, even for a continuation', () => {

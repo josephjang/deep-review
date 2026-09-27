@@ -11,9 +11,13 @@ const codexRootFlags = ['--ask-for-approval'] as const;
  * and its writable roots are `--config` overrides rather than `--sandbox`
  * and `--add-dir`, because `exec resume` accepts neither flag and a
  * continuation must run under the same sandbox as the worker it continues.
+ * `--strict-config` makes Codex refuse a `--config` key it does not know,
+ * which it otherwise ignores without a word: a key renamed by a Codex update
+ * would silently stop switching its source off.
  */
 const codexExecFlags = [
   '--ignore-user-config',
+  '--strict-config',
   '--ignore-rules',
   '--skip-git-repo-check',
   '--config',
@@ -85,6 +89,7 @@ export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSa
   const writable = invocation.access === 'edit' && plan.scratch !== null ? [plan.scratch] : [];
   const options = [
     '--ignore-user-config',
+    '--strict-config',
     '--ignore-rules',
     '--skip-git-repo-check',
     '--config', `sandbox_mode=${tomlString(invocation.access === 'edit' ? 'workspace-write' : 'read-only')}`,
@@ -106,6 +111,9 @@ export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSa
 }
 
 type CodexEvent = Record<string, unknown>;
+
+/** How much of stderr, from its end, names why a Codex that started no thread stopped. */
+const maxStderrExcerpt = 1000;
 
 /**
  * The line Codex logs to stderr when its sandbox cannot run a command at
@@ -162,7 +170,12 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
     return failed(`Codex refused to run ${String(refusals.length)} command(s) in its sandbox, so the worker had no working shell: ${refusals[0]!.slice(0, 500)}`);
   }
   const threads = events.filter((event) => event.type === 'thread.started');
-  if (threads.length !== 1) return failed(`Codex started ${String(threads.length)} threads; a worker is exactly one`);
+  if (threads.length !== 1) {
+    // A Codex that refused its command line, such as a --config key it does not know, starts no thread and says why only on stderr.
+    const said = threads.length === 0 ? outputs.stderr.trim() : '';
+    const reason = said === '' ? '' : `; its stderr ends: ${said.slice(-maxStderrExcerpt).toWellFormed()}`;
+    return failed(`Codex started ${String(threads.length)} threads; a worker is exactly one${reason}`);
+  }
   const thread = threads[0]!.thread_id;
   if (typeof thread !== 'string' || thread.length === 0) return failed('Codex started a thread without an id');
   if (plan.sessionId !== null && thread !== plan.sessionId) return failed(`Codex ran thread ${thread}, not the continued session ${plan.sessionId}`);
