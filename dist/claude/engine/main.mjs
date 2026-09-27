@@ -24096,21 +24096,13 @@ async function runReview(options2) {
   });
   const environment = options2.environment ?? process.env;
   const adapter = options2.runtimes.get(options2.runtime);
-  const executableArgs = [...options2.executableArgs ?? []];
   const roles = assembleRoles(options2.rolesRoot);
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
-  const resolved = resolvePolicy(readPolicy(options2.rolesRoot), roles, adapter, options2.flags);
-  let version2;
-  try {
-    version2 = await preflight(adapter, options2.executable, executableArgs, environment, options2.preflightOptions ?? {});
-  } catch (error62) {
-    throw refusalOf(error62);
-  }
   const { checkpoint } = options2;
-  const opened = openRun(checkpoint, options2, log);
+  const opened = await openRun({ ...options2, log, environment, adapter, roles });
   let state = opened.state;
   const runId = state.id;
-  const { release, scopeRequest } = opened;
+  const { release, scopeRequest, configure } = opened;
   const inFlight = /* @__PURE__ */ new Map();
   const record2 = (settled, startedAt) => {
     const name = unitName(settled.unit.phase, settled.unit.key);
@@ -24127,10 +24119,9 @@ async function runReview(options2) {
       state = captureScope(checkpoint, runId, scopeRequest);
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files`);
     }
-    if (state.review === null) {
-      const configuration2 = { ...resolved, roles: [...resolved.roles], executable: options2.executable, executableArgs, version: version2 };
-      state = checkpoint.append(runId, state.lastSequence, [{ kind: "review.configured", version: 1, payload: configuration2 }]);
-      log(`run ${runId}: configured for ${configuration2.runtime} ${version2}, models ${configuration2.models.strong} and ${configuration2.models.fast}`);
+    if (configure !== null) {
+      state = checkpoint.append(runId, state.lastSequence, [{ kind: "review.configured", version: 1, payload: configure }]);
+      log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}`);
     }
     const configuration = state.review.configuration;
     const concurrency = options2.flags.concurrency ?? configuration.concurrency;
@@ -24230,24 +24221,74 @@ async function nextSettled(inFlight) {
   inFlight.delete(name);
   return { settled, startedAt: entry.startedAt };
 }
-function openRun(checkpoint, options2, log) {
+async function openRun(context) {
+  const { checkpoint, log } = context;
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
+  let release = null;
   try {
     const found = findActiveRun(checkpoint);
-    if (found !== null && !sameDirectory(found.worktree, options2.worktree)) {
-      throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${options2.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
+    if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
+      throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
     }
-    if (found !== null && found.review !== null && found.review.configuration.runtime !== options2.runtime) {
-      throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options2.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
+    const pinned = found?.review?.configuration ?? null;
+    if (found !== null && pinned !== null && pinned.runtime !== context.runtime) {
+      throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${pinned.runtime}, not ${context.runtime}; run it with --runtime ${pinned.runtime}, or abandon it`);
     }
-    if (found !== null) log(`run ${found.id}: resuming${found.scope === null ? "; it has no scope yet and captures the one this command names" : ""}`);
-    if (found !== null && found.scope !== null && options2.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
-    const scopeRequest = found === null || found.scope === null ? options2.scope.request() : null;
-    const state = found ?? checkpoint.createRun({ worktree: options2.worktree });
-    if (found === null) log(`run ${state.id}: created`);
-    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)), scopeRequest };
+    if (found !== null) {
+      release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
+      log(`run ${found.id}: resuming${found.scope === null ? "; it has no scope yet and captures the one this command names" : ""}`);
+      if (found.scope !== null && context.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
+    }
+    const scopeRequest = found === null || found.scope === null ? context.scope.request() : null;
+    let configure = null;
+    if (found !== null && pinned !== null) {
+      await resumePinned(found.id, pinned, context);
+    } else {
+      const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
+      const executableArgs = [...context.executableArgs ?? []];
+      const version2 = await qualify2(context.adapter, context.executable, executableArgs, context);
+      configure = { ...resolved, roles: [...resolved.roles], executable: context.executable, executableArgs, version: version2 };
+    }
+    const state = found ?? checkpoint.createRun({ worktree: context.worktree });
+    if (found === null) {
+      release = releaseOnExit(acquireRunLock(checkpoint.root, state.id));
+      log(`run ${state.id}: created`);
+    }
+    return { state, release, scopeRequest, configure };
+  } catch (error62) {
+    release?.();
+    throw error62;
   } finally {
     releaseStart();
+  }
+}
+async function resumePinned(runId, pinned, context) {
+  const digest = rolesDigest(context.roles);
+  if (digest !== pinned.rolesDigest) {
+    throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+  }
+  refuseInvocationFlags(context.adapter, context.flags);
+  if (context.flags.strongModel !== void 0 || context.flags.fastModel !== void 0) {
+    context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
+  }
+  await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context);
+}
+function refuseInvocationFlags(adapter, flags) {
+  if (flags.budgetUsd !== void 0 && !adapter.capabilities.costInUsd) {
+    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
+  }
+  if (flags.concurrency !== void 0 && (!Number.isInteger(flags.concurrency) || flags.concurrency < 1 || flags.concurrency > 16)) {
+    throw new InvalidPolicyError(`--concurrency must be a whole number from 1 to 16, not ${String(flags.concurrency)}`);
+  }
+  if (flags.budgetUsd !== void 0 && !(Number.isFinite(flags.budgetUsd) && flags.budgetUsd > 0)) {
+    throw new InvalidPolicyError(`--budget-usd must be a positive number, not ${String(flags.budgetUsd)}`);
+  }
+}
+async function qualify2(adapter, executable, executableArgs, context) {
+  try {
+    return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
+  } catch (error62) {
+    throw refusalOf(error62);
   }
 }
 function sameDirectory(a, b) {
