@@ -285,11 +285,12 @@ export const continuationFields: { readonly [Field in keyof WorkerLaunch]-?: 'ow
 
 /**
  * The finished worker whose session the invocation continues (R9). The
- * session must be one a worker of this run ran under, no worker may still
- * be running in it, and the continuation keeps every field
- * `continuationFields` marks kept: the runtime, model, effort, permissions,
- * schema and scratch directory. The budget and timeout are the
- * continuation's own: it is a new process with its own spend.
+ * session must be one a worker of this run ran under, every worker in it
+ * must have finished (none still running, none lost), and the
+ * continuation keeps every field `continuationFields` marks kept: the
+ * runtime, model, effort, permissions, schema and scratch directory. The
+ * budget and timeout are the continuation's own: it is a new process with
+ * its own spend.
  */
 function continuedWorker(state: RunState, invocation: Invocation, schemaDigest: string): Extract<WorkerState, { status: 'finished' }> {
   const session = invocation.resume!;
@@ -299,12 +300,19 @@ function continuedWorker(state: RunState, invocation: Invocation, schemaDigest: 
   if (inSession.length === 0) throw new InvalidInvocationError(`No worker of run ${state.id} ran session ${session}, so there is nothing to continue`);
   const running = inSession.find((worker) => worker.status === 'running');
   if (running !== undefined) throw new InvalidInvocationError(`Worker ${running.launch.workerId} is still running in session ${session}; continue it after it finishes`);
+  // A lost worker's engine stopped while it ran (TD5 of the read-only review): its process may be an orphan still
+  // writing to the session, or may never have been spawned, and nothing on the ledger tells which.
+  const lost = inSession.find((worker) => worker.status === 'lost');
+  if (lost !== undefined) {
+    throw new InvalidInvocationError(`Worker ${lost.launch.workerId} was lost in session ${session}: whether its process still runs is unknown, so the session cannot be continued safely; start a fresh worker instead`);
+  }
+  const finished = inSession.filter((worker): worker is Extract<WorkerState, { status: 'finished' }> => worker.status === 'finished');
   // A pinned session id is on the ledger before the process exists; if no process ever did, the runtime holds no conversation.
-  if (inSession.every((worker) => worker.status === 'finished' && worker.finish.termination === 'not-started')) {
+  if (finished.every((worker) => worker.finish.termination === 'not-started')) {
     throw new InvalidInvocationError(`No worker of session ${session} ever started, so the runtime has no conversation to continue`);
   }
   // Workers fold in ledger order, so the last one is the latest word in the session.
-  const previous = inSession.at(-1) as Extract<WorkerState, { status: 'finished' }>;
+  const previous = finished.at(-1)!;
   for (const [field, rule] of Object.entries(continuationFields) as [keyof WorkerLaunch, 'own' | KeptField][]) {
     if (rule === 'own') continue;
     const now = rule.requested(invocation, schemaDigest);
