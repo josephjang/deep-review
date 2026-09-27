@@ -2,7 +2,7 @@ import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { sha256Hex } from '../evidence/store.ts';
 import { InvalidRoleFragmentError, InvalidRoleManifestError } from './errors.ts';
-import { parseRoleManifest, type RoleManifest } from './manifest.ts';
+import { fragmentNameSchema, parseRoleManifest, type RoleManifest } from './manifest.ts';
 
 /** The manifest's file name under the roles root. */
 export const manifestFileName = 'manifest.json';
@@ -52,8 +52,9 @@ export function readRoleManifest(rolesRoot: string): RoleManifest {
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /**
- * Read one fragment and hold it to the invariants the assembly relies on
- * (R3): a regular file of UTF-8 text without a byte order mark, LF line
+ * Read one fragment by its name, which must be a fragment name (R4) so it
+ * cannot leave `fragments/`, and hold it to the invariants the assembly
+ * relies on (R3): a regular file of UTF-8 text without a byte order mark, LF line
  * endings, no NUL, not empty, ending in exactly one newline and starting
  * with text, with no blank or whitespace-only line at either edge,
  * carrying no front matter and no include marker. Each
@@ -61,6 +62,9 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
  * marker never reaches a worker.
  */
 export function readRoleFragment(rolesRoot: string, name: string): string {
+  // The name is checked here as well as in the manifest, so no caller can reach outside fragments/ with a directory part.
+  const named = fragmentNameSchema.safeParse(name);
+  if (!named.success) throw new InvalidRoleFragmentError(name, `is not a valid fragment name: ${named.error.issues.map((issue) => issue.message).join('; ')}`);
   const path = join(rolesRoot, fragmentsDirectoryName, name);
   // Only ENOENT means the fragment is missing; any other failure (EACCES, ENOTDIR, ELOOP) is reported as it is.
   let regular: boolean;
