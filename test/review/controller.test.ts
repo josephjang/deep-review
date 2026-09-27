@@ -4,7 +4,8 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { RunClosedError } from '../../src/checkpoint/errors.ts';
-import type { ReviewOutcome } from '../../src/review/controller.ts';
+import { describeRun, type ReviewOutcome } from '../../src/review/controller.ts';
+import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { policyFileName } from '../../src/review/policy.ts';
 import { until } from '../helpers/launcher.ts';
@@ -197,10 +198,51 @@ describe('runReview', { timeout: 600_000 }, () => {
     let state = box.run();
     assert.equal(Object.values(state.workers).length, 5, 'the triage and one batch of four finders ran before the check stopped the next launch');
     assert.equal(state.review!.configuration.runBudgetUsd, 20, 'the pinned budget is the first invocation\'s');
-    const text = report(await box.review('claude', { flags: { budgetUsd: 1000 } }));
+    assert.deepEqual(state.review!.limits, { concurrency: 4, runBudgetUsd: 20 }, 'the limits in force start as the configuration\'s');
+    const limitsChanges = (): Record<string, unknown>[] => box.events(state.id).filter(([kind]) => kind === 'limits.changed').map(([, payload]) => payload);
+    const spendLine = (): string | undefined => describeRun(box.run(), claudeAdapter, () => '').lines.find((line) => line.startsWith('Spend: '));
+    assert.match(spendLine() ?? '', / of 20\.00 USD; /);
+
+    // A flag equal to the budget in force changes nothing, so nothing is recorded.
+    assert.equal((await box.review('claude', { flags: { budgetUsd: 20 } })).kind, 'blocked');
+    assert.deepEqual(limitsChanges(), []);
+    // A budget still below the spend is recorded in force, and blocks again with it.
+    const still = await box.review('claude', { flags: { budgetUsd: 30 } });
+    assert.ok(still.kind === 'blocked' && still.blocker.detail === 'spent 60.00 USD of the 30.00 USD run budget', JSON.stringify(still));
+    assert.deepEqual(limitsChanges(), [{ concurrency: 4, runBudgetUsd: 30 }]);
+    assert.match(spendLine() ?? '', / of 30\.00 USD; /, 'status shows the budget in force, not the pinned one');
+    // Without the flag, the pinned budget is in force again for this invocation, and that is recorded too.
+    assert.equal((await box.review('claude')).kind, 'blocked');
+    assert.deepEqual(limitsChanges(), [{ concurrency: 4, runBudgetUsd: 30 }, { concurrency: 4, runBudgetUsd: 20 }]);
+    assert.ok(box.logs.includes(`run ${state.id}: limits in force: concurrency 4, run budget 20.00 USD`), box.logs.join('\n'));
+
+    const text = report(await box.review('claude', { flags: { budgetUsd: 1000, concurrency: 2 } }));
     state = box.run();
-    assert.equal(state.review!.phases.finders.attempt, 2);
-    assert.match(text, /- Run budget: 20\.00 USD, checked before every launch; spent [0-9.]+ USD\./);
+    assert.equal(state.review!.phases.finders.attempt, 5);
+    assert.deepEqual(state.review!.limits, { concurrency: 2, runBudgetUsd: 1000 });
+    assert.equal(state.review!.configuration.runBudgetUsd, 20, 'the configuration stays as pinned');
+    assert.match(text, /- Run budget: 1000\.00 USD, checked before every launch; spent [0-9.]+ USD\./, 'the report records the budget in force at the end');
+    assert.equal(state.review!.report!.statistics.budgetApplied, true);
+    assert.match(spendLine() ?? '', / of 1000\.00 USD; /);
+  });
+
+  it('applies a budget given on a resume to a run pinned without one, and the report says it applied', async () => {
+    const policyPath = join(box.rolesRoot, policyFileName);
+    const policy = JSON.parse(readFileSync(policyPath, 'utf8')) as { runtimes: { claude: { runBudgetUsd: number | null } } };
+    policy.runtimes.claude.runBudgetUsd = null;
+    writeFileSync(policyPath, JSON.stringify(policy, null, 2));
+    // The triage fails twice, which blocks the first invocation, then answers.
+    box.script({ '*': { costUsd: 1 }, triage: [{ malformed: true, costUsd: 1 }, { malformed: true, costUsd: 1 }, { costUsd: 1 }] });
+    const blocked = await box.review('claude');
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'worker-failed', JSON.stringify(blocked));
+    assert.equal(box.run().review!.configuration.runBudgetUsd, null, 'the run is pinned without a budget');
+    assert.deepEqual(box.run().review!.limits, { concurrency: 4, runBudgetUsd: null });
+    const text = report(await box.review('claude', { flags: { budgetUsd: 500 } }));
+    const state = box.run();
+    assert.deepEqual(state.review!.limits, { concurrency: 4, runBudgetUsd: 500 });
+    assert.equal(state.review!.report!.statistics.budgetApplied, true, 'the budget in force was checked before every launch of the second invocation');
+    assert.match(text, /- Run budget: 500\.00 USD, checked before every launch; spent [0-9.]+ USD\./);
+    assert.doesNotMatch(text, /did not apply|No run budget was set/);
   });
 
   it('blocks with drift when a scope file changes between phases, and completes once it is restored', async () => {

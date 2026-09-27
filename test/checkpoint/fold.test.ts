@@ -21,7 +21,7 @@ const created = (sequence = 1): DecodedEvent => event(sequence, 'run.created', {
 describe('registry', () => {
   /** Every kind the engine declares, sorted as `registryKeys` sorts: the run, scope and worker kinds, and the read-only review's. */
   const declaredKinds = [
-    'angle.failed@1', 'attempt.failed@1', 'candidates.recorded@1', 'deduplication.recorded@1', 'group.unverified@1',
+    'angle.failed@1', 'attempt.failed@1', 'candidates.recorded@1', 'deduplication.recorded@1', 'group.unverified@1', 'limits.changed@1',
     'phase.finished@1', 'phase.started@1', 'ranking.recorded@1', 'report.written@1', 'review.configured@1',
     'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'verdicts.recorded@1', 'verification.planned@1',
     'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worktree.checked@1',

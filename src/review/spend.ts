@@ -106,9 +106,14 @@ export function runSpendUsd(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   return spendOf(settledWorkers(state), adapter).costUsd;
 }
 
-/** The statistics the report prints: one row per phase, from the workers whose label names it, and a total over every settled worker. */
+/**
+ * The statistics the report prints: one row per phase, from the workers
+ * whose label names it, and a total over every settled worker; and whether
+ * the run budget in force applied, which it does on a runtime that reports
+ * cost when there is one.
+ */
 export function statisticsOf(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): { phases: (Spend & { phase: Phase })[]; total: Spend; budgetApplied: boolean } {
   const settled = settledWorkers(state);
   const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
-  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.configuration.runBudgetUsd ?? null) !== null };
+  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
 }

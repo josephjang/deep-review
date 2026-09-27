@@ -1,9 +1,9 @@
 /**
- * The planner (TD1, TD2 of the read-only review): from the folded state and
- * what the controller knows only at run time (the workers in flight, the
- * concurrency and the spend against the budget), the one next step. Pure,
- * so a resumed run and a running run take the same path, and every resume
- * test is a fold test.
+ * The planner (TD1, TD2 of the read-only review): from the folded state,
+ * which holds the concurrency and the run budget in force, and what the
+ * controller knows only at run time (the workers in flight and the spend so
+ * far), the one next step. Pure, so a resumed run and a running run take
+ * the same path, and every resume test is a fold test.
  */
 import type { Blocker } from '../checkpoint/events.ts';
 import { poolCandidates, singleUnitKey, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
@@ -27,11 +27,8 @@ export interface Unit {
 export interface Live {
   /** The unit names (`phase:key`) whose worker this engine has in flight, launched or about to be. */
   readonly running: ReadonlySet<string>;
-  readonly concurrency: number;
   /** The run's spend in USD so far, or null when the runtime reports no cost. */
   readonly spendUsd: number | null;
-  /** The run budget in force, or null when there is none. */
-  readonly budgetUsd: number | null;
 }
 
 /** A degradation the planner asks for: the event that records a unit exhausted under a degrading role. */
@@ -217,10 +214,11 @@ export function nextStep(review: ReviewState, live: Live): Step {
   if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
-    if (live.budgetUsd !== null && live.spendUsd !== null && live.spendUsd >= live.budgetUsd) {
-      return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(live.spendUsd, live.budgetUsd) };
+    const { concurrency, runBudgetUsd } = review.limits;
+    if (runBudgetUsd !== null && live.spendUsd !== null && live.spendUsd >= runBudgetUsd) {
+      return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(live.spendUsd, runBudgetUsd) };
     }
-    const capacity = live.concurrency - live.running.size;
+    const capacity = concurrency - live.running.size;
     return capacity > 0 ? { kind: 'launch', units: launchable.slice(0, capacity) } : { kind: 'await' };
   }
   if (running.length > 0) return { kind: 'await' };
