@@ -30,5 +30,5 @@ TESTS   <test file>: <n> assertions, <what they cover, one line each>
 SUITE   <pass|fail> <command> — <failure lines only, or "green">
 ```
 
-Keep every line under about 25 words. The engine reads your report
-on every subsequent turn of the run, so length here is paid many times.
+Keep every line under about 25 words. Your report is carried into the
+later passes of the run, so length here is paid again in each of them.
