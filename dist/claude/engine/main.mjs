@@ -24601,21 +24601,27 @@ function abandon(values, io, root) {
   if (values.reason === void 0 || values.reason.trim() === "") throw new UsageError("--reason <text> is required");
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new UsageError("this repository has no checkpoint, so there is no run to abandon");
-  const releaseStart = acquireStartLock(checkpoint.root);
   try {
-    const state = resolveRun(checkpoint, values.run);
-    if (state === null) throw new UsageError("no active run to abandon");
-    const release = acquireRunLock(checkpoint.root, state.id);
+    const releaseStart = acquireStartLock(checkpoint.root);
     try {
-      checkpoint.append(state.id, state.lastSequence, [{ kind: "run.abandoned", version: 1, payload: { reason: values.reason } }]);
-    } finally {
-      release();
-    }
-    io.stdout(`run ${state.id} abandoned: ${values.reason}
+      const found = resolveRun(checkpoint, values.run);
+      if (found === null) throw new UsageError("no active run to abandon");
+      const release = acquireRunLock(checkpoint.root, found.id);
+      try {
+        const state = checkpoint.fold(found.id);
+        const status3 = reviewStatus(state);
+        if (status3 === "complete" || status3 === "abandoned") throw new UsageError(`run ${state.id} is ${status3}; only an active or blocked run can be abandoned`);
+        checkpoint.append(state.id, state.lastSequence, [{ kind: "run.abandoned", version: 1, payload: { reason: values.reason } }]);
+      } finally {
+        release();
+      }
+      io.stdout(`run ${found.id} abandoned: ${values.reason}
 `);
-    return 0;
+      return 0;
+    } finally {
+      releaseStart();
+    }
   } finally {
-    releaseStart();
     checkpoint.close();
   }
 }

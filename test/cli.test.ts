@@ -118,6 +118,11 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(json.workers.finished, 11);
     assert.ok(json.review.report !== null);
     assert.equal(json.review.blocker, null);
+    // A complete run is not abandoned after the fact: its report stands, and so does its status.
+    const late = run('abandon', '--run', runId, '--reason', 'cleanup');
+    assert.equal(late.status, 1, late.stderr);
+    assert.match(late.stderr, new RegExp(`^run ${runId} is complete; only an active or blocked run can be abandoned\\n`));
+    assert.match(run('status', '--run', runId).stdout, new RegExp(`^Run ${runId}: complete\\n`));
     // Reviewing again starts a new run, since a finished run is not reopened; its scope flags are needed.
     const again = run(...claudeFlags());
     assert.equal(again.status, 1);
