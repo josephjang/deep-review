@@ -297,4 +297,66 @@ adapter for the first time. It was read at `agent-skills` commit
 
 ## Verification
 
-No checks have run yet.
+Run on the author's Windows 11 machine on 2026-09-27, Node 26.10.0,
+against the two commits of this element, `362a89f` (the move) and
+`a9971c2` (the wording).
+
+- `npm run check` passes at both commits: lint, typecheck and every test,
+  with the 3 symlink cases skipped that this Windows account has always
+  skipped. `npm run verify` matches both artifacts, as `dist/` is
+  untouched.
+- The move (R5): at `362a89f` every role was assembled by `assembleRoles`
+  and compared with the proof of concept's assembled role
+  (`dist/deep-review-node/plugin/driver/roles/<key>.md` in `agent-skills`
+  at `822986e`, whose assembled `manifest.json` has SHA-256
+  `1f2a0f007bd1d3331be8de0607c6813170fd453524c82e1e8a345939f0bab422`)
+  after leading, trailing and repeated blank lines were collapsed. Twenty
+  of twenty-one are equal. `documentation` is equal once the second copy
+  of `fixer-documentation` is removed from the proof of concept's text,
+  where the 1400-byte section appears twice (12404 bytes against 10998).
+  The byte differences in the table are the blank lines of D3.
+
+  | Role | POC bytes | Bytes | SHA-256 at the move |
+  |---|---|---|---|
+  | triage | 26615 | 26602 | `8db71990846a5b7cb41635d2a7bc190c04da79cb4755290c8cddc860a2e7b498` |
+  | angle-decision | 26615 | 26602 | `8db71990846a5b7cb41635d2a7bc190c04da79cb4755290c8cddc860a2e7b498` |
+  | finder-SCAN | 12467 | 12461 | `c034a18ba74d8c7512e688fc5e16ed2b802f73cb83ddd22638f66ce847e40198` |
+  | finder-REMOVALS | 5203 | 5198 | `c3c2e31e5ef9d3b20258fca1a6293753bf1f5278cce227f5a835d2bcb53e7390` |
+  | finder-RIPPLE | 7095 | 7090 | `d8a76612a53e348673fd0859386162b0b025760d2a6fcf8aabb19232b9edb8f5` |
+  | finder-FOOTGUNS | 7095 | 7090 | `d8a76612a53e348673fd0859386162b0b025760d2a6fcf8aabb19232b9edb8f5` |
+  | finder-WRAPPERS | 7095 | 7090 | `d8a76612a53e348673fd0859386162b0b025760d2a6fcf8aabb19232b9edb8f5` |
+  | finder-EFFICIENCY | 7095 | 7090 | `d8a76612a53e348673fd0859386162b0b025760d2a6fcf8aabb19232b9edb8f5` |
+  | finder-DESIGN | 5203 | 5198 | `c3c2e31e5ef9d3b20258fca1a6293753bf1f5278cce227f5a835d2bcb53e7390` |
+  | finder-DUPLICATION | 7095 | 7090 | `d8a76612a53e348673fd0859386162b0b025760d2a6fcf8aabb19232b9edb8f5` |
+  | finder-ALTITUDE | 5203 | 5198 | `c3c2e31e5ef9d3b20258fca1a6293753bf1f5278cce227f5a835d2bcb53e7390` |
+  | finder-CONVENTIONS | 3457 | 3452 | `66ad022dd13453363e944aec8cb483487cbded6a072358e5e8a62322acc7294f` |
+  | deduplication | 14756 | 14751 | `647f8a021629a8819deb7277f64839fda2c6531300c91099a657cf01834932ba` |
+  | verifier | 14756 | 14751 | `647f8a021629a8819deb7277f64839fda2c6531300c91099a657cf01834932ba` |
+  | sweep | 22226 | 22213 | `31df6dd877ebd627fab64136a4d845a220c7399b44d8051e6ab9cb5cae753b6e` |
+  | merge-rank | 30106 | 30099 | `f29209bee02e28cb32d1253facdcbe74e7c9f67c082f4c34a941f0776c0ef38e` |
+  | fixer | 11002 | 10998 | `c6532f3989892a1e913292f840817115e64c9bef03cafd6f234862822206163c` |
+  | documentation | 12404 | 10998 | `c6532f3989892a1e913292f840817115e64c9bef03cafd6f234862822206163c` |
+  | test-assessment | 30776 | 30770 | `5a9e04b535b772abfc7d7abf9edbf487657f88f235bb571a145343d7046a1416` |
+  | auditor | 15931 | 15924 | `94c31f049c2ea9e3c2e73f64d4d3447ace50fb0871c028d415c6299a2de4ff7a` |
+  | answer | 16195 | 16189 | `15d94f59881d083678ebdc194c86219d65b984843afa762f1ae58eec67429616` |
+
+  The prompts of `triage` and `angle-decision`, of `deduplication` and
+  `verifier`, and of `fixer` and `documentation` are identical pairs, as
+  they were in the proof of concept once its duplicate is removed; the
+  three analyst angles share one prompt and the five scout angles
+  another. What distinguishes such roles is the task the phase gives
+  them, which the first end-to-end element defines.
+- The wording (R6): `a9971c2` makes 45 exact-string replacements from the
+  D5 list, one more the inventory of D5 missed ("in one message block" on
+  a line naming nothing else), and re-wraps three passages without
+  changing a word. A search of the fragments for every D5 word is empty
+  afterwards, and the test that pins it fails when "orchestrator" is put
+  back into one fragment and passes on the committed text.
+- Tests checked to fail when the behavior they guard is removed: the
+  wording guard as above; the assembler's invariants each have a case
+  that plants the violation and asserts the refusal names the fragment;
+  the unused-fragment check is asserted against a planted stray file and
+  a stray directory; the script's refusal of an existing output directory
+  is asserted against one.
+- Continuous integration on the three platforms: not yet run; recorded
+  here when the pull request runs.
