@@ -71,6 +71,19 @@ Windows machine on 2026-09-27. Nothing uncommitted was used.
   logged to stderr as `ERROR codex_core::tools::router: error=exec_command
   failed`. The elevated Windows sandbox, which runs commands as a separate
   sandbox user, needs a one-time setup per machine.
+- Found in review, with `codex-cli` 0.157.1: a `--config` key Codex does
+  not know is ignored without a word, so a key renamed by an update would
+  silently stop switching its source off. Under `--strict-config` the
+  same key makes `exec` and `exec resume` alike exit 1 before reading
+  stdin, starting no thread, with ``Error loading config.toml: unknown
+  configuration field `<key>` in -c/--config override`` on stderr, and an
+  unknown feature name under `features` is refused the same way. Every
+  key the adapter passes is accepted under it, and a project
+  `.codex/config.toml` with unknown fields did not trip it. A known key
+  with an unknown value, such as `web_search="nope"`, is refused with or
+  without it, as Claude Code refuses an unknown `--permission-mode`.
+  Whether 0.147.0 had the flag was not checked; a Codex without it is
+  refused by the preflight, naming the flag.
 
 ## Design
 
@@ -87,7 +100,12 @@ at most 100), `scratch` (absolute path), `label` (free text for the
 ledger) and `resume` (a session id; the prompt is then the follow-up
 message). A NUL in any string is refused, and a model or session id that
 starts with a dash, which a CLI would read as an option, is refused too.
-The output schema must compile to draft-07 with an object at its root.
+The output schema must compile to draft-07 with an object at its root,
+and every object in it must be closed and list each of its properties as
+required, which Codex's strict structured output demands: a field that may
+be absent is written `.nullable()`, and an optional field, a record or a
+loose object is refused before anything runs, naming the object by its
+JSON Pointer.
 
 ### Adapter and registry (R2, R4, R10)
 
@@ -96,7 +114,14 @@ The output schema must compile to draft-07 with an object at its root.
 with the flags it must mention), `command(invocation, plan)` and
 `decode(invocation, plan, outputs)`; the plan is what the launcher
 decided (session id, session resumed, scratch directory, compiled schema,
-schema and final-message file paths, platform, inherited environment).
+schema and final-message file paths, platform, inherited environment),
+and the outputs are stderr, the final message, and stdout both whole (or
+`null` above the decode cap) and as lines decoded one at a time, so an
+adapter that reads a stream by line never needs it as one text.
+`decode` returns the session ids the outputs named, usage, denials, and
+exactly one result: an answer, a budget stop with its reason, or a
+failure with its reason, so no adapter can report an answer and an error
+at once.
 `src/runtime/registry.ts` maps a name to its adapter and throws on a
 duplicate registration; `src/runtime/runtimes.ts` registers the two the
 engine ships, `src/runtime/claude.ts` and `src/runtime/codex.ts`.
@@ -119,10 +144,13 @@ sessions can be resumed. For the two runtimes:
 
 `preflight` in `src/runtime/preflight.ts` runs the adapter's version
 probe and every help probe (Claude: `--help`; Codex: `--help`,
-`exec --help` and `exec resume --help`) with a ten second timeout and no
-model call, matches the version output against the runtime's pattern,
-requires every flag the adapter's command uses to appear as a whole flag
-in the help text it belongs to, and returns the observed version. A test
+`exec --help` and `exec resume --help`) with no model call and empty
+stdin, killing a probe with its process tree, as a worker is killed,
+once it runs past ten seconds or prints more than 4 MiB, or when the
+engine exits or, on POSIX, is interrupted while the probe runs; it
+matches the version output against the runtime's pattern, requires
+every flag the adapter's command uses to appear as a whole flag in the
+help text it belongs to, and returns the observed version. A test
 holds each adapter's commands to the flags its qualification lists.
 
 ### Translation, Claude Code (R7, R8, R9)
@@ -140,16 +168,54 @@ is the caller's with `CLAUDE_CODE_EFFORT_LEVEL` and
 `CLAUDE_CODE_DISABLE_AUTO_MEMORY` set (the variable outranks the flag, so
 both are pinned); an inherited `MAX_THINKING_TOKENS`,
 `CLAUDE_CODE_DISABLE_THINKING` or `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`
-is refused by name, comparing names case-insensitively so Windows cannot
-hide one under another spelling.
+is refused by name. On Windows, where the CLI reads every spelling of a
+name as one variable, names compare case-insensitively, so no spelling can
+hide an override; elsewhere a name differing in case is another variable
+the CLI never reads, and it is left alone. The variables a running Claude
+Code session sets for the processes it starts (`CLAUDECODE`,
+`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_ENTRYPOINT` and the rest of
+`claudeSessionMarkers`) are dropped rather than refused: they describe
+the enclosing session, not the worker, and refusing them would stop every
+worker of an engine started inside Claude Code. Authentication and
+provider variables stay.
+
+`--setting-sources ''` also switches off what only the user's settings
+hold: a credential helper (`apiKeyHelper`, `awsAuthRefresh`,
+`awsCredentialExport`, `gcpAuthRefresh`, `proxyAuthHelper`) and the
+settings `env` block, where a Bedrock, Vertex or gateway setup often
+keeps its provider variables. The preflight needs no credential, so such
+a machine would qualify and then fail every worker at authentication.
+`createClaudeAdapter({ settings })` takes those keys and `env`, and
+nothing else: an unknown key, `otelHeadersHelper` (telemetry, not a
+credential) and a key the isolation sets are refused by name when the
+adapter is built, and every value must be a string. They are merged into
+the `--settings` object for a fresh worker and a continuation alike,
+with `autoMemoryEnabled` and `claudeMdExcludes` written last so they
+always win; with no settings the object is the one above, byte for byte.
+Claude Code sets the `env` block in its own environment, over the one
+the launcher gave it, so a name there that is a thinking override,
+`CLAUDE_CODE_EFFORT_LEVEL`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY`, a session
+marker or one of the launcher's pins (`TEMP`, `TMP`, `TMPDIR` and the
+build-server pins) is refused before anything is recorded, spelled as
+the platform reads it: any spelling on Windows, the exact name
+elsewhere. `defaultRuntimes({ claude: { settings } })` passes them
+through.
+
+A command line the platform would not start is refused before anything
+is recorded or run: on Windows the whole line, quoted as libuv quotes it,
+may be at most 32766 characters, and on POSIX each argument at most
+131071 bytes. The compiled schema travels as one argument, so a large
+output schema is what reaches the limit, and the refusal says so; the
+adapter's settings travel as another and are counted too, and a
+`--settings` value too large names the settings as the remedy.
 
 ### Translation, Codex (R7, R8, R9)
 
 The command is `--ask-for-approval never exec --ignore-user-config
---ignore-rules --skip-git-repo-check`, `--config sandbox_mode=` with
-`"read-only"` or `"workspace-write"` from `access`,
-`--config sandbox_workspace_write.writable_roots=` with the scratch
-directory only when `access` is `edit`, `windows.sandbox` on Windows (the
+--strict-config --ignore-rules --skip-git-repo-check`,
+`--config sandbox_mode=` with `"read-only"` or `"workspace-write"` from
+`access`, `--config sandbox_workspace_write.writable_roots=` with the
+scratch directory only when `access` is `edit`, `windows.sandbox` on Windows (the
 adapter's option: `unelevated` by default, which runs on any machine, or
 `elevated` through `createCodexAdapter({ windowsSandbox: 'elevated' })`
 on a machine with the elevated setup), the config overrides that disable
@@ -161,11 +227,41 @@ continuation is `exec resume` with the same options, then the session and
 `-`. The sandbox is a config override rather than `--sandbox` and
 `--add-dir` because `exec resume` takes neither flag, and a continuation
 has to run under the sandbox of the worker it continues. Every flag is
-written in its long form so the preflight checks exactly what runs. `shell:
+written in its long form so the preflight checks exactly what runs.
+`--strict-config` makes Codex refuse a `--config` key it does not know,
+which it otherwise ignores: a key an update renamed would silently stop
+switching its source off, and the worker would run with that source on.
+Under it such a key fails the worker before the model is called. `shell:
 false`, `effort: max` and `budgetUsd` are refused through the capability
-table. On Windows every spelling of `PATH` is merged and directories
-containing `WindowsApps` are removed, because the restricted token cannot
-launch the Store shell.
+table. On Windows every spelling of `PATH` is merged and every directory
+that is or lies under a `WindowsApps` directory is removed, judged by
+whole path segments so that `D:\tools\mywindowsapps` stays, because the
+restricted token cannot launch the Store shell.
+
+`--ignore-user-config` also drops the user's `model_provider` and
+`[model_providers.*]`, while the credentials under `CODEX_HOME` still
+load: a machine set up for Azure or a gateway would fail every worker,
+or, where those credentials also work for OpenAI, send the reviewed code
+to OpenAI instead. `createCodexAdapter({ provider })` takes a provider
+as `{ id, baseUrl, envKey?, queryParams? }`, checked when the adapter is
+built: `id` is lowercase letters, digits, `_` and `-`, so it is a bare
+TOML key; `baseUrl` parses as an http or https URL without a user name
+or password, since a command line is visible to every process;
+`envKey` is an environment variable name, the variable Codex reads the
+API key from, so the key itself never reaches the command line;
+`queryParams` is an object of strings, such as Azure's `api-version`;
+and an unknown key is refused by name, as an unknown option is. After
+the isolation overrides come `--config model_provider=`,
+`model_providers.<id>.name`, `.base_url`, `.env_key` when given and
+`.query_params` as an inline table when given, for a fresh worker and a
+continuation alike. Every value is a TOML basic string: JSON's escapes,
+plus DEL, which JSON leaves bare and TOML does not; a lone surrogate,
+which no TOML string can hold, is refused. `--strict-config` accepts
+each of these keys on 0.157.1, and a custom provider there sent its
+requests to the given URL; an unset `envKey` variable fails the turn by
+name, and a built-in id such as `openai` is refused by Codex itself
+before any thread starts.
+`defaultRuntimes({ codex: { provider } })` passes it through.
 
 ### Launcher (R1, R3, R6, R7, R8)
 
@@ -174,31 +270,64 @@ does, in order:
 
 1. Fold the run; refuse an unknown or inactive run.
 2. Check the invocation against the adapter's capabilities, and a
-   continuation against the worker it continues.
-3. Build the command, which may refuse the caller's environment, and
-   preflight the executable.
-4. Freeze the prompt, with its scratch note appended, and the compiled
-   draft-07 schema as evidence.
-5. Create the scratch directory: the continued worker's, the caller's, or
+   continuation against the worker it continues: the session must be one
+   a worker of the run ran under, no worker may still be running in it,
+   some worker of it must have started (a pinned id is on the ledger
+   before the process exists, so a session whose every worker failed to
+   start has no conversation to resume), and the runtime, model, effort,
+   access, shell, schema and scratch directory must be kept, the scratch
+   directory compared as resolved. `continuationFields` classifies every
+   field of `worker.launched` as kept or the continuation's own, so a
+   field added to the launch does not compile until it is classified.
+3. Build the command, which may refuse the caller's environment, a
+   variable the adapter's settings would set over a pin, or a command
+   line too long for the platform, and preflight the executable.
+4. Freeze as evidence the prompt, with its scratch note appended, the
+   compiled draft-07 schema, and the empty blob a finish records for an
+   output the launcher could not freeze, so recording a finish never has
+   to write to the evidence store.
+5. Create the scratch directory, chosen in `src/runtime/scratch.ts`: the
+   continued worker's, the caller's, or
    `<os tmpdir>/deep-review-scratch/<checkpoint key>/<workerId>`, the key
    being a digest of the checkpoint root; none for a read-only worker
    whose runtime cannot allow writes to it. One inside the reviewed tree
-   or the checkpoint is refused. Write the prompt and schema to
-   `<checkpoint root>/io/<workerId>/`.
+   or the checkpoint is refused. Containment is judged by whole path
+   segments, so a sibling named `..tmp` is outside and a child named
+   `..tmp` inside, after every link, junction and short name of the
+   longest existing ancestor of both paths is resolved, so an alias
+   cannot lead into either. Write the prompt and schema to
+   `<checkpoint root>/io/<workerId>/`, a directory that must not exist
+   yet: one that does is another worker's, and the launch is refused.
 6. Append `worker.launched`.
 7. Open the prompt file as stdin; spawn with `shell: false`, the run's
    worktree as `cwd`, stdout and stderr redirected to files, and the
-   environment of the adapter with `TEMP`, `TMP` and `TMPDIR` (forward
-   slashes, for Git Bash) pointing at the scratch directory and
-   `MSBUILDDISABLENODEREUSE=1`,
+   environment of the adapter with `TEMP`, `TMP` and `TMPDIR` pointing at
+   the scratch directory (`TMPDIR` with forward slashes on Windows, for
+   Git Bash, and as it is elsewhere, where a backslash is an ordinary
+   filename character) and `MSBUILDDISABLENODEREUSE=1`,
    `DOTNET_CLI_USE_MSBUILD_SERVER=0`, `UseSharedCompilation=false` and
-   `UseRazorBuildServer=false` set, replacing any inherited spelling of
-   those names.
+   `UseRazorBuildServer=false` set. On Windows each replaces every
+   inherited spelling of its name, since a Windows environment has one
+   variable per name whatever its case and Node passes a child only one
+   spelling of it; elsewhere each replaces its exact name, and a variable
+   differing only in case is another variable, left alone.
 8. Wait for exit or timeout. On timeout, kill the tree: `taskkill /PID
    <pid> /T /F` on Windows; on POSIX the child was spawned as its own
-   process group and the group receives `SIGKILL`.
-9. Decode through the adapter; freeze stdout, stderr and the final output
-   as evidence.
+   process group and the group receives `SIGKILL`. When the tree cannot
+   be reached (`taskkill` fails, or the group cannot be signalled) the
+   root alone is killed and the timeout error says so, with why, since
+   descendants may still run. A process that exited on its own as the
+   timer fired is recorded as exited, and a pid Node has seen exit is
+   never signalled, since it may name another process by then. While a
+   worker runs, the engine's own exit also kills its tree, and on POSIX
+   so do `SIGINT`, `SIGTERM`, `SIGHUP` and `SIGQUIT`, which a worker in
+   its own process group never receives from the terminal; the signal
+   then ends the engine as it would have, unless the engine handles that
+   signal itself. An engine killed outright runs no listener.
+9. Freeze stdout, stderr and the final message as evidence, then decode
+   them through the adapter. The pinned or continued session id is
+   recorded on every finish: the launcher adds it to the ids the adapter
+   read from the outputs, which are all an adapter reports.
 10. Append `worker.finished`, retrying on `StaleRevisionError` by
     re-folding (several launchers may finish on one run at once).
 11. Remove the process files, which are all evidence now, and return the
@@ -207,10 +336,17 @@ does, in order:
 A failure at step 7 (the process never starts) still runs steps 9 to 11
 with outcome `failed` and termination `not-started`, and so does a
 failure of the launcher itself after step 6, so the ledger never holds a
-launched worker without a finish from this launcher. The one exception is
-a run abandoned while its worker ran: it accepts no finish, and
-`runWorker` throws `RunClosedError` with the evidence already frozen. A
-failure before step 6 appends nothing.
+launched worker without a finish from this launcher. Such a finish keeps
+everything settled before the failure: the outputs already frozen, and
+every session id already decoded. An output the launcher could not freeze
+is recorded as the empty blob of step 4, its process file is the only
+copy, and the process files stay, named in the error. The one exception
+is a run abandoned while its worker ran: it accepts no finish, and
+`runWorker` throws `RunClosedError` with the evidence already frozen and
+the process files removed. A failure before step 6 appends nothing,
+removes the process files, and removes the scratch directory the call
+created for the worker; a caller's or a continued worker's scratch
+directory, and the roots above one, stay.
 
 ### Receipt and decoding (R5)
 
@@ -226,21 +362,47 @@ Claude decoding requires a `result` envelope with `subtype: success`,
 `is_error: false`, a `structured_output` field and a `permission_denials`
 array; the envelope's `session_id` must equal the pinned or resumed one;
 `terminal_reason: budget_exhausted` or a `subtype` starting with
-`error_max_budget` is outcome `budget`. Codex decoding parses every JSONL
-line, requires no `exec_command failed` router error on stderr (a sandbox
-that could not run commands at all, which the stream does not show),
-exactly one `thread.started` (its id is the session, and on a
-continuation the session continued), exactly one `turn.completed` as the
-last event, no `error` or `turn.failed` event, no `mcp_tool_call` or
-`web_search` item, no item left started without completing, no failed
-item other than a command with a nonzero exit code, and a final message
-file equal to the last `agent_message`; `denials` is `null`. stdout,
-stderr and the final message are refused for decoding above 16 MiB and are
-still frozen as evidence. A denial never changes the outcome; a budget
-stop is not `failed`; a rejected schema, a nonzero exit without a budget
-stop or a decode failure is `failed` with the reason. A session id the
-ledger's session id pattern cannot hold is named in the error and left off
-the record, so a finish can always be appended.
+`error_max_budget` is outcome `budget`; the envelope is read whole, so a
+stdout above the decode cap fails the worker, naming the cap. Codex
+decoding reads the JSONL stream in one pass, a line at a time, parsing
+every line and keeping only the facts its rules need, and requires no
+`exec_command failed` router error on stderr (a sandbox that could not
+run commands at all, which the stream does not show), exactly one
+`thread.started` (its id is the session, and on a continuation the
+session continued; when none started, the reason quotes the last 1000
+characters of stderr, where Codex says why it refused its command line,
+such as a `--config` key it does not know), exactly one
+`turn.completed` as the last event, no `turn.failed` event, no
+`mcp_tool_call` or `web_search` item, no item left started without
+completing, no failed item other than a command that ran and exited
+nonzero or a file change that did not apply (the model saw either and
+could work around it), and a final message file equal to the last
+`agent_message`; `denials` is `null`. A turn that completed is judged
+by its answer: an `error` event, which is how Codex reports a stream
+reconnect it survived, and an `error` item, a warning, do not fail it,
+and their text stays in the frozen stdout. The last `error` event is
+named in the reason of a turn that did not complete. Every rule is
+applied only after the whole stream is read, so a malformed later line
+cannot hide the thread an earlier one started. A Codex stream has no
+size limit, since one command can print more than any cap and its
+answer is still worth judging; a single line above 64 MiB is not
+decoded, and is a malformed line. stderr, the final message, and a
+stdout read whole (Claude's) are not decoded above 16 MiB and are still
+frozen as evidence; the session ids are still read from the outputs
+with stderr and the final message cut to 16 MiB, and from every stdout
+line, so a worker whose output ran long can be continued.
+
+The launcher decides the outcome in a fixed order: a process that never
+started is `failed`; one killed at its timeout is `timeout`, its error
+saying whether the whole tree or only the root was killed; then the
+adapter's result, a budget stop being `budget` and a failure `failed`
+with its reason; then an answer from a process that exited nonzero or by
+a signal is `failed`; then the answer is checked against the schema. A
+denial never changes the outcome. A decoder that throws is `failed` with
+what it threw. A session id the ledger's session id pattern cannot hold
+is named in the error and left off the record, so a finish can always be
+appended, and an answer is then not recorded: a completed worker becomes
+`failed`, since the session its answer belongs to could not be recorded.
 
 ### Ledger events and fold (R3, R11)
 
@@ -253,8 +415,15 @@ ids, usage as JSON text (so nothing a runtime prints can be mistaken for
 an artifact reference), denials, error, stdout and stderr as references,
 the runtime's final message file as a reference or null, and the
 validated answer as JSON, a reference present exactly when the outcome is
-`completed`. Both are declared in `src/checkpoint/events.ts`
-and reduced in `src/checkpoint/fold.ts`. `RunState` gains `workers`, keyed
+`completed`. Two rules of that shape are part of the version-1 schemas,
+checked when an event is appended and when a ledger is read: a finish
+holds `output` exactly when it is `completed`, and a launch that resumes
+a session runs under it, its `sessionId` equal to `resumes`. The effort
+and access values of `worker.launched@1` are written out in its schema
+rather than taken from the invocation contract's enums, so a level the
+contract gains later cannot change what version 1 accepts. Both events
+are declared in `src/checkpoint/events.ts` and reduced in
+`src/checkpoint/fold.ts`. `RunState` gains `workers`, keyed
 by id, each `running` (launch only) or `finished` (launch and receipt). A
 finish without a launch, a second finish, or a second launch with the
 same id, is invalid history. A run created before this element folds with an empty `workers`.
@@ -264,12 +433,19 @@ stay.
 ### Smoke script (R12)
 
 `scripts/smoke-runtime.ts`, run as `npm run smoke -- --claude <path>
---codex <path> --codex-model <model>`, opens a checkpoint in a temporary
-repository, runs one prompt through each given CLI, continues each session
-once, and prints every receipt's outcome, version, session ids, answer,
-denials and usage. Both prompts ask the worker to create a file in the
-repository with its shell, so the run also shows whose read-only mode
-stops the write, fresh and continued. It is not part of `npm run check`.
+--codex <path> --codex-model <model>` with an optional
+`--codex-windows-sandbox elevated`, opens a checkpoint in a temporary
+repository and runs three workers through each given CLI: a read-only
+worker, its session continued once, and an editor. It prints every
+receipt's outcome, version, session ids, answer, denials and usage. The
+two read-only prompts ask the worker to create a file in the repository
+with its shell, so the run also shows whose read-only mode stops the
+write, fresh and continued; the editor must write one file in the
+repository and one in its scratch directory. The smoke fails unless
+every worker completes and every editor writes both files. A worker the
+launcher refuses fails its runtime without stopping the other, and the
+repository and checkpoint are kept and their path printed whatever
+happened. It is not part of `npm run check`.
 
 ## Technical Decisions
 
@@ -310,8 +486,16 @@ stops the write, fresh and continued. It is not part of `npm run check`.
   files.** (D7.) A `logs/` directory beside the checkpoint was rejected:
   the evidence store verifies every read and the ledger verifies every
   reference at append, and a log file has neither. The cost is a second
-  copy of a large stdout; accepted, and the 16 MiB decode cap bounds what
-  is worth reading.
+  copy of a large stdout; accepted. Amended after review: the reviewed
+  design capped what is decoded at 16 MiB per output, which threw away a
+  paid, valid Codex answer whose stream ran past it on one large command
+  output. A Codex stream is now read a line at a time with no limit on its
+  length, which keeps every rule of its decoding, and only a single line
+  above 64 MiB goes undecoded. Raising the cap was rejected: decoding the
+  whole stream as one text and one array of events grows the heap with the
+  stream, and an engine killed for memory appends no finish. Claude's
+  envelope, one JSON value, and stderr and the final message keep the
+  16 MiB cap.
 
 - **TD7: The scratch directory is outside the reviewed tree and the git
   directory, named in the prompt, the shell's temporary directory, and
@@ -331,7 +515,19 @@ stops the write, fresh and continued. It is not part of `npm run check`.
   policy, and the runtime's configuration sources are switched off by
   flag.** (D10.) A clean environment was rejected: authentication and the
   tool path live in the inherited one. Session persistence stays on so a
-  transcript exists to read after a timeout.
+  transcript exists to read after a timeout. Amended after review: the
+  inherited environment is not where every machine keeps its
+  credentials. Claude Code's credential helpers and settings `env`, and
+  Codex's model providers, live in the configuration the flags switch
+  off, so each adapter takes them as an explicit, allowlisted option
+  from the engine's caller, the way it takes the Windows sandbox.
+  Rejected: reading the user's settings file and forwarding its
+  credential keys, which re-implements each CLI's config location and
+  precedence, and which for a project or local file would run a
+  repository's own helper; a generic `--config` or settings passthrough
+  with a denylist, which leaks every key the list does not yet name; and
+  loading the user's configuration again with each isolation key
+  overridden, which reopens isolation to every new source a CLI adds.
 
 - **TD9: The version gate is the presence of required flags; the observed
   version is evidence.** (D12.) An exact-version allowlist stopped every
@@ -346,8 +542,13 @@ stops the write, fresh and continued. It is not part of `npm run check`.
   to draft-07 and checked for portability.** (D14.) Proof-of-concept rules
   that held: a file avoids a pipe race on a process that may not read
   stdin, Claude rejects the 2020-12 schema URI, and a lookaround or
-  backreference in a pattern is accepted by one runtime's validator and
-  not the other's.
+  backreference in a pattern, a `patternProperties` key included, is
+  accepted by one runtime's validator and not the other's. Codex sends
+  the schema to the model in strict mode, which refuses an object that
+  allows properties it does not list or leaves one optional. One runtime
+  refuses it, so it is refused everywhere: a schema that compiles is one
+  every runtime takes, and a worker is never failed for its runtime
+  alone.
 
 - **TD12: Two events, launched before spawn and finished after, with the
   session id on the first.** (D15.) Recording only a receipt was rejected
@@ -359,7 +560,14 @@ stops the write, fresh and continued. It is not part of `npm run check`.
   no third-party process library.** `taskkill /T` and a POSIX process
   group are what the platforms provide, and neither needs a dependency.
   A tree walk through `wmic` or `ps` was rejected as slower and no more
-  complete.
+  complete. The same kill serves the preflight's probes and the engine's
+  own exit: every worker and every probe is tracked while it runs and
+  killed with its tree when the engine exits or, on POSIX, is
+  interrupted, so a wrapper CLI's child, a worker or a probe outliving
+  the engine is not left running either. The kill, `taskkill` included, runs
+  synchronously, so the event loop cannot see the process exit and free
+  its pid between the check that it still runs and the signal; the price
+  is that the loop waits for `taskkill`, at most its ten second limit.
 
 ## Open Questions
 
@@ -373,6 +581,22 @@ stops the write, fresh and continued. It is not part of `npm run check`.
   `--max-budget-usd` on a continuation is also measured against the whole
   session is unverified; the role element, which sets continuation
   budgets, settles it before relying on one.
+- Deferred: a runtime-neutral view of usage. The receipt and the finish
+  keep usage as each runtime reports it, and nothing outside an adapter
+  reads its shape; the smoke script prints it raw. A neutral view now
+  would fix two meanings before anything consumes them, and the second
+  smoke run shows both are unlike across the runtimes: a Claude
+  continuation's `total_cost_usd` (0.0120 USD) and `modelUsage` cover the
+  whole session while its top-level `usage` covers this process alone
+  (17 input and 261 output tokens against 34 and 692), and Claude's
+  `input_tokens` excludes cached tokens (17, beside 18498 read from and
+  1682 written to the cache) while Codex's includes them (29646, of which
+  14464 cached). Summing either naively double-counts or compares unlike
+  numbers. The target, when the role element adds the first consumer of
+  cost and settles what a continuation costs: a pure
+  `RuntimeAdapter.summarizeUsage(recorded)` over
+  `JSON.parse(finish.usage)`, so a live receipt and a replayed ledger are
+  read by one decoder and the version-1 events stay as they are.
 - Can a Codex read-only worker's refused write be recognised from its
   JSONL (a `command_execution` item with a permission error) well enough
   to fill `denials`? Deferred: the design leaves `denials: null` for Codex
@@ -406,8 +630,17 @@ below runs on all three CI runners.
   and with the array missing (failed, reason named); a session id other
   than the pinned one (failed); Codex receipts carry `denials: null`.
 - R5 (Codex stream): two `thread.started`, an incomplete turn, a
-  mismatched final message, a failed item, a nonzero command that is not a
-  failure, an MCP item, and a stream above 16 MiB.
+  mismatched final message, a failed item of an unknown kind, a nonzero
+  command and a failed patch that are not failures, an `error` event and
+  an `error` item in a completed turn that are not failures, a
+  `turn.failed` that is, an MCP item, a completed turn whose stream is
+  above 16 MiB because one command printed that much, a line above 64
+  MiB whose thread is still recorded, CRLF line endings and an empty
+  stream; a Claude stdout above 16 MiB is failed by name.
+- R5 (outcome): the launcher's decision is tested alone for every
+  result and process ending, including a timeout whose tree kill reached
+  only the root; on Windows a timeout run with `taskkill` made unreachable
+  shows that error on the receipt while the descendant still runs.
 - R6: every reference on both events verifies against the evidence store,
   and the bytes equal what the fake printed.
 - R7: the scratch directory exists under the scratch root, the prompt
@@ -415,10 +648,19 @@ below runs on all three CI runners.
   it, and a Codex read-only worker gets none; in a real main worktree the
   default is outside both the worktree and the git directory; one inside
   the tree or the checkpoint is refused.
-- R8: pins are applied over mixed-case inherited names; an inherited
-  thinking override is refused; `WindowsApps` is removed from every
-  `PATH` spelling on Windows; the Claude `--settings` object and
-  `--setting-sources ''` are in the snapshot.
+- R8: pins are applied over mixed-case inherited names on Windows and
+  over the exact name elsewhere, where a case variant is kept; an
+  inherited thinking override is refused, in any spelling on Windows only;
+  an enclosing Claude Code session's markers are dropped; `WindowsApps`
+  is removed from every `PATH` spelling on Windows; the Claude
+  `--settings` object and `--setting-sources ''` are in the snapshot.
+  Adapter options: the `--settings` value is unchanged without settings
+  and merges given settings under the isolation keys; an unknown or
+  isolation key and each reserved `env` name are refused, in any spelling
+  on Windows only; a Codex provider is in the fresh and the continued
+  command, each malformed field is refused, odd values are escaped as
+  TOML; `defaultRuntimes` passes both options on, and the fakes receive
+  them through the launcher.
 - R9: a continuation of each runtime produces `--resume` or `exec resume`
   with the same permission and schema flags, and a launch event whose
   `resumes` names the session.
@@ -556,6 +798,44 @@ changes:
   and which sandbox a machine can run is a property of the machine.
 - A Codex worker whose sandbox could not run a command, seen only on
   stderr, is `failed`: it never had the shell its answer assumes.
+- Changes after review of the pull request: a Codex `error` event or
+  `error` item, or a failed patch, no longer fails a turn that completed;
+  environment names compare case-insensitively on Windows only, and
+  `TMPDIR` gets forward slashes on Windows only; an enclosing Claude Code
+  session's markers are dropped, and a command line too long for the
+  platform is refused before launch; the tree is also killed when the
+  engine exits or, on POSIX, is interrupted, the preflight's probes are
+  killed with their trees at their limits and when the engine exits or is
+  interrupted, and a timeout that reached only the root says so;
+  scratch containment resolves links and compares whole segments; a
+  refused launch leaves no process files or scratch directory of its own;
+  a finish is appended even when the evidence store fails, keeping what
+  was already settled; the pinned session id is added by the launcher to
+  every finish; a session no worker of which started cannot be
+  continued; and the version-1 worker schemas hold the output and
+  continuation rules above.
+- Also after review: Codex runs under `--strict-config`, so a `--config`
+  key it does not know fails the worker instead of being ignored, and a
+  Codex that started no thread is failed with the end of its stderr in
+  the reason (Context); an output schema must be closed with every
+  property required, which Codex's strict structured output demands, and
+  a `patternProperties` key is held to the pattern rules (TD11); every
+  field of `worker.launched` is classified for a continuation in one
+  table, kept or its own, and a continuation may run under another
+  qualified executable of the same runtime.
+- Also after review: `createClaudeAdapter({ settings })` takes Claude
+  Code's credential helpers and a settings `env` block, and
+  `createCodexAdapter({ provider })` a model provider, both explicit and
+  allowlisted, because the switched-off user configuration was the only
+  place such a machine kept them (TD8, R8); `defaultRuntimes` takes
+  `claude` options beside `codex`. A Codex `--config` string now escapes
+  DEL and refuses a lone surrogate.
+- Also after review: a Codex stream is decoded a line at a time and is no
+  longer refused above 16 MiB, so a completed turn is judged by its answer
+  however much its commands printed (TD6); a Claude stdout above 16 MiB
+  is failed by the Claude adapter, naming the cap, instead of by the
+  launcher. The smoke script prints usage as the runtime reported it and
+  no longer reads a cost out of it (Open Questions).
 
 ## Risks & Migration
 
@@ -570,6 +850,44 @@ changes:
 - `taskkill /T` can miss a process that has re-parented, and a POSIX group
   kill misses a process that called `setsid`. Accepted; neither was seen in
   any pilot, and the build-server pins remove the known case.
+- `taskkill` can fail outright, such as with access denied to a
+  descendant running as the elevated Codex sandbox's user; the root is
+  then killed alone. Accepted; the timeout error names the failure and
+  says descendants may still run, so the receipt does not claim a tree
+  kill that did not happen.
+- A Codex stream has no size limit: the launcher reads all of stdout into
+  memory as bytes, as it always did to freeze it, and decodes one line at a
+  time, so memory grows with the stream's bytes but not with a text and an
+  array of events for all of it. Accepted; a stream too large for memory
+  would also be too large to freeze as evidence.
+- Claude Code has no strict mode for the keys of its `--settings`
+  object: a key a Claude Code update renamed would be ignored without a
+  word, and the source it switched off would come back on. Accepted;
+  Claude Code offers no flag that refuses one, and the recorded version
+  says which CLI ran.
+- A managed Codex configuration with a field this Codex does not know now
+  fails every Codex worker under `--strict-config`, loudly, with Codex's
+  message in the reason. Accepted: a worker that fails with its cause
+  named is better than one whose isolation lapsed unnoticed.
+- The Codex provider and the Claude settings are not on the ledger:
+  `worker.launched` version 1 is frozen and has no field for them, so a
+  worker's record does not say which provider or credential helper it
+  ran with, and a continuation is not held to its worker's. A
+  continuation runs with the options of the adapter it is given, which
+  the caller builds; nothing reads them from a file or the environment,
+  so a continuation changes provider only when its caller passes other
+  runtimes, and passing none is choosing the defaults. Accepted, as for
+  the Windows sandbox; the settings hold helper paths and variable
+  names, never a key, and a later launch event version can record them.
+- Credentials are configured twice on a machine that keeps them in the
+  user's configuration: once for the CLI, once in the options the engine
+  is built with. Accepted: the explicit copy is what keeps the worker's
+  isolation whole, and the engine has no configuration surface yet, so
+  only a program that builds the adapters can give them.
+- The Claude credential keys are listed by hand from Claude Code 2.1.283;
+  a helper a later CLI adds is refused until the list names it. Accepted:
+  a refused key is named, and allowing an unknown key would let any
+  setting through.
 - Claude Code's `--effort` is outranked by its environment variable, so
   both are set; a future CLI may change the precedence. Accepted; the
   preflight records the version and the fake tests pin the argument list.
