@@ -4,7 +4,7 @@
 // Nothing under roles/ is changed: the engine reads the fragments themselves,
 // and an --output inside the roles directory is refused before anything is
 // written.
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { assembleRoles, repositoryRolesRoot } from '../src/roles/assemble.ts';
@@ -41,6 +41,24 @@ function isInside(parent: string, child: string): boolean {
   return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
 }
 
+/**
+ * Create the output directory, which must not exist yet: its parents are
+ * made as needed, and the directory itself by a create that fails when
+ * anything is already there, so no directory made by another process in
+ * the meantime is ever written into.
+ */
+function createOutputDirectory(output: string): void {
+  // A file system root always exists, and creating one fails with EPERM on Windows rather than EEXIST.
+  if (dirname(output) === output) throw new Error(`Output must not exist yet: ${output}`);
+  mkdirSync(dirname(output), { recursive: true });
+  try {
+    mkdirSync(output);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`Output must not exist yet: ${output}`, { cause: error });
+    throw error;
+  }
+}
+
 const { values } = parseArgs({
   options: {
     output: { type: 'string' },
@@ -56,8 +74,7 @@ const output = values.output === undefined ? undefined : resolve(values.output);
 if (output !== undefined) {
   // Written prompts under fragments/ would be entries no role names, which fails every later assembly; anywhere else under roles/ they would be stray files to commit.
   if (isInside(rolesRoot, output)) throw new Error(`Output must not be inside the roles directory ${rolesRoot}: ${output}`);
-  if (existsSync(output)) throw new Error(`Output must not exist yet: ${output}`);
-  mkdirSync(output, { recursive: true });
+  createOutputDirectory(output);
   for (const role of roles) writeFileSync(join(output, `${role.key}.md`), role.prompt);
 }
 for (const role of roles) {
