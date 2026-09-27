@@ -53,7 +53,7 @@ export const invocationSchema = z.strictObject({
    * temporary directory when it is not given.
    */
   scratch: absolutePath.optional(),
-  /** Free text recorded on the ledger; the role element gives it meaning. */
+  /** Free text recorded on the ledger. A worker that runs a role is labelled with its role key, so the ledger says which role ran (D10 of the role prompts proposal). */
   label: text.optional(),
   /** A session to continue; the prompt is then the follow-up message (R9). */
   resume: sessionIdSchema.optional(),
