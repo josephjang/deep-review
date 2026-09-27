@@ -101,13 +101,47 @@ describe('scripts/roles.ts', () => {
     assert.deepEqual(readdirSync(sandbox), []);
   });
 
-  it('assembles another roles directory with --root', () => {
+  /** A one-role roles directory under the sandbox, for the cases that must not touch the repository's roles/. */
+  function writeSmallRoles(): string {
     const other = join(sandbox, 'roles');
     mkdirSync(join(other, fragmentsDirectoryName), { recursive: true });
     writeFileSync(join(other, manifestFileName), JSON.stringify({ schemaVersion: 1, roles: { only: ['a.md'] } }));
     writeFileSync(join(other, fragmentsDirectoryName, 'a.md'), 'alpha\n');
+    return other;
+  }
+
+  it('assembles another roles directory with --root', () => {
+    const other = writeSmallRoles();
     const result = spawnSync(process.execPath, [script, '--root', other], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^only\t1 fragments\t6 bytes\t[a-f0-9]{64}\n$/);
+  });
+
+  it('refuses an --output inside the roles directory and leaves that directory as it was', () => {
+    const other = writeSmallRoles();
+    const inside = [
+      join(other, 'assembled'),
+      join(other, fragmentsDirectoryName, 'prompts'),
+      // Missing parents inside the roles directory must not be created either.
+      join(other, fragmentsDirectoryName, 'nested', 'prompts'),
+    ];
+    // Windows paths compare without regard to case, so a differently cased spelling is the same directory.
+    if (process.platform === 'win32') inside.push(join(other.toUpperCase(), 'assembled'));
+    for (const output of inside) {
+      const result = spawnSync(process.execPath, [script, '--root', other, '--output', output], { encoding: 'utf8' });
+      assert.notEqual(result.status, 0, output);
+      assert.match(result.stderr, /must not be inside the roles directory/, output);
+      assert.deepEqual(readdirSync(other).sort(), [fragmentsDirectoryName, manifestFileName].sort(), output);
+      assert.deepEqual(readdirSync(join(other, fragmentsDirectoryName)), ['a.md'], output);
+    }
+    assert.deepEqual(assembleRoles(other).map((role) => role.key), ['only']);
+  });
+
+  it('accepts an --output beside the roles directory whose name merely starts like it', () => {
+    const other = writeSmallRoles();
+    const output = `${other}-assembled`;
+    const result = spawnSync(process.execPath, [script, '--root', other, '--output', output], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(join(output, 'only.md'), 'utf8'), 'alpha\n');
   });
 });
