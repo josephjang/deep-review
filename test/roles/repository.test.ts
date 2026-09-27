@@ -41,36 +41,84 @@ describe('the repository\'s roles/', () => {
     }
   });
 
-  /**
-   * Wording that names one runtime's mechanism, which no worker on another
-   * runtime has (R6 of the role prompts proposal): Claude Code's subagents
-   * and the `Agent` tool that spawns them, its `AskUserQuestion` tool, its
-   * `Grep` tool, the "single message block" that runs tool calls in
-   * parallel (and "the same block" that pointed back at it), and the names
-   * of the prompt-only skill's subagents. "scope block" is not one.
-   */
-  const runtimeWording: readonly [RegExp, string][] = [
-    [/\bsubagents?\b/i, 'subagent'],
-    [/`Agent`/, 'the Agent tool'],
-    [/subagent_type/, 'subagent_type'],
-    [/AskUserQuestion/, 'AskUserQuestion'],
-    [/orchestrator/i, 'the orchestrator'],
-    [/\bagents?\b/i, 'agent, meaning a worker'],
-    [/\bGrep\b/, 'the Grep tool'],
-    [/tier table/, 'the tier table'],
-    [/\b(message|same)\s+block\b/i, 'a message block'],
-    [/deep-review-(lead|fixer|auditor|analyst|scout|conventions|driver)\b/, 'a subagent name'],
-    [/deep-review skill/, 'the deep-review skill as the worker\'s employer'],
-  ];
-
   it('names no mechanism of one runtime in any prompt', () => {
-    const offences: string[] = [];
-    for (const role of roles) {
-      role.prompt.split('\n').forEach((line, index) => {
-        for (const [pattern, what] of runtimeWording) if (pattern.test(line)) offences.push(`${role.key} line ${String(index + 1)} names ${what}: ${line.trim()}`);
-      });
-    }
+    const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);
+  });
+});
+
+/**
+ * Wording that names one runtime's mechanism, which no worker on another
+ * runtime has (R6 of the role prompts proposal): Claude Code's subagents
+ * and the `Agent` tool that spawns them, its `AskUserQuestion` tool, its
+ * `Grep` tool, the "single message block" that runs tool calls in
+ * parallel (and "the same block" that pointed back at it), and the names
+ * of the prompt-only skill's subagents. "scope block" is not one.
+ *
+ * Each pattern is matched against a whole prompt, and a space inside a
+ * phrase is `\s+`, so a phrase that a line wrap splits in two is still
+ * found; a subagent name may break after its dash. Every pattern ignores
+ * case except the Grep tool's, because a lowercase `grep` is the shell
+ * command every runtime's shell has. `AGENTS.md`, an instruction file, is
+ * not an agent.
+ */
+const runtimeWording: readonly [RegExp, string][] = [
+  [/\bsubagents?\b/gi, 'subagent'],
+  [/`Agent`/gi, 'the Agent tool'],
+  [/subagent_type/gi, 'subagent_type'],
+  [/AskUserQuestion/gi, 'AskUserQuestion'],
+  [/orchestrator/gi, 'the orchestrator'],
+  [/\bagents?\b(?!\.md\b)/gi, 'agent, meaning a worker'],
+  [/\bGrep\b/g, 'the Grep tool'],
+  [/\btier\s+table\b/gi, 'the tier table'],
+  [/\b(message|same)\s+block\b/gi, 'a message block'],
+  [/\bdeep-review-\s*(lead|fixer|auditor|analyst|scout|conventions|driver)\b/gi, 'a subagent name'],
+  [/\bdeep-review\s+skill\b/gi, 'the deep-review skill as the worker\'s employer'],
+];
+
+/** Each runtime-specific phrase in `text`, as "line N names WHAT: LINE", N being the line the phrase starts on. */
+function runtimeWordingIn(text: string): string[] {
+  const lines = text.split('\n');
+  const offences: string[] = [];
+  for (const [pattern, what] of runtimeWording) {
+    for (const match of text.matchAll(pattern)) {
+      const line = text.slice(0, match.index).split('\n').length;
+      offences.push(`line ${String(line)} names ${what}: ${lines[line - 1]!.trim()}`);
+    }
+  }
+  return offences;
+}
+
+describe('the runtime-wording guard', () => {
+  /** The WHAT of each offence the guard reports in `text`. */
+  const named = (text: string): string[] => runtimeWordingIn(text).map((offence) => offence.replace(/^line \d+ names (.*?): .*$/s, '$1'));
+
+  it('finds a phrase that a line wrap splits in two', () => {
+    assert.deepEqual(named('run it from the tier\ntable above'), ['the tier table']);
+    assert.deepEqual(named('all in a single message\n  block'), ['a message block']);
+    assert.deepEqual(named('write it in the same\nblock as the dispatch'), ['a message block']);
+    assert.deepEqual(named('a subagent of the deep-review\nskill'), ['subagent', 'the deep-review skill as the worker\'s employer']);
+    assert.deepEqual(named('`subagent_type: "deep-review-\nlead"`'), ['subagent_type', 'a subagent name']);
+  });
+
+  it('finds a phrase whatever its case', () => {
+    assert.deepEqual(named('Tier table first.'), ['the tier table']);
+    assert.deepEqual(named('Message Block rules.'), ['a message block']);
+    assert.deepEqual(named('The Deep-Review Skill says so.'), ['the deep-review skill as the worker\'s employer']);
+    assert.deepEqual(named('Spawn a DEEP-REVIEW-FIXER.'), ['a subagent name']);
+    assert.deepEqual(named('Two Agents edit it.'), ['agent, meaning a worker']);
+  });
+
+  it('passes the instruction file AGENTS.md, a scope block and the grep command', () => {
+    assert.deepEqual(named('Read AGENTS.md and agents.md first.'), []);
+    assert.deepEqual(named('The scope block is shared.'), []);
+    assert.deepEqual(named('Run grep -n on the file.'), []);
+    assert.deepEqual(named('Grep for the symbol.'), ['the Grep tool']);
+  });
+
+  it('reports the line a phrase starts on, and that line\'s text', () => {
+    assert.deepEqual(runtimeWordingIn('first\nsecond\n  the orchestrator reads it\n'), ['line 3 names the orchestrator: the orchestrator reads it']);
+    assert.deepEqual(runtimeWordingIn('first\nthe tier\ntable'), ['line 2 names the tier table: the tier']);
   });
 });
 
