@@ -59,6 +59,17 @@ export async function waitForPid(file: string, timeoutMs = 15_000): Promise<numb
   return pid;
 }
 
+/** An `ids` option handing out the given UUIDs in order, so a test knows a worker's id before it runs. */
+export function fixedIds(...ids: string[]): () => string {
+  let next = 0;
+  return () => {
+    const id = ids[next];
+    if (id === undefined) throw new Error(`Only ${String(ids.length)} ids were given`);
+    next += 1;
+    return id;
+  };
+}
+
 /** Whether a process exists. */
 export function isAlive(pid: number): boolean {
   try {
