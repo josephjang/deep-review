@@ -5,9 +5,10 @@
  * header, Angles, Findings, Refuted at verification, Statistics and
  * Limitations.
  */
-import type { Spend } from '../checkpoint/events.ts';
+import type { ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState } from '../checkpoint/review-fold.ts';
+import { matchScopePath } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { angles, phases, type Angle, type Phase } from './vocabulary.ts';
@@ -86,7 +87,27 @@ function budgetLine(review: ReviewState, statistics: ReportInput['statistics']):
   return `- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent ${spent} USD.`;
 }
 
-function limitations(state: RunState, review: ReviewState, input: ReportInput): string[] {
+/** Why a candidate is unlocated, as `normalizeLocations` decided it, in the order the report lists them. */
+const unlocatedReasons = ['outside', 'deleted', 'past-end'] as const;
+type UnlocatedReason = (typeof unlocatedReasons)[number];
+const unlocatedWording: Readonly<Record<UnlocatedReason, string>> = {
+  outside: 'on a file outside the reviewed change',
+  deleted: 'on a file the change deletes, which has no after state for a line to point into',
+  'past-end': 'on a line past the end of the changed file',
+};
+
+/**
+ * Why an unlocated candidate is unlocated, found the way the location was
+ * normalized: its raw file names no scope path, or names one the change
+ * deletes; otherwise its line lay past the end of the file's after state.
+ */
+function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedReason {
+  const path = matchScopePath(scope.files.map((file) => file.path), candidate.rawFile);
+  if (path === null) return 'outside';
+  return scope.files.find((file) => file.path === path)?.after === null ? 'deleted' : 'past-end';
+}
+
+function limitations(scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
   for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
   for (const [unit, reason] of Object.entries(review.unverifiedGroups)) {
@@ -101,10 +122,13 @@ function limitations(state: RunState, review: ReviewState, input: ReportInput): 
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input.statistics.budgetApplied ? ' and the budget check' : ''} leave such workers out, so the run cost more than the totals show.`);
   }
-  const oversized = (state.scope?.files ?? []).filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => inlineText(file.path));
+  const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => inlineText(file.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(', ')}.`);
   const unlocated = Object.values(review.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
-  if (unlocated.length > 0) lines.push(`- Unlocated candidates, whose file or line did not match the reviewed change: ${unlocated.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(', ')}.`);
+  for (const reason of unlocatedReasons) {
+    const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
+    if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(', ')}.`);
+  }
   return lines;
 }
 
@@ -143,7 +167,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
   ];
   const statisticsSection = ['## Statistics', '', statisticsTable(input)];
-  const limitationsSection = ['## Limitations', '', ...limitations(state, review, input)];
+  const limitationsSection = ['## Limitations', '', ...limitations(scope, review, input)];
   return [header, anglesSection, findingsSection, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
 }
 

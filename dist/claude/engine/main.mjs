@@ -23864,7 +23864,18 @@ function budgetLine(review2, statistics) {
   }
   return `- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent ${spent} USD.`;
 }
-function limitations(state, review2, input2) {
+var unlocatedReasons = ["outside", "deleted", "past-end"];
+var unlocatedWording = {
+  outside: "on a file outside the reviewed change",
+  deleted: "on a file the change deletes, which has no after state for a line to point into",
+  "past-end": "on a line past the end of the changed file"
+};
+function whyUnlocated(scope, candidate) {
+  const path = matchScopePath(scope.files.map((file2) => file2.path), candidate.rawFile);
+  if (path === null) return "outside";
+  return scope.files.find((file2) => file2.path === path)?.after === null ? "deleted" : "past-end";
+}
+function limitations(scope, review2, input2) {
   const lines = [];
   for (const [angle, reason] of Object.entries(review2.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
   for (const [unit, reason] of Object.entries(review2.unverifiedGroups)) {
@@ -23879,10 +23890,13 @@ function limitations(state, review2, input2) {
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input2.statistics.budgetApplied ? " and the budget check" : ""} leave such workers out, so the run cost more than the totals show.`);
   }
-  const oversized = (state.scope?.files ?? []).filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => inlineText(file2.path));
+  const oversized = scope.files.filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => inlineText(file2.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(", ")}.`);
   const unlocated = Object.values(review2.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
-  if (unlocated.length > 0) lines.push(`- Unlocated candidates, whose file or line did not match the reviewed change: ${unlocated.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(", ")}.`);
+  for (const reason of unlocatedReasons) {
+    const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
+    if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(", ")}.`);
+  }
   return lines;
 }
 function renderReport(state, input2) {
@@ -23920,7 +23934,7 @@ function renderReport(state, input2) {
   Evidence: ${inlineText(evidence)}`)
   ];
   const statisticsSection = ["## Statistics", "", statisticsTable(input2)];
-  const limitationsSection = ["## Limitations", "", ...limitations(state, review2, input2)];
+  const limitationsSection = ["## Limitations", "", ...limitations(scope, review2, input2)];
   return [header, anglesSection, findingsSection, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
 }
 

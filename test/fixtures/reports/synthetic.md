@@ -71,4 +71,4 @@ None.
 - Worktree checks: 9, none found a difference from the reviewed change.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
 - Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above and the budget check leave such workers out, so the run cost more than the totals show.
-- Unlocated candidates, whose file or line did not match the reviewed change: SWEEP-1 (C:\elsewhere\b.ts:9).
+- Unlocated candidates on a file outside the reviewed change: SWEEP-1 (C:\elsewhere\b.ts:9).

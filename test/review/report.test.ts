@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { renderReport } from '../../src/review/report.ts';
-import { configured, ranked, reported, statistics, triaged, worker } from '../helpers/review-history.ts';
+import { configured, ranked, reference, reported, statistics, triaged, worker } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -108,6 +108,23 @@ describe('renderReport', () => {
     assert.match(report, /^- Angle FOOTGUNS did not run: timeout ## Limitation heading\. /m);
     assert.match(report, /^- Group g1 of sweep-verification was not verified: failed # Group heading\. /m);
     assert.ok(!report.split('\n').some((line) => /^[-*+] /.test(line) && line.includes('a list item')), 'no list item opened by a reason');
+  });
+
+  it('says why each unlocated candidate is unlocated: a file outside the change, a file the change deletes, or a line past the end', () => {
+    const state = reported().fold();
+    const review = state.review!;
+    const onDeleted = { ...review.candidates['SWEEP-1']!, id: 'SWEEP-3', rawFile: '/repo/src/gone.ts', rawLine: 42 };
+    const pastEnd = { ...review.candidates['SWEEP-1']!, id: 'SWEEP-4', rawFile: 'src/a.ts', rawLine: 999 };
+    const withDeleted = {
+      ...state,
+      scope: { ...state.scope!, files: [...state.scope!.files, { path: 'src/gone.ts', status: 'deleted' as const, symlink: false, before: { blob: reference('f') }, after: null }] },
+      review: { ...review, candidates: { ...review.candidates, 'SWEEP-3': onDeleted, 'SWEEP-4': pastEnd } },
+    };
+    const report = renderReport(withDeleted, { engine: '0.0.0', statistics });
+    assert.match(report, /^- Unlocated candidates on a file outside the reviewed change: SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)\.$/m);
+    assert.match(report, /^- Unlocated candidates on a file the change deletes, which has no after state for a line to point into: SWEEP-3 \(\/repo\/src\/gone\.ts:42\)\.$/m);
+    assert.match(report, /^- Unlocated candidates on a line past the end of the changed file: SWEEP-4 \(src\/a\.ts:999\)\.$/m);
+    assert.doesNotMatch(report, /did not match the reviewed change/, 'no candidate is described by a reason that is not its own');
   });
 
   it('refuses a run without a review', () => {
