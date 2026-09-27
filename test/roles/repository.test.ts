@@ -76,7 +76,6 @@ describe('the repository\'s roles/', () => {
     ['phase2-verify.md', /They are in the\s+verifier's role prompt/, ['verifier'], ['rubrics.md']],
     ['phase2-verify.md', /They appear here because you need/, keysNaming('phase2-verify.md'), ['rubrics.md']],
     ['phase3-sweep.md', /output contract \(in the sweep's\s+role prompt/, ['sweep'], ['finder-output.md']],
-    ['step3-audit.md', /they are in the auditor's role prompt/, ['auditor'], ['step3-verdicts.md']],
     ['postreview-fix-test.md', /its test\s+requirements live in its role prompt/, fixerRoles, ['fixer-apply.md', 'fixer-tests.md']],
     ['postreview-fix-test.md', /dispatch one fixer in documentation reconciliation mode/, ['documentation'], ['fixer-documentation.md']],
   ];
@@ -129,6 +128,13 @@ describe('the repository\'s roles/', () => {
     assert.ok(returnFormat >= 0, 'fixer-report.md has no return format');
     assert.ok(answer.prompt.endsWith(report.slice(returnFormat)), `answer ends with: ${answer.prompt.slice(-200)}`);
     assert.doesNotMatch(answer.prompt, /\bdispatch/i);
+  });
+
+  it('tells no worker that returns to the engine to dispatch other workers', () => {
+    // The auditor and the fixer roles each return one report; starting workers is the engine's job.
+    const returning = roles.filter((role) => ['auditor-brief.md', 'fixer-role.md'].includes(role.fragments[0]!.name));
+    assert.deepEqual(returning.map((role) => role.key), ['fixer', 'documentation', 'auditor', 'answer']);
+    assert.deepEqual(returning.filter((role) => /\bdispatch/i.test(role.prompt)).map((role) => role.key), []);
   });
 
   it('points at no checkpoint discipline, which no fragment defines', () => {
