@@ -52,6 +52,15 @@ describe('EvidenceStore', () => {
     assert.throws(() => store.verify({ sha256: emptySha, bytes: 0 }), EvidenceError);
   });
 
+  it('gives the absolute path of a blob it holds, and refuses one it does not', () => {
+    const store = new EvidenceStore(root);
+    const reference = store.put('pointed at');
+    assert.equal(store.pathOf(reference), join(root, reference.sha256));
+    assert.equal(store.read(reference).toString('utf8'), 'pointed at');
+    assert.throws(() => store.pathOf({ sha256: emptySha, bytes: 0 }), EvidenceError);
+    assert.throws(() => store.pathOf({ ...reference, bytes: reference.bytes + 1 }), EvidenceError);
+  });
+
   it('refuses a reference that is not a reference', () => {
     const store = new EvidenceStore(root);
     assert.throws(() => store.read({ sha256: 'nope', bytes: 1 }));

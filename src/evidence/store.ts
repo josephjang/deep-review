@@ -116,6 +116,18 @@ export class EvidenceStore {
     return bytes;
   }
 
+  /**
+   * The absolute path of the blob a reference names, verified to be there,
+   * so a prompt can point a worker at frozen bytes rather than carry them
+   * (R7 of the read-only review). The store is read-only to a worker; the
+   * path is for reading.
+   */
+  pathOf(value: ArtifactReference): string {
+    const reference = artifactReferenceSchema.parse(value);
+    this.verify(reference);
+    return this.#path(reference);
+  }
+
   #path(reference: ArtifactReference): string {
     return join(this.root, reference.sha256);
   }
