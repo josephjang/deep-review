@@ -181,6 +181,7 @@ describe('runWorker', () => {
       ['a final message that disagrees with the stream', { FAKE_FINAL: '{"answer":"other"}' }, /not its last agent message/],
       ['no final message file', { FAKE_FINAL: '' }, /no final message file/],
       ['an answer the schema rejects', { FAKE_OUTPUT: '{"answer":1}' }, /does not match the output schema/],
+      ['a sandbox that could not run its commands', { FAKE_STDERR: '2026-09-27T00:00:00Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { refused }\r\n' }, /refused to run 1 command\(s\) in its sandbox.*CreateProcess \{ refused \}$/],
       ['an MCP tool call', { FAKE_STDOUT: [{ type: 'thread.started', thread_id: '{session}' }, { type: 'item.completed', item: { id: 'x', type: 'mcp_tool_call' } }, { type: 'turn.completed' }].map((event) => JSON.stringify(event)).join('\n') }, /used mcp_tool_call/],
     ];
     for (const [name, fake, pattern] of failures) {

@@ -79,6 +79,14 @@ export function codexCommand(invocation: Invocation, plan: LaunchPlan): WorkerCo
 
 type CodexEvent = Record<string, unknown>;
 
+/**
+ * The line Codex logs to stderr when its sandbox cannot run a command at
+ * all, as opposed to a command that ran and was refused a write. Such a
+ * call leaves no item in the event stream, so stderr is the only place
+ * that shows the worker never had a working shell.
+ */
+const refusedCommand = /\bERROR codex_core::tools::router: error=exec_command failed: (.*)$/gm;
+
 const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** The message an `error` or `turn.failed` event carries, if any. */
@@ -89,8 +97,9 @@ function eventMessage(event: CodexEvent): string {
 }
 
 /**
- * Read the `exec --json` event stream and the final message file. Codex has
- * no denial evidence, so `denials` is always null (TD4). Every complete line
+ * Read the `exec --json` event stream, stderr and the final message file.
+ * Codex has no denial evidence, so `denials` is always null (TD4); a sandbox
+ * that could not run commands at all is a failure, not a denial. Every complete line
  * is parsed before any rule is applied, so a malformed later line cannot hide
  * the session id an earlier one recorded.
  */
@@ -121,6 +130,10 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
   const failed = (error: string): Decoded => ({ sessionIds, usage, denials: null, answer: null, budgetStop: false, error });
 
   if (malformed !== null) return failed(malformed);
+  const refusals = [...outputs.stderr.matchAll(refusedCommand)].map((match) => match[1]!.trim());
+  if (refusals.length > 0) {
+    return failed(`Codex refused to run ${String(refusals.length)} command(s) in its sandbox, so the worker had no working shell: ${refusals[0]!.slice(0, 500)}`);
+  }
   const threads = events.filter((event) => event.type === 'thread.started');
   if (threads.length !== 1) return failed(`Codex started ${String(threads.length)} threads; a worker is exactly one`);
   const thread = threads[0]!.thread_id;

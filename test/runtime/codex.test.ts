@@ -222,6 +222,24 @@ describe('codex decode', () => {
     assert.deepEqual(decoded.sessionIds, [other, thread]);
   });
 
+  it('fails a worker whose commands the sandbox refused to run, even though its turn completed', () => {
+    // Exactly what codex-cli 0.157.1 printed for an editor whose writable root sat under .git.
+    // The stream has no command item at all, so only stderr shows the worker never had a shell.
+    const refused =
+      '2026-09-27T00:07:23.500940Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "UnsupportedOperation(\\"windows elevated sandbox cannot reopen writable descendants under read-only carveouts directly; refusing to run unsandboxed\\")" }\n' +
+      '2026-09-27T00:07:28.455002Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "UnsupportedOperation(\\"second\\")" }\n';
+    const decoded = codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: refused, finalMessage: message });
+    assert.match(decoded.error ?? '', /refused to run 2 command\(s\).*cannot reopen writable descendants/);
+    assert.equal(decoded.answer, null);
+    assert.deepEqual(decoded.sessionIds, [thread]);
+    assert.deepEqual(decoded.usage, usage);
+  });
+
+  it('does not mistake other stderr lines for a refused command', () => {
+    const noise = '2026-09-27T00:07:23Z WARN codex_core::tools::router: slow tool\nERROR somewhere else: exec_command failed\nmise WARN: chpwd\n';
+    assert.equal(codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: noise, finalMessage: message }).error, null);
+  });
+
   it('keeps a continued session id when nothing was printed', () => {
     const decoded = decode('', null, { sessionId: thread, resume: thread });
     assert.deepEqual(decoded.sessionIds, [thread]);
