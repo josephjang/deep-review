@@ -30,6 +30,24 @@ describe('parseRoleManifest', () => {
   rejects('rejects a fragment name without the .md extension', { schemaVersion: 1, roles: { r: ['lead.txt'] } }, /fragment name/);
   rejects('rejects a fragment name with a double dash', { schemaVersion: 1, roles: { r: ['lead--brief.md'] } }, /fragment name/);
   rejects('rejects a value that is not an object', 'roles', /Invalid role manifest/);
+
+  // Only JSON.parse makes an own `__proto__` key; an object literal would set the prototype instead.
+  describe('a role key __proto__ from JSON', () => {
+    const roleKeyAtProto = /a role key is letters[^\n]*\n[^\n]*roles\.__proto__/;
+    it('is refused beside a valid role rather than dropped', () => {
+      const value: unknown = JSON.parse('{"schemaVersion":1,"roles":{"__proto__":["a.md"],"r":["b.md"]}}');
+      assert.throws(() => parseRoleManifest(value), (error: unknown) => error instanceof InvalidRoleManifestError && roleKeyAtProto.test(error.message));
+    });
+    it('is refused by the role key rule when it is the only role', () => {
+      const value: unknown = JSON.parse('{"schemaVersion":1,"roles":{"__proto__":["a.md"]}}');
+      assert.throws(() => parseRoleManifest(value), (error: unknown) => error instanceof InvalidRoleManifestError && roleKeyAtProto.test(error.message) && !/at least one role/.test(error.message));
+    });
+    it('is refused even when its value is not a fragment list', () => {
+      const value: unknown = JSON.parse('{"schemaVersion":1,"roles":{"__proto__":{"polluted":true},"r":["b.md"]}}');
+      assert.throws(() => parseRoleManifest(value), (error: unknown) => error instanceof InvalidRoleManifestError && roleKeyAtProto.test(error.message));
+      assert.equal(({} as Record<string, unknown>)['polluted'], undefined);
+    });
+  });
 });
 
 describe('roleKeySchema and fragmentNameSchema', () => {
