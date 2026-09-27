@@ -1,6 +1,6 @@
 import { EngineError } from '../errors.ts';
 
-/** The manifest cannot be read, is not JSON or fails its schema, the fragments/ directory cannot be listed, or an entry under fragments/ is one no role names. */
+/** The manifest cannot be read, is not JSON, gives a key twice in one object or fails its schema, the fragments/ directory cannot be listed, or an entry under fragments/ is one no role names. */
 export class InvalidRoleManifestError extends EngineError {
   override readonly name = 'InvalidRoleManifestError';
 }
