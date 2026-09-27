@@ -1,22 +1,55 @@
 import { z } from 'zod';
 import { artifactReferenceSchema } from '../evidence/store.ts';
-import {
-  angleSchema,
-  candidateIdSchema,
-  candidatePhaseSchema,
-  deduplicationPhaseSchema,
-  finderAngleSchema,
-  finderAngles,
-  groupIdSchema,
-  phaseOutcomeSchema,
-  phaseSchema,
-  recordedBlockerCodeSchema,
-  severitySchema,
-  unitKeySchema,
-  verdictSchema,
-  verificationPhaseSchema,
-} from '../review/vocabulary.ts';
 import { defineRegistry } from './registry.ts';
+
+/**
+ * The review vocabulary as version 1 of the review events records it (R10
+ * of the read-only review): the angles, phases, outcomes, blocker codes,
+ * verdicts and severities, and the spelling of candidate ids, group ids and
+ * unit keys.
+ *
+ * Written out here rather than taken from `review/vocabulary.ts`, as
+ * `worker.launched@1` writes out its enums: the vocabulary may change, and
+ * a version's shape must not change with it, or a newer engine would
+ * refuse an older ledger (a tenth finder angle, say, would make every
+ * `candidates.recorded@1` with nine leads fail to decode). A test holds
+ * these equal to today's vocabulary, so a change there fails until the
+ * events that carry the changed words get a new version.
+ */
+export const reviewVocabularyV1 = {
+  angles: ['SCAN', 'REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'],
+  finderAngles: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'],
+  phases: ['triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'report'],
+  candidatePhases: ['triage', 'finders', 'sweep'],
+  deduplicationPhases: ['deduplication', 'sweep-deduplication'],
+  verificationPhases: ['verification', 'sweep-verification'],
+  phaseOutcomes: ['completed', 'degraded', 'blocked'],
+  recordedBlockerCodes: ['worker-failed', 'budget', 'drift'],
+  verdicts: ['CONFIRMED', 'PLAUSIBLE', 'REFUTED'],
+  severities: ['critical', 'major', 'minor'],
+} as const;
+
+const vocabulary = reviewVocabularyV1;
+const angleSchema = z.enum(vocabulary.angles);
+const finderAngleSchema = z.enum(vocabulary.finderAngles);
+const phaseSchema = z.enum(vocabulary.phases);
+const candidatePhaseSchema = z.enum(vocabulary.candidatePhases);
+const deduplicationPhaseSchema = z.enum(vocabulary.deduplicationPhases);
+const verificationPhaseSchema = z.enum(vocabulary.verificationPhases);
+const phaseOutcomeSchema = z.enum(vocabulary.phaseOutcomes);
+const recordedBlockerCodeSchema = z.enum(vocabulary.recordedBlockerCodes);
+const verdictSchema = z.enum(vocabulary.verdicts);
+const severitySchema = z.enum(vocabulary.severities);
+
+/** The identifier spellings version 1 of the review events records, frozen for the same reason as the enums above. */
+export const reviewIdentifiersV1 = {
+  candidateId: z.string().regex(/^[A-Z]+-[1-9][0-9]*$/, 'a candidate id is an upper-case prefix, a dash and a number from 1'),
+  groupId: z.string().regex(/^g[1-9][0-9]*$/, 'a group id is g and a number from 1'),
+  unitKey: z.string().regex(/^[A-Za-z0-9-]{1,40}$/, 'a unit key is letters, digits and dashes'),
+} as const;
+const candidateIdSchema = reviewIdentifiersV1.candidateId;
+const groupIdSchema = reviewIdentifiersV1.groupId;
+const unitKeySchema = reviewIdentifiersV1.unitKey;
 
 /** A run exists. Its first and only creation event; the run id is the ledger's, not the payload's. */
 export const runCreatedV1 = z.strictObject({
@@ -321,10 +354,10 @@ export const candidatesRecordedV1 = z.strictObject({
   key: unitKeySchema,
   workerId: z.uuid(),
   candidates: z.array(recordedCandidateSchema).max(12),
-  leads: z.array(leadSchema).length(finderAngles.length).nullable(),
+  leads: z.array(leadSchema).length(vocabulary.finderAngles.length).nullable(),
 }).superRefine((recorded, context) => {
   if ((recorded.phase === 'triage') !== (recorded.leads !== null)) context.addIssue({ code: 'custom', message: 'the triage alone returns leads', path: ['leads'] });
-  if (recorded.leads !== null && new Set(recorded.leads.map((lead) => lead.angle)).size !== finderAngles.length) {
+  if (recorded.leads !== null && new Set(recorded.leads.map((lead) => lead.angle)).size !== vocabulary.finderAngles.length) {
     context.addIssue({ code: 'custom', message: 'one lead per finder angle', path: ['leads'] });
   }
   if (new Set(recorded.candidates.map((candidate) => candidate.id)).size !== recorded.candidates.length) context.addIssue({ code: 'custom', message: 'candidate ids are unique', path: ['candidates'] });
