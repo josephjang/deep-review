@@ -9,7 +9,7 @@ import type { Blocker } from '../checkpoint/events.ts';
 import { poolCandidates, singleUnitKey, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
-import { blockerActions, finderAngles, maxRecordedTextLength, phases, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
+import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
 
 /** How many times a unit is tried before its role's rule decides (R5, PD6). */
 export const maxAttempts = 2;
@@ -60,7 +60,7 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
     case 'triage':
       return single('triage');
     case 'finders':
-      return finderAngles.map((angle) => ({ phase, key: angle, role: `finder-${angle}`, degrades: true }));
+      return finderAngles.map((angle) => ({ phase, key: angle, role: roleOfAngle(angle), degrades: true }));
     case 'deduplication':
     case 'sweep-deduplication':
       return poolCandidates(review, phase).length >= 2 ? single('deduplication') : [];
@@ -225,6 +225,3 @@ export function nextStep(review: ReviewState, live: Live): Step {
   const outcome = units.some((unit) => degraded(review, unit)) ? 'degraded' : 'completed';
   return { kind: 'finish-phase', phase, attempt, outcome, blocker: null };
 }
-
-/** The phases in review order, for callers that iterate them. */
-export const orderedPhases: readonly Phase[] = phases;

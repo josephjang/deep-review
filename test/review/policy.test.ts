@@ -24,6 +24,7 @@ describe('the committed roles/policy.json', () => {
   it('names exactly the fourteen roles the review runs, and only the two runtimes', () => {
     assert.deepEqual(Object.keys(committed.roles).sort(), [...reviewRoles].sort());
     assert.equal(reviewRoles.length, 14);
+    assert.deepEqual(reviewRoles, ['triage', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS', 'deduplication', 'verifier', 'sweep', 'merge-rank'], 'the role of every angle in launch order, then the roles of the later phases');
     assert.deepEqual(Object.keys(committed.runtimes).sort(), ['claude', 'codex']);
     assert.equal(committed.concurrency, 4);
   });
