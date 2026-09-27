@@ -24108,6 +24108,17 @@ async function runReview(options2) {
   }
   const runId = state.id;
   const release = releaseOnExit(acquireRunLock(checkpoint.root, runId));
+  const inFlight = /* @__PURE__ */ new Map();
+  const record2 = (settled, startedAt) => {
+    const name = unitName(settled.unit.phase, settled.unit.key);
+    if ("error" in settled) throw settled.error;
+    const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
+    log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled.receipt.error === null ? "" : `: ${settled.receipt.error}`}`);
+    state = checkpoint.fold(runId);
+    const event = contributionOf(settled.unit, settled.receipt, state, options2.worktree);
+    if (event.kind === "attempt.failed") log(`worker ${settled.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
+    state = append(checkpoint, state, [event]);
+  };
   try {
     if (state.scope === null) {
       state = captureScope(checkpoint, runId, options2.scope);
@@ -24125,7 +24136,6 @@ async function runReview(options2) {
     state = reenterPhase(checkpoint, state, log);
     const scope = state.scope;
     const block = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) });
-    const inFlight = /* @__PURE__ */ new Map();
     for (; ; ) {
       const review2 = state.review;
       const live2 = { running: new Set(inFlight.keys()), concurrency, spendUsd: runSpendUsd(state, adapter), budgetUsd };
@@ -24172,17 +24182,8 @@ async function runReview(options2) {
           break;
         }
         case "await": {
-          const settled = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
-          const name = unitName(settled.unit.phase, settled.unit.key);
-          const entry = inFlight.get(name);
-          inFlight.delete(name);
-          if ("error" in settled) throw settled.error;
-          const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
-          log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - entry.startedAt)}${usd3(summary.costUsd)}${settled.receipt.error === null ? "" : `: ${settled.receipt.error}`}`);
-          state = checkpoint.fold(runId);
-          const event = contributionOf(settled.unit, settled.receipt, state, options2.worktree);
-          if (event.kind === "attempt.failed") log(`worker ${settled.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
-          state = append(checkpoint, state, [event]);
+          const { settled, startedAt } = await nextSettled(inFlight);
+          record2(settled, startedAt);
           break;
         }
         case "finish-phase":
@@ -24202,8 +24203,24 @@ async function runReview(options2) {
       }
     }
   } finally {
+    if (inFlight.size > 0) log(`run ${runId}: waiting for ${String(inFlight.size)} worker${inFlight.size === 1 ? "" : "s"} in flight`);
+    while (inFlight.size > 0) {
+      const { settled, startedAt } = await nextSettled(inFlight);
+      try {
+        record2(settled, startedAt);
+      } catch (error62) {
+        log(`worker ${settled.unit.role} ${unitName(settled.unit.phase, settled.unit.key)}: not recorded: ${error62 instanceof Error ? error62.message : String(error62)}`);
+      }
+    }
     release();
   }
+}
+async function nextSettled(inFlight) {
+  const settled = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
+  const name = unitName(settled.unit.phase, settled.unit.key);
+  const entry = inFlight.get(name);
+  inFlight.delete(name);
+  return { settled, startedAt: entry.startedAt };
 }
 function append(checkpoint, state, events) {
   let current = state;

@@ -8,11 +8,11 @@
 // one line of its item.completed event. With FAKE_SCRIPT set and a review
 // worker's prompt on stdin, the scripted step decides the final message.
 import { writeFileSync } from 'node:fs';
-import { answer, beginScriptedStep, environment, freshThread, option, printHelp, readStdin, record, scriptedStep } from './fake-runtime.ts';
+import { answer, beginScriptedStep, environment, freshThread, option, printHelp, readStdin, record, scriptedStep, versionOutput } from './fake-runtime.ts';
 
 const argv = process.argv.slice(2);
 if (argv[0] === '--version') {
-  process.stdout.write(`${environment.FAKE_VERSION ?? 'codex-cli 0.147.0'}\n`);
+  process.stdout.write(`${versionOutput('codex-cli 0.147.0')}\n`);
 } else if (argv[0] === '--help') {
   printHelp(['--ask-for-approval', '--config', '--model', '--sandbox']);
 } else if (argv.at(-1) === '--help') {

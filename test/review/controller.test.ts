@@ -257,6 +257,33 @@ describe('runReview', { timeout: 600_000 }, () => {
     }
   });
 
+  it('waits for the workers still in flight, and records their answers, before a launcher error ends the review', async () => {
+    const removalsMayAnswer = join(box.directory, 'removals-may-answer');
+    const rippleMayAnswer = join(box.directory, 'ripple-may-answer');
+    const broken = join(box.directory, 'runtime-broken');
+    // REMOVALS and RIPPLE launch together; once RIPPLE answers, the next finder's preflight finds the runtime broken while REMOVALS still runs.
+    box.script({ 'finder-REMOVALS': { waitFor: removalsMayAnswer }, 'finder-RIPPLE': { waitFor: rippleMayAnswer } });
+    let settled = false;
+    const pending = box.review('claude', { flags: { concurrency: 2 } }, { FAKE_UNQUALIFIED_WHEN: broken });
+    pending.then(() => (settled = true), () => (settled = true));
+    try {
+      const running = (): string[] => box.checkpoint.listRuns().flatMap((run) => Object.values(run.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label ?? ''));
+      await until(() => running().length === 2, 'REMOVALS and RIPPLE running', 60_000);
+      writeFileSync(broken, '');
+      writeFileSync(rippleMayAnswer, '');
+      await until(() => settled || box.logs.some((line) => /waiting for 1 worker in flight/.test(line)), 'the launcher error', 60_000);
+      assert.equal(settled, false, 'the review does not end while REMOVALS runs');
+      assert.deepEqual(running(), ['finder-REMOVALS finders:REMOVALS']);
+    } finally {
+      writeFileSync(removalsMayAnswer, '');
+    }
+    await assert.rejects(pending, (error: unknown) => error instanceof Error && /does not identify itself as claude/.test(error.message));
+    const state = box.run();
+    assert.deepEqual(Object.values(state.workers).filter((worker) => worker.status !== 'finished'), [], 'no worker is left running on the ledger');
+    assert.notEqual(state.review!.units['finders:REMOVALS']?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');
+    assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released after the last worker');
+  });
+
   it('refuses a resumed run whose runtime differs, and two active runs', async () => {
     box.script({ triage: { exit: 2 } });
     await box.review('claude');
