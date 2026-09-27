@@ -20,7 +20,7 @@ describe('parseRoleManifest', () => {
   rejects('rejects a schema version it does not know', { ...valid, schemaVersion: 2 }, /schemaVersion/);
   rejects('rejects a top-level key it does not know', { ...valid, extra: true }, /extra/);
   rejects('rejects a manifest with no roles', { schemaVersion: 1, roles: {} }, /at least one role/);
-  rejects('rejects a role with no fragments', { schemaVersion: 1, roles: { empty: [] } }, /empty/);
+  rejects('rejects a role with no fragments', { schemaVersion: 1, roles: { empty: [] } }, /expected array to have >=1 items[^\n]*\n[^\n]*roles\.empty/);
   rejects('rejects a role that names one fragment twice', { schemaVersion: 1, roles: { twice: ['a.md', 'b.md', 'a.md'] } }, /names a\.md twice[\s\S]*twice/);
   rejects('rejects a role key that starts with a digit', { schemaVersion: 1, roles: { '1st': ['a.md'] } }, /role key/);
   rejects('rejects a role key with a space', { schemaVersion: 1, roles: { 'has space': ['a.md'] } }, /role key/);
