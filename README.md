@@ -8,29 +8,35 @@ This repository is being built one element at a time from what the
 arrives with a change proposal under `docs/changes/` that records why it is
 here, what it leaves out and what was rejected. So far: the repository
 skeleton (toolchain, build, install path, continuous integration), the
-checkpoint ledger the engine will record every run in, scope capture, the
-runtime adapter that runs one model worker on Claude Code or Codex, and
-the role prompts those workers are given. The engine has not shipped yet,
-and the installed skill says so.
+checkpoint ledger the engine records every run in, scope capture, the
+runtime adapter that runs one model worker on Claude Code or Codex, the
+role prompts those workers are given, and the read-only review: one
+command that runs a change through the  triage, nine more finder
+angles, deduplication, verification, a gap sweep and a merge-and-rank
+pass and writes a Markdown report, editing nothing. The engine ships as
+one bundle inside both artifacts, and the installed skill runs it.
 
 ## Layout
 
 ```
 skill/claude/            sources of the Claude Code plugin
 skill/codex/             sources of the Codex skill
-roles/                   the role prompts: one manifest and the fragments it joins them from
-dist/claude/             the plugin, built from skill/claude, committed
-dist/codex/              the Codex skill, built from skill/codex, committed
+roles/                   the role prompts: one manifest, the fragments it joins them from, and the role policy
+dist/claude/             the plugin, built from skill/claude with the engine bundled under engine/, committed
+dist/codex/              the Codex skill, built from skill/codex with the same engine, committed
 .claude-plugin/          marketplace.json: this repository as a marketplace
-src/build/               assembling and verifying dist/
+src/build/               assembling and verifying dist/, and bundling the engine into it
 src/checkpoint/          the run ledger: location, SQLite, event registry, fold
 src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
 src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
 src/roles/               assembling each role's prompt from roles/
+src/review/              the read-only review: policy, schemas, prompts, planner, controller, report
+src/cli.ts               the deep-review command: review, status, abandon
 scripts/                 build, fixture and smoke entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
+test/fixtures/reports/   the report renderer's snapshot
 docs/changes/            change proposals, one per behavior change, in one file or a requirements and design pair
 AGENTS.md, CLAUDE.md     conventions every agent follows here
 ```
@@ -98,7 +104,7 @@ caller builds the runtimes with. See
 
 A worker runs in a role: the `SCAN` triage, one of the ten finder
 angles, the verifier, the sweep, the fixer, the auditor and the rest,
-twenty-one in all. Each role's prompt is assembled from the fragments
+twenty in all. Each role's prompt is assembled from the fragments
 under `roles/fragments/` in the order `roles/manifest.json` lists for
 it, joined with one blank line. The manifest is the only place
 composition is declared, and every fragment is held to a few invariants
@@ -112,12 +118,60 @@ commit replaced the wording that named Claude Code's subagents and
 tools with wording true on every runtime, which a test now holds every
 prompt to, and review corrected the few replacements that were wrong or
 missed and added the one fragment written here, which tells a worker
-that the engine's narration of a review is not its task. Which model,
-effort, access and budget a role runs with, and
-what it must return, are not declared here: each is decided with the
-phase that first runs the role. `npm run roles -- --output <dir>`
+that the engine's narration of a review is not its task. The read-only
+review then rewrote the four fragments that narrate the phases for the
+engine's workers, in a commit of its own, and the `angle-decision` role
+left the manifest. Which model tier, effort, budget and timeout a role
+runs with is declared in `roles/policy.json` for the fourteen roles the
+read-only review runs; what each must return is the output schema of the
+phase that runs it. `npm run roles -- --output <dir>`
 writes every assembled prompt for reading to a new directory outside
 `roles/`. See `docs/changes/2026-09-27-role-prompts.md`.
+
+## The read-only review
+
+`deep-review review` reviews one change and writes a report, in the
+foreground, and is resumable. It creates a run, captures the scope, and
+runs the phases in a fixed order: the `SCAN` triage, which also returns
+one lead per other angle; the nine other finder angles in parallel, each
+given its lead; deduplication; one verifier per group of candidates in
+one file; a gap sweep told which angles did not run; the sweep's own
+deduplication and verification; merge and rank; the report. Every angle
+runs on every review. Before each phase the worktree is compared with
+the captured scope, and a difference blocks the run until the tree is
+restored. Everything a phase decides is an event, so the same command
+run again after an interruption records the workers it lost, re-enters
+the phase, and launches only the units whose answer is not on the
+ledger.
+
+Every worker runs read-only with a shell under the policy in
+`roles/policy.json`, pinned on the run's ledger before the first launch:
+a tier (`strong` or `fast`, the models coming from `--strong-model` and
+`--fast-model` or the runtime's defaults), an effort, a per-worker
+budget and a timeout. A worker that does not complete, or whose answer
+fails its schema or a structural check, is run once more as a fresh
+worker; a second failure degrades by role: a finder's angle is recorded
+as not run, a verifier's group as unverified with its candidates
+`PLAUSIBLE` and marked, and the triage, deduplication, sweep and
+merge-rank block the run. At most `--concurrency` workers run at once (4
+by default), and on a runtime that reports cost the run has a budget
+(`--budget-usd`, 30 USD by default on Claude Code) checked before every
+launch. Every way a run stops short of a report names the operator's
+action: run again, raise the budget, restore the tree, or abandon.
+
+The report is Markdown rendered by the engine into the evidence store;
+the command prints its path as the last line of stdout and exits 0. Its
+sections are the header, Angles, Findings (most severe first, with the
+merged ids, verdict, evidence and the unlocated and unverified marks),
+Refuted at verification, Statistics per phase and Limitations. A blocked
+run exits 2 with the blocker and its action on stderr. `deep-review
+status` prints the fold of the active run, as text or `--json`;
+`deep-review abandon --reason <text>` closes it. The engine ships as one
+esbuild bundle, `engine/main.mjs`, in both artifacts, with a sidecar
+holding its version and hash and a copy of `roles/`; every event the
+installed engine writes carries `<version>+<hash prefix>` as its engine.
+See `docs/changes/2026-09-27-read-only-review.requirements.md` and its
+design.
 
 ## Developing
 
@@ -132,17 +186,24 @@ npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
 npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox elevated]   # real runtimes, by hand
 npm run roles -- --output <dir>   # write every assembled role prompt to <dir> for reading
+npm run review -- review --runtime claude --last-commit   # run the engine from the sources; also status and abandon
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the
 `node:test` suites against the TypeScript sources directly; nothing is
-transpiled. `npm run verify` assembles both artifacts into a temporary tree
-and compares them with the committed `dist/`, so a commit that claims to
-change only where text lives can be checked rather than trusted.
-Continuous integration runs both on Windows, macOS and Linux.
+transpiled. `npm run build` bundles `src/cli.ts` with esbuild into each
+artifact's `engine/main.mjs`, writes the sidecar and copies `roles/`
+beside it, then copies the skill sources; `npm run verify` assembles both
+artifacts into a temporary tree and compares them with the committed
+`dist/`, bundle included, so a commit that claims to change only where
+text lives can be checked rather than trusted. Continuous integration
+runs both on Windows, macOS and Linux.
 
 The suite never calls a model: fake Claude and Codex CLIs stand in for the
-real ones. `npm run smoke` is the real-runtime check, for each CLI named
+real ones, and for the review they answer from a script per role and
+unit, so a whole review runs through the controller in a test, with
+failures, hangs, a killed engine and a drifted tree where a case needs
+them. `npm run smoke` is the real-runtime check, for each CLI named
 on its command line, installed and signed in. Per runtime it runs three
 workers: a read-only worker asked to create a file with its shell, that
 worker's session continued and asked the same again, and an editor with
@@ -169,10 +230,13 @@ The repository is its own plugin marketplace. In a Claude Code session:
 /plugin install deep-review@deep-review
 ```
 
-The skill is then `/deep-review:deep-review`. The plugin carries no version
-field on purpose, so `/plugin marketplace update deep-review` follows the
-latest commit. The repository is private; adding it uses the git
-credentials already on the machine.
+The skill is then `/deep-review:deep-review`. It runs the bundled engine
+with `--runtime claude` on the scope the user named (the dirty worktree
+by default, else the last commit), waits for it, and shows the report's
+path. Node 26 or newer must be on the machine. The plugin carries no
+version field on purpose, so `/plugin marketplace update deep-review`
+follows the latest commit. The repository is private; adding it uses the
+git credentials already on the machine.
 
 From a local checkout, the same two steps take the checkout path instead of
 the GitHub name, and the plugin then loads in place: edits under `dist/`
@@ -186,4 +250,6 @@ There is no installer. Copy the built skill directory:
 dist/codex/**   ->   ~/.agents/skills/deep-review/
 ```
 
-The skill is then `$deep-review`.
+The skill is then `$deep-review`. It runs the bundled engine beside its
+`SKILL.md` with `--runtime codex`; Codex reports no cost, so a Codex run
+has no budget and its report says so.

@@ -797,10 +797,161 @@ three CI runners.
 
 ## Verification
 
-No checks have run yet. This section is filled by the commits that
-complete the element: `npm run check` and `npm run verify` on the author's
-machine and on the three CI runners, the roles' hashes after each text
-commit, and the two gate runs.
+Run on the author's Windows 11 machine on 2026-09-28, Node 26.10.0, over
+the eleven commits that build the element after the proposal (`71b693f`),
+from `76f1ba9` to `4cc1a80`. `npm run check` and
+`npm run verify` passed before each commit, `npm run check` ending at 810
+tests, 798 passing and 12 skipped: the six POSIX signal cases, the four
+symlink cases and the two assembler cases bound to a platform, as the
+role prompts element recorded them, and no new skip. Continuous
+integration on the three platforms has not run yet for these commits; it
+runs when the pull request opens, and its result is recorded here then.
+
+The commits, in order, and what each carries:
+
+- `76f1ba9` usage summary: `summarizeUsage` and `costInUsd` per adapter.
+- `c9516c1` the fourteen event kinds, the reducers, `worker.lost`, and
+  the golden fixture `schema-1-04`, whose third run goes through every
+  kind; the three older fixtures fold with `review: null`.
+- `2c159d7` the narration rewrite (text commit 1 of PD14).
+- `89e231a` the `CONVENTIONS` wording (text commit 2, R12).
+- `21375c5` `roles/policy.json` and its resolution.
+- `6c10afa` output schemas, structural checks, locations, grouping.
+- `c98728a` the scope block, the rules files, the task texts, `pathOf`.
+- `1664edc` the state selectors, the planner, labels, spend, the report.
+- `105cbd4` the controller, the lock, the executable resolution, the
+  command, the scripted fakes and the whole-review tests.
+- `7c1fcd6` the esbuild bundle in both artifacts.
+- `4cc1a80` the skill texts, rebuilt into `dist/`.
+
+The roles' hashes after each text commit. At `2c159d7` (narration):
+
+| Role | Fragments | Bytes | SHA-256 |
+|---|---|---|---|
+| triage | 10 | 23997 | `e489f3271f87a1ebf17517fd1ee32d8ad30a12926d0b9e94ad01bdb4baf20cc3` |
+| finder-SCAN | 6 | 12457 | `3a9dfee1144ce913cc780ee5da3293d1bffd5fe2a231a040115507335b916838` |
+| finder-REMOVALS, DESIGN, ALTITUDE | 4 | 5175 | `2bf05b2b036f21fd0871773d4c17be7206b3b0591c5f951898f8011b2caa3377` |
+| finder-RIPPLE, FOOTGUNS, WRAPPERS, EFFICIENCY, DUPLICATION | 4 | 7073 | `797f115385b0a4c36dda880edcbe0a101f282d3c5c8c1c3e2e1b61ebca6a0ace` |
+| finder-CONVENTIONS | 4 | 3429 | `f59c5376c99af70457256af6c221319314cf99da53c68eaa61d026e178224d0d` |
+| deduplication, verifier | 6 | 15096 | `5c3eeef70efda83ea3fc7da4961dbec660b33eef3813a8077a58ce94b0205129` |
+| sweep | 10 | 22458 | `9ec198673392a6f74d423e9117b9806a2ad4fc56f4c324048cd9342a6b043469` |
+| merge-rank | 6 | 13156 | `4975e4c2b458ae19836f5559e5491070d4bf5a7ff2a45f0d0d2f889174dedd72` |
+| test-assessment | 6 | 28705 | `e63e40d70ff705c6db786c6e4876cf451348ecbd80bba45678273806d1786082` |
+
+`fixer`, `documentation`, `auditor` and `answer` kept their hashes from
+`a77e6ec`. The finders changed only through `finder-lead.md`
+(`Driver lead` gone); the lead roles through the four phase fragments,
+`lead-brief.md` and `rubrics.md`; `test-assessment` through `rubrics.md`.
+
+At `89e231a` (`CONVENTIONS` wording), which changed `angles-conventions.md`,
+the `CONVENTIONS` rubric in `rubrics.md` and one bullet of
+`phase3-sweep.md`:
+
+| Role | Fragments | Bytes | SHA-256 |
+|---|---|---|---|
+| triage | 10 | 24202 | `704cb575c920c7ec2b63beda108c3b2b25a0e5d8e9163e4fa06d2195cfc3e44f` |
+| finder-SCAN | 6 | 12512 | `b76d436076eef7f7eaf1a73883de94fa3d598246d1217cba21e474fa1825f14f` |
+| finder-CONVENTIONS | 4 | 3579 | `25eebcce7c5ef0cfa706d478024fa2fc90253bd65ec45b2fc1b17b2db8537f84` |
+| deduplication, verifier | 6 | 15151 | `1f70c646e2c8d07e833a0c4de0a24ff53bbd1d49ade56f1c646df58cb4752a17` |
+| sweep | 10 | 22711 | `7292146ec20360f7dd22fa2ae69169ada0686d7a913e9082423680160f6aae4a` |
+| merge-rank | 6 | 13211 | `91ca712d7f35fdd683fbcd1fc9fa91e1b3a4faf2ccfde336db5aeb7a51d1b060` |
+| test-assessment | 6 | 28760 | `a57fc5ca3d6f7387a34964f735f8a9ee5192281c0e75d44bb6052d9ce154102f` |
+
+The eight other finders and the four fix-pass roles are unchanged from
+the table above. Twenty roles make the manifest since `angle-decision`
+left it. The `rolesDigest` a run pins is SHA-256 over every role's
+`key:sha256` line, so it changes with any of these.
+
+What the implementation decided where the design left room, or departed
+from its text, each recorded here rather than silently:
+
+- **The run's `status` stays `active | abandoned` on the fold.** The
+  design said the status line becomes `active | blocked | complete |
+  abandoned`, derived. The ledger's `status` is what `append` and the
+  fold use to refuse events after a run closes, and a blocked run must
+  accept the events that resume it, so the four-way status is a derived
+  view, `reviewStatus(state)` in `src/review/state.ts`, which `status`
+  prints; `RunState.status` is unchanged and the older fixtures fold as
+  before.
+- **`report` is a phase.** The design started and finished eight phases
+  and checked the worktree "before the report" with a drift blocking
+  "the phase about to start", which has no `phase.started`. The report
+  is the ninth phase: started, checked, then `report.written` and
+  `phase.finished` in one append. A drift before it blocks the report
+  phase like any other.
+- **The check comes after the start.** For every phase the order is
+  `phase.started`, then `worktree.checked` for that attempt, then the
+  work; a drift appends `phase.finished` blocked with code `drift` in the
+  same append as the check. A resumed engine re-enters a running or
+  blocked phase with `phase.started` at the next attempt, which is what
+  makes it check the tree again and clears a blocker; the attempt counts
+  entries into the phase, not worker attempts.
+- **Unit attempts are counted per unit, and reset by a block.** Failures
+  are `attempt.failed` events and lost workers, counted per unit across
+  the phase's attempts, so an interruption does not give a unit fresh
+  attempts. A `phase.started` on a blocked phase forgets its units'
+  failures, which is what "run again (two fresh attempts)" promises the
+  operator after `worker-failed`; an interruption resumes with the count
+  intact.
+- **A lost worker carries its unit.** `worker.lost@1` names the phase and
+  unit key parsed from the launch label, `<role> <phase>:<key>`, and the
+  fold counts it as a failed attempt of that unit; a label the parser
+  does not recognise (the smoke's, say) loses the worker without a unit.
+  No `attempt.failed` is appended for it.
+- **`rubrics.md` changed wording too.** The narration rewrite was meant
+  to touch four fragments; the test that no review role's prompt names a
+  step of the fix pass found `Step 1` and `Step 3` in `rubrics.md` (and
+  `run/skip` in `lead-brief.md`). Both were reworded to say the same
+  routing without the step names ("a fix pass", "a later pass", "a
+  steering question"); no rubric rule changed. The fix-loop element may
+  restore the names when it defines the steps.
+- **Two more flags.** `--executable-arg <arg>`, repeatable, gives the
+  literal arguments the runtime contract's `executableArgs` takes, which
+  is how the tests run the fake CLIs through Node and how a `.cmd` shim's
+  target can be run through `node`; `--roles <dir>` names the roles
+  directory, which the tests point at a copy whose policy has short
+  timeouts. The default roles root is `engine/roles` beside the bundle,
+  or the repository's `roles/` from the sources.
+- **The budget is checked per launch step, not per worker.** A launch
+  step fills the free concurrency at once, so the overshoot the
+  requirements accept is up to `concurrency` workers' caps: with a 20 USD
+  budget and 12 USD workers the test observes 60 USD spent (the triage,
+  then four finders) before the block.
+- **`--budget-usd` on Codex is refused, not ignored**, since the check it
+  sets could never run; the Codex skill text says not to pass it.
+- **Deduplication runs only when its pool holds two candidates**, and
+  merge-rank only when a candidate survived; otherwise the phase starts,
+  is checked and finishes completed with no worker, and the report says
+  no finding survived.
+- **Locations fall back to a case-insensitive match** after the exact
+  one fails, since a finder may spell a path as its file system shows it.
+- **The scripted fakes** answer by `<role>:<phase>:<unit>`, `<role>:<unit>`,
+  `<role>` or `*` from a JSON file named by `FAKE_SCRIPT`, one step per
+  attempt of a unit, each able to answer, answer malformed, exit nonzero,
+  hang, wait for a file or report a cost; the header lines `Role:`,
+  `Unit:` and `Phase:` in the Task section are what they match.
+
+Tests checked to fail before their code, or with the behavior they guard
+removed: every reducer's invalid history; every planner step on a
+synthetic fold, including the fresh attempts after a block and the
+retained count after an interruption; every structural check; the
+suffix, tail and case rules of location matching; the chunking remainder;
+the report snapshot, which fails on any change to the renderer; the
+command's exit codes; and, through the fakes, a finder failing twice, a
+verifier failing twice, the triage failing twice and the next command
+continuing, the budget block and its continuation with a higher budget,
+the drift block and its continuation once the file is restored, the lock
+held and stale, and the engine killed after three finders answered,
+whose next invocation records the lost workers and launches exactly the
+units without an answer.
+
+**R14, the gate on a real change from a well-known open-source
+repository on both runtimes, has not run.** It needs the real Claude Code
+and Codex CLIs signed in, costs real money, and its subject, the pull
+request the Open Questions describe, is the author's to choose. Until it
+runs, the element is complete in its code and its suite but not
+accepted; the two reports' statistics, the repository, the change and
+why they were chosen are recorded here when it does.
 
 ## Risks & Migration
 
