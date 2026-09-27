@@ -133,9 +133,10 @@ export const unitKeySchema = z.string().regex(/^[A-Za-z0-9-]{1,40}$/, 'a unit ke
 
 /**
  * The longest reason or detail the ledger records for a failed attempt, an
- * angle not run, a group unverified or a blocker: the `.max(4000)` of the
- * `attempt.failed`, `angle.failed`, `group.unverified` and blocker
- * schemas in events.ts. Text the engine composes is cut to fit it.
+ * angle not run, a group unverified or a blocker: `recordedTextLengthV1`,
+ * the cap of the `attempt.failed`, `angle.failed`, `group.unverified`
+ * and blocker schemas in events.ts, which a test holds equal to this. Text
+ * the engine composes is cut to fit it.
  */
 export const maxRecordedTextLength = 4000;
 

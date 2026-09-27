@@ -51,6 +51,16 @@ const candidateIdSchema = reviewIdentifiersV1.candidateId;
 const groupIdSchema = reviewIdentifiersV1.groupId;
 const unitKeySchema = reviewIdentifiersV1.unitKey;
 
+/**
+ * The longest reason or detail version 1 of the review events records: a
+ * failed attempt's reason, an angle not run, a group unverified and a
+ * blocker's detail. Frozen here for the same reason as the vocabulary
+ * above; the engine cuts the text it composes to `maxRecordedTextLength`,
+ * which a test holds equal to it.
+ */
+export const recordedTextLengthV1 = 4000;
+const recordedTextSchema = z.string().min(1).max(recordedTextLengthV1);
+
 /** A run exists. Its first and only creation event; the run id is the ledger's, not the payload's. */
 export const runCreatedV1 = z.strictObject({
   /** Absolute worktree the run was started from. Informational: the checkpoint is shared by every worktree. */
@@ -299,7 +309,7 @@ export type PhaseStarted = z.infer<typeof phaseStartedV1>;
 /** Why a run is blocked and what the operator does about it (R5). */
 export const blockerSchema = z.strictObject({
   code: recordedBlockerCodeSchema,
-  detail: z.string().min(1).max(4000),
+  detail: recordedTextSchema,
   action: z.string().min(1).max(1000),
 });
 export type Blocker = z.infer<typeof blockerSchema>;
@@ -384,14 +394,14 @@ export const attemptFailedV1 = z.strictObject({
   phase: phaseSchema,
   key: unitKeySchema,
   workerId: z.uuid(),
-  reason: z.string().min(1).max(4000),
+  reason: recordedTextSchema,
 });
 export type AttemptFailed = z.infer<typeof attemptFailedV1>;
 
 /** A finder angle failed twice and is not run in this review; the report says so and the sweep is told (R5). */
 export const angleFailedV1 = z.strictObject({
   angle: finderAngleSchema,
-  reason: z.string().min(1).max(4000),
+  reason: recordedTextSchema,
 });
 export type AngleFailed = z.infer<typeof angleFailedV1>;
 
@@ -427,7 +437,7 @@ export type VerdictsRecorded = z.infer<typeof verdictsRecordedV1>;
 export const groupUnverifiedV1 = z.strictObject({
   phase: verificationPhaseSchema,
   groupId: groupIdSchema,
-  reason: z.string().min(1).max(4000),
+  reason: recordedTextSchema,
 });
 export type GroupUnverified = z.infer<typeof groupUnverifiedV1>;
 
