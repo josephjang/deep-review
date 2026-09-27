@@ -3,6 +3,7 @@ import type { Decoded, LaunchPlan, RuntimeAdapter, WorkerCommand, WorkerOutputs 
 import type { Invocation } from './contract.ts';
 import { pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { InheritedOverrideError } from './errors.ts';
+import { isObject } from './json.ts';
 
 /** Every flag the command below uses; the preflight requires each in `--help` (R4). */
 export const claudeFlags = [
@@ -82,9 +83,9 @@ export function claudeCommand(invocation: Invocation, plan: LaunchPlan): WorkerC
 /** A denial without readable input is still a denial; keep the tool and whatever detail there is. */
 function deniedTools(denials: readonly unknown[]): DeniedTool[] {
   return denials.map((entry) => {
-    const denial = (entry !== null && typeof entry === 'object' ? entry : {}) as { tool_name?: unknown; tool_input?: unknown };
+    const denial = isObject(entry) ? entry : {};
     const tool = typeof denial.tool_name === 'string' && denial.tool_name.length > 0 ? denial.tool_name : 'unknown tool';
-    const input = (denial.tool_input !== null && typeof denial.tool_input === 'object' ? denial.tool_input : {}) as Record<string, unknown>;
+    const input = isObject(denial.tool_input) ? denial.tool_input : {};
     const detail = ['command', 'file_path', 'path', 'url'].map((key) => input[key]).find((value): value is string => typeof value === 'string');
     return { tool, detail: detail === undefined ? null : detail.slice(0, maxDenialDetail) };
   });
@@ -109,8 +110,8 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
   } catch (error) {
     return failed(outputs.stdout.trim() === '' ? 'Claude Code printed no result envelope' : `Claude Code printed a result envelope that is not JSON: ${(error as Error).message}`);
   }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return failed('Claude Code printed a result envelope that is not an object');
-  const envelope = parsed as Record<string, unknown>;
+  if (!isObject(parsed)) return failed('Claude Code printed a result envelope that is not an object');
+  const envelope = parsed;
 
   const observed = typeof envelope.session_id === 'string' && envelope.session_id.length > 0 ? envelope.session_id : null;
   if (observed !== null && !sessionIds.includes(observed)) sessionIds.push(observed);
