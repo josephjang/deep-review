@@ -10,7 +10,7 @@ import type { RunState, WorkerState } from '../checkpoint/fold.ts';
 import { sha256Hex, type ArtifactReference } from '../evidence/store.ts';
 import type { Decoded, LaunchPlan, RuntimeAdapter, WorkerOutputs } from './adapter.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from './contract.ts';
-import { pinVariables } from './environment.ts';
+import { workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
 import { preflight } from './preflight.ts';
 import { notStarted, runProcess, type ProcessResult } from './process.ts';
@@ -44,18 +44,6 @@ export function checkpointScratchKey(checkpoint: Checkpoint): string {
 
 /** Directory under the checkpoint root that holds each worker's process files until they are frozen. */
 export const ioDirectoryName = 'io';
-
-/**
- * Toolchains that keep a build server alive after the command that started
- * it; a surviving server is the descendant every pilot saw outlive a worker
- * (PD2). MSBuild reads the last two as properties, so they reach nested builds.
- */
-export const buildServerPins: Readonly<Record<string, string>> = {
-  MSBUILDDISABLENODEREUSE: '1',
-  DOTNET_CLI_USE_MSBUILD_SERVER: '0',
-  UseSharedCompilation: 'false',
-  UseRazorBuildServer: 'false',
-};
 
 /** Everything the engine learns from one worker, the same shape for every runtime (R1, R5). */
 export interface WorkerReceipt {
@@ -149,7 +137,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     environment: inherited,
   };
   const command = adapter.command(invocation, plan);
-  const environment = workerEnvironment(command.environment, scratch);
+  const environment = workerEnvironment(command.environment, scratch, plan.platform);
   const version = await (options.qualify ?? qualify)(adapter, invocation, inherited);
 
   const prompt = composePrompt(invocation.prompt, scratch);
@@ -311,13 +299,6 @@ function chooseScratch(checkpoint: Checkpoint, state: RunState, adapter: Runtime
   if (isInside(state.worktree, scratch)) throw new InvalidInvocationError(`The scratch directory ${scratch} is inside the reviewed tree ${state.worktree}`);
   if (isInside(checkpoint.root, scratch)) throw new InvalidInvocationError(`The scratch directory ${scratch} is inside the checkpoint ${checkpoint.root}`);
   return scratch;
-}
-
-/** The environment of the spawned process: the adapter's, with the temporary directory and the build-server pins over every inherited spelling (R8). */
-export function workerEnvironment(environment: NodeJS.ProcessEnv, scratch: string | null): NodeJS.ProcessEnv {
-  // TEMP and TMP serve Windows programs; POSIX tools, Git Bash's among them, read TMPDIR, which wants forward slashes.
-  const temporary = scratch === null ? {} : { TEMP: scratch, TMP: scratch, TMPDIR: scratch.replaceAll('\\', '/') };
-  return pinVariables(environment, { ...buildServerPins, ...temporary });
 }
 
 /** The prompt the worker receives: the caller's, then where it may write temporary files, or that it may write none (R7). */

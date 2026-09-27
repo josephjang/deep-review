@@ -323,7 +323,7 @@ describe('runWorker', () => {
       assert.ok(recorded.stdin.includes(`Your scratch directory is ${scratch}.`));
       assert.equal(recorded.environment.TEMP, scratch);
       assert.equal(recorded.environment.TMP, scratch);
-      assert.equal(recorded.environment.TMPDIR, scratch.replaceAll('\\', '/'));
+      assert.equal(recorded.environment.TMPDIR, process.platform === 'win32' ? scratch.replaceAll('\\', '/') : scratch);
       assert.equal(recorded.argv[recorded.argv.indexOf('--add-dir') + 1], scratch);
     });
 
@@ -383,27 +383,40 @@ describe('runWorker', () => {
   });
 
   describe('environment (R8)', () => {
-    it('pins the temporary directory and the build servers over every inherited spelling', async () => {
+    it('pins the temporary directory and the build servers, over every inherited spelling on Windows and the exact name elsewhere', async () => {
       const receipt = await box.run(box.claude(), { tmp: '/inherited', Temp: '/inherited', msbuilddisablenodereuse: '0', USESHAREDCOMPILATION: 'true', usesharedcompilation: 'true' });
       const scratch = box.scratchOf(receipt.workerId);
       const seen = box.recorded().environment;
-      const spellings = (name: string): string[] => Object.keys(seen).filter((key) => key.toUpperCase() === name.toUpperCase());
-      assert.deepEqual(spellings('TMP'), ['TMP']);
-      assert.deepEqual(spellings('TEMP'), ['TEMP']);
+      const spellings = (name: string): string[] => Object.keys(seen).filter((key) => key.toUpperCase() === name.toUpperCase()).sort();
+      // On POSIX a name differing only in case is another variable, which the worker's programs never read for the pinned one.
+      const expected = (pinned: string, variants: string[]): string[] => (process.platform === 'win32' ? [pinned] : [pinned, ...variants]).sort();
+      assert.deepEqual(spellings('TMP'), expected('TMP', ['tmp']));
+      assert.deepEqual(spellings('TEMP'), expected('TEMP', ['Temp']));
       assert.equal(seen.TMP, scratch);
-      assert.deepEqual(spellings('MSBUILDDISABLENODEREUSE'), ['MSBUILDDISABLENODEREUSE']);
+      assert.deepEqual(spellings('MSBUILDDISABLENODEREUSE'), expected('MSBUILDDISABLENODEREUSE', ['msbuilddisablenodereuse']));
       assert.equal(seen.MSBUILDDISABLENODEREUSE, '1');
       assert.equal(seen.DOTNET_CLI_USE_MSBUILD_SERVER, '0');
-      assert.deepEqual(spellings('UseSharedCompilation'), ['UseSharedCompilation']);
+      assert.deepEqual(spellings('UseSharedCompilation'), expected('UseSharedCompilation', ['USESHAREDCOMPILATION', 'usesharedcompilation']));
       assert.equal(seen.UseSharedCompilation, 'false');
+      if (process.platform !== 'win32') assert.equal(seen.tmp, '/inherited');
       assert.equal(seen.UseRazorBuildServer, 'false');
       assert.equal(seen.CLAUDE_CODE_EFFORT_LEVEL, 'high');
       assert.equal(seen.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
     });
 
     it('refuses an inherited thinking override by name before writing anything', async () => {
-      await assert.rejects(box.run(box.claude(), { Max_Thinking_Tokens: '1024' }), (error: unknown) => error instanceof InheritedOverrideError && error.variable === 'Max_Thinking_Tokens');
+      await assert.rejects(box.run(box.claude(), { MAX_THINKING_TOKENS: '1024' }), (error: unknown) => error instanceof InheritedOverrideError && error.variable === 'MAX_THINKING_TOKENS');
       assert.ok(box.untouched());
+    });
+
+    it('refuses a thinking override spelled in another case only on Windows, where the worker would read it', async () => {
+      const pending = box.run(box.claude(), { Max_Thinking_Tokens: '1024' });
+      if (process.platform === 'win32') {
+        await assert.rejects(pending, (error: unknown) => error instanceof InheritedOverrideError && error.variable === 'Max_Thinking_Tokens');
+        assert.ok(box.untouched());
+      } else {
+        assert.equal((await pending).outcome, 'completed');
+      }
     });
 
     it('pins the build servers for Codex too', async () => {

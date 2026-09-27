@@ -48,10 +48,10 @@ const tomlString = (value: string): string => JSON.stringify(value);
  */
 export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
   if (platform !== 'win32') return { ...environment };
-  const directories = spellingsOf(environment, 'PATH')
+  const directories = spellingsOf(environment, 'PATH', platform)
     .flatMap(([, value]) => (value ?? '').split(';'))
     .filter((directory) => directory.length > 0 && !directory.toLowerCase().includes('windowsapps'));
-  return { ...withoutVariables(environment, ['PATH']), Path: directories.join(';') };
+  return { ...withoutVariables(environment, ['PATH'], platform), Path: directories.join(';') };
 }
 
 /**

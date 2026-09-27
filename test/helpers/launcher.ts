@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import type { WorkerState } from '../../src/checkpoint/fold.ts';
+import { thinkingOverrides } from '../../src/runtime/claude.ts';
 import type { InvocationInput } from '../../src/runtime/contract.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { checkpointScratchKey, runWorker, type RunWorkerOptions, type WorkerReceipt } from '../../src/runtime/launcher.ts';
@@ -19,7 +20,7 @@ export const answerSchema = z.strictObject({ answer: z.string() });
  * be refused by an adapter, so a developer's shell cannot change a result.
  */
 export const baseEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(withoutVariables(process.env, ['MAX_THINKING_TOKENS', 'CLAUDE_CODE_DISABLE_THINKING', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING'])).filter(
+  Object.entries(withoutVariables(process.env, thinkingOverrides, process.platform)).filter(
     ([name]) => !name.toUpperCase().startsWith('FAKE_'),
   ),
 );
