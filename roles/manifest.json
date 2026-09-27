@@ -141,8 +141,7 @@
       "finder-output.md",
       "lead-verify.md",
       "rubrics.md",
-      "postreview-fix-test.md",
-      "fixer-validation.md"
+      "postreview-fix-test.md"
     ],
     "auditor": [
       "auditor-brief.md",
