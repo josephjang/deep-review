@@ -132,6 +132,8 @@ function loadRoleFragment(rolesRoot: string, name: string): LoadedFragment {
   const directory = join(rolesRoot, fragmentsDirectoryName);
   const path = join(directory, name);
   // Only ENOENT means the fragment is missing; any other failure (EACCES, ENOTDIR, ELOOP) is reported as it is.
+  // assembleRoles refuses a missing fragment before this, when it compares the manifest with fragments/, so "does not
+  // exist" comes from a fragment read on its own, or one removed between that comparison and the read.
   const examine = <T>(inspect: () => T): T => {
     try {
       return inspect();
@@ -192,15 +194,51 @@ export function refuseMalformedFragmentText(name: string, text: string): void {
 }
 
 /**
+ * Compare the fragments the manifest names with the entries `fragments/`
+ * holds, before any fragment is read, and refuse any difference: a fragment
+ * some role names that is not there, and an entry no role names. Both are
+ * reported together in one error, so a renamed fragment shows its old and
+ * new names at once, and a name that differs only by case is reported the
+ * same way on a file system that ignores case as on one that does not.
+ * `fragments/` itself must be a directory that is not a link.
+ */
+function reconcileFragments(rolesRoot: string, manifest: RoleManifest): void {
+  const fragmentsDirectory = join(rolesRoot, fragmentsDirectoryName);
+  // A missing fragments/, one that is a file, or one that cannot be read all fail here, before any fragment is.
+  const list = <T>(inspect: () => T): T => {
+    try {
+      return inspect();
+    } catch (error) {
+      throw new InvalidRoleManifestError(`Cannot list ${fragmentsDirectory}: ${(error as Error).message}`);
+    }
+  };
+  // Checked before listing, since a listing follows a link; a link whose target is gone is refused as a link, not as missing.
+  if (list(() => lstatSync(fragmentsDirectory).isSymbolicLink())) {
+    throw new InvalidRoleManifestError(`The fragments directory ${fragmentsDirectory} is a link; fragments live in the roles directory itself`);
+  }
+  const entries = list(() => readdirSync(fragmentsDirectory));
+  const named = new Set(Object.values(manifest.roles).flat());
+  const present = new Set(entries);
+  const missing = [...named].filter((name) => !present.has(name)).sort();
+  const stray = entries.filter((entry) => !named.has(entry)).sort();
+  const problems: string[] = [];
+  if (missing.length > 0) problems.push(`Fragments that roles name but ${fragmentsDirectoryName}/ does not hold: ${missing.join(', ')}`);
+  if (stray.length > 0) problems.push(`Entries under ${fragmentsDirectoryName}/ that no role names: ${stray.join(', ')}`);
+  if (problems.length > 0) throw new InvalidRoleManifestError(problems.join('; '));
+}
+
+/**
  * Assemble every role under `rolesRoot` (R2): the manifest names the
  * roles and their fragments, each fragment is read once, and a role's
- * prompt is its fragments joined with one blank line. Every file under
- * `fragments/` must be named by some role and nothing else may sit there,
- * so a fragment cannot fall out of use unnoticed and a stray file cannot
- * be mistaken for one.
+ * prompt is its fragments joined with one blank line. Before any fragment
+ * is read, the manifest and `fragments/` must agree exactly: every
+ * fragment a role names is there, and every entry there is named by some
+ * role, so a fragment cannot fall out of use unnoticed and a stray file
+ * cannot be mistaken for one.
  */
 export function assembleRoles(rolesRoot: string): readonly AssembledRole[] {
   const manifest = readRoleManifest(rolesRoot);
+  reconcileFragments(rolesRoot, manifest);
   // Each fragment is read and hashed once, however many roles name it.
   const loaded = new Map<string, LoadedFragment>();
   const load = (name: string): LoadedFragment => {
@@ -211,20 +249,9 @@ export function assembleRoles(rolesRoot: string): readonly AssembledRole[] {
     }
     return fragment;
   };
-  const roles = Object.entries(manifest.roles).map(([key, names]): AssembledRole => {
+  return Object.entries(manifest.roles).map(([key, names]): AssembledRole => {
     const parts = names.map(load);
     const prompt = parts.map((part) => part.text).join('\n');
     return { key, fragments: parts.map((part) => part.fragment), prompt, sha256: sha256Hex(Buffer.from(prompt, 'utf8')) };
   });
-  const fragmentsDirectory = join(rolesRoot, fragmentsDirectoryName);
-  let entries: string[];
-  try {
-    entries = readdirSync(fragmentsDirectory);
-  } catch (error) {
-    throw new InvalidRoleManifestError(`Cannot list ${fragmentsDirectory}: ${(error as Error).message}`);
-  }
-  const named = new Set(Object.values(manifest.roles).flat());
-  const stray = entries.filter((entry) => !named.has(entry)).sort();
-  if (stray.length > 0) throw new InvalidRoleManifestError(`Entries under ${fragmentsDirectoryName}/ that no role names: ${stray.join(', ')}`);
-  return roles;
 }
