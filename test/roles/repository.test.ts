@@ -41,6 +41,35 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  /**
+   * Every place a fragment says that other fragments' text comes below it:
+   * the fragment, the words that say so, and the fragments meant, in the
+   * order the words give them. Whether "below" is true depends on the
+   * manifest's order, so each role that names the fragment is held to it.
+   */
+  const textBelow: readonly [fragment: string, words: RegExp, below: readonly string[]][] = [
+    ['lead-brief.md', /the output contract below/, ['finder-output.md']],
+    ['lead-verify.md', /the rubrics below/, ['rubrics.md']],
+    ['analyst-brief.md', /angles are defined below[\s\S]*output contract below\s+the angle definitions/, ['angles-analyst.md', 'finder-output.md']],
+    ['scout-brief.md', /angles are defined below[\s\S]*output contract below\s+the angle definitions/, ['angles-scout.md', 'finder-output.md']],
+    ['conventions-brief.md', /angle is defined below[\s\S]*output contract below\s+the angle definition/, ['angles-conventions.md', 'finder-output.md']],
+    ['auditor-brief.md', /three verdict definitions below/, ['step3-verdicts.md']],
+    ['phase1-finders.md', /finder angles are defined below/, ['angles-scan.md', 'angles-analyst.md', 'angles-scout.md', 'angles-conventions.md']],
+  ];
+
+  it('places the text a fragment says is below it after that fragment, in every role', () => {
+    for (const [fragment, words, below] of textBelow) {
+      assert.match(readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, fragment), 'utf8'), words, fragment);
+      const naming = roles.filter((role) => role.fragments.some((named) => named.name === fragment));
+      assert.ok(naming.length > 0, `no role names ${fragment}`);
+      for (const role of naming) {
+        const names = role.fragments.map((named) => named.name);
+        const positions = [fragment, ...below].map((name) => names.indexOf(name));
+        assert.ok(positions.every((position, index) => position > (index === 0 ? -1 : positions[index - 1]!)), `${role.key}: ${[fragment, ...below].join(' then ')}, got ${names.join(', ')}`);
+      }
+    }
+  });
+
   it('names no mechanism of one runtime in any prompt', () => {
     const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);

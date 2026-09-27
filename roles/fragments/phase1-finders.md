@@ -6,7 +6,7 @@ that runs is an independent worker. What a finder returns — the cap of 12,
 the four fields per candidate (`file`, `line`, `summary`, and
 `failure_scenario` or `value_statement` by angle group), the
 user-visible-consequence rule — is the **finder output contract**,
-defined after the angles. It is in every finder's role prompt, so
+defined in this prompt. It is in every finder's role prompt, so
 do not restate it in prompts; it appears here because you consume what
 it specifies: Phase 2's dedup tiebreaks and verify grouping read those
 fields.
