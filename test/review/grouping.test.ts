@@ -40,12 +40,51 @@ describe('planGroups', () => {
   });
 
   it('groups unlocated candidates by their own file spelling, after the located ones, apart from a located file of the same name', () => {
-    const plan = planGroups([unlocated('SWEEP-2', 'C:\\x\\a.ts', 3), located('SCAN-1', 'a.ts', 1), unlocated('SWEEP-1', 'a.ts', 7), unlocated('SWEEP-3', 'C:\\x\\a.ts', 1)]);
+    const plan = planGroups([unlocated('SWEEP-2', 'C:\\x\\b.ts', 3), located('SCAN-1', 'a.ts', 1), unlocated('SWEEP-1', 'a.ts', 7), unlocated('SWEEP-3', 'C:\\x\\b.ts', 1)]);
     assert.deepEqual(plan, [
       { id: 'g1', candidateIds: ['SCAN-1'] },
-      { id: 'g2', candidateIds: ['SWEEP-3', 'SWEEP-2'] },
-      { id: 'g3', candidateIds: ['SWEEP-1'] },
+      { id: 'g2', candidateIds: ['SWEEP-1'] },
+      { id: 'g3', candidateIds: ['SWEEP-3', 'SWEEP-2'] },
     ]);
+  });
+
+  it('groups every spelling of one unlocated path together: backslashes, a leading ./, repeated slashes and case', () => {
+    const plan = planGroups([
+      unlocated('RIPPLE-2', 'src\\runtime\\launcher.ts', 30),
+      unlocated('FOOTGUNS-4', './src/runtime/launcher.ts', 10),
+      unlocated('SCAN-1', 'src//runtime/launcher.ts', 20),
+      unlocated('SCAN-2', 'SRC/Runtime/Launcher.ts', 40),
+    ]);
+    assert.deepEqual(plan, [{ id: 'g1', candidateIds: ['FOOTGUNS-4', 'SCAN-1', 'RIPPLE-2', 'SCAN-2'] }]);
+  });
+
+  it('groups an absolute spelling of an unlocated path with the longest relative spelling it ends with', () => {
+    const plan = planGroups([
+      unlocated('RIPPLE-2', 'C:\\repo\\src\\runtime\\launcher.ts', 30),
+      unlocated('FOOTGUNS-4', 'src/runtime/launcher.ts', 10),
+      unlocated('SCAN-1', '/home/me/repo/src/runtime/launcher.ts', 20),
+      unlocated('SCAN-2', 'launcher.ts', 5),
+      unlocated('SCAN-3', 'runtime/launcher.ts', 6),
+    ]);
+    assert.deepEqual(plan, [
+      { id: 'g1', candidateIds: ['SCAN-2'] },
+      { id: 'g2', candidateIds: ['SCAN-3'] },
+      { id: 'g3', candidateIds: ['FOOTGUNS-4', 'SCAN-1', 'RIPPLE-2'] },
+    ]);
+  });
+
+  it('keeps an absolute spelling alone when no relative spelling of it was given, and ends a match at a segment', () => {
+    const plan = planGroups([unlocated('SCAN-1', '/repo/xa.ts', 1), unlocated('SCAN-2', 'a.ts', 1), unlocated('SCAN-3', '/repo/b.ts', 1)]);
+    assert.deepEqual(plan, [
+      { id: 'g1', candidateIds: ['SCAN-3'] },
+      { id: 'g2', candidateIds: ['SCAN-1'] },
+      { id: 'g3', candidateIds: ['SCAN-2'] },
+    ]);
+  });
+
+  it('plans the same groups whatever order the spellings arrived in', () => {
+    const candidates = [unlocated('A-1', 'C:\\r\\src\\a.ts', 1), unlocated('A-2', 'src/a.ts', 2), unlocated('A-3', 'a.ts', 3), unlocated('A-4', '/r/SRC/a.ts', 4)];
+    assert.deepEqual(planGroups([...candidates].reverse()), planGroups(candidates));
   });
 
   it('splits a file with more than eight candidates into chunks of neighbouring lines, absorbing a remainder of one', () => {
