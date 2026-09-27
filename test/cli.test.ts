@@ -179,6 +179,18 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.match(run('status', '--run', runId).stdout, /: abandoned \(stuck\)\n/);
   });
 
+  it('exits 2 on a refusal that has no blocker code, as on one that has', () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal(run(...claudeFlags('--last-commit')).status, 2);
+    const first = box.run().id;
+    const second = box.checkpoint.createRun({ worktree: box.repo }).id;
+    for (const args of [claudeFlags(), ['status'], ['abandon', '--reason', 'which one']]) {
+      const refused = run(...args);
+      assert.equal(refused.status, 2, `${args.join(' ')}: ${refused.stderr}`);
+      assert.equal(refused.stderr, `refused: 2 runs are active (${first}, ${second}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\`\n`, args.join(' '));
+    }
+  });
+
   it('resumes after the engine is killed mid-phase: the running workers are lost, the answered units are not run again', async () => {
     const marker = join(box.directory, 'design-may-answer');
     // DESIGN, the sixth finder, waits for the marker; with a concurrency of 2 at least three finders answer before it is reached.

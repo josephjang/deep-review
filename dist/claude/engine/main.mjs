@@ -24396,8 +24396,9 @@ ${usage}
 `);
       return 1;
     }
-    if (error62 instanceof ReviewRefusedError && error62.code !== null) {
-      io.stderr(`blocked (${error62.code}): ${error62.message}
+    if (error62 instanceof ReviewRefusedError) {
+      io.stderr(error62.code === null ? `refused: ${error62.message}
+` : `blocked (${error62.code}): ${error62.message}
 `);
       return 2;
     }
