@@ -20,6 +20,7 @@ import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import type { PolicyFlags } from './review/policy.ts';
+import { reviewStatus } from './review/state.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
 
@@ -256,21 +257,29 @@ function abandon(values: Values, io: CommandIo, root: string): number {
   if (values.reason === undefined || values.reason.trim() === '') throw new UsageError('--reason <text> is required');
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new UsageError('this repository has no checkpoint, so there is no run to abandon');
-  // Under the start lock, as a review finds or creates its run: an engine resuming the run cannot slip between the find and the append.
-  const releaseStart = acquireStartLock(checkpoint.root);
   try {
-    const state = resolveRun(checkpoint, values.run);
-    if (state === null) throw new UsageError('no active run to abandon');
-    const release = acquireRunLock(checkpoint.root, state.id);
+    // Under the start lock, as a review finds or creates its run: an engine resuming the run cannot slip between the find and the append.
+    const releaseStart = acquireStartLock(checkpoint.root);
     try {
-      checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: values.reason } }]);
+      const found = resolveRun(checkpoint, values.run);
+      if (found === null) throw new UsageError('no active run to abandon');
+      const release = acquireRunLock(checkpoint.root, found.id);
+      try {
+        // Folded again under the run's lock: an engine that held it until a moment ago may have written the report since.
+        const state = checkpoint.fold(found.id);
+        const status = reviewStatus(state);
+        // A complete run keeps its report and its status; the ledger could still take the event, since a review run is never closed.
+        if (status === 'complete' || status === 'abandoned') throw new UsageError(`run ${state.id} is ${status}; only an active or blocked run can be abandoned`);
+        checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: values.reason } }]);
+      } finally {
+        release();
+      }
+      io.stdout(`run ${found.id} abandoned: ${values.reason}\n`);
+      return 0;
     } finally {
-      release();
+      releaseStart();
     }
-    io.stdout(`run ${state.id} abandoned: ${values.reason}\n`);
-    return 0;
   } finally {
-    releaseStart();
     checkpoint.close();
   }
 }
