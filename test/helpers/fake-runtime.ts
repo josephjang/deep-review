@@ -12,10 +12,82 @@
 //                    nothing) instead of an answer, or on stderr after the answer
 //   FAKE_HUGE_STREAM `stderr` to print FAKE_HUGE there; stdout by default
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
+//   FAKE_SCRIPT      a JSON file scripting the answer per review role and unit; see scriptedStep
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readTaskHeader } from '../../src/review/prompts.ts';
+import { finderAngles } from '../../src/review/vocabulary.ts';
 
 export const environment = process.env;
+
+/**
+ * One scripted answer of a review worker. A list of steps is consumed one
+ * per attempt of the same unit, the last one repeating, so a test can say
+ * "fail once, then answer".
+ */
+export interface ScriptStep {
+  /** The structured answer; the role's empty answer when absent. */
+  readonly output?: unknown;
+  /** Answer with text that is not the schema's shape, so the launcher fails the worker. */
+  readonly malformed?: boolean;
+  /** Exit with this code instead of 0. */
+  readonly exit?: number;
+  /** Never exit, so the launcher kills the worker at its timeout. */
+  readonly hang?: boolean;
+  /** The cost the fake reports (Claude only). */
+  readonly costUsd?: number;
+  /** A file to wait for before answering, so a test can act between phases. */
+  readonly waitFor?: string;
+  readonly stderr?: string;
+}
+
+/** The script: steps by `<role>:<phase>:<unit>`, `<role>:<unit>`, `<role>` or `*`, the most specific key winning. */
+export type Script = Readonly<Record<string, ScriptStep | readonly ScriptStep[]>>;
+
+/** How many attempts of `key` this script has answered before, kept beside the script so every fake process sees the same count. */
+function nextAttempt(script: string, key: string): number {
+  const directory = `${script}.counts`;
+  mkdirSync(directory, { recursive: true });
+  const file = join(directory, key.replaceAll(/[^A-Za-z0-9_-]/g, '_'));
+  const count = existsSync(file) ? Number(readFileSync(file, 'utf8')) : 0;
+  writeWhole(file, String(count + 1));
+  return count;
+}
+
+/** The count in the prompt's "numbered [0] to [n]", plus one, or 0 when the task numbers nothing. */
+function numberedCount(prompt: string): number {
+  const match = /numbered \[0\] to \[(\d+)\]/.exec(prompt);
+  return match === null ? 0 : Number(match[1]) + 1;
+}
+
+/** The empty, valid answer of a review role: what a worker that found nothing returns. */
+export function defaultOutput(role: string, prompt: string): unknown {
+  if (role === 'triage') return { candidates: [], leads: finderAngles.map((angle) => ({ angle, lead: null })) };
+  if (role.startsWith('finder-') || role === 'sweep') return { candidates: [] };
+  if (role === 'deduplication') return { groups: [] };
+  if (role === 'verifier') return { verdicts: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]` })) };
+  if (role === 'merge-rank') return { findings: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ primary: index, members: [], severity: 'minor', summary: `fake finding [${String(index)}]`, reason: 'fake reason' })) };
+  return { answer: 'ok' };
+}
+
+/**
+ * The scripted step for the review worker whose prompt this is, from the
+ * FAKE_SCRIPT file, with the role's empty answer as the step when the
+ * script names none; null when the fake is not scripted or the prompt is
+ * not a review worker's.
+ */
+export function scriptedStep(prompt: string): { readonly role: string; readonly unit: string; readonly step: ScriptStep & { readonly output: unknown } } | null {
+  const file = environment.FAKE_SCRIPT;
+  if (file === undefined) return null;
+  const header = readTaskHeader(prompt);
+  if (header === null) return null;
+  const script = JSON.parse(readFileSync(file, 'utf8')) as Script;
+  const key = [`${header.role}:${header.phase}:${header.unitKey}`, `${header.role}:${header.unitKey}`, header.role, '*'].find((candidate) => Object.hasOwn(script, candidate));
+  const entry = key === undefined ? {} : script[key]!;
+  const step = Array.isArray(entry) ? (entry[Math.min(nextAttempt(file, `${header.role}:${header.phase}:${header.unitKey}`), entry.length - 1)] ?? {}) : (entry as ScriptStep);
+  return { role: header.role, unit: header.unitKey, step: { ...step, output: step.output ?? defaultOutput(header.role, prompt) } };
+}
 
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
 export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
@@ -43,10 +115,23 @@ export function record(argv: readonly string[], stdin: string): void {
 }
 
 /** Block until the marker file exists. */
-export async function waitForMarker(): Promise<void> {
-  const marker = environment.FAKE_WAIT_FOR;
+export async function waitForMarker(marker: string | undefined = environment.FAKE_WAIT_FOR): Promise<void> {
   if (marker === undefined) return;
   while (!existsSync(marker)) await new Promise((resolve) => setTimeout(resolve, 20));
+}
+
+/**
+ * Do what a scripted step asks before the answer is printed: wait, hang,
+ * or print stderr. Returns the exit code the step asks for.
+ */
+export async function beginScriptedStep(step: ScriptStep): Promise<number> {
+  await waitForMarker(step.waitFor);
+  if (step.hang === true) {
+    setInterval(() => {}, 1000);
+    await new Promise<never>(() => {});
+  }
+  if (step.stderr !== undefined) process.stderr.write(step.stderr);
+  return step.exit ?? 0;
 }
 
 /**
