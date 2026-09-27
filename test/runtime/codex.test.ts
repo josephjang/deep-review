@@ -160,6 +160,20 @@ describe('codexEnvironment', () => {
     assert.deepEqual(environment, { HOME: 'h', Path: 'C:\\Windows;C:\\tools' });
   });
 
+  it('drops a WindowsApps directory however it is written: trailing separator, forward slashes, quotes, any case', () => {
+    const windowsApps = [
+      'C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\',
+      'C:/Program Files/WindowsApps/Package_1.0_x64',
+      '"C:\\Users\\u\\AppData\\Local\\Microsoft\\WINDOWSAPPS"',
+    ];
+    assert.deepEqual(codexEnvironment({ PATH: ['C:\\Windows', ...windowsApps].join(';') }, 'win32'), { Path: 'C:\\Windows' });
+  });
+
+  it('keeps a directory whose name only contains WindowsApps', () => {
+    const kept = ['D:\\tools\\mywindowsapps\\bin', 'C:\\WindowsAppsTools', 'E:\\windowsapps-cache', 'C:\\WindowsApps.old\\bin'];
+    assert.deepEqual(codexEnvironment({ PATH: kept.join(';') }, 'win32'), { Path: kept.join(';') });
+  });
+
   it('leaves the environment alone elsewhere', () => {
     const inherited = { PATH: '/usr/bin:/opt/WindowsApps', HOME: '/h' };
     assert.deepEqual(codexEnvironment(inherited, 'linux'), inherited);
