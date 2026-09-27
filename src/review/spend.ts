@@ -33,8 +33,13 @@ function sumReported(values: readonly (number | null)[]): number | null {
   return reported.length === 0 ? null : reported.reduce((total, value) => total + value, 0);
 }
 
-/** Round to the cent, so a sum of floating costs prints and compares as money. */
-const cents = (value: number | null): number | null => (value === null ? null : Math.round(value * 100) / 100);
+/**
+ * Round to the cent, half a cent up, so a sum of floating costs prints and
+ * compares as money. The value in cents is first cut to twelve significant
+ * digits: `1.005 * 100` is `100.49999999999999` in binary floating point,
+ * and rounding that directly would lose the half cent.
+ */
+const cents = (value: number | null): number | null => (value === null ? null : Math.round(Number((value * 100).toPrecision(12))) / 100);
 
 /**
  * The wall time a set of workers ran, in seconds: the length of the union of

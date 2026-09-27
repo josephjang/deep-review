@@ -41,6 +41,17 @@ describe('spend', () => {
     assert.equal(runSpendUsd(floating, claudeAdapter), 0.3);
   });
 
+  it('rounds a cost half a cent up, even where the float times a hundred falls just below the half', () => {
+    const costOf = (usd: number): number | null => runSpendUsd(configured().worker(1, 'triage triage:SCAN', {}, usd).fold(), claudeAdapter);
+    // 1.005 * 100 is 100.49999999999999 and 2.675 * 100 is 267.49999999999997 in binary floating point.
+    assert.equal(costOf(1.005), 1.01);
+    assert.equal(costOf(2.675), 2.68);
+    assert.equal(costOf(1234.565), 1234.57);
+    assert.equal(costOf(1.004), 1);
+    assert.equal(costOf(0.0000001), 0, 'a cost printed in exponent form still rounds');
+    assert.equal(costOf(0), 0);
+  });
+
   it('measures wall time as the union of the worker intervals, so concurrent workers count once', () => {
     const at = (second: number): string => new Date(Date.UTC(2026, 8, 27, 0, 0, second)).toISOString();
     const ran = (from: number, to: number): Record<string, unknown> => ({ startedAt: at(from), endedAt: at(to) });
