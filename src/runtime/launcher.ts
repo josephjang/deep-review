@@ -7,7 +7,7 @@ import { RunClosedError, StaleRevisionError } from '../checkpoint/errors.ts';
 import { sessionIdSchema, type DeniedTool, type WorkerFinish, type WorkerLaunch, type WorkerOutcome } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
 import { sha256Hex, type ArtifactReference } from '../evidence/store.ts';
-import type { Decoded, DecodedResult, LaunchPlan, RuntimeAdapter, WorkerOutputs } from './adapter.ts';
+import { maxDecodeBytes, outputLines, type Decoded, type DecodedResult, type LaunchPlan, type RuntimeAdapter, type WorkerOutputs } from './adapter.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from './contract.ts';
 import { workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
@@ -16,9 +16,6 @@ import { notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes } from './runtimes.ts';
 import { checkpointScratchKey, chooseScratch, defaultScratchRoot } from './scratch.ts';
-
-/** stdout, stderr or a final message above this is not decoded; it is still frozen as evidence. */
-export const maxDecodeBytes = 16 * 1024 * 1024;
 
 /** Longest error text the ledger records; the full story is in the frozen stdout and stderr. */
 const maxErrorLength = 4000;
@@ -511,21 +508,30 @@ function settleOutputs(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocati
 }
 
 /**
- * Decode the outputs through the adapter. An output above the decode cap is
- * not decoded, but the session ids are still read from the outputs cut to
- * the cap: a runtime names its session first (Codex's `thread.started` opens
- * its stream), and a worker whose session is not recorded can never be
- * continued.
+ * Decode the outputs through the adapter. stdout is offered whole, as null
+ * when it is above the decode cap, and a line at a time whatever its size,
+ * so a runtime that reads it by line (Codex) is judged however long its
+ * stream ran, and one that reads it whole (Claude) refuses it by name. A
+ * stderr or final message above the cap is not decoded, but the session ids
+ * are still read from the outputs with those cut to the cap: a runtime names
+ * its session first (Codex's `thread.started` opens its stream), and a worker
+ * whose session is not recorded can never be continued.
  */
 function decodeOutputs(adapter: RuntimeAdapter, invocation: Invocation, plan: LaunchPlan, stdout: Buffer, stderr: Buffer, finalMessage: Buffer | null): Decoded {
+  const stdoutLines = outputLines(stdout);
+  // Decoded when first read, since an adapter that reads the lines never needs all of stdout as one text.
+  let stdoutText: string | null | undefined;
   const outputs = (limit: number): WorkerOutputs => ({
-    stdout: stdout.subarray(0, limit).toString('utf8'),
+    get stdout() {
+      if (stdoutText === undefined) stdoutText = stdout.length > maxDecodeBytes ? null : stdout.toString('utf8');
+      return stdoutText;
+    },
+    stdoutLines,
     stderr: stderr.subarray(0, limit).toString('utf8'),
     finalMessage: finalMessage?.subarray(0, limit).toString('utf8') ?? null,
   });
   const oversized = (
     [
-      ['stdout', stdout],
       ['stderr', stderr],
       ['final message', finalMessage],
     ] as const

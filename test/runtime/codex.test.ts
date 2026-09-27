@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
-import type { Decoded, LaunchPlan } from '../../src/runtime/adapter.ts';
+import { maxLineBytes, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
 import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter } from '../../src/runtime/codex.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
+import { textOutputs } from '../helpers/outputs.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
 
 const thread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
@@ -206,7 +207,7 @@ describe('codex decode', () => {
   const done = { type: 'turn.completed', usage };
   const happy = (): Record<string, unknown>[] => [started, turnStarted, ...agent(message), done];
   const decode = (stdout: string, finalMessage: string | null = message, planChange: Partial<LaunchPlan> = {}): Decoded =>
-    codexAdapter.decode(invocation(), plan(planChange), { stdout, stderr: '', finalMessage });
+    codexAdapter.decode(invocation(), plan(planChange), textOutputs(stdout, '', finalMessage));
   /** The error of a failed result; an answer fails the assertion. */
   const failure = (decoded: Decoded): string => {
     assert.equal(decoded.result.kind, 'failed');
@@ -284,6 +285,24 @@ describe('codex decode', () => {
     });
   }
 
+  it('reads the stream from its lines alone, never needing all of stdout as one text', () => {
+    const outputs = { ...textOutputs(stream(...happy()), '', message), stdout: null };
+    assert.deepEqual(codexAdapter.decode(invocation(), plan(), outputs), { sessionIds: [thread], usage, denials: null, result: answered });
+  });
+
+  it('fails a line too long to decode, naming it, and keeps the thread and usage the other lines hold', () => {
+    const lines = [line(started), line(turnStarted), null, ...agent(message).map(line), line(done)];
+    const decoded = codexAdapter.decode(invocation(), plan(), { stdout: null, stdoutLines: lines, stderr: '', finalMessage: message });
+    assert.equal(failure(decoded), `Codex printed line 3 that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`);
+    assert.deepEqual(decoded.sessionIds, [thread]);
+    assert.deepEqual(decoded.usage, usage);
+  });
+
+  it('numbers lines from 1 counting blank ones, and names the first malformed line', () => {
+    const decoded = decode(`${line(started)}\r\n\r\nnot json\r\n[1]\r\n${line(done)}\r\n`);
+    assert.match(failure(decoded), /^Codex printed line 3 that is not JSON/);
+  });
+
   it('keeps the session id of every well-formed line even when another line is malformed', () => {
     const decoded = decode(`${line(started)}\nnot json\n`);
     assert.deepEqual(decoded.sessionIds, [thread]);
@@ -309,7 +328,7 @@ describe('codex decode', () => {
     const refused =
       '2026-09-27T00:07:23.500940Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "UnsupportedOperation(\\"windows elevated sandbox cannot reopen writable descendants under read-only carveouts directly; refusing to run unsandboxed\\")" }\n' +
       '2026-09-27T00:07:28.455002Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "UnsupportedOperation(\\"second\\")" }\n';
-    const decoded = codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: refused, finalMessage: message });
+    const decoded = codexAdapter.decode(invocation(), plan(), textOutputs(stream(...happy()), refused, message));
     assert.match(failure(decoded), /refused to run 2 command\(s\).*cannot reopen writable descendants/);
     assert.deepEqual(decoded.sessionIds, [thread]);
     assert.deepEqual(decoded.usage, usage);
@@ -317,13 +336,13 @@ describe('codex decode', () => {
 
   it('does not mistake other stderr lines for a refused command', () => {
     const noise = '2026-09-27T00:07:23Z WARN codex_core::tools::router: slow tool\nERROR somewhere else: exec_command failed\nmise WARN: chpwd\n';
-    assert.deepEqual(codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: noise, finalMessage: message }).result, answered);
+    assert.deepEqual(codexAdapter.decode(invocation(), plan(), textOutputs(stream(...happy()), noise, message)).result, answered);
   });
 
   it('names what Codex said on stderr when it started no thread, such as a config key it does not know', () => {
     // Exactly what codex-cli 0.157.1 printed for an unknown --config key under --strict-config.
     const stderr = 'Error loading config.toml: unknown configuration field `project_doc_max_bytes` in -c/--config override\n';
-    const decoded = codexAdapter.decode(invocation(), plan(), { stdout: '', stderr, finalMessage: null });
+    const decoded = codexAdapter.decode(invocation(), plan(), textOutputs('', stderr));
     assert.equal(
       failure(decoded),
       'Codex started 0 threads; a worker is exactly one; its stderr ends: Error loading config.toml: unknown configuration field `project_doc_max_bytes` in -c/--config override',
@@ -332,17 +351,17 @@ describe('codex decode', () => {
 
   it('keeps only the end of a long stderr, and no half of a surrogate pair', () => {
     const stderr = `${'x'.repeat(5000)}\u{1F600}${'y'.repeat(999)}`;
-    const error = failure(codexAdapter.decode(invocation(), plan(), { stdout: '', stderr, finalMessage: null }));
+    const error = failure(codexAdapter.decode(invocation(), plan(), textOutputs('', stderr)));
     const excerpt = error.slice(error.indexOf('its stderr ends: ') + 'its stderr ends: '.length);
     assert.equal(excerpt, `\uFFFD${'y'.repeat(999)}`);
     assert.equal(excerpt.isWellFormed(), true);
   });
 
   it('adds no stderr excerpt when stderr is blank, or when Codex started more than one thread', () => {
-    const blank = codexAdapter.decode(invocation(), plan(), { stdout: '', stderr: ' \n\t\n', finalMessage: null });
+    const blank = codexAdapter.decode(invocation(), plan(), textOutputs('', ' \n\t\n'));
     assert.equal(failure(blank), 'Codex started 0 threads; a worker is exactly one');
     const twice = stream(started, { ...started, thread_id: 'other' }, ...agent(message), done);
-    const two = codexAdapter.decode(invocation(), plan(), { stdout: twice, stderr: 'mise WARN: chpwd\n', finalMessage: message });
+    const two = codexAdapter.decode(invocation(), plan(), textOutputs(twice, 'mise WARN: chpwd\n', message));
     assert.equal(failure(two), 'Codex started 2 threads; a worker is exactly one');
   });
 

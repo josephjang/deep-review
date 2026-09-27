@@ -3,7 +3,9 @@
 // to --output-last-message unless FAKE_FINAL says otherwise; FAKE_FINAL set
 // to an empty string writes no final message file. A fresh thread is
 // FAKE_THREAD or freshThread from fake-runtime.ts; a continuation reports
-// the id it resumes.
+// the id it resumes. FAKE_COMMAND_OUTPUT, a byte count, adds a command to the
+// default turn whose aggregated_output is that many bytes long, all on the
+// one line of its item.completed event.
 import { writeFileSync } from 'node:fs';
 import { answer, environment, freshThread, option, printHelp, readStdin, record } from './fake-runtime.ts';
 
@@ -21,6 +23,10 @@ if (argv[0] === '--version') {
   const thread = resumed ?? environment.FAKE_THREAD ?? freshThread;
   const output = environment.FAKE_OUTPUT ?? '{"answer":"ok"}';
   const final = environment.FAKE_FINAL ?? output;
+  const commandOutput = environment.FAKE_COMMAND_OUTPUT === undefined ? [] : [
+    { type: 'item.started', item: { id: 'item_c', type: 'command_execution', command: 'cat big', aggregated_output: '', status: 'in_progress' } },
+    { type: 'item.completed', item: { id: 'item_c', type: 'command_execution', command: 'cat big', aggregated_output: 'x'.repeat(Number(environment.FAKE_COMMAND_OUTPUT)), exit_code: 0, status: 'completed' } },
+  ];
   const finalFile = option(argv, '--output-last-message');
   if (final !== '' && finalFile !== undefined && environment.FAKE_HANG === undefined) writeFileSync(finalFile, final);
   await answer(
@@ -28,6 +34,7 @@ if (argv[0] === '--version') {
       [
         { type: 'thread.started', thread_id: thread },
         { type: 'turn.started' },
+        ...commandOutput,
         { type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: output } },
         { type: 'turn.completed', usage: { input_tokens: 11, cached_input_tokens: 0, output_tokens: 4 } },
       ]

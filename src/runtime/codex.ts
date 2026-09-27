@@ -1,4 +1,4 @@
-import type { Decoded, LaunchPlan, RuntimeAdapter, WorkerCommand, WorkerOutputs } from './adapter.ts';
+import { maxLineBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { spellingsOf, withoutVariables } from './environment.ts';
 import { isObject } from './json.ts';
@@ -148,12 +148,142 @@ function survivableFailure(item: Record<string, unknown>): boolean {
 }
 
 /**
+ * What one read of the `exec --json` stream established, held as the few
+ * facts the rules need rather than as the events themselves, so a stream of
+ * any length is read in one pass with one line decoded at a time.
+ */
+interface StreamFacts {
+  /** Each distinct id a `thread.started` named, in the order named. */
+  readonly sessionIds: string[];
+  /** Why the first line that is not an event object is not one, or null. */
+  malformed: string | null;
+  /** How many `thread.started` events there were. */
+  threads: number;
+  /** The `thread_id` the first `thread.started` carried, whatever it was. */
+  firstThread: unknown;
+  /** How many `turn.completed` events there were. */
+  completedTurns: number;
+  /** The usage of the last `turn.completed`, or null. */
+  usage: unknown;
+  /** The type of the last event, whatever it was. */
+  lastType: unknown;
+  /** The message of the first `turn.failed` event, or null. */
+  turnFailed: string | null;
+  /** The message of the last `error` event, or null. */
+  lastError: string | null;
+  /** The first item the worker must not have: one without an id, one outside the boundary, or one that failed and is not survivable. */
+  itemProblem: string | null;
+  /** Items started and not yet completed. */
+  readonly pending: Set<string>;
+  /** The text of the last completed `agent_message`. */
+  lastMessage: string | undefined;
+}
+
+/** Fold one item event into the facts. After the first item problem no item is looked at, since that problem decides. */
+function observeItem(facts: StreamFacts, event: CodexEvent): void {
+  if (facts.itemProblem !== null) return;
+  const item = event.item;
+  if (!isObject(item) || typeof item.id !== 'string') {
+    facts.itemProblem = `Codex reported ${String(event.type)} without an item id`;
+    return;
+  }
+  // Outside the review's boundary: the isolation config turns both off, so either one means it did not hold.
+  if (item.type === 'mcp_tool_call' || item.type === 'web_search') {
+    facts.itemProblem = `Codex used ${item.type}, which the worker is not given`;
+    return;
+  }
+  if (event.type === 'item.started') {
+    facts.pending.add(item.id);
+    return;
+  }
+  facts.pending.delete(item.id);
+  if (item.status === 'failed' && !survivableFailure(item)) {
+    facts.itemProblem = `Codex item ${item.id} (${String(item.type)}) failed`;
+    return;
+  }
+  if (item.type === 'agent_message' && typeof item.text === 'string') facts.lastMessage = item.text;
+}
+
+/** Fold one event into the facts. */
+function observe(facts: StreamFacts, event: CodexEvent): void {
+  facts.lastType = event.type;
+  switch (event.type) {
+    case 'thread.started':
+      facts.threads += 1;
+      if (facts.threads === 1) facts.firstThread = event.thread_id;
+      if (typeof event.thread_id === 'string' && event.thread_id.length > 0 && !facts.sessionIds.includes(event.thread_id)) facts.sessionIds.push(event.thread_id);
+      break;
+    case 'turn.completed':
+      facts.completedTurns += 1;
+      facts.usage = event.usage ?? null;
+      break;
+    case 'turn.failed':
+      facts.turnFailed ??= eventMessage(event);
+      break;
+    case 'error':
+      facts.lastError = eventMessage(event);
+      break;
+    case 'item.started':
+    case 'item.completed':
+      observeItem(facts, event);
+      break;
+    default:
+      // Any other event, such as `turn.started` or `item.updated`, only counts as the last one.
+      break;
+  }
+}
+
+/**
+ * Read the whole stream, one line at a time, before any rule is applied, so
+ * a malformed later line cannot hide the session id an earlier one recorded.
+ * Lines are numbered from 1, blank ones included, and a blank one is skipped.
+ */
+function readStream(lines: Iterable<string | null>): StreamFacts {
+  const facts: StreamFacts = {
+    sessionIds: [],
+    malformed: null,
+    threads: 0,
+    firstThread: undefined,
+    completedTurns: 0,
+    usage: null,
+    lastType: undefined,
+    turnFailed: null,
+    lastError: null,
+    itemProblem: null,
+    pending: new Set(),
+    lastMessage: undefined,
+  };
+  let number = 0;
+  for (const line of lines) {
+    number += 1;
+    if (line === null) {
+      facts.malformed ??= `Codex printed line ${String(number)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
+      continue;
+    }
+    if (line.trim() === '') continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch (error) {
+      facts.malformed ??= `Codex printed line ${String(number)} that is not JSON: ${(error as Error).message}`;
+      continue;
+    }
+    if (!isObject(event)) {
+      facts.malformed ??= `Codex printed line ${String(number)} that is not an event object`;
+      continue;
+    }
+    observe(facts, event);
+  }
+  return facts;
+}
+
+/**
  * Read the `exec --json` event stream, stderr and the final message file.
  * Codex has no denial evidence, so `denials` is always null (TD4); a sandbox
- * that could not run commands at all is a failure, not a denial. Every complete line
- * is parsed before any rule is applied, so a malformed later line cannot hide
- * the session id an earlier one recorded. The session ids are the threads the
- * stream started; the launcher adds a continued one itself.
+ * that could not run commands at all is a failure, not a denial. The stream
+ * is read a line at a time, so its length alone never fails a worker, and
+ * all of it is read before any rule is applied. The session ids are the
+ * threads the stream started; the launcher adds a continued one itself.
  *
  * A turn that completed is judged by its answer, not by what went wrong on
  * the way: an `error` event (Codex's report of a stream reconnect), an
@@ -162,75 +292,36 @@ function survivableFailure(item: Record<string, unknown>): boolean {
  * evidence of the worker. A `turn.failed` event always fails the worker.
  */
 export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
-  const sessionIds: string[] = [];
-  const events: CodexEvent[] = [];
-  let malformed: string | null = null;
-  for (const [index, line] of outputs.stdout.split(/\r?\n/).entries()) {
-    if (line.trim() === '') continue;
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch (error) {
-      malformed ??= `Codex printed line ${String(index + 1)} that is not JSON: ${(error as Error).message}`;
-      continue;
-    }
-    if (!isObject(event)) {
-      malformed ??= `Codex printed line ${String(index + 1)} that is not an event object`;
-      continue;
-    }
-    events.push(event);
-    if (event.type === 'thread.started' && typeof event.thread_id === 'string' && event.thread_id.length > 0 && !sessionIds.includes(event.thread_id)) {
-      sessionIds.push(event.thread_id);
-    }
-  }
-  const completed = events.filter((event) => event.type === 'turn.completed');
-  const usage = completed.at(-1)?.usage ?? null;
+  const facts = readStream(outputs.stdoutLines);
+  const { sessionIds, usage } = facts;
   const failed = (error: string): Decoded => ({ sessionIds, usage, denials: null, result: { kind: 'failed', error } });
 
-  if (malformed !== null) return failed(malformed);
+  if (facts.malformed !== null) return failed(facts.malformed);
   const refusals = [...outputs.stderr.matchAll(refusedCommand)].map((match) => match[1]!.trim());
   if (refusals.length > 0) {
     return failed(`Codex refused to run ${String(refusals.length)} command(s) in its sandbox, so the worker had no working shell: ${refusals[0]!.slice(0, 500)}`);
   }
-  const threads = events.filter((event) => event.type === 'thread.started');
-  if (threads.length !== 1) {
+  if (facts.threads !== 1) {
     // A Codex that refused its command line, such as a --config key it does not know, starts no thread and says why only on stderr.
-    const said = threads.length === 0 ? outputs.stderr.trim() : '';
+    const said = facts.threads === 0 ? outputs.stderr.trim() : '';
     const reason = said === '' ? '' : `; its stderr ends: ${said.slice(-maxStderrExcerpt).toWellFormed()}`;
-    return failed(`Codex started ${String(threads.length)} threads; a worker is exactly one${reason}`);
+    return failed(`Codex started ${String(facts.threads)} threads; a worker is exactly one${reason}`);
   }
-  const thread = threads[0]!.thread_id;
+  const thread = facts.firstThread;
   if (typeof thread !== 'string' || thread.length === 0) return failed('Codex started a thread without an id');
   if (plan.sessionId !== null && thread !== plan.sessionId) return failed(`Codex ran thread ${thread}, not the continued session ${plan.sessionId}`);
-  const turnFailed = events.find((event) => event.type === 'turn.failed');
-  if (turnFailed !== undefined) return failed(`Codex reported turn.failed: ${eventMessage(turnFailed)}`);
-  if (completed.length !== 1 || events.at(-1)?.type !== 'turn.completed') {
+  if (facts.turnFailed !== null) return failed(`Codex reported turn.failed: ${facts.turnFailed}`);
+  if (facts.completedTurns !== 1 || facts.lastType !== 'turn.completed') {
     // Codex reports an error it survives, such as a stream reconnect, as an
     // `error` event too, so one only explains a turn that did not complete.
-    const lastError = events.findLast((event) => event.type === 'error');
-    const reported = lastError === undefined ? '' : `; it reported error: ${eventMessage(lastError)}`;
+    const reported = facts.lastError === null ? '' : `; it reported error: ${facts.lastError}`;
     return failed(`Codex did not end with exactly one completed turn${reported}`);
   }
-
-  const pending = new Set<string>();
-  const messages: string[] = [];
-  for (const event of events) {
-    if (event.type !== 'item.started' && event.type !== 'item.completed') continue;
-    const item = event.item;
-    if (!isObject(item) || typeof item.id !== 'string') return failed(`Codex reported ${event.type} without an item id`);
-    // Outside the review's boundary: the isolation config turns both off, so either one means it did not hold.
-    if (item.type === 'mcp_tool_call' || item.type === 'web_search') return failed(`Codex used ${item.type}, which the worker is not given`);
-    if (event.type === 'item.started') {
-      pending.add(item.id);
-      continue;
-    }
-    pending.delete(item.id);
-    if (item.status === 'failed' && !survivableFailure(item)) return failed(`Codex item ${item.id} (${String(item.type)}) failed`);
-    if (item.type === 'agent_message' && typeof item.text === 'string') messages.push(item.text);
-  }
+  if (facts.itemProblem !== null) return failed(facts.itemProblem);
+  const { pending } = facts;
   if (pending.size > 0) return failed(`Codex left ${String(pending.size)} item(s) started without completing: ${[...pending].join(', ')}`);
   if (outputs.finalMessage === null) return failed('Codex wrote no final message file');
-  const last = messages.at(-1);
+  const last = facts.lastMessage;
   if (last === undefined || last.trim() !== outputs.finalMessage.trim()) return failed('Codex wrote a final message that is not its last agent message');
   let value: unknown;
   try {
