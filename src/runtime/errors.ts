@@ -1,12 +1,12 @@
-import { CheckpointError } from '../checkpoint/errors.ts';
+import { EngineError } from '../errors.ts';
 
 /** The invocation is malformed or contradicts the run it names: a bad field, a scratch directory inside the reviewed tree, a session that cannot be continued. */
-export class InvalidInvocationError extends CheckpointError {
+export class InvalidInvocationError extends EngineError {
   override readonly name = 'InvalidInvocationError';
 }
 
 /** No adapter is registered under the runtime name the invocation gives. */
-export class UnknownRuntimeError extends CheckpointError {
+export class UnknownRuntimeError extends EngineError {
   override readonly name = 'UnknownRuntimeError';
   readonly runtime: string;
   constructor(runtime: string, known: readonly string[]) {
@@ -16,7 +16,7 @@ export class UnknownRuntimeError extends CheckpointError {
 }
 
 /** The invocation needs something the runtime cannot do; it is refused before anything runs rather than approximated (TD4). */
-export class UnsupportedCapabilityError extends CheckpointError {
+export class UnsupportedCapabilityError extends EngineError {
   override readonly name = 'UnsupportedCapabilityError';
   readonly runtime: string;
   /** The key of the missing capability in the adapter's capability table. */
@@ -29,7 +29,7 @@ export class UnsupportedCapabilityError extends CheckpointError {
 }
 
 /** The caller's environment sets a variable that would override the pinned policy of the worker (R8). */
-export class InheritedOverrideError extends CheckpointError {
+export class InheritedOverrideError extends EngineError {
   override readonly name = 'InheritedOverrideError';
   readonly variable: string;
   constructor(variable: string, reason: string) {
@@ -39,6 +39,6 @@ export class InheritedOverrideError extends CheckpointError {
 }
 
 /** The executable did not qualify: it did not run, its version output is not the runtime's, or its help lacks a flag the adapter uses (R4). */
-export class PreflightError extends CheckpointError {
+export class PreflightError extends EngineError {
   override readonly name = 'PreflightError';
 }
