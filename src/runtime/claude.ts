@@ -54,7 +54,7 @@ export const claudeSessionMarkers = [
   'CLAUDE_CODE_MESSAGING_TOKEN',
 ] as const;
 
-/** How long a denial's command or path may be on the receipt. */
+/** How long a denial's command or path may be on the receipt, in UTF-16 code units. */
 const maxDenialDetail = 300;
 
 /** The Claude Code tools for the two permission axes (TD3): reading always, the shell and editing on request. */
@@ -113,6 +113,21 @@ export function claudeCommand(invocation: Invocation, plan: LaunchPlan): WorkerC
   };
 }
 
+/** Whether a UTF-16 code unit is the first half of a surrogate pair. */
+const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff;
+
+/**
+ * A denial's detail cut to `maxDenialDetail` code units without splitting a
+ * surrogate pair, and with any lone surrogate the runtime sent replaced, so
+ * the ledger never holds text that is not valid Unicode.
+ */
+export function truncateDetail(detail: string): string {
+  let end = Math.min(detail.length, maxDenialDetail);
+  // A high surrogate as the last kept unit would lose its low half to the cut.
+  if (end < detail.length && isHighSurrogate(detail.charCodeAt(end - 1))) end -= 1;
+  return detail.slice(0, end).toWellFormed();
+}
+
 /** A denial without readable input is still a denial; keep the tool and whatever detail there is. */
 function deniedTools(denials: readonly unknown[]): DeniedTool[] {
   return denials.map((entry) => {
@@ -120,7 +135,7 @@ function deniedTools(denials: readonly unknown[]): DeniedTool[] {
     const tool = typeof denial.tool_name === 'string' && denial.tool_name.length > 0 ? denial.tool_name : 'unknown tool';
     const input = isObject(denial.tool_input) ? denial.tool_input : {};
     const detail = ['command', 'file_path', 'path', 'url'].map((key) => input[key]).find((value): value is string => typeof value === 'string');
-    return { tool, detail: detail === undefined ? null : detail.slice(0, maxDenialDetail) };
+    return { tool, detail: detail === undefined ? null : truncateDetail(detail) };
   });
 }
 

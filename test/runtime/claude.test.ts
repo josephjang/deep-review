@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
 import { maxDecodeBytes, outputLines, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
-import { claudeAdapter, claudeEnvironment, claudeFlags, claudeSessionMarkers, claudeTools, thinkingOverrides } from '../../src/runtime/claude.ts';
+import { claudeAdapter, claudeEnvironment, claudeFlags, claudeSessionMarkers, claudeTools, thinkingOverrides, truncateDetail } from '../../src/runtime/claude.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
 import { InheritedOverrideError } from '../../src/runtime/errors.ts';
 import { LauncherSandbox } from '../helpers/launcher.ts';
@@ -201,6 +201,7 @@ describe('claude decode', () => {
         { tool_name: 'WebFetch', tool_input: { url: 'https://e.invalid' } },
         { tool_name: 'Glob', tool_input: {} },
         { tool_input: { path: 'p'.repeat(400) } },
+        { tool_name: 'Read', tool_input: { file_path: `${'q'.repeat(299)}\u{1F600}` } },
         null,
         ['Bash', { command: 'ls' }],
         { tool_name: 'Bash', tool_input: ['ls'] },
@@ -213,6 +214,7 @@ describe('claude decode', () => {
       { tool: 'WebFetch', detail: 'https://e.invalid' },
       { tool: 'Glob', detail: null },
       { tool: 'unknown tool', detail: 'p'.repeat(300) },
+      { tool: 'Read', detail: 'q'.repeat(299) },
       { tool: 'unknown tool', detail: null },
       // An entry or input that is an array or a bare value has no named members to read.
       { tool: 'unknown tool', detail: null },
@@ -305,5 +307,25 @@ describe('Claude Code worker through the launcher', () => {
     const receipt = await box.run(box.claude({ effort: 'low' }), { ...markers, CLAUDE_CODE_USE_BEDROCK: '1', FAKE_CLAUDE_ENV: seen });
     assert.equal(receipt.outcome, 'completed');
     assert.deepEqual(JSON.parse(readFileSync(seen, 'utf8')), { CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+  });
+});
+
+describe('truncateDetail', () => {
+  it('keeps a detail at or under the limit as it is', () => {
+    assert.equal(truncateDetail(''), '');
+    assert.equal(truncateDetail('a'.repeat(300)), 'a'.repeat(300));
+    assert.equal(truncateDetail(`${'a'.repeat(298)}\u{1F600}`), `${'a'.repeat(298)}\u{1F600}`);
+  });
+
+  it('cuts before a surrogate pair the limit would split', () => {
+    const cut = truncateDetail(`${'a'.repeat(299)}\u{1F600}tail`);
+    assert.equal(cut, 'a'.repeat(299));
+    assert.ok(cut.isWellFormed());
+    assert.equal(truncateDetail(`${'a'.repeat(298)}\u{1F600}tail`), `${'a'.repeat(298)}\u{1F600}`);
+  });
+
+  it('replaces a lone surrogate the runtime sent', () => {
+    assert.equal(truncateDetail('a\uD83Db'), 'a�b');
+    assert.equal(truncateDetail(`${'a'.repeat(299)}\uDE00`), `${'a'.repeat(299)}�`);
   });
 });
