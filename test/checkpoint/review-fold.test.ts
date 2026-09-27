@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { poolCandidates, singleUnitKey, unitsOfPhase } from '../../src/checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, singleUnitKey, unitsOfPhase, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, phases } from '../../src/review/vocabulary.ts';
 import { History, candidate, configuration, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
@@ -65,6 +65,25 @@ describe('the review fold', () => {
     assert.deepEqual(review.unverifiedGroups, { 'sweep-verification:g1': '2 attempts did not complete: failed; failed again' });
     assert.deepEqual(review.candidates['SWEEP-1']?.located, false);
     assert.equal(review.candidates['SWEEP-1']?.file, null);
+  });
+
+  it('answers whether a unit contributed, not whether it has a record', () => {
+    const review = found().review();
+    assert.equal(isAnswered(review, 'triage', 'SCAN'), true);
+    assert.equal(isAnswered(review, 'finders', 'RIPPLE'), true);
+    assert.equal(isAnswered(review, 'finders', 'WRAPPERS'), true, 'answered after one failure');
+    assert.equal(isAnswered(review, 'finders', 'FOOTGUNS'), false, 'failed twice: a record, no answer');
+    assert.equal(isAnswered(review, 'verification', 'g1'), false, 'no record at all');
+    assert.equal(isAnswered(review, 'triage', 'RIPPLE'), false, 'a key of another phase');
+  });
+
+  it('lists every unverified group from the plans, with its candidates and reason', () => {
+    const review = swept().review();
+    assert.deepEqual(unverifiedGroupsOf(review), [{ phase: 'sweep-verification', groupId: 'g1', candidateIds: ['SWEEP-1', 'SWEEP-2'], reason: '2 attempts did not complete: failed; failed again' }]);
+    assert.equal(isUnverified(review, 'sweep-verification', 'g1'), true);
+    assert.equal(isUnverified(review, 'verification', 'g1'), false, 'the same group id in the other phase is another group');
+    assert.deepEqual(unverifiedGroupsOf(verified().review()), []);
+    assert.deepEqual(unverifiedGroupsOf(configured().review()), [], 'nothing planned, nothing unverified');
   });
 
   it('folds the ranking and the report, with every phase completed or degraded', () => {

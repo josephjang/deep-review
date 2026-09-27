@@ -383,6 +383,34 @@ export const reviewReducers = {
   'report.written@1': reportWritten,
 } as const;
 
+/** Whether the unit `key` of `phase` has contributed: a worker's answer is recorded for it. */
+export function isAnswered(review: ReviewState, phase: Phase, key: string): boolean {
+  const unit = review.units[unitName(phase, key)];
+  return unit !== undefined && unit.answeredBy !== null;
+}
+
+/** Whether the group `groupId` of a verification phase was marked unverified. */
+export function isUnverified(review: ReviewState, phase: VerificationPhase, groupId: string): boolean {
+  return Object.hasOwn(review.unverifiedGroups, unitName(phase, groupId));
+}
+
+/** A group whose verifier failed twice, with the candidates it held and the reason recorded. */
+export interface UnverifiedGroup {
+  readonly phase: VerificationPhase;
+  readonly groupId: string;
+  readonly candidateIds: readonly string[];
+  readonly reason: string;
+}
+
+/** Every unverified group, first pool then sweep, each in plan order; read from the plans, so no caller parses a unit name. */
+export function unverifiedGroupsOf(review: ReviewState): UnverifiedGroup[] {
+  return verificationPhases.flatMap((phase) =>
+    (review.plans[phase] ?? [])
+      .filter((group) => isUnverified(review, phase, group.id))
+      .map((group) => ({ phase, groupId: group.id, candidateIds: group.candidateIds, reason: review.unverifiedGroups[unitName(phase, group.id)]! })),
+  );
+}
+
 /** Every phase's units that have a record, for the phase's planner. */
 export function unitsOfPhase(review: ReviewState, phase: Phase): Record<string, UnitState> {
   const prefix = `${phase}:`;

@@ -20502,6 +20502,18 @@ var reviewReducers = {
   "ranking.recorded@1": rankingRecorded,
   "report.written@1": reportWritten
 };
+function isAnswered(review2, phase, key) {
+  const unit = review2.units[unitName(phase, key)];
+  return unit !== void 0 && unit.answeredBy !== null;
+}
+function isUnverified(review2, phase, groupId) {
+  return Object.hasOwn(review2.unverifiedGroups, unitName(phase, groupId));
+}
+function unverifiedGroupsOf(review2) {
+  return verificationPhases.flatMap(
+    (phase) => (review2.plans[phase] ?? []).filter((group) => isUnverified(review2, phase, group.id)).map((group) => ({ phase, groupId: group.id, candidateIds: group.candidateIds, reason: review2.unverifiedGroups[unitName(phase, group.id)] }))
+  );
+}
 function unitsOfPhase(review2, phase) {
   const prefix = `${phase}:`;
   return Object.fromEntries(Object.entries(review2.units).filter(([unit]) => unit.startsWith(prefix)).map(([unit, state]) => [unit.slice(prefix.length), state]));
@@ -23821,14 +23833,10 @@ function marks(candidate, unverified) {
 }
 var shortLocation = (candidate) => candidate.located && candidate.file !== null && candidate.line !== null ? at(candidate.file, candidate.line) : at(candidate.rawFile, candidate.rawLine);
 function angleRow(review2, angle) {
-  if (angle === "SCAN") {
-    const ran2 = review2.units["triage:SCAN"]?.answeredBy !== null && review2.units["triage:SCAN"]?.answeredBy !== void 0;
-    return `| SCAN | ${ran2 ? "run (as the triage)" : "not run"} | - |`;
-  }
+  if (angle === "SCAN") return `| SCAN | ${isAnswered(review2, "triage", triageUnitKey) ? "run (as the triage)" : "not run"} | - |`;
   const notRun = review2.anglesNotRun[angle];
   const lead = review2.leads?.find((entry) => entry.angle === angle)?.lead ?? null;
-  const ran = review2.units[`finders:${angle}`]?.answeredBy !== null && review2.units[`finders:${angle}`]?.answeredBy !== void 0;
-  const status3 = notRun !== void 0 ? `not run (${tableCell(notRun)})` : ran ? "run" : "not run";
+  const status3 = notRun !== void 0 ? `not run (${tableCell(notRun)})` : isAnswered(review2, "finders", angle) ? "run" : "not run";
   return `| ${angle} | ${status3} | ${lead === null ? "none" : tableCell(lead)} |`;
 }
 function findingBlock(position, entry) {
@@ -23878,10 +23886,8 @@ function whyUnlocated(scope, candidate) {
 function limitations(scope, review2, input2) {
   const lines = [];
   for (const [angle, reason] of Object.entries(review2.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
-  for (const [unit, reason] of Object.entries(review2.unverifiedGroups)) {
-    const [phase, groupId] = unit.split(":");
-    const ids = review2.plans[phase]?.find((group) => group.id === groupId)?.candidateIds ?? [];
-    lines.push(`- Group ${String(groupId)} of ${String(phase)} was not verified: ${inlineText(reason)}. Its candidates (${ids.join(", ")}) carry PLAUSIBLE with the unverified mark.`);
+  for (const group of unverifiedGroupsOf(review2)) {
+    lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(", ")}) carry PLAUSIBLE with the unverified mark.`);
   }
   const drifted = review2.checks.filter((check2) => check2.drifted);
   lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference before ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
