@@ -85,7 +85,11 @@ export interface CodexOptions {
   readonly windowsSandbox?: WindowsSandbox;
 }
 
-export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox = 'unelevated'): WorkerCommand {
+/**
+ * The Codex command line for one worker. `windowsSandbox` is the adapter's
+ * choice, applied only on Windows.
+ */
+export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox): WorkerCommand {
   const writable = invocation.access === 'edit' && plan.scratch !== null ? [plan.scratch] : [];
   const options = [
     '--ignore-user-config',
@@ -229,8 +233,8 @@ export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
   };
 }
 
-/** Everything about the Codex adapter that no option changes. */
-const codexRuntime: RuntimeAdapter = {
+/** Everything about the Codex adapter that no option changes; `createCodexAdapter` adds the command. */
+const codexRuntime: Omit<RuntimeAdapter, 'command'> = {
   name: 'codex',
   capabilities: {
     assignsSessionId: false,
@@ -249,7 +253,6 @@ const codexRuntime: RuntimeAdapter = {
       { args: ['exec', 'resume', '--help'], flags: codexExecFlags },
     ],
   },
-  command: codexCommand,
   decode: decodeCodex,
 };
 
