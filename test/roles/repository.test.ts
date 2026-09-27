@@ -133,7 +133,10 @@ describe('the repository\'s roles/', () => {
  * and the `Agent` tool that spawns them, its `AskUserQuestion` tool, its
  * `Grep` tool, the "single message block" that runs tool calls in
  * parallel (and "the same block" that pointed back at it), and the names
- * of the prompt-only skill's subagents. "scope block" is not one.
+ * of the prompt-only skill's subagents. "scope block" is not one. It
+ * also finds "the driver", the prompt-only skill's name for the session
+ * that runs a review, which here is the engine; a backticked `Driver lead`
+ * is a label a finder reads like `SCAN lead`, not a name for the engine.
  *
  * Each pattern is matched against a whole prompt, and a space inside a
  * phrase is `\s+`, so a phrase that a line wrap splits in two is still
@@ -154,6 +157,7 @@ const runtimeWording: readonly [RegExp, string][] = [
   [/\b(message|same)\s+block\b/gi, 'a message block'],
   [/\bdeep-review-\s*(lead|fixer|auditor|analyst|scout|conventions|driver)\b/gi, 'a subagent name'],
   [/\bdeep-review\s+skill\b/gi, 'the deep-review skill as the worker\'s employer'],
+  [/(?<!`)\bdriver\b/gi, 'the driver, meaning the engine'],
 ];
 
 /** Each runtime-specific phrase in `text`, as "line N names WHAT: LINE", N being the line the phrase starts on. */
@@ -194,6 +198,12 @@ describe('the runtime-wording guard', () => {
     assert.deepEqual(named('The scope block is shared.'), []);
     assert.deepEqual(named('Run grep -n on the file.'), []);
     assert.deepEqual(named('Grep for the symbol.'), ['the Grep tool']);
+  });
+
+  it('finds the driver in prose but passes the `Driver lead` label', () => {
+    assert.deepEqual(named('uses the driver\'s verified reason'), ['the driver, meaning the engine']);
+    assert.deepEqual(named('is not a Driver run'), ['the driver, meaning the engine']);
+    assert.deepEqual(named('a `SCAN lead` or `Driver lead` for your angle'), []);
   });
 
   it('reports the line a phrase starts on, and that line\'s text', () => {
