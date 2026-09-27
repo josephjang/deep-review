@@ -157,8 +157,7 @@
       "fixer-documentation.md",
       "fixer-tests.md",
       "fixer-validation.md",
-      "fixer-report.md",
-      "step3-actions.md"
+      "fixer-report.md"
     ]
   }
 }
