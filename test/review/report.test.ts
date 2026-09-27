@@ -103,7 +103,7 @@ describe('renderReport', () => {
           'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted\n# Heading', verdict: { verdict: 'REFUTED' as const, evidence: 'line 3\n\n## is a comment' }, duplicateOf: null },
         },
         anglesNotRun: { FOOTGUNS: 'timeout\n## Limitation heading' },
-        unverifiedGroups: { 'sweep-verification:g1': 'failed\n# Group heading' },
+        unverifiedGroups: { ...review.unverifiedGroups, 'sweep-verification': { g1: 'failed\n# Group heading' } },
       },
     };
     const report = renderReport(hostile, { engine: '0.0.0+dev', statistics });

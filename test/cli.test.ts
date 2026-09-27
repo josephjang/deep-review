@@ -240,7 +240,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
       const checkpoint = Checkpoint.open(root, { engine: 'test-observer' });
       try {
         const run = checkpoint.listRuns()[0];
-        return run?.review === null || run?.review === undefined ? [] : Object.keys(run.review.units).filter((unit) => unit.startsWith('finders:') && run.review!.units[unit]!.answeredBy !== null);
+        return run?.review === null || run?.review === undefined ? [] : Object.entries(run.review.units.finders).filter(([, unit]) => unit.answeredBy !== null).map(([angle]) => `finders:${angle}`);
       } finally {
         checkpoint.close();
       }

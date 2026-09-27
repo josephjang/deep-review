@@ -20304,7 +20304,7 @@ function poolCandidates(review2, phase) {
   return Object.values(review2.candidates).filter((candidate) => included.has(candidate.phase));
 }
 function unitOfLostWorker(phase, key) {
-  return phase === null || key === null ? null : unitName(phase, key);
+  return phase === null || key === null ? null : { phase, key };
 }
 var invalid = (event, what) => new InvalidHistoryError(`Run ${event.runId} ${what}, at sequence ${String(event.sequence)} (${event.kind}@${String(event.version)})`);
 function requireReview(state, event) {
@@ -20317,23 +20317,28 @@ function requireRunning(review2, event, phase, attempt) {
   if (state.status !== "running") throw invalid(event, `has ${event.kind} for phase ${phase} while it is ${state.status}`);
   if (attempt !== void 0 && attempt !== state.attempt) throw invalid(event, `has ${event.kind} for phase ${phase} attempt ${String(attempt)} while it is at attempt ${String(state.attempt)}`);
 }
-function requireUnanswered(review2, event, unit) {
-  const state = review2.units[unit] ?? { answeredBy: null, failures: [] };
-  if (state.answeredBy !== null) throw invalid(event, `has ${event.kind} for unit ${unit}, which worker ${state.answeredBy} already answered`);
-  return state;
+function requireUnanswered(review2, event, { phase, key }) {
+  const answeredBy = review2.units[phase][key]?.answeredBy ?? null;
+  if (answeredBy !== null) throw invalid(event, `has ${event.kind} for unit ${unitName(phase, key)}, which worker ${answeredBy} already answered`);
 }
 function withReview(current, review2, event) {
   return { ...current, review: review2, lastSequence: event.sequence };
 }
-function answered(review2, drafts, unit, workerId) {
+function writableUnits(review2, drafts, phase) {
   const units = drafts.writable(review2.units);
-  units[unit] = { answeredBy: workerId, failures: units[unit]?.failures ?? [] };
+  const ofPhase = drafts.writable(units[phase]);
+  units[phase] = ofPhase;
+  return { units, ofPhase };
+}
+function answered(review2, drafts, { phase, key }, workerId) {
+  const { units, ofPhase } = writableUnits(review2, drafts, phase);
+  ofPhase[key] = { answeredBy: workerId, failures: ofPhase[key]?.failures ?? [] };
   return units;
 }
-function withFailure(review2, drafts, unit, workerId, reason) {
-  const units = drafts.writable(review2.units);
-  const state = units[unit] ?? { answeredBy: null, failures: [] };
-  units[unit] = { answeredBy: state.answeredBy, failures: [...state.failures, { workerId, reason }] };
+function withFailure(review2, drafts, { phase, key }, workerId, reason) {
+  const { units, ofPhase } = writableUnits(review2, drafts, phase);
+  const state = ofPhase[key] ?? { answeredBy: null, failures: [] };
+  ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, { workerId, reason }] };
   return { ...review2, units };
 }
 var configured = (state, payload, event) => {
@@ -20348,11 +20353,11 @@ var configured = (state, payload, event) => {
     checks: [],
     leads: null,
     candidates: {},
-    units: {},
+    units: Object.fromEntries(phases.map((phase) => [phase, {}])),
     anglesNotRun: {},
     deduplications: Object.fromEntries(deduplicationPhases.map((phase) => [phase, null])),
     plans: Object.fromEntries(verificationPhases.map((phase) => [phase, null])),
-    unverifiedGroups: {},
+    unverifiedGroups: Object.fromEntries(verificationPhases.map((phase) => [phase, {}])),
     ranking: null,
     report: null
   };
@@ -20364,9 +20369,9 @@ var limitsChanged = (state, payload, event) => {
   return withReview(current, { ...review2, limits: payload }, event);
 };
 function withFreshAttempts(review2, drafts, phase) {
-  const units = drafts.writable(review2.units);
-  for (const [unit, state] of Object.entries(units)) {
-    if (unit.startsWith(`${phase}:`) && state.failures.length > 0) units[unit] = { answeredBy: state.answeredBy, failures: [] };
+  const { units, ofPhase } = writableUnits(review2, drafts, phase);
+  for (const [key, state] of Object.entries(ofPhase)) {
+    if (state.failures.length > 0) ofPhase[key] = { answeredBy: state.answeredBy, failures: [] };
   }
   return units;
 }
@@ -20408,7 +20413,7 @@ var candidatesRecorded = (state, payload, event, drafts) => {
   requireRunning(review2, event, payload.phase);
   requireCandidateUnit(payload, event);
   const prefix = candidateIdPrefix(payload.phase, payload.key);
-  const unit = unitName(payload.phase, payload.key);
+  const unit = { phase: payload.phase, key: payload.key };
   requireUnanswered(review2, event, unit);
   if (payload.phase === "finders" && Object.hasOwn(review2.anglesNotRun, payload.key)) throw invalid(event, `records candidates for angle ${payload.key} after it failed`);
   const candidates = drafts.writable(review2.candidates);
@@ -20424,14 +20429,14 @@ var candidatesRecorded = (state, payload, event, drafts) => {
 var attemptFailed = (state, payload, event, drafts) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, payload.phase);
-  const unit = unitName(payload.phase, payload.key);
+  const unit = { phase: payload.phase, key: payload.key };
   requireUnanswered(review2, event, unit);
   return withReview(current, withFailure(review2, drafts, unit, payload.workerId, payload.reason), event);
 };
 var angleFailed = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, "finders");
-  requireUnanswered(review2, event, unitName("finders", payload.angle));
+  requireUnanswered(review2, event, { phase: "finders", key: payload.angle });
   if (Object.hasOwn(review2.anglesNotRun, payload.angle)) throw invalid(event, `fails angle ${payload.angle} twice`);
   return withReview(current, { ...review2, anglesNotRun: { ...review2.anglesNotRun, [payload.angle]: payload.reason } }, event);
 };
@@ -20439,7 +20444,7 @@ var deduplicationRecorded = (state, payload, event, drafts) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, payload.phase);
   if (review2.deduplications[payload.phase] !== null) throw invalid(event, `records ${payload.phase} twice`);
-  const unit = unitName(payload.phase, payload.phase);
+  const unit = { phase: payload.phase, key: singleUnitKey(payload.phase) };
   requireUnanswered(review2, event, unit);
   const pool = new Set(poolCandidates(review2, payload.phase).map((candidate) => candidate.id));
   const candidates = drafts.writable(review2.candidates);
@@ -20480,8 +20485,8 @@ function requireOpenGroup(review2, event, phase, groupId) {
   if (plan === null) throw invalid(event, `has ${event.kind} for ${phase} before it is planned`);
   const group = plan.find((candidate) => candidate.id === groupId);
   if (group === void 0) throw invalid(event, `has ${event.kind} for group ${groupId}, which ${phase} did not plan`);
-  requireUnanswered(review2, event, unitName(phase, groupId));
-  if (Object.hasOwn(review2.unverifiedGroups, unitName(phase, groupId))) throw invalid(event, `has ${event.kind} for group ${groupId} after it was marked unverified`);
+  requireUnanswered(review2, event, { phase, key: groupId });
+  if (isUnverified(review2, phase, groupId)) throw invalid(event, `has ${event.kind} for group ${groupId} after it was marked unverified`);
   return group.candidateIds;
 }
 var verdictsRecorded = (state, payload, event, drafts) => {
@@ -20495,7 +20500,7 @@ var verdictsRecorded = (state, payload, event, drafts) => {
   }
   const candidates = drafts.writable(review2.candidates);
   for (const { id, verdict, evidence } of payload.verdicts) candidates[id] = { ...candidates[id], verdict: { verdict, evidence } };
-  return withReview(current, { ...review2, candidates, units: answered(review2, drafts, unitName(payload.phase, payload.groupId), payload.workerId) }, event);
+  return withReview(current, { ...review2, candidates, units: answered(review2, drafts, { phase: payload.phase, key: payload.groupId }, payload.workerId) }, event);
 };
 var groupUnverified = (state, payload, event, drafts) => {
   const { current, review: review2 } = requireReview(state, event);
@@ -20503,14 +20508,14 @@ var groupUnverified = (state, payload, event, drafts) => {
   const ids = requireOpenGroup(review2, event, payload.phase, payload.groupId);
   const candidates = drafts.writable(review2.candidates);
   for (const id of ids) candidates[id] = { ...candidates[id], unverified: true };
-  const unverifiedGroups = { ...review2.unverifiedGroups, [unitName(payload.phase, payload.groupId)]: payload.reason };
+  const unverifiedGroups = { ...review2.unverifiedGroups, [payload.phase]: { ...review2.unverifiedGroups[payload.phase], [payload.groupId]: payload.reason } };
   return withReview(current, { ...review2, candidates, unverifiedGroups }, event);
 };
 var rankingRecorded = (state, payload, event, drafts) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, "merge-rank");
   if (review2.ranking !== null) throw invalid(event, "records its ranking twice");
-  const unit = unitName("merge-rank", "merge-rank");
+  const unit = { phase: "merge-rank", key: singleUnitKey("merge-rank") };
   requireUnanswered(review2, event, unit);
   const seen = /* @__PURE__ */ new Set();
   for (const finding of payload.findings) {
@@ -20545,20 +20550,18 @@ var reviewReducers = {
   "report.written@1": reportWritten
 };
 function isAnswered(review2, phase, key) {
-  const unit = review2.units[unitName(phase, key)];
-  return unit !== void 0 && unit.answeredBy !== null;
+  return (review2.units[phase][key]?.answeredBy ?? null) !== null;
 }
 function isUnverified(review2, phase, groupId) {
-  return Object.hasOwn(review2.unverifiedGroups, unitName(phase, groupId));
+  return Object.hasOwn(review2.unverifiedGroups[phase], groupId);
 }
 function unverifiedGroupsOf(review2) {
   return verificationPhases.flatMap(
-    (phase) => (review2.plans[phase] ?? []).filter((group) => isUnverified(review2, phase, group.id)).map((group) => ({ phase, groupId: group.id, candidateIds: group.candidateIds, reason: review2.unverifiedGroups[unitName(phase, group.id)] }))
+    (phase) => (review2.plans[phase] ?? []).flatMap((group) => {
+      const reason = isUnverified(review2, phase, group.id) ? review2.unverifiedGroups[phase][group.id] : void 0;
+      return reason === void 0 ? [] : [{ phase, groupId: group.id, candidateIds: group.candidateIds, reason }];
+    })
   );
-}
-function unitsOfPhase(review2, phase) {
-  const prefix = `${phase}:`;
-  return Object.fromEntries(Object.entries(review2.units).filter(([unit]) => unit.startsWith(prefix)).map(([unit, state]) => [unit.slice(prefix.length), state]));
 }
 
 // src/checkpoint/fold.ts
@@ -20627,7 +20630,7 @@ var workerLost = (state, payload, event, drafts) => {
   const workers = drafts.writable(current.workers);
   workers[payload.workerId] = { status: "lost", launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
   const unit = unitOfLostWorker(payload.phase, payload.key);
-  if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unit} at sequence ${String(event.sequence)} before review.configured`);
+  if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unitName(unit.phase, unit.key)} at sequence ${String(event.sequence)} before review.configured`);
   const review2 = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, payload.workerId, payload.reason);
   return { ...current, workers, review: review2, lastSequence: event.sequence };
 };
@@ -23632,7 +23635,7 @@ function nextStep(review2, live2) {
   if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
   if (phase === "report") return { kind: "write-report" };
   const units = unitsOf(review2, phase);
-  const states = unitsOfPhase(review2, phase);
+  const states = review2.units[phase];
   const degradations = units.filter((unit) => unit.degrades && exhausted(review2, unit, states[unit.key])).map((unit) => degradationOf(review2, unit, states[unit.key])).filter((degradation) => degradation !== null);
   if (degradations.length > 0) return { kind: "degrade", phase, degradations };
   const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));

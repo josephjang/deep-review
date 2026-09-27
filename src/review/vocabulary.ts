@@ -139,5 +139,5 @@ export const unitKeySchema = z.string().regex(/^[A-Za-z0-9-]{1,40}$/, 'a unit ke
  */
 export const maxRecordedTextLength = 4000;
 
-/** `phase:key`, the name the fold counts a unit's attempts under. */
+/** `phase:key`, the name of a unit in progress lines, blockers, the fold's refusals and the controller's set of workers in flight. The fold keeps units by phase and key, never by this name. */
 export const unitName = (phase: Phase, key: string): string => `${phase}:${key}`;

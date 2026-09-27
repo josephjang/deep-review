@@ -6,7 +6,7 @@
  * the same path, and every resume test is a fold test.
  */
 import type { Blocker } from '../checkpoint/events.ts';
-import { isAnswered, isUnverified, poolCandidates, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
 import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, singleUnitKey, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
@@ -204,7 +204,7 @@ export function nextStep(review: ReviewState, live: Live): Step {
   if (phase === 'report') return { kind: 'write-report' };
 
   const units = unitsOf(review, phase);
-  const states = unitsOfPhase(review, phase);
+  const states = review.units[phase];
   const degradations = units.filter((unit) => unit.degrades && exhausted(review, unit, states[unit.key])).map((unit) => degradationOf(review, unit, states[unit.key])).filter((degradation): degradation is Degradation => degradation !== null);
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
