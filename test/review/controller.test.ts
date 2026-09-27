@@ -171,7 +171,10 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(state.review!.phases.triage.status, 'blocked');
     assert.equal(Object.values(state.workers).length, 2);
     box.script({});
-    report(await box.review('claude'));
+    // The run keeps the scope it captured: the command's is never resolved, and the log says it is ignored.
+    const scope = { named: true, request: (): never => assert.fail('a run that captured its scope asked for another') };
+    report(await box.review('claude', { scope }));
+    assert.ok(box.logs.includes(`run ${state.id} is active; its scope flags are ignored and the run continues`));
     state = box.run();
     assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 2 });
     assert.equal(state.review!.blocker, null);

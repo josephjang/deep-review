@@ -14,7 +14,7 @@ import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
 import { EngineError } from './errors.ts';
-import { describeRun, findActiveRun, runReview } from './review/controller.ts';
+import { describeRun, findActiveRun, runReview, type ScopeSource } from './review/controller.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
@@ -186,11 +186,15 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   const executable = resolveExecutable(values.executable ?? values.runtime, io.environment, process.platform, io.cwd);
   const checkpoint = openCheckpoint(root, true)!;
   try {
-    // A resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on.
-    const active = findActiveRun(checkpoint);
-    const scope = active === null ? scopeRequestOf(values, worktree) : null;
-    if (active === null && scope === null) throw new UsageError('a new run needs its scope: --last-commit, --worktree, --ref <ref>, or --from <rev> --to <rev>');
-    if (active !== null && hasScopeFlags(values)) io.stderr(`run ${active.id} is active; its scope flags are ignored and the run continues\n`);
+    // The controller resolves the scope only for a run that has none yet: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on.
+    const scope: ScopeSource = {
+      named: hasScopeFlags(values),
+      request: () => {
+        const chosen = scopeRequestOf(values, worktree);
+        if (chosen === null) throw new UsageError('a new run needs its scope: --last-commit, --worktree, --ref <ref>, or --from <rev> --to <rev>');
+        return chosen.request;
+      },
+    };
     const outcome = await runReview({
       checkpoint,
       worktree,
@@ -200,7 +204,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
       executableArgs: values['executable-arg'] ?? [],
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,
-      scope: scope?.request ?? { paths: [] },
+      scope,
       environment: io.environment,
       log: (line) => io.stderr(`${line}\n`),
     });

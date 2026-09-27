@@ -30,6 +30,19 @@ import { reviewStatus } from './state.ts';
 import { driftBlocker, nextStep, type Live, type Unit } from './steps.ts';
 import { blockerActions, unitName, type Phase } from './vocabulary.ts';
 
+/**
+ * The scope a command asks for. It is resolved only when the run it acts
+ * on has none captured (a new run, or one whose capture failed), and a run
+ * that has one keeps it, so the request is not even checked against a tree
+ * that may have moved on.
+ */
+export interface ScopeSource {
+  /** Whether the command named a scope, so a resumed run that ignores it can say so. */
+  readonly named: boolean;
+  /** The request to capture; throws, creating nothing, when the command names none or one the tree refutes. */
+  readonly request: () => ScopeRequest;
+}
+
 export interface ReviewOptions {
   readonly checkpoint: Checkpoint;
   /** The worktree the review runs in; workers use it as their working directory. */
@@ -40,8 +53,8 @@ export interface ReviewOptions {
   readonly executableArgs?: readonly string[];
   readonly rolesRoot: string;
   readonly flags: PolicyFlags;
-  /** The scope of a new run; a resumed run keeps the scope it captured. */
-  readonly scope: ScopeRequest;
+  /** The scope of a new run, or of an active one that has none yet; a run that captured one keeps it. */
+  readonly scope: ScopeSource;
   readonly environment?: NodeJS.ProcessEnv;
   readonly scratchRoot?: string;
   /** The home directory the rules files are looked for under; the user's by default. */
@@ -112,7 +125,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const opened = openRun(checkpoint, options, log);
   let state = opened.state;
   const runId = state.id;
-  const { release } = opened;
+  const { release, scopeRequest } = opened;
   const inFlight = new Map<string, InFlight>();
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
@@ -127,8 +140,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     state = append(checkpoint, state, [event]);
   };
   try {
-    if (state.scope === null) {
-      state = captureScope(checkpoint, runId, options.scope);
+    if (scopeRequest !== null) {
+      state = captureScope(checkpoint, runId, scopeRequest);
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files`);
     }
     if (state.review === null) {
@@ -255,20 +268,28 @@ async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: 
 /**
  * Find the active run or create one, and take its run lock, all under the
  * checkpoint's start lock: two engines started together would otherwise
- * both find no run and create one each. The run lock is released on every
- * way out: the caller's release, the process's exit, and a signal that
- * ends it (design, run lifecycle step 2).
+ * both find no run and create one each. The active run is found once, and
+ * everything that depends on it is decided from that one answer: a run
+ * with no scope yet, new or left by a capture that failed, gets the
+ * command's scope request (resolved before a new run is created, so a
+ * refused request creates nothing); a run that has one ignores the
+ * command's, and says so. The run lock is released on every way out: the
+ * caller's release, the process's exit, and a signal that ends it
+ * (design, run lifecycle step 2).
  */
-function openRun(checkpoint: Checkpoint, options: ReviewOptions, log: (line: string) => void): { state: RunState; release: ReleaseLock } {
+function openRun(checkpoint: Checkpoint, options: ReviewOptions, log: (line: string) => void): { state: RunState; release: ReleaseLock; scopeRequest: ScopeRequest | null } {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   try {
     const found = findActiveRun(checkpoint);
     if (found !== null && found.review !== null && found.review.configuration.runtime !== options.runtime) {
       throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
     }
+    if (found !== null) log(`run ${found.id}: resuming${found.scope === null ? '; it has no scope yet and captures the one this command names' : ''}`);
+    if (found !== null && found.scope !== null && options.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
+    const scopeRequest = found === null || found.scope === null ? options.scope.request() : null;
     const state = found ?? checkpoint.createRun({ worktree: options.worktree });
-    log(`run ${state.id}: ${found === null ? 'created' : 'resuming'}`);
-    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)) };
+    if (found === null) log(`run ${state.id}: created`);
+    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)), scopeRequest };
   } finally {
     releaseStart();
   }
