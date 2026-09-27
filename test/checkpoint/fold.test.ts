@@ -19,11 +19,19 @@ const event = (sequence: number, kind: string, payload: unknown, version = 1): D
 const created = (sequence = 1): DecodedEvent => event(sequence, 'run.created', { worktree: '/w' });
 
 describe('registry', () => {
+  /** Every kind the engine declares, sorted as `registryKeys` sorts: the run, scope and worker kinds, and the read-only review's. */
+  const declaredKinds = [
+    'angle.failed@1', 'attempt.failed@1', 'candidates.recorded@1', 'deduplication.recorded@1', 'group.unverified@1',
+    'phase.finished@1', 'phase.started@1', 'ranking.recorded@1', 'report.written@1', 'review.configured@1',
+    'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'verdicts.recorded@1', 'verification.planned@1',
+    'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worktree.checked@1',
+  ];
+
   it('lists every kind and version, sorted, and hashes that list', () => {
-    assert.deepEqual(registryKeys(eventRegistry), ['run.abandoned@1', 'run.created@1', 'scope.captured@1', 'worker.finished@1', 'worker.launched@1']);
+    assert.deepEqual(registryKeys(eventRegistry), declaredKinds);
     assert.match(registryIdentity(eventRegistry), /^[a-f0-9]{64}$/);
     const extended = defineRegistry({ ...eventRegistry, 'a.b': { 2: { schema: z.strictObject({}) } } });
-    assert.deepEqual(registryKeys(extended), ['a.b@2', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'worker.finished@1', 'worker.launched@1']);
+    assert.deepEqual(registryKeys(extended), ['a.b@2', ...declaredKinds]);
     assert.notEqual(registryIdentity(extended), registryIdentity(eventRegistry));
   });
 
@@ -59,6 +67,7 @@ describe('foldRun', () => {
       abandonReason: null,
       scope: null,
       workers: {},
+      review: null,
       lastSequence: 1,
     });
   });

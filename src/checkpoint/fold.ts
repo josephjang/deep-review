@@ -11,8 +11,10 @@ import {
   type scopeCapturedV1,
   type workerFinishedV1,
   type workerLaunchedV1,
+  type workerLostV1,
 } from './events.ts';
 import { lookupEvent, registryKeys, type Registry, type RegistryKey } from './registry.ts';
+import { reviewReducers, unitOfLostWorker, withFailure, type ReviewState } from './review-fold.ts';
 
 /** An event as the fold sees it: the ledger row with its payload parsed. */
 export interface DecodedEvent {
@@ -26,13 +28,15 @@ export interface DecodedEvent {
 }
 
 /**
- * One worker as the ledger knows it: launched and not yet finished, or
- * launched and finished with its receipt. `launchedAt` is when the launch
- * was recorded, before the process existed.
+ * One worker as the ledger knows it: launched and not yet finished,
+ * launched and finished with its receipt, or launched and lost with the
+ * engine that ran it, so that nothing observed how its process ended.
+ * `launchedAt` is when the launch was recorded, before the process existed.
  */
 export type WorkerState =
   | { readonly status: 'running'; readonly launch: WorkerLaunch; readonly launchedAt: string }
-  | { readonly status: 'finished'; readonly launch: WorkerLaunch; readonly launchedAt: string; readonly finish: WorkerFinish };
+  | { readonly status: 'finished'; readonly launch: WorkerLaunch; readonly launchedAt: string; readonly finish: WorkerFinish }
+  | { readonly status: 'lost'; readonly launch: WorkerLaunch; readonly launchedAt: string; readonly reason: string };
 
 /** What the run's events say about it. */
 export interface RunState {
@@ -47,6 +51,8 @@ export interface RunState {
   readonly scope: ScopeState | null;
   /** Every worker launched in the run, by worker id. Empty for a run no worker has touched, including every run recorded before workers existed. */
   readonly workers: Readonly<Record<string, WorkerState>>;
+  /** The read-only review's state, or null until `review.configured` is folded, including every run recorded before reviews existed. */
+  readonly review: ReviewState | null;
   /** Sequence of the last event folded; what a writer hands back to `append`. */
   readonly lastSequence: number;
 }
@@ -107,6 +113,7 @@ const created: Reducer<z.infer<typeof runCreatedV1>> = (state, payload, event) =
     abandonReason: null,
     scope: null,
     workers: {},
+    review: null,
     lastSequence: event.sequence,
   };
 };
@@ -137,6 +144,24 @@ const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payloa
   return { ...current, workers, lastSequence: event.sequence };
 };
 
+/**
+ * A running worker whose engine stopped is lost: its state says so, and when
+ * its launch label named a review unit, that unit counts one more failed
+ * attempt (TD5 of the read-only review).
+ */
+const workerLost: Reducer<z.infer<typeof workerLostV1>> = (state, payload, event, drafts) => {
+  const current = requireState(state, event);
+  const worker = Object.hasOwn(current.workers, payload.workerId) ? current.workers[payload.workerId] : undefined;
+  if (worker === undefined) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} at sequence ${String(event.sequence)} without launching it`);
+  if (worker.status !== 'running') throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} at sequence ${String(event.sequence)} after it ${worker.status === 'lost' ? 'was lost' : 'finished'}`);
+  const workers = drafts.writable(current.workers);
+  workers[payload.workerId] = { status: 'lost', launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
+  const unit = unitOfLostWorker(payload.phase, payload.key);
+  if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unit} at sequence ${String(event.sequence)} before review.configured`);
+  const review = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, payload.workerId, payload.reason);
+  return { ...current, workers, review, lastSequence: event.sequence };
+};
+
 const abandoned: Reducer<z.infer<typeof runAbandonedV1>> = (state, payload, event) => {
   const current = requireState(state, event);
   return { ...current, status: 'abandoned', abandonReason: payload.reason, lastSequence: event.sequence };
@@ -149,6 +174,8 @@ export const reducers = {
   'scope.captured@1': scopeCaptured,
   'worker.launched@1': workerLaunched,
   'worker.finished@1': workerFinished,
+  'worker.lost@1': workerLost,
+  ...reviewReducers,
 } satisfies Record<RegistryKey<EventRegistry>, Reducer<never>>;
 
 /** The engine's own model: its registry with its reducers. */
