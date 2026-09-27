@@ -128,9 +128,10 @@ export function composeWorkerPrompt(rolePrompt: string, task: TaskInput, scope: 
   return `${rolePrompt.endsWith('\n') ? rolePrompt : `${rolePrompt}\n`}\n${body}\n`;
 }
 
-/** The `Role:` and `Unit:` a composed prompt names, for a reader that has only the prompt. */
-export function readTaskHeader(prompt: string): { role: string; unitKey: string } | null {
+/** The `Role:`, `Unit:` and `Phase:` a composed prompt names, for a reader that has only the prompt. */
+export function readTaskHeader(prompt: string): { role: string; unitKey: string; phase: string } | null {
   const role = /^Role: (\S+)$/m.exec(prompt);
   const unit = /^Unit: (\S+)$/m.exec(prompt);
-  return role === null || unit === null ? null : { role: role[1]!, unitKey: unit[1]! };
+  const phase = /^Phase: (\S+)$/m.exec(prompt);
+  return role === null || unit === null || phase === null ? null : { role: role[1]!, unitKey: unit[1]!, phase: phase[1]! };
 }

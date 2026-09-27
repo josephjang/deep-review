@@ -97,8 +97,8 @@ describe('composeWorkerPrompt', () => {
 
   it('is read back by readTaskHeader, which gives null for a prompt without the header', () => {
     const prompt = composeWorkerPrompt('r\n', { role: 'verifier', phase: 'verification', unitKey: 'g3', task: 'Role: not this one' }, 's');
-    assert.deepEqual(readTaskHeader(prompt), { role: 'verifier', unitKey: 'g3' });
+    assert.deepEqual(readTaskHeader(prompt), { role: 'verifier', unitKey: 'g3', phase: 'verification' });
     assert.equal(readTaskHeader('no header here'), null);
-    assert.equal(readTaskHeader('Role: x\n'), null);
+    assert.equal(readTaskHeader('Role: x\nUnit: y\n'), null);
   });
 });

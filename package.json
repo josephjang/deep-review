@@ -13,6 +13,7 @@
     "golden": "node scripts/golden-checkpoint.ts",
     "smoke": "node scripts/smoke-runtime.ts",
     "roles": "node scripts/roles.ts",
+    "review": "node src/cli.ts",
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
