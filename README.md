@@ -8,15 +8,17 @@ This repository is being built one element at a time from what the
 arrives with a change proposal under `docs/changes/` that records why it is
 here, what it leaves out and what was rejected. So far: the repository
 skeleton (toolchain, build, install path, continuous integration), the
-checkpoint ledger the engine will record every run in, scope capture, and
-the runtime adapter that runs one model worker on Claude Code or Codex.
-The engine has not shipped yet, and the installed skill says so.
+checkpoint ledger the engine will record every run in, scope capture, the
+runtime adapter that runs one model worker on Claude Code or Codex, and
+the role prompts those workers are given. The engine has not shipped yet,
+and the installed skill says so.
 
 ## Layout
 
 ```
 skill/claude/            sources of the Claude Code plugin
 skill/codex/             sources of the Codex skill
+roles/                   the role prompts: one manifest and the fragments it joins them from
 dist/claude/             the plugin, built from skill/claude, committed
 dist/codex/              the Codex skill, built from skill/codex, committed
 .claude-plugin/          marketplace.json: this repository as a marketplace
@@ -25,6 +27,7 @@ src/checkpoint/          the run ledger: location, SQLite, event registry, fold
 src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
 src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
+src/roles/               assembling each role's prompt from roles/
 scripts/                 build, fixture and smoke entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
@@ -91,6 +94,24 @@ does not record them, so a continuation runs with whatever options its
 caller builds the runtimes with. See
 `docs/changes/2026-09-27-runtime-adapter.requirements.md` and its design.
 
+## The role prompts
+
+A worker runs in a role: the `SCAN` triage, one of the ten finder
+angles, the verifier, the sweep, the fixer, the auditor and the rest,
+twenty-one in all. Each role's prompt is assembled from the fragments
+under `roles/fragments/` in the order `roles/manifest.json` lists for
+it, joined with one blank line. The manifest is the only place
+composition is declared, and every fragment is held to a few invariants
+when it is read (UTF-8 text, LF endings, one final newline, no front
+matter, no include marker), so what a worker receives is what the files
+say. The text came from the prompt-only `deep-review` skill in
+`agent-skills`, which the proof of concept assembled its roles from; the
+move kept it as it was. Which model, effort, access and budget a role
+runs with, and what it must return, are not declared here: each is
+decided with the phase that first runs the role.
+`npm run roles -- --output <dir>` writes every assembled prompt for
+reading. See `docs/changes/2026-09-27-role-prompts.md`.
+
 ## Developing
 
 Node 26 or newer, npm and git. `.tool-versions` pins the Node major for
@@ -103,6 +124,7 @@ npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
 npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox elevated]   # real runtimes, by hand
+npm run roles -- --output <dir>   # write every assembled role prompt to <dir> for reading
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the

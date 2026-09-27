@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "roles": {
+    "triage": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "phase1-finders.md",
+      "angles-scan.md",
+      "angles-analyst.md",
+      "angles-scout.md",
+      "angles-conventions.md"
+    ],
+    "angle-decision": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "phase1-finders.md",
+      "angles-scan.md",
+      "angles-analyst.md",
+      "angles-scout.md",
+      "angles-conventions.md"
+    ],
+    "finder-SCAN": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "angles-scan.md",
+      "finder-lead.md"
+    ],
+    "finder-REMOVALS": [
+      "analyst-brief.md",
+      "finder-lead.md",
+      "angles-analyst.md",
+      "finder-output.md"
+    ],
+    "finder-RIPPLE": [
+      "scout-brief.md",
+      "finder-lead.md",
+      "angles-scout.md",
+      "finder-output.md"
+    ],
+    "finder-FOOTGUNS": [
+      "scout-brief.md",
+      "finder-lead.md",
+      "angles-scout.md",
+      "finder-output.md"
+    ],
+    "finder-WRAPPERS": [
+      "scout-brief.md",
+      "finder-lead.md",
+      "angles-scout.md",
+      "finder-output.md"
+    ],
+    "finder-EFFICIENCY": [
+      "scout-brief.md",
+      "finder-lead.md",
+      "angles-scout.md",
+      "finder-output.md"
+    ],
+    "finder-DESIGN": [
+      "analyst-brief.md",
+      "finder-lead.md",
+      "angles-analyst.md",
+      "finder-output.md"
+    ],
+    "finder-DUPLICATION": [
+      "scout-brief.md",
+      "finder-lead.md",
+      "angles-scout.md",
+      "finder-output.md"
+    ],
+    "finder-ALTITUDE": [
+      "analyst-brief.md",
+      "finder-lead.md",
+      "angles-analyst.md",
+      "finder-output.md"
+    ],
+    "finder-CONVENTIONS": [
+      "conventions-brief.md",
+      "finder-lead.md",
+      "angles-conventions.md",
+      "finder-output.md"
+    ],
+    "deduplication": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "phase2-verify.md"
+    ],
+    "verifier": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "phase2-verify.md"
+    ],
+    "sweep": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "phase3-sweep.md",
+      "angles-scan.md",
+      "angles-analyst.md",
+      "angles-scout.md",
+      "angles-conventions.md"
+    ],
+    "merge-rank": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "phase4-list.md",
+      "postreview-fix-test.md"
+    ],
+    "fixer": [
+      "fixer-role.md",
+      "fixer-brief.md",
+      "fixer-apply.md",
+      "fixer-documentation.md",
+      "fixer-tests.md",
+      "fixer-validation.md",
+      "fixer-report.md"
+    ],
+    "documentation": [
+      "fixer-role.md",
+      "fixer-brief.md",
+      "fixer-apply.md",
+      "fixer-documentation.md",
+      "fixer-tests.md",
+      "fixer-validation.md",
+      "fixer-report.md"
+    ],
+    "test-assessment": [
+      "lead-brief.md",
+      "finder-output.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "postreview-fix-test.md",
+      "fixer-validation.md"
+    ],
+    "auditor": [
+      "auditor-brief.md",
+      "step3-verdicts.md",
+      "step3-audit.md",
+      "step3-actions.md"
+    ],
+    "answer": [
+      "fixer-role.md",
+      "fixer-brief.md",
+      "fixer-apply.md",
+      "fixer-documentation.md",
+      "fixer-tests.md",
+      "fixer-validation.md",
+      "fixer-report.md",
+      "step3-actions.md"
+    ]
+  }
+}

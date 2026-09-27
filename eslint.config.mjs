@@ -1,8 +1,8 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  // dist/ is build output and skill/ holds prompts; neither is code.
-  { ignores: ['node_modules/**', 'dist/**', 'skill/**'] },
+  // dist/ is build output; skill/ and roles/ hold prompts; none of them is code.
+  { ignores: ['node_modules/**', 'dist/**', 'skill/**', 'roles/**'] },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.ts'],
