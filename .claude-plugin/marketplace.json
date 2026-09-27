@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "deep-review",
-      "description": "Deep review of a change, driven by a Node engine. This build is the repository skeleton and carries no engine yet.",
+      "description": "Deep review of a change by the deep-review engine, a Node program installed with this plugin: ten finder angles, verification, a sweep and a ranked Markdown report, editing nothing.",
       "source": "./dist/claude"
     }
   ]
