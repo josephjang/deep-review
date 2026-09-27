@@ -20,7 +20,7 @@ import { compareWorktree } from '../scope/compare.ts';
 import { conventionFiles } from './conventions.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { parseUnitLabel } from './labels.ts';
-import { acquireRunLock } from './lock.ts';
+import { acquireRunLock, releaseOnExit } from './lock.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { readPolicy, resolvePolicy, type PolicyFlags } from './policy.ts';
 import { scopeBlock } from './prompts.ts';
@@ -121,9 +121,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     log(`run ${state.id}: resuming`);
   }
   const runId = state.id;
-  const release = acquireRunLock(checkpoint.root, runId);
-  const onExit = (): void => release();
-  process.on('exit', onExit);
+  // Released on every way out: the finally below, the process's exit, and a signal that ends it (design, run lifecycle step 2).
+  const release = releaseOnExit(acquireRunLock(checkpoint.root, runId));
   try {
     if (state.scope === null) {
       state = captureScope(checkpoint, runId, options.scope);
@@ -226,7 +225,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       }
     }
   } finally {
-    process.off('exit', onExit);
     release();
   }
 }

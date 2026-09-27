@@ -6,6 +6,7 @@
  * a lock whose process is gone is replaced.
  */
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs';
+import { constants } from 'node:os';
 import { join } from 'node:path';
 import { blockerActions } from './vocabulary.ts';
 import { ReviewRefusedError } from './errors.ts';
@@ -95,4 +96,44 @@ export function acquireRunLock(checkpointRoot: string, runId: string, pid: numbe
     }
   }
   throw taking();
+}
+
+/**
+ * The signals that end the engine by default: those the launcher hooks on
+ * POSIX (src/runtime/process.ts), and on Windows the console's Ctrl-C,
+ * Ctrl-Break and close, the only ones Node delivers there.
+ */
+const endingSignals: readonly NodeJS.Signals[] = process.platform === 'win32' ? ['SIGINT', 'SIGBREAK', 'SIGHUP'] : ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'];
+
+/** End the process as the signal would have, after the lock is released: the conventional 128 + its number, running the exit listeners that kill the workers' trees. */
+function exitBySignal(signal: NodeJS.Signals): void {
+  process.exit(128 + (constants.signals[signal] as number | undefined ?? 0));
+}
+
+/**
+ * Hold a lock until the engine ends, however it ends: the returned function
+ * releases it, and so do the process's exit and a signal that would end
+ * the process. Node runs no exit listener for a death by signal, so the
+ * signal listener releases the lock itself and then ends the process with
+ * `end`. It owns the ending while it listens: the launcher's own signal
+ * listener re-raises the signal only when it is the signal's sole
+ * listener. The lock is released at most once, and releasing removes
+ * every listener.
+ */
+export function releaseOnExit(release: ReleaseLock, end: (signal: NodeJS.Signals) => void = exitBySignal): ReleaseLock {
+  let held = true;
+  const dispose = (): void => {
+    if (!held) return;
+    held = false;
+    process.off('exit', dispose);
+    for (const signal of endingSignals) process.off(signal, onSignal);
+    release();
+  };
+  const onSignal = (signal: NodeJS.Signals): void => {
+    dispose();
+    end(signal);
+  };
+  process.on('exit', dispose);
+  for (const signal of endingSignals) process.on(signal, onSignal);
+  return dispose;
 }

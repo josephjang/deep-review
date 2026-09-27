@@ -238,9 +238,11 @@ describe('runReview', { timeout: 600_000 }, () => {
       unhandled.push(reason);
     };
     process.on('unhandledRejection', onUnhandled);
+    const signalListeners = process.listenerCount('SIGINT');
     try {
       const pending = box.review('claude', { flags: { concurrency: 1 } });
       await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
+      assert.ok(process.listenerCount('SIGINT') > signalListeners, 'an interruption releases the held lock');
       const state = box.run();
       box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'abandoned under the worker' } }]);
       writeFileSync(marker, '');
@@ -249,6 +251,7 @@ describe('runReview', { timeout: 600_000 }, () => {
       assert.deepEqual(unhandled, []);
       assert.equal(box.run().status, 'abandoned');
       assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released on the way out');
+      assert.equal(process.listenerCount('SIGINT'), signalListeners, 'and its signal listener with it');
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
