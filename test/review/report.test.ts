@@ -30,7 +30,9 @@ describe('renderReport', () => {
     assert.match(report, /- Worktree checks: 9, none found a difference/);
     assert.match(report, /- Run budget: 30\.00 USD, checked before every launch; spent 4\.50 USD\./);
     assert.match(report, /- Unlocated candidates.*SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)/);
-    assert.match(report, /^\| Total \| 9 \| 22\.5 \| 4\.50 \| 900 \| 180 \| 90 \|$/m);
+    assert.match(report, /^\| Total \| 9 \| 22\.5 \| 4\.50 \(1 worker unreported\) \| 900 \| 180 \| 90 \|$/m);
+    assert.match(report, /^\| triage \| 1 \| 2\.5 \| 0\.50 \| 100 \| 20 \| 10 \|$/m, 'a row with every cost reported carries no mark');
+    assert.match(report, /^- Workers with no reported cost: 1\. .* the costs above and the budget check leave such workers out, so the run cost more than the totals show\.$/m);
     assert.match(report, /Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 0 refuted at verification/);
     assert.ok(report.endsWith('\n') && !report.endsWith('\n\n'));
   });
@@ -44,12 +46,25 @@ describe('renderReport', () => {
       .finish('verification').start('sweep').add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: worker(30), candidates: [], leads: null }).finish('sweep')
       .start('sweep-deduplication').finish('sweep-deduplication').start('sweep-verification').add('verification.planned', { phase: 'sweep-verification', groups: [] }).finish('sweep-verification')
       .start('merge-rank').finish('merge-rank').start('report');
-    const report = renderReport(history.fold(), { engine: '0.0.1+abc', statistics: { ...statistics, budgetApplied: false } });
+    // What statisticsOf gives through a runtime that reports no cost in USD: no cost, and no unreported count.
+    const noCost = { phases: statistics.phases.map((row) => ({ ...row, costUsd: null, costUnreported: null })), total: { ...statistics.total, costUsd: null, costUnreported: null }, budgetApplied: false };
+    const report = renderReport(history.fold(), { engine: '0.0.1+abc', statistics: noCost });
     assert.match(report, /^Engine: 0\.0\.1\+abc \(run created by 0\.0\.0\)$/m);
     assert.match(report, /## Findings\n\nNo finding survived verification\.\n/);
     assert.match(report, /## Refuted at verification\n\n- SCAN-1 \(SCAN\)  src\/a\.ts:3  SCAN-1 summary\n  Evidence: line 3 is a comment\n/);
     assert.match(report, /- The run budget did not apply: runtime claude reports no cost in USD/);
+    assert.match(report, /^\| Total \| 9 \| 22\.5 \| - \| 900 \| 180 \| 90 \|$/m);
+    assert.doesNotMatch(report, /no reported cost/, 'a runtime that reports no cost has no unreported count to name');
     assert.match(report, /Findings: 0 \(0 CONFIRMED, 0 PLAUSIBLE\); 1 refuted at verification/);
+  });
+
+  it('says a runtime that reports cost ran without a run budget, rather than that it reports no cost', () => {
+    const state = ranked().fold();
+    const unbudgeted = { ...state, review: { ...state.review!, configuration: { ...state.review!.configuration, runBudgetUsd: null } } };
+    const report = renderReport(unbudgeted, { engine: '0.0.0', statistics: { ...statistics, total: { ...statistics.total, costUnreported: 0 }, budgetApplied: false } });
+    assert.match(report, /^- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent 4\.50 USD\.$/m);
+    assert.doesNotMatch(report, /reports no cost in USD/);
+    assert.doesNotMatch(report, /no reported cost/, 'no line for zero unreported workers');
   });
 
   it('reports a drift check and an oversized file among the limitations', () => {

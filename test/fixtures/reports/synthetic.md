@@ -54,7 +54,7 @@ None.
 | Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |
 |---|---|---|---|---|---|---|
 | triage | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| finders | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
+| finders | 1 | 2.5 | 0.50 (1 worker unreported) | 100 | 20 | 10 |
 | deduplication | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
 | verification | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
 | sweep | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
@@ -62,7 +62,7 @@ None.
 | sweep-verification | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
 | merge-rank | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
 | report | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| Total | 9 | 22.5 | 4.50 | 900 | 180 | 90 |
+| Total | 9 | 22.5 | 4.50 (1 worker unreported) | 900 | 180 | 90 |
 
 ## Limitations
 
@@ -70,4 +70,5 @@ None.
 - Group g1 of sweep-verification was not verified: 2 attempts did not complete: failed; failed again. Its candidates (SWEEP-1, SWEEP-2) carry PLAUSIBLE with the unverified mark.
 - Worktree checks: 9, none found a difference from the reviewed change.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
+- Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above and the budget check leave such workers out, so the run cost more than the totals show.
 - Unlocated candidates, whose file or line did not match the reviewed change: SWEEP-1 (C:\elsewhere\b.ts:9).
