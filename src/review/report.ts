@@ -7,11 +7,11 @@
  */
 import type { ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import type { CandidateState, ReviewState } from '../checkpoint/review-fold.ts';
+import { isAnswered, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { matchScopePath } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { angles, phases, type Angle, type Phase } from './vocabulary.ts';
+import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
 
 export interface ReportInput {
   /** The identity of the engine writing the report. */
@@ -38,14 +38,10 @@ function marks(candidate: CandidateState, unverified: boolean): string {
 const shortLocation = (candidate: CandidateState): string => (candidate.located && candidate.file !== null && candidate.line !== null ? at(candidate.file, candidate.line) : at(candidate.rawFile, candidate.rawLine));
 
 function angleRow(review: ReviewState, angle: Angle): string {
-  if (angle === 'SCAN') {
-    const ran = review.units['triage:SCAN']?.answeredBy !== null && review.units['triage:SCAN']?.answeredBy !== undefined;
-    return `| SCAN | ${ran ? 'run (as the triage)' : 'not run'} | - |`;
-  }
+  if (angle === 'SCAN') return `| SCAN | ${isAnswered(review, 'triage', triageUnitKey) ? 'run (as the triage)' : 'not run'} | - |`;
   const notRun = review.anglesNotRun[angle];
   const lead = review.leads?.find((entry) => entry.angle === angle)?.lead ?? null;
-  const ran = review.units[`finders:${angle}`]?.answeredBy !== null && review.units[`finders:${angle}`]?.answeredBy !== undefined;
-  const status = notRun !== undefined ? `not run (${tableCell(notRun)})` : ran ? 'run' : 'not run';
+  const status = notRun !== undefined ? `not run (${tableCell(notRun)})` : isAnswered(review, 'finders', angle) ? 'run' : 'not run';
   return `| ${angle} | ${status} | ${lead === null ? 'none' : tableCell(lead)} |`;
 }
 
@@ -110,10 +106,8 @@ function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedRe
 function limitations(scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
   for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
-  for (const [unit, reason] of Object.entries(review.unverifiedGroups)) {
-    const [phase, groupId] = unit.split(':');
-    const ids = review.plans[phase as 'verification' | 'sweep-verification']?.find((group) => group.id === groupId)?.candidateIds ?? [];
-    lines.push(`- Group ${String(groupId)} of ${String(phase)} was not verified: ${inlineText(reason)}. Its candidates (${ids.join(', ')}) carry PLAUSIBLE with the unverified mark.`);
+  for (const group of unverifiedGroupsOf(review)) {
+    lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(', ')}) carry PLAUSIBLE with the unverified mark.`);
   }
   const drifted = review.checks.filter((check) => check.drifted);
   lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? 'none found a difference from the reviewed change' : `${String(drifted.length)} found a difference before ${drifted.map((check) => `${check.phase} (attempt ${String(check.attempt)}: ${check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`).join(', ')})`).join('; ')}; each blocked the run until the tree was restored`}.`);
