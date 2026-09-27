@@ -126,7 +126,12 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(second.status, 0, second.stderr);
     assert.equal(box.checkpoint.listRuns().length, 2);
     assert.deepEqual(box.checkpoint.listRuns()[1]!.scope?.request, { ref: 'HEAD~1', paths: ['src'] });
-    assert.equal(run('status', '--run', 'nope').status, 1);
+    // An id the checkpoint does not hold is a command-line mistake, for status and abandon alike.
+    for (const args of [['status', '--run', 'nope'], ['abandon', '--run', 'nope', '--reason', 'gone']]) {
+      const unknown = run(...args);
+      assert.equal(unknown.status, 1, args.join(' '));
+      assert.match(unknown.stderr, /nope[\s\S]*\n\nusage:/, args.join(' '));
+    }
   });
 
   it('exits 2 with the blocker when the run blocks, survives status --json, and continues on the next command', () => {
