@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { workerLaunchedV1 } from '../../src/checkpoint/events.ts';
 import { InvalidInvocationError } from '../../src/runtime/errors.ts';
 import { continuationFields } from '../../src/runtime/launcher.ts';
+import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { fakeClaude, freshThread, LauncherSandbox, until } from '../helpers/launcher.ts';
 
 describe('continuing a session (R9)', () => {
@@ -51,6 +52,24 @@ describe('continuing a session (R9)', () => {
     const argv = box.recorded().argv;
     assert.deepEqual(argv.slice(argv.indexOf('exec'), argv.indexOf('exec') + 2), ['exec', 'resume']);
     assert.deepEqual(argv.slice(-2), [freshThread, '-']);
+  });
+
+  it('continues a Codex session under the provider of the adapter it is given, which the ledger does not record', async () => {
+    const provider = { id: 'gateway', baseUrl: 'http://127.0.0.1:9/v1', envKey: 'GATEWAY_KEY', queryParams: { 'api-version': '1' } };
+    const chosen = ['model_provider="gateway"', 'model_providers.gateway.name="gateway"', 'model_providers.gateway.base_url="http://127.0.0.1:9/v1"', 'model_providers.gateway.env_key="GATEWAY_KEY"', 'model_providers.gateway.query_params={"api-version"="1"}'];
+    const providerArgs = (argv: readonly string[]): string[] => argv.filter((arg) => arg.startsWith('model_provider'));
+    const runtimes = defaultRuntimes({ codex: { provider } });
+    const first = await box.run(box.codex(), {}, { runtimes });
+    assert.equal(first.outcome, 'completed', first.error ?? '');
+    assert.deepEqual(providerArgs(box.recorded().argv), chosen);
+    const second = await box.run(box.codex({ resume: freshThread }), {}, { runtimes });
+    assert.equal(second.outcome, 'completed', second.error ?? '');
+    assert.deepEqual(providerArgs(box.recorded().argv), chosen);
+    assert.equal(JSON.stringify(box.worker(first.workerId).launch).includes('gateway'), false, 'the provider is the caller\'s choice at each launch, not a kept field');
+    // Nothing remembers the provider: a continuation given the default runtimes runs on Codex's built-in one.
+    const third = await box.run(box.codex({ resume: freshThread }));
+    assert.equal(third.outcome, 'completed', third.error ?? '');
+    assert.deepEqual(providerArgs(box.recorded().argv), []);
   });
 
   it('continues the latest worker of a session, not the first', async () => {
