@@ -52,8 +52,8 @@ older ledger.
 built output includes the updated `dist/` and says in its message what
 changed and why.
 
-A commit that changes what a skill *says* and a commit that changes where
-that text *lives* are different commits.
+A commit that changes what a skill or a role prompt *says* and a commit
+that changes where that text *lives* are different commits.
 
 ## Change proposals
 
@@ -86,6 +86,10 @@ as human-typed: avoid characters people rarely type by hand, such as em
 dashes, the middle dot and the ellipsis character. Skill text under
 `skill/` is different: it is a prompt, its exact bytes are the product, and
 `npm run verify` compares them byte for byte. Do not reformat it for style.
+The role prompt fragments under `roles/fragments/` are prompts in the same
+sense: their bytes are what every worker in a role that names them
+receives, and a change to one changes those roles' prompts and hashes.
+Do not reformat them for style either.
 
 Comments that say what code does are welcome; keep them true.
 
