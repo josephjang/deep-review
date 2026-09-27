@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { isAnswered, isUnverified, poolCandidates, singleUnitKey, unitsOfPhase, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, unitsOfPhase, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, phases } from '../../src/review/vocabulary.ts';
 import { History, candidate, configuration, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
@@ -92,8 +92,6 @@ describe('the review fold', () => {
     assert.deepEqual(review.ranking, ranking);
     assert.deepEqual(review.report, { report: reference('e', 2048), statistics });
     assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'completed']);
-    assert.equal(singleUnitKey('triage'), 'SCAN');
-    assert.equal(singleUnitKey('sweep'), 'sweep');
   });
 
   it('records a blocker on a blocked finish and clears it, with the phase\'s failures, on the next start', () => {
@@ -181,6 +179,7 @@ describe('the review fold', () => {
     ['finder candidates under a key that is not an angle', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'SCAN', workerId: worker(2), candidates: [], leads: null }), /not a finder angle/],
     ['a candidate whose id names another angle', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [candidate('DESIGN-1', 'RIPPLE')], leads: null }), /whose ids start with RIPPLE-/],
     ['a candidate whose angle is not its unit\'s', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [candidate('RIPPLE-1', 'DESIGN')], leads: null }), /with angle DESIGN under unit RIPPLE/],
+    ['sweep candidates under another key', () => verified().start('sweep').add('candidates.recorded', { phase: 'sweep', key: 'SWEEP', workerId: worker(30), candidates: [], leads: null }), /records sweep candidates under unit SWEEP, not sweep/],
     ['a sweep candidate whose id is not SWEEP', () => verified().start('sweep').add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: worker(30), candidates: [candidate('DESIGN-9', 'DESIGN')], leads: null }), /whose ids start with SWEEP-/],
     ['a unit answered twice', () => triaged().add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(2), candidates: [], leads }), /while it is completed/],
     ['a unit answered twice within its phase', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null }).add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), candidates: [], leads: null }), /already answered/],
