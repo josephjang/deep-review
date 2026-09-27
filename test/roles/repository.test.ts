@@ -121,6 +121,11 @@ describe('the repository\'s roles/', () => {
     assert.ok(returnFormat >= 0 && reconciliation > returnFormat, `reconciliation at ${String(reconciliation)}, return format at ${String(returnFormat)}`);
   });
 
+  it('points at no checkpoint discipline, which no fragment defines', () => {
+    // It lived in the prompt-only skill's resume.md, which the proposal does not move.
+    assert.deepEqual(roles.filter((role) => /checkpoint\s+discipline/i.test(role.prompt)).map((role) => role.key), []);
+  });
+
   it('names no mechanism of one runtime in any prompt', () => {
     const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);
