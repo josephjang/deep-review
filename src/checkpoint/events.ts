@@ -410,6 +410,12 @@ export const spendSchema = z.strictObject({
   workers: z.number().int().nonnegative(),
   seconds: z.number().nonnegative(),
   costUsd: z.number().nonnegative().nullable(),
+  /**
+   * How many workers spent money `costUsd` leaves out: finished without
+   * reporting a cost (timed out, or failed before the runtime printed its
+   * usage) or lost. Null on a runtime that reports no cost in USD at all.
+   */
+  costUnreported: z.number().int().nonnegative().nullable(),
   inputTokens: z.number().int().nonnegative().nullable(),
   cachedInputTokens: z.number().int().nonnegative().nullable(),
   outputTokens: z.number().int().nonnegative().nullable(),

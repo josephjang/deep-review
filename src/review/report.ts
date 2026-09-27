@@ -19,6 +19,9 @@ export interface ReportInput {
 
 const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
 const count = (value: number | null): string => (value === null ? '-' : String(value));
+const workersCount = (n: number): string => `${String(n)} worker${n === 1 ? '' : 's'}`;
+/** A cost cell: the reported sum, and how many workers' cost it leaves out. */
+const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? '' : ` (${workersCount(spend.costUnreported)} unreported)`}`;
 const cell = (text: string): string => text.replaceAll('|', '\\|').replaceAll(/\r?\n/g, ' ');
 
 /** The marks a candidate carries after its location. */
@@ -60,13 +63,24 @@ function findingBlock(position: number, entry: ReportFinding): string {
 
 function statisticsTable(input: ReportInput): string {
   const row = (name: string, spend: Spend): string =>
-    `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${usd(spend.costUsd)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
+    `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${costCell(spend)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
   return [
     '| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |',
     '|---|---|---|---|---|---|---|',
-    ...phases.map((phase) => row(phase, input.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
+    ...phases.map((phase) => row(phase, input.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
     row('Total', input.statistics.total),
   ].join('\n');
+}
+
+/** What bounded the run's spend: the run budget, or why there was none. */
+function budgetLine(review: ReviewState, statistics: ReportInput['statistics']): string {
+  const budget = review.configuration.runBudgetUsd;
+  const spent = usd(statistics.total.costUsd);
+  if (statistics.budgetApplied && budget !== null) return `- Run budget: ${usd(budget)} USD, checked before every launch; spent ${spent} USD.`;
+  if (statistics.total.costUnreported === null) {
+    return `- The run budget did not apply: runtime ${review.configuration.runtime} reports no cost in USD, so only the per-worker timeouts and the worker count bounded this run.`;
+  }
+  return `- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent ${spent} USD.`;
 }
 
 function limitations(state: RunState, review: ReviewState, input: ReportInput): string[] {
@@ -79,10 +93,11 @@ function limitations(state: RunState, review: ReviewState, input: ReportInput): 
   }
   const drifted = review.checks.filter((check) => check.drifted);
   lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? 'none found a difference from the reviewed change' : `${String(drifted.length)} found a difference before ${drifted.map((check) => `${check.phase} (attempt ${String(check.attempt)}: ${check.files.map((file) => `${file.path} ${file.outcome}`).join(', ')})`).join('; ')}; each blocked the run until the tree was restored`}.`);
-  const budget = review.configuration.runBudgetUsd;
-  lines.push(input.statistics.budgetApplied && budget !== null
-    ? `- Run budget: ${usd(budget)} USD, checked before every launch; spent ${usd(input.statistics.total.costUsd)} USD.`
-    : `- The run budget did not apply: runtime ${review.configuration.runtime} reports no cost in USD, so only the per-worker timeouts and the worker count bounded this run.`);
+  lines.push(budgetLine(review, input.statistics));
+  const unreported = input.statistics.total.costUnreported;
+  if (unreported !== null && unreported > 0) {
+    lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input.statistics.budgetApplied ? ' and the budget check' : ''} leave such workers out, so the run cost more than the totals show.`);
+  }
   const oversized = (state.scope?.files ?? []).filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => file.path);
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(', ')}.`);
   const unlocated = Object.values(review.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);

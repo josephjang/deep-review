@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseUnitLabel, unitLabel } from '../../src/review/labels.ts';
-import { finishedWorkers, runSpendUsd, spendOf, statisticsOf, usageOf } from '../../src/review/spend.ts';
+import type { WorkerState } from '../../src/checkpoint/fold.ts';
+import { runSpendUsd, settledWorkers, spendOf, statisticsOf, usageOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
-import { configured, reported, worker } from '../helpers/review-history.ts';
+import { configured, launch, reported, worker } from '../helpers/review-history.ts';
+
+type Finished = Extract<WorkerState, { status: 'finished' }>;
+const finishedOf = (workers: readonly WorkerState[]): Finished[] => workers.filter((entry): entry is Finished => entry.status === 'finished');
 
 describe('unit labels', () => {
   it('write the role and unit and read them back, and read nothing from another label', () => {
@@ -21,7 +25,7 @@ describe('unit labels', () => {
 describe('spend', () => {
   it('summarizes each finished worker through the runtime, and nothing for a worker without usage or with usage that is not JSON', () => {
     const state = reported().fold();
-    const finished = finishedWorkers(state);
+    const finished = finishedOf(settledWorkers(state));
     assert.equal(finished.length, 15);
     assert.deepEqual(usageOf(finished[0]!, claudeAdapter), { costUsd: 0.5, inputTokens: 200, cachedInputTokens: 100, outputTokens: 100 });
     const timedOut = finished.find((entry) => entry.finish.outcome === 'timeout')!;
@@ -31,10 +35,10 @@ describe('spend', () => {
 
   it('sums the run over the workers that reported, rounding cost to the cent', () => {
     const state = reported().fold();
-    const spend = spendOf(finishedWorkers(state), claudeAdapter);
-    // Fourteen workers reported 0.5 USD and 100 tokens of each kind; the timed-out one reported nothing.
+    const spend = spendOf(settledWorkers(state), claudeAdapter);
+    // Fourteen workers reported 0.5 USD and 100 tokens of each kind; the timed-out one reported nothing, and one was lost.
     // Every synthetic worker ran over the same 30 seconds, so the wall time is 30, not 15 times 30.
-    assert.deepEqual(spend, { workers: 15, seconds: 30, costUsd: 7, inputTokens: 2800, cachedInputTokens: 1400, outputTokens: 1400 });
+    assert.deepEqual(spend, { workers: 15, seconds: 30, costUsd: 7, costUnreported: 2, inputTokens: 2800, cachedInputTokens: 1400, outputTokens: 1400 });
     assert.equal(runSpendUsd(state, claudeAdapter), 7);
     assert.equal(runSpendUsd(configured().fold(), claudeAdapter), null, 'no worker, no spend');
     const floating = configured().worker(1, 'triage triage:SCAN', {}, 0.1).worker(2, 'sweep sweep:sweep', {}, 0.2).fold();
@@ -70,7 +74,7 @@ describe('spend', () => {
     assert.equal(statistics.total.seconds, 95, 'the total is the union over the whole run, not a sum of the phase rows');
     assert.equal(spendOf([], claudeAdapter).seconds, 0, 'no worker, no time');
     const skewed = configured().worker(1, 'sweep sweep:sweep', ran(50, 20)).fold();
-    assert.equal(spendOf(finishedWorkers(skewed), claudeAdapter).seconds, 0, 'a clock that ran backwards counts as no time, never negative');
+    assert.equal(spendOf(settledWorkers(skewed), claudeAdapter).seconds, 0, 'a clock that ran backwards counts as no time, never negative');
   });
 
   it('reports no cost through a runtime that reports none, and says the budget did not apply', () => {
@@ -83,13 +87,37 @@ describe('spend', () => {
   it('gives one row per phase from the workers whose label names it, and a total', () => {
     const statistics = statisticsOf(reported().fold(), claudeAdapter);
     const row = (phase: string) => statistics.phases.find((entry) => entry.phase === phase)!;
-    assert.deepEqual(row('triage'), { phase: 'triage', workers: 1, seconds: 30, costUsd: 0.5, inputTokens: 200, cachedInputTokens: 100, outputTokens: 100 });
+    assert.deepEqual(row('triage'), { phase: 'triage', workers: 1, seconds: 30, costUsd: 0.5, costUnreported: 0, inputTokens: 200, cachedInputTokens: 100, outputTokens: 100 });
     assert.equal(row('finders').workers, 9, 'nine finders finished: eight answered, one timed out; the lost one never finished');
     assert.equal(row('finders').costUsd, 4);
-    assert.deepEqual(row('report'), { phase: 'report', workers: 0, seconds: 0, costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null });
+    assert.equal(row('finders').costUnreported, 2, 'the timed-out finder and the lost one spent money no summary reports');
+    assert.deepEqual(row('report'), { phase: 'report', workers: 0, seconds: 0, costUsd: null, costUnreported: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null });
     assert.deepEqual(statistics.phases.map((entry) => entry.phase), ['triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'report']);
     assert.equal(statistics.total.workers, 15);
     assert.equal(statistics.phases.reduce((total, entry) => total + entry.workers, 0), 15, 'every finished worker counts toward one phase');
-    void worker;
+    assert.equal(statistics.total.costUnreported, 2);
+  });
+
+  it('counts every settled worker whose cost is unknown, and leaves it out of the budget sum', () => {
+    const history = configured()
+      .worker(1, 'triage triage:SCAN', {}, 1.25)
+      .worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' })
+      .worker(3, 'finder-DESIGN finders:DESIGN', { outcome: 'failed', exitCode: 1, output: null, usage: JSON.stringify({ usage: { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1 }, modelUsage: null }), error: 'no envelope' })
+      .add('worker.launched', launch(worker(4), 'finder-ALTITUDE finders:ALTITUDE'))
+      .add('worker.lost', { workerId: worker(4), phase: 'finders', key: 'ALTITUDE', reason: 'the engine exited while the worker ran' })
+      .add('worker.launched', launch(worker(5), 'finder-WRAPPERS finders:WRAPPERS'));
+    const state = history.fold();
+    assert.deepEqual(settledWorkers(state).map((entry) => entry.launch.workerId), [worker(1), worker(2), worker(3), worker(4)], 'a running worker is not settled');
+    const statistics = statisticsOf(state, claudeAdapter);
+    const finders = statistics.phases.find((entry) => entry.phase === 'finders')!;
+    assert.equal(finders.workers, 2, 'the lost worker never finished');
+    assert.equal(finders.costUnreported, 3, 'a timeout, a failure whose usage names no cost, and a lost worker');
+    assert.equal(finders.costUsd, null, 'no finder reported a cost');
+    assert.equal(finders.inputTokens, 5, 'tokens are summed where reported, independent of cost');
+    assert.equal(statistics.total.costUnreported, 3);
+    assert.equal(statistics.total.costUsd, 1.25);
+    assert.equal(runSpendUsd(state, claudeAdapter), 1.25, 'the budget check sums the reported costs alone');
+    assert.equal(statisticsOf(state, codexAdapter).total.costUnreported, null, 'a runtime that reports no cost has no unreported count');
+    assert.equal(spendOf([], claudeAdapter).costUnreported, 0);
   });
 });

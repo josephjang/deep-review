@@ -20212,6 +20212,12 @@ var spendSchema = external_exports.strictObject({
   workers: external_exports.number().int().nonnegative(),
   seconds: external_exports.number().nonnegative(),
   costUsd: external_exports.number().nonnegative().nullable(),
+  /**
+   * How many workers spent money `costUsd` leaves out: finished without
+   * reporting a cost (timed out, or failed before the runtime printed its
+   * usage) or lost. Null on a runtime that reports no cost in USD at all.
+   */
+  costUnreported: external_exports.number().int().nonnegative().nullable(),
   inputTokens: external_exports.number().int().nonnegative().nullable(),
   cachedInputTokens: external_exports.number().int().nonnegative().nullable(),
   outputTokens: external_exports.number().int().nonnegative().nullable()
@@ -23798,6 +23804,8 @@ function contributionPayload(unit, receipt, review2, state, worktree) {
 // src/review/report.ts
 var usd2 = (value) => value === null ? "-" : value.toFixed(2);
 var count = (value) => value === null ? "-" : String(value);
+var workersCount = (n) => `${String(n)} worker${n === 1 ? "" : "s"}`;
+var costCell = (spend) => `${usd2(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? "" : ` (${workersCount(spend.costUnreported)} unreported)`}`;
 var cell2 = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 function marks(candidate, unverified) {
   const list = [...candidate.located ? [] : [`unlocated: ${candidate.rawFile}:${String(candidate.rawLine)}`], ...unverified ? ["unverified"] : []];
@@ -23831,13 +23839,22 @@ function findingBlock(position, entry) {
   return lines.join("\n");
 }
 function statisticsTable(input2) {
-  const row = (name, spend) => `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${usd2(spend.costUsd)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
+  const row = (name, spend) => `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${costCell(spend)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
   return [
     "| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |",
     "|---|---|---|---|---|---|---|",
-    ...phases.map((phase) => row(phase, input2.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
+    ...phases.map((phase) => row(phase, input2.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
     row("Total", input2.statistics.total)
   ].join("\n");
+}
+function budgetLine(review2, statistics) {
+  const budget = review2.configuration.runBudgetUsd;
+  const spent = usd2(statistics.total.costUsd);
+  if (statistics.budgetApplied && budget !== null) return `- Run budget: ${usd2(budget)} USD, checked before every launch; spent ${spent} USD.`;
+  if (statistics.total.costUnreported === null) {
+    return `- The run budget did not apply: runtime ${review2.configuration.runtime} reports no cost in USD, so only the per-worker timeouts and the worker count bounded this run.`;
+  }
+  return `- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent ${spent} USD.`;
 }
 function limitations(state, review2, input2) {
   const lines = [];
@@ -23849,8 +23866,11 @@ function limitations(state, review2, input2) {
   }
   const drifted = review2.checks.filter((check2) => check2.drifted);
   lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference before ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${file2.path} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
-  const budget = review2.configuration.runBudgetUsd;
-  lines.push(input2.statistics.budgetApplied && budget !== null ? `- Run budget: ${usd2(budget)} USD, checked before every launch; spent ${usd2(input2.statistics.total.costUsd)} USD.` : `- The run budget did not apply: runtime ${review2.configuration.runtime} reports no cost in USD, so only the per-worker timeouts and the worker count bounded this run.`);
+  lines.push(budgetLine(review2, input2.statistics));
+  const unreported = input2.statistics.total.costUnreported;
+  if (unreported !== null && unreported > 0) {
+    lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input2.statistics.budgetApplied ? " and the budget check" : ""} leave such workers out, so the run cost more than the totals show.`);
+  }
   const oversized = (state.scope?.files ?? []).filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => file2.path);
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(", ")}.`);
   const unlocated = Object.values(review2.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
@@ -23897,8 +23917,9 @@ function renderReport(state, input2) {
 }
 
 // src/review/spend.ts
-function finishedWorkers(state) {
-  return Object.values(state.workers).filter((worker) => worker.status === "finished");
+var isFinished = (worker) => worker.status === "finished";
+function settledWorkers(state) {
+  return Object.values(state.workers).filter((worker) => worker.status !== "running");
 }
 function usageOf(worker, adapter) {
   if (worker.finish.usage === null) return emptyUsageSummary;
@@ -23929,23 +23950,26 @@ function wallSeconds(workers) {
   return total / 1e3;
 }
 function spendOf(workers, adapter) {
-  const summaries = workers.map((worker) => usageOf(worker, adapter));
+  const finished = workers.filter(isFinished);
+  const summaries = finished.map((worker) => usageOf(worker, adapter));
+  const lost = workers.length - finished.length;
   return {
-    workers: workers.length,
-    seconds: Math.round(wallSeconds(workers) * 10) / 10,
+    workers: finished.length,
+    seconds: Math.round(wallSeconds(finished) * 10) / 10,
     costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
+    costUnreported: adapter.capabilities.costInUsd ? lost + summaries.filter((summary) => summary.costUsd === null).length : null,
     inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
     cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
     outputTokens: sumReported(summaries.map((summary) => summary.outputTokens))
   };
 }
 function runSpendUsd(state, adapter) {
-  return spendOf(finishedWorkers(state), adapter).costUsd;
+  return spendOf(settledWorkers(state), adapter).costUsd;
 }
 function statisticsOf(state, adapter) {
-  const finished = finishedWorkers(state);
-  const byPhase = phases.map((phase) => ({ phase, ...spendOf(finished.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
-  return { phases: byPhase, total: spendOf(finished, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.configuration.runBudgetUsd ?? null) !== null };
+  const settled = settledWorkers(state);
+  const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
+  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.configuration.runBudgetUsd ?? null) !== null };
 }
 
 // src/review/controller.ts
