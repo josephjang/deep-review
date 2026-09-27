@@ -209,7 +209,9 @@ adapter for the first time. It was read at `agent-skills` commit
   where its text lives. A role prompt is a prompt in the same sense, its
   bytes are what a worker receives, and the rule applies. A reviewer of
   the first commit checks that nothing is said differently, which R5
-  proves mechanically; a reviewer of the second sees only wording.
+  proves mechanically; a reviewer of the second sees only wording. After
+  review, AGENTS.md states this rule, and its exemption of prompt text
+  from the writing conventions, for role prompts as well as skills.
 
 - **D5: The wording change is the smallest that removes what is false
   under the engine.** Three kinds of text change and nothing else.
