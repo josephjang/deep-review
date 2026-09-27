@@ -141,7 +141,7 @@ describe('assembleRoles', () => {
     };
     rejectsFragment('is empty', '', /is empty/);
     rejectsFragment('is not UTF-8', Buffer.from([0x61, 0xff, 0x0a]), /is not UTF-8/);
-    rejectsFragment('starts with a byte order mark', '﻿text\n', /byte order mark/);
+    rejectsFragment('starts with a byte order mark', '\uFEFFtext\n', /byte order mark/);
     rejectsFragment('has CRLF line endings', 'one\r\ntwo\n', /carriage return/);
     rejectsFragment('contains a NUL', 'one\0two\n', /NUL/);
     rejectsFragment('does not end with a newline', 'text', /does not end with a newline/);
