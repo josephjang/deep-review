@@ -38,9 +38,9 @@ describe('runBuild', () => {
   });
   afterEach(() => rmSync(repository, { recursive: true, force: true }));
 
-  it('verifies a matching dist/ without touching it', () => {
+  it('verifies a matching dist/ without touching it', async () => {
     seedMatchingRepository(repository);
-    const outcome = runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent });
+    const outcome = await runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent, engine: null });
     assert.equal(outcome.ok, true);
     assert.deepEqual(outcome.outcomes.map((o) => [o.target.name, o.files, o.differences, o.published]), [
       ['alpha', 2, [], false],
@@ -48,12 +48,12 @@ describe('runBuild', () => {
     ]);
   });
 
-  it('reports every kind of difference per target and fails verification', () => {
+  it('reports every kind of difference per target and fails verification', async () => {
     seedMatchingRepository(repository);
     write(repository, 'skill/alpha/SKILL.md', 'alpha changed\n');
     write(repository, 'skill/beta/new.md', 'new');
     write(repository, 'dist/beta/stale.md', 'stale');
-    const outcome = runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent });
+    const outcome = await runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent, engine: null });
     assert.equal(outcome.ok, false);
     assert.deepEqual(outcome.outcomes[0]?.differences, [{ path: 'SKILL.md', kind: 'changed' }]);
     assert.deepEqual(outcome.outcomes[1]?.differences, [
@@ -64,51 +64,51 @@ describe('runBuild', () => {
     assert.equal(existsSync(join(repository, 'dist/beta/stale.md')), true, 'verify never deletes');
   });
 
-  it('treats an absent dist/ as every file missing', () => {
+  it('treats an absent dist/ as every file missing', async () => {
     seedMatchingRepository(repository);
     rmSync(join(repository, 'dist'), { recursive: true });
-    const outcome = runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent });
+    const outcome = await runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent, engine: null });
     assert.equal(outcome.ok, false);
     assert.deepEqual(outcome.outcomes.map((o) => o.differences.map((d) => d.kind)), [['missing', 'missing'], ['missing']]);
   });
 
-  it('build mode replaces dist/ so that a following verify passes', () => {
+  it('build mode replaces dist/ so that a following verify passes', async () => {
     seedMatchingRepository(repository);
     write(repository, 'skill/alpha/SKILL.md', 'alpha changed\n');
     write(repository, 'dist/beta/stale.md', 'stale');
-    const built = runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent });
+    const built = await runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent, engine: null });
     assert.equal(built.ok, true);
     assert.deepEqual(built.outcomes.map((o) => [o.published, o.differences.length]), [[true, 1], [true, 1]]);
     assert.equal(readFileSync(join(repository, 'dist/alpha/SKILL.md'), 'utf8'), 'alpha changed\n');
     assert.equal(existsSync(join(repository, 'dist/beta/stale.md')), false);
-    assert.equal(runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent }).ok, true);
+    assert.equal((await runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent, engine: null })).ok, true);
   });
 
-  it('build mode on an already current dist/ reports it unchanged', () => {
+  it('build mode on an already current dist/ reports it unchanged', async () => {
     seedMatchingRepository(repository);
-    const built = runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent });
+    const built = await runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent, engine: null });
     assert.equal(built.ok, true);
     assert.deepEqual(built.outcomes.map((o) => o.differences), [[], []]);
   });
 
-  it('removes its staging directory even when a target cannot be assembled', () => {
+  it('removes its staging directory even when a target cannot be assembled', async () => {
     write(repository, 'skill/alpha/SKILL.md', 'alpha');
-    assert.throws(() => runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent }), /source does not exist/);
+    await assert.rejects(runBuild({ repositoryRoot: repository, verify: true, targets, stagingParent, engine: null }), /source does not exist/);
     assert.deepEqual(readdirSync(stagingParent), []);
   });
 
-  it('publishes nothing when a later target cannot be assembled', () => {
+  it('publishes nothing when a later target cannot be assembled', async () => {
     seedMatchingRepository(repository);
     write(repository, 'skill/alpha/SKILL.md', 'alpha changed\n');
     rmSync(join(repository, 'skill/beta'), { recursive: true });
-    assert.throws(() => runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent }), /source does not exist/);
+    await assert.rejects(runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent, engine: null }), /source does not exist/);
     assert.equal(readFileSync(join(repository, 'dist/alpha/SKILL.md'), 'utf8'), 'alpha\r\n', 'alpha was assembled but must not be published');
     assert.deepEqual(readdirSync(stagingParent), []);
   });
 
-  it('defaults to the repository targets', () => {
+  it('defaults to the repository targets', async () => {
     for (const target of artifactTargets) write(repository, `${target.source}/SKILL.md`, target.name);
-    const outcome = runBuild({ repositoryRoot: repository, verify: false, stagingParent });
+    const outcome = await runBuild({ repositoryRoot: repository, verify: false, stagingParent, engine: null });
     assert.deepEqual(outcome.outcomes.map((o) => o.target), artifactTargets);
     for (const target of artifactTargets) assert.equal(readFileSync(join(repository, target.destination, 'SKILL.md'), 'utf8'), target.name);
   });
@@ -150,22 +150,31 @@ describe('scripts/build.ts', () => {
   beforeEach(() => {
     repository = mkdtempSync(join(tmpdir(), 'deep-review-cli-'));
     for (const target of artifactTargets) write(repository, `${target.source}/SKILL.md`, target.name);
+    // The script bundles the repository's engine into every artifact: a small stand-in entry, roles and version here.
+    write(repository, 'package.json', '{ "version": "9.9.9" }\n');
+    write(repository, 'src/cli.ts', 'console.log("engine");\n');
+    write(repository, 'roles/manifest.json', JSON.stringify({ schemaVersion: 1, roles: { only: ['a.md'] } }));
+    write(repository, 'roles/fragments/a.md', 'alpha\n');
   });
   afterEach(() => rmSync(repository, { recursive: true, force: true }));
 
   const run = (...args: string[]) => spawnSync(process.execPath, [script, '--root', repository, ...args], { encoding: 'utf8' });
 
-  it('exits 1 from --verify when dist/ is missing and 0 once it is built', () => {
+  it('exits 1 from --verify when dist/ is missing and 0 once it is built, with the engine in every artifact', () => {
     const failed = run('--verify');
     assert.equal(failed.status, 1, failed.stderr);
-    assert.match(failed.stdout, /claude: 1 file, differs from dist\/claude/);
+    assert.match(failed.stdout, /claude: 5 files, differs from dist\/claude/);
     assert.match(failed.stdout, /missing SKILL\.md/);
+    assert.match(failed.stdout, /missing engine\/main\.mjs/);
     const built = run();
     assert.equal(built.status, 0, built.stderr);
     assert.match(built.stdout, /wrote dist\/claude/);
     const verified = run('--verify');
     assert.equal(verified.status, 0, verified.stderr);
-    assert.match(verified.stdout, /codex: 1 file, matches dist\/codex/);
+    assert.match(verified.stdout, /codex: 5 files, matches dist\/codex/);
+    assert.equal(readFileSync(join(repository, 'dist', 'codex', 'engine', 'roles', 'fragments', 'a.md'), 'utf8'), 'alpha\n');
+    assert.equal((JSON.parse(readFileSync(join(repository, 'dist', 'claude', 'engine', 'engine.json'), 'utf8')) as { version: string }).version, '9.9.9');
+    assert.match(readFileSync(join(repository, 'dist', 'claude', 'engine', 'main.mjs'), 'utf8'), /console\.log\("engine"\)/);
   });
 
   it('rejects an unknown flag', () => {
