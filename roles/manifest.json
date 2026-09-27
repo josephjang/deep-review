@@ -146,9 +146,7 @@
     ],
     "auditor": [
       "auditor-brief.md",
-      "step3-verdicts.md",
-      "step3-audit.md",
-      "step3-actions.md"
+      "step3-verdicts.md"
     ],
     "answer": [
       "fixer-role.md",
