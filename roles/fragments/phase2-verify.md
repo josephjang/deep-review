@@ -45,7 +45,7 @@ drop a candidate because its verifier failed.
 
 As each verifier returns, append its group's section to `verdicts.md` —
 every verdict and its evidence line verbatim, REFUTED included —
-saved under the checkpoint discipline above without waiting for another
+terminated, without waiting for another
 group. A group that died before returning has
 no section, which is what lets a resumed run re-dispatch exactly the
 groups that never landed.
