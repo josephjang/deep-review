@@ -1,5 +1,5 @@
 import type { Access, DeniedTool, Effort } from '../checkpoint/events.ts';
-import type { Decoded, LaunchPlan, RuntimeAdapter, WorkerCommand, WorkerOutputs } from './adapter.ts';
+import { maxDecodeBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { InheritedOverrideError } from './errors.ts';
@@ -100,16 +100,21 @@ const isBudgetStop = (envelope: Record<string, unknown>): boolean =>
  * Read the `--output-format json` envelope. The session ids are the one the
  * envelope names, if any; the launcher adds the pinned or continued id to
  * every finish, so a worker that never answered still names its transcript.
+ * The envelope is one JSON value, so stdout is read whole: a stdout above
+ * the decode cap, which the launcher does not hand over as one text, fails
+ * the worker, and its bytes are still frozen as evidence.
  */
 export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
   const expected = plan.sessionId;
   const failed = (error: string, known: Omit<Decoded, 'result'> = { sessionIds: [], usage: null, denials: null }): Decoded => ({ ...known, result: { kind: 'failed', error } });
 
+  const stdout = outputs.stdout;
+  if (stdout === null) return failed(`Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(outputs.stdout);
+    parsed = JSON.parse(stdout);
   } catch (error) {
-    return failed(outputs.stdout.trim() === '' ? 'Claude Code printed no result envelope' : `Claude Code printed a result envelope that is not JSON: ${(error as Error).message}`);
+    return failed(stdout.trim() === '' ? 'Claude Code printed no result envelope' : `Claude Code printed a result envelope that is not JSON: ${(error as Error).message}`);
   }
   if (!isObject(parsed)) return failed('Claude Code printed a result envelope that is not an object');
   const envelope = parsed;
