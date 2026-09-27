@@ -59,13 +59,10 @@ interface LoadedFragment {
 
 /**
  * Read one fragment by its name, which must be a fragment name (R4) so it
- * cannot leave `fragments/`, and hold it to the invariants the assembly
- * relies on (R3): a regular file of UTF-8 text without a byte order mark,
- * LF line endings, no NUL, not empty, ending in exactly one newline and
- * starting with text, with no blank or whitespace-only line at either
- * edge, carrying no front matter and no include marker. Each violation is
- * refused naming the fragment, so a stray CRLF or a stale marker never
- * reaches a worker. Returns the fragment's text.
+ * cannot leave `fragments/`, and refuse it unless it is a regular file of
+ * UTF-8 text that `refuseMalformedFragmentText` accepts (R3). Each
+ * violation is refused naming the fragment, so a stray CRLF or a stale
+ * marker never reaches a worker. Returns the fragment's text.
  */
 export function readRoleFragment(rolesRoot: string, name: string): string {
   return loadRoleFragment(rolesRoot, name).text;
@@ -99,6 +96,19 @@ function loadRoleFragment(rolesRoot: string, name: string): LoadedFragment {
   } catch {
     throw new InvalidRoleFragmentError(name, 'is not UTF-8');
   }
+  refuseMalformedFragmentText(name, text);
+  return { fragment: { name, sha256: sha256Hex(bytes) }, text };
+}
+
+/**
+ * Hold a fragment's decoded text to the invariants the assembly relies on
+ * (R3): no byte order mark, not empty, LF line endings, no NUL, ending in
+ * exactly one newline and starting with text, with no blank or
+ * whitespace-only line at either edge, carrying no front matter and no
+ * include marker. Each violation is refused naming the fragment. It takes
+ * text, not a path, so the rules hold whatever the text was read from.
+ */
+export function refuseMalformedFragmentText(name: string, text: string): void {
   if (text.startsWith('\uFEFF')) throw new InvalidRoleFragmentError(name, 'starts with a byte order mark');
   if (text.length === 0) throw new InvalidRoleFragmentError(name, 'is empty');
   if (text.includes('\r')) throw new InvalidRoleFragmentError(name, 'contains a carriage return; fragments are LF text');
@@ -109,7 +119,6 @@ function loadRoleFragment(rolesRoot: string, name: string): LoadedFragment {
   if (/^[^\S\n]*\n/.test(text)) throw new InvalidRoleFragmentError(name, 'starts with a blank line');
   if (text.startsWith('---\n')) throw new InvalidRoleFragmentError(name, 'starts with front matter; a fragment is prompt text only');
   if (/^<!-- include:/m.test(text)) throw new InvalidRoleFragmentError(name, 'contains an include marker; composition is declared in the manifest only');
-  return { fragment: { name, sha256: sha256Hex(bytes) }, text };
 }
 
 /**

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { assembleRoles, fragmentsDirectoryName, manifestFileName, readRoleFragment, readRoleManifest } from '../../src/roles/assemble.ts';
+import { assembleRoles, fragmentsDirectoryName, manifestFileName, readRoleFragment, readRoleManifest, refuseMalformedFragmentText } from '../../src/roles/assemble.ts';
 import { InvalidRoleFragmentError, InvalidRoleManifestError } from '../../src/roles/errors.ts';
 
 /** Write a roles directory: the manifest as given (an object is serialized, a string is written as is) and each fragment's bytes. */
@@ -134,9 +134,11 @@ describe('assembleRoles', () => {
   describe('fragment invariants', () => {
     const rejectsFragment = (name: string, content: Buffer | string, pattern: RegExp): void => {
       it(`refuses a fragment that ${name}`, () => {
+        const refusal = (error: unknown): boolean => error instanceof InvalidRoleFragmentError && error.fragment === 'a.md' && pattern.test(error.message);
+        // A rule on text holds without a file; a read from fragments/ must reach it too.
+        if (typeof content === 'string') assert.throws(() => refuseMalformedFragmentText('a.md', content), refusal);
         seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': content });
-        assert.throws(() => assembleRoles(root), (error: unknown) =>
-          error instanceof InvalidRoleFragmentError && error.fragment === 'a.md' && pattern.test(error.message));
+        assert.throws(() => assembleRoles(root), refusal);
       });
     };
     rejectsFragment('is empty', '', /is empty/);
@@ -154,6 +156,7 @@ describe('assembleRoles', () => {
     rejectsFragment('is one line of spaces', ' \n', /starts with a blank line/);
 
     it('accepts leading and trailing spaces on a line that has text', () => {
+      assert.doesNotThrow(() => refuseMalformedFragmentText('a.md', '  indented\ntext  \n'));
       seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': '  indented\ntext  \n' });
       assert.equal(assembleRoles(root)[0]!.prompt, '  indented\ntext  \n');
     });
