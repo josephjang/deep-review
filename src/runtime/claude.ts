@@ -26,7 +26,7 @@ export const claudeFlags = [
 ] as const;
 
 /** Inherited variables that change how much the model thinks, which the pinned effort must decide alone. */
-const thinkingOverrides = ['MAX_THINKING_TOKENS', 'CLAUDE_CODE_DISABLE_THINKING', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING'];
+export const thinkingOverrides = ['MAX_THINKING_TOKENS', 'CLAUDE_CODE_DISABLE_THINKING', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING'] as const;
 
 /** How long a denial's command or path may be on the receipt. */
 const maxDenialDetail = 300;
@@ -40,22 +40,24 @@ export function claudeTools(access: Access, shell: boolean): string[] {
  * The caller's environment with the effort and auto memory pinned. Claude
  * Code lets `CLAUDE_CODE_EFFORT_LEVEL` outrank `--effort`, so both are set;
  * an inherited thinking override is refused by name rather than dropped, so
- * the operator learns their shell was changing every worker.
+ * the operator learns their shell was changing every worker. A name is any
+ * spelling on Windows, where the worker reads every spelling as one
+ * variable, and the exact name elsewhere.
  */
-export function claudeEnvironment(environment: NodeJS.ProcessEnv, effort: Effort): NodeJS.ProcessEnv {
+export function claudeEnvironment(environment: NodeJS.ProcessEnv, effort: Effort, platform: NodeJS.Platform): NodeJS.ProcessEnv {
   for (const name of thinkingOverrides) {
-    for (const [spelling, value] of spellingsOf(environment, name)) {
+    for (const [spelling, value] of spellingsOf(environment, name, platform)) {
       if (value !== undefined && value.trim() !== '') throw new InheritedOverrideError(spelling, 'would override the pinned effort');
     }
   }
-  return pinVariables(withoutVariables(environment, thinkingOverrides), { CLAUDE_CODE_EFFORT_LEVEL: effort, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+  return pinVariables(withoutVariables(environment, thinkingOverrides, platform), { CLAUDE_CODE_EFFORT_LEVEL: effort, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }, platform);
 }
 
 export function claudeCommand(invocation: Invocation, plan: LaunchPlan): WorkerCommand {
   if (plan.sessionId === null) throw new Error('A Claude Code worker needs its session id before launch');
   const tools = claudeTools(invocation.access, invocation.shell).join(',');
   return {
-    environment: claudeEnvironment(plan.environment, invocation.effort),
+    environment: claudeEnvironment(plan.environment, invocation.effort, plan.platform),
     args: [
       '--print',
       '--output-format', 'json',

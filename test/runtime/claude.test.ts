@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
 import type { LaunchPlan } from '../../src/runtime/adapter.ts';
-import { claudeAdapter, claudeEnvironment, claudeFlags, claudeTools } from '../../src/runtime/claude.ts';
+import { claudeAdapter, claudeEnvironment, claudeFlags, claudeTools, thinkingOverrides } from '../../src/runtime/claude.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
 import { InheritedOverrideError } from '../../src/runtime/errors.ts';
 
@@ -107,23 +107,42 @@ describe('claude command', () => {
 });
 
 describe('claudeEnvironment', () => {
-  it('pins the effort and auto memory over every inherited spelling and keeps the rest', () => {
-    const environment = claudeEnvironment({ claude_code_effort_level: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0', HOME: '/h', ANTHROPIC_API_KEY: 'k' }, 'xhigh');
+  it('pins the effort and auto memory over every inherited spelling on Windows and keeps the rest', () => {
+    const environment = claudeEnvironment({ claude_code_effort_level: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0', HOME: '/h', ANTHROPIC_API_KEY: 'k' }, 'xhigh', 'win32');
     assert.deepEqual(environment, { HOME: '/h', ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_EFFORT_LEVEL: 'xhigh', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
   });
 
-  it('refuses an inherited thinking override by the name it was given', () => {
-    for (const name of ['MAX_THINKING_TOKENS', 'max_thinking_tokens', 'Claude_Code_Disable_Thinking', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING']) {
-      assert.throws(() => claudeEnvironment({ [name]: '1' }, 'high'), (error: unknown) => error instanceof InheritedOverrideError && error.variable === name, name);
+  it('pins the exact names on POSIX, where a variable spelled otherwise is another variable', () => {
+    const environment = claudeEnvironment({ claude_code_effort_level: 'low', CLAUDE_CODE_EFFORT_LEVEL: 'max', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0', HOME: '/h' }, 'xhigh', 'linux');
+    assert.deepEqual(environment, { claude_code_effort_level: 'low', HOME: '/h', CLAUDE_CODE_EFFORT_LEVEL: 'xhigh', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+  });
+
+  it('refuses an inherited thinking override on Windows by any spelling, naming the one it was given', () => {
+    for (const name of ['MAX_THINKING_TOKENS', 'max_thinking_tokens', 'Claude_Code_Disable_Thinking', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING', ...thinkingOverrides]) {
+      assert.throws(() => claudeEnvironment({ [name]: '1' }, 'high', 'win32'), (error: unknown) => error instanceof InheritedOverrideError && error.variable === name, name);
+    }
+  });
+
+  it('refuses an inherited thinking override on POSIX by its exact name only, since Claude Code reads no other', () => {
+    for (const platform of ['linux', 'darwin'] as const) {
+      for (const name of thinkingOverrides) {
+        assert.throws(() => claudeEnvironment({ [name]: '1' }, 'high', platform), (error: unknown) => error instanceof InheritedOverrideError && error.variable === name, name);
+      }
+      const variants = { max_thinking_tokens: '1', Claude_Code_Disable_Thinking: '1', HOME: '/h' };
+      assert.deepEqual(claudeEnvironment(variants, 'high', platform), { ...variants, CLAUDE_CODE_EFFORT_LEVEL: 'high', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
     }
   });
 
   it('drops an empty thinking override instead of refusing it', () => {
-    assert.deepEqual(claudeEnvironment({ MAX_THINKING_TOKENS: '  ', HOME: '/h' }, 'low'), { HOME: '/h', CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+    for (const platform of ['win32', 'linux'] as const) {
+      assert.deepEqual(claudeEnvironment({ MAX_THINKING_TOKENS: '  ', HOME: '/h' }, 'low', platform), { HOME: '/h', CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+    }
   });
 
-  it('is what the command runs with', () => {
+  it('is what the command runs with, on the plan\'s platform', () => {
     assert.throws(() => claudeAdapter.command(invocation(), plan({ environment: { MAX_THINKING_TOKENS: '9000' } })), InheritedOverrideError);
+    assert.throws(() => claudeAdapter.command(invocation(), plan({ platform: 'win32', environment: { Max_Thinking_Tokens: '9000' } })), InheritedOverrideError);
+    assert.equal(claudeAdapter.command(invocation(), plan({ platform: 'linux', environment: { Max_Thinking_Tokens: '9000' } })).environment.Max_Thinking_Tokens, '9000');
     assert.equal(claudeAdapter.command(invocation({ effort: 'low' }), plan({ environment: { A: 'b' } })).environment.CLAUDE_CODE_EFFORT_LEVEL, 'low');
   });
 });
