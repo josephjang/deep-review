@@ -1,9 +1,6 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
 
 /** One worker process: what to run, where, and the files its standard streams are bound to. */
 export interface ProcessRequest {
@@ -20,12 +17,24 @@ export interface ProcessRequest {
   readonly timeoutMs: number;
 }
 
-/** How the process ended: on its own, killed at the timeout with its tree, or never started. */
+/** How the process ended: on its own, killed at the timeout (with its tree, unless `treeKillError` says why not), or never started. */
 export type ProcessResult =
   | {
-      readonly termination: 'exited' | 'killed';
+      readonly termination: 'exited';
       readonly exitCode: number | null;
       readonly signal: string | null;
+      readonly startedAt: string;
+      readonly endedAt: string;
+    }
+  | {
+      readonly termination: 'killed';
+      readonly exitCode: number | null;
+      readonly signal: string | null;
+      /**
+       * Null when the kill reached the whole tree. Otherwise why it did not:
+       * only the root was ended, and descendants may still be running.
+       */
+      readonly treeKillError: string | null;
       readonly startedAt: string;
       readonly endedAt: string;
     }
@@ -38,6 +47,11 @@ export type ProcessResult =
       readonly startedAt: string;
       readonly endedAt: string;
     };
+
+/** The result for a process that never existed, and why; it ended when the attempt did, `endedAt` by default now. */
+export function notStarted(error: string, startedAt: string, endedAt: string = new Date().toISOString()): Extract<ProcessResult, { termination: 'not-started' }> {
+  return { termination: 'not-started', exitCode: null, signal: null, error, startedAt, endedAt };
+}
 
 /**
  * Run one process to its end, killing it with its whole tree at the
@@ -64,14 +78,13 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
       });
     } catch (error) {
       // A synchronous refusal, such as an argument Node will not pass: the process never existed.
-      return { termination: 'not-started', exitCode: null, signal: null, error: (error as Error).message, startedAt, endedAt: new Date().toISOString() };
+      return notStarted((error as Error).message, startedAt);
     }
     return await new Promise<ProcessResult>((resolve) => {
       let started = false;
-      let killed = false;
+      let kill: TreeKill | undefined;
       const timer = setTimeout(() => {
-        killed = true;
-        void killTree(child);
+        kill = killTreeNow(child);
       }, request.timeoutMs);
       child.once('spawn', () => {
         started = true;
@@ -80,18 +93,33 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         // After a successful spawn an error (such as a failed kill) is not the end; 'close' still follows.
         if (started) return;
         clearTimeout(timer);
-        resolve({ termination: 'not-started', exitCode: null, signal: null, error: error.message, startedAt, endedAt: new Date().toISOString() });
+        resolve(notStarted(error.message, startedAt));
       });
       child.once('close', (code, signal) => {
         if (!started) return;
         clearTimeout(timer);
-        resolve({ termination: killed ? 'killed' : 'exited', exitCode: code, signal, startedAt, endedAt: new Date().toISOString() });
+        const endedAt = new Date().toISOString();
+        // A process that exited on its own just as the timer fired was not killed.
+        if (kill === undefined || kill.status === 'not-running') resolve({ termination: 'exited', exitCode: code, signal, startedAt, endedAt });
+        else resolve({ termination: 'killed', exitCode: code, signal, treeKillError: kill.status === 'root-only' ? kill.error : null, startedAt, endedAt });
       });
     });
   } finally {
     for (const descriptor of descriptors) closeSync(descriptor);
   }
 }
+
+/** What a tree kill did. */
+export type TreeKill =
+  /** The process never started or has already exited; nothing was signalled. */
+  | { readonly status: 'not-running' }
+  /** The process and every descendant the platform can reach were killed. */
+  | { readonly status: 'tree' }
+  /** The tree kill failed, for the reason given; only the root was killed directly. */
+  | { readonly status: 'root-only'; readonly error: string };
+
+/** What a tree kill needs of a child process. */
+export type KillableProcess = Pick<ChildProcess, 'pid' | 'exitCode' | 'signalCode' | 'kill'>;
 
 /** The Windows tool that ends a process tree, by absolute path so the caller's PATH cannot substitute another. */
 function taskkillPath(): string {
@@ -102,25 +130,50 @@ function taskkillPath(): string {
  * Kill a process and every descendant the platform can reach. A process
  * that re-parented itself (Windows) or started its own session (POSIX)
  * escapes, which the design accepts.
+ *
+ * The kill is done before this returns, as `killTreeNow` does it; the
+ * promise only lets a caller sequence work after it.
  */
-export async function killTree(child: ChildProcess): Promise<void> {
+export function killTree(child: KillableProcess): Promise<TreeKill> {
+  return Promise.resolve(killTreeNow(child));
+}
+
+/**
+ * `killTree`, synchronously, for the timeout, which cannot wait.
+ *
+ * A pid is only safe to signal while Node has not yet seen the process
+ * exit: until then Node holds it (an unreaped zombie on POSIX, an open
+ * process handle on Windows), so the pid cannot name another process.
+ * Once `exitCode` or `signalCode` is set that guarantee is gone, and
+ * nothing is signalled. The kill is synchronous, `taskkill` included, so
+ * the event loop cannot observe the exit and release the pid between that
+ * check and the kill; the price is that the loop waits for `taskkill`,
+ * at most its ten-second limit.
+ */
+function killTreeNow(child: KillableProcess): TreeKill {
   const pid = child.pid;
-  if (pid === undefined) return;
+  if (pid === undefined || child.exitCode !== null || child.signalCode !== null) return { status: 'not-running' };
   if (process.platform === 'win32') {
-    try {
-      await execFileAsync(taskkillPath(), ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 });
-    } catch {
-      // taskkill fails when the root has already exited, and when it cannot
-      // run at all; the direct kill ends the root in either case, and the
-      // close event still arrives.
-      child.kill('SIGKILL');
-    }
-    return;
+    const taskkill = spawnSync(taskkillPath(), ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000, encoding: 'utf8' });
+    if (taskkill.error === undefined && taskkill.status === 0) return { status: 'tree' };
+    // taskkill could not run, or could not end every process in the tree
+    // (such as a descendant running as another user: access denied).
+    const how = taskkill.status === null ? `signal ${String(taskkill.signal)}` : `code ${String(taskkill.status)}`;
+    const reason = taskkill.error?.message ?? `it exited with ${how}: ${taskkill.stderr.trim()}`;
+    return killRoot(child, `taskkill could not end the process tree: ${reason}`);
   }
   try {
     process.kill(-pid, 'SIGKILL');
+    return { status: 'tree' };
   } catch (error) {
-    // ESRCH: the group is already gone. Anything else: at least end the root.
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL');
+    // The unreaped root keeps its group alive, so any failure here, ESRCH
+    // included, means the group could not be addressed.
+    return killRoot(child, `the process group could not be killed: ${(error as Error).message}`);
   }
+}
+
+/** The fallback when the tree cannot be reached: end at least the root, and say why the tree was not. */
+function killRoot(child: KillableProcess, error: string): TreeKill {
+  child.kill('SIGKILL');
+  return { status: 'root-only', error };
 }

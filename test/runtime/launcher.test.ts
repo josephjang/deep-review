@@ -129,6 +129,28 @@ describe('runWorker', () => {
       });
     }
 
+    it('says so when the kill at the timeout reached only the root of the tree', { skip: process.platform !== 'win32' && 'only a Windows tree kill can be made to fail from here' }, async () => {
+      // taskkill is found under SystemRoot; with none there the tree kill fails and only the root is ended.
+      const pidFile = join(box.directory, 'grandchild.pid');
+      const systemRoot = process.env.SystemRoot;
+      process.env.SystemRoot = join(box.directory, 'no-windows');
+      let grandchild: number | undefined;
+      try {
+        const pending = box.run(box.claude({ timeoutMs: hangTimeoutMs }), { FAKE_HANG: pidFile });
+        grandchild = await waitForPid(pidFile);
+        const receipt = await pending;
+        assert.equal(receipt.outcome, 'timeout');
+        assert.equal(receipt.process.termination, 'killed');
+        assert.match(receipt.error ?? '', new RegExp(`timeout of ${String(hangTimeoutMs)} ms and was killed, but only its root: taskkill could not end the process tree: .+; descendants may still run$`));
+        assert.equal(isAlive(grandchild), true, 'the descendant the kill could not reach is still running');
+        const worker = box.worker(receipt.workerId);
+        assert.equal(worker.status === 'finished' && worker.finish.error, receipt.error);
+      } finally {
+        process.env.SystemRoot = systemRoot;
+        if (grandchild !== undefined && isAlive(grandchild)) process.kill(grandchild);
+      }
+    });
+
     it('lists denials without changing a completed outcome', async () => {
       const receipt = await box.run(box.claude(), { FAKE_DENIALS: JSON.stringify([{ tool_name: 'Bash', tool_input: { command: 'touch x' } }]) });
       assert.equal(receipt.outcome, 'completed');
