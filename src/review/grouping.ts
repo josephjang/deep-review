@@ -53,16 +53,22 @@ function unlocatedSpellings(candidates: readonly Groupable[]): Map<string, strin
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
- * Consecutive chunks of at most `maxGroupSize`, the last absorbing a
- * remainder of one into its predecessor, so no chunk holds a single
- * candidate when the group had more.
+ * Consecutive chunks of at most `size`, as few as that allows, balanced so
+ * their lengths differ by at most one: nine items at eight give five and
+ * four. Above `size` every chunk holds more than half of `size`, so no
+ * chunk holds a single candidate when the group had more (at any `size`
+ * over one).
  */
 export function chunk<T>(items: readonly T[], size: number = maxGroupSize): T[][] {
+  if (!Number.isInteger(size) || size < 1) throw new RangeError(`A chunk size must be a positive integer, not ${String(size)}`);
+  const count = Math.ceil(items.length / size);
   const chunks: T[][] = [];
-  for (let start = 0; start < items.length; start += size) chunks.push(items.slice(start, start + size));
-  if (chunks.length > 1 && chunks[chunks.length - 1]!.length === 1) {
-    const last = chunks.pop()!;
-    chunks[chunks.length - 1] = [...chunks[chunks.length - 1]!, ...last];
+  let start = 0;
+  for (let index = 0; index < count; index += 1) {
+    // The first `items.length % count` chunks take one item more than the rest.
+    const length = Math.floor(items.length / count) + (index < items.length % count ? 1 : 0);
+    chunks.push(items.slice(start, start + length));
+    start += length;
   }
   return chunks;
 }
