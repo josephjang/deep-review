@@ -1,9 +1,9 @@
 import type { Access, DeniedTool, Effort } from '../checkpoint/events.ts';
-import { maxDecodeBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
+import { emptyUsageSummary, maxDecodeBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { launcherPins, pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { InheritedOverrideError, InvalidInvocationError } from './errors.ts';
-import { isObject } from './json.ts';
+import { finiteNumber, isObject, sumOrNull } from './json.ts';
 
 /** Every flag the command below uses; the preflight requires each in `--help` (R4). */
 export const claudeFlags = [
@@ -350,9 +350,33 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
 }
 
 /**
+ * The neutral view of what `decodeClaude` stores as usage: `total_cost_usd`
+ * is the cost, and the envelope's `usage` gives the tokens. Claude Code's
+ * `input_tokens` leaves out the tokens read from and written to the prompt
+ * cache, so all three are summed for `inputTokens`, and any of the three
+ * missing leaves it null rather than undercounted. For a fresh worker the
+ * envelope covers this process alone; a continuation's `total_cost_usd`
+ * covers the whole session (runtime adapter, Open Questions), and nothing
+ * here can tell the two apart, so a caller that continues sessions must not
+ * sum continuations' costs as if they were their own.
+ */
+export function summarizeClaudeUsage(usage: unknown): UsageSummary {
+  if (!isObject(usage)) return emptyUsageSummary;
+  const tokens = isObject(usage.usage) ? usage.usage : {};
+  const cached = finiteNumber(tokens.cache_read_input_tokens);
+  return {
+    costUsd: finiteNumber(usage.total_cost_usd),
+    inputTokens: sumOrNull(finiteNumber(tokens.input_tokens), cached, finiteNumber(tokens.cache_creation_input_tokens)),
+    cachedInputTokens: cached,
+    outputTokens: finiteNumber(tokens.output_tokens),
+  };
+}
+
+/**
  * Claude Code in headless mode. It takes a session id before launch, stops at
  * a budget, lists the tool calls it refused, runs without a shell, lets a
- * read-only worker write to an added directory, and resumes a session by id.
+ * read-only worker write to an added directory, resumes a session by id,
+ * and reports what a worker cost in US dollars.
  */
 export function createClaudeAdapter(options: ClaudeOptions = {}): RuntimeAdapter {
   // Options can arrive from outside TypeScript, and every value goes straight into a command line.
@@ -378,12 +402,14 @@ const claudeRuntime: Omit<RuntimeAdapter, 'command'> = {
     readOnlyScratch: true,
     effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
     resume: true,
+    costInUsd: true,
   },
   qualification: {
     version: { args: ['--version'], pattern: /^(\d+\.\d+\.\d+) \(Claude Code\)$/ },
     help: [{ args: ['--help'], flags: claudeFlags }],
   },
   decode: decodeClaude,
+  summarizeUsage: summarizeClaudeUsage,
 };
 
 /** The Claude adapter with its defaults: no settings beyond the ones that switch sources off. */
