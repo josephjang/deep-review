@@ -5,25 +5,38 @@
  */
 import { z } from 'zod';
 
-/** The ten finder angles, in the order the report lists them. */
-export const angles = ['SCAN', 'REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'] as const;
-export const angleSchema = z.enum(angles);
-export type Angle = z.infer<typeof angleSchema>;
-
-/** The nine angles a finder worker runs; `SCAN` is run by the triage worker. */
+/** The nine angles a finder worker runs, in the order they launch; `SCAN` is run by the triage worker. */
 export const finderAngles = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'] as const;
 export const finderAngleSchema = z.enum(finderAngles);
 export type FinderAngle = z.infer<typeof finderAngleSchema>;
 
-/**
- * The angles whose findings name a failure: the rubric's "correctness &
- * cost" angles and `CONVENTIONS`. They outrank the design angles at equal
- * severity and verdict (the rubric's cross-class tiebreak, TD9).
- */
-export const correctnessAngles: readonly Angle[] = ['SCAN', 'REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'CONVENTIONS'];
+/** The ten angles of a review, in the order the report lists them: `SCAN`, then the finder angles. */
+export const angles = ['SCAN', ...finderAngles] as const;
+export const angleSchema = z.enum(angles);
+export type Angle = z.infer<typeof angleSchema>;
 
-/** The angles whose findings name an improvement, with a `value_statement` for their fourth field. */
-export const designAngles: readonly Angle[] = ['DESIGN', 'DUPLICATION', 'ALTITUDE'];
+/**
+ * The two classes of angle. A `correctness` angle's findings name a
+ * failure: the rubric's "correctness & cost" angles and `CONVENTIONS`. A
+ * `design` angle's findings name an improvement, with a `value_statement`
+ * for their fourth field. Correctness outranks design at equal severity and
+ * verdict (the rubric's cross-class tiebreak, TD9).
+ */
+export type AngleClass = 'correctness' | 'design';
+
+/** The class of every angle, declared once; an angle added without a class does not compile. */
+export const angleClasses: Readonly<Record<Angle, AngleClass>> = {
+  SCAN: 'correctness',
+  REMOVALS: 'correctness',
+  RIPPLE: 'correctness',
+  FOOTGUNS: 'correctness',
+  WRAPPERS: 'correctness',
+  EFFICIENCY: 'correctness',
+  DESIGN: 'design',
+  DUPLICATION: 'design',
+  ALTITUDE: 'design',
+  CONVENTIONS: 'correctness',
+};
 
 /** The role that runs each angle: the triage worker runs `SCAN`, a finder every other. */
 export function roleOfAngle(angle: Angle): string {
