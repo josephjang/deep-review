@@ -196,7 +196,8 @@ export function refuseMalformedFragmentText(name: string, text: string): void {
 /**
  * Compare the fragments the manifest names with the entries `fragments/`
  * holds, before any fragment is read, and refuse any difference: a fragment
- * some role names that is not there, and an entry no role names. Both are
+ * some role names that is not there, and a visible entry no role names (a
+ * hidden one, whose name starts with a dot, cannot be a fragment). Both are
  * reported together in one error, so a renamed fragment shows its old and
  * new names at once, and a name that differs only by case is reported the
  * same way on a file system that ignores case as on one that does not.
@@ -220,7 +221,9 @@ function reconcileFragments(rolesRoot: string, manifest: RoleManifest): void {
   const named = new Set(Object.values(manifest.roles).flat());
   const present = new Set(entries);
   const missing = [...named].filter((name) => !present.has(name)).sort();
-  const stray = entries.filter((entry) => !named.has(entry)).sort();
+  // A hidden entry (.DS_Store, a vim swap file) is the system's or an editor's, and no fragment name starts with a
+  // dot (fragmentNameSchema), so passing it over can never let an unused fragment or a look-alike file go unnoticed.
+  const stray = entries.filter((entry) => !entry.startsWith('.') && !named.has(entry)).sort();
   const problems: string[] = [];
   if (missing.length > 0) problems.push(`Fragments that roles name but ${fragmentsDirectoryName}/ does not hold: ${missing.join(', ')}`);
   if (stray.length > 0) problems.push(`Entries under ${fragmentsDirectoryName}/ that no role names: ${stray.join(', ')}`);
@@ -232,9 +235,9 @@ function reconcileFragments(rolesRoot: string, manifest: RoleManifest): void {
  * roles and their fragments, each fragment is read once, and a role's
  * prompt is its fragments joined with one blank line. Before any fragment
  * is read, the manifest and `fragments/` must agree exactly: every
- * fragment a role names is there, and every entry there is named by some
- * role, so a fragment cannot fall out of use unnoticed and a stray file
- * cannot be mistaken for one.
+ * fragment a role names is there, and every visible entry there is named
+ * by some role, so a fragment cannot fall out of use unnoticed and a stray
+ * file cannot be mistaken for one.
  */
 export function assembleRoles(rolesRoot: string): readonly AssembledRole[] {
   const manifest = readRoleManifest(rolesRoot);
