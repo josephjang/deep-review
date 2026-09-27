@@ -7,7 +7,8 @@ import type { WorkerState } from '../../src/checkpoint/fold.ts';
 import { thinkingOverrides } from '../../src/runtime/claude.ts';
 import type { InvocationInput } from '../../src/runtime/contract.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
-import { checkpointScratchKey, runWorker, type RunWorkerOptions, type WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { runWorker, type RunWorkerOptions, type WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 
 export const fakeClaude = resolve(import.meta.dirname, 'fake-claude.ts');
 export const fakeCodex = resolve(import.meta.dirname, 'fake-codex.ts');

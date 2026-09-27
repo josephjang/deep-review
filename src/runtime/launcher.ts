@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { join } from 'node:path';
 import { z } from 'zod';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../checkpoint/errors.ts';
@@ -16,6 +15,7 @@ import { preflight } from './preflight.ts';
 import { notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes } from './runtimes.ts';
+import { checkpointScratchKey, chooseScratch, defaultScratchRoot } from './scratch.ts';
 
 /** stdout, stderr or a final message above this is not decoded; it is still frozen as evidence. */
 export const maxDecodeBytes = 16 * 1024 * 1024;
@@ -25,22 +25,6 @@ const maxErrorLength = 4000;
 
 /** How many times an append is re-folded and retried when another writer got there first. */
 const appendAttempts = 50;
-
-/**
- * Where scratch directories live by default: the system's temporary
- * directory, never the checkpoint. The checkpoint sits in the git directory,
- * which is inside a main worktree, and a sandboxed runtime keeps that
- * directory read-only: Codex refuses every command of a worker given a
- * writable root beneath it.
- */
-export function defaultScratchRoot(): string {
-  return join(tmpdir(), 'deep-review-scratch');
-}
-
-/** The directory under a scratch root that holds one checkpoint's scratch directories, so two repositories never share one. */
-export function checkpointScratchKey(checkpoint: Checkpoint): string {
-  return sha256Hex(Buffer.from(checkpoint.root, 'utf8')).slice(0, 16);
-}
 
 /** Directory under the checkpoint root that holds each worker's process files until they are frozen. */
 export const ioDirectoryName = 'io';
@@ -277,28 +261,6 @@ function continuedWorker(state: RunState, invocation: Invocation, schemaDigest: 
 function requireDirectory(worktree: string): void {
   const stat = statSync(worktree, { throwIfNoEntry: false });
   if (stat === undefined || !stat.isDirectory()) throw new InvalidInvocationError(`The run's worktree ${worktree} is not a directory`);
-}
-
-const isInside = (parent: string, child: string): boolean => {
-  const path = relative(parent, child);
-  return path === '' || (!path.startsWith('..') && !isAbsolute(path));
-};
-
-/**
- * Where the worker may write temporary files (R7, TD7): the one it
- * continues, the caller's, or `fallback`, a fresh one under the scratch
- * root. None when a read-only worker's runtime cannot allow writes to it.
- * One inside the reviewed tree or the checkpoint is refused: the first would
- * be a stray file in the review, the second sits in a git directory a
- * sandboxed runtime keeps read-only.
- */
-function chooseScratch(checkpoint: Checkpoint, state: RunState, adapter: RuntimeAdapter, invocation: Invocation, continued: WorkerState | null, fallback: string): string | null {
-  if (continued !== null) return continued.launch.scratch;
-  if (invocation.access === 'read-only' && !adapter.capabilities.readOnlyScratch) return null;
-  const scratch = resolve(invocation.scratch ?? fallback);
-  if (isInside(state.worktree, scratch)) throw new InvalidInvocationError(`The scratch directory ${scratch} is inside the reviewed tree ${state.worktree}`);
-  if (isInside(checkpoint.root, scratch)) throw new InvalidInvocationError(`The scratch directory ${scratch} is inside the checkpoint ${checkpoint.root}`);
-  return scratch;
 }
 
 /** The prompt the worker receives: the caller's, then where it may write temporary files, or that it may write none (R7). */

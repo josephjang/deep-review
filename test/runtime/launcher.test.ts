@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative } from 'node:path';
+import { existsSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
 import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
@@ -358,7 +358,7 @@ describe('runWorker', () => {
         assert.ok(scratch !== null);
         const inside = (parent: string, child: string): boolean => {
           const path = relative(parent, child);
-          return path === '' || (!path.startsWith('..') && !isAbsolute(path));
+          return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
         };
         assert.equal(inside(location.commonDir, scratch), false, `${scratch} is inside ${location.commonDir}`);
         assert.equal(inside(location.worktree, scratch), false, `${scratch} is inside ${location.worktree}`);
@@ -378,6 +378,28 @@ describe('runWorker', () => {
       await assert.rejects(box.run(box.claude({ scratch: join(box.repo, 'tmp') })), (error: unknown) => error instanceof InvalidInvocationError && /inside the reviewed tree/.test(error.message));
       await assert.rejects(box.run(box.claude({ scratch: box.repo })), /inside the reviewed tree/);
       await assert.rejects(box.run(box.claude({ scratch: join(box.checkpoint.root, 'scratch') })), (error: unknown) => error instanceof InvalidInvocationError && /inside the checkpoint/.test(error.message));
+      assert.equal(existsSync(join(box.repo, 'tmp')), false);
+    });
+
+    it('judges containment by whole path segments, so a directory named ..tmp is inside', async () => {
+      await assert.rejects(box.run(box.claude({ scratch: join(box.repo, '..tmp') })), /inside the reviewed tree/);
+      await assert.rejects(box.run(box.claude({ scratch: join(box.checkpoint.root, '..scratch') })), /inside the checkpoint/);
+      assert.equal(existsSync(join(box.repo, '..tmp')), false);
+      // Beside the reviewed tree, not in it.
+      const sibling = join(box.directory, '..tmp');
+      const receipt = await box.run(box.claude({ scratch: sibling }));
+      assert.equal(box.worker(receipt.workerId).launch.scratch, sibling);
+    });
+
+    it('refuses a scratch directory reached through a link into the reviewed tree or the checkpoint', async () => {
+      // A junction needs no privilege on Windows; elsewhere the type is ignored and this is a symlink.
+      const intoRepo = join(box.directory, 'repo-alias');
+      const intoCheckpoint = join(box.directory, 'checkpoint-alias');
+      symlinkSync(box.repo, intoRepo, 'junction');
+      symlinkSync(box.checkpoint.root, intoCheckpoint, 'junction');
+      await assert.rejects(box.run(box.claude({ scratch: join(intoRepo, 'tmp', 'deeper') })), /inside the reviewed tree/);
+      await assert.rejects(box.run(box.claude({ scratch: intoRepo })), /inside the reviewed tree/);
+      await assert.rejects(box.run(box.claude({ scratch: join(intoCheckpoint, 'scratch') })), /inside the checkpoint/);
       assert.equal(existsSync(join(box.repo, 'tmp')), false);
     });
   });
