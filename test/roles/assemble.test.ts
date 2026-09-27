@@ -39,6 +39,7 @@ describe('assembleRoles', () => {
     seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': Buffer.from('café\n', 'utf8') });
     const [role] = assembleRoles(root);
     assert.equal(role!.sha256, sha256Hex(Buffer.from('café\n', 'utf8')));
+    assert.deepEqual(role!.fragments, [{ name: 'a.md', sha256: sha256Hex(Buffer.from('café\n', 'utf8')) }]);
     assert.equal(role!.prompt, 'café\n');
   });
 

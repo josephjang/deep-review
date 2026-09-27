@@ -51,17 +51,28 @@ export function readRoleManifest(rolesRoot: string): RoleManifest {
 /** Strict UTF-8: a byte sequence that is not UTF-8 throws instead of becoming U+FFFD. The BOM is kept so it can be refused by name. */
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
+/** One fragment as read: its name and the hash of the bytes read, and its text. */
+interface LoadedFragment {
+  readonly fragment: RoleFragment;
+  readonly text: string;
+}
+
 /**
  * Read one fragment by its name, which must be a fragment name (R4) so it
  * cannot leave `fragments/`, and hold it to the invariants the assembly
- * relies on (R3): a regular file of UTF-8 text without a byte order mark, LF line
- * endings, no NUL, not empty, ending in exactly one newline and starting
- * with text, with no blank or whitespace-only line at either edge,
- * carrying no front matter and no include marker. Each
- * violation is refused naming the fragment, so a stray CRLF or a stale
- * marker never reaches a worker.
+ * relies on (R3): a regular file of UTF-8 text without a byte order mark,
+ * LF line endings, no NUL, not empty, ending in exactly one newline and
+ * starting with text, with no blank or whitespace-only line at either
+ * edge, carrying no front matter and no include marker. Each violation is
+ * refused naming the fragment, so a stray CRLF or a stale marker never
+ * reaches a worker. Returns the fragment's text.
  */
 export function readRoleFragment(rolesRoot: string, name: string): string {
+  return loadRoleFragment(rolesRoot, name).text;
+}
+
+/** Read and check one fragment as `readRoleFragment` does, and hash the bytes it read. */
+function loadRoleFragment(rolesRoot: string, name: string): LoadedFragment {
   // The name is checked here as well as in the manifest, so no caller can reach outside fragments/ with a directory part.
   const named = fragmentNameSchema.safeParse(name);
   if (!named.success) throw new InvalidRoleFragmentError(name, `is not a valid fragment name: ${named.error.issues.map((issue) => issue.message).join('; ')}`);
@@ -98,7 +109,7 @@ export function readRoleFragment(rolesRoot: string, name: string): string {
   if (/^[^\S\n]*\n/.test(text)) throw new InvalidRoleFragmentError(name, 'starts with a blank line');
   if (text.startsWith('---\n')) throw new InvalidRoleFragmentError(name, 'starts with front matter; a fragment is prompt text only');
   if (/^<!-- include:/m.test(text)) throw new InvalidRoleFragmentError(name, 'contains an include marker; composition is declared in the manifest only');
-  return text;
+  return { fragment: { name, sha256: sha256Hex(bytes) }, text };
 }
 
 /**
@@ -111,19 +122,20 @@ export function readRoleFragment(rolesRoot: string, name: string): string {
  */
 export function assembleRoles(rolesRoot: string): readonly AssembledRole[] {
   const manifest = readRoleManifest(rolesRoot);
-  const texts = new Map<string, string>();
-  const fragmentText = (name: string): string => {
-    let text = texts.get(name);
-    if (text === undefined) {
-      text = readRoleFragment(rolesRoot, name);
-      texts.set(name, text);
+  // Each fragment is read and hashed once, however many roles name it.
+  const loaded = new Map<string, LoadedFragment>();
+  const load = (name: string): LoadedFragment => {
+    let fragment = loaded.get(name);
+    if (fragment === undefined) {
+      fragment = loadRoleFragment(rolesRoot, name);
+      loaded.set(name, fragment);
     }
-    return text;
+    return fragment;
   };
   const roles = Object.entries(manifest.roles).map(([key, names]): AssembledRole => {
-    const fragments = names.map((name) => ({ name, sha256: sha256Hex(Buffer.from(fragmentText(name), 'utf8')) }));
-    const prompt = names.map(fragmentText).join('\n');
-    return { key, fragments, prompt, sha256: sha256Hex(Buffer.from(prompt, 'utf8')) };
+    const parts = names.map(load);
+    const prompt = parts.map((part) => part.text).join('\n');
+    return { key, fragments: parts.map((part) => part.fragment), prompt, sha256: sha256Hex(Buffer.from(prompt, 'utf8')) };
   });
   const fragmentsDirectory = join(rolesRoot, fragmentsDirectoryName);
   let entries: string[];
