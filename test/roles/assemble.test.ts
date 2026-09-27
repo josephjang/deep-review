@@ -145,7 +145,25 @@ describe('assembleRoles', () => {
     rejectsFragment('is not UTF-8', Buffer.from([0x61, 0xff, 0x0a]), /is not UTF-8/);
     rejectsFragment('starts with a byte order mark', '\uFEFFtext\n', /byte order mark/);
     rejectsFragment('has CRLF line endings', 'one\r\ntwo\n', /carriage return/);
-    rejectsFragment('contains a NUL', 'one\0two\n', /NUL/);
+    rejectsFragment('contains a NUL', 'one\0two\n', /contains U\+0000 on line 1; fragments are plain LF text$/);
+    rejectsFragment('contains an escape sequence', 'one\n\x1b[8mhidden\x1b[0m\n', /contains U\+001B on line 2/);
+    rejectsFragment('contains a vertical tab', 'one\vtwo\n', /contains U\+000B on line 1/);
+    rejectsFragment('contains a form feed', 'one\ftwo\n', /contains U\+000C on line 1/);
+    rejectsFragment('contains a DEL', 'one\x7ftwo\n', /contains U\+007F on line 1/);
+    rejectsFragment('contains a C1 control', 'one\u0085two\n', /contains U\+0085 on line 1/);
+    rejectsFragment('contains a line separator', 'one\n\ntwo\u2028three\n', /contains U\+2028 on line 3/);
+    rejectsFragment('contains a paragraph separator', 'one\u2029two\n', /contains U\+2029 on line 1/);
+    rejectsFragment('contains a byte order mark after its start', 'one\n\uFEFFtwo\n', /contains U\+FEFF on line 2/);
+    // The carriage return and a leading byte order mark keep the messages that name them.
+    rejectsFragment('has a lone carriage return and a control character', 'one\rtwo\x1b\n', /carriage return/);
+    rejectsFragment('starts with a byte order mark and has another', '\uFEFFone\uFEFF\n', /starts with a byte order mark/);
+
+    it('accepts tabs and non-ASCII punctuation, which are text', () => {
+      const text = 'key\tvalue \u2014 caf\u00e9 \u2192 x\u00b2 \u2026\n';
+      assert.doesNotThrow(() => refuseMalformedFragmentText('a.md', text));
+      seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': text });
+      assert.equal(assembleRoles(root)[0]!.prompt, text);
+    });
     rejectsFragment('does not end with a newline', 'text', /does not end with a newline/);
     rejectsFragment('ends with a blank line', 'text\n\n', /ends with a blank line/);
     rejectsFragment('ends with a line of spaces', 'text\n  \n', /ends with a blank line/);
