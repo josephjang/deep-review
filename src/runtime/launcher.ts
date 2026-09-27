@@ -92,6 +92,11 @@ export interface RunWorkerOptions {
  * this launcher; the one exception is a run abandoned while its worker ran,
  * which accepts no finish and makes this function throw `RunClosedError`
  * with the worker's evidence already frozen.
+ *
+ * A refused launch leaves no process files, and removes the scratch
+ * directory it created for the worker; the roots above it may be shared
+ * and stay. After a finish the process files are removed, unless the
+ * launcher could not freeze them; then they are the only copy, and stay.
  */
 export async function runWorker(checkpoint: Checkpoint, runId: string, input: InvocationInput, options: RunWorkerOptions = {}): Promise<WorkerReceipt> {
   const invocation = parseInvocation(input);
@@ -127,11 +132,13 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   const prompt = composePrompt(invocation.prompt, scratch);
   const promptReference = checkpoint.evidence.put(prompt);
   const schemaReference = checkpoint.evidence.put(schema.text);
-  if (scratch !== null) mkdirSync(scratch, { recursive: true });
-  mkdirSync(io, { recursive: true });
+  // What a finish records for an output the launcher could not freeze. Frozen
+  // now, while a failure still launches nothing, so recording a finish never
+  // has to write to an evidence store that may be the very thing that failed.
+  const emptyReference = checkpoint.evidence.put('');
+  // Only a directory this call created is removed when nothing launches: a caller's or a continued worker's may hold files.
+  const createdScratch = scratch !== null && mkdirSync(scratch, { recursive: true }) !== undefined ? scratch : null;
   const stdinFile = join(io, 'prompt');
-  writeFileSync(stdinFile, prompt, { flag: 'wx' });
-  writeFileSync(plan.schemaFile, schema.text, { flag: 'wx' });
 
   const launch: WorkerLaunch = {
     workerId,
@@ -152,20 +159,29 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     prompt: promptReference,
     schema: schemaReference,
   };
+  let createdIo = false;
   try {
+    mkdirSync(join(checkpoint.root, ioDirectoryName), { recursive: true });
+    // Not recursive: a directory already there is another worker's, never to be shared or removed.
+    mkdirSync(io);
+    createdIo = true;
+    writeFileSync(stdinFile, prompt, { flag: 'wx' });
+    writeFileSync(plan.schemaFile, schema.text, { flag: 'wx' });
     appendFresh(checkpoint, runId, { kind: 'worker.launched', version: 1, payload: launch }, (fresh) => {
       // Another launcher may have continued the same session since the first fold.
       if (invocation.resume !== undefined) continuedWorker(fresh, invocation, schemaDigest);
     });
   } catch (error) {
-    // Nothing will run: the process files have no use. The frozen prompt and schema stay, unreferenced.
-    rmSync(io, { recursive: true, force: true });
+    // Nothing will run: the process files and a scratch directory made for it have no use. The frozen prompt and schema stay, unreferenced.
+    if (createdIo) rmSync(io, { recursive: true, force: true });
+    if (createdScratch !== null) rmSync(createdScratch, { recursive: true, force: true });
     throw error;
   }
 
   // From here on a finish is appended whatever fails: the launcher's own
   // failures (a full disk, a vanished directory) are recorded with what is
-  // known rather than leaving the launch open.
+  // known rather than leaving the launch open. Neither runProcess nor settle
+  // throws, so nothing stands between the launch and the finish's append.
   let result: ProcessResult;
   try {
     result = await runProcess({
@@ -180,18 +196,20 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     });
   } catch (error) {
     const now = new Date().toISOString();
-    result = notStarted(`the launcher could not start it: ${(error as Error).message}`, now, now);
+    result = notStarted(`the launcher could not start it: ${describeError(error)}`, now, now);
   }
-  let settled: Settled;
-  try {
-    settled = settle(checkpoint, adapter, invocation, plan, result, io);
-  } catch (error) {
-    settled = launcherFailure(checkpoint, result, error);
-  }
+  const settled = settle(checkpoint, adapter, invocation, plan, result, io, emptyReference);
   // The pinned or continued session is on every finish, whatever the outputs named, so its transcript is never unnamed.
   const finish: WorkerFinish = { workerId, ...settled.finish, sessionIds: withPinnedSession(plan.sessionId, settled.observedSessionIds) };
-  appendFresh(checkpoint, runId, { kind: 'worker.finished', version: 1, payload: finish });
-  rmSync(io, { recursive: true, force: true });
+  try {
+    appendFresh(checkpoint, runId, { kind: 'worker.finished', version: 1, payload: finish });
+  } finally {
+    // Once every process file is evidence the directory goes, whether or not
+    // the finish could be appended (a run abandoned meanwhile accepts none).
+    // Files the launcher could not freeze are their only copy: they stay,
+    // and the finish's error names the directory.
+    if (!settled.keepProcessFiles) rmSync(io, { recursive: true, force: true });
+  }
 
   return {
     workerId,
@@ -205,7 +223,12 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   };
 }
 
-/** The real preflight, against the caller's environment. */
+/**
+ * The real preflight, against the caller's environment: what it checks, the
+ * executable's version and flags, does not depend on the worker's pins, and
+ * the worker's temporary directory is not created until the launch is
+ * certain.
+ */
 function qualify(adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv): Promise<string> {
   return preflight(adapter, invocation.executable, invocation.executableArgs, environment);
 }
@@ -290,13 +313,31 @@ function appendFresh(checkpoint: Checkpoint, runId: string, event: NewEvent, che
   }
 }
 
-/** A finish without its worker id and session ids, and what only the receipt carries. */
+/** A finish without its worker id and session ids, what only the receipt carries, and whether the process files must stay. */
 interface Settled {
   readonly finish: Omit<WorkerFinish, 'workerId' | 'sessionIds'>;
   /** The session ids the outputs named that the ledger can hold; `runWorker` adds the pinned one. */
   readonly observedSessionIds: readonly string[];
   readonly usage: unknown;
   readonly output: unknown;
+  /** Some process file could not be frozen, so the io directory holds its only copy. */
+  readonly keepProcessFiles: boolean;
+}
+
+/**
+ * What settling a worker has established so far. A failure part-way through
+ * records all of it, never less: the outputs already frozen and every session
+ * id already decoded, so the ledger neither claims the worker printed nothing
+ * nor loses the session a continuation needs.
+ */
+interface Known {
+  stdout: ArtifactReference;
+  stderr: ArtifactReference;
+  finalMessage: ArtifactReference | null;
+  /** stdout, stderr and the final message are all evidence now. */
+  frozen: boolean;
+  /** The session ids the outputs named that the ledger can hold; none until the outputs are decoded. */
+  sessionIds: readonly string[];
 }
 
 /** Read a process file, or null when it was never written. */
@@ -304,7 +345,23 @@ function readIfPresent(path: string): Buffer | null {
   return existsSync(path) ? readFileSync(path) : null;
 }
 
-const truncate = (error: string): string => (error.length <= maxErrorLength ? error : `${error.slice(0, maxErrorLength)} [truncated]`);
+/** Cut an error to the length the ledger records, never between the two halves of a surrogate pair. */
+function truncate(error: string): string {
+  if (error.length <= maxErrorLength) return error;
+  const last = error.charCodeAt(maxErrorLength - 1);
+  const end = last >= 0xd800 && last <= 0xdbff ? maxErrorLength - 1 : maxErrorLength;
+  return `${error.slice(0, end)} [truncated]`;
+}
+
+/** The message of anything thrown; even a value whose conversion to text throws gets one. */
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  try {
+    return String(error);
+  } catch {
+    return 'a thrown value that cannot be shown as text';
+  }
+}
 
 const usageText = (usage: unknown): string | null => (usage === null || usage === undefined ? null : (JSON.stringify(usage) ?? null));
 
@@ -359,32 +416,35 @@ export function withUnrecordableSessions(verdict: Verdict, unrecordable: readonl
   return verdict.outcome === 'completed' ? failedWith(`The answer is not recorded because ${note}`) : { ...verdict, error: `${verdict.error}; ${note}` };
 }
 
-/** Freeze every output, decode it through the adapter, and decide the outcome (R5, TD5). */
-function settle(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Invocation, plan: LaunchPlan, result: ProcessResult, io: string): Settled {
+/**
+ * Freeze every output, decode it through the adapter, and decide the outcome
+ * (R5, TD5). Never throws: a failure of the launcher itself becomes a failed
+ * finish holding everything learned before it.
+ */
+function settle(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Invocation, plan: LaunchPlan, result: ProcessResult, io: string, empty: ArtifactReference): Settled {
+  const known: Known = { stdout: empty, stderr: empty, finalMessage: null, frozen: false, sessionIds: [] };
+  try {
+    return settleOutputs(checkpoint, adapter, invocation, plan, result, io, known);
+  } catch (error) {
+    return launcherFailure(result, error, known, io);
+  }
+}
+
+/** The work of `settle`, recording in `known` each fact as it is established. */
+function settleOutputs(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Invocation, plan: LaunchPlan, result: ProcessResult, io: string, known: Known): Settled {
   const stdout = readIfPresent(join(io, 'stdout')) ?? Buffer.alloc(0);
+  known.stdout = checkpoint.evidence.put(stdout);
   const stderr = readIfPresent(join(io, 'stderr')) ?? Buffer.alloc(0);
+  known.stderr = checkpoint.evidence.put(stderr);
   const finalMessage = readIfPresent(plan.finalMessageFile);
-  const references = {
-    stdout: checkpoint.evidence.put(stdout),
-    stderr: checkpoint.evidence.put(stderr),
-    finalMessage: finalMessage === null ? null : checkpoint.evidence.put(finalMessage),
-  };
+  known.finalMessage = finalMessage === null ? null : checkpoint.evidence.put(finalMessage);
+  known.frozen = true;
 
-  const oversized = (
-    [
-      ['stdout', stdout],
-      ['stderr', stderr],
-      ['final message', finalMessage],
-    ] as const
-  ).find(([, bytes]) => bytes !== null && bytes.length > maxDecodeBytes);
-  const decoded: Decoded =
-    oversized === undefined
-      ? decodeSafely(adapter, invocation, plan, { stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'), finalMessage: finalMessage?.toString('utf8') ?? null })
-      : undecoded([], `The worker's ${oversized[0]} is ${String(oversized[1]!.length)} bytes, above the ${String(maxDecodeBytes)} bytes the launcher decodes; it is frozen as evidence`);
-
+  const decoded = decodeOutputs(adapter, invocation, plan, stdout, stderr, finalMessage);
   // A runtime may print anything as a session id; only what the ledger can hold is kept, and the rest is named.
   const sessionIds = decoded.sessionIds.filter((id) => sessionIdSchema.safeParse(id).success);
   const strange = decoded.sessionIds.filter((id) => !sessionIdSchema.safeParse(id).success);
+  known.sessionIds = sessionIds;
 
   const { outcome, error, output } = withUnrecordableSessions(workerVerdict(invocation, result, decoded.result), strange);
 
@@ -400,13 +460,44 @@ function settle(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Inv
       usage: usageText(decoded.usage),
       denials: decoded.denials === null ? null : [...decoded.denials],
       error: error === null ? null : truncate(error),
-      ...references,
+      stdout: known.stdout,
+      stderr: known.stderr,
+      finalMessage: known.finalMessage,
       output: outputJson === undefined ? null : checkpoint.evidence.put(outputJson),
     },
     observedSessionIds: sessionIds,
     usage: decoded.usage ?? null,
     output,
+    keepProcessFiles: false,
   };
+}
+
+/**
+ * Decode the outputs through the adapter. An output above the decode cap is
+ * not decoded, but the session ids are still read from the outputs cut to
+ * the cap: a runtime names its session first (Codex's `thread.started` opens
+ * its stream), and a worker whose session is not recorded can never be
+ * continued.
+ */
+function decodeOutputs(adapter: RuntimeAdapter, invocation: Invocation, plan: LaunchPlan, stdout: Buffer, stderr: Buffer, finalMessage: Buffer | null): Decoded {
+  const outputs = (limit: number): WorkerOutputs => ({
+    stdout: stdout.subarray(0, limit).toString('utf8'),
+    stderr: stderr.subarray(0, limit).toString('utf8'),
+    finalMessage: finalMessage?.subarray(0, limit).toString('utf8') ?? null,
+  });
+  const oversized = (
+    [
+      ['stdout', stdout],
+      ['stderr', stderr],
+      ['final message', finalMessage],
+    ] as const
+  ).find(([, bytes]) => bytes !== null && bytes.length > maxDecodeBytes);
+  if (oversized === undefined) return decodeSafely(adapter, invocation, plan, outputs(Infinity));
+  const partial = decodeSafely(adapter, invocation, plan, outputs(maxDecodeBytes));
+  return undecoded(
+    partial.sessionIds,
+    `The worker's ${oversized[0]} is ${String(oversized[1]!.length)} bytes, above the ${String(maxDecodeBytes)} bytes the launcher decodes; it is frozen as evidence`,
+  );
 }
 
 /** An adapter must not throw from decode, but one that does is a failed worker, not a lost finish. */
@@ -415,13 +506,19 @@ function decodeSafely(adapter: RuntimeAdapter, invocation: Invocation, plan: Lau
     return adapter.decode(invocation, plan, outputs);
   } catch (error) {
     // The adapter reported nothing; the session known before launch is still named, by runWorker.
-    return undecoded([], `The ${adapter.name} adapter could not decode the worker's outputs: ${(error as Error).message}`);
+    return undecoded([], `The ${adapter.name} adapter could not decode the worker's outputs: ${describeError(error)}`);
   }
 }
 
-/** The finish recorded when the launcher, not the worker, failed to read or freeze the outputs; the process facts are still true. */
-function launcherFailure(checkpoint: Checkpoint, result: ProcessResult, error: unknown): Settled {
-  const empty = checkpoint.evidence.put('');
+/**
+ * The finish recorded when the launcher, not the worker, failed while
+ * settling; the process facts are still true. It writes nothing, so it cannot
+ * fail the way settling did: an output never frozen is recorded as the empty
+ * blob frozen at launch, and the error names the directory where its process
+ * file is kept.
+ */
+function launcherFailure(result: ProcessResult, error: unknown, known: Known, io: string): Settled {
+  const what = known.frozen ? "The launcher could not settle the worker's outputs" : `The launcher could not freeze the worker's outputs, whose process files are kept in ${io}`;
   return {
     finish: {
       outcome: 'failed',
@@ -432,14 +529,15 @@ function launcherFailure(checkpoint: Checkpoint, result: ProcessResult, error: u
       endedAt: result.endedAt,
       usage: null,
       denials: null,
-      error: truncate(`The launcher could not read or freeze the worker's outputs: ${error instanceof Error ? error.message : String(error)}`),
-      stdout: empty,
-      stderr: empty,
-      finalMessage: null,
+      error: truncate(`${what}: ${describeError(error)}`),
+      stdout: known.stdout,
+      stderr: known.stderr,
+      finalMessage: known.finalMessage,
       output: null,
     },
-    observedSessionIds: [],
+    observedSessionIds: known.sessionIds,
     usage: null,
     output: null,
+    keepProcessFiles: !known.frozen,
   };
 }
