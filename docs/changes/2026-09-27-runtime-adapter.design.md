@@ -63,6 +63,14 @@ Windows machine on 2026-09-27. Nothing uncommitted was used.
   `--json`, `--output-schema`, `--output-last-message`,
   `--ignore-user-config`, `--ignore-rules` and `--skip-git-repo-check`.
   The directory `codex` resolves into also holds `codex.exe`.
+- Found after updating to `codex-cli` 0.157.1: `workspace-write` keeps
+  `<worktree>/.git` read-only, and Codex refuses every command of a worker
+  given a writable root beneath it ("cannot reopen writable descendants
+  under read-only carveouts"), in the elevated and the unelevated Windows
+  sandbox alike. Such a refusal leaves no item in the JSONL stream; it is
+  logged to stderr as `ERROR codex_core::tools::router: error=exec_command
+  failed`. The elevated Windows sandbox, which runs commands as a separate
+  sandbox user, needs a one-time setup per machine.
 
 ## Design
 
@@ -141,10 +149,12 @@ The command is `--ask-for-approval never exec --ignore-user-config
 --ignore-rules --skip-git-repo-check`, `--config sandbox_mode=` with
 `"read-only"` or `"workspace-write"` from `access`,
 `--config sandbox_workspace_write.writable_roots=` with the scratch
-directory only when `access` is `edit`, `windows.sandbox="unelevated"` on
-Windows, the config overrides that disable project docs, skill
-instructions, web search, apps, plugins, remote plugins, skill search and
-skill dependency install, the model,
+directory only when `access` is `edit`, `windows.sandbox` on Windows (the
+adapter's option: `unelevated` by default, which runs on any machine, or
+`elevated` through `createCodexAdapter({ windowsSandbox: 'elevated' })`
+on a machine with the elevated setup), the config overrides that disable
+project docs, skill instructions, web search, apps, plugins, remote
+plugins, skill search and skill dependency install, the model,
 `model_reasoning_effort`, `--json`, `--output-schema` with the schema
 file, `--output-last-message` with the result file, and `-` for stdin. A
 continuation is `exec resume` with the same options, then the session and
@@ -170,10 +180,11 @@ does, in order:
 4. Freeze the prompt, with its scratch note appended, and the compiled
    draft-07 schema as evidence.
 5. Create the scratch directory: the continued worker's, the caller's, or
-   `<checkpoint root>/scratch/<workerId>`; none for a read-only worker
-   whose runtime cannot allow writes to it. One inside the reviewed tree is
-   refused unless it is under the checkpoint. Write the prompt and schema
-   to `<checkpoint root>/io/<workerId>/`.
+   `<os tmpdir>/deep-review-scratch/<checkpoint key>/<workerId>`, the key
+   being a digest of the checkpoint root; none for a read-only worker
+   whose runtime cannot allow writes to it. One inside the reviewed tree
+   or the checkpoint is refused. Write the prompt and schema to
+   `<checkpoint root>/io/<workerId>/`.
 6. Append `worker.launched`.
 7. Open the prompt file as stdin; spawn with `shell: false`, the run's
    worktree as `cwd`, stdout and stderr redirected to files, and the
@@ -215,10 +226,12 @@ Claude decoding requires a `result` envelope with `subtype: success`,
 `is_error: false`, a `structured_output` field and a `permission_denials`
 array; the envelope's `session_id` must equal the pinned or resumed one;
 `terminal_reason: budget_exhausted` or a `subtype` starting with
-`error_max_budget` is outcome `budget`. Codex decoding parses every JSONL line, requires exactly
-one `thread.started` (its id is the session, and on a continuation the
-session continued), exactly one `turn.completed`
-as the last event, no `error` or `turn.failed` event, no `mcp_tool_call` or
+`error_max_budget` is outcome `budget`. Codex decoding parses every JSONL
+line, requires no `exec_command failed` router error on stderr (a sandbox
+that could not run commands at all, which the stream does not show),
+exactly one `thread.started` (its id is the session, and on a
+continuation the session continued), exactly one `turn.completed` as the
+last event, no `error` or `turn.failed` event, no `mcp_tool_call` or
 `web_search` item, no item left started without completing, no failed
 item other than a command with a nonzero exit code, and a final message
 file equal to the last `agent_message`; `denials` is `null`. stdout,
@@ -300,12 +313,19 @@ stops the write, fresh and continued. It is not part of `npm run check`.
   copy of a large stdout; accepted, and the 16 MiB decode cap bounds what
   is worth reading.
 
-- **TD7: The scratch directory is under the checkpoint, named in the
-  prompt, the shell's temporary directory, and passed to the runtime as
-  writable.** (D9.) Each half alone failed a pilot: a scratch path the CLI
-  would not allow writes to (D10) and a prompt with no scratch path (D3).
-  Keyed by worker id rather than by a role or unit, because no such
-  concept exists yet; the role element may choose to share one.
+- **TD7: The scratch directory is outside the reviewed tree and the git
+  directory, named in the prompt, the shell's temporary directory, and
+  passed to the runtime as writable.** (D9.) Each half alone failed a
+  pilot: a scratch path the CLI would not allow writes to (D10) and a
+  prompt with no scratch path (D3). Keyed by worker id rather than by a
+  role or unit, because no such concept exists yet; the role element may
+  choose to share one. Amended in implementation: the reviewed design put
+  it under the checkpoint, which in a main worktree is inside `.git`, and
+  Codex refuses every command of a worker whose writable root is there. It
+  now defaults to the system's temporary directory for every runtime,
+  under a key per checkpoint. What is given up is keeping a worker's
+  leftovers beside its evidence; a scratch directory was never evidence,
+  and the system may clean it.
 
 - **TD8: The caller's environment is inherited minus what overrides role
   policy, and the runtime's configuration sources are switched off by
@@ -390,9 +410,11 @@ below runs on all three CI runners.
   failure, an MCP item, and a stream above 16 MiB.
 - R6: every reference on both events verifies against the evidence store,
   and the bytes equal what the fake printed.
-- R7: the scratch directory exists under the checkpoint, the prompt names
-  it, `TEMP`, `TMP` and `TMPDIR` in the fake's environment point at it,
-  and a Codex read-only worker gets none.
+- R7: the scratch directory exists under the scratch root, the prompt
+  names it, `TEMP`, `TMP` and `TMPDIR` in the fake's environment point at
+  it, and a Codex read-only worker gets none; in a real main worktree the
+  default is outside both the worktree and the git directory; one inside
+  the tree or the checkpoint is refused.
 - R8: pins are applied over mixed-case inherited names; an inherited
   thinking override is refused; `WindowsApps` is removed from every
   `PATH` spelling on Windows; the Claude `--settings` object and
@@ -410,8 +432,9 @@ below runs on all three CI runners.
 - Concurrency: four launchers finishing on one run at once all land
   (`StaleRevisionError` retried).
 - R12: `npm run smoke` against the installed CLIs, by hand, on this
-  machine; `npm run check` and `npm run verify` green on the three CI
-  runners.
+  machine, including an editor per runtime that must write in the tree
+  and in its scratch directory; `npm run check` and `npm run verify` green
+  on the three CI runners.
 
 ## Verification
 
@@ -431,7 +454,8 @@ against the commits of this element up to the smoke script.
   the environment test; allowing one append attempt fails the
   four-launcher test every time; keeping the process files when the
   launch append is refused fails its test.
-- Smoke: `npm run smoke -- --claude C:\Users\josep\.local\bin\claude.exe
+- First smoke, with `codex-cli` 0.147.0 and read-only workers only:
+  `npm run smoke -- --claude C:\Users\josep\.local\bin\claude.exe
   --codex C:\Users\josep\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe
   --codex-model gpt-5.5`, effort `low`, repository kept at
   `%TEMP%\deep-review-smoke-ewBRl6`.
@@ -456,6 +480,38 @@ against the commits of this element up to the smoke script.
   error on the receipt ("requires a newer version of Codex"), the thread
   id kept, and the continuation run against that thread: the failure
   path working on a real runtime.
+- After updating Codex to 0.157.1 and setting up its elevated Windows
+  sandbox, a probe with an editor found that no Codex editor could run a
+  command (Context), while its receipt said `completed`: the smoke had
+  never started an editor. Two fixes followed, each with a test that
+  failed before it: the default scratch directory moved out of the git
+  directory (TD7), and a stderr router refusal now fails the worker. The
+  smoke gained an editor step that must write `edit.txt` in the tree and
+  `scratch.txt` in its scratch directory, and a
+  `--codex-windows-sandbox` flag.
+- Second smoke, `codex-cli` 0.157.1 with `gpt-6-astra`: `npm run smoke --
+  --claude <as above> --codex <as above> --codex-model gpt-6-astra
+  --codex-windows-sandbox elevated` (repository
+  `%TEMP%\deep-review-smoke-NllRoT`), then Codex alone with the default
+  unelevated sandbox (`%TEMP%\deep-review-smoke-RiGuzJ`). Every worker
+  completed and every editor wrote both files.
+
+  | Runtime | Sandbox | Step | Session | Seconds | Shell write | Cost |
+  |---|---|---|---|---|---|---|
+  | claude 2.1.283, haiku | none | first | 253cbf17-1923-4b30-b0d6-755862f58569 | 8.0 | succeeded | 0.0074 USD |
+  | claude 2.1.283, haiku | none | continuation | the same, resumed | 5.6 | succeeded | 0.0120 USD, whole session |
+  | claude 2.1.283, haiku | none | editor | c0288e3f-625b-4976-b3aa-a606cc27747e | 16.0 | both files | 0.0348 USD |
+  | codex-cli 0.157.1, gpt-6-astra | elevated | first | 01a0e03b-d602-7c61-a831-12da49a23c62 | 8.3 | denied | 28355 input tokens |
+  | codex-cli 0.157.1, gpt-6-astra | elevated | continuation | the same, resumed | 10.1 | denied | 57466 input tokens |
+  | codex-cli 0.157.1, gpt-6-astra | elevated | editor | 01a0e03c-1f96-7ee2-ab5b-89b13f456b1e | 12.7 | both files | 29646 input tokens |
+  | codex-cli 0.157.1, gpt-6-astra | unelevated | first | 01a0e03c-6dc4-73b1-99d0-dba63b4fb595 | 12.9 | denied | 28661 input tokens |
+  | codex-cli 0.157.1, gpt-6-astra | unelevated | continuation | the same, resumed | 9.4 | denied | 58678 input tokens |
+  | codex-cli 0.157.1, gpt-6-astra | unelevated | editor | 01a0e03c-c5c9-72f2-91bb-90a359ccf897 | 11.9 | both files | 29748 input tokens |
+
+  The frozen Codex streams show each read-only write command exiting 1
+  with a permission error, fresh and continued, and both editor commands
+  exiting 0, under both sandboxes. Claude Code writes a `claude`
+  directory of its own into the scratch directory, since `TEMP` names it.
 
 Changes from the reviewed design, each also made in the section it
 changes:
@@ -484,9 +540,21 @@ changes:
   (`readOnlyScratch`); without one the worker gets none (R7). No
   invocation asks for a session id to be assigned before launch, so that
   capability decides whether the launcher pins one and is never refused.
+- The default scratch directory is under the system's temporary directory,
+  not the checkpoint (TD7), and a scratch directory inside the checkpoint
+  is refused.
+- The Codex Windows sandbox is an adapter option, `unelevated` by
+  default, instead of a pin: the adapter ignores the user's Codex config,
+  and which sandbox a machine can run is a property of the machine.
+- A Codex worker whose sandbox could not run a command, seen only on
+  stderr, is `failed`: it never had the shell its answer assumes.
 
 ## Risks & Migration
 
+- The Codex router refusal is recognised by one stderr log line, which is
+  not a documented contract; a changed log format would let such a worker
+  pass as `completed` again. Accepted; the smoke's editor step, which
+  fails when an editor cannot write, is the check that catches it.
 - The Claude result envelope and the Codex JSONL stream are not documented
   contracts, and a CLI update can rename a field. Accepted; a decode
   failure is `outcome: failed` with the reason, the bytes are frozen, and
