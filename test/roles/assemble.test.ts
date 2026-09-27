@@ -131,6 +131,35 @@ describe('assembleRoles', () => {
     assert.throws(() => readRoleFragment(root, 'a.md'), /a\.md is not a regular file/);
   });
 
+  it('refuses a fragment in a fragments/ that is a link, even to a valid directory', () => {
+    const roles = join(root, 'roles');
+    const elsewhere = join(root, 'elsewhere');
+    mkdirSync(roles);
+    mkdirSync(elsewhere);
+    writeFileSync(join(roles, manifestFileName), JSON.stringify({ schemaVersion: 1, roles: { r: ['a.md'] } }));
+    writeFileSync(join(elsewhere, 'a.md'), 'a\n');
+    // A junction needs no privilege on Windows; on other platforms the type is ignored and this is a directory symlink.
+    symlinkSync(elsewhere, join(roles, fragmentsDirectoryName), 'junction');
+    const refusesTheLink = (): void => {
+      for (const read of [() => assembleRoles(roles), () => readRoleFragment(roles, 'a.md')]) {
+        assert.throws(read, (error: unknown) =>
+          error instanceof InvalidRoleFragmentError && error.fragment === 'a.md' && /a\.md is in a fragments\/ that is a link/.test(error.message));
+      }
+    };
+    refusesTheLink();
+    // A link whose target is gone is still refused as a link, not reported as a missing fragment.
+    rmSync(elsewhere, { recursive: true });
+    refusesTheLink();
+  });
+
+  it('accepts a roles directory reached through a link, as a checkout or a temporary directory may be', () => {
+    const real = join(root, 'real');
+    seed(real, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': 'a\n' });
+    symlinkSync(real, join(root, 'linked'), 'junction');
+    assert.equal(assembleRoles(join(root, 'linked'))[0]!.prompt, 'a\n');
+    assert.equal(readRoleFragment(join(root, 'linked'), 'a.md'), 'a\n');
+  });
+
   describe('fragment invariants', () => {
     const rejectsFragment = (name: string, content: Buffer | string, pattern: RegExp): void => {
       it(`refuses a fragment that ${name}`, () => {
