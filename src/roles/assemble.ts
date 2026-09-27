@@ -99,7 +99,7 @@ function loadRoleFragment(rolesRoot: string, name: string): LoadedFragment {
   } catch {
     throw new InvalidRoleFragmentError(name, 'is not UTF-8');
   }
-  if (text.startsWith('﻿')) throw new InvalidRoleFragmentError(name, 'starts with a byte order mark');
+  if (text.startsWith('\uFEFF')) throw new InvalidRoleFragmentError(name, 'starts with a byte order mark');
   if (text.length === 0) throw new InvalidRoleFragmentError(name, 'is empty');
   if (text.includes('\r')) throw new InvalidRoleFragmentError(name, 'contains a carriage return; fragments are LF text');
   if (text.includes('\0')) throw new InvalidRoleFragmentError(name, 'contains a NUL character');
