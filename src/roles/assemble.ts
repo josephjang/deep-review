@@ -51,6 +51,13 @@ export function readRoleManifest(rolesRoot: string): RoleManifest {
 /** Strict UTF-8: a byte sequence that is not UTF-8 throws instead of becoming U+FFFD. The BOM is kept so it can be refused by name. */
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
+/**
+ * An include marker as the proof of concept wrote one, `<!-- include: path -->`
+ * at a line start, however it is indented, spaced or cased. A marker within a
+ * line is prose about markers and is not matched.
+ */
+const includeMarker = /^[^\S\n]*<!--\s*include\s*:/im;
+
 /** One fragment as read: its name and the hash of the bytes read, and its text. */
 interface LoadedFragment {
   readonly fragment: RoleFragment;
@@ -118,7 +125,7 @@ export function refuseMalformedFragmentText(name: string, text: string): void {
   if (/\n[^\S\n]*\n$/.test(text)) throw new InvalidRoleFragmentError(name, 'ends with a blank line; the assembly separates fragments itself');
   if (/^[^\S\n]*\n/.test(text)) throw new InvalidRoleFragmentError(name, 'starts with a blank line');
   if (text.startsWith('---\n')) throw new InvalidRoleFragmentError(name, 'starts with front matter; a fragment is prompt text only');
-  if (/^<!-- include:/m.test(text)) throw new InvalidRoleFragmentError(name, 'contains an include marker; composition is declared in the manifest only');
+  if (includeMarker.test(text)) throw new InvalidRoleFragmentError(name, 'contains an include marker; composition is declared in the manifest only');
 }
 
 /**

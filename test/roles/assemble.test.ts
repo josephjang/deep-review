@@ -162,6 +162,18 @@ describe('assembleRoles', () => {
     });
     rejectsFragment('starts with front matter', '---\nmodel: opus\n---\ntext\n', /front matter/);
     rejectsFragment('contains an include marker at a line start', 'text\n<!-- include: references/x.md -->\nmore\n', /include marker/);
+    rejectsFragment('contains an indented include marker', 'text\n  <!-- include: references/x.md -->\n', /include marker/);
+    rejectsFragment('contains an include marker indented by a tab', 'text\n\t<!-- include: x.md -->\n', /include marker/);
+    rejectsFragment('contains an include marker without spaces', 'text\n<!--include:x.md-->\n', /include marker/);
+    rejectsFragment('contains an include marker in upper case', 'text\n<!-- INCLUDE: x.md -->\n', /include marker/);
+    rejectsFragment('contains an include marker spaced before its colon', '<!-- include : x.md -->\ntext\n', /include marker/);
+
+    it('accepts a comment at a line start that is not an include marker', () => {
+      const text = '<!-- END -->\n<!-- includes nothing -->\n<!-- include -->\ntext\n';
+      assert.doesNotThrow(() => refuseMalformedFragmentText('a.md', text));
+      seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': text });
+      assert.equal(assembleRoles(root)[0]!.prompt, text);
+    });
 
     it('accepts an include marker that is not at a line start, which is prose about markers', () => {
       seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': 'the old <!-- include: x --> syntax\n' });
