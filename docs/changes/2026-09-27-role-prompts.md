@@ -16,11 +16,13 @@ wording that named Claude Code's subagent mechanism and tools with
 runtime-neutral wording, and nothing else. A review of those two commits
 later corrected, each in a commit of its own, the replacements that
 turned out wrong or were missed, the references to other text that the
-manifest's order made false, and gaps in the assembler, the manifest
-rules and the script; they are recorded under D5 and Verification. Which
-model tier, effort, access, shell, budget and timeout a role runs with,
-what it must return, and whether a runtime needs a different setting are
-decided with the phases that first run each role.
+manifest's order made false or that no prompt carries, the place of the
+`documentation` role's own section, and gaps in the assembler, the
+manifest rules and the script; they are recorded under D5, D8 and
+Verification. Which model tier, effort, access, shell, budget and
+timeout a role runs with, what it must return, and whether a runtime
+needs a different setting are decided with the phases that first run
+each role.
 
 ## Problem
 
@@ -89,7 +91,8 @@ adapter for the first time. It was read at `agent-skills` commit
   element that defines that worker's task and output; here only the
   wording that names a mechanism the worker does not have changes, with
   the few sentences review found false about the engine or the
-  manifest's order (D5).
+  manifest's order, and the two that pointed at a checkpoint discipline
+  no fragment defines (D5).
 - No change to what the `CONVENTIONS` angle reviews. Its text names
   `CLAUDE.md` files only; widening it to `AGENTS.md` and other instruction
   files changes what the angle finds, and is decided with the first real
@@ -103,7 +106,9 @@ adapter for the first time. It was read at `agent-skills` commit
 - The four references only the prompt-only driver included
   (`overview.md`, `phase0-scope.md`, `resume.md`, `report.md`) are not
   moved. The engine is the driver; the element that needs one of them
-  takes it then.
+  takes it then. Review found that phase 1 and phase 2 still saved
+  their checkpoint sections "under the checkpoint discipline above",
+  which `resume.md` defined, and those pointers are gone (D5).
 - The Claude continuation budget question and the runtime-neutral usage
   view (runtime adapter, Open Questions) stay with the first end-to-end
   element.
@@ -118,24 +123,30 @@ adapter for the first time. It was read at `agent-skills` commit
   each role's key, its fragments with the SHA-256 of each, its prompt,
   which is the fragments' text joined with one blank line, and the
   SHA-256 of the prompt.
-- R3: A fragment is a regular file of UTF-8 text without a byte order
-  mark, with LF line endings and no NUL, not empty, ending in exactly one
-  newline, neither starting nor ending with a blank line (a line of only
-  spaces and tabs counts as blank), with no front matter and no include
-  marker; each violation is refused naming the fragment. A fragment is
+- R3: A fragment is a regular file, in a `fragments/` that is not a
+  link, of UTF-8 text without a byte order mark, with LF line endings,
+  no control character but tab and LF, no line or paragraph separator
+  (U+2028, U+2029) and no U+FEFF anywhere, not empty, ending in exactly
+  one newline, neither starting nor ending with a blank line (a line of
+  only spaces and tabs counts as blank), with no front matter and no
+  include marker at a line start, however it is indented, spaced or
+  cased; each violation is refused naming the fragment, and a forbidden
+  character also by its code point and line. The roles directory itself
+  may be reached through a link, as a checkout may be. A fragment is
   read only by a valid fragment name (R4), checked before any file is
   touched, so no caller reaches outside `fragments/`; only a fragment
   that is not there is called missing, and one that cannot be read is
   refused with the reason the system gave.
-- R4: A manifest has schema version 1 and at least one role; a role key
-  is letters, digits and single dashes, starting with a letter and ending
-  with a letter or digit, and no two keys differ only by case, since
-  each names a prompt file; a role key `__proto__`, which `JSON.parse`
-  makes but a record drops, is refused by that rule rather than lost; a
-  fragment name is lower-case words joined by single dashes with the
-  `.md` extension and no directory part; a role names at least one
-  fragment and none twice; every entry under `fragments/` is a fragment
-  some role names.
+- R4: A manifest has schema version 1 and at least one role, and gives
+  no key twice in one object, of which `JSON.parse` would keep the last
+  without a word; a role key is letters, digits and single dashes,
+  starting with a letter and ending with a letter or digit, and no two
+  keys differ only by case, since each names a prompt file; a role key
+  `__proto__`, which `JSON.parse` makes but a record drops, is refused
+  by that rule rather than lost; a fragment name is lower-case words
+  joined by single dashes with the `.md` extension and no directory
+  part; a role names at least one fragment and none twice; every entry
+  under `fragments/` is a fragment some role names.
 - R5: At the move commit, each role's assembled prompt equals the proof of
   concept's assembled role after leading, trailing and repeated blank
   lines are collapsed, with one named exception: `documentation` is equal
@@ -145,12 +156,14 @@ adapter for the first time. It was read at `agent-skills` commit
 - R6: After the wording commit, no fragment says `subagent`, `Agent` call,
   `subagent_type`, `AskUserQuestion`, `orchestrator`, `agent` for a
   worker, `agent definition`, `Grep`, `tier table`, `message block` or
-  the `same block` that pointed back at one, `deep-review skill`, or the
-  name of a Claude Code subagent (`deep-review-lead` and the others), and
-  a test holds every assembled prompt, and so every fragment, to that
-  list. The test matches each phrase across line wraps and in any case,
-  except `Grep`, since a lower-case `grep` is the shell command every
-  runtime has; `AGENTS.md`, an instruction file, is not an agent.
+  the `same block` that pointed back at one, `deep-review skill`,
+  `driver` for the engine, or the name of a Claude Code subagent
+  (`deep-review-lead` and the others), and a test holds every assembled
+  prompt, and so every fragment, to that list. The test matches each
+  phrase across line wraps and in any case, except `Grep`, since a
+  lower-case `grep` is the shell command every runtime has; `AGENTS.md`,
+  an instruction file, is not an agent, and the backticked `Driver lead`
+  label a finder receives is not a name for the engine.
 - R7: `npm run roles` prints one line per role with its key, fragment
   count, size and hash; `--output DIR` also writes each prompt to
   `DIR/<key>.md`. It refuses a `DIR` that is the roles directory or
@@ -161,7 +174,7 @@ adapter for the first time. It was read at `agent-skills` commit
 - R8: The commit that moves the text changes no prompt text; the commit
   that changes wording changes nothing under `roles/` but that wording, and
   carries the test that pins it. Each correction made after review is a
-  commit of its own that names what was false (D5).
+  commit of its own that names what was false (D5, D8).
 - R9: The README describes `roles/`, and the suite covers R2, R3, R4, R6
   and R7 on Windows, macOS and Linux.
 
@@ -236,7 +249,7 @@ adapter for the first time. It was read at `agent-skills` commit
   fragments, about 80 KB of text (79617 bytes at the wording commit),
   would drift.
 
-  Review of the wording commit found it short of this rule, and six
+  Review of the wording commit found it short of this rule, and eight
   later commits correct it, each changing under `roles/` only the
   sentences it names. Three replacements were wrong: "the runtime
   agent/task handle" had become "the runtime session id", a different
@@ -253,11 +266,23 @@ adapter for the first time. It was read at `agent-skills` commit
   it earlier, and now point at it without a direction (`2eb8f65`); they
   were false already in the proof of concept's prompts, whose order the
   move kept, and the wording commit had reworded two of them and kept
-  "below". And one sentence of the fixer's documentation section named
-  "the driver" beside "the engine" and now names the engine (`2a27151`).
-  The `Driver lead` label a finder may receive stays: it is the protocol
+  "below". Three sentences named "the driver", the prompt-only skill's
+  name for what is now the engine. One, in the fixer's documentation
+  section, stood beside "the engine" and now names the engine
+  (`2a27151`). In phase 1 an overridden skip used "the driver's"
+  verified reason, handing the reader's own reason to someone else, and
+  now uses "your verified reason"; the post-review steps said a fixer's
+  SUITE line "is not a driver run" and now say it "is not the aggregate
+  run", the run the same step defines (`b418db4`). Two sentences, in
+  phase 1 and phase 2, saved a checkpoint section "under the checkpoint
+  discipline above", which lived in the prompt-only skill's `resume.md`
+  and is not moved (Non-Goals), so the `triage`, `angle-decision`,
+  `deduplication` and `verifier` prompts pointed at text they do not
+  carry; they now say inline what still holds, that the section is
+  terminated and written without waiting to batch it (`a0b43b4`). The
+  `Driver lead` label a finder may receive stays: it is the protocol
   between the angle decision and the finders, part of the bookkeeping
-  kept above.
+  kept above, and the guard of R6 passes it only in backticks.
 
 - **D6: Role policy is deferred, and the proof of concept's values are
   recorded here for that decision.** The agent front matter gave each
@@ -299,6 +324,16 @@ adapter for the first time. It was read at `agent-skills` commit
   says nothing more. This is the one place the move changes what a prompt
   contains, and R5 names it.
 
+  The move kept the copy the fixer's text carried, in the middle of the
+  prompt, and dropped the one the proof of concept appended after the
+  fixer's return format, so `documentation` came out byte-identical to
+  `fixer` and its reconciliation rule no longer came last. Review named
+  `fixer-documentation` last in `documentation` instead (`fb1bb9d`): the
+  prompt ends as the proof of concept's did, and is its text with the
+  first copy removed rather than the second. `fixer` and `answer` are
+  unchanged, and a test pins that the reconciliation rule follows the
+  last return format.
+
 - **D9: Output schemas arrive with the phases that read them.** Defining
   all twenty-one schemas here was rejected: a schema is the contract
   between a worker and the phase that consumes its answer, it is shaped by
@@ -331,16 +366,15 @@ adapter for the first time. It was read at `agent-skills` commit
 - The driver's bookkeeping stays in worker prompts. A finder reads
   instructions about checkpoint files it will never write, which costs
   tokens and may confuse it. Accepted until the element that defines each
-  worker's task decides what that worker needs.
+  worker's task decides what that worker needs. Only the pointers to a
+  checkpoint discipline no fragment defines were removed after review,
+  because they sent a worker to text its prompt does not carry (D5).
 - Two copies of the text now exist, the prompt-only skill's in
   `agent-skills` and this repository's, and they will diverge. Accepted;
   the starting decision to carry only the engine-driven skill implies it.
 - The `CONVENTIONS` angle reads `CLAUDE.md` only, so a worker reviewing a
   repository governed by `AGENTS.md` returns nothing for that angle.
   Accepted until the first real run.
-- A repeated key in `manifest.json` is not an error to `JSON.parse`; the
-  last definition wins silently. Mitigated by the test that pins the exact
-  list of role keys.
 - The comparison of R5 is a one-time check, not a permanent test, because
   the wording commit changes the prompts on purpose. Its result is
   recorded under Verification with the proof of concept's commit, so it
@@ -403,7 +437,9 @@ against the two commits of this element, `362a89f` (the move) and
   they were in the proof of concept once its duplicate is removed; the
   three analyst angles share one prompt and the five scout angles
   another. What distinguishes such roles is the task the phase gives
-  them, which the first end-to-end element defines.
+  them, which the first end-to-end element defines. The `fixer` and
+  `documentation` pair holds at the move only: since `fb1bb9d` the two
+  carry the same fragments in a different order (D8).
 - The wording (R6): `a9971c2` makes 45 exact-string replacements from the
   D5 list, one more the inventory of D5 missed ("in one message block" on
   a line naming nothing else), and re-wraps three passages without
@@ -412,8 +448,12 @@ against the two commits of this element, `362a89f` (the move) and
   back into one fragment and passes on the committed text. Review later
   found three of the replacements wrong, two "same block" passages
   missed and one "the driver" left beside "the engine" (D5); the guard
-  as it stands after review, run against the fragments of `a9971c2`,
-  finds only the two "same block" passages.
+  as it stood after that review, run against the fragments of
+  `a9971c2`, found only the two "same block" passages. A second pass
+  found two more sentences naming the driver and added "driver" outside
+  backticks to the guard (`b418db4`); the guard as it stands now, run
+  against the fragments of `a9971c2`, finds the two "same block"
+  passages and those three "driver" sentences, and nothing else.
 - Tests checked to fail when the behavior they guard is removed: the
   wording guard as above; the assembler's invariants each have a case
   that plants the violation and asserts the refusal names the fragment,
@@ -430,14 +470,15 @@ the documentation commits that bring this proposal in line with them.
 They were checked on the same machine on 2026-09-27, Node 26.10.0.
 
 - `npm run check` passed before each of those commits, and after the
-  last runs 535 tests: 523 pass and 12 skip. Ten are the skips above. The other two are new assembler
-  cases that cannot occur on Windows: a `fragments/` that is a file,
-  which Windows reports as missing rather than as a path through a file,
-  and a fragment whose file mode denies reading, which Windows file modes
-  cannot express and which also skips when run as root. So three of R3's
-  refusals, the symlinked fragment and these two read failures, run only
-  where continuous integration runs them. `npm run verify` matches both
-  artifacts, as `dist/` is untouched.
+  last runs 535 tests: 523 pass and 12 skip. Ten are the skips above.
+  The other two are new assembler cases that cannot occur on Windows: a
+  `fragments/` that is a file, which Windows reports as missing rather
+  than as a path through a file, and a fragment whose file mode denies
+  reading, which Windows file modes cannot express and which also skips
+  when run as root. So three of R3's refusals, the symlinked fragment
+  and these two read failures, run only where continuous integration
+  runs them. `npm run verify` matches both artifacts, as `dist/` is
+  untouched.
 - The manifest (R4): a role key `__proto__` is refused by the role key
   rule instead of dropped (`6823119`); keys that differ only by case are
   refused, naming both (`fdf6c94`); the test of an empty role asserts
@@ -471,3 +512,57 @@ They were checked on the same machine on 2026-09-27, Node 26.10.0.
   the roles directory; the guard's own tests against the per-line guard
   it replaced; and the manifest-order pins against a manifest changed to
   break each.
+
+A second pass of the review added eight commits after `2b622ee`, the
+documentation commit above, and `b14767e`, which states in AGENTS.md
+that role prompt fragments are prompts (D4): five to the assembler and
+three to the roles. They were checked on the same machine on
+2026-09-27, Node 26.10.0.
+
+- `npm run check` passed before each of those commits, and after the
+  last runs 562 tests: 550 pass and 12 skip, the twelve skips above and
+  no new one. The new cases for a `fragments/` that is a link plant a
+  junction, which Windows makes without the right to create symlinks,
+  so they run here: a junction to a valid directory and one whose
+  target is gone are refused, and a roles directory reached through a
+  junction is accepted. `npm run verify` matches both artifacts, as
+  `dist/` is untouched.
+- The assembler (R3): without changing behavior, the rules on a
+  fragment's decoded text are one exported function apart from the
+  read, and the tests hold each string case to it directly as well as
+  through `assembleRoles` (`9f5ae0a`); an include marker is refused at a
+  line start however it is indented, spaced or cased, while a marker
+  within a line and comments such as `<!-- END -->` stay accepted
+  (`97724bb`); every control character but tab and LF, U+2028, U+2029
+  and a U+FEFF anywhere are refused, naming the code point and its line,
+  after the carriage return and leading byte order mark checks that
+  name those two (`60eeb87`); a fragment read through a `fragments/`
+  that is a link is refused, through both `assembleRoles` and
+  `readRoleFragment` (`c17f0a2`).
+- The manifest (R4): a key given twice in one object is refused, naming
+  it, whether a role key or a top-level key, spelled with an escape or
+  with whitespace before its colon; a quote or colon inside a string is
+  not taken for a key (`113a318`). The Risks section had called a
+  repeated key mitigated by the test that pins the list of role keys,
+  which could not see it, since a repeated key keeps its first position;
+  that bullet is removed.
+- The composition (D8): `documentation` names `fixer-documentation`
+  last (`fb1bb9d`). The fragments of `362a89f` assembled with that order
+  equal the proof of concept's `documentation` with its first copy of
+  the section removed, after blank lines are collapsed as in R5, and do
+  not equal it with the second copy removed. At `a0b43b4`, `fixer` and
+  `documentation` are both 10988 bytes, with SHA-256
+  `7bf949eb3a7a45d4da5d96082a4d50f12ca4f89ee9b472f041eaeb3beb69c9e3` and
+  `60566945effaa835e2d632c8f7f9a587747395c71bb6b88e8e865ab4344e0082`.
+- The wording (R6, D5): the two remaining "driver" sentences and the
+  guard's new pattern, with a test that it finds the word in prose and
+  passes the backticked label (`b418db4`); the dropped pointers to a
+  checkpoint discipline, with a test that no prompt mentions one
+  (`a0b43b4`).
+- Tests checked to fail before their fix: every new refusal of the
+  assembler and the manifest; the reconciliation-order pin, on a
+  `documentation` whose last return format came after its
+  reconciliation rule; the "driver" guard, on `triage`,
+  `angle-decision`, `merge-rank` and `test-assessment`; and the
+  checkpoint-discipline pin, on `triage`, `angle-decision`,
+  `deduplication` and `verifier`.

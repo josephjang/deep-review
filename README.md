@@ -102,9 +102,10 @@ twenty-one in all. Each role's prompt is assembled from the fragments
 under `roles/fragments/` in the order `roles/manifest.json` lists for
 it, joined with one blank line. The manifest is the only place
 composition is declared, and every fragment is held to a few invariants
-when it is read (UTF-8 text, LF endings, one final newline, no blank
-line at either edge, no front matter, no include marker), so what a
-worker receives is what the files say. The text came from the
+when it is read (UTF-8 text, LF endings, no control character but tab
+and LF, one final newline, no blank line at either edge, no front
+matter, no include marker), so what a worker receives is what the files
+say. The text came from the
 prompt-only `deep-review` skill in `agent-skills`, which the proof of
 concept assembled its roles from; the move kept it as it was, a second
 commit replaced the wording that named Claude Code's subagents and
