@@ -8,7 +8,7 @@
 import type { RankedFinding } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
-import { correctnessAngles, phases, severities, type DeduplicationPhase, type Phase, type Verdict, type VerificationPhase } from './vocabulary.ts';
+import { angleClasses, phases, severities, type DeduplicationPhase, type Phase, type Verdict, type VerificationPhase } from './vocabulary.ts';
 
 /** What a run is doing, as `status` prints it: the ledger's own status, refined by the review's blocker and report. */
 export type ReviewStatus = 'active' | 'blocked' | 'complete' | 'abandoned';
@@ -108,7 +108,7 @@ export function compareFindings(a: ReportFinding, b: ReportFinding): number {
   if (severity !== 0) return severity;
   const verdict = Number(a.resolution.verdict !== 'CONFIRMED') - Number(b.resolution.verdict !== 'CONFIRMED');
   if (verdict !== 0) return verdict;
-  const angle = Number(!correctnessAngles.includes(a.primary.angle)) - Number(!correctnessAngles.includes(b.primary.angle));
+  const angle = Number(angleClasses[a.primary.angle] !== 'correctness') - Number(angleClasses[b.primary.angle] !== 'correctness');
   if (angle !== 0) return angle;
   const [prefixA, numberA] = idParts(a.finding.id);
   const [prefixB, numberB] = idParts(b.finding.id);
