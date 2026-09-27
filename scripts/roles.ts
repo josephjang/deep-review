@@ -4,42 +4,11 @@
 // Nothing under roles/ is changed: the engine reads the fragments themselves,
 // and an --output inside the roles directory is refused before anything is
 // written.
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { isInside } from '../src/paths.ts';
 import { assembleRoles, repositoryRolesRoot } from '../src/roles/assemble.ts';
-
-/**
- * The path with every symlink, junction and short name of its longest
- * existing ancestor resolved and the rest appended as written, so two
- * spellings of one directory compare equal even before it exists. The same
- * resolution `src/runtime/scratch.ts` judges scratch directories by.
- */
-function canonicalPath(path: string): string {
-  const absolute = resolve(path);
-  const rest: string[] = [];
-  for (let current = absolute; ; current = dirname(current)) {
-    try {
-      return join(realpathSync.native(current), ...rest);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
-    }
-    if (dirname(current) === current) return absolute;
-    rest.unshift(basename(current));
-  }
-}
-
-/**
- * Whether `child` is `parent` or beneath it, judged on canonical paths by
- * whole segments, so a sibling named `roles-assembled` is not inside
- * `roles`. `relative` compares without regard to case on Windows, as that
- * file system does.
- */
-function isInside(parent: string, child: string): boolean {
-  const path = relative(canonicalPath(parent), canonicalPath(child));
-  return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
-}
 
 /**
  * Create the output directory, which must not exist yet: its parents are

@@ -2,12 +2,12 @@
  * Where a worker may write temporary files (R7, TD7): outside the reviewed
  * tree and the checkpoint, judged on canonical paths.
  */
-import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
 import { sha256Hex } from '../evidence/store.ts';
+import { isInside } from '../paths.ts';
 import type { RuntimeAdapter } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { InvalidInvocationError } from './errors.ts';
@@ -26,36 +26,6 @@ export function defaultScratchRoot(): string {
 /** The directory under a scratch root that holds one checkpoint's scratch directories, so two repositories never share one. */
 export function checkpointScratchKey(checkpoint: Checkpoint): string {
   return sha256Hex(Buffer.from(checkpoint.root, 'utf8')).slice(0, 16);
-}
-
-/**
- * The path with every symlink, junction and short name of its longest
- * existing ancestor resolved and the rest appended as written, so two
- * spellings of one directory compare equal even before it exists.
- */
-function canonicalPath(path: string): string {
-  const absolute = resolve(path);
-  const rest: string[] = [];
-  for (let current = absolute; ; current = dirname(current)) {
-    try {
-      return join(realpathSync.native(current), ...rest);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
-    }
-    if (dirname(current) === current) return absolute;
-    rest.unshift(basename(current));
-  }
-}
-
-/**
- * Whether `child` is `parent` or beneath it. Both are canonical first, so an
- * alias through a link is caught, and the relative path is judged by whole
- * segments, so a child named `..tmp` is inside while `..` is not.
- */
-function isInside(parent: string, child: string): boolean {
-  const path = relative(canonicalPath(parent), canonicalPath(child));
-  return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
 }
 
 /**
