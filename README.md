@@ -111,7 +111,9 @@ concept assembled its roles from; the move kept it as it was, a second
 commit replaced the wording that named Claude Code's subagents and
 tools with wording true on every runtime, which a test now holds every
 prompt to, and review corrected the few replacements that were wrong or
-missed. Which model, effort, access and budget a role runs with, and
+missed and added the one fragment written here, which tells a worker
+that the engine's narration of a review is not its task. Which model,
+effort, access and budget a role runs with, and
 what it must return, are not declared here: each is decided with the
 phase that first runs the role. `npm run roles -- --output <dir>`
 writes every assembled prompt for reading to a new directory outside
