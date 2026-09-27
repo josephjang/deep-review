@@ -19895,11 +19895,22 @@ function collectArtifactReferences(payload) {
 }
 
 // src/review/vocabulary.ts
-var angles = ["SCAN", "REMOVALS", "RIPPLE", "FOOTGUNS", "WRAPPERS", "EFFICIENCY", "DESIGN", "DUPLICATION", "ALTITUDE", "CONVENTIONS"];
-var angleSchema = external_exports.enum(angles);
 var finderAngles = ["REMOVALS", "RIPPLE", "FOOTGUNS", "WRAPPERS", "EFFICIENCY", "DESIGN", "DUPLICATION", "ALTITUDE", "CONVENTIONS"];
 var finderAngleSchema = external_exports.enum(finderAngles);
-var correctnessAngles = ["SCAN", "REMOVALS", "RIPPLE", "FOOTGUNS", "WRAPPERS", "EFFICIENCY", "CONVENTIONS"];
+var angles = ["SCAN", ...finderAngles];
+var angleSchema = external_exports.enum(angles);
+var angleClasses = {
+  SCAN: "correctness",
+  REMOVALS: "correctness",
+  RIPPLE: "correctness",
+  FOOTGUNS: "correctness",
+  WRAPPERS: "correctness",
+  EFFICIENCY: "correctness",
+  DESIGN: "design",
+  DUPLICATION: "design",
+  ALTITUDE: "design",
+  CONVENTIONS: "correctness"
+};
 var phases = ["triage", "finders", "deduplication", "verification", "sweep", "sweep-deduplication", "sweep-verification", "merge-rank", "report"];
 var phaseSchema = external_exports.enum(phases);
 var candidatePhases = ["triage", "finders", "sweep"];
@@ -23291,7 +23302,7 @@ function compareFindings(a, b) {
   if (severity !== 0) return severity;
   const verdict = Number(a.resolution.verdict !== "CONFIRMED") - Number(b.resolution.verdict !== "CONFIRMED");
   if (verdict !== 0) return verdict;
-  const angle = Number(!correctnessAngles.includes(a.primary.angle)) - Number(!correctnessAngles.includes(b.primary.angle));
+  const angle = Number(angleClasses[a.primary.angle] !== "correctness") - Number(angleClasses[b.primary.angle] !== "correctness");
   if (angle !== 0) return angle;
   const [prefixA, numberA] = idParts(a.finding.id);
   const [prefixB, numberB] = idParts(b.finding.id);
