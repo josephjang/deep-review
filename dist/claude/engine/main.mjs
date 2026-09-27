@@ -23553,8 +23553,7 @@ function unitsOf(review2, phase) {
       return [];
   }
 }
-var answered2 = (state) => state?.answeredBy !== null && state?.answeredBy !== void 0;
-var exhausted = (state) => !answered2(state) && (state?.failures.length ?? 0) >= maxAttempts;
+var exhausted = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && (state?.failures.length ?? 0) >= maxAttempts;
 var truncationMark = " [truncated]";
 function truncated(text2, limit) {
   if (text2.length <= limit) return text2;
@@ -23594,7 +23593,7 @@ function degraded(review2, unit) {
       return Object.hasOwn(review2.anglesNotRun, unit.key);
     case "verification":
     case "sweep-verification":
-      return Object.hasOwn(review2.unverifiedGroups, unitName(unit.phase, unit.key));
+      return isUnverified(review2, unit.phase, unit.key);
     default:
       return false;
   }
@@ -23605,7 +23604,7 @@ function degradationOf(review2, unit, state) {
   if (unit.phase === "verification" || unit.phase === "sweep-verification") return { kind: "group.unverified", phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
   return null;
 }
-var launchableUnit = (review2, unit, state) => !answered2(state) && !degraded(review2, unit) && !exhausted(state);
+var launchableUnit = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && !degraded(review2, unit) && !exhausted(review2, unit, state);
 var usd = (value) => value.toFixed(2);
 function workerFailedBlocker(unit, state) {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice: `;
@@ -23634,10 +23633,10 @@ function nextStep(review2, live2) {
   if (phase === "report") return { kind: "write-report" };
   const units = unitsOf(review2, phase);
   const states = unitsOfPhase(review2, phase);
-  const degradations = units.filter((unit) => unit.degrades && exhausted(states[unit.key])).map((unit) => degradationOf(review2, unit, states[unit.key])).filter((degradation) => degradation !== null);
+  const degradations = units.filter((unit) => unit.degrades && exhausted(review2, unit, states[unit.key])).map((unit) => degradationOf(review2, unit, states[unit.key])).filter((degradation) => degradation !== null);
   if (degradations.length > 0) return { kind: "degrade", phase, degradations };
   const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
-  const blocking = units.find((unit) => !unit.degrades && exhausted(states[unit.key]));
+  const blocking = units.find((unit) => !unit.degrades && exhausted(review2, unit, states[unit.key]));
   if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
