@@ -6,10 +6,10 @@
  * the same path, and every resume test is a fold test.
  */
 import type { Blocker } from '../checkpoint/events.ts';
-import { poolCandidates, singleUnitKey, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
+import { poolCandidates, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
-import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
+import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, singleUnitKey, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
 
 /** How many times a unit is tried before its role's rule decides (R5, PD6). */
 export const maxAttempts = 2;

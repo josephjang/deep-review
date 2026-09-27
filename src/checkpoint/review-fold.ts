@@ -7,11 +7,11 @@
  * next is read from these by the planner, never stored.
  */
 import {
+  candidateIdPrefix,
   deduplicationPhases,
   finderAngles,
   phases,
-  sweepIdPrefix,
-  triageUnitKey,
+  singleUnitKey,
   unitName,
   verificationPhases,
   type CandidatePhase,
@@ -103,11 +103,6 @@ export function poolPhases(phase: DeduplicationPhase | VerificationPhase): reado
 export function poolCandidates(review: ReviewState, phase: DeduplicationPhase | VerificationPhase): CandidateState[] {
   const included = new Set<string>(poolPhases(phase));
   return Object.values(review.candidates).filter((candidate) => included.has(candidate.phase));
-}
-
-/** The unit key of a phase with one worker: the phase's own name, except the triage's, which is the `SCAN` angle. */
-export function singleUnitKey(phase: Phase): string {
-  return phase === 'triage' ? triageUnitKey : phase;
 }
 
 /** The unit name under which a lost worker's attempt is counted, or null when the launch label named no unit. */
@@ -226,25 +221,21 @@ const worktreeChecked: Reducer<WorktreeCheck> = (state, payload, event) => {
   return withReview(current, { ...review, checks: [...review.checks, payload] }, event);
 };
 
-/** The id prefix every candidate of a unit carries, and the key the unit must have. */
-function candidateRules(payload: CandidatesRecorded, event: DecodedEvent): { prefix: string } {
-  switch (payload.phase) {
-    case 'triage':
-      if (payload.key !== triageUnitKey) throw invalid(event, `records triage candidates under unit ${payload.key}, not ${triageUnitKey}`);
-      return { prefix: 'SCAN' };
-    case 'finders':
-      if (!(finderAngles as readonly string[]).includes(payload.key)) throw invalid(event, `records finder candidates under ${payload.key}, which is not a finder angle`);
-      return { prefix: payload.key };
-    case 'sweep':
-      if (payload.key !== 'sweep') throw invalid(event, `records sweep candidates under unit ${payload.key}, not sweep`);
-      return { prefix: sweepIdPrefix };
+/** The unit, which must be one its candidate phase has: the triage's or the sweep's one unit, or a finder angle. */
+function requireCandidateUnit(payload: CandidatesRecorded, event: DecodedEvent): void {
+  if (payload.phase === 'finders') {
+    if (!(finderAngles as readonly string[]).includes(payload.key)) throw invalid(event, `records finder candidates under ${payload.key}, which is not a finder angle`);
+    return;
   }
+  const key = singleUnitKey(payload.phase);
+  if (payload.key !== key) throw invalid(event, `records ${payload.phase} candidates under unit ${payload.key}, not ${key}`);
 }
 
 const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
-  const { prefix } = candidateRules(payload, event);
+  requireCandidateUnit(payload, event);
+  const prefix = candidateIdPrefix(payload.phase, payload.key);
   const unit = unitName(payload.phase, payload.key);
   requireUnanswered(review, event, unit);
   if (payload.phase === 'finders' && Object.hasOwn(review.anglesNotRun, payload.key)) throw invalid(event, `records candidates for angle ${payload.key} after it failed`);
