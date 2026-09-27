@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
-import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
 import { maxDecodeBytes, outputLines, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
-import { claudeAdapter, claudeEnvironment, claudeFlags, claudeTools, thinkingOverrides } from '../../src/runtime/claude.ts';
+import { claudeAdapter, claudeEnvironment, claudeFlags, claudeSessionMarkers, claudeTools, thinkingOverrides } from '../../src/runtime/claude.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
 import { InheritedOverrideError } from '../../src/runtime/errors.ts';
+import { LauncherSandbox } from '../helpers/launcher.ts';
 import { textOutputs } from '../helpers/outputs.ts';
 
 const session = '11111111-2222-4333-8444-555555555555';
@@ -138,6 +140,18 @@ describe('claudeEnvironment', () => {
     for (const platform of ['win32', 'linux'] as const) {
       assert.deepEqual(claudeEnvironment({ MAX_THINKING_TOKENS: '  ', HOME: '/h' }, 'low', platform), { HOME: '/h', CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
     }
+  });
+
+  it('drops every spelling of an enclosing Claude Code session\'s markers on Windows and keeps the provider and credentials', () => {
+    const markers = Object.fromEntries(claudeSessionMarkers.map((name, index) => [index % 2 === 0 ? name : name.toLowerCase(), '1']));
+    const kept = { HOME: '/h', ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'https://gateway.invalid', CLAUDE_CODE_USE_BEDROCK: '1', AWS_PROFILE: 'p' };
+    assert.deepEqual(claudeEnvironment({ ...markers, ...kept }, 'high', 'win32'), { ...kept, CLAUDE_CODE_EFFORT_LEVEL: 'high', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+  });
+
+  it('drops the exact session markers on POSIX and keeps a variable that only differs in case', () => {
+    const markers = Object.fromEntries(claudeSessionMarkers.map((name) => [name, '1']));
+    const kept = { HOME: '/h', claudecode: 'mine', ANTHROPIC_API_KEY: 'k' };
+    assert.deepEqual(claudeEnvironment({ ...markers, ...kept }, 'high', 'linux'), { ...kept, CLAUDE_CODE_EFFORT_LEVEL: 'high', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
   });
 
   it('is what the command runs with, on the plan\'s platform', () => {
@@ -273,5 +287,23 @@ describe('claude decode', () => {
     const decoded = decode(envelope({ session_id: resumed }), { resume: resumed }, { sessionId: resumed, resume: resumed });
     assert.equal(decoded.result.kind, 'answer');
     assert.deepEqual(decoded.sessionIds, [resumed]);
+  });
+});
+
+describe('Claude Code worker through the launcher', () => {
+  let box: LauncherSandbox;
+  beforeEach(() => {
+    box = new LauncherSandbox();
+  });
+  afterEach(() => {
+    box.close();
+  });
+
+  it('starts the worker without the markers of the Claude Code session the engine runs in', async () => {
+    const seen = join(box.directory, 'claude-env.json');
+    const markers = Object.fromEntries(claudeSessionMarkers.map((name) => [name, 'parent']));
+    const receipt = await box.run(box.claude({ effort: 'low' }), { ...markers, CLAUDE_CODE_USE_BEDROCK: '1', FAKE_CLAUDE_ENV: seen });
+    assert.equal(receipt.outcome, 'completed');
+    assert.deepEqual(JSON.parse(readFileSync(seen, 'utf8')), { CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
   });
 });

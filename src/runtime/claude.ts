@@ -28,6 +28,32 @@ export const claudeFlags = [
 /** Inherited variables that change how much the model thinks, which the pinned effort must decide alone. */
 export const thinkingOverrides = ['MAX_THINKING_TOKENS', 'CLAUDE_CODE_DISABLE_THINKING', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING'] as const;
 
+/**
+ * Variables a running Claude Code session sets to describe itself to the
+ * processes it starts, which the engine inherits when it runs inside one.
+ * They describe that session, not the worker: the CLI reads them to mark
+ * itself a child session (which turns session persistence off in an
+ * interactive child), to take the parent's entrypoint, to connect to the
+ * parent's IDE and to join the parent's messaging socket with its token.
+ * A worker is a session of its own, so they are dropped, never refused:
+ * refusing would stop every worker the engine starts from inside Claude
+ * Code. The worker's CLI sets its own for the processes it starts.
+ */
+export const claudeSessionMarkers = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_SESSION_ATTENDED',
+  'CLAUDE_PID',
+  'CLAUDE_EFFORT',
+  'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CODE_INVOKED_SKILLS',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_SSE_PORT',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
+] as const;
+
 /** How long a denial's command or path may be on the receipt. */
 const maxDenialDetail = 300;
 
@@ -37,9 +63,10 @@ export function claudeTools(access: Access, shell: boolean): string[] {
 }
 
 /**
- * The caller's environment with the effort and auto memory pinned. Claude
- * Code lets `CLAUDE_CODE_EFFORT_LEVEL` outrank `--effort`, so both are set;
- * an inherited thinking override is refused by name rather than dropped, so
+ * The caller's environment with the effort and auto memory pinned and the
+ * markers of an enclosing Claude Code session removed. Claude Code lets
+ * `CLAUDE_CODE_EFFORT_LEVEL` outrank `--effort`, so both are set; an
+ * inherited thinking override is refused by name rather than dropped, so
  * the operator learns their shell was changing every worker. A name is any
  * spelling on Windows, where the worker reads every spelling as one
  * variable, and the exact name elsewhere.
@@ -50,7 +77,11 @@ export function claudeEnvironment(environment: NodeJS.ProcessEnv, effort: Effort
       if (value !== undefined && value.trim() !== '') throw new InheritedOverrideError(spelling, 'would override the pinned effort');
     }
   }
-  return pinVariables(withoutVariables(environment, thinkingOverrides, platform), { CLAUDE_CODE_EFFORT_LEVEL: effort, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }, platform);
+  return pinVariables(
+    withoutVariables(environment, [...thinkingOverrides, ...claudeSessionMarkers], platform),
+    { CLAUDE_CODE_EFFORT_LEVEL: effort, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
+    platform,
+  );
 }
 
 export function claudeCommand(invocation: Invocation, plan: LaunchPlan): WorkerCommand {
