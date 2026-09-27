@@ -90,20 +90,35 @@ function failureReason(state: UnitState | undefined): string {
   return `${String(reasons.length)} attempts did not complete: ${reasons.join('; ')}`;
 }
 
-/** The degradation a phase records for an exhausted unit of a degrading role, or null when the phase has no such rule. */
-function degradationOf(review: ReviewState, unit: Unit, state: UnitState | undefined): Degradation | null {
-  if (unit.phase === 'finders') return Object.hasOwn(review.anglesNotRun, unit.key) ? null : { kind: 'angle.failed', angle: unit.key, reason: failureReason(state) };
-  if (unit.phase === 'verification' || unit.phase === 'sweep-verification') {
-    return Object.hasOwn(review.unverifiedGroups, unitName(unit.phase, unit.key)) ? null : { kind: 'group.unverified', phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
+/**
+ * Whether a unit's degradation is already on the ledger: an angle recorded
+ * as not run, or a group marked unverified. A degraded unit is settled for
+ * the rest of the run; the fold refuses any later contribution from it, so
+ * it is never launched again, even when a re-entered phase gives its units
+ * fresh attempts.
+ */
+function degraded(review: ReviewState, unit: Unit): boolean {
+  switch (unit.phase) {
+    case 'finders':
+      return Object.hasOwn(review.anglesNotRun, unit.key);
+    case 'verification':
+    case 'sweep-verification':
+      return Object.hasOwn(review.unverifiedGroups, unitName(unit.phase, unit.key));
+    default:
+      return false;
   }
+}
+
+/** The degradation a phase records for an exhausted unit of a degrading role, or null when it is already recorded or the phase has no such rule. */
+function degradationOf(review: ReviewState, unit: Unit, state: UnitState | undefined): Degradation | null {
+  if (degraded(review, unit)) return null;
+  if (unit.phase === 'finders') return { kind: 'angle.failed', angle: unit.key, reason: failureReason(state) };
+  if (unit.phase === 'verification' || unit.phase === 'sweep-verification') return { kind: 'group.unverified', phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
   return null;
 }
 
-/** Whether a degrading unit's degradation is already on the ledger. */
-function degraded(review: ReviewState, unit: Unit): boolean {
-  if (unit.phase === 'finders') return Object.hasOwn(review.anglesNotRun, unit.key);
-  return Object.hasOwn(review.unverifiedGroups, unitName(unit.phase, unit.key));
-}
+/** Whether a unit may be given a worker: not answered, not degraded, and with an attempt left. */
+const launchableUnit = (review: ReviewState, unit: Unit, state: UnitState | undefined): boolean => !answered(state) && !degraded(review, unit) && !exhausted(state);
 
 const usd = (value: number): string => value.toFixed(2);
 
@@ -150,7 +165,7 @@ export function nextStep(review: ReviewState, live: Live): Step {
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
   const blocking = units.find((unit) => !unit.degrades && exhausted(states[unit.key]));
   if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key]) };
-  const launchable = units.filter((unit) => !answered(states[unit.key]) && !exhausted(states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
+  const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     if (live.budgetUsd !== null && live.spendUsd !== null && live.spendUsd >= live.budgetUsd) {
       return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(live.spendUsd, live.budgetUsd) };
@@ -159,7 +174,7 @@ export function nextStep(review: ReviewState, live: Live): Step {
     return capacity > 0 ? { kind: 'launch', units: launchable.slice(0, capacity) } : { kind: 'await' };
   }
   if (running.length > 0) return { kind: 'await' };
-  const outcome = units.some((unit) => unit.degrades && degraded(review, unit)) ? 'degraded' : 'completed';
+  const outcome = units.some((unit) => degraded(review, unit)) ? 'degraded' : 'completed';
   return { kind: 'finish-phase', phase, attempt, outcome, blocker: null };
 }
 
