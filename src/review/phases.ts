@@ -33,9 +33,9 @@ import {
   type VerifierOutput,
 } from './schemas.ts';
 import { compareFindings, mergeRankInput, mergedResolution, refutedIn, survivors, type Resolved } from './state.ts';
-import type { Unit } from './steps.ts';
+import { truncated, type Unit } from './steps.ts';
 import { deduplicationTask, finderTask, mergeRankTask, sweepTask, triageTask, verifierTask } from './tasks.ts';
-import { finderAngles, sweepIdPrefix, type Angle, type CandidatePhase, type DeduplicationPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { finderAngles, maxRecordedTextLength, sweepIdPrefix, type Angle, type CandidatePhase, type DeduplicationPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block. */
 export interface PhaseContext {
@@ -46,9 +46,6 @@ export interface PhaseContext {
   /** The scope block every worker of the run shares, rendered once. */
   readonly scopeBlock: string;
 }
-
-/** Longest reason `attempt.failed` records. */
-const maxReasonLength = 4000;
 
 function requireReview(state: RunState): ReviewState {
   if (state.review === null) throw new Error(`Run ${state.id} is not configured for review`);
@@ -117,11 +114,9 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   };
 }
 
-const truncate = (text: string): string => (text.length <= maxReasonLength ? text : `${text.slice(0, maxReasonLength - 12)} [truncated]`);
-
 /** The failed attempt a unit records for a receipt or a refused answer. */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
-  return { kind: 'attempt.failed', version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncate(reason) } };
+  return { kind: 'attempt.failed', version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 
 /** Candidates as a finder returned them, located against the scope and given ids from 1 in the worker's order. */

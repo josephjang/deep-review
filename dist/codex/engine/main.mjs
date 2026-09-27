@@ -19928,6 +19928,7 @@ var groupIdSchema = external_exports.string().regex(/^g[1-9][0-9]*$/, "a group i
 var sweepIdPrefix = "SWEEP";
 var triageUnitKey = "SCAN";
 var unitKeySchema = external_exports.string().regex(/^[A-Za-z0-9-]{1,40}$/, "a unit key is letters, digits and dashes");
+var maxRecordedTextLength = 4e3;
 var unitName = (phase, key) => `${phase}:${key}`;
 
 // src/checkpoint/registry.ts
@@ -23305,6 +23306,163 @@ function rankedFindings(review2, findings = review2.ranking ?? []) {
   return resolved.sort(compareFindings);
 }
 
+// src/review/grouping.ts
+var maxGroupSize = 8;
+var groupKey = (candidate) => candidate.file === null ? `unlocated:${candidate.rawFile}` : `located:${candidate.file}`;
+var byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+function chunk(items, size = maxGroupSize) {
+  const chunks = [];
+  for (let start = 0; start < items.length; start += size) chunks.push(items.slice(start, start + size));
+  if (chunks.length > 1 && chunks[chunks.length - 1].length === 1) {
+    const last = chunks.pop();
+    chunks[chunks.length - 1] = [...chunks[chunks.length - 1], ...last];
+  }
+  return chunks;
+}
+function planGroups(candidates) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const candidate of candidates) {
+    const key = groupKey(candidate);
+    const group = groups.get(key);
+    if (group === void 0) groups.set(key, [candidate]);
+    else group.push(candidate);
+  }
+  const keys = [...groups.keys()].sort((a, b) => {
+    return byText(a, b);
+  });
+  const planned = [];
+  for (const key of keys) {
+    const members2 = [...groups.get(key)].sort((a, b) => (a.line ?? a.rawLine) - (b.line ?? b.rawLine) || byText(a.id, b.id));
+    for (const part of chunk(members2)) planned.push({ id: `g${String(planned.length + 1)}`, candidateIds: part.map((candidate) => candidate.id) });
+  }
+  return planned;
+}
+
+// src/review/steps.ts
+var maxAttempts = 2;
+function groupsOf(review2, phase) {
+  return review2.plans[phase] ?? planGroups(workingList(review2, phase));
+}
+function unitsOf(review2, phase) {
+  const single = (role) => [{ phase, key: phase === "triage" ? "SCAN" : phase, role, degrades: false }];
+  switch (phase) {
+    case "triage":
+      return single("triage");
+    case "finders":
+      return finderAngles.map((angle) => ({ phase, key: angle, role: `finder-${angle}`, degrades: true }));
+    case "deduplication":
+    case "sweep-deduplication":
+      return poolCandidates(review2, phase).length >= 2 ? single("deduplication") : [];
+    case "verification":
+    case "sweep-verification":
+      return groupsOf(review2, phase).map((group) => ({ phase, key: group.id, role: "verifier", degrades: true }));
+    case "sweep":
+      return single("sweep");
+    case "merge-rank":
+      return mergeRankInput(review2).length > 0 ? single("merge-rank") : [];
+    case "report":
+      return [];
+  }
+}
+var answered2 = (state) => state?.answeredBy !== null && state?.answeredBy !== void 0;
+var exhausted = (state) => !answered2(state) && (state?.failures.length ?? 0) >= maxAttempts;
+var truncationMark = " [truncated]";
+function truncated(text2, limit) {
+  if (text2.length <= limit) return text2;
+  const room = Math.max(0, limit);
+  const kept = room > truncationMark.length ? room - truncationMark.length : room;
+  const last = text2.charCodeAt(kept - 1);
+  const end = last >= 55296 && last <= 56319 ? kept - 1 : kept;
+  return `${text2.slice(0, end)}${room > truncationMark.length ? truncationMark : ""}`;
+}
+function failureReason(state, limit = maxRecordedTextLength) {
+  const reasons = (state?.failures ?? []).map((failure2) => failure2.reason);
+  const header = `${String(reasons.length)} attempts did not complete: `;
+  const separator = "; ";
+  const share = Math.floor((limit - header.length - separator.length * Math.max(0, reasons.length - 1)) / Math.max(1, reasons.length));
+  return truncated(`${header}${reasons.map((reason) => truncated(reason, share)).join(separator)}`, limit);
+}
+function listWithin(items, limit) {
+  const all = items.join(", ");
+  if (all.length <= limit) return all;
+  const more = (count2) => count2 > 0 ? `, and ${String(count2)} more` : "";
+  const reserve = more(items.length).length;
+  let text2 = "";
+  let shown = 0;
+  for (const item of items) {
+    const next = shown === 0 ? item : `${text2}, ${item}`;
+    if (next.length + reserve > limit) break;
+    text2 = next;
+    shown += 1;
+  }
+  if (shown > 0) return `${text2}${more(items.length - shown)}`;
+  const rest = more(items.length - 1);
+  return `${truncated(items[0] ?? "", limit - rest.length)}${rest}`;
+}
+function degraded(review2, unit) {
+  switch (unit.phase) {
+    case "finders":
+      return Object.hasOwn(review2.anglesNotRun, unit.key);
+    case "verification":
+    case "sweep-verification":
+      return Object.hasOwn(review2.unverifiedGroups, unitName(unit.phase, unit.key));
+    default:
+      return false;
+  }
+}
+function degradationOf(review2, unit, state) {
+  if (degraded(review2, unit)) return null;
+  if (unit.phase === "finders") return { kind: "angle.failed", angle: unit.key, reason: failureReason(state) };
+  if (unit.phase === "verification" || unit.phase === "sweep-verification") return { kind: "group.unverified", phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
+  return null;
+}
+var launchableUnit = (review2, unit, state) => !answered2(state) && !degraded(review2, unit) && !exhausted(state);
+var usd = (value) => value.toFixed(2);
+function workerFailedBlocker(unit, state) {
+  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice: `;
+  return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions["worker-failed"] };
+}
+function budgetBlocker(spendUsd, budgetUsd) {
+  return { code: "budget", detail: `spent ${usd(spendUsd)} USD of the ${usd(budgetUsd)} USD run budget`, action: `run the command again with --budget-usd above ${usd(spendUsd)}, or abandon the run` };
+}
+function driftBlocker(files) {
+  const prefix = "the worktree differs from the reviewed change: ";
+  const listed = listWithin(files.map((file2) => `${file2.path} (${file2.outcome})`), maxRecordedTextLength - prefix.length);
+  return { code: "drift", detail: `${prefix}${listed}`, action: blockerActions.drift };
+}
+function nextStep(review2, live2) {
+  if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };
+  if (review2.report !== null) return { kind: "complete" };
+  const phase = currentPhase(review2);
+  if (phase === null) {
+    const pending = nextPendingPhase(review2);
+    if (pending === null) throw new Error("Every phase has finished but no report was written");
+    return { kind: "start-phase", phase: pending, attempt: review2.phases[pending].attempt + 1 };
+  }
+  const attempt = review2.phases[phase].attempt;
+  if (!review2.checks.some((check2) => check2.phase === phase && check2.attempt === attempt)) return { kind: "check-worktree", phase, attempt };
+  if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
+  if (phase === "report") return { kind: "write-report" };
+  const units = unitsOf(review2, phase);
+  const states = unitsOfPhase(review2, phase);
+  const degradations = units.filter((unit) => unit.degrades && exhausted(states[unit.key])).map((unit) => degradationOf(review2, unit, states[unit.key])).filter((degradation) => degradation !== null);
+  if (degradations.length > 0) return { kind: "degrade", phase, degradations };
+  const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
+  const blocking = units.find((unit) => !unit.degrades && exhausted(states[unit.key]));
+  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
+  const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
+  if (launchable.length > 0) {
+    if (live2.budgetUsd !== null && live2.spendUsd !== null && live2.spendUsd >= live2.budgetUsd) {
+      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(live2.spendUsd, live2.budgetUsd) };
+    }
+    const capacity = live2.concurrency - live2.running.size;
+    return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
+  }
+  if (running.length > 0) return { kind: "await" };
+  const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
+  return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
+}
+
 // src/review/tasks.ts
 function describeLocation(candidate) {
   if (candidate.located && candidate.file !== null && candidate.line !== null) return `${candidate.file}:${String(candidate.line)}`;
@@ -23386,7 +23544,6 @@ function mergeRankTask(inputs) {
 }
 
 // src/review/phases.ts
-var maxReasonLength = 4e3;
 function requireReview2(state) {
   if (state.review === null) throw new Error(`Run ${state.id} is not configured for review`);
   return state.review;
@@ -23447,9 +23604,8 @@ function invocationFor(unit, context) {
     label: unitLabel(unit.role, unit.phase, unit.key)
   };
 }
-var truncate2 = (text2) => text2.length <= maxReasonLength ? text2 : `${text2.slice(0, maxReasonLength - 12)} [truncated]`;
 function failed(unit, receipt, reason) {
-  return { kind: "attempt.failed", version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncate2(reason) } };
+  return { kind: "attempt.failed", version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 function recordCandidates(phase, key, prefix, candidates, state, worktree) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -23562,7 +23718,7 @@ function contributionPayload(unit, receipt, review2, state, worktree) {
 }
 
 // src/review/report.ts
-var usd = (value) => value === null ? "-" : value.toFixed(2);
+var usd2 = (value) => value === null ? "-" : value.toFixed(2);
 var count = (value) => value === null ? "-" : String(value);
 var cell2 = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 function marks(candidate, unverified) {
@@ -23597,7 +23753,7 @@ function findingBlock(position, entry) {
   return lines.join("\n");
 }
 function statisticsTable(input2) {
-  const row = (name, spend) => `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${usd(spend.costUsd)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
+  const row = (name, spend) => `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${usd2(spend.costUsd)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
   return [
     "| Phase | Workers | Seconds | Cost (USD) | Input tokens | Cached input | Output tokens |",
     "|---|---|---|---|---|---|---|",
@@ -23616,7 +23772,7 @@ function limitations(state, review2, input2) {
   const drifted = review2.checks.filter((check2) => check2.drifted);
   lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference before ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${file2.path} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
   const budget = review2.configuration.runBudgetUsd;
-  lines.push(input2.statistics.budgetApplied && budget !== null ? `- Run budget: ${usd(budget)} USD, checked before every launch; spent ${usd(input2.statistics.total.costUsd)} USD.` : `- The run budget did not apply: runtime ${review2.configuration.runtime} reports no cost in USD, so only the per-worker timeouts and the worker count bounded this run.`);
+  lines.push(input2.statistics.budgetApplied && budget !== null ? `- Run budget: ${usd2(budget)} USD, checked before every launch; spent ${usd2(input2.statistics.total.costUsd)} USD.` : `- The run budget did not apply: runtime ${review2.configuration.runtime} reports no cost in USD, so only the per-worker timeouts and the worker count bounded this run.`);
   const oversized = (state.scope?.files ?? []).filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => file2.path);
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(", ")}.`);
   const unlocated = Object.values(review2.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
@@ -23698,131 +23854,6 @@ function statisticsOf(state, adapter) {
   const finished = finishedWorkers(state);
   const byPhase = phases.map((phase) => ({ phase, ...spendOf(finished.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
   return { phases: byPhase, total: spendOf(finished, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.configuration.runBudgetUsd ?? null) !== null };
-}
-
-// src/review/grouping.ts
-var maxGroupSize = 8;
-var groupKey = (candidate) => candidate.file === null ? `unlocated:${candidate.rawFile}` : `located:${candidate.file}`;
-var byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-function chunk(items, size = maxGroupSize) {
-  const chunks = [];
-  for (let start = 0; start < items.length; start += size) chunks.push(items.slice(start, start + size));
-  if (chunks.length > 1 && chunks[chunks.length - 1].length === 1) {
-    const last = chunks.pop();
-    chunks[chunks.length - 1] = [...chunks[chunks.length - 1], ...last];
-  }
-  return chunks;
-}
-function planGroups(candidates) {
-  const groups = /* @__PURE__ */ new Map();
-  for (const candidate of candidates) {
-    const key = groupKey(candidate);
-    const group = groups.get(key);
-    if (group === void 0) groups.set(key, [candidate]);
-    else group.push(candidate);
-  }
-  const keys = [...groups.keys()].sort((a, b) => {
-    return byText(a, b);
-  });
-  const planned = [];
-  for (const key of keys) {
-    const members2 = [...groups.get(key)].sort((a, b) => (a.line ?? a.rawLine) - (b.line ?? b.rawLine) || byText(a.id, b.id));
-    for (const part of chunk(members2)) planned.push({ id: `g${String(planned.length + 1)}`, candidateIds: part.map((candidate) => candidate.id) });
-  }
-  return planned;
-}
-
-// src/review/steps.ts
-var maxAttempts = 2;
-function groupsOf(review2, phase) {
-  return review2.plans[phase] ?? planGroups(workingList(review2, phase));
-}
-function unitsOf(review2, phase) {
-  const single = (role) => [{ phase, key: phase === "triage" ? "SCAN" : phase, role, degrades: false }];
-  switch (phase) {
-    case "triage":
-      return single("triage");
-    case "finders":
-      return finderAngles.map((angle) => ({ phase, key: angle, role: `finder-${angle}`, degrades: true }));
-    case "deduplication":
-    case "sweep-deduplication":
-      return poolCandidates(review2, phase).length >= 2 ? single("deduplication") : [];
-    case "verification":
-    case "sweep-verification":
-      return groupsOf(review2, phase).map((group) => ({ phase, key: group.id, role: "verifier", degrades: true }));
-    case "sweep":
-      return single("sweep");
-    case "merge-rank":
-      return mergeRankInput(review2).length > 0 ? single("merge-rank") : [];
-    case "report":
-      return [];
-  }
-}
-var answered2 = (state) => state?.answeredBy !== null && state?.answeredBy !== void 0;
-var exhausted = (state) => !answered2(state) && (state?.failures.length ?? 0) >= maxAttempts;
-function failureReason(state) {
-  const reasons = (state?.failures ?? []).map((failure2) => failure2.reason);
-  return `${String(reasons.length)} attempts did not complete: ${reasons.join("; ")}`;
-}
-function degraded(review2, unit) {
-  switch (unit.phase) {
-    case "finders":
-      return Object.hasOwn(review2.anglesNotRun, unit.key);
-    case "verification":
-    case "sweep-verification":
-      return Object.hasOwn(review2.unverifiedGroups, unitName(unit.phase, unit.key));
-    default:
-      return false;
-  }
-}
-function degradationOf(review2, unit, state) {
-  if (degraded(review2, unit)) return null;
-  if (unit.phase === "finders") return { kind: "angle.failed", angle: unit.key, reason: failureReason(state) };
-  if (unit.phase === "verification" || unit.phase === "sweep-verification") return { kind: "group.unverified", phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
-  return null;
-}
-var launchableUnit = (review2, unit, state) => !answered2(state) && !degraded(review2, unit) && !exhausted(state);
-var usd2 = (value) => value.toFixed(2);
-function workerFailedBlocker(unit, state) {
-  return { code: "worker-failed", detail: `the ${unit.role} worker for ${unit.phase}:${unit.key} failed twice: ${failureReason(state)}`, action: blockerActions["worker-failed"] };
-}
-function budgetBlocker(spendUsd, budgetUsd) {
-  return { code: "budget", detail: `spent ${usd2(spendUsd)} USD of the ${usd2(budgetUsd)} USD run budget`, action: `run the command again with --budget-usd above ${usd2(spendUsd)}, or abandon the run` };
-}
-function driftBlocker(files) {
-  return { code: "drift", detail: `the worktree differs from the reviewed change: ${files.map((file2) => `${file2.path} (${file2.outcome})`).join(", ")}`, action: blockerActions.drift };
-}
-function nextStep(review2, live2) {
-  if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };
-  if (review2.report !== null) return { kind: "complete" };
-  const phase = currentPhase(review2);
-  if (phase === null) {
-    const pending = nextPendingPhase(review2);
-    if (pending === null) throw new Error("Every phase has finished but no report was written");
-    return { kind: "start-phase", phase: pending, attempt: review2.phases[pending].attempt + 1 };
-  }
-  const attempt = review2.phases[phase].attempt;
-  if (!review2.checks.some((check2) => check2.phase === phase && check2.attempt === attempt)) return { kind: "check-worktree", phase, attempt };
-  if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
-  if (phase === "report") return { kind: "write-report" };
-  const units = unitsOf(review2, phase);
-  const states = unitsOfPhase(review2, phase);
-  const degradations = units.filter((unit) => unit.degrades && exhausted(states[unit.key])).map((unit) => degradationOf(review2, unit, states[unit.key])).filter((degradation) => degradation !== null);
-  if (degradations.length > 0) return { kind: "degrade", phase, degradations };
-  const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
-  const blocking = units.find((unit) => !unit.degrades && exhausted(states[unit.key]));
-  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
-  const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
-  if (launchable.length > 0) {
-    if (live2.budgetUsd !== null && live2.spendUsd !== null && live2.spendUsd >= live2.budgetUsd) {
-      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(live2.spendUsd, live2.budgetUsd) };
-    }
-    const capacity = live2.concurrency - live2.running.size;
-    return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
-  }
-  if (running.length > 0) return { kind: "await" };
-  const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
-  return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
 }
 
 // src/review/controller.ts
