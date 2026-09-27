@@ -1,5 +1,7 @@
-/** Base class for every error the checkpoint raises on purpose, so callers can tell them from bugs. */
-export class CheckpointError extends Error {
+import { EngineError } from '../errors.ts';
+
+/** Base class for the errors that concern the checkpoint: its location, its ledger, the runs folded from it and its evidence store. */
+export class CheckpointError extends EngineError {
   override readonly name: string = 'CheckpointError';
 }
 
