@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { sha256Hex } from '../../src/evidence/store.ts';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, readRoleFragment, readRoleManifest } from '../../src/roles/assemble.ts';
@@ -92,6 +92,18 @@ describe('assembleRoles', () => {
     chmodSync(join(root, fragmentsDirectoryName, 'a.md'), 0o000);
     assert.throws(() => assembleRoles(root), (error: unknown) =>
       error instanceof InvalidRoleFragmentError && /a\.md cannot be read: EACCES/.test(error.message) && !/UTF-8/.test(error.message));
+  });
+
+  it('refuses a fragment name that could reach outside fragments/, before touching the file system', () => {
+    seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': 'a\n' });
+    // Valid fragment text outside fragments/, so only the name check can refuse it.
+    writeFileSync(join(root, 'outside.md'), 'outside\n');
+    mkdirSync(join(root, fragmentsDirectoryName, 'sub'));
+    writeFileSync(join(root, fragmentsDirectoryName, 'sub', 'a.md'), 'a\n');
+    for (const name of ['../outside.md', `..${sep}outside.md`, 'sub/a.md', join(root, 'outside.md'), 'A.md', '']) {
+      assert.throws(() => readRoleFragment(root, name), (error: unknown) =>
+        error instanceof InvalidRoleFragmentError && error.fragment === name && /is not a valid fragment name: a fragment name is lower-case/.test(error.message), name);
+    }
   });
 
   it('refuses a subdirectory under fragments/', () => {
