@@ -8,7 +8,9 @@
 //   FAKE_STDOUT      stdout to print instead of a successful answer; {session} becomes the session id
 //   FAKE_STDERR      stderr to print
 //   FAKE_EXIT        exit code
-//   FAKE_HUGE        print this many bytes to stdout instead of an answer
+//   FAKE_HUGE        print this many bytes of filler: on stdout after FAKE_STDOUT (or
+//                    nothing) instead of an answer, or on stderr after the answer
+//   FAKE_HUGE_STREAM `stderr` to print FAKE_HUGE there; stdout by default
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -72,6 +74,11 @@ export function option(argv: readonly string[], flag: string): string | undefine
   return index === -1 ? undefined : argv[index + 1];
 }
 
+/** Write to a stream and wait until it has taken the bytes. */
+function write(stream: NodeJS.WriteStream, bytes: string | Uint8Array): Promise<void> {
+  return new Promise((resolve, reject) => stream.write(bytes, (error) => (error ? reject(error) : resolve())));
+}
+
 /**
  * Do what the environment asks after the fake has received its input:
  * hang, print a huge stream, or print the scripted or default answer,
@@ -84,16 +91,13 @@ export async function answer(defaultStdout: () => string, session: string): Prom
     return;
   }
   if (environment.FAKE_STDERR !== undefined) process.stderr.write(environment.FAKE_STDERR);
-  if (environment.FAKE_HUGE !== undefined) {
+  const huge = environment.FAKE_HUGE === undefined ? null : Number(environment.FAKE_HUGE);
+  const hugeStream = environment.FAKE_HUGE_STREAM === 'stderr' ? process.stderr : process.stdout;
+  const stdout = environment.FAKE_STDOUT ?? (huge !== null && hugeStream === process.stdout ? '' : defaultStdout());
+  await write(process.stdout, stdout.replaceAll('{session}', session));
+  if (huge !== null) {
     const chunk = Buffer.alloc(1024 * 1024, 'x');
-    let left = Number(environment.FAKE_HUGE);
-    while (left > 0) {
-      const part = chunk.subarray(0, Math.min(left, chunk.length));
-      await new Promise<void>((resolve, reject) => process.stdout.write(part, (error) => (error ? reject(error) : resolve())));
-      left -= part.length;
-    }
-  } else {
-    process.stdout.write((environment.FAKE_STDOUT ?? defaultStdout()).replaceAll('{session}', session));
+    for (let left = huge; left > 0; left -= chunk.length) await write(hugeStream, chunk.subarray(0, Math.min(left, chunk.length)));
   }
   process.exitCode = Number(environment.FAKE_EXIT ?? '0');
 }

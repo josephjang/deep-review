@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
@@ -11,11 +11,12 @@ import type { RuntimeAdapter } from '../../src/runtime/adapter.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { InheritedOverrideError, InvalidInvocationError, UnknownRuntimeError, UnsupportedCapabilityError } from '../../src/runtime/errors.ts';
+import { sha256Hex } from '../../src/evidence/store.ts';
 import { parseInvocation } from '../../src/runtime/contract.ts';
 import { maxDecodeBytes, runWorker, withPinnedSession, withUnrecordableSessions, workerVerdict, type Verdict, type WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { notStarted, type ProcessResult } from '../../src/runtime/process.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
-import { answerSchema, baseEnvironment, freshThread, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
+import { answerSchema, baseEnvironment, fixedIds, freshThread, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
 import { createRepository } from '../helpers/repository.ts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -26,6 +27,9 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
  * runner, so the test never races the fake's startup.
  */
 const hangTimeoutMs = 4000;
+
+/** A schema whose check throws instead of rejecting, as a careless refinement can: `safeParse` itself throws. */
+const throwingSchema = answerSchema.refine((value) => JSON.parse(value.answer) !== null);
 
 describe('runWorker', () => {
   let box: LauncherSandbox;
@@ -244,6 +248,28 @@ describe('runWorker', () => {
       box.checkpoint.evidence.verify(receipt.evidence.stdout);
     });
 
+    it('still records the thread of a stream too long to decode, so the session can be continued', async () => {
+      const started = `${JSON.stringify({ type: 'thread.started', thread_id: '{session}' })}\n`;
+      const receipt = await box.run(box.codex(), { FAKE_STDOUT: started, FAKE_HUGE: String(maxDecodeBytes + 1) });
+      assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', new RegExp(`stdout is ${String(Buffer.byteLength(started.replace('{session}', freshThread)) + maxDecodeBytes + 1)} bytes, above the ${String(maxDecodeBytes)}`));
+      assert.deepEqual(receipt.runtime.sessionIds, [freshThread]);
+      const worker = box.worker(receipt.workerId);
+      assert.deepEqual(worker.status === 'finished' && worker.finish.sessionIds, [freshThread]);
+      const continued = await box.run(box.codex({ resume: freshThread }));
+      assert.equal(continued.outcome, 'completed', continued.error ?? '');
+    });
+
+    it('refuses to decode a stderr above 16 MiB, freezes it, and keeps the session', async () => {
+      const receipt = await box.run(box.codex(), { FAKE_HUGE: String(maxDecodeBytes + 1), FAKE_HUGE_STREAM: 'stderr' });
+      assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', new RegExp(`stderr is ${String(maxDecodeBytes + 1)} bytes`));
+      assert.equal(receipt.output, null);
+      assert.equal(receipt.evidence.stderr.bytes, maxDecodeBytes + 1);
+      assert.deepEqual(receipt.runtime.sessionIds, [freshThread]);
+      assertEvidence(receipt);
+    });
+
     it('names session ids the ledger cannot hold and records no answer', async () => {
       const receipt = await box.run(box.codex(), { FAKE_THREAD: 'not a session id' });
       assert.equal(receipt.outcome, 'failed');
@@ -251,6 +277,50 @@ describe('runWorker', () => {
       assert.equal(receipt.output, null);
       assert.equal(receipt.evidence.output, null);
       assert.deepEqual(receipt.runtime.sessionIds, []);
+      assertEvidence(receipt);
+    });
+  });
+
+  describe('a failure of the launcher itself', () => {
+    it('keeps the outputs it froze and the session it decoded', async () => {
+      const receipt = await box.run(box.codex({ outputSchema: throwingSchema }));
+      assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', /^The launcher could not settle the worker's outputs: /);
+      assert.deepEqual(receipt.runtime.sessionIds, [freshThread], 'a fresh Codex thread is known only from the stream');
+      const read = (reference: { sha256: string; bytes: number }): string => box.checkpoint.evidence.read(reference).toString('utf8');
+      assert.match(read(receipt.evidence.stdout), /"thread\.started"/, 'the stdout recorded is what the worker printed');
+      assert.equal(read(receipt.evidence.finalMessage!), '{"answer":"ok"}');
+      assert.equal(receipt.evidence.output, null);
+      assertEvidence(receipt);
+      assert.equal(existsSync(join(box.checkpoint.root, 'io', receipt.workerId)), false, 'every process file was frozen');
+    });
+
+    it('still finishes the worker when the evidence store fails, keeping the unfrozen process files', async () => {
+      const marker = join(box.directory, 'go');
+      const pending = box.run(box.claude(), { FAKE_WAIT_FOR: marker });
+      await until(() => existsSync(box.recordFile), 'the fake to start');
+      const evidence = box.checkpoint.evidence;
+      evidence.put = () => {
+        throw new Error('no space left on device');
+      };
+      let receipt: WorkerReceipt;
+      try {
+        writeFileSync(marker, '');
+        receipt = await pending;
+      } finally {
+        Reflect.deleteProperty(evidence, 'put');
+      }
+      const io = join(box.checkpoint.root, 'io', receipt.workerId);
+      assert.equal(receipt.outcome, 'failed');
+      assert.equal(receipt.process.termination, 'exited');
+      assert.ok(receipt.error?.startsWith(`The launcher could not freeze the worker's outputs, whose process files are kept in ${io}: no space left on device`), receipt.error ?? '');
+      const empty = { sha256: sha256Hex(Buffer.alloc(0)), bytes: 0 };
+      assert.deepEqual(receipt.evidence.stdout, empty);
+      assert.deepEqual(receipt.evidence.stderr, empty);
+      const worker = box.worker(receipt.workerId);
+      assert.equal(worker.status, 'finished', 'the launch is closed');
+      assert.deepEqual(receipt.runtime.sessionIds, [worker.launch.sessionId]);
+      assert.match(readFileSync(join(io, 'stdout'), 'utf8'), /"structured_output"/, 'the only copy of stdout is kept');
       assertEvidence(receipt);
     });
   });
@@ -524,6 +594,44 @@ describe('runWorker', () => {
       assertEvidence(receipt);
     });
 
+    it('cuts a long error without splitting a character in two', async () => {
+      const prefix = "The claude-throwing adapter could not decode the worker's outputs: ";
+      const kept = 'a'.repeat(4000 - 1 - prefix.length);
+      const throwing: RuntimeAdapter = {
+        ...claudeAdapter,
+        name: 'claude-throwing',
+        decode: () => {
+          // The emoji is two UTF-16 code units, the first of them the 4000th unit of the error.
+          throw new Error(`${kept}\u{1F600}${'b'.repeat(100)}`);
+        },
+      };
+      const receipt = await box.run(box.claude({ runtime: 'claude-throwing' }), {}, { runtimes: new RuntimeRegistry([throwing]) });
+      assert.equal(receipt.error, `${prefix}${kept} [truncated]`);
+      assert.ok(receipt.error.isWellFormed());
+      const worker = box.worker(receipt.workerId);
+      assert.equal(worker.status === 'finished' && worker.finish.error, receipt.error);
+    });
+
+    it('refuses to decode a final message above 16 MiB, freezes it, and keeps the session', async () => {
+      const writer: RuntimeAdapter = {
+        ...echo,
+        name: 'node-final',
+        command: (_invocation, plan) => ({
+          args: [
+            '--eval',
+            `const fs = process.getBuiltinModule('node:fs'); fs.writeFileSync(${JSON.stringify(plan.finalMessageFile)}, 'x'.repeat(${String(maxDecodeBytes + 1)})); process.stdout.write(JSON.stringify({ session: ${JSON.stringify(plan.sessionId)}, answer: 'big' }))`,
+          ],
+          environment: plan.environment,
+        }),
+      };
+      const receipt = await box.run({ ...box.claude(), runtime: 'node-final', executableArgs: [], effort: 'low' }, {}, { runtimes: new RuntimeRegistry([writer]) });
+      assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', new RegExp(`final message is ${String(maxDecodeBytes + 1)} bytes`));
+      assert.equal(receipt.evidence.finalMessage?.bytes, maxDecodeBytes + 1);
+      assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
+      assertEvidence(receipt);
+    });
+
     it('is unknown until registered', async () => {
       await assert.rejects(box.run({ ...box.claude(), runtime: 'node-echo' }), (error: unknown) => error instanceof UnknownRuntimeError && error.runtime === 'node-echo');
       assert.ok(box.untouched());
@@ -553,6 +661,7 @@ describe('runWorker', () => {
       writeFileSync(marker, '');
       await assert.rejects(pending, RunClosedError);
       assert.deepEqual(box.events().map(([kind]) => kind), ['run.created', 'worker.launched', 'run.abandoned']);
+      assert.deepEqual(readdirSync(join(box.checkpoint.root, 'io')), [], 'the process files are frozen, so they go even without a finish');
     });
 
     it('launches nothing when the run closes between the checks and the launch, and leaves no process files', async () => {
@@ -560,9 +669,23 @@ describe('runWorker', () => {
         box.checkpoint.append(box.runId, box.checkpoint.fold(box.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'closed meanwhile' } }]);
         return Promise.resolve('2.1.283');
       };
-      await assert.rejects(box.run(box.claude(), {}, { qualify: closeRun }), RunClosedError);
+      const workerId = '0b5c1a2e-3f4d-4a5b-8c6d-7e8f9a0b1c2d';
+      await assert.rejects(box.run(box.claude(), {}, { qualify: closeRun, ids: fixedIds(workerId, '1c6d2b3f-4a5e-4b6c-9d7e-8f9a0b1c2d3e') }), RunClosedError);
       assert.deepEqual(box.events().map(([kind]) => kind), ['run.created', 'run.abandoned']);
       assert.deepEqual(readdirSync(join(box.checkpoint.root, 'io')), []);
+      assert.equal(existsSync(box.scratchOf(workerId)), false, 'the scratch directory made for the worker is gone');
+      assert.equal(existsSync(box.recordFile), false, 'the fake never ran');
+    });
+
+    it("launches nothing when its process files cannot be written, and leaves another worker's directory alone", async () => {
+      const workerId = '2d7e3c4a-5b6f-4c7d-8e8f-9a0b1c2d3e4f';
+      const occupied = join(box.checkpoint.root, 'io', workerId);
+      mkdirSync(occupied, { recursive: true });
+      writeFileSync(join(occupied, 'stdout'), 'not yours');
+      await assert.rejects(box.run(box.claude(), {}, { ids: fixedIds(workerId, '3e8f4d5b-6c7a-4d8e-9f9a-0b1c2d3e4f5a') }), (error: unknown) => (error as NodeJS.ErrnoException).code === 'EEXIST');
+      assert.deepEqual(box.events().map(([kind]) => kind), ['run.created']);
+      assert.equal(readFileSync(join(occupied, 'stdout'), 'utf8'), 'not yours');
+      assert.equal(existsSync(box.scratchOf(workerId)), false);
       assert.equal(existsSync(box.recordFile), false, 'the fake never ran');
     });
 
