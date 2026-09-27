@@ -6,7 +6,7 @@
  * the same path, and every resume test is a fold test.
  */
 import type { Blocker } from '../checkpoint/events.ts';
-import { poolCandidates, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
 import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, singleUnitKey, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
@@ -76,10 +76,8 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
   }
 }
 
-/** Whether a unit has contributed. */
-const answered = (state: UnitState | undefined): boolean => state?.answeredBy !== null && state?.answeredBy !== undefined;
-/** Whether a unit has failed as many times as it may. */
-const exhausted = (state: UnitState | undefined): boolean => !answered(state) && (state?.failures.length ?? 0) >= maxAttempts;
+/** Whether a unit has failed as many times as it may without contributing. */
+const exhausted = (review: ReviewState, unit: Unit, state: UnitState | undefined): boolean => !isAnswered(review, unit.phase, unit.key) && (state?.failures.length ?? 0) >= maxAttempts;
 
 const truncationMark = ' [truncated]';
 
@@ -147,7 +145,7 @@ function degraded(review: ReviewState, unit: Unit): boolean {
       return Object.hasOwn(review.anglesNotRun, unit.key);
     case 'verification':
     case 'sweep-verification':
-      return Object.hasOwn(review.unverifiedGroups, unitName(unit.phase, unit.key));
+      return isUnverified(review, unit.phase, unit.key);
     default:
       return false;
   }
@@ -162,7 +160,7 @@ function degradationOf(review: ReviewState, unit: Unit, state: UnitState | undef
 }
 
 /** Whether a unit may be given a worker: not answered, not degraded, and with an attempt left. */
-const launchableUnit = (review: ReviewState, unit: Unit, state: UnitState | undefined): boolean => !answered(state) && !degraded(review, unit) && !exhausted(state);
+const launchableUnit = (review: ReviewState, unit: Unit, state: UnitState | undefined): boolean => !isAnswered(review, unit.phase, unit.key) && !degraded(review, unit) && !exhausted(review, unit, state);
 
 const usd = (value: number): string => value.toFixed(2);
 
@@ -207,10 +205,10 @@ export function nextStep(review: ReviewState, live: Live): Step {
 
   const units = unitsOf(review, phase);
   const states = unitsOfPhase(review, phase);
-  const degradations = units.filter((unit) => unit.degrades && exhausted(states[unit.key])).map((unit) => degradationOf(review, unit, states[unit.key])).filter((degradation): degradation is Degradation => degradation !== null);
+  const degradations = units.filter((unit) => unit.degrades && exhausted(review, unit, states[unit.key])).map((unit) => degradationOf(review, unit, states[unit.key])).filter((degradation): degradation is Degradation => degradation !== null);
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
-  const blocking = units.find((unit) => !unit.degrades && exhausted(states[unit.key]));
+  const blocking = units.find((unit) => !unit.degrades && exhausted(review, unit, states[unit.key]));
   if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
