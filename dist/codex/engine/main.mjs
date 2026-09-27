@@ -23912,7 +23912,7 @@ function sumReported(values) {
   const reported = values.filter((value) => value !== null);
   return reported.length === 0 ? null : reported.reduce((total, value) => total + value, 0);
 }
-var cents = (value) => value === null ? null : Math.round(value * 100) / 100;
+var cents = (value) => value === null ? null : Math.round(Number((value * 100).toPrecision(12))) / 100;
 function wallSeconds(workers) {
   const intervals = workers.map((worker) => ({ start: Date.parse(worker.finish.startedAt), end: Date.parse(worker.finish.endedAt) })).filter((interval) => interval.end > interval.start).sort((a, b) => a.start - b.start);
   let total = 0;
