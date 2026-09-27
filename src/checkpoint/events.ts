@@ -62,11 +62,19 @@ export const scopeCapturedV1 = z.strictObject({
 });
 export type ScopeState = z.infer<typeof scopeCapturedV1>;
 
-/** How hard a worker's model thinks. Every level a runtime can take; an adapter declares which of them it has. */
+/**
+ * How hard a worker's model thinks. Every level a runtime can take; an
+ * adapter declares which of them it has. This is the runtime contract's
+ * enum and may grow; `worker.launched@1` records its own frozen copy.
+ */
 export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export type Effort = z.infer<typeof effortSchema>;
 
-/** What a worker may do to the reviewed tree: read it, or also edit it. */
+/**
+ * What a worker may do to the reviewed tree: read it, or also edit it. The
+ * runtime contract's enum, like `effortSchema`; `worker.launched@1` records
+ * its own frozen copy.
+ */
 export const accessSchema = z.enum(['read-only', 'edit']);
 export type Access = z.infer<typeof accessSchema>;
 
@@ -88,6 +96,12 @@ export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,1
  * A worker is about to be spawned (TD12). Written before the process exists,
  * so a worker that never answers is still on the ledger with the session its
  * transcript is under, whenever the runtime lets the engine choose it.
+ *
+ * The effort and access enums are written out here rather than taken from
+ * `effortSchema` and `accessSchema`: those belong to the runtime contract and
+ * may change, and this version's shape must not change with them. A contract
+ * value this version cannot hold fails to typecheck where the launcher builds
+ * the launch, which is the signal to add `worker.launched@2`.
  */
 export const workerLaunchedV1 = z.strictObject({
   workerId: z.uuid(),
@@ -99,12 +113,12 @@ export const workerLaunchedV1 = z.strictObject({
   /** The version the preflight observed at this launch. */
   version: z.string().min(1),
   model: z.string().min(1),
-  effort: effortSchema,
-  access: accessSchema,
+  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
+  access: z.enum(['read-only', 'edit']),
   shell: z.boolean(),
   /** The session the worker runs under when known before launch: pinned, or the one it continues. */
   sessionId: sessionIdSchema.nullable(),
-  /** The session this worker continues, or null for a fresh worker (R9). */
+  /** The session this worker continues, or null for a fresh worker (R9). When set, `sessionId` is the same session. */
   resumes: sessionIdSchema.nullable(),
   /** The directory the worker may write temporary files to, or null when the runtime cannot allow it. */
   scratch: z.string().min(1).nullable(),
@@ -114,6 +128,9 @@ export const workerLaunchedV1 = z.strictObject({
   prompt: artifactReferenceSchema,
   /** The compiled draft-07 output schema, exactly as the runtime received it. */
   schema: artifactReferenceSchema,
+}).refine((launch) => launch.resumes === null || launch.sessionId === launch.resumes, {
+  message: 'a continuation runs under the session it resumes, so sessionId must equal resumes',
+  path: ['sessionId'],
 });
 export type WorkerLaunch = z.infer<typeof workerLaunchedV1>;
 
@@ -151,6 +168,9 @@ export const workerFinishedV1 = z.strictObject({
   finalMessage: artifactReferenceSchema.nullable(),
   /** The validated answer as JSON, present exactly when the outcome is `completed`. */
   output: artifactReferenceSchema.nullable(),
+}).refine((finish) => (finish.outcome === 'completed') === (finish.output !== null), {
+  message: 'output is present exactly when the outcome is completed',
+  path: ['output'],
 });
 export type WorkerFinish = z.infer<typeof workerFinishedV1>;
 
