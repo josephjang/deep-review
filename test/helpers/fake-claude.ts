@@ -6,11 +6,11 @@
 // review worker's prompt on stdin, the scripted step decides the answer.
 import { writeFileSync } from 'node:fs';
 import { claudeFlags } from '../../src/runtime/claude.ts';
-import { answer, beginScriptedStep, environment, option, printHelp, readStdin, record, scriptedStep } from './fake-runtime.ts';
+import { answer, beginScriptedStep, environment, option, printHelp, readStdin, record, scriptedStep, versionOutput } from './fake-runtime.ts';
 
 const argv = process.argv.slice(2);
 if (argv[0] === '--version') {
-  process.stdout.write(`${environment.FAKE_VERSION ?? '2.1.283 (Claude Code)'}\n`);
+  process.stdout.write(`${versionOutput('2.1.283 (Claude Code)')}\n`);
 } else if (argv[0] === '--help') {
   printHelp(claudeFlags);
 } else {
