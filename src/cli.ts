@@ -120,8 +120,9 @@ export async function main(argv: readonly string[], io: CommandIo): Promise<numb
       io.stderr(`${error.message}\n\n${usage}\n`);
       return 1;
     }
-    if (error instanceof ReviewRefusedError && error.code !== null) {
-      io.stderr(`blocked (${error.code}): ${error.message}\n`);
+    // Every refusal exits 2, as the usage promises; one with a blocker code names it.
+    if (error instanceof ReviewRefusedError) {
+      io.stderr(error.code === null ? `refused: ${error.message}\n` : `blocked (${error.code}): ${error.message}\n`);
       return 2;
     }
     if (error instanceof EngineError) {
