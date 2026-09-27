@@ -26,8 +26,9 @@ Focus on what the first pass tends to miss:
   file.
 - **Efficiency / altitude / conventions gaps**: a wasted-work or
   memory-retention pattern, a shallow bandaid a deeper fix would
-  generalize, or a clear CLAUDE.md violation that sits outside the changed
-  hunks but inside a touched file.
+  generalize, or a clear violation of a `CLAUDE.md`, `CLAUDE.local.md` or
+  `AGENTS.md` rule that sits outside the changed hunks but inside a
+  touched file.
 
 The sweep is a finder pass: the finder output contract (in the sweep's
 role prompt, which is this one) governs the cap of 12 additional

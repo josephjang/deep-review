@@ -199,6 +199,18 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  it('names the three rules files wherever CONVENTIONS is defined, judged or swept (R12 of the read-only review)', () => {
+    const fragment = (name: string): string => readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8');
+    const definition = fragment('angles-conventions.md');
+    for (const path of ['~/.claude/CLAUDE.md', '~/.codex/AGENTS.md', '`CLAUDE.md`', '`CLAUDE.local.md`', '`AGENTS.md`']) assert.ok(definition.includes(path), `angles-conventions.md names ${path}`);
+    assert.match(definition, /ancestor of a\s+changed file/);
+    const rubric = fragment('rubrics.md').slice(fragment('rubrics.md').indexOf('### Rubric for the CONVENTIONS angle'));
+    assert.match(rubric, /`CLAUDE\.md`, `CLAUDE\.local\.md`\s+or `AGENTS\.md`/);
+    assert.match(fragment('phase3-sweep.md'), /`CLAUDE\.md`, `CLAUDE\.local\.md` or\s+`AGENTS\.md` rule/);
+    // The angle is defined, judged and swept by roles the review runs; the three files reach each of them.
+    for (const key of ['finder-CONVENTIONS', 'verifier', 'sweep', 'triage']) assert.match(roles.find((role) => role.key === key)!.prompt, /AGENTS\.md/, key);
+  });
+
   it('tells the triage and every finder how the engine runs every angle and assigns every id', () => {
     const triage = roles.find((role) => role.key === 'triage')!;
     assert.match(triage.prompt, /Every angle runs on every review/);
