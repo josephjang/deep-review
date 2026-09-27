@@ -7,19 +7,25 @@ import { z } from 'zod';
 import { maxDecodeBytes, outputLines, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
 import {
   claudeAdapter,
+  claudeCommand,
+  claudeCredentialSettings,
   claudeEnvironment,
   claudeFlags,
   claudeSessionMarkers,
   claudeTools,
+  createClaudeAdapter,
   posixArgumentLimit,
   refuseOversizedCommandLine,
   thinkingOverrides,
   truncateDetail,
   windowsArgumentLength,
   windowsCommandLineLimit,
+  type ClaudeSettings,
 } from '../../src/runtime/claude.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
+import { launcherPins } from '../../src/runtime/environment.ts';
 import { InheritedOverrideError, InvalidInvocationError } from '../../src/runtime/errors.ts';
+import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { LauncherSandbox } from '../helpers/launcher.ts';
 import { textOutputs } from '../helpers/outputs.ts';
 
@@ -119,6 +125,118 @@ describe('claude command', () => {
     const used = new Set(variants.flatMap((command) => command.args.filter((arg) => arg.startsWith('--'))));
     assert.deepEqual([...used].sort(), [...claudeFlags].sort());
     assert.deepEqual(claudeAdapter.qualification.help, [{ args: ['--help'], flags: claudeFlags }]);
+  });
+});
+
+describe('Claude settings option', () => {
+  const settingsOf = (args: readonly string[]): unknown => JSON.parse(args[args.indexOf('--settings') + 1]!);
+  const credentials = { apiKeyHelper: '/k', env: { CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: 'us-east-1' } };
+
+  it('keeps the --settings value byte for byte when built without options', () => {
+    for (const adapter of [createClaudeAdapter(), createClaudeAdapter({}), createClaudeAdapter({ settings: {} }), defaultRuntimes().get('claude')]) {
+      const args = adapter.command(invocation(), plan()).args;
+      assert.equal(args[args.indexOf('--settings') + 1], '{"autoMemoryEnabled":false,"claudeMdExcludes":["**"]}');
+      assert.deepEqual(args, claudeAdapter.command(invocation(), plan()).args);
+    }
+  });
+
+  it('merges the settings into --settings for a fresh worker and a continuation, and changes nothing else', () => {
+    const adapter = createClaudeAdapter({ settings: credentials });
+    const expected = { apiKeyHelper: '/k', env: { CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: 'us-east-1' }, autoMemoryEnabled: false, claudeMdExcludes: ['**'] };
+    for (const [change, planChange] of [[{}, {}], [{ resume: session }, { resume: session }]] as const) {
+      const args = adapter.command(invocation(change), plan(planChange)).args;
+      assert.deepEqual(settingsOf(args), expected);
+      const without = claudeAdapter.command(invocation(change), plan(planChange)).args;
+      const at = args.indexOf('--settings') + 1;
+      assert.deepEqual([...args.slice(0, at), ...args.slice(at + 1)], [...without.slice(0, at), ...without.slice(at + 1)]);
+    }
+  });
+
+  it('takes every credential helper Claude Code has', () => {
+    const every = Object.fromEntries(claudeCredentialSettings.map((key) => [key, `/bin/${key}`]));
+    assert.deepEqual(claudeCredentialSettings, ['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'proxyAuthHelper']);
+    assert.deepEqual(settingsOf(createClaudeAdapter({ settings: every }).command(invocation(), plan()).args), { ...every, autoMemoryEnabled: false, claudeMdExcludes: ['**'] });
+  });
+
+  it('lets the keys that switch sources off win over a settings key of the same name', () => {
+    const overlapping = { autoMemoryEnabled: true, claudeMdExcludes: [] } as unknown as ClaudeSettings;
+    const merged = settingsOf(claudeCommand(invocation(), plan(), overlapping).args);
+    assert.deepEqual(merged, { autoMemoryEnabled: false, claudeMdExcludes: ['**'] });
+  });
+
+  it('refuses a setting that is not a credential helper or env, naming it', () => {
+    for (const key of ['hooks', 'permissions', 'enabledPlugins', 'otelHeadersHelper', 'autoMemoryEnabled', 'claudeMdExcludes', 'model']) {
+      assert.throws(
+        () => createClaudeAdapter({ settings: { [key]: 'x' } as never }),
+        new RegExp(`Claude settings have unknown key "${key}"; a Claude adapter takes only apiKeyHelper, awsAuthRefresh, awsCredentialExport, gcpAuthRefresh, proxyAuthHelper, env`),
+        key,
+      );
+    }
+  });
+
+  it('refuses options and settings of the wrong shape', () => {
+    assert.throws(() => createClaudeAdapter({ setting: {} } as never), /Unknown Claude option "setting"; use settings/);
+    assert.throws(() => createClaudeAdapter(null as never), /Claude options must be an object/);
+    assert.throws(() => createClaudeAdapter({ settings: [] as never }), /Claude settings must be an object/);
+    for (const value of ['', '  ', 3, '\uD800']) {
+      assert.throws(() => createClaudeAdapter({ settings: { apiKeyHelper: value as string } }), /apiKeyHelper must be a non-empty string/, String(value));
+    }
+    assert.throws(() => createClaudeAdapter({ settings: { env: ['A=1'] as never } }), /env must be an object of strings/);
+    assert.throws(() => createClaudeAdapter({ settings: { env: { A: 1 } as never } }), /env value of A is not a string/);
+    assert.throws(() => createClaudeAdapter({ settings: { env: { A: 'a\0b' } } }), /env value of A is not a string/);
+    for (const name of ['', 'A=B', 'A\0B']) {
+      assert.throws(() => createClaudeAdapter({ settings: { env: { [name]: '1' } } }), /env has a name .* no environment can hold/, JSON.stringify(name));
+    }
+  });
+
+  it('keeps the settings it was built with when the caller changes its object later', () => {
+    const env: Record<string, string> = { ANTHROPIC_BASE_URL: 'https://a.example' };
+    const given = { apiKeyHelper: '/k', env };
+    const adapter = createClaudeAdapter({ settings: given });
+    given.apiKeyHelper = '/other';
+    env.ANTHROPIC_BASE_URL = 'https://b.example';
+    env.MAX_THINKING_TOKENS = '1';
+    assert.deepEqual(settingsOf(adapter.command(invocation(), plan()).args), { apiKeyHelper: '/k', env: { ANTHROPIC_BASE_URL: 'https://a.example' }, autoMemoryEnabled: false, claudeMdExcludes: ['**'] });
+  });
+
+  const reserved = [...thinkingOverrides, 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', ...claudeSessionMarkers, ...launcherPins];
+
+  it('refuses a settings env name the engine pins or drops by its exact name on every platform', () => {
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      for (const name of reserved) {
+        const adapter = createClaudeAdapter({ settings: { env: { HOME: '/h', [name]: '1' } } });
+        assert.throws(() => adapter.command(invocation(), plan({ platform })), new RegExp(`Claude settings env sets ${name}, which the engine decides for every worker`), `${platform} ${name}`);
+      }
+    }
+  });
+
+  it('refuses any spelling of a reserved name on Windows and leaves another spelling alone on POSIX', () => {
+    for (const name of reserved) {
+      const spelled = name === name.toLowerCase() ? name.toUpperCase() : name.toLowerCase();
+      const adapter = createClaudeAdapter({ settings: { env: { [spelled]: '1' } } });
+      assert.throws(() => adapter.command(invocation(), plan({ platform: 'win32' })), new RegExp(`env sets ${spelled},`), spelled);
+      for (const platform of ['linux', 'darwin'] as const) {
+        assert.deepEqual(settingsOf(adapter.command(invocation(), plan({ platform })).args), { env: { [spelled]: '1' }, autoMemoryEnabled: false, claudeMdExcludes: ['**'] }, spelled);
+      }
+    }
+  });
+
+  it('counts the settings toward the command-line limit and names them as the remedy', () => {
+    const large = createClaudeAdapter({ settings: { apiKeyHelper: 'k'.repeat(posixArgumentLimit) } });
+    assert.throws(
+      () => large.command(invocation(), plan({ platform: 'linux' })),
+      (error: unknown) => error instanceof InvalidInvocationError && /the value of --settings is \d+ bytes.*the adapter's settings are passed on the command line/.test(error.message),
+    );
+    const wide = createClaudeAdapter({ settings: { apiKeyHelper: 'k'.repeat(windowsCommandLineLimit) } });
+    assert.throws(() => wide.command(invocation(), plan({ platform: 'win32' })), /Windows allows; the compiled output schema and the adapter's settings/);
+    assert.doesNotThrow(() => createClaudeAdapter({ settings: { apiKeyHelper: 'k'.repeat(1000) } }).command(invocation(), plan({ platform: 'win32' })));
+  });
+
+  it('is chosen through the default runtimes, beside the Codex options', () => {
+    const runtimes = defaultRuntimes({ claude: { settings: credentials }, codex: { windowsSandbox: 'elevated' } });
+    assert.deepEqual(settingsOf(runtimes.get('claude').command(invocation(), plan()).args), { ...credentials, autoMemoryEnabled: false, claudeMdExcludes: ['**'] });
+    assert.ok(runtimes.get('codex').command({ ...invocation(), runtime: 'codex', effort: 'high' }, plan({ platform: 'win32' })).args.includes('windows.sandbox="elevated"'));
+    assert.throws(() => defaultRuntimes({ claude: { settings: { hooks: {} } as never } }), /unknown key "hooks"/);
   });
 });
 
@@ -395,6 +513,26 @@ describe('Claude Code worker through the launcher', () => {
 
   it('refuses an oversized command line before anything is recorded or run', async () => {
     await assert.rejects(box.run(box.claude({ outputSchema: hugeSchema })), InvalidInvocationError);
+    assert.ok(box.untouched());
+  });
+
+  it('hands the adapter settings to the worker it starts, fresh and continued', async () => {
+    const settings = { apiKeyHelper: '/bin/key', env: { ANTHROPIC_BASE_URL: 'https://gateway.invalid' } };
+    const runtimes = defaultRuntimes({ claude: { settings } });
+    const expected = { ...settings, autoMemoryEnabled: false, claudeMdExcludes: ['**'] };
+    const settingsOf = (argv: readonly string[]): unknown => JSON.parse(argv[argv.indexOf('--settings') + 1]!);
+    const first = await box.run(box.claude(), {}, { runtimes });
+    assert.equal(first.outcome, 'completed', first.error ?? '');
+    assert.deepEqual(settingsOf(box.recorded().argv), expected);
+    const second = await box.run(box.claude({ resume: first.runtime.sessionIds[0]! }), {}, { runtimes });
+    assert.equal(second.outcome, 'completed', second.error ?? '');
+    assert.ok(box.recorded().argv.includes('--resume'));
+    assert.deepEqual(settingsOf(box.recorded().argv), expected);
+  });
+
+  it('refuses settings that set a pinned variable before anything is recorded or run', async () => {
+    const runtimes = defaultRuntimes({ claude: { settings: { env: { CLAUDE_CODE_EFFORT_LEVEL: 'max' } } } });
+    await assert.rejects(box.run(box.claude(), {}, { runtimes }), /Claude settings env sets CLAUDE_CODE_EFFORT_LEVEL/);
     assert.ok(box.untouched());
   });
 

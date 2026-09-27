@@ -76,7 +76,19 @@ its own scratch directory under the system's temporary directory, never
 into the reviewed tree or the git directory, and at a timeout its whole
 process tree is killed. On Windows, Codex workers use Codex's unelevated
 sandbox unless the adapter is built with `windowsSandbox: 'elevated'`,
-which needs Codex's one-time elevated setup on the machine. See
+which needs Codex's one-time elevated setup on the machine.
+
+Workers never read the user's own Claude Code settings or Codex config,
+so credentials and providers kept only there are given to the adapters
+explicitly: `defaultRuntimes({ claude: { settings }, codex: { provider } })`.
+Claude `settings` take the credential helpers (`apiKeyHelper`,
+`awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`,
+`proxyAuthHelper`) and an `env` block, such as `CLAUDE_CODE_USE_BEDROCK`;
+a Codex `provider` is `{ id, baseUrl, envKey?, queryParams? }`, with the
+API key in the inherited variable `envKey` names. Anything else is
+refused by name, and neither can change the pinned effort. The ledger
+does not record them, so a continuation runs with whatever options its
+caller builds the runtimes with. See
 `docs/changes/2026-09-27-runtime-adapter.requirements.md` and its design.
 
 ## Developing

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { pinVariables, spellingsOf, withoutVariables, workerEnvironment } from '../../src/runtime/environment.ts';
+import { launcherPins, pinVariables, spellingsOf, withoutVariables, workerEnvironment } from '../../src/runtime/environment.ts';
 
 describe('environment helpers on Windows, where names are case-insensitive', () => {
   it('finds every spelling of a name', () => {
@@ -61,6 +61,12 @@ describe('the worker environment the launcher pins (R7, R8)', () => {
       assert.equal(posix.MSBuildDisableNodeReuse, '0');
       assert.equal(posix.TMP, '/scratch');
       assert.equal(posix.MSBUILDDISABLENODEREUSE, '1');
+    }
+  });
+
+  it('lists as launcherPins exactly the variables it sets, so an adapter can refuse each', () => {
+    for (const platform of ['win32', 'linux'] as const) {
+      assert.deepEqual(Object.keys(workerEnvironment({}, platform === 'win32' ? 'C:\\scratch' : '/scratch', platform)).sort(), [...launcherPins].sort());
     }
   });
 

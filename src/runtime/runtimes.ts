@@ -1,9 +1,10 @@
-import { claudeAdapter } from './claude.ts';
+import { createClaudeAdapter, type ClaudeOptions } from './claude.ts';
 import { createCodexAdapter, type CodexOptions } from './codex.ts';
 import { RuntimeRegistry } from './registry.ts';
 
 /** Per-runtime settings for the runtimes the engine ships. */
 export interface RuntimeOptions {
+  readonly claude?: ClaudeOptions;
   readonly codex?: CodexOptions;
 }
 
@@ -13,5 +14,5 @@ export interface RuntimeOptions {
  * register into another's.
  */
 export function defaultRuntimes(options: RuntimeOptions = {}): RuntimeRegistry {
-  return new RuntimeRegistry([claudeAdapter, createCodexAdapter(options.codex)]);
+  return new RuntimeRegistry([createClaudeAdapter(options.claude), createCodexAdapter(options.codex)]);
 }
