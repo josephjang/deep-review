@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { RunClosedError } from '../../src/checkpoint/errors.ts';
@@ -286,6 +287,22 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual(Object.values(state.workers).filter((worker) => worker.status !== 'finished'), [], 'no worker is left running on the ledger');
     assert.notEqual(state.review!.units['finders:REMOVALS']?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');
     assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released after the last worker');
+  });
+
+  it('refuses to resume a run from another worktree of the repository, naming the run\'s worktree', async () => {
+    box.script({ triage: { exit: 2 } });
+    await box.review('claude');
+    const runId = box.run().id;
+    // A second worktree shares the checkpoint, which lives under the common git directory.
+    const other = join(box.directory, 'other');
+    execFileSync('git', ['worktree', 'add', '--detach', other, 'HEAD'], { cwd: box.repo, stdio: 'ignore' });
+    const otherRoot = realpathSync.native(other);
+    box.script({});
+    await assert.rejects(box.review('claude', { worktree: otherRoot }), (error: unknown) => error instanceof ReviewRefusedError && error.code === null
+      && error.message === `run ${runId} is active in worktree ${box.repo}, not ${otherRoot}; run the command there, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\``);
+    assert.equal(Object.values(box.run().workers).length, 2, 'nothing ran in the other worktree');
+    // The run's own worktree still resumes it.
+    report(await box.review('claude'));
   });
 
   it('refuses a resumed run whose runtime differs, and two active runs', async () => {
