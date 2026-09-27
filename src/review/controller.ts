@@ -5,6 +5,7 @@
  * report is written or the run blocks. Every fact the planner needs is an
  * event, so a resumed run continues from the last step the ledger holds.
  */
+import { resolve } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import { StaleRevisionError } from '../checkpoint/errors.ts';
 import type { Blocker, ReviewConfiguration, ScopeRequest } from '../checkpoint/events.ts';
@@ -281,6 +282,10 @@ function openRun(checkpoint: Checkpoint, options: ReviewOptions, log: (line: str
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   try {
     const found = findActiveRun(checkpoint);
+    // The checkpoint is shared by every worktree of the repository, while a run's scope, worktree checks and workers belong to the worktree it was created in.
+    if (found !== null && !sameDirectory(found.worktree, options.worktree)) {
+      throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${options.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
+    }
     if (found !== null && found.review !== null && found.review.configuration.runtime !== options.runtime) {
       throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
     }
@@ -293,6 +298,12 @@ function openRun(checkpoint: Checkpoint, options: ReviewOptions, log: (line: str
   } finally {
     releaseStart();
   }
+}
+
+/** Whether two worktree paths name one directory: the same resolved path, compared without case on Windows, whose paths are case-insensitive. */
+function sameDirectory(a: string, b: string): boolean {
+  const [left, right] = [resolve(a), resolve(b)];
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 /**

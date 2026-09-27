@@ -16,7 +16,7 @@ export class StructuralCheckError extends EngineError {
   override readonly name = 'StructuralCheckError';
 }
 
-/** The review cannot start or continue for a reason the operator must act on before anything is recorded: a held lock, an unqualified runtime, two active runs. */
+/** The review cannot start or continue for a reason the operator must act on before anything is recorded: a held lock, an unqualified runtime, two active runs, an active run pinned to another runtime or started in another worktree. The command exits 2 with it. */
 export class ReviewRefusedError extends EngineError {
   override readonly name = 'ReviewRefusedError';
   /** The blocker code the refusal prints, when it has one. */

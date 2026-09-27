@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync4 } from "node:fs";
-import { join as join17, resolve as resolve10 } from "node:path";
+import { join as join17, resolve as resolve11 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -5056,7 +5056,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve11) {
+function isRecursive(inst, stack, resolve12) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5066,7 +5066,7 @@ function isRecursive(inst, stack, resolve11) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve11);
+      const answer = isRecursive(child, stack, resolve12);
       if (answer > result)
         result = answer;
     }
@@ -5077,7 +5077,7 @@ function isRecursive(inst, stack, resolve11) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve11) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve12) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -5141,7 +5141,7 @@ function isRecursive(inst, stack, resolve11) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve11 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve12 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -21179,6 +21179,9 @@ function engineRolesRoot(directory = import.meta.dirname) {
   return readEngineSidecar(directory) === null ? repositoryRolesRoot() : join6(directory, "roles");
 }
 
+// src/review/controller.ts
+import { resolve as resolve9 } from "node:path";
+
 // src/runtime/errors.ts
 var InvalidInvocationError = class extends EngineError {
   name = "InvalidInvocationError";
@@ -21422,7 +21425,7 @@ async function runProcess(request) {
       return notStarted(error62.message, startedAt);
     }
     superviseChild(child);
-    return await new Promise((resolve11) => {
+    return await new Promise((resolve12) => {
       let started = false;
       let kill;
       const timer = setTimeout(() => {
@@ -21434,14 +21437,14 @@ async function runProcess(request) {
       child.on("error", (error62) => {
         if (started) return;
         clearTimeout(timer);
-        resolve11(notStarted(error62.message, startedAt));
+        resolve12(notStarted(error62.message, startedAt));
       });
       child.once("close", (code, signal) => {
         if (!started) return;
         clearTimeout(timer);
         const endedAt = (/* @__PURE__ */ new Date()).toISOString();
-        if (kill === void 0 || kill.status === "not-running") resolve11({ termination: "exited", exitCode: code, signal, startedAt, endedAt });
-        else resolve11({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
+        if (kill === void 0 || kill.status === "not-running") resolve12({ termination: "exited", exitCode: code, signal, startedAt, endedAt });
+        else resolve12({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
       });
     });
   } finally {
@@ -21535,7 +21538,7 @@ function positiveLimit(name, value) {
   return value;
 }
 function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
-  return new Promise((resolve11, reject) => {
+  return new Promise((resolve12, reject) => {
     let child;
     try {
       child = spawn2(executable, [...args], {
@@ -21589,7 +21592,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
       settled = true;
       clearTimeout(timer);
       if (code === 0) {
-        resolve11(Buffer.concat(stdout).toString("utf8"));
+        resolve12(Buffer.concat(stdout).toString("utf8"));
         return;
       }
       const printedError = Buffer.concat(stderr).toString("utf8").trim();
@@ -24231,6 +24234,9 @@ function openRun(checkpoint, options2, log) {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   try {
     const found = findActiveRun(checkpoint);
+    if (found !== null && !sameDirectory(found.worktree, options2.worktree)) {
+      throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${options2.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
+    }
     if (found !== null && found.review !== null && found.review.configuration.runtime !== options2.runtime) {
       throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options2.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
     }
@@ -24243,6 +24249,10 @@ function openRun(checkpoint, options2, log) {
   } finally {
     releaseStart();
   }
+}
+function sameDirectory(a, b) {
+  const [left, right] = [resolve9(a), resolve9(b)];
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 function append(checkpoint, state, events) {
   let current = state;
@@ -24297,7 +24307,7 @@ function describeRun(state, adapter, evidencePath) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3, statSync as statSync4 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, resolve as resolve9 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, resolve as resolve10 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var isFile2 = (path) => {
@@ -24318,7 +24328,7 @@ function refuseShim(executable, flag = "--executable") {
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
   if (isAbsolute4(name) || name.includes("/") || name.includes("\\")) {
-    const absolute = resolve9(cwd, name);
+    const absolute = resolve10(cwd, name);
     if (!isFile2(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute));
   }
@@ -24449,7 +24459,7 @@ async function run(argv, io) {
   for (const flag of Object.keys(values)) {
     if (values[flag] !== void 0 && !allowed[command].includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve10(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve11(io.cwd, values.repo));
   switch (command) {
     case "review":
       return review(values, io, location.root, location.worktree);
