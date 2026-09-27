@@ -4,14 +4,13 @@
  * to them by index (TD4), and describes the same fields its output schema
  * demands (R4). The closing sentence is appended by the prompt composer.
  */
-import type { CandidateState } from '../checkpoint/review-fold.ts';
+import { rawLocation, scopeLocation, type CandidateState } from '../checkpoint/review-fold.ts';
 import type { Lead } from '../checkpoint/events.ts';
 import { finderAngles, type FinderAngle, type Verdict } from './vocabulary.ts';
 
 /** Where a candidate points, as a worker reads it: the scope location, or the finder's own with the unlocated mark. */
 export function describeLocation(candidate: Pick<CandidateState, 'file' | 'line' | 'located' | 'rawFile' | 'rawLine'>): string {
-  if (candidate.located && candidate.file !== null && candidate.line !== null) return `${candidate.file}:${String(candidate.line)}`;
-  return `${candidate.rawFile}:${String(candidate.rawLine)} (unlocated: not a changed file and line of the scope; read it if it exists)`;
+  return scopeLocation(candidate) ?? `${rawLocation(candidate)} (unlocated: not a changed file and line of the scope; read it if it exists)`;
 }
 
 /** One candidate as a numbered item of a task, with the fields the worker judges by. */
