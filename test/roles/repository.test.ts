@@ -57,6 +57,50 @@ describe('the repository\'s roles/', () => {
     ['phase1-finders.md', /finder angles are defined below/, ['angles-scan.md', 'angles-analyst.md', 'angles-scout.md', 'angles-conventions.md']],
   ];
 
+  /** Each role key whose manifest entry names `fragment`. */
+  const keysNaming = (fragment: string): string[] => roles.filter((role) => role.fragments.some((named) => named.name === fragment)).map((role) => role.key);
+
+  /** The roles that run the fixer's prompt: the fix pass, documentation reconciliation and a steering answer. */
+  const fixerRoles = ['fixer', 'documentation', 'answer'];
+
+  /**
+   * Every place a fragment says that a role's prompt already carries some
+   * text, so its reader need not paste it, or that the text it relies on
+   * appears in the reader's own prompt: the fragment, the words that say
+   * so, the roles meant and the fragments that hold that text. Only the
+   * manifest makes such a sentence true.
+   */
+  const carried: readonly [fragment: string, words: RegExp, roles: readonly string[], fragments: readonly string[]][] = [
+    ['phase1-finders.md', /output contract are in the finder's role prompt/, expectedRoles.filter((key) => key.startsWith('finder-')), ['finder-lead.md', 'finder-output.md']],
+    ['phase1-finders.md', /it appears here because you consume/, keysNaming('phase1-finders.md'), ['finder-output.md']],
+    ['phase2-verify.md', /They are in the\s+verifier's role prompt/, ['verifier'], ['rubrics.md']],
+    ['phase2-verify.md', /They appear here because you need/, keysNaming('phase2-verify.md'), ['rubrics.md']],
+    ['phase3-sweep.md', /output contract \(in the sweep's\s+role prompt/, ['sweep'], ['finder-output.md']],
+    ['step3-audit.md', /they are in the auditor's role prompt/, ['auditor'], ['step3-verdicts.md']],
+    ['postreview-fix-test.md', /its test\s+requirements live in its role prompt/, fixerRoles, ['fixer-apply.md', 'fixer-tests.md']],
+    ['postreview-fix-test.md', /dispatch one fixer in documentation reconciliation mode/, ['documentation'], ['fixer-documentation.md']],
+  ];
+
+  it('gives each role the text a fragment says its prompt carries', () => {
+    for (const [fragment, words, keys, fragments] of carried) {
+      assert.match(readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, fragment), 'utf8'), words, fragment);
+      assert.ok(keys.length > 0, `${fragment}: no role is meant by ${String(words)}`);
+      for (const key of keys) {
+        const role = roles.find((candidate) => candidate.key === key);
+        assert.ok(role, `${fragment}: no role ${key}`);
+        const names = role.fragments.map((named) => named.name);
+        for (const name of fragments) assert.ok(names.includes(name), `${fragment} says ${key} carries ${name}, but its manifest entry is ${names.join(', ')}`);
+      }
+    }
+  });
+
+  it('gives each finder the definition of its own angle', () => {
+    for (const role of roles.filter((candidate) => candidate.key.startsWith('finder-'))) {
+      const angle = role.key.slice('finder-'.length);
+      assert.match(role.prompt, new RegExp(`^### Angle ${angle} — `, 'm'), role.key);
+    }
+  });
+
   it('places the text a fragment says is below it after that fragment, in every role', () => {
     for (const [fragment, words, below] of textBelow) {
       assert.match(readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, fragment), 'utf8'), words, fragment);
