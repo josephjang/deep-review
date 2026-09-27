@@ -11,7 +11,7 @@
 //   FAKE_HUGE        print this many bytes to stdout instead of an answer
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 export const environment = process.env;
 
@@ -21,13 +21,20 @@ export function printHelp(flags: readonly string[]): void {
   process.stdout.write(`Usage: fake [options]\n\nOptions:\n${flags.filter((flag) => flag !== omit).map((flag) => `  ${flag} <value>  a flag\n`).join('')}`);
 }
 
+/** Write a file whole, under a temporary name and then renamed, so a polling test never reads it empty or half written. */
+function writeWhole(file: string, text: string): void {
+  const temporary = `${file}.${String(process.pid)}.tmp`;
+  writeFileSync(temporary, text);
+  renameSync(temporary, file);
+}
+
 /** Write what the fake was given, for the test to assert on. */
 export function record(argv: readonly string[], stdin: string): void {
   const file = environment.FAKE_RECORD;
   if (file === undefined) return;
   const pinned = ['TEMP', 'TMP', 'TMPDIR', 'MSBUILDDISABLENODEREUSE', 'DOTNET_CLI_USE_MSBUILD_SERVER', 'UseSharedCompilation', 'UseRazorBuildServer', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'Path', 'PATH'];
   const seen = Object.fromEntries(Object.entries(process.env).filter(([name]) => pinned.some((pin) => pin.toUpperCase() === name.toUpperCase())));
-  writeFileSync(file, JSON.stringify({ argv, stdin, cwd: process.cwd(), environment: seen }));
+  writeWhole(file, JSON.stringify({ argv, stdin, cwd: process.cwd(), environment: seen }));
 }
 
 /** Block until the marker file exists. */
@@ -46,7 +53,8 @@ export async function waitForMarker(): Promise<void> {
  */
 export function hangWithGrandchild(pidFile: string): void {
   const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true, detached: process.platform === 'win32' });
-  writeFileSync(pidFile, String(grandchild.pid));
+  if (grandchild.pid === undefined) throw new Error('The grandchild did not start');
+  writeWhole(pidFile, String(grandchild.pid));
   setInterval(() => {}, 1000);
 }
 
