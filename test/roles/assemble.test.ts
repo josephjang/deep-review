@@ -60,6 +60,24 @@ describe('assembleRoles', () => {
   rejectsManifest('refuses a manifest that fails the schema', { schemaVersion: 1, roles: {} }, {}, /at least one role/);
   rejectsManifest('refuses files under fragments/ that no role names, listing them', { schemaVersion: 1, roles: { r: ['a.md'] } },
     { 'a.md': 'a\n', 'orphan.md': 'o\n', 'notes.txt': 'n\n' }, /no role names: notes\.txt, orphan\.md$/);
+  // JSON.parse keeps the last of two equal keys, so r would silently become ['b.md'] and a.md stays in use through s.
+  rejectsManifest('refuses a role key given twice', '{"schemaVersion":1,"roles":{"r":["a.md"],"s":["a.md","b.md"],"r":["b.md"]}}',
+    { 'a.md': 'a\n', 'b.md': 'b\n' }, /gives the key "r" twice in one object/);
+  rejectsManifest('refuses a repeated key spelled with an escape', '{"schemaVersion":1,"roles":{"r":["a.md"],"\\u0072":["a.md"]}}',
+    { 'a.md': 'a\n' }, /gives the key "r" twice in one object/);
+  rejectsManifest('refuses a top-level key given twice', '{"schemaVersion":1,"roles":{"r":["a.md"]},"roles":{"r":["a.md"]}}',
+    { 'a.md': 'a\n' }, /gives the key "roles" twice in one object/);
+  rejectsManifest('refuses a key given twice with whitespace before its colon', '{\n  "schemaVersion": 1,\n  "roles": {\n    "r" : ["a.md"],\n    "r"\t: ["a.md"]\n  }\n}\n',
+    { 'a.md': 'a\n' }, /gives the key "r" twice in one object/);
+
+  it('accepts one key in two different objects, and a quote and colon inside a string', () => {
+    seed(root, '{"schemaVersion":1,"roles":{"roles":["a.md"],"schemaVersion":["a.md"]}}', { 'a.md': 'a\n' });
+    assert.deepEqual(assembleRoles(root).map((role) => role.key), ['roles', 'schemaVersion']);
+    // The escaped quote and the colon belong to the string, so the string is no key and the schema reports it.
+    seed(root, '{"schemaVersion":1,"roles":{"r":["a.md", "r\\":"]}}', { 'a.md': 'a\n' });
+    assert.throws(() => readRoleManifest(root), (error: unknown) =>
+      error instanceof InvalidRoleManifestError && /fragment name/.test(error.message) && !/twice/.test(error.message));
+  });
 
   it('refuses a missing manifest', () => {
     assert.throws(() => assembleRoles(root), (error: unknown) => error instanceof InvalidRoleManifestError && /Cannot read the role manifest/.test(error.message));
