@@ -20296,6 +20296,12 @@ var maxRecordedTextLength = 4e3;
 var unitName = (phase, key) => `${phase}:${key}`;
 
 // src/checkpoint/review-fold.ts
+function scopeLocation(candidate) {
+  return candidate.located && candidate.file !== null && candidate.line !== null ? `${candidate.file}:${String(candidate.line)}` : null;
+}
+function rawLocation(candidate) {
+  return `${candidate.rawFile}:${String(candidate.rawLine)}`;
+}
 function poolPhases(phase) {
   return phase === "deduplication" || phase === "verification" ? ["triage", "finders"] : ["sweep"];
 }
@@ -20836,13 +20842,13 @@ function migrate(db, path, from, schema) {
 }
 function planMigration(from, schema) {
   const steps = [];
-  let at2 = from;
-  while (at2 < schema.version) {
-    const step = schema.migrations.find((candidate) => candidate.from === at2);
-    if (step === void 0) throw new Error(`No migration from ledger schema ${String(at2)} toward ${String(schema.version)}`);
-    if (step.to <= at2) throw new Error(`Migration from ${String(step.from)} to ${String(step.to)} does not move forward`);
+  let at = from;
+  while (at < schema.version) {
+    const step = schema.migrations.find((candidate) => candidate.from === at);
+    if (step === void 0) throw new Error(`No migration from ledger schema ${String(at)} toward ${String(schema.version)}`);
+    if (step.to <= at) throw new Error(`Migration from ${String(step.from)} to ${String(step.to)} does not move forward`);
     steps.push(step);
-    at2 = step.to;
+    at = step.to;
   }
   return steps;
 }
@@ -23657,8 +23663,7 @@ function nextStep(review2, live2) {
 
 // src/review/tasks.ts
 function describeLocation(candidate) {
-  if (candidate.located && candidate.file !== null && candidate.line !== null) return `${candidate.file}:${String(candidate.line)}`;
-  return `${candidate.rawFile}:${String(candidate.rawLine)} (unlocated: not a changed file and line of the scope; read it if it exists)`;
+  return scopeLocation(candidate) ?? `${rawLocation(candidate)} (unlocated: not a changed file and line of the scope; read it if it exists)`;
 }
 function candidateItem(index2, candidate, extra = []) {
   return [
@@ -23910,12 +23915,12 @@ var usd2 = (value) => value === null ? "-" : value.toFixed(2);
 var count = (value) => value === null ? "-" : String(value);
 var workersCount = (n) => `${String(n)} worker${n === 1 ? "" : "s"}`;
 var costCell = (spend) => `${usd2(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? "" : ` (${workersCount(spend.costUnreported)} unreported)`}`;
-var at = (file2, line) => inlineText(`${file2}:${String(line)}`);
+var rawAt = (candidate) => inlineText(rawLocation(candidate));
 function marks(candidate, unverified) {
-  const list = [...candidate.located ? [] : [`unlocated: ${at(candidate.rawFile, candidate.rawLine)}`], ...unverified ? ["unverified"] : []];
+  const list = [...scopeLocation(candidate) === null ? [`unlocated: ${rawAt(candidate)}`] : [], ...unverified ? ["unverified"] : []];
   return list.length === 0 ? "" : ` (${list.join("; ")})`;
 }
-var shortLocation = (candidate) => candidate.located && candidate.file !== null && candidate.line !== null ? at(candidate.file, candidate.line) : at(candidate.rawFile, candidate.rawLine);
+var shortLocation = (candidate) => inlineText(scopeLocation(candidate) ?? rawLocation(candidate));
 function angleRow(review2, angle) {
   if (angle === "SCAN") return `| SCAN | ${isAnswered(review2, "triage", triageUnitKey) ? "run (as the triage)" : "not run"} | - |`;
   const notRun = review2.anglesNotRun[angle];
@@ -23987,10 +23992,10 @@ function limitations(scope, review2, input2) {
   }
   const oversized = scope.files.filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => inlineText(file2.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(", ")}.`);
-  const unlocated = Object.values(review2.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
+  const unlocated = Object.values(review2.candidates).filter((candidate) => scopeLocation(candidate) === null && candidate.duplicateOf === null);
   for (const reason of unlocatedReasons) {
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
-    if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(", ")}.`);
+    if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(", ")}.`);
   }
   return lines;
 }

@@ -7,7 +7,7 @@
  */
 import type { ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { isAnswered, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { isAnswered, rawLocation, scopeLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { matchScopePath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
@@ -25,17 +25,17 @@ const workersCount = (n: number): string => `${String(n)} worker${n === 1 ? '' :
 /** A cost cell: the reported sum, and how many workers' cost it leaves out. */
 const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? '' : ` (${workersCount(spend.costUnreported)} unreported)`}`;
 
-/** A file and line as one line of text, whatever the file's name holds. */
-const at = (file: string, line: number): string => inlineText(`${file}:${String(line)}`);
+/** The finder's own file and line, as one line of text whatever the file's name holds. */
+const rawAt = (candidate: CandidateState): string => inlineText(rawLocation(candidate));
 
 /** The marks a candidate carries after its location. */
 function marks(candidate: CandidateState, unverified: boolean): string {
-  const list = [...(candidate.located ? [] : [`unlocated: ${at(candidate.rawFile, candidate.rawLine)}`]), ...(unverified ? ['unverified'] : [])];
+  const list = [...(scopeLocation(candidate) === null ? [`unlocated: ${rawAt(candidate)}`] : []), ...(unverified ? ['unverified'] : [])];
   return list.length === 0 ? '' : ` (${list.join('; ')})`;
 }
 
 /** The location a finding prints: the scope path and line, or the raw one for an unlocated candidate. */
-const shortLocation = (candidate: CandidateState): string => (candidate.located && candidate.file !== null && candidate.line !== null ? at(candidate.file, candidate.line) : at(candidate.rawFile, candidate.rawLine));
+const shortLocation = (candidate: CandidateState): string => inlineText(scopeLocation(candidate) ?? rawLocation(candidate));
 
 function angleRow(review: ReviewState, angle: Angle): string {
   if (angle === 'SCAN') return `| SCAN | ${isAnswered(review, 'triage', triageUnitKey) ? 'run (as the triage)' : 'not run'} | - |`;
@@ -137,10 +137,10 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
   }
   const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => inlineText(file.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(', ')}.`);
-  const unlocated = Object.values(review.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
+  const unlocated = Object.values(review.candidates).filter((candidate) => scopeLocation(candidate) === null && candidate.duplicateOf === null);
   for (const reason of unlocatedReasons) {
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
-    if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(', ')}.`);
+    if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(', ')}.`);
   }
   return lines;
 }
