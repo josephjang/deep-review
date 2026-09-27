@@ -42,8 +42,17 @@ const isolation = [
   'features.skill_mcp_dependency_install=false',
 ];
 
-/** A TOML string for a `--config` value. JSON's escapes are a subset of TOML's basic-string escapes. */
-const tomlString = (value: string): string => JSON.stringify(value);
+/**
+ * A TOML basic string for a `--config` value. JSON's escapes are a subset of
+ * TOML's, and JSON escapes every control character TOML forbids bare but
+ * DEL (U+007F), which is escaped here. A lone surrogate has no TOML form,
+ * since TOML's `\u` escape names a Unicode scalar value, so a string
+ * holding one is refused rather than written as a value Codex cannot parse.
+ */
+export function tomlString(value: string): string {
+  if (!value.isWellFormed()) throw new Error(`${JSON.stringify(value)} holds a lone surrogate, which no TOML string can`);
+  return JSON.stringify(value).replaceAll('\x7f', '\\u007F');
+}
 
 /**
  * Whether a Windows PATH entry is a WindowsApps directory or lies under one,
@@ -79,17 +88,100 @@ export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJ
 export const windowsSandboxes = ['unelevated', 'elevated'] as const;
 export type WindowsSandbox = (typeof windowsSandboxes)[number];
 
+/**
+ * A model provider other than Codex's built-in OpenAI one, written as an
+ * entry of Codex's `model_providers` table and chosen as `model_provider`.
+ * It is given here because the user's own config, where such an entry
+ * usually lives, is ignored. The API key never reaches the command line:
+ * `envKey` names the inherited variable Codex reads it from.
+ */
+export interface CodexProvider {
+  /** The provider's key in `model_providers` and its display name: lowercase letters, digits, `_` and `-`. A built-in id such as `openai` is refused by Codex itself. */
+  readonly id: string;
+  /** The provider's API base URL, http or https, without a user name or password. */
+  readonly baseUrl: string;
+  /** The inherited environment variable holding the API key. Without it Codex sends the credentials it keeps under `CODEX_HOME`. */
+  readonly envKey?: string;
+  /** Query parameters added to every request, such as Azure's `api-version`. */
+  readonly queryParams?: Readonly<Record<string, string>>;
+}
+
 /** How a Codex adapter is built. The user's own config is ignored, so anything a machine needs is chosen here. */
 export interface CodexOptions {
   /** Unelevated by default, so a machine without the elevated setup still runs workers. */
   readonly windowsSandbox?: WindowsSandbox;
+  /** Codex's built-in OpenAI provider by default. */
+  readonly provider?: CodexProvider;
+}
+
+const codexOptionKeys: readonly (keyof CodexOptions)[] = ['windowsSandbox', 'provider'];
+const codexProviderKeys: readonly (keyof CodexProvider)[] = ['id', 'baseUrl', 'envKey', 'queryParams'];
+
+/** The keys of `value` that are not among `known`, which options arriving from outside TypeScript can carry. */
+function unknownKeys(value: object, known: readonly string[]): string[] {
+  return Object.keys(value).filter((key) => !known.includes(key));
+}
+
+/**
+ * The provider after every check a command line needs, copied so a caller
+ * changing its object later cannot change the adapter. Each value goes
+ * straight into a `--config` entry, so a value Codex would read as something
+ * other than meant is refused here, before any worker runs.
+ */
+function checkedProvider(provider: unknown): CodexProvider {
+  const refuse = (reason: string): never => {
+    throw new Error(`Codex provider ${reason}`);
+  };
+  if (!isObject(provider)) return refuse('must be an object with an id and a baseUrl');
+  const unknown = unknownKeys(provider, codexProviderKeys);
+  if (unknown.length > 0) refuse(`has unknown key ${JSON.stringify(unknown[0])}; it takes ${codexProviderKeys.join(', ')}`);
+  const { id, baseUrl, envKey, queryParams } = provider;
+  if (typeof id !== 'string' || !/^[a-z0-9_-]+$/.test(id)) return refuse(`id ${JSON.stringify(id)} is not lowercase letters, digits, _ and -`);
+  if (typeof baseUrl !== 'string' || !baseUrl.isWellFormed()) return refuse(`baseUrl ${JSON.stringify(baseUrl)} is not a string`);
+  const url = URL.parse(baseUrl);
+  if (url === null) return refuse(`baseUrl ${JSON.stringify(baseUrl)} is not a URL`);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') refuse(`baseUrl ${JSON.stringify(baseUrl)} is not http or https`);
+  // A command line is visible to every process on the machine; the key belongs in the variable envKey names.
+  if (url.username !== '' || url.password !== '') refuse('baseUrl carries a user name or password; name the variable holding the key as envKey instead');
+  if (envKey !== undefined && (typeof envKey !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envKey))) refuse(`envKey ${JSON.stringify(envKey)} is not an environment variable name`);
+  if (queryParams !== undefined && !isObject(queryParams)) refuse('queryParams must be an object of strings');
+  const params = Object.entries(isObject(queryParams) ? queryParams : {});
+  for (const [name, value] of params) {
+    if (name === '' || !name.isWellFormed()) refuse(`queryParams has a name ${JSON.stringify(name)} that is empty or not valid Unicode`);
+    if (typeof value !== 'string' || !value.isWellFormed()) refuse(`queryParams value of ${JSON.stringify(name)} is not a string`);
+  }
+  return {
+    id,
+    baseUrl,
+    ...(typeof envKey === 'string' ? { envKey } : {}),
+    ...(queryParams === undefined ? {} : { queryParams: Object.freeze(Object.fromEntries(params) as Record<string, string>) }),
+  };
+}
+
+/**
+ * The `--config` entries that choose the provider: `model_provider` and the
+ * provider's `model_providers` entry. Its id is a bare TOML key, which the
+ * id's pattern guarantees; the query parameters are an inline table with
+ * quoted keys.
+ */
+export function providerConfig(provider: CodexProvider): string[] {
+  const entry = `model_providers.${provider.id}`;
+  const params = provider.queryParams === undefined ? null : Object.entries(provider.queryParams);
+  return [
+    `model_provider=${tomlString(provider.id)}`,
+    `${entry}.name=${tomlString(provider.id)}`,
+    `${entry}.base_url=${tomlString(provider.baseUrl)}`,
+    ...(provider.envKey === undefined ? [] : [`${entry}.env_key=${tomlString(provider.envKey)}`]),
+    ...(params === null ? [] : [`${entry}.query_params={${params.map(([name, value]) => `${tomlString(name)}=${tomlString(value)}`).join(',')}}`]),
+  ];
 }
 
 /**
  * The Codex command line for one worker. `windowsSandbox` is the adapter's
- * choice, applied only on Windows.
+ * choice, applied only on Windows; `provider`, when there is one, is chosen
+ * for a fresh worker and a continuation alike.
  */
-export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox): WorkerCommand {
+export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox, provider: CodexProvider | null = null): WorkerCommand {
   const writable = invocation.access === 'edit' && plan.scratch !== null ? [plan.scratch] : [];
   const options = [
     '--ignore-user-config',
@@ -101,6 +193,7 @@ export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSa
     ...(writable.length === 0 ? [] : ['--config', `sandbox_workspace_write.writable_roots=[${writable.map(tomlString).join(',')}]`]),
     ...(plan.platform === 'win32' ? ['--config', `windows.sandbox=${tomlString(windowsSandbox)}`] : []),
     ...isolation.flatMap((setting) => ['--config', setting]),
+    ...(provider === null ? [] : providerConfig(provider)).flatMap((setting) => ['--config', setting]),
     '--model', invocation.model,
     '--config', `model_reasoning_effort=${tomlString(invocation.effort)}`,
     '--json',
@@ -338,12 +431,17 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
  * sandbox writes nowhere, it has no `max` effort, and it resumes by id.
  */
 export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
+  // Options can arrive from outside TypeScript, and every value goes straight into a command line.
+  const given: unknown = options;
+  if (!isObject(given)) throw new Error('Codex options must be an object');
+  const unknown = unknownKeys(given, codexOptionKeys);
+  if (unknown.length > 0) throw new Error(`Unknown Codex option ${JSON.stringify(unknown[0])}; use ${codexOptionKeys.join(' or ')}`);
   const windowsSandbox = options.windowsSandbox ?? 'unelevated';
-  // Options can arrive from outside TypeScript, and this value goes straight into a command line.
   if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(' or ')}`);
+  const provider = options.provider === undefined ? null : checkedProvider(options.provider);
   return {
     ...codexRuntime,
-    command: (invocation, plan) => codexCommand(invocation, plan, windowsSandbox),
+    command: (invocation, plan) => codexCommand(invocation, plan, windowsSandbox, provider),
   };
 }
 
@@ -370,5 +468,5 @@ const codexRuntime: Omit<RuntimeAdapter, 'command'> = {
   decode: decodeCodex,
 };
 
-/** The Codex adapter with its defaults: the unelevated Windows sandbox. */
+/** The Codex adapter with its defaults: the unelevated Windows sandbox and the built-in provider. */
 export const codexAdapter: RuntimeAdapter = createCodexAdapter();

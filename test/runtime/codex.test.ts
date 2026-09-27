@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
 import { maxLineBytes, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
-import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter } from '../../src/runtime/codex.ts';
+import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter, tomlString, type CodexProvider } from '../../src/runtime/codex.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { textOutputs } from '../helpers/outputs.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
@@ -156,6 +156,144 @@ describe('Windows sandbox option', () => {
     assert.deepEqual(sandboxOf(codex.command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="elevated"']);
     assert.deepEqual(sandboxOf(defaultRuntimes().get('codex').command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="unelevated"']);
     assert.deepEqual(defaultRuntimes().names(), ['claude', 'codex']);
+  });
+});
+
+describe('Codex provider option', () => {
+  const azure: CodexProvider = {
+    id: 'azure-east_2',
+    baseUrl: 'https://example.openai.azure.com/openai',
+    envKey: 'AZURE_OPENAI_API_KEY',
+    queryParams: { 'api-version': '2025-04-01-preview' },
+  };
+  const azureConfig = [
+    '--config', 'model_provider="azure-east_2"',
+    '--config', 'model_providers.azure-east_2.name="azure-east_2"',
+    '--config', 'model_providers.azure-east_2.base_url="https://example.openai.azure.com/openai"',
+    '--config', 'model_providers.azure-east_2.env_key="AZURE_OPENAI_API_KEY"',
+    '--config', 'model_providers.azure-east_2.query_params={"api-version"="2025-04-01-preview"}',
+  ];
+  const providerArgs = (args: readonly string[]): string[] => args.filter((arg) => arg.startsWith('model_provider'));
+
+  it('chooses the provider after the isolation config for a fresh worker', () => {
+    assert.deepEqual(createCodexAdapter({ provider: azure }).command(invocation(), plan()).args, [
+      '--ask-for-approval', 'never', 'exec',
+      '--ignore-user-config', '--strict-config', '--ignore-rules', '--skip-git-repo-check',
+      '--config', 'sandbox_mode="read-only"',
+      ...isolation,
+      ...azureConfig,
+      ...tail('high'),
+      '-',
+    ]);
+  });
+
+  it('chooses the same provider for a continuation', () => {
+    const adapter = createCodexAdapter({ provider: azure });
+    const fresh = adapter.command(invocation({ access: 'edit' }), plan({ scratch, platform: 'win32' })).args;
+    const continued = adapter.command(invocation({ access: 'edit', resume: thread }), plan({ scratch, platform: 'win32', sessionId: thread, resume: thread })).args;
+    assert.deepEqual(continued.slice(0, 4), ['--ask-for-approval', 'never', 'exec', 'resume']);
+    assert.deepEqual(continued.slice(4, -2), fresh.slice(3, -1));
+    assert.deepEqual(providerArgs(continued), azureConfig.filter((arg) => arg !== '--config'));
+  });
+
+  it('writes only the entries a provider has', () => {
+    const minimal = createCodexAdapter({ provider: { id: 'gateway', baseUrl: 'http://127.0.0.1:8080/v1' } });
+    assert.deepEqual(providerArgs(minimal.command(invocation(), plan()).args), [
+      'model_provider="gateway"',
+      'model_providers.gateway.name="gateway"',
+      'model_providers.gateway.base_url="http://127.0.0.1:8080/v1"',
+    ]);
+    assert.deepEqual(providerArgs(createCodexAdapter({ provider: { ...azure, queryParams: {} } }).command(invocation(), plan()).args).at(-1), 'model_providers.azure-east_2.query_params={}');
+  });
+
+  it('chooses no provider by default, so Codex uses its built-in one', () => {
+    assert.deepEqual(providerArgs(codexAdapter.command(invocation(), plan()).args), []);
+    assert.deepEqual(providerArgs(createCodexAdapter({ windowsSandbox: 'elevated' }).command(invocation(), plan()).args), []);
+  });
+
+  it('writes odd values as TOML strings Codex reads back as given', () => {
+    const odd = createCodexAdapter({
+      provider: { id: 'odd', baseUrl: 'https://h.example/p?x="y"&z=\\', queryParams: { 'a"b c': 'q\\r\n\t\u007f\u2028\u{1F600}', plain: '' } },
+    });
+    assert.deepEqual(providerArgs(odd.command(invocation(), plan()).args).slice(2), [
+      'model_providers.odd.base_url="https://h.example/p?x=\\"y\\"&z=\\\\"',
+      'model_providers.odd.query_params={"a\\"b c"="q\\\\r\\n\\t\\u007F\u2028\u{1F600}","plain"=""}',
+    ]);
+  });
+
+  it('keeps the provider it was built with when the caller changes its object later', () => {
+    const queryParams: Record<string, string> = { 'api-version': '1' };
+    const provider = { id: 'later', baseUrl: 'https://a.example', queryParams };
+    const adapter = createCodexAdapter({ provider });
+    provider.baseUrl = 'https://b.example';
+    queryParams['api-version'] = '2';
+    assert.deepEqual(providerArgs(adapter.command(invocation(), plan()).args).slice(2), [
+      'model_providers.later.base_url="https://a.example"',
+      'model_providers.later.query_params={"api-version"="1"}',
+    ]);
+  });
+
+  it('refuses options it does not know, naming the key', () => {
+    assert.throws(() => createCodexAdapter({ sandbox: 'elevated' } as never), /Unknown Codex option "sandbox"; use windowsSandbox or provider/);
+    assert.throws(() => createCodexAdapter(null as never), /Codex options must be an object/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, wireApi: 'chat' } as never }), /Codex provider has unknown key "wireApi"/);
+    assert.throws(() => createCodexAdapter({ provider: 'azure' as never }), /Codex provider must be an object/);
+  });
+
+  it('refuses an id that is not a bare TOML key of lowercase letters, digits, _ and -', () => {
+    for (const id of ['', 'Azure', 'a.b', 'a b', 'a"b', 'é', 7]) {
+      assert.throws(() => createCodexAdapter({ provider: { ...azure, id: id as string } }), /Codex provider id .* is not lowercase letters, digits, _ and -/, String(id));
+    }
+  });
+
+  it('refuses a baseUrl that is not an http or https URL, or that carries credentials', () => {
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, baseUrl: 'not a url' } }), /baseUrl "not a url" is not a URL/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, baseUrl: 'ftp://h.example' } }), /baseUrl "ftp:\/\/h.example" is not http or https/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, baseUrl: 'file:///etc/passwd' } }), /is not http or https/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, baseUrl: 'https://user:secret@h.example' } }), /carries a user name or password/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, baseUrl: 'https://user@h.example' } }), /carries a user name or password/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, baseUrl: 'https://h.example/\uD800' } }), /is not a string/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, baseUrl: undefined as never } }), /baseUrl undefined is not a string/);
+  });
+
+  it('refuses an envKey that is not an environment variable name', () => {
+    for (const envKey of ['', '1KEY', 'A-B', 'A B', 'KEY=1', 5]) {
+      assert.throws(() => createCodexAdapter({ provider: { ...azure, envKey: envKey as string } }), /envKey .* is not an environment variable name/, String(envKey));
+    }
+  });
+
+  it('refuses queryParams that are not an object of strings', () => {
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, queryParams: ['a'] as never } }), /queryParams must be an object of strings/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, queryParams: { a: 1 } as never } }), /queryParams value of "a" is not a string/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, queryParams: { a: '\uDC00' } } }), /queryParams value of "a" is not a string/);
+    assert.throws(() => createCodexAdapter({ provider: { ...azure, queryParams: { '': 'x' } } }), /queryParams has a name "" that is empty/);
+  });
+
+  it('is chosen through the default runtimes', () => {
+    const codex = defaultRuntimes({ codex: { provider: azure } }).get('codex');
+    assert.deepEqual(providerArgs(codex.command(invocation(), plan()).args), azureConfig.filter((arg) => arg !== '--config'));
+    assert.throws(() => defaultRuntimes({ codex: { provider: { ...azure, id: 'A' } } }), /Codex provider id "A"/);
+  });
+});
+
+describe('tomlString', () => {
+  it('escapes what TOML forbids bare in a basic string, DEL included, and keeps the rest', () => {
+    assert.equal(tomlString('plain'), '"plain"');
+    assert.equal(tomlString(''), '""');
+    assert.equal(tomlString('a"b\\c'), '"a\\"b\\\\c"');
+    assert.equal(tomlString('\n\r\t\b\f'), '"\\n\\r\\t\\b\\f"');
+    assert.equal(tomlString('\u0000\u0001\u001f'), '"\\u0000\\u0001\\u001f"');
+    assert.equal(tomlString('a\u007fb'), '"a\\u007Fb"');
+    assert.equal(tomlString('\u2028\u00e9\u{1F600}'), '"\u2028\u00e9\u{1F600}"');
+  });
+
+  it('refuses a lone surrogate, which no TOML string can hold', () => {
+    assert.throws(() => tomlString('a\uD800'), /lone surrogate/);
+    assert.throws(() => tomlString('\uDFFFb'), /lone surrogate/);
+  });
+
+  it('refuses a scratch path with a lone surrogate before the command exists', () => {
+    assert.throws(() => codexAdapter.command(invocation({ access: 'edit' }), plan({ scratch: 'C:\\s\\\uD800' })), /lone surrogate/);
   });
 });
 
