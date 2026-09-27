@@ -8,7 +8,7 @@ export class InvalidRoleManifestError extends EngineError {
 /**
  * A fragment is asked for by a name that is not a fragment name, or is
  * missing, cannot be read, or breaks an invariant the assembly relies on:
- * not a regular file, not UTF-8 text, a byte order mark, empty, a stray CR,
+ * not a regular file, in a fragments/ that is a link, not UTF-8 text, a byte order mark, empty, a stray CR,
  * a control character other than tab and LF, a line or paragraph
  * separator, no final newline, a blank line at either edge, front matter,
  * an include marker.

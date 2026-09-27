@@ -76,8 +76,9 @@ interface LoadedFragment {
 
 /**
  * Read one fragment by its name, which must be a fragment name (R4) so it
- * cannot leave `fragments/`, and refuse it unless it is a regular file of
- * UTF-8 text that `refuseMalformedFragmentText` accepts (R3). Each
+ * cannot leave `fragments/`, and refuse it unless it is a regular file, in
+ * a `fragments/` that is not a link, of UTF-8 text that
+ * `refuseMalformedFragmentText` accepts (R3). Each
  * violation is refused naming the fragment, so a stray CRLF or a stale
  * marker never reaches a worker. Returns the fragment's text.
  */
@@ -90,16 +91,23 @@ function loadRoleFragment(rolesRoot: string, name: string): LoadedFragment {
   // The name is checked here as well as in the manifest, so no caller can reach outside fragments/ with a directory part.
   const named = fragmentNameSchema.safeParse(name);
   if (!named.success) throw new InvalidRoleFragmentError(name, `is not a valid fragment name: ${named.error.issues.map((issue) => issue.message).join('; ')}`);
-  const path = join(rolesRoot, fragmentsDirectoryName, name);
+  const directory = join(rolesRoot, fragmentsDirectoryName);
+  const path = join(directory, name);
   // Only ENOENT means the fragment is missing; any other failure (EACCES, ENOTDIR, ELOOP) is reported as it is.
-  let regular: boolean;
-  try {
-    regular = lstatSync(path).isFile();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new InvalidRoleFragmentError(name, 'does not exist');
-    throw new InvalidRoleFragmentError(name, `cannot be read: ${(error as Error).message}`);
+  const examine = <T>(inspect: () => T): T => {
+    try {
+      return inspect();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new InvalidRoleFragmentError(name, 'does not exist');
+      throw new InvalidRoleFragmentError(name, `cannot be read: ${(error as Error).message}`);
+    }
+  };
+  // fragments/ is examined as well as the file, since text read through a link in either place is not the roles directory's own.
+  // The roles directory itself may be reached through a link, as a checkout or a temporary directory may be.
+  if (examine(() => lstatSync(directory).isSymbolicLink())) {
+    throw new InvalidRoleFragmentError(name, `is in a ${fragmentsDirectoryName}/ that is a link; fragments live in the roles directory itself`);
   }
-  if (!regular) throw new InvalidRoleFragmentError(name, 'is not a regular file');
+  if (!examine(() => lstatSync(path).isFile())) throw new InvalidRoleFragmentError(name, 'is not a regular file');
   // Reading and decoding fail for different reasons, so each is caught on its own.
   let bytes: Buffer;
   try {
