@@ -257,7 +257,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     }
   });
 
-  it('waits for the workers still in flight, and records their answers, before a launcher error ends the review', async () => {
+  it('waits for the workers still in flight, and records their answers, before a runtime that stops qualifying mid-run refuses the review', async () => {
     const removalsMayAnswer = join(box.directory, 'removals-may-answer');
     const rippleMayAnswer = join(box.directory, 'ripple-may-answer');
     const broken = join(box.directory, 'runtime-broken');
@@ -277,7 +277,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     } finally {
       writeFileSync(removalsMayAnswer, '');
     }
-    await assert.rejects(pending, (error: unknown) => error instanceof Error && /does not identify itself as claude/.test(error.message));
+    // Refused as at startup, with the blocker code and the operator's action, not as an engine error.
+    await assert.rejects(pending, (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /does not identify itself as claude: .*; fix the runtime installation/.test(error.message));
     const state = box.run();
     assert.deepEqual(Object.values(state.workers).filter((worker) => worker.status !== 'finished'), [], 'no worker is left running on the ledger');
     assert.notEqual(state.review!.units['finders:REMOVALS']?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');

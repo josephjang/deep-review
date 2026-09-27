@@ -24092,8 +24092,7 @@ async function runReview(options2) {
   try {
     version2 = await preflight(adapter, options2.executable, executableArgs, environment, options2.preflightOptions ?? {});
   } catch (error62) {
-    if (error62 instanceof PreflightError) throw new ReviewRefusedError(`${error62.message}; ${blockerActions["runtime-unqualified"]}`, "runtime-unqualified");
-    throw error62;
+    throw refusalOf(error62);
   }
   const { checkpoint } = options2;
   let state = findActiveRun(checkpoint);
@@ -24202,6 +24201,8 @@ async function runReview(options2) {
         }
       }
     }
+  } catch (error62) {
+    throw refusalOf(error62);
   } finally {
     if (inFlight.size > 0) log(`run ${runId}: waiting for ${String(inFlight.size)} worker${inFlight.size === 1 ? "" : "s"} in flight`);
     while (inFlight.size > 0) {
@@ -24214,6 +24215,9 @@ async function runReview(options2) {
     }
     release();
   }
+}
+function refusalOf(error62) {
+  return error62 instanceof PreflightError ? new ReviewRefusedError(`${error62.message}; ${blockerActions["runtime-unqualified"]}`, "runtime-unqualified") : error62;
 }
 async function nextSettled(inFlight) {
   const settled = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));

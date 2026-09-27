@@ -105,8 +105,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   try {
     version = await preflight(adapter, options.executable, executableArgs, environment, options.preflightOptions ?? {});
   } catch (error) {
-    if (error instanceof PreflightError) throw new ReviewRefusedError(`${error.message}; ${blockerActions['runtime-unqualified']}`, 'runtime-unqualified');
-    throw error;
+    throw refusalOf(error);
   }
 
   const { checkpoint } = options;
@@ -226,6 +225,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
       }
     }
+  } catch (error) {
+    // A worker's own preflight failed: the runtime stopped qualifying mid-run (an update, a removed binary), which is refused as at startup.
+    throw refusalOf(error);
   } finally {
     // No way out of the loop leaves a worker running: after a launcher error,
     // a failed append or any other throw, the rest are awaited and their
@@ -243,6 +245,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     release();
   }
+}
+
+/** A failed preflight as the `runtime-unqualified` refusal, with the operator's action; any other error as it is. */
+function refusalOf(error: unknown): unknown {
+  return error instanceof PreflightError ? new ReviewRefusedError(`${error.message}; ${blockerActions['runtime-unqualified']}`, 'runtime-unqualified') : error;
 }
 
 /** The first worker in flight to settle, taken off the map, with the time it started. */
