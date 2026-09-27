@@ -6,7 +6,7 @@ import { RunClosedError } from '../../src/checkpoint/errors.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { until } from '../helpers/launcher.ts';
-import { lockPath } from '../../src/review/lock.ts';
+import { acquireStartLock, lockPath, startLockPath } from '../../src/review/lock.ts';
 import { phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
 import { ReviewSandbox } from '../helpers/review-sandbox.ts';
@@ -296,5 +296,19 @@ describe('runReview', { timeout: 600_000 }, () => {
   it('refuses an unqualified runtime before any run exists', async () => {
     await assert.rejects(box.review('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /lacks flags the adapter uses/.test(error.message));
     assert.deepEqual(box.checkpoint.listRuns(), []);
+  });
+
+  it('finds or creates the run under the start lock, so an engine starting meanwhile is refused and creates no run of its own', async () => {
+    // The parent of this test process is alive and is not this process: an engine between its find and its run lock.
+    const release = acquireStartLock(box.checkpoint.root, process.ppid);
+    try {
+      await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'lock-held' && new RegExp(`^engine ${String(process.ppid)} is starting or ending a run in this repository`).test(error.message));
+      assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
+    } finally {
+      release();
+    }
+    box.script({});
+    report(await box.review('claude'));
+    assert.equal(existsSync(startLockPath(box.checkpoint.root)), false, 'the start lock is released once the run is locked');
   });
 });

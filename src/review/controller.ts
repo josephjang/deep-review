@@ -20,7 +20,7 @@ import { compareWorktree } from '../scope/compare.ts';
 import { conventionFiles } from './conventions.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { parseUnitLabel } from './labels.ts';
-import { acquireRunLock, releaseOnExit } from './lock.ts';
+import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { readPolicy, resolvePolicy, type PolicyFlags } from './policy.ts';
 import { scopeBlock } from './prompts.ts';
@@ -109,19 +109,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   }
 
   const { checkpoint } = options;
-  let state = findActiveRun(checkpoint);
-  if (state !== null && state.review !== null && state.review.configuration.runtime !== options.runtime) {
-    throw new ReviewRefusedError(`run ${state.id} is pinned to runtime ${state.review.configuration.runtime}, not ${options.runtime}; run it with --runtime ${state.review.configuration.runtime}, or abandon it`);
-  }
-  if (state === null) {
-    state = checkpoint.createRun({ worktree: options.worktree });
-    log(`run ${state.id}: created`);
-  } else {
-    log(`run ${state.id}: resuming`);
-  }
+  const opened = openRun(checkpoint, options, log);
+  let state = opened.state;
   const runId = state.id;
-  // Released on every way out: the finally below, the process's exit, and a signal that ends it (design, run lifecycle step 2).
-  const release = releaseOnExit(acquireRunLock(checkpoint.root, runId));
+  const { release } = opened;
   const inFlight = new Map<string, InFlight>();
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
@@ -259,6 +250,28 @@ async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: 
   const entry = inFlight.get(name)!;
   inFlight.delete(name);
   return { settled, startedAt: entry.startedAt };
+}
+
+/**
+ * Find the active run or create one, and take its run lock, all under the
+ * checkpoint's start lock: two engines started together would otherwise
+ * both find no run and create one each. The run lock is released on every
+ * way out: the caller's release, the process's exit, and a signal that
+ * ends it (design, run lifecycle step 2).
+ */
+function openRun(checkpoint: Checkpoint, options: ReviewOptions, log: (line: string) => void): { state: RunState; release: ReleaseLock } {
+  const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
+  try {
+    const found = findActiveRun(checkpoint);
+    if (found !== null && found.review !== null && found.review.configuration.runtime !== options.runtime) {
+      throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
+    }
+    const state = found ?? checkpoint.createRun({ worktree: options.worktree });
+    log(`run ${state.id}: ${found === null ? 'created' : 'resuming'}`);
+    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)) };
+  } finally {
+    releaseStart();
+  }
 }
 
 /**
