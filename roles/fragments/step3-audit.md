@@ -44,5 +44,5 @@ each to RE-VERIFY against the actual code (read it — do not trust the Step 1
 rationale) and return, for EACH finding, exactly one verdict from the three
 defined below.
 
-Write the auditor cluster plan to `audit.md` in the same block as the
+Write the auditor cluster plan to `audit.md` at the same time as the
 dispatch, and append each auditor's verdicts verbatim as they return.
