@@ -105,5 +105,13 @@ export const triageUnitKey = 'SCAN';
 /** The key of a unit on the ledger, one per worker task of a phase: the angle, the group id, or the phase name for a phase with one worker. */
 export const unitKeySchema = z.string().regex(/^[A-Za-z0-9-]{1,40}$/, 'a unit key is letters, digits and dashes');
 
+/**
+ * The longest reason or detail the ledger records for a failed attempt, an
+ * angle not run, a group unverified or a blocker: the `.max(4000)` of the
+ * `attempt.failed`, `angle.failed`, `group.unverified` and blocker
+ * schemas in events.ts. Text the engine composes is cut to fit it.
+ */
+export const maxRecordedTextLength = 4000;
+
 /** `phase:key`, the name the fold counts a unit's attempts under. */
 export const unitName = (phase: Phase, key: string): string => `${phase}:${key}`;

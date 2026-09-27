@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { angleFailedV1, blockerSchema, groupUnverifiedV1 } from '../../src/checkpoint/events.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
-import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, unitsOf, workerFailedBlocker, type Live, type Step } from '../../src/review/steps.ts';
+import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step } from '../../src/review/steps.ts';
 import { finderAngles, phases, unitName } from '../../src/review/vocabulary.ts';
 import { candidate, configured, finding, found, leads, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
@@ -254,6 +255,101 @@ describe('the blockers', () => {
     assert.equal(drift.code, 'drift');
     assert.equal(drift.detail, 'the worktree differs from the reviewed change: a.ts (modified), b.ts (deleted)');
     assert.match(drift.action, /restore the named files/);
+  });
+});
+
+describe('truncated', () => {
+  it('keeps text that fits and cuts longer text to the limit with a mark', () => {
+    assert.equal(truncated('abc', 3), 'abc');
+    assert.equal(truncated('', 0), '');
+    assert.equal(truncated('a'.repeat(20), 15), 'aaa [truncated]');
+    assert.equal(truncated('a'.repeat(20), 15).length, 15);
+  });
+
+  it('drops the mark when there is no room for it, and gives nothing for a limit at or below zero', () => {
+    assert.equal(truncated('abcdef', 4), 'abcd');
+    assert.equal(truncated('abcdef', 0), '');
+    assert.equal(truncated('abcdef', -5), '');
+  });
+
+  it('never cuts between the two halves of a surrogate pair', () => {
+    // The cut would fall after the high half of the emoji at position 2.
+    assert.equal(truncated('ab\u{1F600}cdefghijklmnop', 15), 'ab [truncated]');
+    assert.equal(truncated('ab\u{1F600}cd', 3), 'ab');
+  });
+});
+
+describe('the recorded reasons and details', () => {
+  // attempt.failed records a reason of up to 4000 characters, so two of them overflow a reason that quotes both.
+  const long = (fill: string): string => fill.repeat(4000);
+  const twoLongFailures = { answeredBy: null, failures: [{ workerId: worker(1), reason: long('x') }, { workerId: worker(2), reason: long('y') }] };
+
+  it('fit an angle.failed and a group.unverified however long the failures were, and still quote each one', () => {
+    const finders = triaged().start('finders')
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: long('x') })
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: long('y') })
+      .review();
+    const step = nextStep(finders, idle);
+    assert.ok(step.kind === 'degrade');
+    const degradation = step.degradations[0];
+    assert.ok(degradation?.kind === 'angle.failed');
+    angleFailedV1.parse({ angle: degradation.angle, reason: degradation.reason });
+    assert.ok(degradation.reason.length <= 4000, String(degradation.reason.length));
+    assert.match(degradation.reason, /^2 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]$/);
+
+    const verification = found().start('deduplication')
+      .add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [] })
+      .finish('deduplication')
+      .start('verification')
+      .add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1', 'RIPPLE-1'] }] })
+      .add('attempt.failed', { phase: 'verification', key: 'g1', workerId: worker(21), reason: long('a') })
+      .add('attempt.failed', { phase: 'verification', key: 'g1', workerId: worker(22), reason: long('b') })
+      .review();
+    const unverified = nextStep(verification, idle);
+    assert.ok(unverified.kind === 'degrade');
+    const group = unverified.degradations[0];
+    assert.ok(group?.kind === 'group.unverified');
+    groupUnverifiedV1.parse({ phase: group.phase, groupId: group.groupId, reason: group.reason });
+    assert.match(group.reason, /^2 attempts did not complete: a+ \[truncated\]; b+ \[truncated\]$/);
+  });
+
+  it('keep short failures whole', () => {
+    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
+    assert.equal(blocker.detail, 'the triage worker for triage:SCAN failed twice: 2 attempts did not complete: x; y');
+  });
+
+  it('fit a worker-failed blocker however long the failures were', () => {
+    const blocker = workerFailedBlocker({ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank', degrades: false }, twoLongFailures);
+    blockerSchema.parse(blocker);
+    assert.ok(blocker.detail.length <= 4000, String(blocker.detail.length));
+    assert.match(blocker.detail, /^the merge-rank worker for merge-rank:merge-rank failed twice: 2 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]$/);
+  });
+
+  it('fit a worker-failed blocker when a lost worker added a third failure', () => {
+    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z') }] });
+    blockerSchema.parse(blocker);
+    assert.match(blocker.detail, /3 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]; z+ \[truncated\]$/);
+  });
+
+  it('fit a drift blocker over thousands of files, naming as many as fit and counting the rest', () => {
+    const files = Array.from({ length: 2000 }, (_, index) => ({ path: `src/generated/module-${String(index).padStart(4, '0')}.ts`, outcome: 'modified' }));
+    const drift = driftBlocker(files);
+    blockerSchema.parse(drift);
+    assert.ok(drift.detail.length <= 4000, String(drift.detail.length));
+    const match = /^the worktree differs from the reviewed change: (.+), and (\d+) more$/.exec(drift.detail);
+    assert.ok(match !== null, drift.detail.slice(-200));
+    const named = match[1]!.split(', ');
+    assert.deepEqual(named, files.slice(0, named.length).map((file) => `${file.path} (modified)`), 'the first files, in order');
+    assert.equal(named.length + Number(match[2]), files.length, 'every file is named or counted');
+  });
+
+  it('fit a drift blocker whose one path is longer than the detail', () => {
+    const one = driftBlocker([{ path: `src/${'d/'.repeat(3000)}a.ts`, outcome: 'deleted' }]);
+    blockerSchema.parse(one);
+    assert.match(one.detail, /^the worktree differs from the reviewed change: src\/d\/.* \[truncated\]$/);
+    const two = driftBlocker([{ path: `src/${'d/'.repeat(3000)}a.ts`, outcome: 'deleted' }, { path: 'b.ts', outcome: 'modified' }]);
+    blockerSchema.parse(two);
+    assert.match(two.detail, / \[truncated\], and 1 more$/);
   });
 });
 

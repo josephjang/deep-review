@@ -9,7 +9,7 @@ import type { Blocker } from '../checkpoint/events.ts';
 import { poolCandidates, unitsOfPhase, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
-import { blockerActions, finderAngles, phases, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
+import { blockerActions, finderAngles, maxRecordedTextLength, phases, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
 
 /** How many times a unit is tried before its role's rule decides (R5, PD6). */
 export const maxAttempts = 2;
@@ -84,10 +84,57 @@ const answered = (state: UnitState | undefined): boolean => state?.answeredBy !=
 /** Whether a unit has failed as many times as it may. */
 const exhausted = (state: UnitState | undefined): boolean => !answered(state) && (state?.failures.length ?? 0) >= maxAttempts;
 
-/** The reason a degraded or blocked unit records: every failure's reason, in order. */
-function failureReason(state: UnitState | undefined): string {
+const truncationMark = ' [truncated]';
+
+/**
+ * Text cut to at most `limit` characters, marked `[truncated]` when it was
+ * cut and there is room for the mark, and never cut between the two halves
+ * of a surrogate pair.
+ */
+export function truncated(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const room = Math.max(0, limit);
+  const kept = room > truncationMark.length ? room - truncationMark.length : room;
+  const last = text.charCodeAt(kept - 1);
+  const end = last >= 0xd800 && last <= 0xdbff ? kept - 1 : kept;
+  return `${text.slice(0, end)}${room > truncationMark.length ? truncationMark : ''}`;
+}
+
+/**
+ * The reason a degraded or blocked unit records: how many attempts failed
+ * and every failure's reason, in order. Each reason gets an equal share of
+ * `limit` and is truncated to it, so the whole fits the ledger's cap and
+ * still quotes every failure.
+ */
+function failureReason(state: UnitState | undefined, limit: number = maxRecordedTextLength): string {
   const reasons = (state?.failures ?? []).map((failure) => failure.reason);
-  return `${String(reasons.length)} attempts did not complete: ${reasons.join('; ')}`;
+  const header = `${String(reasons.length)} attempts did not complete: `;
+  const separator = '; ';
+  const share = Math.floor((limit - header.length - separator.length * Math.max(0, reasons.length - 1)) / Math.max(1, reasons.length));
+  return truncated(`${header}${reasons.map((reason) => truncated(reason, share)).join(separator)}`, limit);
+}
+
+/**
+ * Items joined with commas within `limit` characters: all of them when
+ * they fit, else as many as fit in order and the count of the rest. A first
+ * item too long to fit on its own is truncated.
+ */
+function listWithin(items: readonly string[], limit: number): string {
+  const all = items.join(', ');
+  if (all.length <= limit) return all;
+  const more = (count: number): string => (count > 0 ? `, and ${String(count)} more` : '');
+  const reserve = more(items.length).length;
+  let text = '';
+  let shown = 0;
+  for (const item of items) {
+    const next = shown === 0 ? item : `${text}, ${item}`;
+    if (next.length + reserve > limit) break;
+    text = next;
+    shown += 1;
+  }
+  if (shown > 0) return `${text}${more(items.length - shown)}`;
+  const rest = more(items.length - 1);
+  return `${truncated(items[0] ?? '', limit - rest.length)}${rest}`;
 }
 
 /**
@@ -124,7 +171,8 @@ const usd = (value: number): string => value.toFixed(2);
 
 /** The blocker a phase finishes with when a blocking role's unit failed twice. */
 export function workerFailedBlocker(unit: Unit, state: UnitState | undefined): Blocker {
-  return { code: 'worker-failed', detail: `the ${unit.role} worker for ${unit.phase}:${unit.key} failed twice: ${failureReason(state)}`, action: blockerActions['worker-failed'] };
+  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice: `;
+  return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions['worker-failed'] };
 }
 
 /** The blocker a phase finishes with when the spend reached the run budget. */
@@ -132,9 +180,11 @@ export function budgetBlocker(spendUsd: number, budgetUsd: number): Blocker {
   return { code: 'budget', detail: `spent ${usd(spendUsd)} USD of the ${usd(budgetUsd)} USD run budget`, action: `run the command again with --budget-usd above ${usd(spendUsd)}, or abandon the run` };
 }
 
-/** The blocker a phase finishes with when the worktree drifted from the scope. */
+/** The blocker a phase finishes with when the worktree drifted from the scope: the drifted files, as many as the detail holds, and the count of the rest. */
 export function driftBlocker(files: readonly { path: string; outcome: string }[]): Blocker {
-  return { code: 'drift', detail: `the worktree differs from the reviewed change: ${files.map((file) => `${file.path} (${file.outcome})`).join(', ')}`, action: blockerActions.drift };
+  const prefix = 'the worktree differs from the reviewed change: ';
+  const listed = listWithin(files.map((file) => `${file.path} (${file.outcome})`), maxRecordedTextLength - prefix.length);
+  return { code: 'drift', detail: `${prefix}${listed}`, action: blockerActions.drift };
 }
 
 /**
