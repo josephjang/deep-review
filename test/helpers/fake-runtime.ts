@@ -15,6 +15,9 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 export const environment = process.env;
 
+/** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
+export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
+
 /** Print a help text listing every flag but FAKE_HELP_OMIT. */
 export function printHelp(flags: readonly string[]): void {
   const omit = environment.FAKE_HELP_OMIT;

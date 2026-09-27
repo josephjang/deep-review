@@ -10,8 +10,7 @@ import { checkpointScratchKey, runWorker, type RunWorkerOptions, type WorkerRece
 
 export const fakeClaude = resolve(import.meta.dirname, 'fake-claude.ts');
 export const fakeCodex = resolve(import.meta.dirname, 'fake-codex.ts');
-/** The thread id fake-codex.ts reports for a fresh worker. */
-export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
+export { freshThread } from './fake-runtime.ts';
 
 export const answerSchema = z.strictObject({ answer: z.string() });
 
