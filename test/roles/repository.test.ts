@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
@@ -99,6 +99,29 @@ describe('scripts/roles.ts', () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /must not exist yet/);
     assert.deepEqual(readdirSync(sandbox), []);
+  });
+
+  it('refuses an --output that already exists as a file, leaving the file as it was', () => {
+    const output = join(sandbox, 'out');
+    writeFileSync(output, 'kept\n');
+    const result = spawnSync(process.execPath, [script, '--output', output], { encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must not exist yet/);
+    assert.equal(readFileSync(output, 'utf8'), 'kept\n');
+  });
+
+  it('refuses a file system root as --output', () => {
+    const result = spawnSync(process.execPath, [script, '--output', parse(sandbox).root], { encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must not exist yet/);
+  });
+
+  it('creates the missing parents of --output', () => {
+    const other = writeSmallRoles();
+    const output = join(sandbox, 'a', 'b', 'out');
+    const result = spawnSync(process.execPath, [script, '--root', other, '--output', output], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readdirSync(output), ['only.md']);
   });
 
   /** A one-role roles directory under the sandbox, for the cases that must not touch the repository's roles/. */
