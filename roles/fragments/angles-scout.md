@@ -1,5 +1,5 @@
 ### Angle RIPPLE — cross-file tracer
-For each function the diff changes, find its callers (Grep for the symbol)
+For each function the diff changes, find its callers (search for the symbol)
 and check whether the change breaks any call site: a new precondition, a
 changed return shape, a new exception, a timing/ordering dependency. Also
 check callees: does a parallel change in the same diff make a call unsafe?
@@ -56,7 +56,7 @@ and (for reuse) against the helpers the wider codebase already provides:
   coincidental (two domains that happen to look alike right now but will
   evolve independently).
 - **Reuse over reinvention.** Flag new code that re-implements a helper,
-  utility, or pattern the codebase already provides (Grep for the
+  utility, or pattern the codebase already provides (search for the
   capability before assuming it's new) — name the existing symbol to call
   instead. Also flag dead code the diff leaves behind: a branch the change
   made unreachable, a helper or import it orphaned.

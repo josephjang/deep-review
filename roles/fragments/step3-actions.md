@@ -2,8 +2,8 @@
 
 1. **FIX-NOW** — apply every one, with its validation plan, to the same standard as Step 1
    and by the same means: cluster them by file under the Step 1 rules and
-   save their plan as described below before dispatching `deep-review-fixer`
-   agents in one message block, rather than editing here. The audit already
+   save their plan as described below before dispatching fixer workers
+   in parallel, rather than editing here. The audit already
    produced the anchored edit and validation plan for each,
    so pass those through with relevant recorded CORRECTION lines;
    the fixer validates by the specified method and reports observed evidence,
@@ -12,9 +12,9 @@
    report.
 3. **NEEDS-STEERING** — put it to the author (offer the concrete options;
    recommend one with a reason), then dispatch the chosen path with its test to
-   a fixer the same way. If you can call `AskUserQuestion`, ask directly. If you
-   cannot — you are a subagent, and the tool does not reach one — finish
-   independent code work first, then RETURN the open questions to your caller
+   a fixer the same way. If you can ask the author directly, do. If you
+   cannot — you are a worker, and no question reaches the author from one — finish
+   independent code work first, then RETURN the open questions to the engine
    with their options and your recommendation; it will ask and continue you with the
    answers. Only a genuinely non-interactive run leaves these as residual skips,
    and then the question and options are stated in the report.
@@ -44,7 +44,7 @@ the recorded no-runner limitation), and references to the saved auditor sections
 containing its exact edits and validation plans. End the plan section with
 `<!-- END FIX-NOW-1-plan -->`, using its actual wave ID.
 
-Confirm the plan write succeeded before issuing any `Agent` call for
+Confirm the plan write succeeded before dispatching any fixer for
 that wave. Do not batch the write with its dispatch: parallel calls can
 start a fixer before its plan is durable. If the plan cannot be saved,
 do not dispatch that wave. With no FIX-NOW code clusters, record a terminated

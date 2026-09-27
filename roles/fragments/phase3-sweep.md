@@ -1,11 +1,10 @@
 ## Phase 3 — Sweep for gaps
 
-Run **one more finder** as a fresh reviewer (`subagent_type:
-"deep-review-lead"`): give it the scope block, the verified list, and
-the refuted list with its one-line evidence — the refutations are there
-so it does not resurface a candidate already judged and re-pay its
-verification. It re-reads the diff and enclosing functions looking ONLY
-for gaps not already listed across the angles that ran. Do not
+Run **one more finder** as a fresh reviewer: give it the scope block,
+the verified list, and the refuted list with its one-line evidence — the
+refutations are there so it does not resurface a candidate already judged
+and re-pay its verification. It re-reads the diff and enclosing functions
+looking ONLY for gaps not already listed across the angles that ran. Do not
 re-derive or re-confirm anything already there — the job is gaps. The
 territory of any angle skipped in Phase 1b is explicitly sweep material:
 if you spot a candidate a skipped angle would have caught, surface it —
@@ -29,8 +28,8 @@ Focus on what the first pass tends to miss:
   generalize, or a clear CLAUDE.md violation that sits outside the changed
   hunks but inside a touched file.
 
-The sweep is a finder pass: the finder output contract (in the sweep
-agent's definition — do not restate it) governs the cap of 12 additional
+The sweep is a finder pass: the finder output contract (in the sweep's
+role prompt — do not restate it) governs the cap of 12 additional
 candidates and their fields, with each gap using the field of the angle
 whose territory it sits in. Run survivors through Phase 2 with the
 matching rubric. If nothing new, an empty sweep is the correct return —

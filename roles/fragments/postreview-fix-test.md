@@ -15,14 +15,14 @@ takes them directly, alongside whatever the fixers defer. Everything
 else — CONFIRMED from any angle, PLAUSIBLE from the correctness, cost &
 conventions angles, and any PLAUSIBLE tagged "unverified" from those
 angles — is fixed now. You do not apply the fixes yourself: you cluster
-them, dispatch one `deep-review-fixer` per cluster, and verify the
+them, dispatch one fixer per cluster, and verify the
 result. If nothing routes to a fixer, code dispatch and Step 2 are no-ops;
 still check the documentation queue below. With no documentation work
 either, verification is also a no-op; save the explicit Verify and Step 2
 no-op records below before Step 3 runs.
 
 The fixer's standard for applying a fix, its defer criteria, and its test
-requirements live in its agent definition, so they reach it whether or not
+requirements live in its role prompt, so they reach it whether or not
 you restate them. Do not re-derive or paste them.
 
 **Preserve CORRECTION lines verbatim with their finding and execution.**
@@ -55,7 +55,7 @@ rules that override that default:
 - A finding merged across sites in Phase 4 is ONE fix. Keep all its sites
   in one cluster, and that cluster owns every file they touch.
 - **No file may appear in two concurrent clusters, and no follow-on may
-  own a file an in-flight cluster owns.** Two agents editing one file
+  own a file an in-flight cluster owns.** Two workers editing one file
   will clobber each other. If the rule above pulls a file into a cluster,
   every finding in that file joins it.
 
@@ -77,7 +77,7 @@ code assignments can proceed; documentation still waits for all code.
 Use the phase's saved plans and returns as the ownership record. Keep a
 stable logical cluster ID and assign a unique execution ID to every
 dispatch, including repairs and replacements; record it on the plan and
-return section, plus the runtime agent/task handle when available. Reserve
+return section, plus the runtime session id when available. Reserve
 the whole eligible batch in a successfully saved plan before any call.
 **Only a final return or confirmed termination releases the current execution's files.**
 Checkpoint that evidence before transferring ownership. Record a failed
@@ -136,7 +136,7 @@ every DRIFT line verbatim, references to all code fixer returns in that phase,
 renamed members, and the test command or no-runner limitation. This brief
 must cover all applied changes, including those whose fixers omitted DRIFT.
 End the plan with `<!-- END DOCS-STEP1-r1-plan -->` using its actual ID;
-dispatch one `deep-review-fixer` in documentation reconciliation mode.
+dispatch one fixer in documentation reconciliation mode.
 Append its complete return verbatim with `<!-- END DOCS-STEP1-r1 -->`.
 Check that every queued item has a disposition. If its search finds
 another required document outside ownership, extend this same cluster's
@@ -160,8 +160,8 @@ already-correct documents without rewriting them, and rerun affected
 checks. Neither `fixes.md` nor `audit.md` is complete with pending
 documentation; Step 1 also requires its verification and Step 2 work.
 
-**Dispatch every eligible code cluster in a single message block**, each as an `Agent`
-call with `subagent_type: "deep-review-fixer"`. Each prompt carries the
+**Dispatch every eligible code cluster in parallel**, each as a fixer
+worker. Each prompt carries the
 Phase 0 scope block, the cluster's findings — ID, `file:line`, summary,
 angle, and the verifier's evidence line — the exact list of files that
 cluster owns, and the test command. Order the findings within a cluster
@@ -171,7 +171,7 @@ Append the code cluster plan — each cluster and execution ID, its finding
 IDs, files owned, and test command — to `fixes.md`, preserving its queues
 and earlier returns. Give the plan its own end marker. Do not batch its
 write with dispatch or dispatch after a failed write. Apply the ownership
-check to the eligible batch, then dispatch it in one message block and
+check to the eligible batch, then dispatch it in parallel and
 append each fixer's report verbatim under the matching execution as it
 returns.
 

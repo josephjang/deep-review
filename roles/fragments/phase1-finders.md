@@ -2,12 +2,11 @@
 
 Ten finder angles are defined below: `SCAN` runs first as the triage
 (Phase 1a), then you choose the set and fan out (Phase 1b). Every angle
-that runs is an independent `Agent` call, using its `subagent_type`
-from the tier table above. What a finder returns — the cap of 12, the
-four fields per candidate (`file`, `line`, `summary`, and
+that runs is an independent worker. What a finder returns — the cap of 12,
+the four fields per candidate (`file`, `line`, `summary`, and
 `failure_scenario` or `value_statement` by angle group), the
 user-visible-consequence rule — is the **finder output contract**,
-defined after the angles. It is in every finder's agent definition, so
+defined after the angles. It is in every finder's role prompt, so
 do not restate it in prompts; it appears here because you consume what
 it specifies: Phase 2's dedup tiebreaks and verify grouping read those
 fields.
@@ -32,8 +31,8 @@ verification appendix lists by ID.
 ### Phase 1a — Triage: run `SCAN` first
 
 Run **the `SCAN` angle alone**, before any other angle, as a single
-`Agent` call (`subagent_type: "deep-review-lead"`) whose prompt opens
-with the Phase 0 scope block. The prompt carries two jobs:
+worker whose prompt opens with the Phase 0 scope block. The prompt
+carries two jobs:
 
 1. **Its own review** — the line-by-line review described under `SCAN`
    below. Its findings enter the Phase 2 pool like any other angle's.
@@ -58,7 +57,7 @@ yours, and you must be able to defend every skip in the final report.
 - **Default is run.** This is a maximum-effort review: skip an angle ONLY
   when its subject matter is provably absent from the review scope and
   you can verify that absence yourself from the Phase 0 diff. Low
-  expected yield, diff size, and agent cost are never skip reasons.
+  expected yield, diff size, and worker cost are never skip reasons.
 - **Spot-check every `skip` against the diff** before accepting it.
   `SCAN` claims "the diff deletes nothing" → check the hunks for removed
   lines; it claims "no CLAUDE.md governs the changed files" → check
@@ -72,7 +71,7 @@ yours, and you must be able to defend every skip in the final report.
   — no wrapper, cache, proxy, decorator, or adapter type is added or
   modified; **`CONVENTIONS`** — no CLAUDE.md governs any changed file;
   **`RIPPLE`** — every changed symbol is demonstrably file-local with no
-  outside callers (confirm with Grep, not assumption). **`FOOTGUNS`,
+  outside callers (confirm by searching, not assumption). **`FOOTGUNS`,
   `EFFICIENCY`, `DESIGN`, `DUPLICATION`, `ALTITUDE`** apply to
   essentially any nontrivial code diff — skip them only when the scope
   contains no code at all (docs-only or config-only changes) or an
@@ -86,15 +85,14 @@ Record a per-angle decision log — angle, run/skip, one-line reason, and
 whether you overrode the `SCAN` recommendation — you will reproduce it in
 the final report's Angles section.
 
-Then run every chosen angle as parallel `Agent` calls, all in a single
-message block — each with its angle's `subagent_type` from the tier
-table, each prompt opening with the same Phase 0 scope block. A finder
+Then run every chosen angle as parallel workers, each prompt opening
+with the same Phase 0 scope block. A finder
 prompt contains the scope-block pointer, the angle to run, and one labeled
 lead. **Pass SCAN's one-line run reason for that angle as `SCAN lead`.**
 Preserve its wording and provenance; the receiving finder checks it first
 and still performs the full angle search. Do not pass other angles'
 findings or conclusions. The angle definition, lead-handling rule, and
-output contract are in the agent's own definition; do not restate them.
+output contract are in the finder's role prompt; do not restate them.
 
 **An overridden skip uses the driver's verified reason labeled `Driver lead`, not an invented SCAN run reason.**
 **No concrete lead available: send `Lead: none` and still run the chosen angle.**
