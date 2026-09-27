@@ -83,9 +83,31 @@ describe('assembleRoles', () => {
     assert.throws(() => assembleRoles(root), (error: unknown) => error instanceof InvalidRoleManifestError && /Cannot read the role manifest/.test(error.message));
   });
 
-  it('refuses a missing fragments directory by the first fragment it cannot find', () => {
+  it('refuses a missing fragments directory as one it cannot list', () => {
     writeFileSync(join(root, manifestFileName), JSON.stringify({ schemaVersion: 1, roles: { r: ['a.md'] } }));
-    assert.throws(() => assembleRoles(root), (error: unknown) => error instanceof InvalidRoleFragmentError && /a\.md does not exist/.test(error.message));
+    assert.throws(() => assembleRoles(root), (error: unknown) =>
+      error instanceof InvalidRoleManifestError && /Cannot list .*fragments: ENOENT/.test(error.message));
+  });
+
+  it('reports a fragment roles name but fragments/ lacks together with the entries no role names', () => {
+    // A rename (a.md now renamed.md) and a case mismatch (c.md now C.md) each show both halves, on every file system.
+    seed(root, { schemaVersion: 1, roles: { r: ['a.md', 'b.md'], s: ['c.md'] } }, { 'b.md': 'b\n', 'renamed.md': 'r\n', 'C.md': 'c\n' });
+    assert.throws(() => assembleRoles(root), (error: unknown) =>
+      error instanceof InvalidRoleManifestError
+      && /^Fragments that roles name but fragments\/ does not hold: a\.md, c\.md; Entries under fragments\/ that no role names: C\.md, renamed\.md$/.test(error.message));
+  });
+
+  it('compares the manifest with fragments/ before reading any fragment', () => {
+    // a.md breaks a fragment invariant, but the missing b.md is reported first: nothing was read.
+    seed(root, { schemaVersion: 1, roles: { r: ['a.md', 'b.md'] } }, { 'a.md': '' });
+    assert.throws(() => assembleRoles(root), (error: unknown) =>
+      error instanceof InvalidRoleManifestError && /does not hold: b\.md$/.test(error.message));
+  });
+
+  it('reports a fragment read on its own that is missing as missing', () => {
+    seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, {});
+    assert.throws(() => readRoleFragment(root, 'a.md'), (error: unknown) =>
+      error instanceof InvalidRoleFragmentError && error.fragment === 'a.md' && /a\.md does not exist$/.test(error.message));
   });
 
   it('reports a fragment path that cannot be examined by the failure, not as missing', () => {
@@ -95,12 +117,18 @@ describe('assembleRoles', () => {
       && /a\.md cannot be read: .*null bytes/.test(error.message) && !/does not exist/.test(error.message));
   });
 
-  it('reports a fragments/ that is a file by the lstat failure, not as missing', (t) => {
-    // Windows reports a path through a file as ENOENT; POSIX says ENOTDIR.
-    if (process.platform === 'win32') return t.skip('Windows reports a path through a file as missing');
+  it('refuses a fragments/ that is a file as one it cannot list', () => {
     writeFileSync(join(root, manifestFileName), JSON.stringify({ schemaVersion: 1, roles: { r: ['a.md'] } }));
     writeFileSync(join(root, fragmentsDirectoryName), 'not a directory\n');
     assert.throws(() => assembleRoles(root), (error: unknown) =>
+      error instanceof InvalidRoleManifestError && /Cannot list .*fragments: ENOTDIR/.test(error.message));
+  });
+
+  it('reports a fragment read on its own through a fragments/ that is a file by the lstat failure, not as missing', (t) => {
+    // Windows reports a path through a file as ENOENT; POSIX says ENOTDIR.
+    if (process.platform === 'win32') return t.skip('Windows reports a path through a file as missing');
+    writeFileSync(join(root, fragmentsDirectoryName), 'not a directory\n');
+    assert.throws(() => readRoleFragment(root, 'a.md'), (error: unknown) =>
       error instanceof InvalidRoleFragmentError && /a\.md cannot be read: ENOTDIR/.test(error.message));
   });
 
@@ -159,10 +187,11 @@ describe('assembleRoles', () => {
     // A junction needs no privilege on Windows; on other platforms the type is ignored and this is a directory symlink.
     symlinkSync(elsewhere, join(roles, fragmentsDirectoryName), 'junction');
     const refusesTheLink = (): void => {
-      for (const read of [() => assembleRoles(roles), () => readRoleFragment(roles, 'a.md')]) {
-        assert.throws(read, (error: unknown) =>
-          error instanceof InvalidRoleFragmentError && error.fragment === 'a.md' && /a\.md is in a fragments\/ that is a link/.test(error.message));
-      }
+      // The assembly refuses the directory before it lists it; a fragment read on its own names the fragment.
+      assert.throws(() => assembleRoles(roles), (error: unknown) =>
+        error instanceof InvalidRoleManifestError && /fragments is a link; fragments live in the roles directory itself$/.test(error.message));
+      assert.throws(() => readRoleFragment(roles, 'a.md'), (error: unknown) =>
+        error instanceof InvalidRoleFragmentError && error.fragment === 'a.md' && /a\.md is in a fragments\/ that is a link/.test(error.message));
     };
     refusesTheLink();
     // A link whose target is gone is still refused as a link, not reported as a missing fragment.
