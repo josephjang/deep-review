@@ -799,9 +799,10 @@ three CI runners.
 
 Run on the author's Windows 11 machine on 2026-09-28, Node 26.10.0, over
 the eleven commits that build the element after the proposal (`71b693f`),
-from `76f1ba9` to `4cc1a80`. `npm run check` and
-`npm run verify` passed before each commit, `npm run check` ending at 810
-tests, 798 passing and 12 skipped: the six POSIX signal cases, the four
+from `76f1ba9` to `4cc1a80`, and the fix commit `9085ae6` after the
+first documentation commit. `npm run check` and
+`npm run verify` passed before each commit, `npm run check` ending at 811
+tests, 799 passing and 12 skipped: the six POSIX signal cases, the four
 symlink cases and the two assembler cases bound to a platform, as the
 role prompts element recorded them, and no new skip. Continuous
 integration on the three platforms has not run yet for these commits; it
@@ -823,6 +824,11 @@ The commits, in order, and what each carries:
   command, the scripted fakes and the whole-review tests.
 - `7c1fcd6` the esbuild bundle in both artifacts.
 - `4cc1a80` the skill texts, rebuilt into `dist/`.
+- `9085ae6` three defects a review of the controller found before any
+  real run: a launched worker's error could surface as an unhandled
+  rejection while another worker was awaited, the controller's append
+  retried once against the finishes the launchers append themselves, and
+  `--repo` mangled an absolute path; `dist/` rebuilt with them.
 
 The roles' hashes after each text commit. At `2c159d7` (narration):
 
