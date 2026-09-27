@@ -591,8 +591,18 @@ against the two commits of this element, `362a89f` (the move) and
   the unused-fragment check is asserted against a planted stray file and
   a stray directory; the script's refusal of an existing output directory
   is asserted against one.
-- Continuous integration on the three platforms: not yet run; recorded
-  here when the pull request runs.
+- Continuous integration on the three platforms, pull request #3: run
+  36314288435 at `c23d695`, the branch's last head, passed `npm run
+  check` and `npm run verify` on ubuntu-latest, windows-latest and
+  macos-latest, and run 36314485802 on `main` at `33741db`, the rebase
+  merge of that head with the same tree, passed both again. Each
+  platform ran 572 tests with none failing: 5 skipped on ubuntu and
+  macOS, 8 on Windows, this machine's twelve less the four symlink
+  cases, since the runner may create symlinks. The three R3 refusals
+  that skip on this machine, the fragment behind a `fragments/` that is
+  a file, the fragment whose mode denies reading and the symlinked
+  fragment, are named as passing in the ubuntu-latest log, and
+  macos-latest skipped the same five cases.
 
 The review of the pull request added twenty-one commits after its
 verification record, `795e146`, from `6823119` to `5b8410c`, and then
