@@ -1,0 +1,249 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { foldRun } from '../../src/checkpoint/fold.ts';
+import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, unitsOf, workerFailedBlocker, type Live, type Step } from '../../src/review/steps.ts';
+import { finderAngles, phases, unitName } from '../../src/review/vocabulary.ts';
+import { candidate, configured, finding, found, leads, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+
+const idle: Live = { running: new Set(), concurrency: 4, spendUsd: 0, budgetUsd: 30 };
+const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
+
+describe('unitsOf', () => {
+  it('gives one unit to the triage, the sweep and merge-rank, nine to the finders and none to the report', () => {
+    const review = configured().review();
+    assert.deepEqual(unitsOf(review, 'triage'), [{ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }]);
+    assert.deepEqual(unitsOf(review, 'finders').map((unit) => [unit.key, unit.role, unit.degrades]), finderAngles.map((angle) => [angle, `finder-${angle}`, true]));
+    assert.deepEqual(unitsOf(review, 'sweep'), [{ phase: 'sweep', key: 'sweep', role: 'sweep', degrades: false }]);
+    assert.deepEqual(unitsOf(review, 'report'), []);
+  });
+
+  it('gives deduplication a unit only when its pool holds two candidates, and merge-rank only when something survived', () => {
+    assert.deepEqual(unitsOf(triaged().review(), 'deduplication'), [], 'one candidate cannot repeat');
+    assert.deepEqual(unitsOf(found().review(), 'deduplication'), [{ phase: 'deduplication', key: 'deduplication', role: 'deduplication', degrades: false }]);
+    assert.deepEqual(unitsOf(verified().review(), 'sweep-deduplication'), []);
+    assert.deepEqual(unitsOf(swept().review(), 'sweep-deduplication'), [{ phase: 'sweep-deduplication', key: 'sweep-deduplication', role: 'deduplication', degrades: false }]);
+    assert.deepEqual(unitsOf(swept().review(), 'merge-rank'), [{ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank', degrades: false }]);
+    assert.deepEqual(unitsOf(configured().review(), 'merge-rank'), []);
+  });
+
+  it('gives verification one unit per planned group, from the recorded plan when there is one and from the working list otherwise', () => {
+    const planned = verified().review();
+    assert.deepEqual(unitsOf(planned, 'verification'), [{ phase: 'verification', key: 'g1', role: 'verifier', degrades: true }]);
+    const unplanned = found().start('deduplication').add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [] }).finish('deduplication').start('verification').review();
+    assert.deepEqual(groupsOf(unplanned, 'verification'), [{ id: 'g1', candidateIds: ['SCAN-1', 'RIPPLE-1'] }]);
+    assert.deepEqual(unitsOf(unplanned, 'verification').map((unit) => unit.key), ['g1']);
+  });
+});
+
+describe('nextStep', () => {
+  it('starts the triage on a configured run', () => {
+    assert.deepEqual(nextStep(configured().review(), idle), { kind: 'start-phase', phase: 'triage', attempt: 1 });
+  });
+
+  it('checks the worktree once per attempt before anything else in a running phase', () => {
+    const started = configured().add('phase.started', { phase: 'triage', attempt: 1 });
+    assert.deepEqual(nextStep(started.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 1 });
+    const checked = started.add('worktree.checked', { phase: 'triage', attempt: 1, drifted: false, files: [] });
+    assert.deepEqual(nextStep(checked.review(), idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }] });
+    const reentered = checked.add('phase.started', { phase: 'triage', attempt: 2 });
+    assert.deepEqual(nextStep(reentered.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 2 });
+  });
+
+  it('returns the blocker of a blocked run', () => {
+    const blocker = { code: 'drift', detail: 'src/a.ts modified', action: 'restore it' };
+    const review = configured().add('phase.started', { phase: 'triage', attempt: 1 }).add('worktree.checked', { phase: 'triage', attempt: 1, drifted: true, files: [{ path: 'src/a.ts', outcome: 'modified' }] }).finish('triage', 'blocked', 1, blocker).review();
+    assert.deepEqual(nextStep(review, idle), { kind: 'blocked', blocker: { ...blocker, phase: 'triage' } });
+  });
+
+  it('awaits the running triage worker and finishes the phase once it answered', () => {
+    const running = configured().start('triage').review();
+    assert.deepEqual(nextStep(running, live({ running: new Set(['triage:SCAN']) })), { kind: 'await' });
+    const answered = configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads }).review();
+    assert.deepEqual(nextStep(answered, idle), { kind: 'finish-phase', phase: 'triage', attempt: 1, outcome: 'completed', blocker: null });
+  });
+
+  it('launches the finders up to the concurrency, skipping the answered and the in-flight units, then awaits', () => {
+    const review = triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null }).review();
+    const step = nextStep(review, live({ running: new Set(['finders:REMOVALS']), concurrency: 3 }));
+    assert.equal(step.kind, 'launch');
+    assert.deepEqual(step.kind === 'launch' ? step.units.map((unit) => unit.key) : [], ['FOOTGUNS', 'WRAPPERS']);
+    assert.deepEqual(nextStep(review, live({ running: new Set(['finders:REMOVALS', 'finders:FOOTGUNS', 'finders:WRAPPERS']), concurrency: 3 })), { kind: 'await' });
+    const six = nextStep(review, live({ concurrency: 16 }));
+    assert.deepEqual(six.kind === 'launch' ? six.units.map((unit) => unit.key) : [], finderAngles.filter((angle) => angle !== 'RIPPLE'));
+  });
+
+  it('plans a retry for a unit that failed once and a degradation for a degrading unit that failed twice', () => {
+    const once = triaged().start('finders').add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'failed' }).review();
+    const first = nextStep(once, live({ concurrency: 1 }));
+    assert.deepEqual(first.kind === 'launch' ? first.units.map((unit) => unit.key) : [], ['REMOVALS'], 'units launch in angle order');
+    const all = nextStep(once, live({ concurrency: 16 }));
+    assert.ok(all.kind === 'launch' && all.units.some((unit) => unitName('finders', unit.key) === 'finders:RIPPLE'), 'RIPPLE is still launchable after one failure');
+    const twice = triaged().start('finders')
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'first' })
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'second' })
+      .review();
+    assert.deepEqual(nextStep(twice, idle), { kind: 'degrade', phase: 'finders', degradations: [{ kind: 'angle.failed', angle: 'RIPPLE', reason: '2 attempts did not complete: first; second' }] });
+    assert.equal(maxAttempts, 2);
+  });
+
+  it('launches every unit that still has attempts before finishing a degraded phase', () => {
+    const review = finding().review();
+    // WRAPPERS failed once and then answered; FOOTGUNS is not run; every other angle answered.
+    assert.deepEqual(nextStep(review, idle), { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'degraded', blocker: null });
+  });
+
+  it('counts a lost worker as one failed attempt', () => {
+    const lost = triaged().start('finders').add('worker.launched', { ...launchOf(3, 'finder-RIPPLE finders:RIPPLE') }).add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' }).review();
+    const step = nextStep(lost, live({ concurrency: 16 }));
+    assert.ok(step.kind === 'launch' && step.units.some((unit) => unit.key === 'RIPPLE'), 'one more attempt remains');
+    const lostTwice = triaged().start('finders')
+      .add('worker.launched', launchOf(3, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' })
+      .add('worker.launched', launchOf(4, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(4), phase: 'finders', key: 'RIPPLE', reason: 'engine exited again' })
+      .review();
+    assert.equal(nextStep(lostTwice, idle).kind, 'degrade');
+  });
+
+  it('blocks the run when a blocking role fails twice, after the running workers finish', () => {
+    const failed = configured().start('triage')
+      .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(1), reason: 'first' })
+      .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(2), reason: 'second' })
+      .review();
+    const step = nextStep(failed, idle);
+    assert.equal(step.kind, 'finish-phase');
+    if (step.kind === 'finish-phase') {
+      assert.equal(step.outcome, 'blocked');
+      assert.equal(step.blocker?.code, 'worker-failed');
+      assert.match(step.blocker?.detail ?? '', /the triage worker for triage:SCAN failed twice: 2 attempts did not complete: first; second/);
+      assert.match(step.blocker?.action ?? '', /run the command again/);
+    }
+    assert.deepEqual(nextStep(failed, live({ running: new Set(['triage:SCAN']) })), { kind: 'await' });
+  });
+
+  it('gives a blocked phase fresh attempts when it is started again', () => {
+    const again = configured().start('triage')
+      .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(1), reason: 'first' })
+      .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(2), reason: 'second' })
+      .finish('triage', 'blocked', 1, { code: 'worker-failed', detail: 'd', action: 'a' })
+      .start('triage', 2)
+      .review();
+    assert.deepEqual(nextStep(again, idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }] });
+  });
+
+  it('blocks on the budget before a launch, once the running workers have finished, and not when nothing is left to launch', () => {
+    const review = triaged().start('finders').review();
+    const exhausted = live({ spendUsd: 31.2, budgetUsd: 30 });
+    const step = nextStep(review, exhausted);
+    assert.deepEqual(step, { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: budgetBlocker(31.2, 30) });
+    assert.equal(budgetBlocker(31.2, 30).detail, 'spent 31.20 USD of the 30.00 USD run budget');
+    assert.equal(budgetBlocker(31.2, 30).action, 'run the command again with --budget-usd above 31.20, or abandon the run');
+    assert.deepEqual(nextStep(review, { ...exhausted, running: new Set(['finders:REMOVALS']) }), { kind: 'await' });
+    assert.equal(nextStep(review, live({ spendUsd: 29.99, budgetUsd: 30 })).kind, 'launch');
+    assert.equal(nextStep(review, live({ spendUsd: null, budgetUsd: 30 })).kind, 'launch', 'a runtime without cost has no budget check');
+    assert.equal(nextStep(review, live({ spendUsd: 100, budgetUsd: null })).kind, 'launch', 'no budget, no check');
+    const done = finding().review();
+    assert.equal(nextStep(done, exhausted).kind, 'finish-phase', 'nothing to launch, so the budget does not block');
+  });
+
+  it('starts and finishes a phase with no unit, after its check', () => {
+    // deduplication with one candidate has no unit.
+    const review = triaged().start('finders');
+    for (const angle of finderAngles) review.add('candidates.recorded', { phase: 'finders', key: angle, workerId: worker(10 + finderAngles.indexOf(angle)), candidates: [], leads: null });
+    review.finish('finders');
+    assert.deepEqual(nextStep(review.review(), idle), { kind: 'start-phase', phase: 'deduplication', attempt: 1 });
+    review.start('deduplication');
+    assert.deepEqual(nextStep(review.review(), idle), { kind: 'finish-phase', phase: 'deduplication', attempt: 1, outcome: 'completed', blocker: null });
+  });
+
+  it('plans verification from the working list once, then launches one verifier per group', () => {
+    const review = found().start('deduplication')
+      .add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [{ members: ['SCAN-1', 'RIPPLE-1'], keep: 'RIPPLE-1', reason: 'r' }] })
+      .finish('deduplication')
+      .start('verification');
+    assert.deepEqual(nextStep(review.review(), idle), { kind: 'plan-verification', phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }] });
+    review.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }] });
+    assert.deepEqual(nextStep(review.review(), idle), { kind: 'launch', units: [{ phase: 'verification', key: 'g1', role: 'verifier', degrades: true }] });
+  });
+
+  it('degrades a verification group that failed twice and finishes the phase degraded', () => {
+    const review = verified().start('sweep')
+      .add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: worker(30), candidates: [unlocated('SWEEP-1', 'DESIGN'), candidate('SWEEP-2', 'SCAN', { line: 7, rawLine: 7 })], leads: null })
+      .finish('sweep')
+      .start('sweep-deduplication')
+      .add('deduplication.recorded', { phase: 'sweep-deduplication', workerId: worker(31), groups: [] })
+      .finish('sweep-deduplication')
+      .start('sweep-verification')
+      .add('verification.planned', { phase: 'sweep-verification', groups: [{ id: 'g1', candidateIds: ['SWEEP-1', 'SWEEP-2'] }] })
+      .add('attempt.failed', { phase: 'sweep-verification', key: 'g1', workerId: worker(32), reason: 'a' })
+      .add('attempt.failed', { phase: 'sweep-verification', key: 'g1', workerId: worker(33), reason: 'b' });
+    assert.deepEqual(nextStep(review.review(), idle), { kind: 'degrade', phase: 'sweep-verification', degradations: [{ kind: 'group.unverified', phase: 'sweep-verification', groupId: 'g1', reason: '2 attempts did not complete: a; b' }] });
+    review.add('group.unverified', { phase: 'sweep-verification', groupId: 'g1', reason: '2 attempts did not complete: a; b' });
+    assert.deepEqual(nextStep(review.review(), idle), { kind: 'finish-phase', phase: 'sweep-verification', attempt: 1, outcome: 'degraded', blocker: null });
+  });
+
+  it('runs the sweep whatever the first pool held, and merge-rank only with survivors', () => {
+    const empty = triaged().start('finders');
+    for (const angle of finderAngles) empty.add('candidates.recorded', { phase: 'finders', key: angle, workerId: worker(10 + finderAngles.indexOf(angle)), candidates: [], leads: null });
+    empty.finish('finders').start('deduplication').finish('deduplication').start('verification').add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }] })
+      .add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: worker(21), verdicts: [{ id: 'SCAN-1', verdict: 'REFUTED', evidence: 'no' }] }).finish('verification');
+    assert.deepEqual(nextStep(empty.review(), idle), { kind: 'start-phase', phase: 'sweep', attempt: 1 });
+    empty.start('sweep').add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: worker(30), candidates: [], leads: null }).finish('sweep');
+    empty.start('sweep-deduplication').finish('sweep-deduplication').start('sweep-verification').add('verification.planned', { phase: 'sweep-verification', groups: [] }).finish('sweep-verification');
+    empty.start('merge-rank');
+    assert.deepEqual(nextStep(empty.review(), idle), { kind: 'finish-phase', phase: 'merge-rank', attempt: 1, outcome: 'completed', blocker: null }, 'nothing survived, so no merge-rank worker');
+  });
+
+  it('writes the report once its phase is checked, and is complete once it is written', () => {
+    assert.deepEqual(nextStep(swept().start('merge-rank').add('ranking.recorded', { workerId: worker(40), findings: ranking }).finish('merge-rank').review(), idle), { kind: 'start-phase', phase: 'report', attempt: 1 });
+    assert.deepEqual(nextStep(ranked().review(), idle), { kind: 'write-report' });
+    assert.deepEqual(nextStep(reported().review(), idle), { kind: 'complete' });
+  });
+
+  it('gives a step at every prefix of a whole run, and never a blocked or await one when no worker is in flight', () => {
+    const kinds = new Set<Step['kind']>();
+    const history = reported();
+    for (let length = 3; length <= history.events.length; length += 1) {
+      const review = foldRun(history.events.slice(0, length)).review;
+      if (review === null) continue;
+      kinds.add(nextStep(review, idle).kind);
+    }
+    assert.ok(!kinds.has('blocked') && !kinds.has('await'), [...kinds].join(', '));
+    assert.deepEqual([...kinds].sort(), ['check-worktree', 'complete', 'degrade', 'finish-phase', 'launch', 'plan-verification', 'start-phase', 'write-report']);
+    assert.equal(phases.length, 9);
+  });
+});
+
+describe('the blockers', () => {
+  it('name the operator action for a failed worker and a drift', () => {
+    const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage', degrades: false };
+    const blocker = workerFailedBlocker(unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
+    assert.equal(blocker.code, 'worker-failed');
+    assert.match(blocker.action, /two fresh attempts/);
+    const drift = driftBlocker([{ path: 'a.ts', outcome: 'modified' }, { path: 'b.ts', outcome: 'deleted' }]);
+    assert.equal(drift.code, 'drift');
+    assert.equal(drift.detail, 'the worktree differs from the reviewed change: a.ts (modified), b.ts (deleted)');
+    assert.match(drift.action, /restore the named files/);
+  });
+});
+
+/** A launch payload for a worker of the given label. */
+function launchOf(n: number, label: string): Record<string, unknown> {
+  return {
+    workerId: worker(n),
+    label,
+    runtime: 'claude',
+    executable: '/bin/claude',
+    executableArgs: [],
+    version: '2.1.283',
+    model: 'opus',
+    effort: 'high',
+    access: 'read-only',
+    shell: true,
+    sessionId: null,
+    resumes: null,
+    scratch: null,
+    budgetUsd: null,
+    timeoutMs: 60_000,
+    prompt: { sha256: 'a'.repeat(64), bytes: 1 },
+    schema: { sha256: 'b'.repeat(64), bytes: 1 },
+  };
+}
