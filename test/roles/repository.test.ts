@@ -137,6 +137,13 @@ describe('the repository\'s roles/', () => {
     assert.deepEqual(returning.filter((role) => /\bdispatch/i.test(role.prompt)).map((role) => role.key), []);
   });
 
+  it('tells no lead role to mutate code, which only a fixer may do within its ownership', () => {
+    // The fixer's validation procedure edits code to probe a test; a lead role reads and reports.
+    const leads = roles.filter((role) => role.fragments[0]!.name === 'lead-brief.md');
+    assert.deepEqual(leads.map((role) => role.key), leadRoles);
+    assert.deepEqual(leads.filter((role) => /Keep\s+the\s+mutation\s+within\s+your\s+ownership/i.test(role.prompt)).map((role) => role.key), []);
+  });
+
   it('points at no checkpoint discipline, which no fragment defines', () => {
     // It lived in the prompt-only skill's resume.md, which the proposal does not move.
     assert.deepEqual(roles.filter((role) => /checkpoint\s+discipline/i.test(role.prompt)).map((role) => role.key), []);
