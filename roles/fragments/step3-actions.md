@@ -12,8 +12,8 @@
    report.
 3. **NEEDS-STEERING** — put it to the author (offer the concrete options;
    recommend one with a reason), then dispatch the chosen path with its test to
-   a fixer the same way. If you can ask the author directly, do. If you
-   cannot — you are a worker, and no question reaches the author from one — finish
+   a fixer the same way. You cannot ask the author yourself: you are a
+   worker, and no question reaches the author from one. Finish
    independent code work first, then RETURN the open questions to the engine
    with their options and your recommendation; it will ask and continue you with the
    answers. Only a genuinely non-interactive run leaves these as residual skips,
