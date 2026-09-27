@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { attemptFailedV1 } from '../../src/checkpoint/events.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { contributionOf, groupCandidates, invocationFor, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import { reviewRoles } from '../../src/review/policy.ts';
@@ -80,6 +81,13 @@ describe('contributionOf', () => {
   it('records a failed attempt for a receipt that did not complete, with the outcome and error', () => {
     const event = contributionOf(unit('finders', 'RIPPLE', 'finder-RIPPLE', true), receipt(null, { outcome: 'timeout', error: 'The worker ran past its timeout' }), triaged().fold(), worktree);
     assert.deepEqual(event, { kind: 'attempt.failed', version: 1, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
+  });
+
+  it('cuts a failed attempt\'s reason to what the ledger records, marking the cut', () => {
+    const event = contributionOf(unit('finders', 'RIPPLE', 'finder-RIPPLE', true), receipt(null, { outcome: 'failed', error: 'e'.repeat(4000) }), triaged().fold(), worktree);
+    const payload = attemptFailedV1.parse(event.payload);
+    assert.equal(payload.reason.length, 4000);
+    assert.match(payload.reason, /^failed: e+ \[truncated\]$/);
   });
 
   it('records the triage with ids, located candidates, and leads in angle order', () => {
