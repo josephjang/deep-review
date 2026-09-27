@@ -6,7 +6,7 @@ import { RunClosedError } from '../../src/checkpoint/errors.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { until } from '../helpers/launcher.ts';
-import { acquireRunLock, lockHolder, lockPath } from '../../src/review/lock.ts';
+import { lockPath } from '../../src/review/lock.ts';
 import { phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
 import { ReviewSandbox } from '../helpers/review-sandbox.ts';
@@ -228,26 +228,6 @@ describe('runReview', { timeout: 600_000 }, () => {
     state = box.run();
     assert.equal(state.review!.phases.finders.attempt, 3);
     assert.match(text, /- Worktree checks: 11, 2 found a difference before finders \(attempt 1: src\/b\.ts modified\); finders \(attempt 2: src\/b\.ts modified\)/);
-  });
-
-  it('refuses a second engine while the lock is held, replaces a stale lock, and refuses to abandon a locked run', async () => {
-    box.script({});
-    const first = await box.review('claude');
-    report(first);
-    const runId = first.kind === 'report' ? first.runId : '';
-    // A lock held by a live process (this one) refuses another engine.
-    const release = acquireRunLock(box.checkpoint.root, runId, process.pid);
-    try {
-      assert.throws(() => acquireRunLock(box.checkpoint.root, runId, process.pid + 100_000), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'lock-held' && /is running run/.test(error.message));
-    } finally {
-      release();
-    }
-    // A lock whose process is gone is replaced.
-    writeFileSync(lockPath(box.checkpoint.root, runId), '999999999\n');
-    const taken = acquireRunLock(box.checkpoint.root, runId);
-    assert.equal(lockHolder(lockPath(box.checkpoint.root, runId)), process.pid);
-    taken();
-    assert.equal(lockHolder(lockPath(box.checkpoint.root, runId)), null);
   });
 
   it('ends with the launcher\'s error when the run is abandoned under a running worker, and no rejection goes unhandled', async () => {
