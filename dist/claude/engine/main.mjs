@@ -19894,57 +19894,6 @@ function collectArtifactReferences(payload) {
   return found;
 }
 
-// src/review/vocabulary.ts
-var finderAngles = ["REMOVALS", "RIPPLE", "FOOTGUNS", "WRAPPERS", "EFFICIENCY", "DESIGN", "DUPLICATION", "ALTITUDE", "CONVENTIONS"];
-var finderAngleSchema = external_exports.enum(finderAngles);
-var angles = ["SCAN", ...finderAngles];
-var angleSchema = external_exports.enum(angles);
-var angleClasses = {
-  SCAN: "correctness",
-  REMOVALS: "correctness",
-  RIPPLE: "correctness",
-  FOOTGUNS: "correctness",
-  WRAPPERS: "correctness",
-  EFFICIENCY: "correctness",
-  DESIGN: "design",
-  DUPLICATION: "design",
-  ALTITUDE: "design",
-  CONVENTIONS: "correctness"
-};
-var phases = ["triage", "finders", "deduplication", "verification", "sweep", "sweep-deduplication", "sweep-verification", "merge-rank", "report"];
-var phaseSchema = external_exports.enum(phases);
-var candidatePhases = ["triage", "finders", "sweep"];
-var candidatePhaseSchema = external_exports.enum(candidatePhases);
-var deduplicationPhases = ["deduplication", "sweep-deduplication"];
-var deduplicationPhaseSchema = external_exports.enum(deduplicationPhases);
-var verificationPhases = ["verification", "sweep-verification"];
-var verificationPhaseSchema = external_exports.enum(verificationPhases);
-var phaseOutcomes = ["completed", "degraded", "blocked"];
-var phaseOutcomeSchema = external_exports.enum(phaseOutcomes);
-var recordedBlockerCodes = ["worker-failed", "budget", "drift"];
-var recordedBlockerCodeSchema = external_exports.enum(recordedBlockerCodes);
-var blockerActions = {
-  "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
-  budget: "run the command again with --budget-usd above the spend, or abandon the run",
-  drift: "restore the named files to the reviewed change and run the command again, or abandon the run and start a new one",
-  "lock-held": "wait for that engine to finish; if its process is gone the lock clears itself on the next run",
-  "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
-};
-var verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
-var verdictSchema = external_exports.enum(verdicts);
-var severities = ["critical", "major", "minor"];
-var severitySchema = external_exports.enum(severities);
-var candidateIdSchema = external_exports.string().regex(/^[A-Z]+-[1-9][0-9]*$/, "a candidate id is an upper-case prefix, a dash and a number from 1");
-var groupIdSchema = external_exports.string().regex(/^g[1-9][0-9]*$/, "a group id is g and a number from 1");
-var sweepIdPrefix = "SWEEP";
-function candidateIdPrefix(phase, key) {
-  return phase === "sweep" ? sweepIdPrefix : key;
-}
-var triageUnitKey = "SCAN";
-var unitKeySchema = external_exports.string().regex(/^[A-Za-z0-9-]{1,40}$/, "a unit key is letters, digits and dashes");
-var maxRecordedTextLength = 4e3;
-var unitName = (phase, key) => `${phase}:${key}`;
-
 // src/checkpoint/registry.ts
 var kindPattern = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+$/;
 function defineRegistry(registry2) {
@@ -19966,6 +19915,37 @@ function registryKeys(registry2) {
 }
 
 // src/checkpoint/events.ts
+var reviewVocabularyV1 = {
+  angles: ["SCAN", "REMOVALS", "RIPPLE", "FOOTGUNS", "WRAPPERS", "EFFICIENCY", "DESIGN", "DUPLICATION", "ALTITUDE", "CONVENTIONS"],
+  finderAngles: ["REMOVALS", "RIPPLE", "FOOTGUNS", "WRAPPERS", "EFFICIENCY", "DESIGN", "DUPLICATION", "ALTITUDE", "CONVENTIONS"],
+  phases: ["triage", "finders", "deduplication", "verification", "sweep", "sweep-deduplication", "sweep-verification", "merge-rank", "report"],
+  candidatePhases: ["triage", "finders", "sweep"],
+  deduplicationPhases: ["deduplication", "sweep-deduplication"],
+  verificationPhases: ["verification", "sweep-verification"],
+  phaseOutcomes: ["completed", "degraded", "blocked"],
+  recordedBlockerCodes: ["worker-failed", "budget", "drift"],
+  verdicts: ["CONFIRMED", "PLAUSIBLE", "REFUTED"],
+  severities: ["critical", "major", "minor"]
+};
+var vocabulary = reviewVocabularyV1;
+var angleSchema = external_exports.enum(vocabulary.angles);
+var finderAngleSchema = external_exports.enum(vocabulary.finderAngles);
+var phaseSchema = external_exports.enum(vocabulary.phases);
+var candidatePhaseSchema = external_exports.enum(vocabulary.candidatePhases);
+var deduplicationPhaseSchema = external_exports.enum(vocabulary.deduplicationPhases);
+var verificationPhaseSchema = external_exports.enum(vocabulary.verificationPhases);
+var phaseOutcomeSchema = external_exports.enum(vocabulary.phaseOutcomes);
+var recordedBlockerCodeSchema = external_exports.enum(vocabulary.recordedBlockerCodes);
+var verdictSchema = external_exports.enum(vocabulary.verdicts);
+var severitySchema = external_exports.enum(vocabulary.severities);
+var reviewIdentifiersV1 = {
+  candidateId: external_exports.string().regex(/^[A-Z]+-[1-9][0-9]*$/, "a candidate id is an upper-case prefix, a dash and a number from 1"),
+  groupId: external_exports.string().regex(/^g[1-9][0-9]*$/, "a group id is g and a number from 1"),
+  unitKey: external_exports.string().regex(/^[A-Za-z0-9-]{1,40}$/, "a unit key is letters, digits and dashes")
+};
+var candidateIdSchema = reviewIdentifiersV1.candidateId;
+var groupIdSchema = reviewIdentifiersV1.groupId;
+var unitKeySchema = reviewIdentifiersV1.unitKey;
 var runCreatedV1 = external_exports.strictObject({
   /** Absolute worktree the run was started from. Informational: the checkpoint is shared by every worktree. */
   worktree: external_exports.string().min(1)
@@ -20155,10 +20135,10 @@ var candidatesRecordedV1 = external_exports.strictObject({
   key: unitKeySchema,
   workerId: external_exports.uuid(),
   candidates: external_exports.array(recordedCandidateSchema).max(12),
-  leads: external_exports.array(leadSchema).length(finderAngles.length).nullable()
+  leads: external_exports.array(leadSchema).length(vocabulary.finderAngles.length).nullable()
 }).superRefine((recorded, context) => {
   if (recorded.phase === "triage" !== (recorded.leads !== null)) context.addIssue({ code: "custom", message: "the triage alone returns leads", path: ["leads"] });
-  if (recorded.leads !== null && new Set(recorded.leads.map((lead) => lead.angle)).size !== finderAngles.length) {
+  if (recorded.leads !== null && new Set(recorded.leads.map((lead) => lead.angle)).size !== vocabulary.finderAngles.length) {
     context.addIssue({ code: "custom", message: "one lead per finder angle", path: ["leads"] });
   }
   if (new Set(recorded.candidates.map((candidate) => candidate.id)).size !== recorded.candidates.length) context.addIssue({ code: "custom", message: "candidate ids are unique", path: ["candidates"] });
@@ -20252,6 +20232,57 @@ var eventRegistry = defineRegistry({
   "ranking.recorded": { 1: { schema: rankingRecordedV1 } },
   "report.written": { 1: { schema: reportWrittenV1 } }
 });
+
+// src/review/vocabulary.ts
+var finderAngles = ["REMOVALS", "RIPPLE", "FOOTGUNS", "WRAPPERS", "EFFICIENCY", "DESIGN", "DUPLICATION", "ALTITUDE", "CONVENTIONS"];
+var finderAngleSchema2 = external_exports.enum(finderAngles);
+var angles = ["SCAN", ...finderAngles];
+var angleSchema2 = external_exports.enum(angles);
+var angleClasses = {
+  SCAN: "correctness",
+  REMOVALS: "correctness",
+  RIPPLE: "correctness",
+  FOOTGUNS: "correctness",
+  WRAPPERS: "correctness",
+  EFFICIENCY: "correctness",
+  DESIGN: "design",
+  DUPLICATION: "design",
+  ALTITUDE: "design",
+  CONVENTIONS: "correctness"
+};
+var phases = ["triage", "finders", "deduplication", "verification", "sweep", "sweep-deduplication", "sweep-verification", "merge-rank", "report"];
+var phaseSchema2 = external_exports.enum(phases);
+var candidatePhases = ["triage", "finders", "sweep"];
+var candidatePhaseSchema2 = external_exports.enum(candidatePhases);
+var deduplicationPhases = ["deduplication", "sweep-deduplication"];
+var deduplicationPhaseSchema2 = external_exports.enum(deduplicationPhases);
+var verificationPhases = ["verification", "sweep-verification"];
+var verificationPhaseSchema2 = external_exports.enum(verificationPhases);
+var phaseOutcomes = ["completed", "degraded", "blocked"];
+var phaseOutcomeSchema2 = external_exports.enum(phaseOutcomes);
+var recordedBlockerCodes = ["worker-failed", "budget", "drift"];
+var recordedBlockerCodeSchema2 = external_exports.enum(recordedBlockerCodes);
+var blockerActions = {
+  "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
+  budget: "run the command again with --budget-usd above the spend, or abandon the run",
+  drift: "restore the named files to the reviewed change and run the command again, or abandon the run and start a new one",
+  "lock-held": "wait for that engine to finish; if its process is gone the lock clears itself on the next run",
+  "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
+};
+var verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
+var verdictSchema2 = external_exports.enum(verdicts);
+var severities = ["critical", "major", "minor"];
+var severitySchema2 = external_exports.enum(severities);
+var candidateIdSchema2 = external_exports.string().regex(/^[A-Z]+-[1-9][0-9]*$/, "a candidate id is an upper-case prefix, a dash and a number from 1");
+var groupIdSchema2 = external_exports.string().regex(/^g[1-9][0-9]*$/, "a group id is g and a number from 1");
+var sweepIdPrefix = "SWEEP";
+function candidateIdPrefix(phase, key) {
+  return phase === "sweep" ? sweepIdPrefix : key;
+}
+var triageUnitKey = "SCAN";
+var unitKeySchema2 = external_exports.string().regex(/^[A-Za-z0-9-]{1,40}$/, "a unit key is letters, digits and dashes");
+var maxRecordedTextLength = 4e3;
+var unitName = (phase, key) => `${phase}:${key}`;
 
 // src/checkpoint/review-fold.ts
 function poolPhases(phase) {
@@ -22906,8 +22937,8 @@ function parseUnitLabel(label) {
   if (label === null) return null;
   const match = /^(\S+) ([a-z-]+):([A-Za-z0-9-]+)$/.exec(label);
   if (match === null) return null;
-  const phase = phaseSchema.safeParse(match[2]);
-  const key = unitKeySchema.safeParse(match[3]);
+  const phase = phaseSchema2.safeParse(match[2]);
+  const key = unitKeySchema2.safeParse(match[3]);
   return phase.success && key.success ? { role: match[1], phase: phase.data, key: key.data } : null;
 }
 
@@ -23251,9 +23282,9 @@ var candidateFields = {
   detail: external_exports.string().min(1).max(2e3)
 };
 var candidateSchema = external_exports.strictObject(candidateFields);
-var sweepCandidateSchema = external_exports.strictObject({ ...candidateFields, angle: angleSchema });
+var sweepCandidateSchema = external_exports.strictObject({ ...candidateFields, angle: angleSchema2 });
 var maxCandidates = 12;
-var leadOutputSchema = external_exports.strictObject({ angle: finderAngleSchema, lead: external_exports.string().min(1).max(1e3).nullable() });
+var leadOutputSchema = external_exports.strictObject({ angle: finderAngleSchema2, lead: external_exports.string().min(1).max(1e3).nullable() });
 var triageOutputSchema = external_exports.strictObject({
   candidates: external_exports.array(candidateSchema).max(maxCandidates),
   leads: external_exports.array(leadOutputSchema).length(finderAngles.length)
@@ -23265,10 +23296,10 @@ var deduplicationOutputSchema = external_exports.strictObject({
   groups: external_exports.array(external_exports.strictObject({ members: external_exports.array(index).min(2), keep: index, reason: external_exports.string().min(1).max(1e3) }))
 });
 var verifierOutputSchema = external_exports.strictObject({
-  verdicts: external_exports.array(external_exports.strictObject({ index, verdict: verdictSchema, evidence: external_exports.string().min(1).max(1e3) }))
+  verdicts: external_exports.array(external_exports.strictObject({ index, verdict: verdictSchema2, evidence: external_exports.string().min(1).max(1e3) }))
 });
 var mergeRankOutputSchema = external_exports.strictObject({
-  findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
+  findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema2, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
 });
 function outputSchemaOf(role) {
   if (role === "triage") return triageOutputSchema;
