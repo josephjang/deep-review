@@ -6,20 +6,43 @@ const located = (id: string, file: string, line: number): Groupable => ({ id, fi
 const unlocated = (id: string, rawFile: string, rawLine: number): Groupable => ({ id, file: null, line: null, rawFile, rawLine });
 
 describe('chunk', () => {
+  const upTo = (length: number): number[] => Array.from({ length }, (_, i) => i);
+
   it('leaves a list within the size whole and splits a longer one into consecutive chunks', () => {
     assert.deepEqual(chunk([1, 2, 3]), [[1, 2, 3]]);
-    assert.deepEqual(chunk(Array.from({ length: 8 }, (_, i) => i)), [[0, 1, 2, 3, 4, 5, 6, 7]]);
-    assert.deepEqual(chunk(Array.from({ length: 16 }, (_, i) => i)).map((part) => part.length), [8, 8]);
-    assert.deepEqual(chunk(Array.from({ length: 10 }, (_, i) => i)).map((part) => part.length), [8, 2]);
-  });
-
-  it('absorbs a remainder of one into the chunk before it, so no chunk holds one candidate when the group had more', () => {
-    assert.deepEqual(chunk(Array.from({ length: 9 }, (_, i) => i)).map((part) => part.length), [9]);
-    assert.deepEqual(chunk(Array.from({ length: 17 }, (_, i) => i)).map((part) => part.length), [8, 9]);
-    assert.deepEqual(chunk(Array.from({ length: 17 }, (_, i) => i))[1], [8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    assert.deepEqual(chunk(upTo(8)), [upTo(8)]);
+    assert.deepEqual(chunk(upTo(16)).map((part) => part.length), [8, 8]);
+    assert.deepEqual(chunk(upTo(10)).map((part) => part.length), [5, 5]);
     assert.deepEqual(chunk([1]), [[1]], 'a group of one stays one');
     assert.deepEqual(chunk([]), []);
     assert.equal(maxGroupSize, 8);
+  });
+
+  it('never gives a chunk more than the size, and balances the chunks so none holds one candidate when the group had more', () => {
+    assert.deepEqual(chunk(upTo(9)), [upTo(5), [5, 6, 7, 8]]);
+    assert.deepEqual(chunk(upTo(17)).map((part) => part.length), [6, 6, 5]);
+    assert.deepEqual(chunk(upTo(25)).map((part) => part.length), [7, 6, 6, 6]);
+  });
+
+  it('keeps every chunk within the size, as few chunks as that allows, their sizes one apart, in the order given', () => {
+    for (let length = 0; length <= 100; length += 1) {
+      const parts = chunk(upTo(length));
+      const sizes = parts.map((part) => part.length);
+      assert.deepEqual(parts.flat(), upTo(length), `order kept for ${String(length)}`);
+      assert.equal(parts.length, Math.ceil(length / maxGroupSize), `chunk count for ${String(length)}`);
+      assert.ok(sizes.every((size) => size >= 1 && size <= maxGroupSize), `sizes ${sizes.join(',')} for ${String(length)}`);
+      assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1, `balanced sizes ${sizes.join(',')} for ${String(length)}`);
+      if (length > 1) assert.ok(sizes.every((size) => size > 1), `no single candidate alone for ${String(length)}`);
+    }
+  });
+
+  it('honours a size other than the default', () => {
+    assert.deepEqual(chunk(upTo(7), 3), [[0, 1, 2], [3, 4], [5, 6]]);
+    assert.deepEqual(chunk(upTo(3), 1), [[0], [1], [2]]);
+  });
+
+  it('refuses a size that is not a positive integer rather than looping or dropping items', () => {
+    for (const size of [0, -1, 2.5, Number.NaN]) assert.throws(() => chunk(upTo(3), size), RangeError, String(size));
   });
 });
 
@@ -87,12 +110,18 @@ describe('planGroups', () => {
     assert.deepEqual(planGroups([...candidates].reverse()), planGroups(candidates));
   });
 
-  it('splits a file with more than eight candidates into chunks of neighbouring lines, absorbing a remainder of one', () => {
+  it('splits a file with more than eight candidates into balanced chunks of neighbouring lines, none over eight', () => {
     const many = Array.from({ length: 17 }, (_, index) => located(`SCAN-${String(index + 1)}`, 'big.ts', 17 - index));
     const plan = planGroups([...many, located('RIPPLE-1', 'small.ts', 1)]);
-    assert.deepEqual(plan.map((group) => [group.id, group.candidateIds.length]), [['g1', 8], ['g2', 9], ['g3', 1]]);
-    assert.deepEqual(plan[0]?.candidateIds, ['SCAN-17', 'SCAN-16', 'SCAN-15', 'SCAN-14', 'SCAN-13', 'SCAN-12', 'SCAN-11', 'SCAN-10']);
-    assert.deepEqual(plan[2]?.candidateIds, ['RIPPLE-1']);
+    assert.deepEqual(plan.map((group) => [group.id, group.candidateIds.length]), [['g1', 6], ['g2', 6], ['g3', 5], ['g4', 1]]);
+    assert.deepEqual(plan[0]?.candidateIds, ['SCAN-17', 'SCAN-16', 'SCAN-15', 'SCAN-14', 'SCAN-13', 'SCAN-12']);
+    assert.deepEqual(plan[2]?.candidateIds, ['SCAN-5', 'SCAN-4', 'SCAN-3', 'SCAN-2', 'SCAN-1']);
+    assert.deepEqual(plan[3]?.candidateIds, ['RIPPLE-1']);
+  });
+
+  it('gives a file of nine candidates two verifiers, not one of nine', () => {
+    const nine = Array.from({ length: 9 }, (_, index) => located(`SCAN-${String(index + 1)}`, 'a.ts', index + 1));
+    assert.deepEqual(planGroups(nine).map((group) => group.candidateIds.length), [5, 4]);
   });
 
   it('plans nothing for an empty working list', () => {
