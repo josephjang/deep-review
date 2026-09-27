@@ -123,6 +123,19 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const runId = state.id;
   // Released on every way out: the finally below, the process's exit, and a signal that ends it (design, run lifecycle step 2).
   const release = releaseOnExit(acquireRunLock(checkpoint.root, runId));
+  const inFlight = new Map<string, InFlight>();
+  /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
+  const record = (settled: Settled, startedAt: number): void => {
+    const name = unitName(settled.unit.phase, settled.unit.key);
+    // The launcher threw instead of returning a receipt (a run abandoned meanwhile, an invocation it refused, a runtime that no longer qualifies): the review cannot go on.
+    if ('error' in settled) throw settled.error;
+    const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
+    log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd(summary.costUsd)}${settled.receipt.error === null ? '' : `: ${settled.receipt.error}`}`);
+    state = checkpoint.fold(runId);
+    const event = contributionOf(settled.unit, settled.receipt, state, options.worktree);
+    if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
+    state = append(checkpoint, state, [event]);
+  };
   try {
     if (state.scope === null) {
       state = captureScope(checkpoint, runId, options.scope);
@@ -143,7 +156,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 
     const scope = state.scope!;
     const block = scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options.worktree, scope.files.map((file) => file.path), options.home) });
-    const inFlight = new Map<string, InFlight>();
 
     for (;;) {
       const review = state.review!;
@@ -194,18 +206,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         }
         case 'await': {
-          const settled = await Promise.race([...inFlight.values()].map((entry) => entry.promise));
-          const name = unitName(settled.unit.phase, settled.unit.key);
-          const entry = inFlight.get(name)!;
-          inFlight.delete(name);
-          // The launcher threw instead of returning a receipt (a run abandoned meanwhile, an invocation it refused): nothing was recorded for the unit, and the review cannot go on.
-          if ('error' in settled) throw settled.error;
-          const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
-          log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - entry.startedAt)}${usd(summary.costUsd)}${settled.receipt.error === null ? '' : `: ${settled.receipt.error}`}`);
-          state = checkpoint.fold(runId);
-          const event = contributionOf(settled.unit, settled.receipt, state, options.worktree);
-          if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
-          state = append(checkpoint, state, [event]);
+          const { settled, startedAt } = await nextSettled(inFlight);
+          record(settled, startedAt);
           break;
         }
         case 'finish-phase':
@@ -225,8 +227,31 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       }
     }
   } finally {
+    // No way out of the loop leaves a worker running: after a launcher error,
+    // a failed append or any other throw, the rest are awaited and their
+    // answers recorded, so every finish reaches the ledger before the lock
+    // is released and the caller closes the checkpoint. A failure to record
+    // one is logged; the error that ended the loop is the one that surfaces.
+    if (inFlight.size > 0) log(`run ${runId}: waiting for ${String(inFlight.size)} worker${inFlight.size === 1 ? '' : 's'} in flight`);
+    while (inFlight.size > 0) {
+      const { settled, startedAt } = await nextSettled(inFlight);
+      try {
+        record(settled, startedAt);
+      } catch (error) {
+        log(`worker ${settled.unit.role} ${unitName(settled.unit.phase, settled.unit.key)}: not recorded: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     release();
   }
+}
+
+/** The first worker in flight to settle, taken off the map, with the time it started. */
+async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: Settled; startedAt: number }> {
+  const settled = await Promise.race([...inFlight.values()].map((entry) => entry.promise));
+  const name = unitName(settled.unit.phase, settled.unit.key);
+  const entry = inFlight.get(name)!;
+  inFlight.delete(name);
+  return { settled, startedAt: entry.startedAt };
 }
 
 /**

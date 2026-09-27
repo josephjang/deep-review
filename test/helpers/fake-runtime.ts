@@ -2,6 +2,8 @@
 // <args>`, so the launcher spawns it exactly as it spawns a real CLI, and
 // is steered by environment variables the test sets:
 //   FAKE_VERSION     version output instead of the runtime's usual one
+//   FAKE_UNQUALIFIED_WHEN  a file; while it exists the version output names another
+//                    program, so a preflight made then fails
 //   FAKE_HELP_OMIT   a flag to leave out of every help text
 //   FAKE_RECORD      file to write what the fake received as JSON
 //   FAKE_WAIT_FOR    file to wait for before answering
@@ -91,6 +93,13 @@ export function scriptedStep(prompt: string): { readonly role: string; readonly 
 
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
 export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
+
+/** What `--version` prints: another program's name while FAKE_UNQUALIFIED_WHEN exists, else FAKE_VERSION or the runtime's usual output. */
+export function versionOutput(usual: string): string {
+  const broken = environment.FAKE_UNQUALIFIED_WHEN;
+  if (broken !== undefined && existsSync(broken)) return 'an unrelated program 1.0';
+  return environment.FAKE_VERSION ?? usual;
+}
 
 /** Print a help text listing every flag but FAKE_HELP_OMIT. */
 export function printHelp(flags: readonly string[]): void {
