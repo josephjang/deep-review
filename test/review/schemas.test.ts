@@ -87,6 +87,7 @@ describe('the structural checks', () => {
     assert.throws(() => checkVerdicts({ verdicts: [verdict(0)] }, 3), /No verdict for index 1, 2 of the 3 candidates/);
     assert.throws(() => checkVerdicts({ verdicts: [verdict(0), verdict(3)] }, 2), /A verdict names index 3, but the candidates are numbered \[0\] to \[1\]/);
     assert.throws(() => checkVerdicts({ verdicts: [] }, 1), /No verdict for index 0/);
+    assert.throws(() => checkVerdicts({ verdicts: [verdict(2), verdict(0)] }, 4), /No verdict for index 1, 3 of the 4 candidates/, 'every gap, in order, wherever it falls');
   });
 
   it('accept a ranking that names every index once and refuse a repeat, a gap, or an index outside the list', () => {
@@ -96,6 +97,7 @@ describe('the structural checks', () => {
     assert.throws(() => checkMergeRank({ findings: [finding(0, [0])] }, 1), /Finding 0 names index 0, which another finding, or the same one, already names/);
     assert.throws(() => checkMergeRank({ findings: [finding(0), finding(1, [0])] }, 2), /Finding 1 names index 0/);
     assert.throws(() => checkMergeRank({ findings: [finding(0)] }, 2), /leaves out index 1 of the 2 candidates/);
+    assert.throws(() => checkMergeRank({ findings: [finding(3, [1])] }, 5), /leaves out index 0, 2, 4 of the 5 candidates/, 'every gap, in order, wherever it falls');
     assert.throws(() => checkMergeRank({ findings: [finding(0), finding(5)] }, 2), /Finding 1 names index 5, but the candidates are numbered \[0\] to \[1\]/);
   });
 });

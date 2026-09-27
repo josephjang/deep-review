@@ -23205,6 +23205,7 @@ function checkTriageLeads(output2) {
   if (missing.length > 0) throw new StructuralCheckError(`The triage returned no lead for ${missing.join(", ")}`);
 }
 var outOfRange = (what, value, count2) => new StructuralCheckError(`${what} names index ${String(value)}, but the candidates are numbered [0] to [${String(count2 - 1)}]`);
+var missingIndexes = (seen, count2) => Array.from({ length: count2 }, (_, position) => position).filter((position) => !seen.has(position));
 function checkDeduplication(output2, count2) {
   const grouped = /* @__PURE__ */ new Set();
   for (const [position, group] of output2.groups.entries()) {
@@ -23224,7 +23225,7 @@ function checkVerdicts(output2, count2) {
     if (seen.has(verdict.index)) throw new StructuralCheckError(`Two verdicts name index ${String(verdict.index)}`);
     seen.add(verdict.index);
   }
-  const missing = Array.from({ length: count2 }, (_, position) => position).filter((position) => !seen.has(position));
+  const missing = missingIndexes(seen, count2);
   if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(", ")} of the ${String(count2)} candidates in the group`);
 }
 function checkMergeRank(output2, count2) {
@@ -23237,7 +23238,7 @@ function checkMergeRank(output2, count2) {
       seen.add(value);
     }
   }
-  const missing = Array.from({ length: count2 }, (_, position) => position).filter((position) => !seen.has(position));
+  const missing = missingIndexes(seen, count2);
   if (missing.length > 0) throw new StructuralCheckError(`The ranking leaves out index ${missing.map(String).join(", ")} of the ${String(count2)} candidates on the working list`);
 }
 
