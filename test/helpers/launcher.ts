@@ -6,7 +6,7 @@ import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import type { WorkerState } from '../../src/checkpoint/fold.ts';
 import type { InvocationInput } from '../../src/runtime/contract.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
-import { runWorker, type RunWorkerOptions, type WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { checkpointScratchKey, runWorker, type RunWorkerOptions, type WorkerReceipt } from '../../src/runtime/launcher.ts';
 
 export const fakeClaude = resolve(import.meta.dirname, 'fake-claude.ts');
 export const fakeCodex = resolve(import.meta.dirname, 'fake-codex.ts');
@@ -61,6 +61,8 @@ export class LauncherSandbox {
   readonly checkpoint: Checkpoint;
   readonly runId: string;
   readonly recordFile: string;
+  /** Where this sandbox's workers get their scratch directories, instead of the system's temporary directory. */
+  readonly scratchRoot: string;
 
   constructor() {
     this.directory = mkdtempSync(join(tmpdir(), 'deep-review-launcher-'));
@@ -69,6 +71,7 @@ export class LauncherSandbox {
     this.checkpoint = Checkpoint.open(join(this.directory, 'checkpoint'), { engine: '0.0.0-test' });
     this.runId = this.checkpoint.createRun({ worktree: this.repo }).id;
     this.recordFile = join(this.directory, 'record.json');
+    this.scratchRoot = join(this.directory, 'scratch-root');
   }
 
   close(): void {
@@ -99,7 +102,12 @@ export class LauncherSandbox {
 
   /** Run a worker with the fake steered by `fake` on top of the clean environment. */
   run(invocation: InvocationInput, fake: Record<string, string> = {}, options: RunWorkerOptions = {}): Promise<WorkerReceipt> {
-    return runWorker(this.checkpoint, this.runId, invocation, { environment: { ...baseEnvironment, FAKE_RECORD: this.recordFile, ...fake }, ...options });
+    return runWorker(this.checkpoint, this.runId, invocation, { environment: { ...baseEnvironment, FAKE_RECORD: this.recordFile, ...fake }, scratchRoot: this.scratchRoot, ...options });
+  }
+
+  /** The scratch directory the launcher creates by default for a worker of this sandbox. */
+  scratchOf(workerId: string): string {
+    return join(this.scratchRoot, checkpointScratchKey(this.checkpoint), workerId);
   }
 
   recorded(): Recorded {
@@ -123,7 +131,7 @@ export class LauncherSandbox {
     return (
       kinds.length === 1 &&
       kinds[0] === 'run.created' &&
-      !existsSync(join(this.checkpoint.root, 'scratch')) &&
+      !existsSync(this.scratchRoot) &&
       !existsSync(join(this.checkpoint.root, 'io')) &&
       readdirSync(this.checkpoint.evidence.root).length === 0
     );

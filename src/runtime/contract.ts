@@ -47,8 +47,9 @@ export const invocationSchema = z.strictObject({
   timeoutMs: z.number().int().min(1000).max(maxTimeoutMs),
   budgetUsd: z.number().positive().max(maxBudgetUsd).optional(),
   /**
-   * Where the worker may write temporary files. Outside the reviewed tree;
-   * the launcher creates one under the checkpoint when it is not given.
+   * Where the worker may write temporary files. Outside the reviewed tree
+   * and the checkpoint; the launcher creates one under the system's
+   * temporary directory when it is not given.
    */
   scratch: absolutePath.optional(),
   /** Free text recorded on the ledger; the role element gives it meaning. */

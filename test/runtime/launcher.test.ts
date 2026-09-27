@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
+import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, UnknownRunError } from '../../src/checkpoint/errors.ts';
+import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
 import type { RuntimeAdapter } from '../../src/runtime/adapter.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -12,6 +14,7 @@ import { InheritedOverrideError, InvalidInvocationError, UnknownRuntimeError, Un
 import { maxDecodeBytes, runWorker, type WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
 import { baseEnvironment, freshThread, isAlive, LauncherSandbox, until } from '../helpers/launcher.ts';
+import { createRepository } from '../helpers/repository.ts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -278,9 +281,9 @@ describe('runWorker', () => {
   });
 
   describe('scratch directory (R7)', () => {
-    it('gives a Claude worker one under the checkpoint, names it in the prompt, and points the temporary directory at it', async () => {
+    it('gives a Claude worker one under the scratch root, names it in the prompt, and points the temporary directory at it', async () => {
       const receipt = await box.run(box.claude());
-      const scratch = join(box.checkpoint.root, 'scratch', receipt.workerId);
+      const scratch = box.scratchOf(receipt.workerId);
       assert.equal(box.worker(receipt.workerId).launch.scratch, scratch);
       assert.ok(existsSync(scratch));
       const recorded = box.recorded();
@@ -295,7 +298,7 @@ describe('runWorker', () => {
     it('gives a read-only Codex worker none, and says so', async () => {
       const receipt = await box.run(box.codex());
       assert.equal(box.worker(receipt.workerId).launch.scratch, null);
-      assert.equal(existsSync(join(box.checkpoint.root, 'scratch')), false);
+      assert.equal(existsSync(box.scratchRoot), false);
       const recorded = box.recorded();
       assert.ok(recorded.stdin.includes('No scratch directory is available to you'));
       assert.equal(recorded.argv.some((arg) => arg.includes('writable_roots')), false);
@@ -303,18 +306,46 @@ describe('runWorker', () => {
 
     it('gives a Codex editor one it may write to', async () => {
       const receipt = await box.run(box.codex({ access: 'edit' }));
-      const scratch = join(box.checkpoint.root, 'scratch', receipt.workerId);
+      const scratch = box.scratchOf(receipt.workerId);
       assert.ok(box.recorded().argv.includes(`sandbox_workspace_write.writable_roots=[${JSON.stringify(scratch)}]`));
       assert.equal(box.recorded().environment.TEMP, scratch);
     });
 
-    it('uses a scratch directory the caller gives, and refuses one inside the reviewed tree', async () => {
+    it('keeps the default scratch directory out of the git directory, where a Codex editor could not write to it', async () => {
+      // The production layout: a main worktree whose checkpoint lives in its .git directory.
+      // Codex's workspace-write sandbox makes .git read-only and refuses every command of a
+      // worker given a writable root beneath it.
+      const repo = createRepository(join(box.directory, 'main-worktree'));
+      const location = locateCheckpoint(repo);
+      const checkpoint = Checkpoint.open(location.root, { engine: '0.0.0-test' });
+      let scratch: string | null = null;
+      try {
+        const run = checkpoint.createRun({ worktree: location.worktree });
+        const receipt = await runWorker(checkpoint, run.id, box.codex({ access: 'edit' }), { environment: baseEnvironment });
+        scratch = checkpoint.fold(run.id).workers[receipt.workerId]!.launch.scratch;
+        assert.ok(scratch !== null);
+        const inside = (parent: string, child: string): boolean => {
+          const path = relative(parent, child);
+          return path === '' || (!path.startsWith('..') && !isAbsolute(path));
+        };
+        assert.equal(inside(location.commonDir, scratch), false, `${scratch} is inside ${location.commonDir}`);
+        assert.equal(inside(location.worktree, scratch), false, `${scratch} is inside ${location.worktree}`);
+        assert.ok(existsSync(scratch));
+      } finally {
+        checkpoint.close();
+        // The default root is the system's temporary directory; leave nothing of this checkpoint there.
+        if (scratch !== null) rmSync(join(scratch, '..'), { recursive: true, force: true });
+      }
+    });
+
+    it('uses a scratch directory the caller gives, and refuses one inside the reviewed tree or the checkpoint', async () => {
       const chosen = join(box.directory, 'shared-scratch');
       const receipt = await box.run(box.claude({ scratch: chosen }));
       assert.equal(box.worker(receipt.workerId).launch.scratch, chosen);
       assert.ok(existsSync(chosen));
       await assert.rejects(box.run(box.claude({ scratch: join(box.repo, 'tmp') })), (error: unknown) => error instanceof InvalidInvocationError && /inside the reviewed tree/.test(error.message));
       await assert.rejects(box.run(box.claude({ scratch: box.repo })), /inside the reviewed tree/);
+      await assert.rejects(box.run(box.claude({ scratch: join(box.checkpoint.root, 'scratch') })), (error: unknown) => error instanceof InvalidInvocationError && /inside the checkpoint/.test(error.message));
       assert.equal(existsSync(join(box.repo, 'tmp')), false);
     });
   });
@@ -322,7 +353,7 @@ describe('runWorker', () => {
   describe('environment (R8)', () => {
     it('pins the temporary directory and the build servers over every inherited spelling', async () => {
       const receipt = await box.run(box.claude(), { tmp: '/inherited', Temp: '/inherited', msbuilddisablenodereuse: '0', USESHAREDCOMPILATION: 'true', usesharedcompilation: 'true' });
-      const scratch = join(box.checkpoint.root, 'scratch', receipt.workerId);
+      const scratch = box.scratchOf(receipt.workerId);
       const seen = box.recorded().environment;
       const spellings = (name: string): string[] => Object.keys(seen).filter((key) => key.toUpperCase() === name.toUpperCase());
       assert.deepEqual(spellings('TMP'), ['TMP']);

@@ -31,7 +31,7 @@ describe('concurrent launchers', () => {
 
   it('land every launch and every finish when four processes finish on one run at once', async () => {
     const marker = join(box.directory, 'go');
-    const launchers = Array.from({ length: 4 }, () => run([launchWorker, box.checkpoint.root, box.runId, marker]));
+    const launchers = Array.from({ length: 4 }, () => run([launchWorker, box.checkpoint.root, box.runId, marker, box.scratchRoot]));
     // Every worker is launched and blocked before any may finish, so the four finishes race.
     await until(() => Object.keys(box.checkpoint.fold(box.runId).workers).length === 4, 'four launches', 30_000);
     writeFileSync(marker, '');
