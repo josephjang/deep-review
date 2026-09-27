@@ -1,7 +1,8 @@
 /**
  * What a run spent (R6, R9 of the read-only review): each finished worker's
  * usage through the runtime's neutral summary, summed over the run and per
- * phase, with the phase read from the worker's launch label.
+ * phase, and the wall time its workers ran, with the phase read from the
+ * worker's launch label.
  */
 import type { Spend } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
@@ -35,13 +36,37 @@ function sumReported(values: readonly (number | null)[]): number | null {
 /** Round to the cent, so a sum of floating costs prints and compares as money. */
 const cents = (value: number | null): number | null => (value === null ? null : Math.round(value * 100) / 100);
 
+/**
+ * The wall time a set of workers ran, in seconds: the length of the union of
+ * their process intervals, so workers that ran at once count once and a gap
+ * with no worker running counts not at all. An interval whose end precedes
+ * its start, which a clock set back can record, counts as no time.
+ */
+function wallSeconds(workers: readonly Finished[]): number {
+  const intervals = workers
+    .map((worker) => ({ start: Date.parse(worker.finish.startedAt), end: Date.parse(worker.finish.endedAt) }))
+    .filter((interval) => interval.end > interval.start)
+    .sort((a, b) => a.start - b.start);
+  let total = 0;
+  let open: { start: number; end: number } | null = null;
+  for (const interval of intervals) {
+    if (open !== null && interval.start <= open.end) {
+      open.end = Math.max(open.end, interval.end);
+      continue;
+    }
+    if (open !== null) total += open.end - open.start;
+    open = { ...interval };
+  }
+  if (open !== null) total += open.end - open.start;
+  return total / 1000;
+}
+
 /** What a set of finished workers spent together. */
 export function spendOf(workers: readonly Finished[], adapter: Pick<RuntimeAdapter, 'summarizeUsage'>): Spend {
   const summaries = workers.map((worker) => usageOf(worker, adapter));
-  const seconds = workers.reduce((total, worker) => total + Math.max(0, (Date.parse(worker.finish.endedAt) - Date.parse(worker.finish.startedAt)) / 1000), 0);
   return {
     workers: workers.length,
-    seconds: Math.round(seconds * 10) / 10,
+    seconds: Math.round(wallSeconds(workers) * 10) / 10,
     costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
     inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
     cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
