@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleFailedV1, blockerSchema, groupUnverifiedV1 } from '../../src/checkpoint/events.ts';
+import { angleFailedV1, blockerSchema, groupUnverifiedV1, type ReviewLimits } from '../../src/checkpoint/events.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
+import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step } from '../../src/review/steps.ts';
 import { finderAngles, phases, unitName } from '../../src/review/vocabulary.ts';
 import { candidate, configured, finding, found, leads, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
-const idle: Live = { running: new Set(), concurrency: 4, spendUsd: 0, budgetUsd: 30 };
+const idle: Live = { running: new Set(), spendUsd: 0 };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
+/** The review with other limits in force than its configuration's 4 workers and 30 USD, as a `limits.changed` would put. */
+const limited = (review: ReviewState, change: Partial<ReviewLimits>): ReviewState => ({ ...review, limits: { ...review.limits, ...change } });
 
 describe('unitsOf', () => {
   it('gives one unit to the triage, the sweep and merge-rank, nine to the finders and none to the report', () => {
@@ -65,19 +68,19 @@ describe('nextStep', () => {
 
   it('launches the finders up to the concurrency, skipping the answered and the in-flight units, then awaits', () => {
     const review = triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null }).review();
-    const step = nextStep(review, live({ running: new Set(['finders:REMOVALS']), concurrency: 3 }));
+    const step = nextStep(limited(review, { concurrency: 3 }), live({ running: new Set(['finders:REMOVALS']) }));
     assert.equal(step.kind, 'launch');
     assert.deepEqual(step.kind === 'launch' ? step.units.map((unit) => unit.key) : [], ['FOOTGUNS', 'WRAPPERS']);
-    assert.deepEqual(nextStep(review, live({ running: new Set(['finders:REMOVALS', 'finders:FOOTGUNS', 'finders:WRAPPERS']), concurrency: 3 })), { kind: 'await' });
-    const six = nextStep(review, live({ concurrency: 16 }));
+    assert.deepEqual(nextStep(limited(review, { concurrency: 3 }), live({ running: new Set(['finders:REMOVALS', 'finders:FOOTGUNS', 'finders:WRAPPERS']) })), { kind: 'await' });
+    const six = nextStep(limited(review, { concurrency: 16 }), idle);
     assert.deepEqual(six.kind === 'launch' ? six.units.map((unit) => unit.key) : [], finderAngles.filter((angle) => angle !== 'RIPPLE'));
   });
 
   it('plans a retry for a unit that failed once and a degradation for a degrading unit that failed twice', () => {
     const once = triaged().start('finders').add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'failed' }).review();
-    const first = nextStep(once, live({ concurrency: 1 }));
+    const first = nextStep(limited(once, { concurrency: 1 }), idle);
     assert.deepEqual(first.kind === 'launch' ? first.units.map((unit) => unit.key) : [], ['REMOVALS'], 'units launch in angle order');
-    const all = nextStep(once, live({ concurrency: 16 }));
+    const all = nextStep(limited(once, { concurrency: 16 }), idle);
     assert.ok(all.kind === 'launch' && all.units.some((unit) => unitName('finders', unit.key) === 'finders:RIPPLE'), 'RIPPLE is still launchable after one failure');
     const twice = triaged().start('finders')
       .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'first' })
@@ -95,7 +98,7 @@ describe('nextStep', () => {
 
   it('counts a lost worker as one failed attempt', () => {
     const lost = triaged().start('finders').add('worker.launched', { ...launchOf(3, 'finder-RIPPLE finders:RIPPLE') }).add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' }).review();
-    const step = nextStep(lost, live({ concurrency: 16 }));
+    const step = nextStep(limited(lost, { concurrency: 16 }), idle);
     assert.ok(step.kind === 'launch' && step.units.some((unit) => unit.key === 'RIPPLE'), 'one more attempt remains');
     const lostTwice = triaged().start('finders')
       .add('worker.launched', launchOf(3, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' })
@@ -137,7 +140,7 @@ describe('nextStep', () => {
       .add('angle.failed', { angle: 'RIPPLE', reason: '2 attempts did not complete: first; second' })
       .finish('finders', 'blocked', 1, budgetBlocker(31, 30))
       .start('finders', 2);
-    const step = nextStep(history.review(), live({ concurrency: 16 }));
+    const step = nextStep(limited(history.review(), { concurrency: 16 }), idle);
     assert.equal(step.kind, 'launch');
     assert.deepEqual(step.kind === 'launch' ? step.units.map((unit) => unit.key) : [], finderAngles.filter((angle) => angle !== 'RIPPLE'), 'RIPPLE is not relaunched');
     for (const angle of finderAngles) {
@@ -164,17 +167,28 @@ describe('nextStep', () => {
 
   it('blocks on the budget before a launch, once the running workers have finished, and not when nothing is left to launch', () => {
     const review = triaged().start('finders').review();
-    const exhausted = live({ spendUsd: 31.2, budgetUsd: 30 });
+    const exhausted = live({ spendUsd: 31.2 });
     const step = nextStep(review, exhausted);
     assert.deepEqual(step, { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: budgetBlocker(31.2, 30) });
     assert.equal(budgetBlocker(31.2, 30).detail, 'spent 31.20 USD of the 30.00 USD run budget');
     assert.equal(budgetBlocker(31.2, 30).action, 'run the command again with --budget-usd above 31.20, or abandon the run');
     assert.deepEqual(nextStep(review, { ...exhausted, running: new Set(['finders:REMOVALS']) }), { kind: 'await' });
-    assert.equal(nextStep(review, live({ spendUsd: 29.99, budgetUsd: 30 })).kind, 'launch');
-    assert.equal(nextStep(review, live({ spendUsd: null, budgetUsd: 30 })).kind, 'launch', 'a runtime without cost has no budget check');
-    assert.equal(nextStep(review, live({ spendUsd: 100, budgetUsd: null })).kind, 'launch', 'no budget, no check');
+    assert.equal(nextStep(review, live({ spendUsd: 29.99 })).kind, 'launch');
+    assert.equal(nextStep(review, live({ spendUsd: null })).kind, 'launch', 'a runtime without cost has no budget check');
+    assert.equal(nextStep(limited(review, { runBudgetUsd: null }), live({ spendUsd: 100 })).kind, 'launch', 'no budget, no check');
     const done = finding().review();
     assert.equal(nextStep(done, exhausted).kind, 'finish-phase', 'nothing to launch, so the budget does not block');
+  });
+
+  it('checks the budget and fills the concurrency a recorded limits.changed put in force, not the pinned ones', () => {
+    const blocked = triaged().start('finders').finish('finders', 'blocked', 1, budgetBlocker(31.2, 30));
+    const raised = blocked.add('limits.changed', { concurrency: 2, runBudgetUsd: 60 }).start('finders', 2).review();
+    assert.equal(raised.configuration.runBudgetUsd, 30);
+    const step = nextStep(raised, live({ spendUsd: 31.2 }));
+    assert.deepEqual(step.kind === 'launch' ? step.units.map((unit) => unit.key) : [], ['REMOVALS', 'RIPPLE'], 'two launch under the raised budget, at the concurrency in force');
+    assert.deepEqual(nextStep(raised, live({ spendUsd: 60 })), { kind: 'finish-phase', phase: 'finders', attempt: 2, outcome: 'blocked', blocker: budgetBlocker(60, 60) });
+    const unbudgeted = triaged().add('limits.changed', { concurrency: 4, runBudgetUsd: null }).start('finders').review();
+    assert.equal(nextStep(unbudgeted, live({ spendUsd: 1000 })).kind, 'launch', 'no budget in force, no check');
   });
 
   it('starts and finishes a phase with no unit, after its check', () => {

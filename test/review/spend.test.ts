@@ -5,7 +5,7 @@ import type { WorkerState } from '../../src/checkpoint/fold.ts';
 import { runSpendUsd, settledWorkers, spendOf, statisticsOf, usageOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
-import { configured, launch, reported, worker } from '../helpers/review-history.ts';
+import { History, configuration, configured, launch, reported, scope, worker } from '../helpers/review-history.ts';
 
 type Finished = Extract<WorkerState, { status: 'finished' }>;
 const finishedOf = (workers: readonly WorkerState[]): Finished[] => workers.filter((entry): entry is Finished => entry.status === 'finished');
@@ -82,6 +82,16 @@ describe('spend', () => {
     assert.equal(runSpendUsd(state, codexAdapter), null);
     assert.equal(statisticsOf(state, codexAdapter).budgetApplied, false);
     assert.equal(statisticsOf(state, claudeAdapter).budgetApplied, true);
+  });
+
+  it('says the run budget applied from the limits in force at the end, not the pinned budget', () => {
+    const pinnedWithout = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', { ...configuration, runBudgetUsd: null });
+    assert.equal(statisticsOf(pinnedWithout.fold(), claudeAdapter).budgetApplied, false, 'no budget pinned and none given');
+    pinnedWithout.add('limits.changed', { concurrency: 4, runBudgetUsd: 50 });
+    assert.equal(statisticsOf(pinnedWithout.fold(), claudeAdapter).budgetApplied, true, 'a budget given on a resume applies');
+    assert.equal(statisticsOf(pinnedWithout.fold(), codexAdapter).budgetApplied, false, 'never on a runtime that reports no cost');
+    const lifted = configured().add('limits.changed', { concurrency: 4, runBudgetUsd: null });
+    assert.equal(statisticsOf(lifted.fold(), claudeAdapter).budgetApplied, false, 'the budget in force at the end is none');
   });
 
   it('gives one row per phase from the workers whose label names it, and a total', () => {

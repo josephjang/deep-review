@@ -205,8 +205,8 @@ try {
   checkpoint.append(closed.id, closed.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'fixture run closed on purpose' } }]);
   // A third run through every kind of the read-only review: a triage, a
   // degraded finder phase with a lost worker, deduplication, verification,
-  // a sweep whose one group goes unverified, a budget block that a later
-  // start clears, a ranking and the report.
+  // a sweep whose one group goes unverified, a budget block that a raised
+  // budget and a later start clear, a ranking and the report.
   const reviewed = checkpoint.createRun({ worktree: '/fixture/reviewed' });
   const reviewScope: ScopeState = { ...scope, files: [scope.files[0]!], request: { paths: ['src'] } };
   const review = new ReviewHistory(checkpoint, reviewed.id, checkpoint.append(reviewed.id, reviewed.lastSequence, [{ kind: 'scope.captured', version: 1, payload: reviewScope }]).lastSequence);
@@ -244,10 +244,12 @@ try {
     review.finishWorker('021');
     review.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: review.id('021'), verdicts: [{ id: 'RIPPLE-2', verdict: 'REFUTED', evidence: 'line 1 is a comment' }, { id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'line 2 dereferences the null returned above' }] });
   });
-  // The sweep blocks on the run budget once, and the next start clears the blocker.
+  // The sweep blocks on the run budget once; the next invocation raises the
+  // budget in force, and its start clears the blocker.
   review.add('phase.started', { phase: 'sweep', attempt: 1 });
   review.add('worktree.checked', { phase: 'sweep', attempt: 1, drifted: false, files: [] });
   review.add('phase.finished', { phase: 'sweep', attempt: 1, outcome: 'blocked', blocker: { code: 'budget', detail: 'spent 31.20 USD of 30.00 USD', action: 'run the command again with --budget-usd above 31.20, or abandon the run' } });
+  review.add('limits.changed', { concurrency: 4, runBudgetUsd: 60 });
   review.phase('sweep', () => {
     review.launch('030', 'sweep sweep:sweep');
     review.finishWorker('030');

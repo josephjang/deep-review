@@ -11,6 +11,7 @@ describe('the review fold', () => {
     assert.equal(before.review, null);
     const review = configured().review();
     assert.deepEqual(review.configuration, configuration);
+    assert.deepEqual(review.limits, { concurrency: 4, runBudgetUsd: 30 }, 'the limits in force start as the pinned ones');
     assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: 'pending', attempt: 0 }])));
     assert.equal(review.blocker, null);
     assert.deepEqual(review.candidates, {});
@@ -143,6 +144,15 @@ describe('the review fold', () => {
     assert.equal(unconfigured.workers[worker(9)]?.status, 'lost');
   });
 
+  it('replaces the limits in force with each limits.changed, and keeps the configuration as pinned', () => {
+    const raised = triaged().add('limits.changed', { concurrency: 2, runBudgetUsd: 60 });
+    assert.deepEqual(raised.review().limits, { concurrency: 2, runBudgetUsd: 60 });
+    assert.deepEqual(raised.review().configuration, configuration);
+    const unbudgeted = raised.start('finders').add('limits.changed', { concurrency: 16, runBudgetUsd: null }).review();
+    assert.deepEqual(unbudgeted.limits, { concurrency: 16, runBudgetUsd: null }, 'a change mid-phase replaces both, and a null budget is no budget');
+    assert.deepEqual(unbudgeted.phases.finders, { status: 'running', attempt: 1 }, 'a change of limits leaves the phases alone');
+  });
+
   it('never changes a state it was handed', () => {
     const history = verified();
     const before = history.fold();
@@ -199,6 +209,10 @@ describe('the review fold', () => {
     ['a ranking recorded twice', () => swept().start('merge-rank').add('ranking.recorded', { workerId: worker(40), findings: ranking }).add('ranking.recorded', { workerId: worker(41), findings: ranking }), /ranking twice/],
     ['a report before its phase', () => swept().add('report.written', { report: reference('e', 2), statistics }), /while it is pending/],
     ['a report written twice', () => reported().add('report.written', { report: reference('e', 2), statistics }), /while it is completed/],
+    ['a limits change before configuration', () => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('limits.changed', { concurrency: 4, runBudgetUsd: 30 }), /has limits.changed before review.configured/],
+    ['a limits change after the report', () => reported().add('limits.changed', { concurrency: 4, runBudgetUsd: 60 }), /changes its limits after its report/],
+    ['a concurrency outside 1 to 16', () => configured().add('limits.changed', { concurrency: 17, runBudgetUsd: 30 }), /concurrency/],
+    ['a run budget of zero', () => configured().add('limits.changed', { concurrency: 4, runBudgetUsd: 0 }), /runBudgetUsd/],
     ['losing a worker never launched', () => configured().add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'r' }), /without launching it/],
     ['losing a finished worker', () => configured().add('worker.launched', launch(worker(9), 'x')).add('worker.finished', { workerId: worker(9), outcome: 'failed', exitCode: 1, signal: null, termination: 'exited', startedAt: '2026-09-27T00:00:00.000Z', endedAt: '2026-09-27T00:00:01.000Z', sessionIds: [], usage: null, denials: null, error: 'x', stdout: reference('a'), stderr: reference('b'), finalMessage: null, output: null }).add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'r' }), /after it finished/],
     ['losing a worker twice', () => configured().add('worker.launched', launch(worker(9), 'x')).add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'r' }).add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'r' }), /after it was lost/],

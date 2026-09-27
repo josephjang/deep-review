@@ -72,9 +72,9 @@ function statisticsTable(input: ReportInput): string {
   ].join('\n');
 }
 
-/** What bounded the run's spend: the run budget, or why there was none. */
+/** What bounded the run's spend: the run budget in force at the end, or why there was none. */
 function budgetLine(review: ReviewState, statistics: ReportInput['statistics']): string {
-  const budget = review.configuration.runBudgetUsd;
+  const budget = review.limits.runBudgetUsd;
   const spent = usd(statistics.total.costUsd);
   if (statistics.budgetApplied && budget !== null) return `- Run budget: ${usd(budget)} USD, checked before every launch; spent ${spent} USD.`;
   if (statistics.total.costUnreported === null) {

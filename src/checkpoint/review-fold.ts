@@ -37,6 +37,7 @@ import type {
   RecordedCandidate,
   ReportWritten,
   ReviewConfiguration,
+  ReviewLimits,
   VerdictsRecorded,
   VerificationPlanned,
   WorktreeCheck,
@@ -72,6 +73,8 @@ export interface CandidateState extends RecordedCandidate {
 
 export interface ReviewState {
   readonly configuration: ReviewConfiguration;
+  /** The concurrency and the run budget in force: the configuration's, until a `limits.changed` replaces them. */
+  readonly limits: ReviewLimits;
   readonly phases: Readonly<Record<Phase, PhaseState>>;
   /** Why the run is blocked and in which phase, or null; cleared by the next `phase.started`. */
   readonly blocker: (Blocker & { readonly phase: Phase }) | null;
@@ -162,6 +165,7 @@ const configured: Reducer<ReviewConfiguration> = (state, payload, event) => {
   if (state.review !== null) throw invalid(event, 'is configured for review twice');
   const review: ReviewState = {
     configuration: payload,
+    limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: 'pending', attempt: 0 }])) as Record<Phase, PhaseState>,
     blocker: null,
     checks: [],
@@ -176,6 +180,13 @@ const configured: Reducer<ReviewConfiguration> = (state, payload, event) => {
     report: null,
   };
   return withReview(state, review, event);
+};
+
+/** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
+const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
+  const { current, review } = requireReview(state, event);
+  if (review.report !== null) throw invalid(event, 'changes its limits after its report');
+  return withReview(current, { ...review, limits: payload }, event);
 };
 
 /** The unit record with every failure of `phase`'s units forgotten; what they answered stays. */
@@ -369,6 +380,7 @@ const reportWritten: Reducer<ReportWritten> = (state, payload, event) => {
 /** The review reducers, registered by `fold.ts` beside the run's own. */
 export const reviewReducers = {
   'review.configured@1': configured,
+  'limits.changed@1': limitsChanged,
   'phase.started@1': phaseStarted,
   'phase.finished@1': phaseFinished,
   'worktree.checked@1': worktreeChecked,
