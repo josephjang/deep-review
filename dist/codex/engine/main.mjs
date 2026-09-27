@@ -22348,10 +22348,15 @@ function continuedWorker(state, invocation, schemaDigest) {
   if (inSession.length === 0) throw new InvalidInvocationError(`No worker of run ${state.id} ran session ${session}, so there is nothing to continue`);
   const running = inSession.find((worker) => worker.status === "running");
   if (running !== void 0) throw new InvalidInvocationError(`Worker ${running.launch.workerId} is still running in session ${session}; continue it after it finishes`);
-  if (inSession.every((worker) => worker.status === "finished" && worker.finish.termination === "not-started")) {
+  const lost = inSession.find((worker) => worker.status === "lost");
+  if (lost !== void 0) {
+    throw new InvalidInvocationError(`Worker ${lost.launch.workerId} was lost in session ${session}: whether its process still runs is unknown, so the session cannot be continued safely; start a fresh worker instead`);
+  }
+  const finished = inSession.filter((worker) => worker.status === "finished");
+  if (finished.every((worker) => worker.finish.termination === "not-started")) {
     throw new InvalidInvocationError(`No worker of session ${session} ever started, so the runtime has no conversation to continue`);
   }
-  const previous = inSession.at(-1);
+  const previous = finished.at(-1);
   for (const [field, rule] of Object.entries(continuationFields)) {
     if (rule === "own") continue;
     const now = rule.requested(invocation, schemaDigest);

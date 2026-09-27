@@ -119,6 +119,32 @@ describe('continuing a session (R9)', () => {
     assert.equal(third.outcome, 'completed', third.error ?? '');
   });
 
+  /** Record a worker of `session` whose engine stopped while it ran, as a resuming engine does (TD5 of the read-only review). */
+  const loseWorkerIn = (session: string, workerId: string, resumes: string | null): void => {
+    const template = Object.values(box.checkpoint.fold(box.runId).workers)[0]!.launch;
+    const launch = { ...template, workerId, sessionId: session, resumes };
+    const lost = { workerId, phase: null, key: null, reason: 'the engine exited while the worker ran' };
+    box.checkpoint.append(box.runId, box.checkpoint.fold(box.runId).lastSequence, [{ kind: 'worker.launched', version: 1, payload: launch }, { kind: 'worker.lost', version: 1, payload: lost }]);
+  };
+
+  it('refuses to continue a session whose latest worker was lost, since its process may still write to it', async () => {
+    const first = await box.run(box.claude());
+    const session = first.runtime.sessionIds[0]!;
+    loseWorkerIn(session, '00000000-0000-4000-8000-00000000000a', session);
+    const before = box.events().length;
+    await assert.rejects(box.run(box.claude({ resume: session })), (error: unknown) => error instanceof InvalidInvocationError && /Worker 00000000-0000-4000-8000-00000000000a was lost in session .*: whether its process still runs is unknown/.test(error.message));
+    assert.equal(box.events().length, before);
+  });
+
+  it('refuses a session whose only worker was lost, which may never have started', async () => {
+    await box.run(box.claude());
+    const pinned = '11111111-2222-4333-8444-66666666666a';
+    loseWorkerIn(pinned, '00000000-0000-4000-8000-00000000000b', null);
+    const before = box.events().length;
+    await assert.rejects(box.run(box.claude({ resume: pinned })), (error: unknown) => error instanceof InvalidInvocationError && /was lost in session/.test(error.message));
+    assert.equal(box.events().length, before);
+  });
+
   it('refuses a session no worker of the run ran', async () => {
     await assert.rejects(box.run(box.claude({ resume: '11111111-2222-4333-8444-555555555555' })), (error: unknown) => error instanceof InvalidInvocationError && /nothing to continue/.test(error.message));
     assert.ok(box.untouched());
