@@ -23,4 +23,4 @@ unbounded" names a mechanism, not a failure, until you say what the
 user observes.
 
 Findings only: no verdicts, no fixes, no commentary between blocks —
-verification and fixing are later passes with their own agents.
+verification and fixing are later passes with their own workers.

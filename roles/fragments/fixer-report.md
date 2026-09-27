@@ -14,7 +14,7 @@ Delete any log you create before finishing.
 
 ## Return format
 
-Your final message is consumed by the orchestrator, not shown to a human.
+Your final message is consumed by the engine, not shown to a human.
 No preamble, no commentary, no diff dumps. One block per assigned
 finding, then a summary:
 
@@ -30,5 +30,5 @@ TESTS   <test file>: <n> assertions, <what they cover, one line each>
 SUITE   <pass|fail> <command> — <failure lines only, or "green">
 ```
 
-Keep every line under about 25 words. The orchestrator reads your report
+Keep every line under about 25 words. The engine reads your report
 on every subsequent turn of the run, so length here is paid many times.

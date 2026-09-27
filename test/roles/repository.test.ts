@@ -40,6 +40,37 @@ describe('the repository\'s roles/', () => {
       if (role.key.startsWith('finder-')) assert.ok(names.includes('finder-output.md'), role.key);
     }
   });
+
+  /**
+   * Wording that names one runtime's mechanism, which no worker on another
+   * runtime has (R6 of the role prompts proposal): Claude Code's subagents
+   * and the `Agent` tool that spawns them, its `AskUserQuestion` tool, its
+   * `Grep` tool, the "single message block" that runs tool calls in
+   * parallel, and the names of the prompt-only skill's subagents.
+   */
+  const runtimeWording: readonly [RegExp, string][] = [
+    [/\bsubagents?\b/i, 'subagent'],
+    [/`Agent`/, 'the Agent tool'],
+    [/subagent_type/, 'subagent_type'],
+    [/AskUserQuestion/, 'AskUserQuestion'],
+    [/orchestrator/i, 'the orchestrator'],
+    [/\bagents?\b/i, 'agent, meaning a worker'],
+    [/\bGrep\b/, 'the Grep tool'],
+    [/tier table/, 'the tier table'],
+    [/message block/, 'a message block'],
+    [/deep-review-(lead|fixer|auditor|analyst|scout|conventions|driver)\b/, 'a subagent name'],
+    [/deep-review skill/, 'the deep-review skill as the worker\'s employer'],
+  ];
+
+  it('names no mechanism of one runtime in any prompt', () => {
+    const offences: string[] = [];
+    for (const role of roles) {
+      role.prompt.split('\n').forEach((line, index) => {
+        for (const [pattern, what] of runtimeWording) if (pattern.test(line)) offences.push(`${role.key} line ${String(index + 1)} names ${what}: ${line.trim()}`);
+      });
+    }
+    assert.deepEqual(offences, []);
+  });
 });
 
 describe('scripts/roles.ts', () => {

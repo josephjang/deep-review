@@ -12,9 +12,8 @@ keep one). Tiebreak by picking the candidate with the most concrete
 strongest `value_statement` (design & cleanup angles).
 
 **Group the survivors by file** — every candidate in one file → one
-group — and run **one verifier per group** as an `Agent` call
-(`subagent_type: "deep-review-lead"`), all groups in a single message
-block. A verifier's cost is dominated by reading the file and its
+group — and run **one verifier per group** as a worker, all groups in
+parallel. A verifier's cost is dominated by reading the file and its
 context, not by the number of verdicts it returns, so one group per
 flagged line would pay that reading once per candidate for no gain in
 independence. Split any group holding more than 8 candidates into as
@@ -24,8 +23,8 @@ block, the relevant file(s), and every candidate in its group numbered
 `[0]`, `[1]`, ….
 
 **Do not paste the rubrics below into a verifier prompt.** They are in the
-`deep-review-lead` definition, so the runtime delivers them to every
-verifier whether or not you remember to. They appear here because you need
+verifier's role prompt, so every verifier receives them whether or not
+you remember to. They appear here because you need
 them too: which verdict a finding carries decides whether Step 1 fixes it
 without asking or Step 3 puts the question to the author.
 It judges EACH candidate independently on its own claim (candidates in
@@ -36,7 +35,7 @@ using the rubric that matches that candidate's angle — plus one line of
 `evidence` quoting or citing the line(s) that justify the verdict.
 Grouping is not dedup: every candidate keeps its own verdict.
 
-**Verifier-failure policy.** If a verifier agent dies, or returns no
+**Verifier-failure policy.** If a verifier worker dies, or returns no
 verdict for some candidate in its group, re-run that group once. If it
 fails again, keep the affected candidates as PLAUSIBLE — tagged
 "unverified" — and let them flow onward like any PLAUSIBLE finding, with
