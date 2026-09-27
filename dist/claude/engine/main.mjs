@@ -23648,12 +23648,7 @@ function orderedRanking(review2, output2, input2) {
     summary: finding.summary,
     reason: finding.reason
   }));
-  const entries = findings.map((finding) => {
-    const primary = review2.candidates[finding.id];
-    const members2 = finding.members.map((id) => review2.candidates[id]);
-    return { finding, primary, members: members2, resolution: mergedResolution([primary, ...members2]) };
-  });
-  return entries.sort(compareFindings).map((entry) => entry.finding);
+  return rankedFindings(review2, findings).map((entry) => entry.finding);
 }
 function contributionOf(unit, receipt, state, worktree) {
   if (receipt.outcome !== "completed") return failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`);

@@ -32,7 +32,7 @@ import {
   type TriageOutput,
   type VerifierOutput,
 } from './schemas.ts';
-import { compareFindings, mergeRankInput, mergedResolution, refutedIn, survivors, type Resolved } from './state.ts';
+import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
 import { truncated, type Unit } from './steps.ts';
 import { deduplicationTask, finderTask, mergeRankTask, sweepTask, triageTask, verifierTask } from './tasks.ts';
 import { finderAngles, maxRecordedTextLength, sweepIdPrefix, type Angle, type CandidatePhase, type DeduplicationPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
@@ -144,7 +144,7 @@ function orderedLeads(leads: readonly Lead[]): Lead[] {
   return finderAngles.map((angle) => leads.find((lead) => lead.angle === angle)!);
 }
 
-/** The candidates of the working list a merge-rank worker numbered, with the engine's order applied to its findings. */
+/** The findings of a merge-rank answer, its indexes resolved to the ids of the working list it numbered, in the engine's order (`rankedFindings`). */
 function orderedRanking(review: ReviewState, output: MergeRankOutput, input: readonly Resolved[]): RankedFinding[] {
   const findings = output.findings.map((finding): RankedFinding => ({
     id: input[finding.primary]!.candidate.id,
@@ -153,12 +153,7 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
     summary: finding.summary,
     reason: finding.reason,
   }));
-  const entries = findings.map((finding) => {
-    const primary = review.candidates[finding.id]!;
-    const members = finding.members.map((id) => review.candidates[id]!);
-    return { finding, primary, members, resolution: mergedResolution([primary, ...members]) };
-  });
-  return entries.sort(compareFindings).map((entry) => entry.finding);
+  return rankedFindings(review, findings).map((entry) => entry.finding);
 }
 
 /**
