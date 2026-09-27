@@ -52,6 +52,16 @@ export function readRoleManifest(rolesRoot: string): RoleManifest {
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /**
+ * A character no fragment may hold: a control character other than tab and
+ * line feed (a carriage return is refused before this, by name), a line or
+ * paragraph separator, which breaks a line as LF does, and U+FEFF after the
+ * start, a byte order mark out of place. None shows as itself where a reader
+ * looks at the text (an escape sequence can even hide the text around it),
+ * so each could reach a worker unnoticed.
+ */
+const forbiddenCharacter = /(?![\t\n])\p{Cc}|[\u2028\u2029\uFEFF]/u;
+
+/**
  * An include marker as the proof of concept wrote one, `<!-- include: path -->`
  * at a line start, however it is indented, spaced or cased. A marker within a
  * line is prose about markers and is not matched.
@@ -109,8 +119,9 @@ function loadRoleFragment(rolesRoot: string, name: string): LoadedFragment {
 
 /**
  * Hold a fragment's decoded text to the invariants the assembly relies on
- * (R3): no byte order mark, not empty, LF line endings, no NUL, ending in
- * exactly one newline and starting with text, with no blank or
+ * (R3): no byte order mark, not empty, LF line endings, no control
+ * character but tab and line feed and no line or paragraph separator,
+ * ending in exactly one newline and starting with text, with no blank or
  * whitespace-only line at either edge, carrying no front matter and no
  * include marker. Each violation is refused naming the fragment. It takes
  * text, not a path, so the rules hold whatever the text was read from.
@@ -119,7 +130,13 @@ export function refuseMalformedFragmentText(name: string, text: string): void {
   if (text.startsWith('\uFEFF')) throw new InvalidRoleFragmentError(name, 'starts with a byte order mark');
   if (text.length === 0) throw new InvalidRoleFragmentError(name, 'is empty');
   if (text.includes('\r')) throw new InvalidRoleFragmentError(name, 'contains a carriage return; fragments are LF text');
-  if (text.includes('\0')) throw new InvalidRoleFragmentError(name, 'contains a NUL character');
+  const forbidden = forbiddenCharacter.exec(text);
+  if (forbidden !== null) {
+    // Every character the pattern matches is one UTF-16 code unit, so its first code unit is its code point.
+    const codePoint = forbidden[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
+    const line = text.slice(0, forbidden.index).split('\n').length;
+    throw new InvalidRoleFragmentError(name, `contains U+${codePoint} on line ${line}; fragments are plain LF text`);
+  }
   if (!text.endsWith('\n')) throw new InvalidRoleFragmentError(name, 'does not end with a newline');
   // A line of only whitespace (spaces, tabs) reads as blank, so it counts as one at either edge.
   if (/\n[^\S\n]*\n$/.test(text)) throw new InvalidRoleFragmentError(name, 'ends with a blank line; the assembly separates fragments itself');
