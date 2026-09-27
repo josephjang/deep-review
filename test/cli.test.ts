@@ -152,6 +152,21 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(box.checkpoint.listRuns().length, 1);
   });
 
+  it('captures the scope the command names for an active run that has none yet, and refuses one without scope flags', () => {
+    // A run left without a scope, as a capture that threw leaves it.
+    const runId = box.checkpoint.createRun({ worktree: box.repo }).id;
+    const bare = run(...claudeFlags());
+    assert.equal(bare.status, 1, bare.stderr);
+    assert.match(bare.stderr, /needs its scope: --last-commit, --worktree/);
+    assert.equal(box.checkpoint.fold(runId).scope, null, 'nothing was captured');
+    box.script({});
+    const scoped = run(...claudeFlags('--ref', 'HEAD~1', '--path', 'src'));
+    assert.equal(scoped.status, 0, scoped.stderr);
+    assert.doesNotMatch(scoped.stderr, /scope flags are ignored/);
+    assert.equal(box.checkpoint.listRuns().length, 1, 'the scopeless run continued');
+    assert.deepEqual(box.checkpoint.fold(runId).scope?.request, { ref: 'HEAD~1', paths: ['src'] }, 'the scope asked for, not an automatic one');
+  });
+
   it('refuses to abandon a run another engine holds, abandons it once released, and then starts a new run', () => {
     box.script({ triage: { exit: 2 } });
     assert.equal(run(...claudeFlags('--last-commit')).status, 2);

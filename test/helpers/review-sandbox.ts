@@ -64,7 +64,7 @@ export class ReviewSandbox {
     return this.#checkpoint;
   }
 
-  /** Run a review through the fake of the given runtime, with the flags given, reviewing the last commit unless a scope is given. */
+  /** Run a review through the fake of the given runtime, with the flags given, reviewing the last commit (the automatic scope of a clean tree) unless a scope is given. */
   review(runtime: 'claude' | 'codex' = 'claude', change: Partial<ReviewOptions> = {}, fake: Record<string, string> = {}): Promise<ReviewOutcome> {
     return runReview({
       checkpoint: this.checkpoint,
@@ -75,7 +75,7 @@ export class ReviewSandbox {
       executableArgs: [runtime === 'claude' ? fakeClaude : fakeCodex],
       rolesRoot: this.rolesRoot,
       flags: {},
-      scope: { paths: [] },
+      scope: { named: false, request: () => ({ paths: [] }) },
       environment: { ...baseEnvironment, FAKE_SCRIPT: this.scriptFile, ...fake },
       scratchRoot: this.scratchRoot,
       home: this.home,

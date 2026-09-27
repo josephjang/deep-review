@@ -24107,7 +24107,7 @@ async function runReview(options2) {
   const opened = openRun(checkpoint, options2, log);
   let state = opened.state;
   const runId = state.id;
-  const { release } = opened;
+  const { release, scopeRequest } = opened;
   const inFlight = /* @__PURE__ */ new Map();
   const record2 = (settled, startedAt) => {
     const name = unitName(settled.unit.phase, settled.unit.key);
@@ -24120,8 +24120,8 @@ async function runReview(options2) {
     state = append(checkpoint, state, [event]);
   };
   try {
-    if (state.scope === null) {
-      state = captureScope(checkpoint, runId, options2.scope);
+    if (scopeRequest !== null) {
+      state = captureScope(checkpoint, runId, scopeRequest);
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files`);
     }
     if (state.review === null) {
@@ -24234,9 +24234,12 @@ function openRun(checkpoint, options2, log) {
     if (found !== null && found.review !== null && found.review.configuration.runtime !== options2.runtime) {
       throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options2.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
     }
+    if (found !== null) log(`run ${found.id}: resuming${found.scope === null ? "; it has no scope yet and captures the one this command names" : ""}`);
+    if (found !== null && found.scope !== null && options2.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
+    const scopeRequest = found === null || found.scope === null ? options2.scope.request() : null;
     const state = found ?? checkpoint.createRun({ worktree: options2.worktree });
-    log(`run ${state.id}: ${found === null ? "created" : "resuming"}`);
-    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)) };
+    if (found === null) log(`run ${state.id}: created`);
+    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)), scopeRequest };
   } finally {
     releaseStart();
   }
@@ -24477,11 +24480,14 @@ async function review(values, io, root, worktree) {
   const executable = resolveExecutable(values.executable ?? values.runtime, io.environment, process.platform, io.cwd);
   const checkpoint = openCheckpoint(root, true);
   try {
-    const active = findActiveRun(checkpoint);
-    const scope = active === null ? scopeRequestOf(values, worktree) : null;
-    if (active === null && scope === null) throw new UsageError("a new run needs its scope: --last-commit, --worktree, --ref <ref>, or --from <rev> --to <rev>");
-    if (active !== null && hasScopeFlags(values)) io.stderr(`run ${active.id} is active; its scope flags are ignored and the run continues
-`);
+    const scope = {
+      named: hasScopeFlags(values),
+      request: () => {
+        const chosen = scopeRequestOf(values, worktree);
+        if (chosen === null) throw new UsageError("a new run needs its scope: --last-commit, --worktree, --ref <ref>, or --from <rev> --to <rev>");
+        return chosen.request;
+      }
+    };
     const outcome = await runReview({
       checkpoint,
       worktree,
@@ -24491,7 +24497,7 @@ async function review(values, io, root, worktree) {
       executableArgs: values["executable-arg"] ?? [],
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,
-      scope: scope?.request ?? { paths: [] },
+      scope,
       environment: io.environment,
       log: (line) => io.stderr(`${line}
 `)
