@@ -152,7 +152,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const text = report(await box.review('claude'));
     const state = box.run();
     assert.deepEqual(state.review!.plans.verification, [{ id: 'g1', candidateIds: ['SCAN-1'] }, { id: 'g2', candidateIds: ['SCAN-2'] }]);
-    assert.deepEqual(state.review!.unverifiedGroups, { 'verification:g2': '2 attempts did not complete: failed: The worker exited with code 1; failed: The worker exited with code 1' });
+    assert.deepEqual(state.review!.unverifiedGroups.verification, { g2: '2 attempts did not complete: failed: The worker exited with code 1; failed: The worker exited with code 1' });
     assert.equal(state.review!.candidates['SCAN-2']!.unverified, true);
     assert.equal(state.review!.phases.verification.status, 'degraded');
     assert.match(text, /PLAUSIBLE  SCAN-2  src\/b\.ts:1 \(unverified\)/);
@@ -328,7 +328,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     await assert.rejects(pending, (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /does not identify itself as claude: .*; fix the runtime installation/.test(error.message));
     const state = box.run();
     assert.deepEqual(Object.values(state.workers).filter((worker) => worker.status !== 'finished'), [], 'no worker is left running on the ledger');
-    assert.notEqual(state.review!.units['finders:REMOVALS']?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');
+    assert.notEqual(state.review!.units.finders.REMOVALS?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');
     assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released after the last worker');
   });
 

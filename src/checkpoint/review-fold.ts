@@ -82,14 +82,14 @@ export interface ReviewState {
   readonly leads: readonly Lead[] | null;
   /** Every candidate by id, in the order recorded. */
   readonly candidates: Readonly<Record<string, CandidateState>>;
-  /** Every unit that contributed or failed, by `phase:key`. */
-  readonly units: Readonly<Record<string, UnitState>>;
+  /** Every unit that contributed or failed, by phase and then by unit key. */
+  readonly units: Readonly<Record<Phase, Readonly<Record<string, UnitState>>>>;
   /** The finder angles that failed twice, with the reason. */
   readonly anglesNotRun: Readonly<Record<string, string>>;
   readonly deduplications: Readonly<Record<DeduplicationPhase, DeduplicationRecorded['groups'] | null>>;
   readonly plans: Readonly<Record<VerificationPhase, VerificationPlanned['groups'] | null>>;
-  /** The groups whose verifier failed twice, by `phase:groupId`, with the reason. */
-  readonly unverifiedGroups: Readonly<Record<string, string>>;
+  /** The groups whose verifier failed twice, by verification phase and then by group id, with the reason. */
+  readonly unverifiedGroups: Readonly<Record<VerificationPhase, Readonly<Record<string, string>>>>;
   readonly ranking: readonly RankedFinding[] | null;
   readonly report: ReportWritten | null;
 }
@@ -105,9 +105,15 @@ export function poolCandidates(review: ReviewState, phase: DeduplicationPhase | 
   return Object.values(review.candidates).filter((candidate) => included.has(candidate.phase));
 }
 
-/** The unit name under which a lost worker's attempt is counted, or null when the launch label named no unit. */
-export function unitOfLostWorker(phase: Phase | null, key: string | null): string | null {
-  return phase === null || key === null ? null : unitName(phase, key);
+/** A unit of a phase: the phase and the unit's key within it. */
+export interface UnitRef {
+  readonly phase: Phase;
+  readonly key: string;
+}
+
+/** The unit a lost worker's attempt is counted against, or null when the launch label named no unit. */
+export function unitOfLostWorker(phase: Phase | null, key: string | null): UnitRef | null {
+  return phase === null || key === null ? null : { phase, key };
 }
 
 const invalid = (event: DecodedEvent, what: string): InvalidHistoryError =>
@@ -128,28 +134,35 @@ function requireRunning(review: ReviewState, event: DecodedEvent, phase: Phase, 
 }
 
 /** The unit, which must not have contributed yet. */
-function requireUnanswered(review: ReviewState, event: DecodedEvent, unit: string): UnitState {
-  const state = review.units[unit] ?? { answeredBy: null, failures: [] };
-  if (state.answeredBy !== null) throw invalid(event, `has ${event.kind} for unit ${unit}, which worker ${state.answeredBy} already answered`);
-  return state;
+function requireUnanswered(review: ReviewState, event: DecodedEvent, { phase, key }: UnitRef): void {
+  const answeredBy = review.units[phase][key]?.answeredBy ?? null;
+  if (answeredBy !== null) throw invalid(event, `has ${event.kind} for unit ${unitName(phase, key)}, which worker ${answeredBy} already answered`);
 }
 
 function withReview(current: RunState, review: ReviewState, event: DecodedEvent): RunState {
   return { ...current, review, lastSequence: event.sequence };
 }
 
-/** The unit record with `unit` answered by `workerId`. */
-function answered(review: ReviewState, drafts: FoldDrafts, unit: string, workerId: string): ReviewState['units'] {
+/** The unit records, and those of `phase` within them, both writable by this fold. */
+function writableUnits(review: ReviewState, drafts: FoldDrafts, phase: Phase): { units: Record<Phase, Readonly<Record<string, UnitState>>>; ofPhase: Record<string, UnitState> } {
   const units = drafts.writable(review.units);
-  units[unit] = { answeredBy: workerId, failures: units[unit]?.failures ?? [] };
+  const ofPhase = drafts.writable(units[phase]);
+  units[phase] = ofPhase;
+  return { units, ofPhase };
+}
+
+/** The unit records with `unit` answered by `workerId`. */
+function answered(review: ReviewState, drafts: FoldDrafts, { phase, key }: UnitRef, workerId: string): ReviewState['units'] {
+  const { units, ofPhase } = writableUnits(review, drafts, phase);
+  ofPhase[key] = { answeredBy: workerId, failures: ofPhase[key]?.failures ?? [] };
   return units;
 }
 
 /** Record one failed attempt of `unit`; shared by `attempt.failed` and a lost worker with a unit. */
-export function withFailure(review: ReviewState, drafts: FoldDrafts, unit: string, workerId: string, reason: string): ReviewState {
-  const units = drafts.writable(review.units);
-  const state = units[unit] ?? { answeredBy: null, failures: [] };
-  units[unit] = { answeredBy: state.answeredBy, failures: [...state.failures, { workerId, reason }] };
+export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, key }: UnitRef, workerId: string, reason: string): ReviewState {
+  const { units, ofPhase } = writableUnits(review, drafts, phase);
+  const state = ofPhase[key] ?? { answeredBy: null, failures: [] };
+  ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, { workerId, reason }] };
   return { ...review, units };
 }
 
@@ -165,11 +178,11 @@ const configured: Reducer<ReviewConfiguration> = (state, payload, event) => {
     checks: [],
     leads: null,
     candidates: {},
-    units: {},
+    units: Object.fromEntries(phases.map((phase) => [phase, {}])) as Record<Phase, Record<string, UnitState>>,
     anglesNotRun: {},
     deduplications: Object.fromEntries(deduplicationPhases.map((phase) => [phase, null])) as Record<DeduplicationPhase, null>,
     plans: Object.fromEntries(verificationPhases.map((phase) => [phase, null])) as Record<VerificationPhase, null>,
-    unverifiedGroups: {},
+    unverifiedGroups: Object.fromEntries(verificationPhases.map((phase) => [phase, {}])) as Record<VerificationPhase, Record<string, string>>,
     ranking: null,
     report: null,
   };
@@ -183,11 +196,11 @@ const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
   return withReview(current, { ...review, limits: payload }, event);
 };
 
-/** The unit record with every failure of `phase`'s units forgotten; what they answered stays. */
+/** The unit records with every failure of `phase`'s units forgotten; what they answered stays. */
 function withFreshAttempts(review: ReviewState, drafts: FoldDrafts, phase: Phase): ReviewState['units'] {
-  const units = drafts.writable(review.units);
-  for (const [unit, state] of Object.entries(units)) {
-    if (unit.startsWith(`${phase}:`) && state.failures.length > 0) units[unit] = { answeredBy: state.answeredBy, failures: [] };
+  const { units, ofPhase } = writableUnits(review, drafts, phase);
+  for (const [key, state] of Object.entries(ofPhase)) {
+    if (state.failures.length > 0) ofPhase[key] = { answeredBy: state.answeredBy, failures: [] };
   }
   return units;
 }
@@ -236,7 +249,7 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, 
   requireRunning(review, event, payload.phase);
   requireCandidateUnit(payload, event);
   const prefix = candidateIdPrefix(payload.phase, payload.key);
-  const unit = unitName(payload.phase, payload.key);
+  const unit: UnitRef = { phase: payload.phase, key: payload.key };
   requireUnanswered(review, event, unit);
   if (payload.phase === 'finders' && Object.hasOwn(review.anglesNotRun, payload.key)) throw invalid(event, `records candidates for angle ${payload.key} after it failed`);
   const candidates = drafts.writable(review.candidates);
@@ -253,7 +266,7 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, 
 const attemptFailed: Reducer<AttemptFailed> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
-  const unit = unitName(payload.phase, payload.key);
+  const unit: UnitRef = { phase: payload.phase, key: payload.key };
   requireUnanswered(review, event, unit);
   return withReview(current, withFailure(review, drafts, unit, payload.workerId, payload.reason), event);
 };
@@ -261,7 +274,7 @@ const attemptFailed: Reducer<AttemptFailed> = (state, payload, event, drafts) =>
 const angleFailed: Reducer<AngleFailed> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, 'finders');
-  requireUnanswered(review, event, unitName('finders', payload.angle));
+  requireUnanswered(review, event, { phase: 'finders', key: payload.angle });
   if (Object.hasOwn(review.anglesNotRun, payload.angle)) throw invalid(event, `fails angle ${payload.angle} twice`);
   return withReview(current, { ...review, anglesNotRun: { ...review.anglesNotRun, [payload.angle]: payload.reason } }, event);
 };
@@ -270,7 +283,7 @@ const deduplicationRecorded: Reducer<DeduplicationRecorded> = (state, payload, e
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
   if (review.deduplications[payload.phase] !== null) throw invalid(event, `records ${payload.phase} twice`);
-  const unit = unitName(payload.phase, payload.phase);
+  const unit: UnitRef = { phase: payload.phase, key: singleUnitKey(payload.phase) };
   requireUnanswered(review, event, unit);
   const pool = new Set(poolCandidates(review, payload.phase).map((candidate) => candidate.id));
   const candidates = drafts.writable(review.candidates);
@@ -314,8 +327,8 @@ function requireOpenGroup(review: ReviewState, event: DecodedEvent, phase: Verif
   if (plan === null) throw invalid(event, `has ${event.kind} for ${phase} before it is planned`);
   const group = plan.find((candidate) => candidate.id === groupId);
   if (group === undefined) throw invalid(event, `has ${event.kind} for group ${groupId}, which ${phase} did not plan`);
-  requireUnanswered(review, event, unitName(phase, groupId));
-  if (Object.hasOwn(review.unverifiedGroups, unitName(phase, groupId))) throw invalid(event, `has ${event.kind} for group ${groupId} after it was marked unverified`);
+  requireUnanswered(review, event, { phase, key: groupId });
+  if (isUnverified(review, phase, groupId)) throw invalid(event, `has ${event.kind} for group ${groupId} after it was marked unverified`);
   return group.candidateIds;
 }
 
@@ -330,7 +343,7 @@ const verdictsRecorded: Reducer<VerdictsRecorded> = (state, payload, event, draf
   }
   const candidates = drafts.writable(review.candidates);
   for (const { id, verdict, evidence } of payload.verdicts) candidates[id] = { ...candidates[id]!, verdict: { verdict, evidence } };
-  return withReview(current, { ...review, candidates, units: answered(review, drafts, unitName(payload.phase, payload.groupId), payload.workerId) }, event);
+  return withReview(current, { ...review, candidates, units: answered(review, drafts, { phase: payload.phase, key: payload.groupId }, payload.workerId) }, event);
 };
 
 const groupUnverified: Reducer<GroupUnverified> = (state, payload, event, drafts) => {
@@ -339,7 +352,7 @@ const groupUnverified: Reducer<GroupUnverified> = (state, payload, event, drafts
   const ids = requireOpenGroup(review, event, payload.phase, payload.groupId);
   const candidates = drafts.writable(review.candidates);
   for (const id of ids) candidates[id] = { ...candidates[id]!, unverified: true };
-  const unverifiedGroups = { ...review.unverifiedGroups, [unitName(payload.phase, payload.groupId)]: payload.reason };
+  const unverifiedGroups = { ...review.unverifiedGroups, [payload.phase]: { ...review.unverifiedGroups[payload.phase], [payload.groupId]: payload.reason } };
   return withReview(current, { ...review, candidates, unverifiedGroups }, event);
 };
 
@@ -347,7 +360,7 @@ const rankingRecorded: Reducer<RankingRecorded> = (state, payload, event, drafts
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, 'merge-rank');
   if (review.ranking !== null) throw invalid(event, 'records its ranking twice');
-  const unit = unitName('merge-rank', 'merge-rank');
+  const unit: UnitRef = { phase: 'merge-rank', key: singleUnitKey('merge-rank') };
   requireUnanswered(review, event, unit);
   const seen = new Set<string>();
   for (const finding of payload.findings) {
@@ -387,13 +400,12 @@ export const reviewReducers = {
 
 /** Whether the unit `key` of `phase` has contributed: a worker's answer is recorded for it. */
 export function isAnswered(review: ReviewState, phase: Phase, key: string): boolean {
-  const unit = review.units[unitName(phase, key)];
-  return unit !== undefined && unit.answeredBy !== null;
+  return (review.units[phase][key]?.answeredBy ?? null) !== null;
 }
 
 /** Whether the group `groupId` of a verification phase was marked unverified. */
 export function isUnverified(review: ReviewState, phase: VerificationPhase, groupId: string): boolean {
-  return Object.hasOwn(review.unverifiedGroups, unitName(phase, groupId));
+  return Object.hasOwn(review.unverifiedGroups[phase], groupId);
 }
 
 /** A group whose verifier failed twice, with the candidates it held and the reason recorded. */
@@ -404,17 +416,12 @@ export interface UnverifiedGroup {
   readonly reason: string;
 }
 
-/** Every unverified group, first pool then sweep, each in plan order; read from the plans, so no caller parses a unit name. */
+/** Every unverified group, first pool then sweep, each in plan order. */
 export function unverifiedGroupsOf(review: ReviewState): UnverifiedGroup[] {
   return verificationPhases.flatMap((phase) =>
-    (review.plans[phase] ?? [])
-      .filter((group) => isUnverified(review, phase, group.id))
-      .map((group) => ({ phase, groupId: group.id, candidateIds: group.candidateIds, reason: review.unverifiedGroups[unitName(phase, group.id)]! })),
+    (review.plans[phase] ?? []).flatMap((group) => {
+      const reason = isUnverified(review, phase, group.id) ? review.unverifiedGroups[phase][group.id] : undefined;
+      return reason === undefined ? [] : [{ phase, groupId: group.id, candidateIds: group.candidateIds, reason }];
+    }),
   );
-}
-
-/** Every phase's units that have a record, for the phase's planner. */
-export function unitsOfPhase(review: ReviewState, phase: Phase): Record<string, UnitState> {
-  const prefix = `${phase}:`;
-  return Object.fromEntries(Object.entries(review.units).filter(([unit]) => unit.startsWith(prefix)).map(([unit, state]) => [unit.slice(prefix.length), state]));
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { isAnswered, isUnverified, poolCandidates, unitsOfPhase, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, phases } from '../../src/review/vocabulary.ts';
 import { History, candidate, configuration, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
@@ -27,7 +27,7 @@ describe('the review fold', () => {
     assert.deepEqual(review.leads, leads);
     assert.deepEqual(Object.keys(review.candidates), ['SCAN-1']);
     assert.deepEqual(review.candidates['SCAN-1'], { ...candidate('SCAN-1', 'SCAN'), phase: 'triage', workerId: worker(1), duplicateOf: null, verdict: null, unverified: false });
-    assert.deepEqual(unitsOfPhase(review, 'triage'), { SCAN: { answeredBy: worker(1), failures: [] } });
+    assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(1), failures: [] } });
     assert.deepEqual(review.checks, [{ phase: 'triage', attempt: 1, drifted: false, files: [] }]);
   });
 
@@ -35,11 +35,11 @@ describe('the review fold', () => {
     const state = found().fold();
     const review = state.review!;
     assert.equal(state.workers[worker(3)]?.status, 'lost');
-    assert.deepEqual(unitsOfPhase(review, 'finders').FOOTGUNS, {
+    assert.deepEqual(review.units.finders.FOOTGUNS, {
       answeredBy: null,
       failures: [{ workerId: worker(3), reason: 'the engine exited while the worker ran' }, { workerId: worker(4), reason: 'timeout: The worker ran past its timeout' }],
     });
-    assert.deepEqual(unitsOfPhase(review, 'finders').WRAPPERS, { answeredBy: worker(10 + finderAngles.indexOf('WRAPPERS')), failures: [{ workerId: worker(5), reason: 'failed: The answer does not match the output schema' }] });
+    assert.deepEqual(review.units.finders.WRAPPERS, { answeredBy: worker(10 + finderAngles.indexOf('WRAPPERS')), failures: [{ workerId: worker(5), reason: 'failed: The answer does not match the output schema' }] });
     assert.deepEqual(review.anglesNotRun, { FOOTGUNS: '2 attempts did not complete: the engine exited while the worker ran; timeout: The worker ran past its timeout' });
     assert.deepEqual(review.phases.finders, { status: 'degraded', attempt: 1 });
   });
@@ -51,8 +51,8 @@ describe('the review fold', () => {
     assert.deepEqual(review.deduplications.deduplication, [{ members: ['SCAN-1', 'RIPPLE-1'], keep: 'RIPPLE-1', reason: 'one defect at one line' }]);
     assert.deepEqual(review.plans.verification, [{ id: 'g1', candidateIds: ['RIPPLE-1'] }]);
     assert.deepEqual(review.candidates['RIPPLE-1']?.verdict, { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null' });
-    assert.deepEqual(unitsOfPhase(review, 'verification'), { g1: { answeredBy: worker(21), failures: [] } });
-    assert.deepEqual(unitsOfPhase(review, 'deduplication'), { deduplication: { answeredBy: worker(20), failures: [] } });
+    assert.deepEqual(review.units.verification, { g1: { answeredBy: worker(21), failures: [] } });
+    assert.deepEqual(review.units.deduplication, { deduplication: { answeredBy: worker(20), failures: [] } });
   });
 
   it('keeps the sweep pool apart, and marks an unverified group on every candidate of it', () => {
@@ -63,7 +63,7 @@ describe('the review fold', () => {
     assert.equal(review.candidates['SWEEP-2']?.unverified, true);
     assert.equal(review.candidates['SWEEP-1']?.verdict, null);
     assert.equal(review.candidates['RIPPLE-1']?.unverified, false);
-    assert.deepEqual(review.unverifiedGroups, { 'sweep-verification:g1': '2 attempts did not complete: failed; failed again' });
+    assert.deepEqual(review.unverifiedGroups, { verification: {}, 'sweep-verification': { g1: '2 attempts did not complete: failed; failed again' } });
     assert.deepEqual(review.candidates['SWEEP-1']?.located, false);
     assert.equal(review.candidates['SWEEP-1']?.file, null);
   });
@@ -104,11 +104,28 @@ describe('the review fold', () => {
     let review = blocked.review();
     assert.deepEqual(review.blocker, { ...blocker, phase: 'triage' });
     assert.deepEqual(review.phases.triage, { status: 'blocked', attempt: 1 });
-    assert.equal(unitsOfPhase(review, 'triage').SCAN?.failures.length, 2);
+    assert.equal(review.units.triage.SCAN?.failures.length, 2);
     review = blocked.start('triage', 2).review();
     assert.equal(review.blocker, null);
     assert.deepEqual(review.phases.triage, { status: 'running', attempt: 2 });
-    assert.deepEqual(unitsOfPhase(review, 'triage').SCAN, { answeredBy: null, failures: [] });
+    assert.deepEqual(review.units.triage.SCAN, { answeredBy: null, failures: [] });
+  });
+
+  it('forgets only the re-entered phase\'s failures, and keeps every other phase\'s and every answer', () => {
+    const blocked = configured()
+      .start('triage')
+      .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(1), reason: 'first' })
+      .add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(2), candidates: [], leads })
+      .finish('triage')
+      .start('finders')
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'failed' })
+      .add('candidates.recorded', { phase: 'finders', key: 'DESIGN', workerId: worker(4), candidates: [], leads: null })
+      .finish('finders', 'blocked', 1, { code: 'budget', detail: 'spent', action: 'raise it' });
+    const before = blocked.fold();
+    const review = blocked.start('finders', 2).review();
+    assert.deepEqual(review.units.finders, { RIPPLE: { answeredBy: null, failures: [] }, DESIGN: { answeredBy: worker(4), failures: [] } });
+    assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(2), failures: [{ workerId: worker(1), reason: 'first' }] } }, 'the triage is not re-entered, so its failure stays');
+    assert.equal(before.review!.units.finders.RIPPLE?.failures.length, 1, 'the state before the start is left as it was');
   });
 
   it('keeps a running phase\'s failures when a resumed engine re-enters it', () => {
@@ -118,7 +135,7 @@ describe('the review fold', () => {
       .add('phase.started', { phase: 'finders', attempt: 2 })
       .review();
     assert.deepEqual(review.phases.finders, { status: 'running', attempt: 2 });
-    assert.equal(unitsOfPhase(review, 'finders').RIPPLE?.failures.length, 1);
+    assert.equal(review.units.finders.RIPPLE?.failures.length, 1);
   });
 
   it('records a drift check with its files', () => {
@@ -137,7 +154,7 @@ describe('the review fold', () => {
       .add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'engine exited' })
       .fold();
     assert.equal(state.workers[worker(9)]?.status, 'lost');
-    assert.deepEqual(state.review?.units, {});
+    assert.deepEqual(state.review?.units, Object.fromEntries(phases.map((phase) => [phase, {}])), 'no unit of any phase has a record');
     const unconfigured = new History().add('run.created', { worktree: '/w' }).add('worker.launched', launch(worker(9), 'smoke')).add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'engine exited' }).fold();
     assert.equal(unconfigured.workers[worker(9)]?.status, 'lost');
   });

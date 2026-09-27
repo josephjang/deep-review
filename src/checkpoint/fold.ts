@@ -15,6 +15,7 @@ import {
 } from './events.ts';
 import { lookupEvent, registryKeys, type Registry, type RegistryKey } from './registry.ts';
 import { reviewReducers, unitOfLostWorker, withFailure, type ReviewState } from './review-fold.ts';
+import { unitName } from '../review/vocabulary.ts';
 
 /** An event as the fold sees it: the ledger row with its payload parsed. */
 export interface DecodedEvent {
@@ -69,9 +70,9 @@ export class FoldDrafts {
   readonly #owned = new WeakSet<object>();
 
   /** `record` itself when this fold made it, otherwise a shallow copy this fold now owns. */
-  writable<V>(record: Readonly<Record<string, V>>): Record<string, V> {
-    if (this.#owned.has(record)) return record as Record<string, V>;
-    const copy = { ...record };
+  writable<K extends string, V>(record: Readonly<Record<K, V>>): Record<K, V> {
+    if (this.#owned.has(record)) return record as Record<K, V>;
+    const copy: Record<K, V> = { ...record };
     this.#owned.add(copy);
     return copy;
   }
@@ -158,7 +159,7 @@ const workerLost: Reducer<z.infer<typeof workerLostV1>> = (state, payload, event
   const workers = drafts.writable(current.workers);
   workers[payload.workerId] = { status: 'lost', launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
   const unit = unitOfLostWorker(payload.phase, payload.key);
-  if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unit} at sequence ${String(event.sequence)} before review.configured`);
+  if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unitName(unit.phase, unit.key)} at sequence ${String(event.sequence)} before review.configured`);
   const review = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, payload.workerId, payload.reason);
   return { ...current, workers, review, lastSequence: event.sequence };
 };
