@@ -1,12 +1,25 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
 import { maxDecodeBytes, outputLines, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
-import { claudeAdapter, claudeEnvironment, claudeFlags, claudeSessionMarkers, claudeTools, thinkingOverrides, truncateDetail } from '../../src/runtime/claude.ts';
+import {
+  claudeAdapter,
+  claudeEnvironment,
+  claudeFlags,
+  claudeSessionMarkers,
+  claudeTools,
+  posixArgumentLimit,
+  refuseOversizedCommandLine,
+  thinkingOverrides,
+  truncateDetail,
+  windowsArgumentLength,
+  windowsCommandLineLimit,
+} from '../../src/runtime/claude.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
-import { InheritedOverrideError } from '../../src/runtime/errors.ts';
+import { InheritedOverrideError, InvalidInvocationError } from '../../src/runtime/errors.ts';
 import { LauncherSandbox } from '../helpers/launcher.ts';
 import { textOutputs } from '../helpers/outputs.ts';
 
@@ -292,6 +305,85 @@ describe('claude decode', () => {
   });
 });
 
+/** A schema whose compiled text is past every platform's limit for one argument. */
+const hugeSchema = z.strictObject(Object.fromEntries(Array.from({ length: 3000 }, (_, index) => [`field_${index}_${'x'.repeat(40)}`, z.string()])));
+
+describe('Claude Code command-line limit', () => {
+  it('measures an argument as libuv quotes it for Windows', () => {
+    assert.equal(windowsArgumentLength(''), 2);
+    assert.equal(windowsArgumentLength('abc'), 3);
+    assert.equal(windowsArgumentLength('a\\b'), 3, 'a backslash alone needs no quoting');
+    assert.equal(windowsArgumentLength('a b'), 5);
+    assert.equal(windowsArgumentLength('a\tb'), 5);
+    assert.equal(windowsArgumentLength('a"b'), 6);
+    assert.equal(windowsArgumentLength('a\\b c'), 7, 'a backslash before an ordinary character stays single');
+    assert.equal(windowsArgumentLength('a b\\'), 7, 'a trailing backslash is doubled before the closing quote');
+    assert.equal(windowsArgumentLength('a\\"b'), 8, 'a backslash before a quote is doubled and the quote escaped');
+    assert.equal(windowsArgumentLength('{"a":"b"}'), 15);
+  });
+
+  it('agrees with Windows at the exact limit', { skip: process.platform !== 'win32' }, () => {
+    // Quotes, spaces and backslash runs before a quote and at the end, so every quoting rule counts.
+    const pattern = ' {"a\\\\":"b c\\"} \\\\';
+    const argvAt = (length: number): string[] => {
+      const fixed = [process.execPath, '-e', '0', pattern].reduce((total, argument) => total + windowsArgumentLength(argument), 3);
+      return [process.execPath, '-e', '0', 'a'.repeat(length - fixed) + pattern];
+    };
+    const spawned = (argv: readonly string[]): string => {
+      const [executable = '', ...rest] = argv;
+      const result = spawnSync(executable, rest, { windowsHide: true });
+      return result.error === undefined ? `exit ${String(result.status)}` : ((result.error as NodeJS.ErrnoException).code ?? 'error');
+    };
+    const atLimit = argvAt(windowsCommandLineLimit);
+    const overLimit = argvAt(windowsCommandLineLimit + 1);
+    assert.equal(spawned(atLimit), 'exit 0');
+    assert.equal(spawned(overLimit), 'ENAMETOOLONG');
+    assert.doesNotThrow(() => {
+      refuseOversizedCommandLine('win32', atLimit);
+    });
+    assert.throws(() => {
+      refuseOversizedCommandLine('win32', overLimit);
+    }, InvalidInvocationError);
+  });
+
+  it('holds a POSIX argument to its byte length, not its character count', () => {
+    assert.doesNotThrow(() => {
+      refuseOversizedCommandLine('linux', ['/bin/claude', '--json-schema', 'a'.repeat(posixArgumentLimit)]);
+    });
+    assert.throws(
+      () => {
+        refuseOversizedCommandLine('darwin', ['/bin/claude', '--json-schema', 'a'.repeat(posixArgumentLimit + 1)]);
+      },
+      (error: unknown) => error instanceof InvalidInvocationError && /the value of --json-schema is 131072 bytes, over the 131071/.test(error.message),
+    );
+    const accented = 'é'.repeat(Math.ceil((posixArgumentLimit + 1) / 2));
+    assert.ok(accented.length < posixArgumentLimit);
+    assert.throws(() => {
+      refuseOversizedCommandLine('linux', ['/bin/claude', '--json-schema', accented]);
+    }, InvalidInvocationError);
+  });
+
+  it('refuses a schema too large for a Windows command line and accepts it elsewhere', () => {
+    const large = z.strictObject(Object.fromEntries(Array.from({ length: 800 }, (_, index) => [`field_${index}_${'x'.repeat(20)}`, z.string()])));
+    const text = compileOutputSchema(large).text;
+    const largePlan = (platform: NodeJS.Platform): LaunchPlan => plan({ platform, schema: compileOutputSchema(large) });
+    assert.ok(text.length > windowsCommandLineLimit);
+    assert.ok(Buffer.byteLength(text, 'utf8') <= posixArgumentLimit);
+    assert.throws(() => claudeAdapter.command(invocation({ outputSchema: large }), largePlan('win32')), /over the 32766 Windows allows; the compiled output schema/);
+    assert.equal(claudeAdapter.command(invocation({ outputSchema: large }), largePlan('linux')).args.at(-1), text);
+    assert.doesNotThrow(() => claudeAdapter.command(invocation(), plan({ platform: 'win32' })));
+  });
+
+  it('counts the executable and its own arguments toward the Windows limit', () => {
+    const args = claudeAdapter.command(invocation(), plan({ platform: 'win32' })).args;
+    const used = args.reduce((total, argument) => total + windowsArgumentLength(argument), args.length);
+    const room = windowsCommandLineLimit - used - windowsArgumentLength(resolve('/bin/claude'));
+    // One more argument filling the room left, less its separating space, fits; one character more does not.
+    assert.doesNotThrow(() => claudeAdapter.command(invocation({ executableArgs: ['a'.repeat(room - 1)] }), plan({ platform: 'win32' })));
+    assert.throws(() => claudeAdapter.command(invocation({ executableArgs: ['a'.repeat(room)] }), plan({ platform: 'win32' })), InvalidInvocationError);
+  });
+});
+
 describe('Claude Code worker through the launcher', () => {
   let box: LauncherSandbox;
   beforeEach(() => {
@@ -299,6 +391,11 @@ describe('Claude Code worker through the launcher', () => {
   });
   afterEach(() => {
     box.close();
+  });
+
+  it('refuses an oversized command line before anything is recorded or run', async () => {
+    await assert.rejects(box.run(box.claude({ outputSchema: hugeSchema })), InvalidInvocationError);
+    assert.ok(box.untouched());
   });
 
   it('starts the worker without the markers of the Claude Code session the engine runs in', async () => {
