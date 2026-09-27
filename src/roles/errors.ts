@@ -4,7 +4,7 @@ import { EngineError } from '../errors.ts';
  * The manifest cannot be read, is not JSON, gives a key twice in one object
  * or fails its schema; or, as the assembly compares it with fragments/
  * before reading any fragment, fragments/ cannot be listed or is a link, a
- * fragment some role names is not in fragments/, or an entry under
+ * fragment some role names is not in fragments/, or a visible entry under
  * fragments/ is one no role names.
  */
 export class InvalidRoleManifestError extends EngineError {

@@ -79,6 +79,16 @@ describe('assembleRoles', () => {
       error instanceof InvalidRoleManifestError && /fragment name/.test(error.message) && !/twice/.test(error.message));
   });
 
+  it('passes hidden entries under fragments/ and still refuses every other entry no role names', () => {
+    // No fragment name starts with a dot, so a hidden entry (Finder's .DS_Store, a vim swap file) can never hide one.
+    seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': 'a\n', '.DS_Store': 'x', '.a.md.swp': 'x' });
+    assert.deepEqual(assembleRoles(root).map((role) => role.key), ['r']);
+    // An editor's backup without the leading dot is still a visible stray.
+    writeFileSync(join(root, fragmentsDirectoryName, 'a.md~'), 'a\n');
+    assert.throws(() => assembleRoles(root), (error: unknown) =>
+      error instanceof InvalidRoleManifestError && /Entries under fragments\/ that no role names: a\.md~$/.test(error.message));
+  });
+
   it('refuses a missing manifest', () => {
     assert.throws(() => assembleRoles(root), (error: unknown) => error instanceof InvalidRoleManifestError && /Cannot read the role manifest/.test(error.message));
   });
