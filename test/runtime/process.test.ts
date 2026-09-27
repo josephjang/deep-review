@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
 import { isAlive, until } from '../helpers/launcher.ts';
-import { processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
+import { probeGrandchildPidFile, processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
 
 const posix = process.platform !== 'win32';
 
@@ -77,6 +77,19 @@ describe('runProcess', () => {
     }
   });
 
+  it('listens for the engine ending only while a worker is live', async () => {
+    const signals = posix ? (['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) : [];
+    const before = { exit: process.listenerCount('exit'), signals: signals.map((signal) => process.listenerCount(signal)) };
+    const marker = join(directory, 'go');
+    const running = runProcess(request(['-e', `const fs = require("fs"); const wait = () => fs.existsSync(${JSON.stringify(marker)}) || setTimeout(wait, 20); wait()`]));
+    await until(() => process.listenerCount('exit') === before.exit + 1, 'the exit listener');
+    assert.deepEqual(signals.map((signal) => process.listenerCount(signal)), before.signals.map((count) => count + 1));
+    writeFileSync(marker, '');
+    assert.equal((await running).termination, 'exited');
+    assert.equal(process.listenerCount('exit'), before.exit);
+    assert.deepEqual(signals.map((signal) => process.listenerCount(signal)), before.signals);
+  });
+
   it('refuses output files that already exist, before anything runs', async () => {
     writeFileSync(join(directory, 'stdout'), 'earlier');
     await assert.rejects(runProcess(request(['-e', ''])), /EEXIST/);
@@ -135,5 +148,104 @@ describe('killTree', () => {
       rmSync(empty, { recursive: true, force: true });
       reap(root.pid);
     }
+  });
+});
+
+describe('an engine that ends while a worker runs', () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'deep-review-engine-'));
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /** Start the stand-in engine and wait until its worker and grandchild run. */
+  async function start(mode: string): Promise<{ engine: ChildProcess; ended: Promise<[number | null, string | null]>; pids: WorkerPids }> {
+    const engine = spawn(process.execPath, [processEngine, 'engine', mode, directory], { stdio: 'ignore', windowsHide: true });
+    const ended = new Promise<[number | null, string | null]>((resolve) => engine.once('exit', (code, signal) => resolve([code, signal])));
+    const pidFile = workerPidFile(directory);
+    await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').length > 0, 'the worker to start');
+    return { engine, ended, pids: JSON.parse(readFileSync(pidFile, 'utf8')) as WorkerPids };
+  }
+
+  /** The worker and its grandchild both die; whatever is left is reaped so no test leaks a process. */
+  async function assertTreeDies(pids: WorkerPids): Promise<void> {
+    try {
+      await until(() => !isAlive(pids.worker), `worker ${String(pids.worker)} to die`, 10_000);
+      await until(() => !isAlive(pids.grandchild), `grandchild ${String(pids.grandchild)} to die`, 10_000);
+    } finally {
+      reap(pids.worker);
+      reap(pids.grandchild);
+    }
+  }
+
+  it('kills the worker tree when the engine crashes', async () => {
+    const { ended, pids } = await start('crash');
+    assert.deepEqual(await ended, [1, null]);
+    await assertTreeDies(pids);
+  });
+
+  it('kills the worker tree when the engine exits while it runs', async () => {
+    const { ended, pids } = await start('exit');
+    assert.deepEqual(await ended, [3, null]);
+    await assertTreeDies(pids);
+  });
+
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) {
+    it(`kills the worker tree on ${signal} and still ends the engine by that signal`, { skip: !posix && 'POSIX signals only' }, async () => {
+      const { engine, ended, pids } = await start('wait');
+      engine.kill(signal);
+      assert.deepEqual(await ended, [null, signal]);
+      await assertTreeDies(pids);
+    });
+  }
+
+  it('leaves the ending to an engine that handles the signal itself, and still kills the tree', { skip: !posix && 'POSIX signals only' }, async () => {
+    const { engine, ended, pids } = await start('own-handler');
+    engine.kill('SIGINT');
+    assert.deepEqual(await ended, [42, null]);
+    await assertTreeDies(pids);
+  });
+});
+
+describe('an engine that ends while a preflight probe runs', () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'deep-review-probe-engine-'));
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /** Start the stand-in engine and wait until its hanging probe has started a grandchild. */
+  async function start(mode: string): Promise<{ engine: ChildProcess; ended: Promise<[number | null, string | null]>; grandchild: number }> {
+    const engine = spawn(process.execPath, [processEngine, 'probe-engine', mode, directory], { stdio: 'ignore', windowsHide: true });
+    const ended = new Promise<[number | null, string | null]>((resolve) => engine.once('exit', (code, signal) => resolve([code, signal])));
+    const pidFile = probeGrandchildPidFile(directory);
+    await until(() => existsSync(pidFile) && Number(readFileSync(pidFile, 'utf8')) > 0, 'the probe to start its grandchild');
+    return { engine, ended, grandchild: Number(readFileSync(pidFile, 'utf8')) };
+  }
+
+  /** The probe's grandchild, which escapes a kill that reaches only the probe, dies; it is reaped either way. */
+  async function assertGrandchildDies(grandchild: number): Promise<void> {
+    try {
+      await until(() => !isAlive(grandchild), `grandchild ${String(grandchild)} to die`, 10_000);
+    } finally {
+      reap(grandchild);
+    }
+  }
+
+  it('kills the probe tree when the engine exits while the probe hangs', async () => {
+    const { ended, grandchild } = await start('exit');
+    assert.deepEqual(await ended, [3, null]);
+    await assertGrandchildDies(grandchild);
+  });
+
+  it('kills the probe tree on SIGINT and still ends the engine by that signal', { skip: !posix && 'POSIX signals only' }, async () => {
+    const { engine, ended, grandchild } = await start('wait');
+    engine.kill('SIGINT');
+    assert.deepEqual(await ended, [null, 'SIGINT']);
+    await assertGrandchildDies(grandchild);
   });
 });

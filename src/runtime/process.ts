@@ -58,6 +58,10 @@ export function notStarted(error: string, startedAt: string, endedAt: string = n
  * timeout (PD2, TD13). On POSIX it is spawned as the leader of its own
  * process group, which the kill addresses; on Windows `taskkill /T` walks
  * the tree. No shell is involved, so no argument is ever reinterpreted.
+ *
+ * While it runs it is also killed with its tree if the engine exits or,
+ * on POSIX, is interrupted by a signal: its own process group keeps a
+ * terminal's signals from reaching it, so nothing else would end it.
  */
 export async function runProcess(request: ProcessRequest): Promise<ProcessResult> {
   const descriptors: number[] = [];
@@ -80,6 +84,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
       // A synchronous refusal, such as an argument Node will not pass: the process never existed.
       return notStarted((error as Error).message, startedAt);
     }
+    superviseChild(child);
     return await new Promise<ProcessResult>((resolve) => {
       let started = false;
       let kill: TreeKill | undefined;
@@ -107,6 +112,90 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
   } finally {
     for (const descriptor of descriptors) closeSync(descriptor);
   }
+}
+
+/** The signals that end a POSIX engine by default and that a detached worker's group never receives. */
+const interruptions: readonly NodeJS.Signals[] = process.platform === 'win32' ? [] : ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'];
+
+/**
+ * The processes under supervision that have not closed yet (every worker
+ * `runProcess` starts and every preflight probe), and the listeners that
+ * kill their trees when the engine ends. The listeners exist only while
+ * a process is live, so an idle engine keeps Node's own signal behavior
+ * untouched.
+ *
+ * On Windows no signal listener is needed: Ctrl-C reaches every process
+ * on the console, and libuv's job object ends the workers and probes with
+ * the engine. The exit listener still runs there, because a descendant that left the
+ * job survives the engine unless `taskkill /T` reaches it first.
+ *
+ * An engine killed outright (SIGKILL, a crash of Node itself) runs no
+ * listener; that case cannot be handled from inside the process.
+ */
+class LiveProcesses {
+  readonly #children = new Set<ChildProcess>();
+  #listening = false;
+
+  track(child: ChildProcess): void {
+    this.#children.add(child);
+    if (!this.#listening) this.#listen(true);
+  }
+
+  untrack(child: ChildProcess): void {
+    this.#children.delete(child);
+    if (this.#children.size === 0 && this.#listening) this.#listen(false);
+  }
+
+  #killAll(): void {
+    for (const child of this.#children) killTreeNow(child);
+  }
+
+  readonly #onExit = (): void => {
+    this.#killAll();
+  };
+
+  readonly #onSignal = (signal: NodeJS.Signals): void => {
+    this.#killAll();
+    // Alone on this signal, the listener has displaced Node's default of
+    // ending the process by it: stop listening, which restores that
+    // default, and raise the signal again so the engine ends exactly as it
+    // would have. Another listener owns the ending otherwise.
+    if (process.listenerCount(signal) === 1) {
+      this.#listen(false);
+      process.kill(process.pid, signal);
+    }
+  };
+
+  #listen(on: boolean): void {
+    this.#listening = on;
+    if (on) {
+      process.on('exit', this.#onExit);
+      for (const signal of interruptions) process.on(signal, this.#onSignal);
+    } else {
+      process.off('exit', this.#onExit);
+      for (const signal of interruptions) process.off(signal, this.#onSignal);
+    }
+  }
+}
+
+const live = new LiveProcesses();
+
+/**
+ * Count `child` among the live processes whose trees the engine kills if it
+ * exits or, on POSIX, is interrupted, until it closes or turns out never to
+ * have started. `runProcess` does this for every worker; a process started
+ * elsewhere, such as a preflight probe, calls it right after its spawn.
+ */
+export function superviseChild(child: ChildProcess): void {
+  live.track(child);
+  const release = (): void => {
+    live.untrack(child);
+  };
+  child.once('close', release);
+  child.once('error', () => {
+    // After a successful spawn an error (a failed kill) is not the end; 'close' still follows.
+    if (child.pid === undefined) release();
+  });
 }
 
 /** What a tree kill did. */
@@ -139,7 +228,8 @@ export function killTree(child: KillableProcess): Promise<TreeKill> {
 }
 
 /**
- * `killTree`, synchronously, for the timeout, which cannot wait.
+ * `killTree`, synchronously, for the timeout and for the engine's exit and
+ * signal listeners, none of which can wait.
  *
  * A pid is only safe to signal while Node has not yet seen the process
  * exit: until then Node holds it (an unreaped zombie on POSIX, an open
