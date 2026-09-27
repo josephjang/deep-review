@@ -1475,84 +1475,100 @@
           }
         },
         "units": {
-          "triage:SCAN": {
-            "answeredBy": "00000000-0000-4000-8000-000000000001",
-            "failures": []
+          "triage": {
+            "SCAN": {
+              "answeredBy": "00000000-0000-4000-8000-000000000001",
+              "failures": []
+            }
           },
-          "finders:RIPPLE": {
-            "answeredBy": "00000000-0000-4000-8000-000000000002",
-            "failures": []
+          "finders": {
+            "RIPPLE": {
+              "answeredBy": "00000000-0000-4000-8000-000000000002",
+              "failures": []
+            },
+            "FOOTGUNS": {
+              "answeredBy": null,
+              "failures": [
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000003",
+                  "reason": "the engine exited while the worker ran"
+                },
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000004",
+                  "reason": "timeout: The worker ran past its timeout of 600000 ms"
+                }
+              ]
+            },
+            "REMOVALS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000010",
+              "failures": []
+            },
+            "WRAPPERS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000013",
+              "failures": []
+            },
+            "EFFICIENCY": {
+              "answeredBy": "00000000-0000-4000-8000-000000000014",
+              "failures": []
+            },
+            "DESIGN": {
+              "answeredBy": "00000000-0000-4000-8000-000000000015",
+              "failures": []
+            },
+            "DUPLICATION": {
+              "answeredBy": "00000000-0000-4000-8000-000000000016",
+              "failures": []
+            },
+            "ALTITUDE": {
+              "answeredBy": "00000000-0000-4000-8000-000000000017",
+              "failures": []
+            },
+            "CONVENTIONS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000018",
+              "failures": []
+            }
           },
-          "finders:FOOTGUNS": {
-            "answeredBy": null,
-            "failures": [
-              {
-                "workerId": "00000000-0000-4000-8000-000000000003",
-                "reason": "the engine exited while the worker ran"
-              },
-              {
-                "workerId": "00000000-0000-4000-8000-000000000004",
-                "reason": "timeout: The worker ran past its timeout of 600000 ms"
-              }
-            ]
+          "deduplication": {
+            "deduplication": {
+              "answeredBy": "00000000-0000-4000-8000-000000000020",
+              "failures": []
+            }
           },
-          "finders:REMOVALS": {
-            "answeredBy": "00000000-0000-4000-8000-000000000010",
-            "failures": []
+          "verification": {
+            "g1": {
+              "answeredBy": "00000000-0000-4000-8000-000000000021",
+              "failures": []
+            }
           },
-          "finders:WRAPPERS": {
-            "answeredBy": "00000000-0000-4000-8000-000000000013",
-            "failures": []
+          "sweep": {
+            "sweep": {
+              "answeredBy": "00000000-0000-4000-8000-000000000030",
+              "failures": []
+            }
           },
-          "finders:EFFICIENCY": {
-            "answeredBy": "00000000-0000-4000-8000-000000000014",
-            "failures": []
+          "sweep-deduplication": {},
+          "sweep-verification": {
+            "g1": {
+              "answeredBy": null,
+              "failures": [
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000031",
+                  "reason": "failed: The answer does not match the output schema"
+                },
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000032",
+                  "reason": "failed: Claude Code printed no result envelope"
+                }
+              ]
+            }
           },
-          "finders:DESIGN": {
-            "answeredBy": "00000000-0000-4000-8000-000000000015",
-            "failures": []
+          "merge-rank": {
+            "merge-rank": {
+              "answeredBy": "00000000-0000-4000-8000-000000000040",
+              "failures": []
+            }
           },
-          "finders:DUPLICATION": {
-            "answeredBy": "00000000-0000-4000-8000-000000000016",
-            "failures": []
-          },
-          "finders:ALTITUDE": {
-            "answeredBy": "00000000-0000-4000-8000-000000000017",
-            "failures": []
-          },
-          "finders:CONVENTIONS": {
-            "answeredBy": "00000000-0000-4000-8000-000000000018",
-            "failures": []
-          },
-          "deduplication:deduplication": {
-            "answeredBy": "00000000-0000-4000-8000-000000000020",
-            "failures": []
-          },
-          "verification:g1": {
-            "answeredBy": "00000000-0000-4000-8000-000000000021",
-            "failures": []
-          },
-          "sweep:sweep": {
-            "answeredBy": "00000000-0000-4000-8000-000000000030",
-            "failures": []
-          },
-          "sweep-verification:g1": {
-            "answeredBy": null,
-            "failures": [
-              {
-                "workerId": "00000000-0000-4000-8000-000000000031",
-                "reason": "failed: The answer does not match the output schema"
-              },
-              {
-                "workerId": "00000000-0000-4000-8000-000000000032",
-                "reason": "failed: Claude Code printed no result envelope"
-              }
-            ]
-          },
-          "merge-rank:merge-rank": {
-            "answeredBy": "00000000-0000-4000-8000-000000000040",
-            "failures": []
-          }
+          "report": {}
         },
         "anglesNotRun": {
           "FOOTGUNS": "two attempts did not complete: lost; timeout"
@@ -1590,7 +1606,10 @@
           ]
         },
         "unverifiedGroups": {
-          "sweep-verification:g1": "two attempts did not complete"
+          "verification": {},
+          "sweep-verification": {
+            "g1": "two attempts did not complete"
+          }
         },
         "ranking": [
           {
