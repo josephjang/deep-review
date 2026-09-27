@@ -197,6 +197,14 @@ describe('workers', () => {
     assert.throws(() => foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.finished', finish(workerB))]), /without launching it/);
   });
 
+  it('refuses a finish after the worker was lost, naming the loss rather than a second finish', () => {
+    const lost = { workerId: workerA, phase: null, key: null, reason: 'the engine exited while the worker ran' };
+    assert.throws(
+      () => foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.lost', lost), event(4, 'worker.finished', finish(workerA))]),
+      (error: unknown) => error instanceof Error && /finishes worker .* at sequence 4 after it was lost$/.test(error.message),
+    );
+  });
+
   it('accepts a continuation under the session it resumes, and every other outcome without an output', () => {
     const session = '11111111-2222-4333-8444-555555555555';
     const state = foldRun([

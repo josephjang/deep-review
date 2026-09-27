@@ -138,7 +138,8 @@ const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payloa
   const current = requireState(state, event);
   const worker = Object.hasOwn(current.workers, payload.workerId) ? current.workers[payload.workerId] : undefined;
   if (worker === undefined) throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} at sequence ${String(event.sequence)} without launching it`);
-  if (worker.status !== 'running') throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} twice, at sequence ${String(event.sequence)}`);
+  if (worker.status === 'finished') throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} twice, at sequence ${String(event.sequence)}`);
+  if (worker.status === 'lost') throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} at sequence ${String(event.sequence)} after it was lost`);
   const workers = drafts.writable(current.workers);
   workers[payload.workerId] = { status: 'finished', launch: worker.launch, launchedAt: worker.launchedAt, finish: payload };
   return { ...current, workers, lastSequence: event.sequence };
