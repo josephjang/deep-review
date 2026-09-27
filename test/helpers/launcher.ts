@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
@@ -65,7 +65,10 @@ export class LauncherSandbox {
   readonly scratchRoot: string;
 
   constructor() {
-    this.directory = mkdtempSync(join(tmpdir(), 'deep-review-launcher-'));
+    // Canonical, as locateCheckpoint makes a real worktree: on macOS the temporary
+    // directory is under /var, a symlink to /private/var, and a worker's own
+    // cwd reports the resolved path.
+    this.directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-launcher-')));
     this.repo = join(this.directory, 'repo');
     mkdirSync(this.repo);
     this.checkpoint = Checkpoint.open(join(this.directory, 'checkpoint'), { engine: '0.0.0-test' });
