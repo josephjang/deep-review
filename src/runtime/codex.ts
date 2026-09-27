@@ -42,6 +42,19 @@ const isolation = [
 const tomlString = (value: string): string => JSON.stringify(value);
 
 /**
+ * Whether a Windows PATH entry is a WindowsApps directory or lies under one,
+ * judged by whole path segments so that a directory whose name merely
+ * contains the word, such as `D:\tools\mywindowsapps`, is kept. Quotes a
+ * PATH entry may carry are not part of any segment.
+ */
+function underWindowsApps(directory: string): boolean {
+  return directory
+    .replaceAll('"', '')
+    .split(/[\\/]/)
+    .some((segment) => segment.toLowerCase() === 'windowsapps');
+}
+
+/**
  * The caller's environment, with every spelling of PATH merged into one on
  * Windows and directories under WindowsApps removed: Codex runs tools under a
  * restricted token that cannot launch the Store's app-execution aliases.
@@ -50,7 +63,7 @@ export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJ
   if (platform !== 'win32') return { ...environment };
   const directories = spellingsOf(environment, 'PATH', platform)
     .flatMap(([, value]) => (value ?? '').split(';'))
-    .filter((directory) => directory.length > 0 && !directory.toLowerCase().includes('windowsapps'));
+    .filter((directory) => directory.length > 0 && !underWindowsApps(directory));
   return { ...withoutVariables(environment, ['PATH'], platform), Path: directories.join(';') };
 }
 
