@@ -120,8 +120,13 @@ export function candidateIdPrefix(phase: CandidatePhase, key: string): string {
   return phase === 'sweep' ? sweepIdPrefix : key;
 }
 
-/** The unit key of the one triage worker, the one sweep worker and the phases with one worker, which is the phase name for those. */
+/** The unit key of the one triage worker: the `SCAN` angle it runs. */
 export const triageUnitKey = 'SCAN';
+
+/** The unit key of a phase with one worker: the phase's own name, except the triage's, which is the `SCAN` angle. */
+export function singleUnitKey(phase: Phase): string {
+  return phase === 'triage' ? triageUnitKey : phase;
+}
 
 /** The key of a unit on the ledger, one per worker task of a phase: the angle, the group id, or the phase name for a phase with one worker. */
 export const unitKeySchema = z.string().regex(/^[A-Za-z0-9-]{1,40}$/, 'a unit key is letters, digits and dashes');

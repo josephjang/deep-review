@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, angleSchema, candidateIdPrefix, finderAngles, finderAngleSchema, roleOfAngle, triageUnitKey } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, angleSchema, candidateIdPrefix, finderAngles, finderAngleSchema, roleOfAngle, singleUnitKey, triageUnitKey } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -23,6 +23,14 @@ describe('roleOfAngle', () => {
   it('is the triage for SCAN and finder-<angle> for every finder angle', () => {
     assert.equal(roleOfAngle('SCAN'), 'triage');
     assert.deepEqual(finderAngles.map(roleOfAngle), finderAngles.map((angle) => `finder-${angle}`));
+  });
+});
+
+describe('singleUnitKey', () => {
+  it('is SCAN for the triage and the phase name for every other phase with one worker', () => {
+    assert.equal(singleUnitKey('triage'), triageUnitKey);
+    assert.equal(triageUnitKey, 'SCAN');
+    for (const phase of ['sweep', 'deduplication', 'sweep-deduplication', 'merge-rank'] as const) assert.equal(singleUnitKey(phase), phase);
   });
 });
 

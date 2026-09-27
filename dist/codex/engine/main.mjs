@@ -20288,6 +20288,9 @@ function candidateIdPrefix(phase, key) {
   return phase === "sweep" ? sweepIdPrefix : key;
 }
 var triageUnitKey = "SCAN";
+function singleUnitKey(phase) {
+  return phase === "triage" ? triageUnitKey : phase;
+}
 var unitKeySchema2 = external_exports.string().regex(/^[A-Za-z0-9-]{1,40}$/, "a unit key is letters, digits and dashes");
 var maxRecordedTextLength = 4e3;
 var unitName = (phase, key) => `${phase}:${key}`;
@@ -20299,9 +20302,6 @@ function poolPhases(phase) {
 function poolCandidates(review2, phase) {
   const included = new Set(poolPhases(phase));
   return Object.values(review2.candidates).filter((candidate) => included.has(candidate.phase));
-}
-function singleUnitKey(phase) {
-  return phase === "triage" ? triageUnitKey : phase;
 }
 function unitOfLostWorker(phase, key) {
   return phase === null || key === null ? null : unitName(phase, key);
@@ -20395,23 +20395,19 @@ var worktreeChecked = (state, payload, event) => {
   requireRunning(review2, event, payload.phase, payload.attempt);
   return withReview(current, { ...review2, checks: [...review2.checks, payload] }, event);
 };
-function candidateRules(payload, event) {
-  switch (payload.phase) {
-    case "triage":
-      if (payload.key !== triageUnitKey) throw invalid(event, `records triage candidates under unit ${payload.key}, not ${triageUnitKey}`);
-      return { prefix: "SCAN" };
-    case "finders":
-      if (!finderAngles.includes(payload.key)) throw invalid(event, `records finder candidates under ${payload.key}, which is not a finder angle`);
-      return { prefix: payload.key };
-    case "sweep":
-      if (payload.key !== "sweep") throw invalid(event, `records sweep candidates under unit ${payload.key}, not sweep`);
-      return { prefix: sweepIdPrefix };
+function requireCandidateUnit(payload, event) {
+  if (payload.phase === "finders") {
+    if (!finderAngles.includes(payload.key)) throw invalid(event, `records finder candidates under ${payload.key}, which is not a finder angle`);
+    return;
   }
+  const key = singleUnitKey(payload.phase);
+  if (payload.key !== key) throw invalid(event, `records ${payload.phase} candidates under unit ${payload.key}, not ${key}`);
 }
 var candidatesRecorded = (state, payload, event, drafts) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, payload.phase);
-  const { prefix } = candidateRules(payload, event);
+  requireCandidateUnit(payload, event);
+  const prefix = candidateIdPrefix(payload.phase, payload.key);
   const unit = unitName(payload.phase, payload.key);
   requireUnanswered(review2, event, unit);
   if (payload.phase === "finders" && Object.hasOwn(review2.anglesNotRun, payload.key)) throw invalid(event, `records candidates for angle ${payload.key} after it failed`);
