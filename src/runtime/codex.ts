@@ -53,7 +53,21 @@ export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJ
   return { ...withoutVariables(environment, ['PATH']), Path: directories.join(';') };
 }
 
-export function codexCommand(invocation: Invocation, plan: LaunchPlan): WorkerCommand {
+/**
+ * The Windows sandbox Codex runs commands in. `unelevated` is a restricted
+ * token and works on any machine; `elevated` runs commands as a separate
+ * sandbox user and needs Codex's one-time elevated setup on the machine.
+ */
+export const windowsSandboxes = ['unelevated', 'elevated'] as const;
+export type WindowsSandbox = (typeof windowsSandboxes)[number];
+
+/** How a Codex adapter is built. The user's own config is ignored, so anything a machine needs is chosen here. */
+export interface CodexOptions {
+  /** Unelevated by default, so a machine without the elevated setup still runs workers. */
+  readonly windowsSandbox?: WindowsSandbox;
+}
+
+export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox = 'unelevated'): WorkerCommand {
   const writable = invocation.access === 'edit' && plan.scratch !== null ? [plan.scratch] : [];
   const options = [
     '--ignore-user-config',
@@ -62,7 +76,7 @@ export function codexCommand(invocation: Invocation, plan: LaunchPlan): WorkerCo
     '--config', `sandbox_mode=${tomlString(invocation.access === 'edit' ? 'workspace-write' : 'read-only')}`,
     // A read-only sandbox writes nowhere, so only an editor is given the scratch directory.
     ...(writable.length === 0 ? [] : ['--config', `sandbox_workspace_write.writable_roots=[${writable.map(tomlString).join(',')}]`]),
-    ...(plan.platform === 'win32' ? ['--config', 'windows.sandbox="unelevated"'] : []),
+    ...(plan.platform === 'win32' ? ['--config', `windows.sandbox=${tomlString(windowsSandbox)}`] : []),
     ...isolation.flatMap((setting) => ['--config', setting]),
     '--model', invocation.model,
     '--config', `model_reasoning_effort=${tomlString(invocation.effort)}`,
@@ -179,7 +193,18 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
  * budget cap and no denial evidence, every worker has a shell, a read-only
  * sandbox writes nowhere, it has no `max` effort, and it resumes by id.
  */
-export const codexAdapter: RuntimeAdapter = {
+export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
+  const windowsSandbox = options.windowsSandbox ?? 'unelevated';
+  // Options can arrive from outside TypeScript, and this value goes straight into a command line.
+  if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(' or ')}`);
+  return {
+    ...codexRuntime,
+    command: (invocation, plan) => codexCommand(invocation, plan, windowsSandbox),
+  };
+}
+
+/** Everything about the Codex adapter that no option changes. */
+const codexRuntime: RuntimeAdapter = {
   name: 'codex',
   capabilities: {
     assignsSessionId: false,
@@ -201,3 +226,6 @@ export const codexAdapter: RuntimeAdapter = {
   command: codexCommand,
   decode: decodeCodex,
 };
+
+/** The Codex adapter with its defaults: the unelevated Windows sandbox. */
+export const codexAdapter: RuntimeAdapter = createCodexAdapter();

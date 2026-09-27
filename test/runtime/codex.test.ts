@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
 import type { LaunchPlan } from '../../src/runtime/adapter.ts';
-import { codexAdapter, codexEnvironment, codexFlags } from '../../src/runtime/codex.ts';
+import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter } from '../../src/runtime/codex.ts';
+import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
 
 const thread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
@@ -111,6 +112,42 @@ describe('codex command', () => {
     assert.deepEqual(probes.map((probe) => probe.args), [['--help'], ['exec', '--help'], ['exec', 'resume', '--help']]);
     assert.deepEqual(probes[0]!.flags, ['--ask-for-approval']);
     assert.deepEqual(probes[1]!.flags, probes[2]!.flags);
+  });
+});
+
+describe('Windows sandbox option', () => {
+  const sandboxOf = (args: readonly string[]): string[] => args.filter((arg) => arg.startsWith('windows.sandbox='));
+
+  it('runs unelevated unless told otherwise', () => {
+    assert.deepEqual(sandboxOf(codexAdapter.command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="unelevated"']);
+    assert.deepEqual(sandboxOf(createCodexAdapter().command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="unelevated"']);
+  });
+
+  it('runs elevated when built so, fresh and continued, and only on Windows', () => {
+    const elevated = createCodexAdapter({ windowsSandbox: 'elevated' });
+    assert.deepEqual(sandboxOf(elevated.command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="elevated"']);
+    assert.deepEqual(sandboxOf(elevated.command(invocation({ resume: thread }), plan({ platform: 'win32', sessionId: thread, resume: thread })).args), ['windows.sandbox="elevated"']);
+    assert.deepEqual(sandboxOf(elevated.command(invocation(), plan({ platform: 'darwin' })).args), []);
+  });
+
+  it('changes nothing else about the adapter', () => {
+    const elevated = createCodexAdapter({ windowsSandbox: 'elevated' });
+    assert.equal(elevated.name, codexAdapter.name);
+    assert.deepEqual(elevated.capabilities, codexAdapter.capabilities);
+    assert.deepEqual(elevated.qualification, codexAdapter.qualification);
+    const strip = (args: readonly string[]): string[] => args.filter((arg) => !arg.startsWith('windows.sandbox='));
+    assert.deepEqual(strip(elevated.command(invocation(), plan({ platform: 'win32' })).args), strip(codexAdapter.command(invocation(), plan({ platform: 'win32' })).args));
+  });
+
+  it('refuses a sandbox Codex does not have', () => {
+    assert.throws(() => createCodexAdapter({ windowsSandbox: 'none' as never }), /Unknown Codex Windows sandbox "none"/);
+  });
+
+  it('is chosen through the default runtimes', () => {
+    const codex = defaultRuntimes({ codex: { windowsSandbox: 'elevated' } }).get('codex');
+    assert.deepEqual(sandboxOf(codex.command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="elevated"']);
+    assert.deepEqual(sandboxOf(defaultRuntimes().get('codex').command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="unelevated"']);
+    assert.deepEqual(defaultRuntimes().names(), ['claude', 'codex']);
   });
 });
 
