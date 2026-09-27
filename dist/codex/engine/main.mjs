@@ -23368,7 +23368,18 @@ function rankedFindings(review2, findings = review2.ranking ?? []) {
 
 // src/review/grouping.ts
 var maxGroupSize = 8;
-var groupKey = (candidate) => candidate.file === null ? `unlocated:${candidate.rawFile}` : `located:${candidate.file}`;
+var spellingOf = (candidate) => normalizeFileName(candidate.rawFile).toLowerCase();
+var isAbsolute3 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
+function unlocatedSpellings(candidates) {
+  const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
+  const relative2 = [...spellings].filter((spelling) => !isAbsolute3(spelling));
+  const joined = /* @__PURE__ */ new Map();
+  for (const spelling of spellings) {
+    const within = isAbsolute3(spelling) ? relative2.filter((name) => spelling.endsWith(`/${name}`)) : [];
+    joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
+  }
+  return joined;
+}
 var byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 function chunk(items, size = maxGroupSize) {
   const chunks = [];
@@ -23380,6 +23391,8 @@ function chunk(items, size = maxGroupSize) {
   return chunks;
 }
 function planGroups(candidates) {
+  const spellings = unlocatedSpellings(candidates);
+  const groupKey = (candidate) => candidate.file === null ? `unlocated:${spellings.get(spellingOf(candidate))}` : `located:${candidate.file}`;
   const groups = /* @__PURE__ */ new Map();
   for (const candidate of candidates) {
     const key = groupKey(candidate);
@@ -24110,7 +24123,7 @@ function describeRun(state, adapter, evidencePath) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute3, join as join16, resolve as resolve9 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, resolve as resolve9 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var isFile2 = (path) => {
@@ -24130,7 +24143,7 @@ function refuseShim(executable, flag = "--executable") {
   return executable;
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
-  if (isAbsolute3(name) || name.includes("/") || name.includes("\\")) {
+  if (isAbsolute4(name) || name.includes("/") || name.includes("\\")) {
     const absolute = resolve9(cwd, name);
     if (!isFile2(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute));
