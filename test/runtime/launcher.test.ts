@@ -458,6 +458,7 @@ describe('runWorker', () => {
     it('refuses a malformed invocation and a schema no runtime can take', async () => {
       await assert.rejects(box.run(box.claude({ timeoutMs: 10 })), InvalidInvocationError);
       await assert.rejects(box.run(box.claude({ outputSchema: z.array(z.string()) })), /object at its root/);
+      await assert.rejects(box.run(box.codex({ outputSchema: z.strictObject({ answer: z.string(), note: z.string().optional() }) })), /leaves note optional/);
       assert.ok(box.untouched());
     });
 
