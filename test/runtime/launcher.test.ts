@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
@@ -13,10 +13,17 @@ import { codexAdapter } from '../../src/runtime/codex.ts';
 import { InheritedOverrideError, InvalidInvocationError, UnknownRuntimeError, UnsupportedCapabilityError } from '../../src/runtime/errors.ts';
 import { maxDecodeBytes, runWorker, type WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
-import { baseEnvironment, freshThread, isAlive, LauncherSandbox, until } from '../helpers/launcher.ts';
+import { baseEnvironment, freshThread, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
 import { createRepository } from '../helpers/repository.ts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/**
+ * The timeout of a worker that hangs: time enough for the fake to start Node,
+ * write its record and its grandchild's pid before the kill, even on a loaded
+ * runner, so the test never races the fake's startup.
+ */
+const hangTimeoutMs = 4000;
 
 describe('runWorker', () => {
   let box: LauncherSandbox;
@@ -92,12 +99,13 @@ describe('runWorker', () => {
 
     it('kills the worker and its process tree at the timeout, and still names the session', async () => {
       const pidFile = join(box.directory, 'grandchild.pid');
-      const receipt = await box.run(box.claude({ timeoutMs: 1500 }), { FAKE_HANG: pidFile });
+      const pending = box.run(box.claude({ timeoutMs: hangTimeoutMs }), { FAKE_HANG: pidFile });
+      const grandchild = await waitForPid(pidFile);
+      const receipt = await pending;
       assert.equal(receipt.outcome, 'timeout');
       assert.equal(receipt.process.termination, 'killed');
-      assert.match(receipt.error ?? '', /timeout of 1500 ms/);
+      assert.match(receipt.error ?? '', new RegExp(`timeout of ${String(hangTimeoutMs)} ms`));
       assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
-      const grandchild = Number(readFileSync(pidFile, 'utf8'));
       await until(() => !isAlive(grandchild), `grandchild ${String(grandchild)} to die`, 10_000);
       assertEvidence(receipt);
     });
@@ -166,12 +174,13 @@ describe('runWorker', () => {
 
     it('kills the worker and its process tree at the timeout', async () => {
       const pidFile = join(box.directory, 'grandchild.pid');
-      const receipt = await box.run(box.codex({ timeoutMs: 1500 }), { FAKE_HANG: pidFile });
+      const pending = box.run(box.codex({ timeoutMs: hangTimeoutMs }), { FAKE_HANG: pidFile });
+      const grandchild = await waitForPid(pidFile);
+      const receipt = await pending;
       assert.equal(receipt.outcome, 'timeout');
       assert.equal(receipt.process.termination, 'killed');
       assert.deepEqual(receipt.runtime.sessionIds, []);
       assert.equal(receipt.evidence.finalMessage, null);
-      const grandchild = Number(readFileSync(pidFile, 'utf8'));
       await until(() => !isAlive(grandchild), `grandchild ${String(grandchild)} to die`, 10_000);
     });
 

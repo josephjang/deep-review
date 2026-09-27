@@ -44,6 +44,20 @@ export async function until(condition: () => boolean, what: string, timeoutMs = 
   }
 }
 
+/** The pid a hanging fake writes to `file` (see FAKE_HANG), once the file holds one. */
+export async function waitForPid(file: string, timeoutMs = 15_000): Promise<number> {
+  let pid = 0;
+  await until(
+    () => {
+      pid = existsSync(file) ? Number(readFileSync(file, 'utf8')) : 0;
+      return Number.isSafeInteger(pid) && pid > 0;
+    },
+    `a pid in ${file}`,
+    timeoutMs,
+  );
+  return pid;
+}
+
 /** Whether a process exists. */
 export function isAlive(pid: number): boolean {
   try {
