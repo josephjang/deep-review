@@ -8,9 +8,10 @@
 import type { Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState } from '../checkpoint/review-fold.ts';
+import { tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
-
 import { angles, phases, type Angle, type Phase } from './vocabulary.ts';
+
 export interface ReportInput {
   /** The identity of the engine writing the report. */
   readonly engine: string;
@@ -22,7 +23,6 @@ const count = (value: number | null): string => (value === null ? '-' : String(v
 const workersCount = (n: number): string => `${String(n)} worker${n === 1 ? '' : 's'}`;
 /** A cost cell: the reported sum, and how many workers' cost it leaves out. */
 const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? '' : ` (${workersCount(spend.costUnreported)} unreported)`}`;
-const cell = (text: string): string => text.replaceAll('|', '\\|').replaceAll(/\r?\n/g, ' ');
 
 /** The marks a candidate carries after its location. */
 function marks(candidate: CandidateState, unverified: boolean): string {
@@ -41,8 +41,8 @@ function angleRow(review: ReviewState, angle: Angle): string {
   const notRun = review.anglesNotRun[angle];
   const lead = review.leads?.find((entry) => entry.angle === angle)?.lead ?? null;
   const ran = review.units[`finders:${angle}`]?.answeredBy !== null && review.units[`finders:${angle}`]?.answeredBy !== undefined;
-  const status = notRun !== undefined ? `not run (${cell(notRun)})` : ran ? 'run' : 'not run';
-  return `| ${angle} | ${status} | ${lead === null ? 'none' : cell(lead)} |`;
+  const status = notRun !== undefined ? `not run (${tableCell(notRun)})` : ran ? 'run' : 'not run';
+  return `| ${angle} | ${status} | ${lead === null ? 'none' : tableCell(lead)} |`;
 }
 
 function findingBlock(position: number, entry: ReportFinding): string {
