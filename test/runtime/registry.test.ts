@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { RuntimeAdapter } from '../../src/runtime/adapter.ts';
+import { emptyUsageSummary, type RuntimeAdapter } from '../../src/runtime/adapter.ts';
 import { UnknownRuntimeError } from '../../src/runtime/errors.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
 
 const adapter = (name: string, effortLevels: RuntimeAdapter['capabilities']['effortLevels'] = ['low']): RuntimeAdapter => ({
   name,
-  capabilities: { assignsSessionId: false, budgetCap: false, denialEvidence: false, withholdShell: false, readOnlyScratch: false, effortLevels, resume: false },
+  capabilities: { assignsSessionId: false, budgetCap: false, denialEvidence: false, withholdShell: false, readOnlyScratch: false, effortLevels, resume: false, costInUsd: false },
   qualification: { version: { args: ['--version'], pattern: /^(\S+)$/ }, help: [] },
   command: () => ({ args: [], environment: {} }),
   decode: () => ({ sessionIds: [], usage: null, denials: null, result: { kind: 'failed', error: 'never run' } }),
+  summarizeUsage: () => emptyUsageSummary,
 });
 
 describe('RuntimeRegistry', () => {

@@ -1,7 +1,7 @@
-import { maxLineBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
+import { emptyUsageSummary, maxLineBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { spellingsOf, withoutVariables } from './environment.ts';
-import { isObject } from './json.ts';
+import { finiteNumber, isObject } from './json.ts';
 
 /** Flags of the top-level command. */
 const codexRootFlags = ['--ask-for-approval'] as const;
@@ -426,9 +426,25 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
 }
 
 /**
+ * The neutral view of what `decodeCodex` stores as usage, the `usage` of the
+ * last `turn.completed`: Codex reports no cost, its `input_tokens` already
+ * counts the cached ones, and `cached_input_tokens` says how many of them.
+ */
+export function summarizeCodexUsage(usage: unknown): UsageSummary {
+  if (!isObject(usage)) return emptyUsageSummary;
+  return {
+    costUsd: null,
+    inputTokens: finiteNumber(usage.input_tokens),
+    cachedInputTokens: finiteNumber(usage.cached_input_tokens),
+    outputTokens: finiteNumber(usage.output_tokens),
+  };
+}
+
+/**
  * Codex `exec`. Its session id is observed from `thread.started`, it has no
  * budget cap and no denial evidence, every worker has a shell, a read-only
- * sandbox writes nowhere, it has no `max` effort, and it resumes by id.
+ * sandbox writes nowhere, it has no `max` effort, it resumes by id, and it
+ * reports tokens but no cost.
  */
 export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
   // Options can arrive from outside TypeScript, and every value goes straight into a command line.
@@ -456,6 +472,7 @@ const codexRuntime: Omit<RuntimeAdapter, 'command'> = {
     readOnlyScratch: false,
     effortLevels: ['low', 'medium', 'high', 'xhigh'],
     resume: true,
+    costInUsd: false,
   },
   qualification: {
     version: { args: ['--version'], pattern: /^codex-cli (\d+\.\d+\.\d+)$/ },
@@ -466,6 +483,7 @@ const codexRuntime: Omit<RuntimeAdapter, 'command'> = {
     ],
   },
   decode: decodeCodex,
+  summarizeUsage: summarizeCodexUsage,
 };
 
 /** The Codex adapter with its defaults: the unelevated Windows sandbox and the built-in provider. */

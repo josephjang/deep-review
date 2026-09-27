@@ -7,7 +7,7 @@ import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, UnknownRunError } from '../../src/checkpoint/errors.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
-import { maxDecodeBytes, maxLineBytes, type RuntimeAdapter } from '../../src/runtime/adapter.ts';
+import { emptyUsageSummary, maxDecodeBytes, maxLineBytes, type RuntimeAdapter } from '../../src/runtime/adapter.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { InheritedOverrideError, InvalidInvocationError, UnknownRuntimeError, UnsupportedCapabilityError } from '../../src/runtime/errors.ts';
@@ -554,8 +554,9 @@ describe('runWorker', () => {
     // Node itself behind an adapter nothing else knows: it echoes the first line of its prompt.
     const echo: RuntimeAdapter = {
       name: 'node-echo',
-      capabilities: { assignsSessionId: true, budgetCap: false, denialEvidence: false, withholdShell: true, readOnlyScratch: true, effortLevels: ['low'], resume: false },
+      capabilities: { assignsSessionId: true, budgetCap: false, denialEvidence: false, withholdShell: true, readOnlyScratch: true, effortLevels: ['low'], resume: false, costInUsd: false },
       qualification: { version: { args: ['--version'], pattern: /^v(\d+\.\d+\.\d+)$/ }, help: [{ args: ['--help'], flags: ['--eval'] }] },
+      summarizeUsage: () => emptyUsageSummary,
       command: (_invocation, plan) => ({
         args: ['--eval', `const fs = process.getBuiltinModule('node:fs'); process.stdout.write(JSON.stringify({ session: ${JSON.stringify(plan.sessionId)}, answer: fs.readFileSync(0, 'utf8').split('\\n')[0] }))`],
         environment: plan.environment,

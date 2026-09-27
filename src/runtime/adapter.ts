@@ -22,7 +22,34 @@ export interface Capabilities {
   readonly effortLevels: readonly Effort[];
   /** A recorded session can be continued with a follow-up message. */
   readonly resume: boolean;
+  /**
+   * The runtime reports what a worker cost in US dollars, so `summarizeUsage`
+   * can give a `costUsd`. A capability rather than an inference from one
+   * worker's summary (TD10 of the read-only review): a worker that failed
+   * before reporting anything has a null cost on any runtime, and that
+   * says nothing about what the runtime can report.
+   */
+  readonly costInUsd: boolean;
 }
+
+/**
+ * Usage in runtime-neutral terms, read from the usage a runtime reported
+ * (R6 of the read-only review). Each number is null when the runtime does
+ * not report it, or reported it as something other than a finite number;
+ * a summary never throws. `inputTokens` counts every input token, cached
+ * ones included, so two runtimes' inputs compare like for like.
+ */
+export interface UsageSummary {
+  readonly costUsd: number | null;
+  /** Every input token, including those read from and written to a cache. */
+  readonly inputTokens: number | null;
+  /** The input tokens read from a cache, which `inputTokens` also counts. */
+  readonly cachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+}
+
+/** A summary that says nothing, for a usage that was never reported or cannot be read. */
+export const emptyUsageSummary: UsageSummary = { costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null };
 
 /** One help text to read and the flags it must mention. */
 export interface HelpProbe {
@@ -156,4 +183,11 @@ export interface RuntimeAdapter {
   command(invocation: Invocation, plan: LaunchPlan): WorkerCommand;
   /** Read the worker's outputs. Never throws for a malformed answer; that is a `failed` result. */
   decode(invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded;
+  /**
+   * The runtime-neutral view of usage `decode` reported, or of the same
+   * usage parsed back from a finish's `usage` text, so a live receipt and a
+   * replayed ledger read alike. Pure, and never throws: a shape it does not
+   * know gives nulls.
+   */
+  summarizeUsage(usage: unknown): UsageSummary;
 }
