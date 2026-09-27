@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
-import type { LaunchPlan } from '../../src/runtime/adapter.ts';
+import type { Decoded, LaunchPlan } from '../../src/runtime/adapter.ts';
 import { claudeAdapter, claudeEnvironment, claudeFlags, claudeTools, thinkingOverrides } from '../../src/runtime/claude.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
 import { InheritedOverrideError } from '../../src/runtime/errors.ts';
@@ -161,17 +161,20 @@ describe('claude decode', () => {
       total_cost_usd: 0.01,
       ...change,
     });
-  const decode = (stdout: string, change: Partial<InvocationInput> = {}, planChange: Partial<LaunchPlan> = {}): ReturnType<typeof claudeAdapter.decode> =>
+  const decode = (stdout: string, change: Partial<InvocationInput> = {}, planChange: Partial<LaunchPlan> = {}): Decoded =>
     claudeAdapter.decode(invocation(change), plan(planChange), { stdout, stderr: '', finalMessage: null });
+  /** The error of a failed result; an answer or a budget stop fails the assertion. */
+  const failure = (decoded: Decoded): string => {
+    assert.equal(decoded.result.kind, 'failed');
+    return decoded.result.kind === 'failed' ? decoded.result.error : '';
+  };
 
   it('reads a successful envelope with its usage and an empty denial list', () => {
     assert.deepEqual(decode(envelope()), {
       sessionIds: [session],
       usage: { usage: { input_tokens: 3 }, modelUsage: { sonnet: {} }, total_cost_usd: 0.01 },
       denials: [],
-      answer: { value: { answer: 'ok' } },
-      budgetStop: false,
-      error: null,
+      result: { kind: 'answer', value: { answer: 'ok' } },
     });
   });
 
@@ -201,63 +204,63 @@ describe('claude decode', () => {
       { tool: 'Bash', detail: null },
       { tool: 'unknown tool', detail: null },
     ]);
-    assert.deepEqual(decoded.answer, { value: { answer: 'ok' } });
-    assert.equal(decoded.error, null);
+    assert.deepEqual(decoded.result, { kind: 'answer', value: { answer: 'ok' } });
   });
 
   it('fails an envelope without a denial list, since nothing then proves there were none', () => {
     const decoded = decode(envelope({ permission_denials: undefined }));
-    assert.match(decoded.error ?? '', /no permission_denials array/);
+    assert.match(failure(decoded), /no permission_denials array/);
     assert.equal(decoded.denials, null);
-    assert.equal(decoded.answer, null);
   });
 
-  it('fails an answer from a session other than the pinned one and keeps both ids', () => {
+  it('fails an answer from a session other than the pinned one and reports the id it observed', () => {
     const other = '99999999-2222-4333-8444-555555555555';
     const decoded = decode(envelope({ session_id: other }));
-    assert.match(decoded.error ?? '', new RegExp(`answered from session ${other}, not ${session}`));
-    assert.deepEqual(decoded.sessionIds, [session, other]);
-    assert.equal(decoded.answer, null);
-    assert.match(decode(envelope({ session_id: undefined })).error ?? '', /answered from session null/);
+    assert.match(failure(decoded), new RegExp(`answered from session ${other}, not ${session}`));
+    // The pinned id is the launcher's to add; the decoder names only what the envelope said.
+    assert.deepEqual(decoded.sessionIds, [other]);
+    const unnamed = decode(envelope({ session_id: undefined }));
+    assert.match(failure(unnamed), /answered from session null/);
+    assert.deepEqual(unnamed.sessionIds, []);
   });
 
   it('reports a budget stop by terminal reason or subtype, not as a malformed result', () => {
     for (const change of [{ terminal_reason: 'budget_exhausted', subtype: 'error_during_execution' }, { subtype: 'error_max_budget_usd', is_error: true }]) {
       const decoded = decode(envelope({ ...change, result: 'spent', structured_output: undefined }), { budgetUsd: 0.5 });
-      assert.equal(decoded.budgetStop, true);
-      assert.match(decoded.error ?? '', /stopped at its budget of 0.5 USD: spent/);
+      assert.equal(decoded.result.kind, 'budget');
+      assert.match(decoded.result.kind === 'budget' ? decoded.result.error : '', /stopped at its budget of 0.5 USD: spent/);
       assert.deepEqual(decoded.denials, []);
-      assert.equal(decoded.answer, null);
+      assert.deepEqual(decoded.sessionIds, [session]);
     }
   });
 
   it('fails an error result, naming its subtype and text', () => {
     const decoded = decode(envelope({ subtype: 'error_during_execution', is_error: true, result: 'boom' }));
-    assert.match(decoded.error ?? '', /result\/error_during_execution with is_error true: boom/);
-    assert.equal(decoded.budgetStop, false);
+    assert.match(failure(decoded), /result\/error_during_execution with is_error true: boom/);
   });
 
   it('fails a success without structured output', () => {
-    assert.match(decode(envelope({ structured_output: undefined })).error ?? '', /no structured_output/);
+    assert.match(failure(decode(envelope({ structured_output: undefined }))), /no structured_output/);
   });
 
   it('keeps a null structured output as the answer for the schema to judge', () => {
-    assert.deepEqual(decode(envelope({ structured_output: null })).answer, { value: null });
+    assert.deepEqual(decode(envelope({ structured_output: null })).result, { kind: 'answer', value: null });
   });
 
-  it('keeps the pinned session when there is no envelope or it is not an object', () => {
-    for (const [stdout, pattern] of [['', /printed no result envelope/], ['  \n', /printed no result envelope/], ['{"type":', /not JSON/], ['[1]', /not an object/], ['null', /not an object/]] as const) {
+  it('reports no session, usage or denials when there is no envelope or it is not an object', () => {
+    for (const [stdout, pattern] of [['', /printed no result envelope/], ['  \n', /printed no result envelope/], ['{"type":', /not JSON/], ['[1]', /not an object/], ['null', /not an object/], ['"text"', /not an object/]] as const) {
       const decoded = decode(stdout);
-      assert.match(decoded.error ?? '', pattern);
-      assert.deepEqual(decoded.sessionIds, [session]);
+      assert.match(failure(decoded), pattern);
+      assert.deepEqual(decoded.sessionIds, []);
       assert.equal(decoded.usage, null);
+      assert.equal(decoded.denials, null);
     }
   });
 
   it('expects the resumed session on a continuation', () => {
     const resumed = '22222222-2222-4333-8444-555555555555';
     const decoded = decode(envelope({ session_id: resumed }), { resume: resumed }, { sessionId: resumed, resume: resumed });
-    assert.equal(decoded.error, null);
+    assert.equal(decoded.result.kind, 'answer');
     assert.deepEqual(decoded.sessionIds, [resumed]);
   });
 });

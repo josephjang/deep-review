@@ -9,7 +9,7 @@ const adapter = (name: string, effortLevels: RuntimeAdapter['capabilities']['eff
   capabilities: { assignsSessionId: false, budgetCap: false, denialEvidence: false, withholdShell: false, readOnlyScratch: false, effortLevels, resume: false },
   qualification: { version: { args: ['--version'], pattern: /^(\S+)$/ }, help: [] },
   command: () => ({ args: [], environment: {} }),
-  decode: () => ({ sessionIds: [], usage: null, denials: null, answer: null, budgetStop: false, error: null }),
+  decode: () => ({ sessionIds: [], usage: null, denials: null, result: { kind: 'failed', error: 'never run' } }),
 });
 
 describe('RuntimeRegistry', () => {

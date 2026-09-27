@@ -11,9 +11,11 @@ import type { RuntimeAdapter } from '../../src/runtime/adapter.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { InheritedOverrideError, InvalidInvocationError, UnknownRuntimeError, UnsupportedCapabilityError } from '../../src/runtime/errors.ts';
-import { maxDecodeBytes, runWorker, type WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { parseInvocation } from '../../src/runtime/contract.ts';
+import { maxDecodeBytes, runWorker, withPinnedSession, withUnrecordableSessions, workerVerdict, type Verdict, type WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { notStarted, type ProcessResult } from '../../src/runtime/process.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
-import { baseEnvironment, freshThread, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
+import { answerSchema, baseEnvironment, freshThread, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
 import { createRepository } from '../helpers/repository.ts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -129,6 +131,15 @@ describe('runWorker', () => {
       });
     }
 
+    it('records the pinned session first and then the one an answer from another session named', async () => {
+      const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'other-session', structured_output: { answer: 'ok' }, permission_denials: [] });
+      const receipt = await box.run(box.claude(), { FAKE_STDOUT: stdout });
+      assert.equal(receipt.outcome, 'failed');
+      const worker = box.worker(receipt.workerId);
+      assert.deepEqual(receipt.runtime.sessionIds, [worker.launch.sessionId, 'other-session']);
+      assert.deepEqual(worker.status === 'finished' && worker.finish.sessionIds, receipt.runtime.sessionIds);
+    });
+
     it('says so when the kill at the timeout reached only the root of the tree', { skip: process.platform !== 'win32' && 'only a Windows tree kill can be made to fail from here' }, async () => {
       // taskkill is found under SystemRoot; with none there the tree kill fails and only the root is ended.
       const pidFile = join(box.directory, 'grandchild.pid');
@@ -231,6 +242,16 @@ describe('runWorker', () => {
       assert.match(receipt.error ?? '', new RegExp(`stdout is ${String(maxDecodeBytes + 1)} bytes, above the ${String(maxDecodeBytes)}`));
       assert.equal(receipt.evidence.stdout.bytes, maxDecodeBytes + 1);
       box.checkpoint.evidence.verify(receipt.evidence.stdout);
+    });
+
+    it('names session ids the ledger cannot hold and records no answer', async () => {
+      const receipt = await box.run(box.codex(), { FAKE_THREAD: 'not a session id' });
+      assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', /The answer is not recorded because the runtime reported session ids the ledger cannot hold: \["not a session id"\]/);
+      assert.equal(receipt.output, null);
+      assert.equal(receipt.evidence.output, null);
+      assert.deepEqual(receipt.runtime.sessionIds, []);
+      assertEvidence(receipt);
     });
   });
 
@@ -457,12 +478,12 @@ describe('runWorker', () => {
         args: ['--eval', `const fs = process.getBuiltinModule('node:fs'); process.stdout.write(JSON.stringify({ session: ${JSON.stringify(plan.sessionId)}, answer: fs.readFileSync(0, 'utf8').split('\\n')[0] }))`],
         environment: plan.environment,
       }),
-      decode: (_invocation, plan, outputs) => {
+      decode: (_invocation, _plan, outputs) => {
         try {
           const parsed = JSON.parse(outputs.stdout) as { session: string; answer: string };
-          return { sessionIds: [parsed.session], usage: null, denials: null, answer: { value: { answer: parsed.answer } }, budgetStop: false, error: null };
+          return { sessionIds: [parsed.session], usage: null, denials: null, result: { kind: 'answer', value: { answer: parsed.answer } } };
         } catch (error) {
-          return { sessionIds: plan.sessionId === null ? [] : [plan.sessionId], usage: null, denials: null, answer: null, budgetStop: false, error: (error as Error).message };
+          return { sessionIds: [], usage: null, denials: null, result: { kind: 'failed', error: (error as Error).message } };
         }
       },
     };
@@ -474,6 +495,32 @@ describe('runWorker', () => {
       assert.deepEqual(receipt.output, { answer: 'echoed' });
       assert.equal(receipt.runtime.version, process.versions.node);
       assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
+      assertEvidence(receipt);
+    });
+
+    it('records the pinned session for an adapter that reports none', async () => {
+      const silent: RuntimeAdapter = { ...echo, name: 'node-silent', decode: (invocation, plan, outputs) => ({ ...echo.decode(invocation, plan, outputs), sessionIds: [] }) };
+      const receipt = await box.run({ ...box.claude(), runtime: 'node-silent', executableArgs: [], effort: 'low', prompt: 'echoed' }, {}, { runtimes: new RuntimeRegistry([silent]) });
+      assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
+      const worker = box.worker(receipt.workerId);
+      assert.match(worker.launch.sessionId ?? '', uuid);
+      assert.deepEqual(receipt.runtime.sessionIds, [worker.launch.sessionId]);
+      assert.deepEqual(worker.status === 'finished' && worker.finish.sessionIds, [worker.launch.sessionId]);
+    });
+
+    it('fails a worker whose adapter throws from decode, naming the pinned session', async () => {
+      const throwing: RuntimeAdapter = {
+        ...claudeAdapter,
+        name: 'claude-throwing',
+        decode: () => {
+          throw new Error('unexpected shape');
+        },
+      };
+      const receipt = await box.run(box.claude({ runtime: 'claude-throwing' }), {}, { runtimes: new RuntimeRegistry([throwing]) });
+      assert.equal(receipt.outcome, 'failed');
+      assert.equal(receipt.error, "The claude-throwing adapter could not decode the worker's outputs: unexpected shape");
+      assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
+      assert.equal(receipt.denials, null);
       assertEvidence(receipt);
     });
 
@@ -523,5 +570,106 @@ describe('runWorker', () => {
       const other = box.checkpoint.createRun({ worktree: join(box.directory, 'gone') });
       await assert.rejects(runWorker(box.checkpoint, other.id, box.claude(), { environment: baseEnvironment }), /is not a directory/);
     });
+  });
+});
+
+describe('workerVerdict', () => {
+  const invocation = parseInvocation({
+    runtime: 'claude',
+    executable: process.execPath,
+    model: 'fake-model',
+    effort: 'high',
+    access: 'read-only',
+    shell: true,
+    prompt: 'p',
+    outputSchema: answerSchema,
+    timeoutMs: 5000,
+  });
+  const at = '2026-09-27T00:00:00.000Z';
+  const exited = (exitCode: number | null, signal: string | null = null): ProcessResult => ({ termination: 'exited', exitCode, signal, startedAt: at, endedAt: at });
+  const killed = (treeKillError: string | null): ProcessResult => ({ termination: 'killed', exitCode: null, signal: 'SIGKILL', treeKillError, startedAt: at, endedAt: at });
+  const answer = { kind: 'answer', value: { answer: 'ok' } } as const;
+
+  it('says the whole tree was killed at the timeout when it was', () => {
+    assert.deepEqual(workerVerdict(invocation, killed(null), answer), {
+      outcome: 'timeout',
+      error: 'The worker ran past its timeout of 5000 ms and was killed with its process tree',
+      output: null,
+    });
+  });
+
+  it('says only the root was killed at the timeout, and why, when the tree kill failed', () => {
+    assert.deepEqual(workerVerdict(invocation, killed('taskkill could not end the process tree: it exited with code 1: Access is denied.'), answer), {
+      outcome: 'timeout',
+      error: 'The worker ran past its timeout of 5000 ms and was killed, but only its root: taskkill could not end the process tree: it exited with code 1: Access is denied.; descendants may still run',
+      output: null,
+    });
+  });
+
+  it('fails a worker that never started, whatever was decoded', () => {
+    assert.deepEqual(workerVerdict(invocation, notStarted('spawn ENOENT', at, at), answer), { outcome: 'failed', error: 'The worker did not start: spawn ENOENT', output: null });
+  });
+
+  it('reports a budget stop as budget even when the exit was not clean', () => {
+    assert.deepEqual(workerVerdict(invocation, exited(1), { kind: 'budget', error: 'spent' }), { outcome: 'budget', error: 'spent', output: null });
+  });
+
+  it('fails with the runtime\'s own reason before the exit code', () => {
+    assert.deepEqual(workerVerdict(invocation, exited(2), { kind: 'failed', error: 'no envelope' }), { outcome: 'failed', error: 'no envelope', output: null });
+    assert.deepEqual(workerVerdict(invocation, exited(0), { kind: 'failed', error: 'no envelope' }), { outcome: 'failed', error: 'no envelope', output: null });
+  });
+
+  it('fails an answer from a process that did not exit cleanly', () => {
+    assert.deepEqual(workerVerdict(invocation, exited(3), answer), { outcome: 'failed', error: 'The worker exited with code 3', output: null });
+    assert.deepEqual(workerVerdict(invocation, exited(null, 'SIGTERM'), answer), { outcome: 'failed', error: 'The worker was ended by signal SIGTERM', output: null });
+  });
+
+  it('completes with the validated answer, and fails one the schema rejects', () => {
+    assert.deepEqual(workerVerdict(invocation, exited(0), answer), { outcome: 'completed', error: null, output: { answer: 'ok' } });
+    const rejected = workerVerdict(invocation, exited(0), { kind: 'answer', value: { answer: 42 } });
+    assert.equal(rejected.outcome, 'failed');
+    assert.match(rejected.error ?? '', /^The answer does not match the output schema: /);
+  });
+});
+
+describe('withUnrecordableSessions', () => {
+  const note = 'the runtime reported session ids the ledger cannot hold: ["not a session id"]';
+
+  it('leaves a verdict alone when every session id can be recorded', () => {
+    const completed: Verdict = { outcome: 'completed', error: null, output: { answer: 'ok' } };
+    assert.equal(withUnrecordableSessions(completed, []), completed);
+  });
+
+  it('records no answer when a session id cannot be recorded', () => {
+    assert.deepEqual(withUnrecordableSessions({ outcome: 'completed', error: null, output: { answer: 'ok' } }, ['not a session id']), {
+      outcome: 'failed',
+      error: `The answer is not recorded because ${note}`,
+      output: null,
+    });
+  });
+
+  it('keeps any other outcome and adds the ids to its reason', () => {
+    assert.deepEqual(withUnrecordableSessions({ outcome: 'timeout', error: 'ran past its timeout', output: null }, ['not a session id']), {
+      outcome: 'timeout',
+      error: `ran past its timeout; ${note}`,
+      output: null,
+    });
+    assert.deepEqual(withUnrecordableSessions({ outcome: 'budget', error: 'spent', output: null }, ['not a session id']), { outcome: 'budget', error: `spent; ${note}`, output: null });
+  });
+
+  it('cuts a long list of ids to 500 characters', () => {
+    const ids = Array.from({ length: 100 }, (_, index) => `bad id ${String(index)}`);
+    const { error } = withUnrecordableSessions({ outcome: 'failed', error: 'no envelope', output: null }, ids);
+    assert.equal(error, `no envelope; the runtime reported session ids the ledger cannot hold: ${JSON.stringify(ids).slice(0, 500)}`);
+  });
+});
+
+describe('withPinnedSession', () => {
+  it('puts the pinned session first and names every session once', () => {
+    assert.deepEqual(withPinnedSession(null, []), []);
+    assert.deepEqual(withPinnedSession('pinned', []), ['pinned']);
+    assert.deepEqual(withPinnedSession('pinned', ['pinned']), ['pinned']);
+    assert.deepEqual(withPinnedSession('pinned', ['other', 'pinned', 'other']), ['pinned', 'other']);
+    assert.deepEqual(withPinnedSession(null, ['a', 'a', 'b']), ['a', 'b']);
   });
 });

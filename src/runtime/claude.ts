@@ -97,14 +97,13 @@ const isBudgetStop = (envelope: Record<string, unknown>): boolean =>
   envelope.terminal_reason === 'budget_exhausted' || (typeof envelope.subtype === 'string' && envelope.subtype.startsWith('error_max_budget'));
 
 /**
- * Read the `--output-format json` envelope. The pinned or continued session
- * id is on the result even when there is no envelope at all, so a worker
- * that never answered still names its transcript.
+ * Read the `--output-format json` envelope. The session ids are the one the
+ * envelope names, if any; the launcher adds the pinned or continued id to
+ * every finish, so a worker that never answered still names its transcript.
  */
 export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
   const expected = plan.sessionId;
-  const sessionIds = expected === null ? [] : [expected];
-  const failed = (error: string, partial: Partial<Decoded> = {}): Decoded => ({ sessionIds, usage: null, denials: null, answer: null, budgetStop: false, ...partial, error });
+  const failed = (error: string, known: Omit<Decoded, 'result'> = { sessionIds: [], usage: null, denials: null }): Decoded => ({ ...known, result: { kind: 'failed', error } });
 
   let parsed: unknown;
   try {
@@ -116,17 +115,16 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
   const envelope = parsed;
 
   const observed = typeof envelope.session_id === 'string' && envelope.session_id.length > 0 ? envelope.session_id : null;
-  if (observed !== null && !sessionIds.includes(observed)) sessionIds.push(observed);
   const usage = { usage: envelope.usage ?? null, modelUsage: envelope.modelUsage ?? null, total_cost_usd: envelope.total_cost_usd ?? null };
   const denials = Array.isArray(envelope.permission_denials) ? deniedTools(envelope.permission_denials) : null;
-  const known = { usage, denials };
+  const known = { sessionIds: observed === null ? [] : [observed], usage, denials };
 
   // The ledger named this session before launch; an answer from any other session is not this worker's.
   if (observed !== expected) return failed(`Claude Code answered from session ${String(observed)}, not ${String(expected)}`, known);
   // A budget stop is the pinned limit doing its job, not a malformed result.
   if (isBudgetStop(envelope)) {
     const result = typeof envelope.result === 'string' && envelope.result.length > 0 ? `: ${envelope.result}` : '';
-    return failed(`Claude Code stopped at its budget of ${String(invocation.budgetUsd)} USD${result}`, { ...known, budgetStop: true });
+    return { ...known, result: { kind: 'budget', error: `Claude Code stopped at its budget of ${String(invocation.budgetUsd)} USD${result}` } };
   }
   if (envelope.type !== 'result' || envelope.subtype !== 'success' || envelope.is_error !== false) {
     const result = typeof envelope.result === 'string' && envelope.result.length > 0 ? `: ${envelope.result}` : '';
@@ -135,7 +133,7 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
   if (!Object.hasOwn(envelope, 'structured_output')) return failed('Claude Code returned no structured_output', known);
   // Without the list there is no evidence that nothing was refused.
   if (denials === null) return failed('Claude Code returned no permission_denials array, so its denials are unknown', known);
-  return { sessionIds, usage, denials, answer: { value: envelope.structured_output }, budgetStop: false, error: null };
+  return { ...known, result: { kind: 'answer', value: envelope.structured_output } };
 }
 
 /**

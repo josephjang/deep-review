@@ -7,7 +7,7 @@ import { RunClosedError, StaleRevisionError } from '../checkpoint/errors.ts';
 import { sessionIdSchema, type DeniedTool, type WorkerFinish, type WorkerLaunch, type WorkerOutcome } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
 import { sha256Hex, type ArtifactReference } from '../evidence/store.ts';
-import type { Decoded, LaunchPlan, RuntimeAdapter, WorkerOutputs } from './adapter.ts';
+import type { Decoded, DecodedResult, LaunchPlan, RuntimeAdapter, WorkerOutputs } from './adapter.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from './contract.ts';
 import { workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
@@ -186,9 +186,10 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   try {
     settled = settle(checkpoint, adapter, invocation, plan, result, io);
   } catch (error) {
-    settled = launcherFailure(checkpoint, plan, result, error);
+    settled = launcherFailure(checkpoint, result, error);
   }
-  const finish: WorkerFinish = { workerId, ...settled.finish };
+  // The pinned or continued session is on every finish, whatever the outputs named, so its transcript is never unnamed.
+  const finish: WorkerFinish = { workerId, ...settled.finish, sessionIds: withPinnedSession(plan.sessionId, settled.observedSessionIds) };
   appendFresh(checkpoint, runId, { kind: 'worker.finished', version: 1, payload: finish });
   rmSync(io, { recursive: true, force: true });
 
@@ -289,9 +290,11 @@ function appendFresh(checkpoint: Checkpoint, runId: string, event: NewEvent, che
   }
 }
 
-/** A finish without its worker id, and what only the receipt carries. */
+/** A finish without its worker id and session ids, and what only the receipt carries. */
 interface Settled {
-  readonly finish: Omit<WorkerFinish, 'workerId'>;
+  readonly finish: Omit<WorkerFinish, 'workerId' | 'sessionIds'>;
+  /** The session ids the outputs named that the ledger can hold; `runWorker` adds the pinned one. */
+  readonly observedSessionIds: readonly string[];
   readonly usage: unknown;
   readonly output: unknown;
 }
@@ -304,6 +307,57 @@ function readIfPresent(path: string): Buffer | null {
 const truncate = (error: string): string => (error.length <= maxErrorLength ? error : `${error.slice(0, maxErrorLength)} [truncated]`);
 
 const usageText = (usage: unknown): string | null => (usage === null || usage === undefined ? null : (JSON.stringify(usage) ?? null));
+
+/** The session ids a finish records: the one pinned or continued before launch, if any, then each one the outputs named, once. */
+export const withPinnedSession = (pinned: string | null, observed: readonly string[]): string[] => [...new Set(pinned === null ? observed : [pinned, ...observed])];
+
+/** A decode that has no answer to offer: the session ids the outputs named, and why. */
+const undecoded = (sessionIds: readonly string[], error: string): Decoded => ({ sessionIds, usage: null, denials: null, result: { kind: 'failed', error } });
+
+/** How a worker ended, as the ledger records it: an answer only when completed, and a reason otherwise. */
+export type Verdict =
+  | { readonly outcome: 'completed'; readonly error: null; readonly output: unknown }
+  | { readonly outcome: Exclude<WorkerOutcome, 'completed'>; readonly error: string; readonly output: null };
+
+const failedWith = (error: string): Verdict => ({ outcome: 'failed', error, output: null });
+
+/**
+ * Decide the outcome (R5, TD5). What happened to the process comes first: a
+ * worker that never started failed, and one killed at its timeout timed out.
+ * Then what the runtime said: a budget stop or a failure it reported; then
+ * an exit that was not clean; then the answer, checked against the schema.
+ * A schema whose check throws makes this throw.
+ */
+export function workerVerdict(invocation: Invocation, result: ProcessResult, decoded: DecodedResult): Verdict {
+  if (result.termination === 'not-started') return failedWith(`The worker did not start: ${result.error}`);
+  if (result.termination === 'killed') {
+    const how = result.treeKillError === null ? 'was killed with its process tree' : `was killed, but only its root: ${result.treeKillError}; descendants may still run`;
+    return { outcome: 'timeout', error: `The worker ran past its timeout of ${String(invocation.timeoutMs)} ms and ${how}`, output: null };
+  }
+  switch (decoded.kind) {
+    case 'budget':
+      return { outcome: 'budget', error: decoded.error, output: null };
+    case 'failed':
+      return failedWith(decoded.error);
+    case 'answer': {
+      if (result.signal !== null) return failedWith(`The worker was ended by signal ${result.signal}`);
+      if (result.exitCode !== 0) return failedWith(`The worker exited with code ${String(result.exitCode)}`);
+      const validated = invocation.outputSchema.safeParse(decoded.value);
+      return validated.success ? { outcome: 'completed', error: null, output: validated.data } : failedWith(`The answer does not match the output schema: ${z.prettifyError(validated.error)}`);
+    }
+  }
+}
+
+/**
+ * The verdict once the session ids the ledger cannot hold are named: an
+ * answer is then not recorded, since the session it belongs to could not
+ * be, and any other reason names them as well.
+ */
+export function withUnrecordableSessions(verdict: Verdict, unrecordable: readonly string[]): Verdict {
+  if (unrecordable.length === 0) return verdict;
+  const note = `the runtime reported session ids the ledger cannot hold: ${JSON.stringify(unrecordable).slice(0, 500)}`;
+  return verdict.outcome === 'completed' ? failedWith(`The answer is not recorded because ${note}`) : { ...verdict, error: `${verdict.error}; ${note}` };
+}
 
 /** Freeze every output, decode it through the adapter, and decide the outcome (R5, TD5). */
 function settle(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Invocation, plan: LaunchPlan, result: ProcessResult, io: string): Settled {
@@ -326,43 +380,13 @@ function settle(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Inv
   const decoded: Decoded =
     oversized === undefined
       ? decodeSafely(adapter, invocation, plan, { stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'), finalMessage: finalMessage?.toString('utf8') ?? null })
-      : {
-          sessionIds: plan.sessionId === null ? [] : [plan.sessionId],
-          usage: null,
-          denials: null,
-          answer: null,
-          budgetStop: false,
-          error: `The worker's ${oversized[0]} is ${String(oversized[1]!.length)} bytes, above the ${String(maxDecodeBytes)} bytes the launcher decodes; it is frozen as evidence`,
-        };
+      : undecoded([], `The worker's ${oversized[0]} is ${String(oversized[1]!.length)} bytes, above the ${String(maxDecodeBytes)} bytes the launcher decodes; it is frozen as evidence`);
 
   // A runtime may print anything as a session id; only what the ledger can hold is kept, and the rest is named.
   const sessionIds = decoded.sessionIds.filter((id) => sessionIdSchema.safeParse(id).success);
   const strange = decoded.sessionIds.filter((id) => !sessionIdSchema.safeParse(id).success);
 
-  let outcome: WorkerOutcome;
-  let error: string | null;
-  let output: unknown = null;
-  if (result.termination === 'not-started') [outcome, error] = ['failed', `The worker did not start: ${result.error}`];
-  else if (result.termination === 'killed') {
-    const how = result.treeKillError === null ? 'was killed with its process tree' : `was killed, but only its root: ${result.treeKillError}; descendants may still run`;
-    [outcome, error] = ['timeout', `The worker ran past its timeout of ${String(invocation.timeoutMs)} ms and ${how}`];
-  }
-  else if (decoded.budgetStop) [outcome, error] = ['budget', decoded.error ?? 'The runtime stopped at its budget'];
-  else if (decoded.error !== null) [outcome, error] = ['failed', decoded.error];
-  else if (result.exitCode !== 0 || result.signal !== null) {
-    [outcome, error] = ['failed', result.signal !== null ? `The worker was ended by signal ${result.signal}` : `The worker exited with code ${String(result.exitCode)}`];
-  } else if (decoded.answer === null) [outcome, error] = ['failed', 'The runtime reported no error and no answer'];
-  else {
-    const validated = invocation.outputSchema.safeParse(decoded.answer.value);
-    if (validated.success) [outcome, error, output] = ['completed', null, validated.data];
-    else [outcome, error] = ['failed', `The answer does not match the output schema: ${z.prettifyError(validated.error)}`];
-  }
-
-  if (strange.length > 0) {
-    const note = `the runtime reported session ids the ledger cannot hold: ${JSON.stringify(strange).slice(0, 500)}`;
-    if (outcome === 'completed') [outcome, error, output] = ['failed', `The answer is not recorded because ${note}`, null];
-    else error = `${error ?? ''}; ${note}`;
-  }
+  const { outcome, error, output } = withUnrecordableSessions(workerVerdict(invocation, result, decoded.result), strange);
 
   const outputJson = outcome === 'completed' ? JSON.stringify(output) : undefined;
   return {
@@ -373,15 +397,15 @@ function settle(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Inv
       termination: result.termination,
       startedAt: result.startedAt,
       endedAt: result.endedAt,
-      sessionIds,
       usage: usageText(decoded.usage),
       denials: decoded.denials === null ? null : [...decoded.denials],
       error: error === null ? null : truncate(error),
       ...references,
       output: outputJson === undefined ? null : checkpoint.evidence.put(outputJson),
     },
+    observedSessionIds: sessionIds,
     usage: decoded.usage ?? null,
-    output: outcome === 'completed' ? output : null,
+    output,
   };
 }
 
@@ -390,19 +414,13 @@ function decodeSafely(adapter: RuntimeAdapter, invocation: Invocation, plan: Lau
   try {
     return adapter.decode(invocation, plan, outputs);
   } catch (error) {
-    return {
-      sessionIds: plan.sessionId === null ? [] : [plan.sessionId],
-      usage: null,
-      denials: null,
-      answer: null,
-      budgetStop: false,
-      error: `The ${adapter.name} adapter could not decode the worker's outputs: ${(error as Error).message}`,
-    };
+    // The adapter reported nothing; the session known before launch is still named, by runWorker.
+    return undecoded([], `The ${adapter.name} adapter could not decode the worker's outputs: ${(error as Error).message}`);
   }
 }
 
 /** The finish recorded when the launcher, not the worker, failed to read or freeze the outputs; the process facts are still true. */
-function launcherFailure(checkpoint: Checkpoint, plan: LaunchPlan, result: ProcessResult, error: unknown): Settled {
+function launcherFailure(checkpoint: Checkpoint, result: ProcessResult, error: unknown): Settled {
   const empty = checkpoint.evidence.put('');
   return {
     finish: {
@@ -412,7 +430,6 @@ function launcherFailure(checkpoint: Checkpoint, plan: LaunchPlan, result: Proce
       termination: result.termination,
       startedAt: result.startedAt,
       endedAt: result.endedAt,
-      sessionIds: plan.sessionId === null ? [] : [plan.sessionId],
       usage: null,
       denials: null,
       error: truncate(`The launcher could not read or freeze the worker's outputs: ${error instanceof Error ? error.message : String(error)}`),
@@ -421,6 +438,7 @@ function launcherFailure(checkpoint: Checkpoint, plan: LaunchPlan, result: Proce
       finalMessage: null,
       output: null,
     },
+    observedSessionIds: [],
     usage: null,
     output: null,
   };
