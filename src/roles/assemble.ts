@@ -132,7 +132,8 @@ export function assembleRoles(rolesRoot: string): readonly AssembledRole[] {
   } catch (error) {
     throw new InvalidRoleManifestError(`Cannot list ${fragmentsDirectory}: ${(error as Error).message}`);
   }
-  const stray = entries.filter((entry) => !texts.has(entry)).sort();
+  const named = new Set(Object.values(manifest.roles).flat());
+  const stray = entries.filter((entry) => !named.has(entry)).sort();
   if (stray.length > 0) throw new InvalidRoleManifestError(`Entries under ${fragmentsDirectoryName}/ that no role names: ${stray.join(', ')}`);
   return roles;
 }
