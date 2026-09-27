@@ -11,6 +11,6 @@ review, or the gap sweep — surface every candidate you can articulate:
 the verify pass filters, not you, and a half-believed candidate
 silently dropped bypasses that filter. (Gaps in `CONVENTIONS` territory
 are the exception: precision-first, both quotes or nothing.) The `SCAN`
-triage additionally returns the per-angle run/skip recommendation its
-prompt asks for. Your candidates follow the output contract below; the
-prompt will not restate it.
+triage additionally returns the one lead per other angle its prompt
+asks for. Your candidates follow the output contract below; the prompt
+will not restate it.

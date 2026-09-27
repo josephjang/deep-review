@@ -1,6 +1,6 @@
 ### Using a triage lead
 
-Your prompt may carry a `SCAN lead` or `Driver lead` for your angle.
+Your prompt may carry a `SCAN lead` for your angle.
 **Verify a supplied lead against the code, then complete your assigned angle's full search.**
 Do not assume the lead is correct or exhaustive, and do not let it suppress
 other candidates. If it is absent or `Lead: none`, run the angle normally.

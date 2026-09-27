@@ -13,18 +13,6 @@
       "angles-scout.md",
       "angles-conventions.md"
     ],
-    "angle-decision": [
-      "lead-brief.md",
-      "worker-scope.md",
-      "finder-output.md",
-      "lead-verify.md",
-      "rubrics.md",
-      "phase1-finders.md",
-      "angles-scan.md",
-      "angles-analyst.md",
-      "angles-scout.md",
-      "angles-conventions.md"
-    ],
     "finder-SCAN": [
       "lead-brief.md",
       "finder-output.md",
@@ -121,8 +109,7 @@
       "finder-output.md",
       "lead-verify.md",
       "rubrics.md",
-      "phase4-list.md",
-      "postreview-fix-test.md"
+      "phase4-list.md"
     ],
     "fixer": [
       "fixer-role.md",

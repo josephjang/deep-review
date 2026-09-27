@@ -8,7 +8,7 @@ import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRole
 
 /** Every role the engine knows, in manifest order: the ten finder angles and the phase roles around them. */
 const expectedRoles = [
-  'triage', 'angle-decision',
+  'triage',
   'finder-SCAN', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY',
   'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS',
   'deduplication', 'verifier', 'sweep', 'merge-rank',
@@ -16,7 +16,10 @@ const expectedRoles = [
 ];
 
 /** The roles whose prompt opens with the lead reviewer's brief. */
-const leadRoles = ['triage', 'angle-decision', 'finder-SCAN', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'test-assessment'];
+const leadRoles = ['triage', 'finder-SCAN', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'test-assessment'];
+
+/** The roles the read-only review runs: the triage (which runs `SCAN`), the nine other finders, and the four phase roles after them. */
+const reviewRoles = ['triage', ...expectedRoles.filter((key) => key.startsWith('finder-') && key !== 'finder-SCAN'), 'deduplication', 'verifier', 'sweep', 'merge-rank'];
 
 describe('the repository\'s roles/', () => {
   const roles = assembleRoles(repositoryRolesRoot());
@@ -71,10 +74,10 @@ describe('the repository\'s roles/', () => {
    * manifest makes such a sentence true.
    */
   const carried: readonly [fragment: string, words: RegExp, roles: readonly string[], fragments: readonly string[]][] = [
-    ['phase1-finders.md', /output contract are in the finder's role prompt/, expectedRoles.filter((key) => key.startsWith('finder-')), ['finder-lead.md', 'finder-output.md']],
+    ['phase1-finders.md', /output contract are in the finder's role\s+prompt/, expectedRoles.filter((key) => key.startsWith('finder-')), ['finder-lead.md', 'finder-output.md']],
     ['phase1-finders.md', /it appears here because you consume/, keysNaming('phase1-finders.md'), ['finder-output.md']],
     ['phase2-verify.md', /They are in the\s+verifier's role prompt/, ['verifier'], ['rubrics.md']],
-    ['phase2-verify.md', /They appear here because you need/, keysNaming('phase2-verify.md'), ['rubrics.md']],
+    ['phase2-verify.md', /They appear\s+here because you need/, keysNaming('phase2-verify.md'), ['rubrics.md']],
     ['phase3-sweep.md', /output contract \(in the sweep's\s+role prompt/, ['sweep'], ['finder-output.md']],
     ['postreview-fix-test.md', /its test\s+requirements live in its role prompt/, fixerRoles, ['fixer-apply.md', 'fixer-tests.md']],
     ['postreview-fix-test.md', /dispatch one fixer in documentation reconciliation mode/, ['documentation'], ['fixer-documentation.md']],
@@ -145,21 +148,22 @@ describe('the repository\'s roles/', () => {
   });
 
   /**
-   * The fragments that narrate how the engine runs a review: dispatching
-   * workers, checkpoint files and phases. A worker reads them to know what
-   * its answer feeds; worker-scope.md tells it they are not its task.
+   * The fragments that narrate how the engine runs a review: its phases,
+   * the workers it starts and, in the fix pass, its checkpoint files. A
+   * worker reads them to know what its answer feeds; worker-scope.md tells
+   * it they are not its task.
    */
   const engineNarration = ['phase1-finders.md', 'phase2-verify.md', 'phase3-sweep.md', 'phase4-list.md', 'postreview-fix-test.md'];
 
-  it('lists every fragment that speaks of dispatching or checkpoints as engine narration', () => {
+  it('lists every fragment that narrates a phase, or speaks of dispatching or checkpoints, as engine narration', () => {
     const fragments = [...new Set(roles.flatMap((role) => role.fragments.map((fragment) => fragment.name)))];
-    const narrating = fragments.filter((name) => name !== 'worker-scope.md' && /\b(dispatch|checkpoint)/i.test(readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8')));
+    const narrating = fragments.filter((name) => name !== 'worker-scope.md' && /\b(dispatch|checkpoint)|^## (Phase|Post-review)\b/im.test(readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8')));
     assert.deepEqual(narrating.sort(), [...engineNarration].sort());
   });
 
   it('tells every role that reads the engine\'s narration, before it, that the narration is not its task', () => {
     const narrated = roles.filter((role) => role.fragments.some((fragment) => engineNarration.includes(fragment.name)));
-    assert.deepEqual(narrated.map((role) => role.key), ['triage', 'angle-decision', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'test-assessment']);
+    assert.deepEqual(narrated.map((role) => role.key), ['triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'test-assessment']);
     for (const role of narrated) {
       const names = role.fragments.map((fragment) => fragment.name);
       const guard = names.indexOf('worker-scope.md');
@@ -170,6 +174,39 @@ describe('the repository\'s roles/', () => {
   it('points at no checkpoint discipline, which no fragment defines', () => {
     // It lived in the prompt-only skill's resume.md, which the proposal does not move.
     assert.deepEqual(roles.filter((role) => /checkpoint\s+discipline/i.test(role.prompt)).map((role) => role.key), []);
+  });
+
+  /**
+   * Text the read-only review's workers must not read (PD14 of the
+   * read-only review): the angle-decision worker and its run or skip
+   * decision, which no longer exist; the checkpoint files the prompt-only
+   * driver wrote, which the engine's ledger replaces; the steps of the fix
+   * pass, which a later element runs; and the `Driver lead` label, which
+   * only an overridden skip produced.
+   */
+  const notForReviewWorkers: readonly [RegExp, string][] = [
+    [/angle-decision/i, 'the angle-decision worker'],
+    [/\brun\s*\/\s*skip\b|\bskip\s+reasons?\b|\bskipped\s+in\s+Phase\b|\boverride\s+to\s+run\b/i, 'a decision to skip an angle'],
+    [/\b(triage|candidates|verdicts|sweep|ranked|fixes|audit)\.md\b/, 'a checkpoint file'],
+    [/\bStep\s+[123]\b/, 'a step of the fix pass'],
+    [/Driver lead/, 'the Driver lead label'],
+  ];
+
+  it('tells the roles the read-only review runs nothing about the angle decision, checkpoint files or the fix pass', () => {
+    for (const key of reviewRoles) {
+      const role = roles.find((candidate) => candidate.key === key)!;
+      for (const [pattern, what] of notForReviewWorkers) assert.doesNotMatch(role.prompt, pattern, `${key} names ${what}`);
+    }
+  });
+
+  it('tells the triage and every finder how the engine runs every angle and assigns every id', () => {
+    const triage = roles.find((role) => role.key === 'triage')!;
+    assert.match(triage.prompt, /Every angle runs on every review/);
+    assert.match(triage.prompt, /A worker never assigns an ID/);
+    assert.match(triage.prompt, /`SCAN lead`|`Lead: none`/);
+    for (const key of reviewRoles.filter((name) => name.startsWith('finder-'))) {
+      assert.match(roles.find((role) => role.key === key)!.prompt, /Your prompt may carry a `SCAN lead` for your angle/, key);
+    }
   });
 
   it('names no mechanism of one runtime in any prompt', () => {
@@ -277,7 +314,7 @@ describe('scripts/roles.ts', () => {
     assert.equal(result.status, 0, result.stderr);
     const lines = result.stdout.trim().split('\n');
     assert.deepEqual(lines.slice(0, -1).map((line) => line.split('\t')[0]), expectedRoles);
-    assert.match(lines.at(-1)!, /^Wrote 21 prompts to /);
+    assert.match(lines.at(-1)!, /^Wrote 20 prompts to /);
     assert.deepEqual(readdirSync(output).sort(), expectedRoles.map((key) => `${key}.md`).sort());
     for (const role of assembleRoles(repositoryRolesRoot())) {
       assert.equal(readFileSync(join(output, `${role.key}.md`), 'utf8'), role.prompt, role.key);

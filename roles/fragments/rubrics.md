@@ -23,8 +23,8 @@ storms / partial failures, regex/allowlist that lost an anchor, and — for
 reach (a list that grows unbounded, a hot path hit per keystroke or per
 request). These are PLAUSIBLE.
 
-**Never grounds for REFUTED** — the *age* of the code (pre-existing, in
-scope per Post-review Step 1; or freshly-landed) and its *test coverage* (a
+**Never grounds for REFUTED** — the *age* of the code (pre-existing, which
+a fix pass treats as in scope; or freshly-landed) and its *test coverage* (a
 test exists, or passes — a green test can assert the bug or never hit the
 case) say nothing about correctness. Neither can carry a REFUTED, and pairing
 one with a real reason adds nothing; refute only on a substantive, code-level
@@ -52,8 +52,8 @@ to keep the finding; otherwise REFUTE.
   the verifier can't see, OR it changes OBSERVABLE BEHAVIOR / semantics the
   current tests don't cover and you cannot pin with a new test, OR it is
   discretionary scope that expands this change rather than fixing a flagged
-  defect. Such a refactor carries forward and surfaces as a Step 3
-  NEEDS-STEERING item with clear pros/cons and a recommendation.
+  defect. Such a refactor carries forward and surfaces to the author as a
+  steering question with clear pros/cons and a recommendation.
 
   A behavior-preserving refactor (extract, move, inline, rename, centralize
   a duplicated rule) is validatable — the existing test suite + typecheck
@@ -62,12 +62,12 @@ to keep the finding; otherwise REFUTE.
   is a real "should we, and how far?" judgment:
     - a CLEAR win with no such judgment — in-scope cleanup of code the change
       already touches (a dead branch, a misleading name, an obvious local
-      duplicate) — is CONFIRMED, and Step 1 applies it with NO steering; a
-      CONFIRMED refactor needs no authorization.
+      duplicate) — is CONFIRMED, and a fix pass applies it with NO steering;
+      a CONFIRMED refactor needs no authorization.
     - a DISCRETIONARY call — a restructuring that expands beyond this change
       (split a component, extract a subsystem, inline a standalone module),
       whose worth/scope is the author's to weigh — is PLAUSIBLE, and routes to
-      NEEDS-STEERING so Step 3 ASKS (with pros/cons + a recommendation).
+      the author as a steering question (with pros/cons + a recommendation).
 
   Either way the real refactor is KEPT — applied (CONFIRMED) or asked
   (PLAUSIBLE), never quietly dropped. "Validatable" forbids REFUTING it for
@@ -92,9 +92,9 @@ to keep the finding; otherwise REFUTE.
   **Never grounds for REFUTED (design & cleanup)** — none of these can
   kill a real improvement, only route it:
 
-  - *Scale.* Big, risky, or spans-many-files is exactly the
-    NEEDS-STEERING judgment — keep the finding PLAUSIBLE and let Step 3
-    route it to a human with pros/cons + a recommendation.
+  - *Scale.* Big, risky, or spans-many-files is exactly the steering
+    judgment — keep the finding PLAUSIBLE and let a later pass route it
+    to a human with pros/cons + a recommendation.
   - *Regression risk / test coverage / documentation density.* "Heavily
     tested / heavily commented / load-bearing" makes a refactor SAFER to
     take on (the tests catch a regression; the comments move with the
@@ -127,7 +127,7 @@ finder already quoted.
 
 **A verdict that CLOSES a finding must rest on something you confirmed in the
 code, not assumed — in both directions.** This single gate governs every
-refute and every refactor call, here and in Step 3:
+refute and every refactor call, here and in any later audit:
 
 - **Before you REFUTE** (any angle): the refutation's premise — "this path is
   unreachable," "the library strips the trailing newline," "these two blocks are
@@ -137,7 +137,7 @@ refute and every refactor call, here and in Step 3:
   (PLAUSIBLE for correctness, cost & conventions; for design & cleanup
   keep it as a steering candidate) and note what needs checking.
 - **Before you keep a refactor as a real improvement** (PLAUSIBLE here, or any
-  Step 3 NEEDS-STEERING): confirm it is *feasible*. Sketch the concrete target
+  later steering question): confirm it is *feasible*. Sketch the concrete target
   (the new signature / module boundary / resulting structure) and check it (1)
   actually delivers the `value_statement`, (2) does not trade for a worse smell,
   and (3) is mechanically applicable from what you can see. An unworkable target
