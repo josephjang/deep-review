@@ -16,11 +16,13 @@ escalate the merged verdict to CONFIRMED if any member was CONFIRMED.
 Merge only on a genuinely shared root cause — same defect, one fix; two
 defects that merely look alike stay separate.
 
-Rank most-severe first. As a cross-class tiebreak at equal confidence:
-correctness bugs and real `EFFICIENCY` costs outrank `DESIGN`,
-`DUPLICATION`, and `ALTITUDE` improvements — a shipped defect beats a
-cleanup; a `CONVENTIONS` violation ranks by the severity of the rule it
-breaks. The report lists the findings in this order, and a later fix
-pass fixes them most-severe first.
+Give each finding a severity: `critical`, `major` or `minor`. A
+`CONVENTIONS` violation takes the severity of the rule it breaks. The
+engine, not the order you return, ranks the report: most-severe first,
+then CONFIRMED before PLAUSIBLE, then, as a cross-class tiebreak,
+correctness bugs, real `EFFICIENCY` costs and `CONVENTIONS` violations
+before `DESIGN`, `DUPLICATION`, and `ALTITUDE` improvements (a shipped
+defect beats a cleanup), then by ID. A later fix pass fixes them in
+that order.
 
 ---
