@@ -121,6 +121,16 @@ describe('the repository\'s roles/', () => {
     assert.ok(returnFormat >= 0 && reconciliation > returnFormat, `reconciliation at ${String(reconciliation)}, return format at ${String(returnFormat)}`);
   });
 
+  it('ends the answer role with the fixer\'s return format, and tells it to dispatch no one', () => {
+    // A steering answer is carried out by one fixer, which edits and returns; the Step 3 actions that start fixers are not its task.
+    const answer = roles.find((role) => role.key === 'answer')!;
+    const report = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'fixer-report.md'), 'utf8');
+    const returnFormat = report.lastIndexOf('## Return format');
+    assert.ok(returnFormat >= 0, 'fixer-report.md has no return format');
+    assert.ok(answer.prompt.endsWith(report.slice(returnFormat)), `answer ends with: ${answer.prompt.slice(-200)}`);
+    assert.doesNotMatch(answer.prompt, /\bdispatch/i);
+  });
+
   it('points at no checkpoint discipline, which no fragment defines', () => {
     // It lived in the prompt-only skill's resume.md, which the proposal does not move.
     assert.deepEqual(roles.filter((role) => /checkpoint\s+discipline/i.test(role.prompt)).map((role) => role.key), []);
