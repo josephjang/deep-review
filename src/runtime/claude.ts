@@ -1,7 +1,7 @@
 import type { Access, DeniedTool, Effort } from '../checkpoint/events.ts';
 import { maxDecodeBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
-import { pinVariables, spellingsOf, withoutVariables } from './environment.ts';
+import { launcherPins, pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { InheritedOverrideError, InvalidInvocationError } from './errors.ts';
 import { isObject } from './json.ts';
 
@@ -53,6 +53,90 @@ export const claudeSessionMarkers = [
   'CLAUDE_CODE_MESSAGING_SOCKET',
   'CLAUDE_CODE_MESSAGING_TOKEN',
 ] as const;
+
+/**
+ * The settings a Claude adapter may be given, each a command Claude Code
+ * runs to obtain a credential for its provider or its proxy. They are
+ * given here because the user's own settings, where they usually live, are
+ * switched off (`--setting-sources ''`). `otelHeadersHelper` is left out:
+ * it supplies telemetry headers, not a credential.
+ */
+export const claudeCredentialSettings = ['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'proxyAuthHelper'] as const;
+export type ClaudeCredentialSetting = (typeof claudeCredentialSettings)[number];
+
+/**
+ * Settings merged into the worker's `--settings` object: credential
+ * helpers, and an `env` block Claude Code sets in its own environment, such
+ * as `CLAUDE_CODE_USE_BEDROCK` or `ANTHROPIC_BASE_URL`.
+ */
+export type ClaudeSettings = { readonly [Setting in ClaudeCredentialSetting]?: string } & { readonly env?: Readonly<Record<string, string>> };
+
+/** How a Claude adapter is built. The user's own settings are switched off, so any credential a machine needs is given here. */
+export interface ClaudeOptions {
+  /** None by default: credentials then come from the inherited environment or the CLI's login. */
+  readonly settings?: ClaudeSettings;
+}
+
+/**
+ * Variables a settings `env` block may not set, since Claude Code would set
+ * them over what the engine pinned: the thinking overrides and the pinned
+ * effort and auto memory (R8), an enclosing session's markers, and the
+ * temporary directory and build-server pins of the launcher.
+ */
+const reservedSettingsVariables: readonly string[] = [
+  ...thinkingOverrides,
+  'CLAUDE_CODE_EFFORT_LEVEL',
+  'CLAUDE_CODE_DISABLE_AUTO_MEMORY',
+  ...claudeSessionMarkers,
+  ...launcherPins,
+];
+
+/**
+ * The settings after every check that needs no platform, copied so a caller
+ * changing its object later cannot change the adapter: a known key, each
+ * credential a non-empty string, and `env` an object of strings under names
+ * a process environment can hold. Options can arrive from outside TypeScript.
+ */
+function checkedSettings(settings: unknown): ClaudeSettings {
+  const refuse = (reason: string): never => {
+    throw new Error(`Claude settings ${reason}`);
+  };
+  if (!isObject(settings)) return refuse('must be an object');
+  const known: readonly string[] = [...claudeCredentialSettings, 'env'];
+  const unknown = Object.keys(settings).find((key) => !known.includes(key));
+  if (unknown !== undefined) refuse(`have unknown key ${JSON.stringify(unknown)}; a Claude adapter takes only ${known.join(', ')}`);
+  const checked: Record<string, unknown> = {};
+  for (const key of claudeCredentialSettings) {
+    const value = settings[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || value.trim() === '' || !value.isWellFormed()) refuse(`${key} must be a non-empty string`);
+    checked[key] = value;
+  }
+  if (settings.env !== undefined) {
+    if (!isObject(settings.env)) refuse('env must be an object of strings');
+    const env = Object.entries(isObject(settings.env) ? settings.env : {});
+    for (const [name, value] of env) {
+      if (!/^[^=\0]+$/.test(name) || !name.isWellFormed()) refuse(`env has a name ${JSON.stringify(name)} no environment can hold`);
+      if (typeof value !== 'string' || value.includes('\0') || !value.isWellFormed()) refuse(`env value of ${name} is not a string an environment can hold`);
+    }
+    checked.env = Object.freeze(Object.fromEntries(env));
+  }
+  return Object.freeze(checked) as ClaudeSettings;
+}
+
+/**
+ * Refuse a settings `env` name the engine pins or drops, by any spelling
+ * the worker's platform reads as it: Claude Code sets the block in its own
+ * environment, which on Windows takes every spelling of a name as one
+ * variable, and elsewhere only the exact name.
+ */
+export function refuseReservedSettings(settings: ClaudeSettings, platform: NodeJS.Platform): void {
+  if (settings.env === undefined) return;
+  for (const name of reservedSettingsVariables) {
+    const [spelling] = spellingsOf(settings.env, name, platform)[0] ?? [];
+    if (spelling !== undefined) throw new Error(`Claude settings env sets ${spelling}, which the engine decides for every worker; remove it from the adapter's settings`);
+  }
+}
 
 /** How long a denial's command or path may be on the receipt, in UTF-16 code units. */
 const maxDenialDetail = 300;
@@ -129,16 +213,17 @@ export function windowsArgumentLength(argument: string): number {
 /**
  * Refuse, before anything is recorded or run, a command line the platform
  * would not start. The compiled output schema travels as one argument, so a
- * large schema is what reaches the limit; left alone, the spawn would fail
- * after the launch is on the ledger. `argv` is the whole command line, the
- * executable first.
+ * large schema is what reaches the limit, and the adapter's settings travel
+ * as another; left alone, the spawn would fail after the launch is on the
+ * ledger. `argv` is the whole command line, the executable first.
  */
 export function refuseOversizedCommandLine(platform: NodeJS.Platform, argv: readonly string[]): void {
-  const remedy = 'the compiled output schema is passed on the command line, so a smaller output schema is the remedy';
+  const schemaHint = 'the compiled output schema is passed on the command line, so a smaller output schema is the remedy';
+  const settingsHint = "the adapter's settings are passed on the command line, so smaller settings are the remedy";
   if (platform === 'win32') {
     const length = argv.reduce((total, argument) => total + windowsArgumentLength(argument), argv.length - 1);
     if (length > windowsCommandLineLimit) {
-      throw new InvalidInvocationError(`The Claude Code command line would be ${length} characters long, over the ${windowsCommandLineLimit} Windows allows; ${remedy}`);
+      throw new InvalidInvocationError(`The Claude Code command line would be ${length} characters long, over the ${windowsCommandLineLimit} Windows allows; the compiled output schema and the adapter's settings are passed on the command line, so a smaller output schema or smaller settings are the remedy`);
     }
     return;
   }
@@ -147,13 +232,19 @@ export function refuseOversizedCommandLine(platform: NodeJS.Platform, argv: read
     if (bytes > posixArgumentLimit) {
       const previous = index > 0 ? argv[index - 1] : undefined;
       const flag = previous?.startsWith('--') === true ? `the value of ${previous}` : `argument ${index}`;
-      throw new InvalidInvocationError(`On the Claude Code command line, ${flag} is ${bytes} bytes, over the ${posixArgumentLimit} one argument may have; ${remedy}`);
+      throw new InvalidInvocationError(`On the Claude Code command line, ${flag} is ${bytes} bytes, over the ${posixArgumentLimit} one argument may have; ${previous === '--settings' ? settingsHint : schemaHint}`);
     }
   }
 }
 
-export function claudeCommand(invocation: Invocation, plan: LaunchPlan): WorkerCommand {
+/**
+ * The Claude Code command line for one worker. `settings` are the
+ * adapter's, merged into the `--settings` object for a fresh worker and a
+ * continuation alike, under the keys that switch sources off.
+ */
+export function claudeCommand(invocation: Invocation, plan: LaunchPlan, settings: ClaudeSettings = {}): WorkerCommand {
   if (plan.sessionId === null) throw new Error('A Claude Code worker needs its session id before launch');
+  refuseReservedSettings(settings, plan.platform);
   const tools = claudeTools(invocation.access, invocation.shell).join(',');
   const environment = claudeEnvironment(plan.environment, invocation.effort, plan.platform);
   const args = [
@@ -173,8 +264,11 @@ export function claudeCommand(invocation: Invocation, plan: LaunchPlan): WorkerC
     '--disable-slash-commands',
     '--strict-mcp-config',
     // No user, project or local settings, no CLAUDE.md, no auto memory: the prompt is the whole instruction.
+    // So an `env` block or `apiKeyHelper` in a settings file does not reach the worker either: its
+    // credentials and provider (Bedrock, Vertex, a gateway) come from the inherited environment or
+    // from the adapter's settings. The keys that switch sources off come last, so they always win.
     '--setting-sources', '',
-    '--settings', JSON.stringify({ autoMemoryEnabled: false, claudeMdExcludes: ['**'] }),
+    '--settings', JSON.stringify({ ...settings, autoMemoryEnabled: false, claudeMdExcludes: ['**'] }),
     '--json-schema', plan.schema.text,
   ];
   refuseOversizedCommandLine(plan.platform, [invocation.executable, ...invocation.executableArgs, ...args]);
@@ -260,7 +354,21 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
  * a budget, lists the tool calls it refused, runs without a shell, lets a
  * read-only worker write to an added directory, and resumes a session by id.
  */
-export const claudeAdapter: RuntimeAdapter = {
+export function createClaudeAdapter(options: ClaudeOptions = {}): RuntimeAdapter {
+  // Options can arrive from outside TypeScript, and every value goes straight into a command line.
+  const given: unknown = options;
+  if (!isObject(given)) throw new Error('Claude options must be an object');
+  const unknown = Object.keys(given).find((key) => key !== 'settings');
+  if (unknown !== undefined) throw new Error(`Unknown Claude option ${JSON.stringify(unknown)}; use settings`);
+  const settings = options.settings === undefined ? {} : checkedSettings(options.settings);
+  return {
+    ...claudeRuntime,
+    command: (invocation, plan) => claudeCommand(invocation, plan, settings),
+  };
+}
+
+/** Everything about the Claude adapter that no option changes; `createClaudeAdapter` adds the command. */
+const claudeRuntime: Omit<RuntimeAdapter, 'command'> = {
   name: 'claude',
   capabilities: {
     assignsSessionId: true,
@@ -275,6 +383,8 @@ export const claudeAdapter: RuntimeAdapter = {
     version: { args: ['--version'], pattern: /^(\d+\.\d+\.\d+) \(Claude Code\)$/ },
     help: [{ args: ['--help'], flags: claudeFlags }],
   },
-  command: claudeCommand,
   decode: decodeClaude,
 };
+
+/** The Claude adapter with its defaults: no settings beyond the ones that switch sources off. */
+export const claudeAdapter: RuntimeAdapter = createClaudeAdapter();

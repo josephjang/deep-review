@@ -45,6 +45,14 @@ export const buildServerPins: Readonly<Record<string, string>> = {
   UseRazorBuildServer: 'false',
 };
 
+/**
+ * Every variable `workerEnvironment` sets over the adapter's environment:
+ * the build-server pins and, when the worker has a scratch directory, the
+ * temporary directory. An adapter that lets a runtime set variables of its
+ * own refuses these, so the launcher's pins cannot be undone inside the runtime.
+ */
+export const launcherPins: readonly string[] = [...Object.keys(buildServerPins), 'TEMP', 'TMP', 'TMPDIR'];
+
 /** The environment of the spawned process: the adapter's, with the temporary directory and the build-server pins over every inherited spelling the platform reads as theirs (R8). */
 export function workerEnvironment(environment: NodeJS.ProcessEnv, scratch: string | null, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   // TEMP and TMP serve Windows programs; POSIX tools read TMPDIR. On Windows
