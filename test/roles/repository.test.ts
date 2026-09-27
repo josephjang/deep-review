@@ -144,6 +144,29 @@ describe('the repository\'s roles/', () => {
     assert.deepEqual(leads.filter((role) => /Keep\s+the\s+mutation\s+within\s+your\s+ownership/i.test(role.prompt)).map((role) => role.key), []);
   });
 
+  /**
+   * The fragments that narrate how the engine runs a review: dispatching
+   * workers, checkpoint files and phases. A worker reads them to know what
+   * its answer feeds; worker-scope.md tells it they are not its task.
+   */
+  const engineNarration = ['phase1-finders.md', 'phase2-verify.md', 'phase3-sweep.md', 'phase4-list.md', 'postreview-fix-test.md'];
+
+  it('lists every fragment that speaks of dispatching or checkpoints as engine narration', () => {
+    const fragments = [...new Set(roles.flatMap((role) => role.fragments.map((fragment) => fragment.name)))];
+    const narrating = fragments.filter((name) => name !== 'worker-scope.md' && /\b(dispatch|checkpoint)/i.test(readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8')));
+    assert.deepEqual(narrating.sort(), [...engineNarration].sort());
+  });
+
+  it('tells every role that reads the engine\'s narration, before it, that the narration is not its task', () => {
+    const narrated = roles.filter((role) => role.fragments.some((fragment) => engineNarration.includes(fragment.name)));
+    assert.deepEqual(narrated.map((role) => role.key), ['triage', 'angle-decision', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'test-assessment']);
+    for (const role of narrated) {
+      const names = role.fragments.map((fragment) => fragment.name);
+      const guard = names.indexOf('worker-scope.md');
+      assert.ok(guard >= 0 && names.every((name, index) => !engineNarration.includes(name) || index > guard), `${role.key}: ${names.join(', ')}`);
+    }
+  });
+
   it('points at no checkpoint discipline, which no fragment defines', () => {
     // It lived in the prompt-only skill's resume.md, which the proposal does not move.
     assert.deepEqual(roles.filter((role) => /checkpoint\s+discipline/i.test(role.prompt)).map((role) => role.key), []);
