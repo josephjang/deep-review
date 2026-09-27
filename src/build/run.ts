@@ -10,6 +10,7 @@ import {
   type ArtifactTarget,
   type TreeDifference,
 } from './artifacts.ts';
+import { bundleEngine, repositoryEngine, type EngineBundleOptions } from './bundle.ts';
 
 export interface BuildOptions {
   /** Absolute path of the repository checkout. */
@@ -20,6 +21,8 @@ export interface BuildOptions {
   readonly targets?: readonly ArtifactTarget[];
   /** Directory the temporary staging tree is created under; defaults to the OS temp directory. */
   readonly stagingParent?: string;
+  /** The engine bundled into every artifact; the repository's own by default, or null for artifacts without an engine. */
+  readonly engine?: EngineBundleOptions | null;
 }
 
 export interface TargetOutcome {
@@ -39,25 +42,28 @@ export interface BuildOutcome {
 }
 
 /**
- * Assemble every target into a temporary staging directory, then either
- * compare each with its committed dist/ tree (verify) or replace those trees
- * with the staged ones (build). Every target is assembled before any is
- * published, so a source that cannot be assembled leaves dist/ untouched.
- * Staging is removed whatever happens, so a failed run leaves nothing behind
- * but the unchanged repository.
+ * Assemble every target into a temporary staging directory, with the engine
+ * bundled into each, then either compare each with its committed dist/ tree
+ * (verify) or replace those trees with the staged ones (build). Every target
+ * is assembled before any is published, so a source that cannot be assembled
+ * leaves dist/ untouched. Staging is removed whatever happens, so a failed
+ * run leaves nothing behind but the unchanged repository.
  */
-export function runBuild(options: BuildOptions): BuildOutcome {
+export async function runBuild(options: BuildOptions): Promise<BuildOutcome> {
   const repositoryRoot = resolve(options.repositoryRoot);
   const targets = options.targets ?? artifactTargets;
+  const engine = options.engine === undefined ? repositoryEngine(repositoryRoot) : options.engine;
   const staging = mkdtempSync(join(options.stagingParent ?? tmpdir(), 'deep-review-build-'));
   try {
-    const assembled = targets.map((target) => {
+    const assembled = [];
+    for (const target of targets) {
       const staged = assembleArtifact(repositoryRoot, target, staging);
+      if (engine !== null) await bundleEngine(staged, engine);
       const digest = digestTree(staged);
       const destination = join(repositoryRoot, target.destination);
       const committed = existsSync(destination) ? digestTree(destination) : new Map<string, string>();
-      return { target, staged, files: digest.size, differences: compareTrees(digest, committed) };
-    });
+      assembled.push({ target, staged, files: digest.size, differences: compareTrees(digest, committed) });
+    }
     if (!options.verify) for (const { target, staged } of assembled) publishArtifact(repositoryRoot, target, staged);
     const outcomes = assembled.map(({ target, files, differences }) => ({ target, files, differences, published: !options.verify }));
     return { ok: !options.verify || outcomes.every((outcome) => outcome.differences.length === 0), outcomes };

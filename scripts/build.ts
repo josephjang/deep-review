@@ -15,6 +15,6 @@ const { values } = parseArgs({
 });
 
 const repositoryRoot = values.root === undefined ? resolve(import.meta.dirname, '..') : resolve(values.root);
-const outcome = runBuild({ repositoryRoot, verify: values.verify });
+const outcome = await runBuild({ repositoryRoot, verify: values.verify });
 console.log(formatOutcome(outcome));
 process.exitCode = outcome.ok ? 0 : 1;

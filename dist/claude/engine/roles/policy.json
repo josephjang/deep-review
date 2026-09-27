@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "roles": {
+    "triage": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-REMOVALS": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-RIPPLE": { "tier": "fast", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-FOOTGUNS": { "tier": "fast", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-WRAPPERS": { "tier": "fast", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-EFFICIENCY": { "tier": "fast", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-DESIGN": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-DUPLICATION": { "tier": "fast", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-ALTITUDE": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "finder-CONVENTIONS": { "tier": "fast", "effort": "medium", "budgetUsd": 8, "timeoutMs": 600000 },
+    "deduplication": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "verifier": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "sweep": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "merge-rank": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 }
+  },
+  "runtimes": {
+    "claude": { "strong": "opus", "fast": "sonnet", "runBudgetUsd": 30 },
+    "codex": { "strong": "gpt-6-astra", "fast": "gpt-5.6-terra", "runBudgetUsd": null }
+  },
+  "concurrency": 4
+}
