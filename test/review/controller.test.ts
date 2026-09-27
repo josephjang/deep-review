@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { RunClosedError } from '../../src/checkpoint/errors.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
-import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
+import { policyFileName } from '../../src/review/policy.ts';
 import { until } from '../helpers/launcher.ts';
 import { acquireStartLock, lockPath, startLockPath } from '../../src/review/lock.ts';
 import { phases } from '../../src/review/vocabulary.ts';
@@ -303,6 +304,38 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(Object.values(box.run().workers).length, 2, 'nothing ran in the other worktree');
     // The run's own worktree still resumes it.
     report(await box.review('claude'));
+  });
+
+  it('resumes a configured run from its pinned configuration, whatever the policy file, the model flags and the executable say now', async () => {
+    box.script({ triage: { exit: 2 } });
+    await box.review('claude');
+    const pinned = box.run().review!.configuration;
+    // A policy file that no longer resolves, a model flag and an executable that would not qualify: a pinned run reads none of them.
+    writeFileSync(join(box.rolesRoot, policyFileName), JSON.stringify({ schemaVersion: 1, roles: {}, runtimes: {}, concurrency: 4 }));
+    box.script({});
+    report(await box.review('claude', { executable: join(box.directory, 'absent'), executableArgs: [], flags: { strongModel: 'another-model' } }));
+    const state = box.run();
+    assert.deepEqual(state.review!.configuration, pinned);
+    assert.ok(Object.values(state.workers).every((worker) => worker.launch.executable === pinned.executable && worker.launch.model !== 'another-model'), 'every worker ran the pinned executable and models');
+    assert.ok(box.logs.includes(`run ${state.id} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`));
+  });
+
+  it('refuses to resume a run whose role prompts changed since it was configured, naming both digests', async () => {
+    box.script({ triage: { exit: 2 } });
+    await box.review('claude');
+    const state = box.run();
+    writeFileSync(join(box.rolesRoot, 'fragments', 'rubrics.md'), `${readFileSync(join(box.rolesRoot, 'fragments', 'rubrics.md'), 'utf8')}\nOne more rule.\n`);
+    await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.code === null
+      && error.message.startsWith(`run ${state.id} was configured with roles digest ${state.review!.configuration.rolesDigest}, and the roles at ${box.rolesRoot} now digest `)
+      && error.message.endsWith(`; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${state.id} --reason <text>\``));
+    assert.equal(Object.values(box.run().workers).length, 2, 'nothing ran');
+  });
+
+  it('refuses --budget-usd when resuming a run on a runtime that reports no cost, as a new run does', async () => {
+    box.script({ triage: { exit: 2 } });
+    await box.review('codex');
+    await assert.rejects(box.review('codex', { flags: { budgetUsd: 5 } }), (error: unknown) => error instanceof InvalidPolicyError && /--budget-usd does not apply to runtime codex/.test(error.message));
+    await assert.rejects(box.review('codex', { flags: { concurrency: 0 } }), (error: unknown) => error instanceof InvalidPolicyError && /--concurrency must be a whole number from 1 to 16, not 0/.test(error.message));
   });
 
   it('refuses a resumed run whose runtime differs, and two active runs', async () => {

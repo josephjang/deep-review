@@ -10,7 +10,7 @@ import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import { StaleRevisionError } from '../checkpoint/errors.ts';
 import type { Blocker, ReviewConfiguration, ScopeRequest } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { assembleRoles } from '../roles/assemble.ts';
+import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { PreflightError } from '../runtime/errors.ts';
 import { runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
@@ -19,11 +19,11 @@ import type { RuntimeRegistry } from '../runtime/registry.ts';
 import { captureScope } from '../scope/capture.ts';
 import { compareWorktree } from '../scope/compare.ts';
 import { conventionFiles } from './conventions.ts';
-import { ReviewRefusedError } from './errors.ts';
+import { InvalidPolicyError, ReviewRefusedError } from './errors.ts';
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
-import { readPolicy, resolvePolicy, type PolicyFlags } from './policy.ts';
+import { readPolicy, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { runSpendUsd, statisticsOf } from './spend.ts';
@@ -110,23 +110,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   });
   const environment = options.environment ?? process.env;
   const adapter = options.runtimes.get(options.runtime);
-  const executableArgs = [...(options.executableArgs ?? [])];
   const roles = assembleRoles(options.rolesRoot);
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
-  const resolved = resolvePolicy(readPolicy(options.rolesRoot), roles, adapter, options.flags);
-
-  let version: string;
-  try {
-    version = await preflight(adapter, options.executable, executableArgs, environment, options.preflightOptions ?? {});
-  } catch (error) {
-    throw refusalOf(error);
-  }
 
   const { checkpoint } = options;
-  const opened = openRun(checkpoint, options, log);
+  const opened = await openRun({ ...options, log, environment, adapter, roles });
   let state = opened.state;
   const runId = state.id;
-  const { release, scopeRequest } = opened;
+  const { release, scopeRequest, configure } = opened;
   const inFlight = new Map<string, InFlight>();
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
@@ -145,10 +136,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       state = captureScope(checkpoint, runId, scopeRequest);
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files`);
     }
-    if (state.review === null) {
-      const configuration: ReviewConfiguration = { ...resolved, roles: [...resolved.roles], executable: options.executable, executableArgs, version };
-      state = checkpoint.append(runId, state.lastSequence, [{ kind: 'review.configured', version: 1, payload: configuration }]);
-      log(`run ${runId}: configured for ${configuration.runtime} ${version}, models ${configuration.models.strong} and ${configuration.models.fast}`);
+    if (configure !== null) {
+      state = checkpoint.append(runId, state.lastSequence, [{ kind: 'review.configured', version: 1, payload: configure }]);
+      log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}`);
     }
     const configuration = state.review!.configuration;
     // Per invocation: a higher budget is how a budget blocker is cleared, and a smaller concurrency is how a machine is spared.
@@ -266,37 +256,133 @@ async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: 
   return { settled, startedAt: entry.startedAt };
 }
 
+/** What opening a run needs beyond the review's options. */
+interface OpenContext extends ReviewOptions {
+  readonly log: (line: string) => void;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly adapter: RuntimeAdapter;
+  readonly roles: readonly AssembledRole[];
+}
+
+/** An open run: its state, the release of its lock, and what it still needs before its first step. */
+interface OpenedRun {
+  readonly state: RunState;
+  readonly release: ReleaseLock;
+  /** The scope to capture, for a run that has none yet; null for one that captured it. */
+  readonly scopeRequest: ScopeRequest | null;
+  /** The configuration to pin, for a run not yet configured; null for one whose configuration is pinned. */
+  readonly configure: ReviewConfiguration | null;
+}
+
 /**
  * Find the active run or create one, and take its run lock, all under the
  * checkpoint's start lock: two engines started together would otherwise
  * both find no run and create one each. The active run is found once, and
- * everything that depends on it is decided from that one answer: a run
- * with no scope yet, new or left by a capture that failed, gets the
- * command's scope request (resolved before a new run is created, so a
- * refused request creates nothing); a run that has one ignores the
- * command's, and says so. The run lock is released on every way out: the
- * caller's release, the process's exit, and a signal that ends it
- * (design, run lifecycle step 2).
+ * everything that depends on it is decided from that one answer:
+ *
+ * - A run with no scope yet, new or left by a capture that failed, gets
+ *   the command's scope request, resolved before a new run is created so
+ *   a refused request creates nothing; a run that has one ignores the
+ *   command's, and says so.
+ * - A configured run reads its pinned configuration, not the policy file
+ *   or the flags (R3, design: role policy): its roles must still digest
+ *   as pinned, and its pinned executable is what is preflighted. Only
+ *   `--concurrency` and `--budget-usd` apply per invocation. A run not yet
+ *   configured resolves the policy and preflights the command's
+ *   executable, before a new run is created so a refusal creates nothing.
+ *
+ * The run lock is taken before the preflight for a found run, so an
+ * engine running it refuses this one at once, and is released on every
+ * way out: the caller's release, the process's exit, and a signal that
+ * ends it (design, run lifecycle step 2).
  */
-function openRun(checkpoint: Checkpoint, options: ReviewOptions, log: (line: string) => void): { state: RunState; release: ReleaseLock; scopeRequest: ScopeRequest | null } {
+async function openRun(context: OpenContext): Promise<OpenedRun> {
+  const { checkpoint, log } = context;
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
+  let release: ReleaseLock | null = null;
   try {
     const found = findActiveRun(checkpoint);
     // The checkpoint is shared by every worktree of the repository, while a run's scope, worktree checks and workers belong to the worktree it was created in.
-    if (found !== null && !sameDirectory(found.worktree, options.worktree)) {
-      throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${options.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
+    if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
+      throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
     }
-    if (found !== null && found.review !== null && found.review.configuration.runtime !== options.runtime) {
-      throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
+    const pinned = found?.review?.configuration ?? null;
+    if (found !== null && pinned !== null && pinned.runtime !== context.runtime) {
+      throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${pinned.runtime}, not ${context.runtime}; run it with --runtime ${pinned.runtime}, or abandon it`);
     }
-    if (found !== null) log(`run ${found.id}: resuming${found.scope === null ? '; it has no scope yet and captures the one this command names' : ''}`);
-    if (found !== null && found.scope !== null && options.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
-    const scopeRequest = found === null || found.scope === null ? options.scope.request() : null;
-    const state = found ?? checkpoint.createRun({ worktree: options.worktree });
-    if (found === null) log(`run ${state.id}: created`);
-    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)), scopeRequest };
+    if (found !== null) {
+      release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
+      log(`run ${found.id}: resuming${found.scope === null ? '; it has no scope yet and captures the one this command names' : ''}`);
+      if (found.scope !== null && context.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
+    }
+    const scopeRequest = found === null || found.scope === null ? context.scope.request() : null;
+    let configure: ReviewConfiguration | null = null;
+    if (found !== null && pinned !== null) {
+      await resumePinned(found.id, pinned, context);
+    } else {
+      const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
+      const executableArgs = [...(context.executableArgs ?? [])];
+      const version = await qualify(context.adapter, context.executable, executableArgs, context);
+      configure = { ...resolved, roles: [...resolved.roles], executable: context.executable, executableArgs, version };
+    }
+    const state = found ?? checkpoint.createRun({ worktree: context.worktree });
+    if (found === null) {
+      release = releaseOnExit(acquireRunLock(checkpoint.root, state.id));
+      log(`run ${state.id}: created`);
+    }
+    return { state, release: release!, scopeRequest, configure };
+  } catch (error) {
+    release?.();
+    throw error;
   } finally {
     releaseStart();
+  }
+}
+
+/**
+ * Hold a configured run to what it pinned before it resumes: the role
+ * prompts it ran must still digest as pinned, so the report's digest says
+ * which prompts every worker got; the flags that apply per invocation are
+ * checked as a new run's are, and the model flags, which do not apply,
+ * are named as ignored; the pinned executable, not the command's, must
+ * still qualify.
+ */
+async function resumePinned(runId: string, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
+  const digest = rolesDigest(context.roles);
+  if (digest !== pinned.rolesDigest) {
+    throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+  }
+  refuseInvocationFlags(context.adapter, context.flags);
+  if (context.flags.strongModel !== undefined || context.flags.fastModel !== undefined) {
+    context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
+  }
+  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context);
+}
+
+/**
+ * The checks `resolvePolicy` makes of the two flags a resumed run still
+ * takes, with its messages: a budget on a runtime that reports no cost
+ * could never be checked, and a concurrency outside 1 to 16 or a budget
+ * that is not positive is malformed.
+ */
+function refuseInvocationFlags(adapter: RuntimeAdapter, flags: PolicyFlags): void {
+  if (flags.budgetUsd !== undefined && !adapter.capabilities.costInUsd) {
+    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
+  }
+  if (flags.concurrency !== undefined && (!Number.isInteger(flags.concurrency) || flags.concurrency < 1 || flags.concurrency > 16)) {
+    throw new InvalidPolicyError(`--concurrency must be a whole number from 1 to 16, not ${String(flags.concurrency)}`);
+  }
+  if (flags.budgetUsd !== undefined && !(Number.isFinite(flags.budgetUsd) && flags.budgetUsd > 0)) {
+    throw new InvalidPolicyError(`--budget-usd must be a positive number, not ${String(flags.budgetUsd)}`);
+  }
+}
+
+/** Preflight the executable and return its version, or refuse with `runtime-unqualified`. */
+async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: OpenContext): Promise<string> {
+  try {
+    return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
+  } catch (error) {
+    throw refusalOf(error);
   }
 }
 
