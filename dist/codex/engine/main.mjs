@@ -19946,6 +19946,8 @@ var reviewIdentifiersV1 = {
 var candidateIdSchema = reviewIdentifiersV1.candidateId;
 var groupIdSchema = reviewIdentifiersV1.groupId;
 var unitKeySchema = reviewIdentifiersV1.unitKey;
+var recordedTextLengthV1 = 4e3;
+var recordedTextSchema = external_exports.string().min(1).max(recordedTextLengthV1);
 var runCreatedV1 = external_exports.strictObject({
   /** Absolute worktree the run was started from. Informational: the checkpoint is shared by every worktree. */
   worktree: external_exports.string().min(1)
@@ -20092,7 +20094,7 @@ var phaseStartedV1 = external_exports.strictObject({
 });
 var blockerSchema = external_exports.strictObject({
   code: recordedBlockerCodeSchema,
-  detail: external_exports.string().min(1).max(4e3),
+  detail: recordedTextSchema,
   action: external_exports.string().min(1).max(1e3)
 });
 var phaseFinishedV1 = external_exports.strictObject({
@@ -20151,11 +20153,11 @@ var attemptFailedV1 = external_exports.strictObject({
   phase: phaseSchema,
   key: unitKeySchema,
   workerId: external_exports.uuid(),
-  reason: external_exports.string().min(1).max(4e3)
+  reason: recordedTextSchema
 });
 var angleFailedV1 = external_exports.strictObject({
   angle: finderAngleSchema,
-  reason: external_exports.string().min(1).max(4e3)
+  reason: recordedTextSchema
 });
 var deduplicationRecordedV1 = external_exports.strictObject({
   phase: deduplicationPhaseSchema,
@@ -20179,7 +20181,7 @@ var verdictsRecordedV1 = external_exports.strictObject({
 var groupUnverifiedV1 = external_exports.strictObject({
   phase: verificationPhaseSchema,
   groupId: groupIdSchema,
-  reason: external_exports.string().min(1).max(4e3)
+  reason: recordedTextSchema
 });
 var rankedFindingSchema = external_exports.strictObject({
   id: candidateIdSchema,
