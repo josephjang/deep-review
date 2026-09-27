@@ -2,7 +2,7 @@ import type { Access, DeniedTool, Effort } from '../checkpoint/events.ts';
 import { maxDecodeBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { pinVariables, spellingsOf, withoutVariables } from './environment.ts';
-import { InheritedOverrideError } from './errors.ts';
+import { InheritedOverrideError, InvalidInvocationError } from './errors.ts';
 import { isObject } from './json.ts';
 
 /** Every flag the command below uses; the preflight requires each in `--help` (R4). */
@@ -57,6 +57,21 @@ export const claudeSessionMarkers = [
 /** How long a denial's command or path may be on the receipt, in UTF-16 code units. */
 const maxDenialDetail = 300;
 
+/**
+ * The longest command line Windows starts a process with, in UTF-16 code
+ * units: CreateProcess allows 32767 including the terminating NUL, and a
+ * longer one fails the spawn with ENAMETOOLONG.
+ */
+export const windowsCommandLineLimit = 32_766;
+
+/**
+ * The longest single argument a POSIX system is held to, in UTF-8 bytes:
+ * Linux's MAX_ARG_STRLEN is 128 KiB including the terminating NUL. macOS
+ * has no per-argument limit, only a larger total, but the same bound holds
+ * there so an invocation accepted on one POSIX system is accepted on all.
+ */
+export const posixArgumentLimit = 128 * 1024 - 1;
+
 /** The Claude Code tools for the two permission axes (TD3): reading always, the shell and editing on request. */
 export function claudeTools(access: Access, shell: boolean): string[] {
   return ['Read', 'Glob', 'Grep', ...(shell ? ['Bash'] : []), ...(access === 'edit' ? ['Edit', 'Write'] : [])];
@@ -84,33 +99,86 @@ export function claudeEnvironment(environment: NodeJS.ProcessEnv, effort: Effort
   );
 }
 
+/**
+ * How many UTF-16 code units one argument takes on a Windows command line,
+ * quoted the way libuv quotes it for CreateProcess: an empty argument is
+ * `""`; one without a space, tab or quote is verbatim; otherwise it is
+ * wrapped in quotes, each quote is escaped with a backslash, and each run
+ * of backslashes before a quote or the closing quote is doubled.
+ */
+export function windowsArgumentLength(argument: string): number {
+  if (argument === '') return 2;
+  if (!/[ \t"]/.test(argument)) return argument.length;
+  let length = argument.length + 2;
+  // Walking backwards, a backslash is doubled while it still precedes a quote or the closing quote.
+  let beforeQuote = true;
+  for (let index = argument.length - 1; index >= 0; index--) {
+    const character = argument[index];
+    if (character === '"') {
+      length += 1;
+      beforeQuote = true;
+    } else if (character === '\\') {
+      if (beforeQuote) length += 1;
+    } else {
+      beforeQuote = false;
+    }
+  }
+  return length;
+}
+
+/**
+ * Refuse, before anything is recorded or run, a command line the platform
+ * would not start. The compiled output schema travels as one argument, so a
+ * large schema is what reaches the limit; left alone, the spawn would fail
+ * after the launch is on the ledger. `argv` is the whole command line, the
+ * executable first.
+ */
+export function refuseOversizedCommandLine(platform: NodeJS.Platform, argv: readonly string[]): void {
+  const remedy = 'the compiled output schema is passed on the command line, so a smaller output schema is the remedy';
+  if (platform === 'win32') {
+    const length = argv.reduce((total, argument) => total + windowsArgumentLength(argument), argv.length - 1);
+    if (length > windowsCommandLineLimit) {
+      throw new InvalidInvocationError(`The Claude Code command line would be ${length} characters long, over the ${windowsCommandLineLimit} Windows allows; ${remedy}`);
+    }
+    return;
+  }
+  for (const [index, argument] of argv.entries()) {
+    const bytes = Buffer.byteLength(argument, 'utf8');
+    if (bytes > posixArgumentLimit) {
+      const previous = index > 0 ? argv[index - 1] : undefined;
+      const flag = previous?.startsWith('--') === true ? `the value of ${previous}` : `argument ${index}`;
+      throw new InvalidInvocationError(`On the Claude Code command line, ${flag} is ${bytes} bytes, over the ${posixArgumentLimit} one argument may have; ${remedy}`);
+    }
+  }
+}
+
 export function claudeCommand(invocation: Invocation, plan: LaunchPlan): WorkerCommand {
   if (plan.sessionId === null) throw new Error('A Claude Code worker needs its session id before launch');
   const tools = claudeTools(invocation.access, invocation.shell).join(',');
-  return {
-    environment: claudeEnvironment(plan.environment, invocation.effort, plan.platform),
-    args: [
-      '--print',
-      '--output-format', 'json',
-      '--model', invocation.model,
-      '--effort', invocation.effort,
-      // A fresh worker runs under the id the ledger already holds; a
-      // continuation keeps the id of the session it resumes.
-      ...(plan.resume === null ? ['--session-id', plan.sessionId] : ['--resume', plan.resume]),
-      // Without this the CLI denies every write outside the worktree, including the scratch directory the prompt names.
-      ...(plan.scratch === null ? [] : ['--add-dir', plan.scratch]),
-      ...(invocation.budgetUsd === undefined ? [] : ['--max-budget-usd', String(invocation.budgetUsd)]),
-      '--tools', tools,
-      '--allowedTools', tools,
-      '--permission-mode', 'dontAsk',
-      '--disable-slash-commands',
-      '--strict-mcp-config',
-      // No user, project or local settings, no CLAUDE.md, no auto memory: the prompt is the whole instruction.
-      '--setting-sources', '',
-      '--settings', JSON.stringify({ autoMemoryEnabled: false, claudeMdExcludes: ['**'] }),
-      '--json-schema', plan.schema.text,
-    ],
-  };
+  const environment = claudeEnvironment(plan.environment, invocation.effort, plan.platform);
+  const args = [
+    '--print',
+    '--output-format', 'json',
+    '--model', invocation.model,
+    '--effort', invocation.effort,
+    // A fresh worker runs under the id the ledger already holds; a
+    // continuation keeps the id of the session it resumes.
+    ...(plan.resume === null ? ['--session-id', plan.sessionId] : ['--resume', plan.resume]),
+    // Without this the CLI denies every write outside the worktree, including the scratch directory the prompt names.
+    ...(plan.scratch === null ? [] : ['--add-dir', plan.scratch]),
+    ...(invocation.budgetUsd === undefined ? [] : ['--max-budget-usd', String(invocation.budgetUsd)]),
+    '--tools', tools,
+    '--allowedTools', tools,
+    '--permission-mode', 'dontAsk',
+    '--disable-slash-commands',
+    '--strict-mcp-config',
+    // No user, project or local settings, no CLAUDE.md, no auto memory: the prompt is the whole instruction.
+    '--setting-sources', '',
+    '--settings', JSON.stringify({ autoMemoryEnabled: false, claudeMdExcludes: ['**'] }),
+    '--json-schema', plan.schema.text,
+  ];
+  refuseOversizedCommandLine(plan.platform, [invocation.executable, ...invocation.executableArgs, ...args]);
+  return { environment, args };
 }
 
 /** Whether a UTF-16 code unit is the first half of a surrogate pair. */
