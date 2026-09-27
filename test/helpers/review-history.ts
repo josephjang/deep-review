@@ -186,8 +186,8 @@ export const ranking = [
   { id: 'SWEEP-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one improvement' },
 ];
 export const statistics = {
-  phases: phases.map((phase) => ({ phase, workers: 1, seconds: 2.5, costUsd: 0.5, inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 })),
-  total: { workers: 9, seconds: 22.5, costUsd: 4.5, inputTokens: 900, cachedInputTokens: 180, outputTokens: 90 },
+  phases: phases.map((phase) => ({ phase, workers: 1, seconds: 2.5, costUsd: 0.5, costUnreported: phase === 'finders' ? 1 : 0, inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 })),
+  total: { workers: 9, seconds: 22.5, costUsd: 4.5, costUnreported: 1, inputTokens: 900, cachedInputTokens: 180, outputTokens: 90 },
   budgetApplied: true,
 };
 

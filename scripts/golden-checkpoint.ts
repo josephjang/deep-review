@@ -273,11 +273,13 @@ try {
     ] });
   });
   review.phase('report', () => {
-    const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+    // The timed-out and the lost finder, and the two failed verifiers, reported no cost.
+    const spend = (workers: number, costUnreported = 0) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
     const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 2, 'merge-rank': 1, report: 0 };
+    const unreportedPerPhase: Partial<Record<Phase, number>> = { finders: 2, 'sweep-verification': 2 };
     review.add('report.written', {
       report: checkpoint.evidence.put('# Deep review\n\nfixture report\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]) })), total: spend(16), budgetApplied: true },
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(16, 4), budgetApplied: true },
     });
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');

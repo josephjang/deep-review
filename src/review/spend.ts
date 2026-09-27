@@ -1,8 +1,14 @@
 /**
  * What a run spent (R6, R9 of the read-only review): each finished worker's
  * usage through the runtime's neutral summary, summed over the run and per
- * phase, and the wall time its workers ran, with the phase read from the
- * worker's launch label.
+ * phase, the wall time its workers ran, and how many workers spent money no
+ * summary reports, with the phase read from the worker's launch label.
+ *
+ * A worker that timed out or failed before the runtime printed its usage,
+ * and a worker lost with its engine, was billed but reports no cost. Its
+ * cost is unknowable, so it is left out of every sum and counted instead,
+ * and the report says the run cost more than its totals show. The budget
+ * check sums the reported costs alone (the design's budget check, R6).
  */
 import type { Spend } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
@@ -11,10 +17,15 @@ import { parseUnitLabel } from './labels.ts';
 import { phases, type Phase } from './vocabulary.ts';
 
 type Finished = Extract<WorkerState, { status: 'finished' }>;
+type Lost = Extract<WorkerState, { status: 'lost' }>;
+/** A worker that is over: finished with its receipt, or lost with its engine. */
+export type SettledWorker = Finished | Lost;
 
-/** The finished workers of a run, in ledger order. */
-export function finishedWorkers(state: RunState): Finished[] {
-  return Object.values(state.workers).filter((worker): worker is Finished => worker.status === 'finished');
+const isFinished = (worker: WorkerState): worker is Finished => worker.status === 'finished';
+
+/** The workers of a run that are over, finished or lost, in ledger order; a running worker has spent nothing the ledger can know yet. */
+export function settledWorkers(state: RunState): SettledWorker[] {
+  return Object.values(state.workers).filter((worker): worker is SettledWorker => worker.status !== 'running');
 }
 
 /** The neutral summary of a finished worker's usage; a usage that is not JSON, which a decoder never writes, summarizes as nothing. */
@@ -66,27 +77,38 @@ function wallSeconds(workers: readonly Finished[]): number {
   return total / 1000;
 }
 
-/** What a set of finished workers spent together. */
-export function spendOf(workers: readonly Finished[], adapter: Pick<RuntimeAdapter, 'summarizeUsage'>): Spend {
-  const summaries = workers.map((worker) => usageOf(worker, adapter));
+/**
+ * What a set of settled workers spent together. The finished ones give the
+ * count, the wall time and the sums; a lost one only adds to the count of
+ * workers whose cost is unreported, since nothing observed how it ended.
+ */
+export function spendOf(workers: readonly SettledWorker[], adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): Spend {
+  const finished = workers.filter(isFinished);
+  const summaries = finished.map((worker) => usageOf(worker, adapter));
+  const lost = workers.length - finished.length;
   return {
-    workers: workers.length,
-    seconds: Math.round(wallSeconds(workers) * 10) / 10,
+    workers: finished.length,
+    seconds: Math.round(wallSeconds(finished) * 10) / 10,
     costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
+    costUnreported: adapter.capabilities.costInUsd ? lost + summaries.filter((summary) => summary.costUsd === null).length : null,
     inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
     cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
     outputTokens: sumReported(summaries.map((summary) => summary.outputTokens)),
   };
 }
 
-/** The run's spend in USD so far, for the budget check: the costs of every finished worker that reported one, or null when none did. */
-export function runSpendUsd(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage'>): number | null {
-  return spendOf(finishedWorkers(state), adapter).costUsd;
+/**
+ * The run's spend in USD so far, for the budget check: the costs of every
+ * finished worker that reported one, or null when none did. A worker whose
+ * cost is unreported adds nothing here; the report counts it.
+ */
+export function runSpendUsd(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): number | null {
+  return spendOf(settledWorkers(state), adapter).costUsd;
 }
 
-/** The statistics the report prints: one row per phase, from the workers whose label names it, and a total over every finished worker. */
+/** The statistics the report prints: one row per phase, from the workers whose label names it, and a total over every settled worker. */
 export function statisticsOf(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): { phases: (Spend & { phase: Phase })[]; total: Spend; budgetApplied: boolean } {
-  const finished = finishedWorkers(state);
-  const byPhase = phases.map((phase) => ({ phase, ...spendOf(finished.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
-  return { phases: byPhase, total: spendOf(finished, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.configuration.runBudgetUsd ?? null) !== null };
+  const settled = settledWorkers(state);
+  const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
+  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.configuration.runBudgetUsd ?? null) !== null };
 }
