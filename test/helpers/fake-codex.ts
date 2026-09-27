@@ -2,11 +2,10 @@
 // FAKE_OUTPUT is the final message of the default successful turn, written
 // to --output-last-message unless FAKE_FINAL says otherwise; FAKE_FINAL set
 // to an empty string writes no final message file. A fresh thread is
-// FAKE_THREAD or a fixed id; a continuation reports the id it resumes.
+// FAKE_THREAD or freshThread from fake-runtime.ts; a continuation reports
+// the id it resumes.
 import { writeFileSync } from 'node:fs';
-import { answer, environment, option, printHelp, readStdin, record } from './fake-runtime.ts';
-
-const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
+import { answer, environment, freshThread, option, printHelp, readStdin, record } from './fake-runtime.ts';
 
 const argv = process.argv.slice(2);
 if (argv[0] === '--version') {
