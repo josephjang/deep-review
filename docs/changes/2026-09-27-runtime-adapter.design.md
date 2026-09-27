@@ -444,8 +444,16 @@ against the commits of this element up to the smoke script.
 - `npm run check`: lint, typecheck and every test pass, with 3 skipped
   (symlink cases that need a privilege this Windows account lacks,
   skipped before this element too). `npm run verify`: both artifacts
-  match `dist/`. Continuous integration on Windows, macOS and Linux runs
-  when the branch is pushed and is not yet recorded here.
+  match `dist/`.
+- Continuous integration, pull request #1: run 36283803500 at `aa9497d`
+  passed `npm run check` and `npm run verify` on ubuntu-latest,
+  windows-latest and macos-latest, so the POSIX process-group kill, the
+  grandchild tests and the four-launcher test pass on Linux and macOS
+  too. The run before it, 36283092466, failed one assertion on macOS
+  only: the test sandbox's temporary directory was under `/var`, a
+  symlink to `/private/var`, and a worker's own cwd reports the resolved
+  path. The sandbox now canonicalizes its directory, as `locateCheckpoint`
+  does for a real worktree; the launcher did not change.
 - Tests were checked to fail when the behavior they guard is removed:
   killing only the root at a timeout fails both grandchild tests (which
   is why the fake's grandchild is detached on Windows: libuv's job object
