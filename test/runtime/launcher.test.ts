@@ -7,13 +7,13 @@ import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, UnknownRunError } from '../../src/checkpoint/errors.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
-import type { RuntimeAdapter } from '../../src/runtime/adapter.ts';
+import { maxDecodeBytes, maxLineBytes, type RuntimeAdapter } from '../../src/runtime/adapter.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { InheritedOverrideError, InvalidInvocationError, UnknownRuntimeError, UnsupportedCapabilityError } from '../../src/runtime/errors.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
 import { parseInvocation } from '../../src/runtime/contract.ts';
-import { maxDecodeBytes, runWorker, withPinnedSession, withUnrecordableSessions, workerVerdict, type Verdict, type WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { runWorker, withPinnedSession, withUnrecordableSessions, workerVerdict, type Verdict, type WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { notStarted, type ProcessResult } from '../../src/runtime/process.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
 import { answerSchema, baseEnvironment, fixedIds, freshThread, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
@@ -209,6 +209,17 @@ describe('runWorker', () => {
       assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
     });
 
+    it('judges a stream longer than the decode cap by its answer, reading it one line at a time', async () => {
+      // One command printed at least as much as the cap on stdout; every event of the turn is still read.
+      const receipt = await box.run(box.codex(), { FAKE_COMMAND_OUTPUT: String(maxDecodeBytes) });
+      assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
+      assert.deepEqual(receipt.output, { answer: 'ok' });
+      assert.deepEqual(receipt.runtime.sessionIds, [freshThread]);
+      assert.deepEqual(receipt.runtime.usage, { input_tokens: 11, cached_input_tokens: 0, output_tokens: 4 });
+      assert.ok(receipt.evidence.stdout.bytes > maxDecodeBytes);
+      assertEvidence(receipt);
+    });
+
     it('kills the worker and its process tree at the timeout', async () => {
       const pidFile = join(box.directory, 'grandchild.pid');
       const pending = box.run(box.codex({ timeoutMs: hangTimeoutMs }), { FAKE_HANG: pidFile });
@@ -240,19 +251,20 @@ describe('runWorker', () => {
       });
     }
 
-    it('refuses to decode a stream above 16 MiB and still freezes it', async () => {
+    it('decodes a stream above the decode cap line by line, judging its filler as a malformed line, and still freezes it', async () => {
       const receipt = await box.run(box.codex(), { FAKE_HUGE: String(maxDecodeBytes + 1) });
       assert.equal(receipt.outcome, 'failed');
-      assert.match(receipt.error ?? '', new RegExp(`stdout is ${String(maxDecodeBytes + 1)} bytes, above the ${String(maxDecodeBytes)}`));
+      assert.match(receipt.error ?? '', /^Codex printed line 1 that is not JSON/);
       assert.equal(receipt.evidence.stdout.bytes, maxDecodeBytes + 1);
       box.checkpoint.evidence.verify(receipt.evidence.stdout);
     });
 
-    it('still records the thread of a stream too long to decode, so the session can be continued', async () => {
+    it('still records the thread of a stream with a line too long to decode, so the session can be continued', async () => {
       const started = `${JSON.stringify({ type: 'thread.started', thread_id: '{session}' })}\n`;
-      const receipt = await box.run(box.codex(), { FAKE_STDOUT: started, FAKE_HUGE: String(maxDecodeBytes + 1) });
+      const receipt = await box.run(box.codex(), { FAKE_STDOUT: started, FAKE_HUGE: String(maxLineBytes + 1) });
       assert.equal(receipt.outcome, 'failed');
-      assert.match(receipt.error ?? '', new RegExp(`stdout is ${String(Buffer.byteLength(started.replace('{session}', freshThread)) + maxDecodeBytes + 1)} bytes, above the ${String(maxDecodeBytes)}`));
+      assert.equal(receipt.error, `Codex printed line 2 that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`);
+      assert.equal(receipt.evidence.stdout.bytes, Buffer.byteLength(started.replace('{session}', freshThread)) + maxLineBytes + 1);
       assert.deepEqual(receipt.runtime.sessionIds, [freshThread]);
       const worker = box.worker(receipt.workerId);
       assert.deepEqual(worker.status === 'finished' && worker.finish.sessionIds, [freshThread]);
@@ -549,6 +561,7 @@ describe('runWorker', () => {
         environment: plan.environment,
       }),
       decode: (_invocation, _plan, outputs) => {
+        if (outputs.stdout === null) return { sessionIds: [], usage: null, denials: null, result: { kind: 'failed', error: 'stdout is too long to read whole' } };
         try {
           const parsed = JSON.parse(outputs.stdout) as { session: string; answer: string };
           return { sessionIds: [parsed.session], usage: null, denials: null, result: { kind: 'answer', value: { answer: parsed.answer } } };
@@ -619,6 +632,15 @@ describe('runWorker', () => {
       assert.equal(receipt.denials, null);
       const worker = box.worker(receipt.workerId);
       assert.equal(worker.status === 'finished' && worker.finish.denials, null);
+    });
+
+    it('refuses to decode a Claude Code stdout above the decode cap, freezes it, and keeps the pinned session', async () => {
+      const receipt = await box.run(box.claude(), { FAKE_HUGE: String(maxDecodeBytes + 1) });
+      assert.equal(receipt.outcome, 'failed');
+      assert.equal(receipt.error, `Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
+      assert.equal(receipt.evidence.stdout.bytes, maxDecodeBytes + 1);
+      assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
+      assertEvidence(receipt);
     });
 
     it('refuses to decode a final message above 16 MiB, freezes it, and keeps the session', async () => {

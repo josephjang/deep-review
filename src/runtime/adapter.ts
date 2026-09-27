@@ -65,9 +65,50 @@ export interface WorkerCommand {
   readonly environment: NodeJS.ProcessEnv;
 }
 
+/**
+ * The most bytes of stderr, of a final message, or of stdout read whole, that
+ * the launcher decodes as one text; above it the output is not decoded, but
+ * it is still frozen as evidence. stdout read a line at a time has no such
+ * limit; only each of its lines does, `maxLineBytes`.
+ */
+export const maxDecodeBytes = 16 * 1024 * 1024;
+
+/**
+ * The most bytes of one stdout line decoded as text. Above `maxDecodeBytes`,
+ * because a single Codex event can carry all a command printed; bounded,
+ * because a line is held as a string and then parsed, and a string has a
+ * size limit of its own.
+ */
+export const maxLineBytes = 64 * 1024 * 1024;
+
+/**
+ * The lines of `bytes`, decoded as UTF-8 one at a time while they are
+ * iterated, and again on every iteration, so no more than one line is held
+ * as text at once. A line ends at a line feed, which is not part of it; the
+ * bytes after the last line feed are one more line when there are any; and
+ * a carriage return that ends a line is dropped too. A line longer than
+ * `maxBytes` bytes, not counting what is dropped, is null, never decoded.
+ */
+export function outputLines(bytes: Buffer, maxBytes: number = maxLineBytes): Iterable<string | null> {
+  return {
+    *[Symbol.iterator]() {
+      for (let start = 0; start < bytes.length; ) {
+        const newline = bytes.indexOf(0x0a, start);
+        const end = newline === -1 ? bytes.length : newline;
+        const stop = end > start && bytes[end - 1] === 0x0d ? end - 1 : end;
+        yield stop - start > maxBytes ? null : bytes.toString('utf8', start, stop);
+        start = end + 1;
+      }
+    },
+  };
+}
+
 /** What a finished worker left behind, as text. */
 export interface WorkerOutputs {
-  readonly stdout: string;
+  /** All of stdout as one text, or null when it is longer than `maxDecodeBytes`, which `stdoutLines` still reads. */
+  readonly stdout: string | null;
+  /** stdout a line at a time, as `outputLines` gives it: re-iterable, and a line longer than `maxLineBytes` is null. */
+  readonly stdoutLines: Iterable<string | null>;
   readonly stderr: string;
   /** The file at `finalMessageFile`, or null when the runtime did not write it. */
   readonly finalMessage: string | null;

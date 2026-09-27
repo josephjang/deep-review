@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
-import type { Decoded, LaunchPlan } from '../../src/runtime/adapter.ts';
+import { maxDecodeBytes, outputLines, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
 import { claudeAdapter, claudeEnvironment, claudeFlags, claudeTools, thinkingOverrides } from '../../src/runtime/claude.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
 import { InheritedOverrideError } from '../../src/runtime/errors.ts';
+import { textOutputs } from '../helpers/outputs.ts';
 
 const session = '11111111-2222-4333-8444-555555555555';
 const schema = z.strictObject({ answer: z.string() });
@@ -162,7 +163,7 @@ describe('claude decode', () => {
       ...change,
     });
   const decode = (stdout: string, change: Partial<InvocationInput> = {}, planChange: Partial<LaunchPlan> = {}): Decoded =>
-    claudeAdapter.decode(invocation(change), plan(planChange), { stdout, stderr: '', finalMessage: null });
+    claudeAdapter.decode(invocation(change), plan(planChange), textOutputs(stdout));
   /** The error of a failed result; an answer or a budget stop fails the assertion. */
   const failure = (decoded: Decoded): string => {
     assert.equal(decoded.result.kind, 'failed');
@@ -255,6 +256,16 @@ describe('claude decode', () => {
       assert.equal(decoded.usage, null);
       assert.equal(decoded.denials, null);
     }
+  });
+
+  it('fails a stdout above the decode cap by name, since the envelope is read whole, even when its lines hold one', () => {
+    // The launcher hands over no text above the cap; a complete envelope in the lines is not read.
+    const outputs = { stdout: null, stdoutLines: outputLines(Buffer.from(envelope())), stderr: '', finalMessage: null };
+    const decoded = claudeAdapter.decode(invocation(), plan(), outputs);
+    assert.equal(failure(decoded), `Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
+    assert.deepEqual(decoded.sessionIds, []);
+    assert.equal(decoded.usage, null);
+    assert.equal(decoded.denials, null);
   });
 
   it('expects the resumed session on a continuation', () => {
