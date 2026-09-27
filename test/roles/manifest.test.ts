@@ -24,6 +24,20 @@ describe('parseRoleManifest', () => {
   rejects('rejects a role that names one fragment twice', { schemaVersion: 1, roles: { twice: ['a.md', 'b.md', 'a.md'] } }, /names a\.md twice[\s\S]*twice/);
   rejects('rejects a role key that starts with a digit', { schemaVersion: 1, roles: { '1st': ['a.md'] } }, /role key/);
   rejects('rejects a role key with a space', { schemaVersion: 1, roles: { 'has space': ['a.md'] } }, /role key/);
+  rejects(
+    'rejects role keys that differ only by case, naming both',
+    { schemaVersion: 1, roles: { 'finder-SCAN': ['a.md'], verifier: ['b.md'], 'finder-scan': ['c.md'] } },
+    /role keys finder-SCAN and finder-scan differ only by case[^\n]*\n[^\n]*roles\["finder-scan"\]/,
+  );
+  rejects(
+    'rejects every key that collides by case with an earlier one',
+    { schemaVersion: 1, roles: { a: ['a.md'], A: ['b.md'], B: ['c.md'], b: ['d.md'] } },
+    /role keys a and A differ only by case[\s\S]*role keys B and b differ only by case/,
+  );
+  it('accepts role keys that share a spelling but differ by more than case', () => {
+    const manifest = parseRoleManifest({ schemaVersion: 1, roles: { 'finder-SCAN': ['a.md'], 'finder-SCAN2': ['b.md'], finderSCAN: ['c.md'] } });
+    assert.deepEqual(Object.keys(manifest.roles), ['finder-SCAN', 'finder-SCAN2', 'finderSCAN']);
+  });
   rejects('rejects a fragment name with a parent directory part', { schemaVersion: 1, roles: { r: ['../a.md'] } }, /fragment name/);
   rejects('rejects a fragment name with a slash', { schemaVersion: 1, roles: { r: ['sub/a.md'] } }, /fragment name/);
   rejects('rejects a fragment name in upper case', { schemaVersion: 1, roles: { r: ['Lead.md'] } }, /fragment name/);
