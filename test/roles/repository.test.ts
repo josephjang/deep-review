@@ -46,7 +46,8 @@ describe('the repository\'s roles/', () => {
    * runtime has (R6 of the role prompts proposal): Claude Code's subagents
    * and the `Agent` tool that spawns them, its `AskUserQuestion` tool, its
    * `Grep` tool, the "single message block" that runs tool calls in
-   * parallel, and the names of the prompt-only skill's subagents.
+   * parallel (and "the same block" that pointed back at it), and the names
+   * of the prompt-only skill's subagents. "scope block" is not one.
    */
   const runtimeWording: readonly [RegExp, string][] = [
     [/\bsubagents?\b/i, 'subagent'],
@@ -57,7 +58,7 @@ describe('the repository\'s roles/', () => {
     [/\bagents?\b/i, 'agent, meaning a worker'],
     [/\bGrep\b/, 'the Grep tool'],
     [/tier table/, 'the tier table'],
-    [/message block/, 'a message block'],
+    [/\b(message|same)\s+block\b/i, 'a message block'],
     [/deep-review-(lead|fixer|auditor|analyst|scout|conventions|driver)\b/, 'a subagent name'],
     [/deep-review skill/, 'the deep-review skill as the worker\'s employer'],
   ];
