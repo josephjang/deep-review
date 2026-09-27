@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
-import { acquireRunLock, lockHolder, lockPath, releaseOnExit, unwrittenLockGraceMs } from '../../src/review/lock.ts';
+import { acquireRunLock, acquireStartLock, lockHolder, lockPath, releaseOnExit, startLockPath, unwrittenLockGraceMs } from '../../src/review/lock.ts';
 import { until } from '../helpers/launcher.ts';
 
 /** A pid no process has: above the largest pid Linux, macOS and Windows hand out. */
@@ -59,6 +59,19 @@ describe('the run lock', () => {
     writeFileSync(path, '');
     assert.throws(() => acquireRunLock(root, 'r1'), lockHeld(/another engine is taking the lock of run r1/));
     assert.equal(lockHolder(path), null, 'the young lock is left alone');
+  });
+
+  it('takes the start lock apart from any run lock, refuses it while a live engine holds it, and replaces it once that engine is gone', () => {
+    const run = acquireRunLock(root, 'r1', process.ppid);
+    const start = acquireStartLock(root, process.pid);
+    assert.equal(lockHolder(startLockPath(root)), process.pid, 'a run lock held elsewhere does not stop the start lock');
+    assert.throws(() => acquireStartLock(root, deadPid), lockHeld(new RegExp(`^engine ${String(process.pid)} is starting or ending a run in this repository`)));
+    start();
+    run();
+    assert.equal(lockHolder(startLockPath(root)), null);
+    writeFileSync(startLockPath(root), `${String(deadPid)}\n`);
+    acquireStartLock(root)();
+    assert.equal(lockHolder(startLockPath(root)), null);
   });
 });
 

@@ -3,7 +3,9 @@
  * checkpoint, holding the process id of the engine that runs the run. Two
  * engines would both plan the same step and launch it twice before either
  * append failed, so the second is refused while the first's process lives;
- * a lock whose process is gone is replaced.
+ * a lock whose process is gone is replaced. A second lock, the start lock,
+ * covers finding or creating the run until its run lock is taken, so two
+ * engines started together cannot both find no run and create one each.
  */
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs';
 import { constants } from 'node:os';
@@ -20,6 +22,11 @@ export const locksDirectoryName = 'runs';
  * file, so a younger one may be a lock another engine is taking right now.
  */
 export const unwrittenLockGraceMs = 10_000;
+
+/** Where the start lock lives: at the checkpoint root, where no run's lock can be named like it. */
+export function startLockPath(checkpointRoot: string): string {
+  return join(checkpointRoot, 'start.lock');
+}
 
 /** Where a run's lock lives. */
 export function lockPath(checkpointRoot: string, runId: string): string {
@@ -62,23 +69,38 @@ export function lockHolder(path: string): number | null {
 /** What holding a lock gives back: the function that releases it. */
 export type ReleaseLock = () => void;
 
+/** Take the run's lock for this process, or refuse with the `lock-held` blocker while another live process holds it (see `acquireLock`). */
+export function acquireRunLock(checkpointRoot: string, runId: string, pid: number = process.pid): ReleaseLock {
+  mkdirSync(join(checkpointRoot, locksDirectoryName), { recursive: true });
+  return acquireLock(lockPath(checkpointRoot, runId), pid, `is running run ${runId}`, `the lock of run ${runId}`);
+}
+
 /**
- * Take the run's lock for this process, or refuse with the `lock-held`
- * blocker while another live process holds it. A lock left by a process
+ * Take the checkpoint's start lock for this process, held while a command
+ * finds or creates the run it acts on and takes that run's lock, or refuse
+ * with the `lock-held` blocker while another live process holds it.
+ */
+export function acquireStartLock(checkpointRoot: string, pid: number = process.pid): ReleaseLock {
+  mkdirSync(checkpointRoot, { recursive: true });
+  return acquireLock(startLockPath(checkpointRoot), pid, 'is starting or ending a run in this repository', 'the start lock');
+}
+
+/**
+ * Take the lock at `path` for `pid`, or refuse with the `lock-held`
+ * blocker while another live process holds it; `holding` says what the
+ * holder is doing and `name` names the lock. A lock left by a process
  * that is gone is replaced, and so is one that holds no pid once it is
  * older than `unwrittenLockGraceMs`; a younger one may be another engine's
  * lock in the instant between its create and its write, and is refused.
  * The lock is created exclusively, so two engines racing to create it
  * cannot both take it.
  */
-export function acquireRunLock(checkpointRoot: string, runId: string, pid: number = process.pid): ReleaseLock {
-  const path = lockPath(checkpointRoot, runId);
-  const taking = (): ReviewRefusedError => new ReviewRefusedError(`another engine is taking the lock of run ${runId} (${path}); ${blockerActions['lock-held']}`, 'lock-held');
-  mkdirSync(join(checkpointRoot, locksDirectoryName), { recursive: true });
+function acquireLock(path: string, pid: number, holding: string, name: string): ReleaseLock {
+  const taking = (): ReviewRefusedError => new ReviewRefusedError(`another engine is taking ${name} (${path}); ${blockerActions['lock-held']}`, 'lock-held');
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const lock = readLock(path);
     if (lock.kind === 'held' && lock.pid !== pid && processAlive(lock.pid)) {
-      throw new ReviewRefusedError(`engine ${String(lock.pid)} is running run ${runId} (lock ${path}); ${blockerActions['lock-held']}`, 'lock-held');
+      throw new ReviewRefusedError(`engine ${String(lock.pid)} ${holding} (lock ${path}); ${blockerActions['lock-held']}`, 'lock-held');
     }
     if (lock.kind === 'no-pid' && lock.ageMs < unwrittenLockGraceMs) throw taking();
     if (lock.kind !== 'absent') rmSync(path, { force: true });

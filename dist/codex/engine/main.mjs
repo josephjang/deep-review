@@ -22948,6 +22948,9 @@ import { constants } from "node:os";
 import { join as join13 } from "node:path";
 var locksDirectoryName = "runs";
 var unwrittenLockGraceMs = 1e4;
+function startLockPath(checkpointRoot) {
+  return join13(checkpointRoot, "start.lock");
+}
 function lockPath(checkpointRoot, runId) {
   return join13(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
@@ -22973,13 +22976,19 @@ function readLock(path) {
   return text2.trim() !== "" && Number.isSafeInteger(pid) && pid > 0 ? { kind: "held", pid } : { kind: "no-pid", ageMs: Date.now() - modifiedMs };
 }
 function acquireRunLock(checkpointRoot, runId, pid = process.pid) {
-  const path = lockPath(checkpointRoot, runId);
-  const taking = () => new ReviewRefusedError(`another engine is taking the lock of run ${runId} (${path}); ${blockerActions["lock-held"]}`, "lock-held");
   mkdirSync4(join13(checkpointRoot, locksDirectoryName), { recursive: true });
+  return acquireLock(lockPath(checkpointRoot, runId), pid, `is running run ${runId}`, `the lock of run ${runId}`);
+}
+function acquireStartLock(checkpointRoot, pid = process.pid) {
+  mkdirSync4(checkpointRoot, { recursive: true });
+  return acquireLock(startLockPath(checkpointRoot), pid, "is starting or ending a run in this repository", "the start lock");
+}
+function acquireLock(path, pid, holding, name) {
+  const taking = () => new ReviewRefusedError(`another engine is taking ${name} (${path}); ${blockerActions["lock-held"]}`, "lock-held");
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const lock = readLock(path);
     if (lock.kind === "held" && lock.pid !== pid && processAlive(lock.pid)) {
-      throw new ReviewRefusedError(`engine ${String(lock.pid)} is running run ${runId} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
+      throw new ReviewRefusedError(`engine ${String(lock.pid)} ${holding} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
     }
     if (lock.kind === "no-pid" && lock.ageMs < unwrittenLockGraceMs) throw taking();
     if (lock.kind !== "absent") rmSync2(path, { force: true });
@@ -24095,18 +24104,10 @@ async function runReview(options2) {
     throw refusalOf(error62);
   }
   const { checkpoint } = options2;
-  let state = findActiveRun(checkpoint);
-  if (state !== null && state.review !== null && state.review.configuration.runtime !== options2.runtime) {
-    throw new ReviewRefusedError(`run ${state.id} is pinned to runtime ${state.review.configuration.runtime}, not ${options2.runtime}; run it with --runtime ${state.review.configuration.runtime}, or abandon it`);
-  }
-  if (state === null) {
-    state = checkpoint.createRun({ worktree: options2.worktree });
-    log(`run ${state.id}: created`);
-  } else {
-    log(`run ${state.id}: resuming`);
-  }
+  const opened = openRun(checkpoint, options2, log);
+  let state = opened.state;
   const runId = state.id;
-  const release = releaseOnExit(acquireRunLock(checkpoint.root, runId));
+  const { release } = opened;
   const inFlight = /* @__PURE__ */ new Map();
   const record2 = (settled, startedAt) => {
     const name = unitName(settled.unit.phase, settled.unit.key);
@@ -24225,6 +24226,20 @@ async function nextSettled(inFlight) {
   const entry = inFlight.get(name);
   inFlight.delete(name);
   return { settled, startedAt: entry.startedAt };
+}
+function openRun(checkpoint, options2, log) {
+  const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
+  try {
+    const found = findActiveRun(checkpoint);
+    if (found !== null && found.review !== null && found.review.configuration.runtime !== options2.runtime) {
+      throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${found.review.configuration.runtime}, not ${options2.runtime}; run it with --runtime ${found.review.configuration.runtime}, or abandon it`);
+    }
+    const state = found ?? checkpoint.createRun({ worktree: options2.worktree });
+    log(`run ${state.id}: ${found === null ? "created" : "resuming"}`);
+    return { state, release: releaseOnExit(acquireRunLock(checkpoint.root, state.id)) };
+  } finally {
+    releaseStart();
+  }
 }
 function append(checkpoint, state, events) {
   let current = state;
@@ -24523,6 +24538,7 @@ function abandon(values, io, root) {
   if (values.reason === void 0 || values.reason.trim() === "") throw new UsageError("--reason <text> is required");
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new UsageError("this repository has no checkpoint, so there is no run to abandon");
+  const releaseStart = acquireStartLock(checkpoint.root);
   try {
     const state = values.run === void 0 ? findActiveRun(checkpoint) : checkpoint.fold(values.run);
     if (state === null) throw new UsageError("no active run to abandon");
@@ -24539,6 +24555,7 @@ function abandon(values, io, root) {
     if (error62 instanceof UnknownRunError) throw new UsageError(error62.message);
     throw error62;
   } finally {
+    releaseStart();
     checkpoint.close();
   }
 }

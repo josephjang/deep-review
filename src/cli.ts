@@ -17,7 +17,7 @@ import { EngineError } from './errors.ts';
 import { describeRun, findActiveRun, runReview } from './review/controller.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
-import { acquireRunLock } from './review/lock.ts';
+import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import type { PolicyFlags } from './review/policy.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
@@ -243,6 +243,8 @@ function abandon(values: Values, io: CommandIo, root: string): number {
   if (values.reason === undefined || values.reason.trim() === '') throw new UsageError('--reason <text> is required');
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new UsageError('this repository has no checkpoint, so there is no run to abandon');
+  // Under the start lock, as a review finds or creates its run: an engine resuming the run cannot slip between the find and the append.
+  const releaseStart = acquireStartLock(checkpoint.root);
   try {
     const state = values.run === undefined ? findActiveRun(checkpoint) : checkpoint.fold(values.run);
     if (state === null) throw new UsageError('no active run to abandon');
@@ -258,6 +260,7 @@ function abandon(values: Values, io: CommandIo, root: string): number {
     if (error instanceof UnknownRunError) throw new UsageError(error.message);
     throw error;
   } finally {
+    releaseStart();
     checkpoint.close();
   }
 }

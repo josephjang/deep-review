@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { Checkpoint } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
-import { acquireRunLock } from '../src/review/lock.ts';
+import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { finderAngles } from '../src/review/vocabulary.ts';
 import { baseEnvironment, fakeClaude, fakeCodex, isAlive, until } from './helpers/launcher.ts';
 import { ReviewSandbox } from './helpers/review-sandbox.ts';
@@ -166,6 +166,15 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
       assert.match(review.stderr, /blocked \(lock-held\)/);
     } finally {
       release();
+    }
+    // An engine between finding its run and locking it holds the start lock; abandon waits its turn too.
+    const starting = acquireStartLock(box.checkpoint.root, process.pid);
+    try {
+      const held = run('abandon', '--reason', 'stuck');
+      assert.equal(held.status, 2, held.stderr);
+      assert.match(held.stderr, /^blocked \(lock-held\): engine \d+ is starting or ending a run in this repository/);
+    } finally {
+      starting();
     }
     const abandoned = run('abandon', '--reason', 'stuck');
     assert.equal(abandoned.status, 0, abandoned.stderr);
