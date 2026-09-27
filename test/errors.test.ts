@@ -13,8 +13,19 @@ import {
   UnsupportedSchemaError,
 } from '../src/checkpoint/errors.ts';
 import { EngineError } from '../src/errors.ts';
+import { InvalidPolicyError, ReviewRefusedError, StructuralCheckError } from '../src/review/errors.ts';
+import { InvalidRoleFragmentError, InvalidRoleManifestError } from '../src/roles/errors.ts';
 import { InheritedOverrideError, InvalidInvocationError, PreflightError, UnknownRuntimeError, UnsupportedCapabilityError } from '../src/runtime/errors.ts';
 import { CaptureRacedError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from '../src/scope/errors.ts';
+
+/** The errors of the roles and the review, none of which concerns the ledger. */
+const rolesAndReviewErrors = (): Error[] => [
+  new InvalidRoleManifestError('m'),
+  new InvalidRoleFragmentError('a.md', 'is empty'),
+  new InvalidPolicyError('p'),
+  new StructuralCheckError('s'),
+  new ReviewRefusedError('r', 'lock-held'),
+];
 
 /** The remaining checkpoint errors, so every class the checkpoint declares is checked. */
 const otherCheckpointErrors = (): Error[] => [
@@ -42,6 +53,7 @@ describe('the engine error hierarchy', () => {
       new UnsupportedRepositoryStateError('u'),
       new CaptureRacedError('c'),
       new ScopeAlreadyCapturedError('a'),
+      ...rolesAndReviewErrors(),
     ]) {
       assert.ok(error instanceof EngineError, error.name);
     }
@@ -62,6 +74,7 @@ describe('the engine error hierarchy', () => {
       new UnsupportedRepositoryStateError('u'),
       new CaptureRacedError('c'),
       new ScopeAlreadyCapturedError('a'),
+      ...rolesAndReviewErrors(),
     ]) {
       assert.ok(!(error instanceof CheckpointError), error.name);
     }
@@ -72,5 +85,13 @@ describe('the engine error hierarchy', () => {
     assert.equal(new CheckpointError('x').name, 'CheckpointError');
     assert.equal(new PreflightError('x').name, 'PreflightError');
     assert.equal(new CaptureRacedError('x').name, 'CaptureRacedError');
+    assert.equal(new InvalidPolicyError('x').name, 'InvalidPolicyError');
+    assert.equal(new StructuralCheckError('x').name, 'StructuralCheckError');
+    assert.equal(new ReviewRefusedError('x').name, 'ReviewRefusedError');
+  });
+
+  it('carries a blocker code on a review refusal only when one applies', () => {
+    assert.equal(new ReviewRefusedError('two active runs').code, null);
+    assert.equal(new ReviewRefusedError('held', 'lock-held').code, 'lock-held');
   });
 });
