@@ -400,7 +400,12 @@ export const rankingRecordedV1 = z.strictObject({
 });
 export type RankingRecorded = z.infer<typeof rankingRecordedV1>;
 
-/** What one phase, or the whole run, spent: workers finished, wall seconds, and the usage summed where every worker reported it. */
+/**
+ * What one phase, or the whole run, spent: the workers finished; the wall
+ * seconds they ran, the length of the union of their process intervals, so
+ * concurrent workers count once; and each usage figure summed over the
+ * workers that reported it, or null when none did.
+ */
 export const spendSchema = z.strictObject({
   workers: z.number().int().nonnegative(),
   seconds: z.number().nonnegative(),

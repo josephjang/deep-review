@@ -51,7 +51,7 @@ None.
 
 ## Statistics
 
-| Phase | Workers | Seconds | Cost (USD) | Input tokens | Cached input | Output tokens |
+| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |
 |---|---|---|---|---|---|---|
 | triage | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
 | finders | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
