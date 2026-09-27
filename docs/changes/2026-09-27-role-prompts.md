@@ -206,7 +206,8 @@ adapter for the first time. It was read at `agent-skills` commit
   semantics and nothing has run them under this engine yet; that rewrite
   belongs after the first real run, with its evidence. Per-runtime
   variants of each prompt were rejected because the differences are a
-  handful of words and two copies of 115 KB of text would drift.
+  handful of words and two copies of the fragments, about 80 KB of text
+  (79617 bytes at the wording commit), would drift.
 
 - **D6: Role policy is deferred, and the proof of concept's values are
   recorded here for that decision.** The agent front matter gave each
@@ -301,10 +302,17 @@ Run on the author's Windows 11 machine on 2026-09-27, Node 26.10.0,
 against the two commits of this element, `362a89f` (the move) and
 `a9971c2` (the wording).
 
-- `npm run check` passes at both commits: lint, typecheck and every test,
-  with the 3 symlink cases skipped that this Windows account has always
-  skipped. `npm run verify` matches both artifacts, as `dist/` is
-  untouched.
+- `npm run check` passes at both commits: lint, typecheck and every test
+  that runs here, with 10 skipped (493 tests at `362a89f`, 494 at
+  `a9971c2`). Six are the POSIX signal cases, which skip on every Windows
+  machine, and four are symlink cases, which skip because this Windows
+  account may not create symlinks. Three of the four predate this
+  element; the fourth is this element's own "refuses a fragment that is
+  a symlink". A directory planted as a fragment is refused here, but the
+  refusal of a symlinked fragment, the reason R3 checks the entry itself
+  and not what it points to, has not run on this machine and is proven
+  only where symlinks can be made. `npm run verify` matches both
+  artifacts, as `dist/` is untouched.
 - The move (R5): at `362a89f` every role was assembled by `assembleRoles`
   and compared with the proof of concept's assembled role
   (`dist/deep-review-node/plugin/driver/roles/<key>.md` in `agent-skills`
@@ -354,7 +362,8 @@ against the two commits of this element, `362a89f` (the move) and
   back into one fragment and passes on the committed text.
 - Tests checked to fail when the behavior they guard is removed: the
   wording guard as above; the assembler's invariants each have a case
-  that plants the violation and asserts the refusal names the fragment;
+  that plants the violation and asserts the refusal names the fragment,
+  and every such case ran here except the symlink one, skipped as above;
   the unused-fragment check is asserted against a planted stray file and
   a stray directory; the script's refusal of an existing output directory
   is asserted against one.
