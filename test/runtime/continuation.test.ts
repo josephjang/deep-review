@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
+import { workerLaunchedV1 } from '../../src/checkpoint/events.ts';
 import { InvalidInvocationError } from '../../src/runtime/errors.ts';
-import { freshThread, LauncherSandbox, until } from '../helpers/launcher.ts';
+import { continuationFields } from '../../src/runtime/launcher.ts';
+import { fakeClaude, freshThread, LauncherSandbox, until } from '../helpers/launcher.ts';
 
 describe('continuing a session (R9)', () => {
   let box: LauncherSandbox;
@@ -70,6 +72,34 @@ describe('continuing a session (R9)', () => {
     assert.deepEqual(receipt.runtime.sessionIds, [freshThread, 'another-thread']);
   });
 
+  it('accepts the scratch directory it keeps however the caller spells it', async () => {
+    const spelled = `${join(box.directory, 'kept-scratch')}${sep}`;
+    const first = await box.run(box.claude({ scratch: spelled }));
+    assert.equal(box.worker(first.workerId).launch.scratch, join(box.directory, 'kept-scratch'));
+    const second = await box.run(box.claude({ resume: first.runtime.sessionIds[0]!, scratch: spelled }));
+    assert.equal(second.outcome, 'completed', second.error ?? '');
+    assert.equal(box.worker(second.workerId).launch.scratch, join(box.directory, 'kept-scratch'));
+  });
+
+  it('refuses a session whose only worker never started, before launching anything', async () => {
+    const missing = join(box.directory, 'missing', 'claude-cli');
+    const first = await box.run(box.claude({ executable: missing, executableArgs: [] }), {}, { qualify: () => Promise.resolve('1.0.0') });
+    assert.equal(first.process.termination, 'not-started');
+    const session = first.runtime.sessionIds[0]!;
+    const before = box.events().length;
+    await assert.rejects(box.run(box.claude({ resume: session })), (error: unknown) => error instanceof InvalidInvocationError && /ever started/.test(error.message));
+    assert.equal(box.events().length, before);
+  });
+
+  it('continues a session whose latest worker never started when an earlier one ran', async () => {
+    const first = await box.run(box.claude());
+    const session = first.runtime.sessionIds[0]!;
+    const failed = await box.run(box.claude({ resume: session, executable: join(box.directory, 'missing', 'claude-cli'), executableArgs: [] }), {}, { qualify: () => Promise.resolve('1.0.0') });
+    assert.equal(failed.process.termination, 'not-started');
+    const third = await box.run(box.claude({ resume: session }));
+    assert.equal(third.outcome, 'completed', third.error ?? '');
+  });
+
   it('refuses a session no worker of the run ran', async () => {
     await assert.rejects(box.run(box.claude({ resume: '11111111-2222-4333-8444-555555555555' })), (error: unknown) => error instanceof InvalidInvocationError && /nothing to continue/.test(error.message));
     assert.ok(box.untouched());
@@ -81,7 +111,7 @@ describe('continuing a session (R9)', () => {
     ['its model', (session) => ({ resume: session, model: 'other-model' }), /must keep its model/],
     ['its effort', (session) => ({ resume: session, effort: 'low' }), /must keep its effort/],
     ['its schema', (session) => ({ resume: session, outputSchema: z.strictObject({ answer: z.string(), extra: z.number() }) }), /must keep its output schema digest/],
-    ['its scratch directory', (session) => ({ resume: session, scratch: join(box.directory, 'other-scratch') }), /keeps its scratch directory/],
+    ['its scratch directory', (session) => ({ resume: session, scratch: join(box.directory, 'other-scratch') }), /must keep its scratch directory: it was .*, the invocation has .*other-scratch/],
   ];
   for (const [what, change, pattern] of changes) {
     it(`refuses a continuation that changes ${what}`, async () => {
@@ -101,6 +131,20 @@ describe('continuing a session (R9)', () => {
     await assert.rejects(box.run(box.claude({ resume: session })), /is still running in session/);
     writeFileSync(marker, '');
     assert.equal((await pending).outcome, 'completed');
+  });
+
+  it('classifies every launch field, keeping the runtime, model, effort, permissions, schema and scratch directory', () => {
+    assert.deepEqual(Object.keys(continuationFields).sort(), Object.keys(workerLaunchedV1.shape).sort());
+    const kept = Object.entries(continuationFields).flatMap(([field, rule]) => (rule === 'own' ? [] : [field]));
+    assert.deepEqual(kept, ['runtime', 'model', 'effort', 'access', 'shell', 'schema', 'scratch']);
+  });
+
+  it('continues a session under another executable of the same runtime, which the launch records', async () => {
+    const first = await box.run(box.claude());
+    const session = first.runtime.sessionIds[0]!;
+    const second = await box.run(box.claude({ resume: session, executableArgs: ['--no-warnings', fakeClaude] }));
+    assert.equal(second.outcome, 'completed', second.error ?? '');
+    assert.deepEqual(box.worker(second.workerId).launch.executableArgs, ['--no-warnings', fakeClaude]);
   });
 
   it('refuses a runtime change even when the session id matches', async () => {
