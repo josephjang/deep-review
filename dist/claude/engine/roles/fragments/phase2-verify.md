@@ -5,9 +5,12 @@ repo-relative, or backslash-separated paths. The engine normalizes every
 candidate's `file` to the repo-relative spelling by suffix-matching
 against the changed-file list in the scope block (longest match wins),
 so that dedup, grouping, and the report all agree on one spelling. A
-candidate whose file matches no changed path, or whose line lies outside
-that file, is kept and marked `unlocated`: it is still deduplicated and
-verified, and the report shows the mark.
+path that names an unchanged file of the repository is never matched to
+a changed path it merely ends with. A candidate whose file matches no
+changed path, or whose line lies outside that file, is kept and marked
+`unlocated`: it keeps the finder's own spelling, is grouped with the
+other spellings of that path the engine can recognize, is still
+deduplicated and verified, and the report shows the mark.
 
 Then a deduplication worker groups near-duplicates (same defect, same
 location, same reason → keep one). Tiebreak by picking the candidate
