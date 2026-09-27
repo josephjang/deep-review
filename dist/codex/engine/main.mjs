@@ -24318,8 +24318,8 @@ function recordLostWorkers(checkpoint, state, log) {
 }
 function reenterPhase(checkpoint, state, log) {
   const review2 = state.review;
-  const phase = Object.keys(review2.phases).find((candidate) => review2.phases[candidate].status === "running" || review2.phases[candidate].status === "blocked");
-  if (phase === void 0) return state;
+  const phase = currentPhase(review2);
+  if (phase === null) return state;
   const attempt = review2.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}`);
   return append(checkpoint, state, [{ kind: "phase.started", version: 1, payload: { phase, attempt } }]);
@@ -24330,7 +24330,7 @@ function describeRun(state, adapter, evidencePath) {
   const workers = Object.values(state.workers);
   const counts = { running: workers.filter((worker) => worker.status === "running").length, finished: workers.filter((worker) => worker.status === "finished").length, lost: workers.filter((worker) => worker.status === "lost").length };
   const statistics = review2 === null ? null : statisticsOf(state, adapter);
-  const phase = review2 === null ? null : Object.keys(review2.phases).find((candidate) => review2.phases[candidate].status === "running" || review2.phases[candidate].status === "blocked") ?? null;
+  const phase = review2 === null ? null : currentPhase(review2);
   const reportPath = review2?.report === null || review2?.report === void 0 ? null : evidencePath(review2.report.report);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
