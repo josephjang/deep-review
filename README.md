@@ -113,10 +113,19 @@ change only where text lives can be checked rather than trusted.
 Continuous integration runs both on Windows, macOS and Linux.
 
 The suite never calls a model: fake Claude and Codex CLIs stand in for the
-real ones. `npm run smoke` is the real-runtime check. It runs one prompt
-and one continuation through each installed, signed-in CLI, costs a few
-cents, and keeps its temporary repository so every receipt can be read
-afterwards.
+real ones. `npm run smoke` is the real-runtime check, for each CLI named
+on its command line, installed and signed in. Per runtime it runs three
+workers: a read-only worker asked to create a file with its shell, that
+worker's session continued and asked the same again, and an editor with
+edit access asked to write one file in the repository and one in its
+scratch directory. Whether read-only mode stops the first two writes
+differs by runtime and is reported, not judged. The smoke fails unless,
+for every runtime, all three workers run and complete and the editor
+writes both files. A worker the launcher refuses, such as one asking for
+an effort level the runtime lacks, fails its runtime without stopping
+the other. It calls real models and costs real money (each Claude worker
+is capped at $0.50), and it keeps its temporary repository and checkpoint
+so every receipt can be read afterwards.
 
 Never edit `dist/` by hand. See `AGENTS.md`.
 

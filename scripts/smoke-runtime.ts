@@ -10,8 +10,11 @@
 // The read-only steps show whose read-only mode stops a write, fresh and
 // continued; that differs by runtime, so it is reported, not judged. The
 // editor must write both files: an editor that cannot is a broken runtime
-// setup. The temporary repository and its checkpoint are kept and their path
-// printed, so every byte can be inspected afterwards.
+// setup. A worker that throws instead of returning a receipt (a refused
+// invocation, such as an effort level the runtime lacks) fails its runtime
+// and is reported; the other runtime still runs. The temporary repository and
+// its checkpoint are kept and their path printed whatever happened, so every
+// byte can be inspected afterwards.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,20 +48,46 @@ if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`--codex-windows
 const effort = effortSchema.parse(values.effort);
 const runtimes = defaultRuntimes({ codex: { windowsSandbox } });
 
-const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-smoke-')));
-git(repo, 'init', '-q', '-b', 'main');
-git(repo, 'config', 'user.name', 'Smoke');
-git(repo, 'config', 'user.email', 'smoke@example.invalid');
-git(repo, 'config', 'commit.gpgsign', 'false');
-writeFileSync(join(repo, 'README.md'), '# smoke\n');
-git(repo, 'add', '-A');
-git(repo, 'commit', '-q', '-m', 'initial');
+type Runtime = 'claude' | 'codex';
 
-const location = locateCheckpoint(repo);
-const checkpoint = Checkpoint.open(location.root, { engine: engineVersion() });
-const probe = join(repo, 'probe.txt');
-const edited = join(repo, 'edit.txt');
+interface Target {
+  readonly runtime: Runtime;
+  readonly executable: string;
+  readonly model: string;
+}
+
+// The runtimes named on the command line, in the order they run.
+const targets: readonly Target[] = [
+  ...(values.claude === undefined ? [] : [{ runtime: 'claude' as const, executable: values.claude, model: values['claude-model'] }]),
+  ...(values.codex === undefined || values['codex-model'] === undefined
+    ? []
+    : [{ runtime: 'codex' as const, executable: values.codex, model: values['codex-model'] }]),
+];
+
+// The temporary repository the workers run in and the checkpoint that
+// records them.
+interface Workspace {
+  readonly repo: string;
+  readonly worktree: string;
+  readonly checkpoint: Checkpoint;
+}
+
+const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+function initRepository(repo: string): void {
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'config', 'user.name', 'Smoke');
+  git(repo, 'config', 'user.email', 'smoke@example.invalid');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(repo, 'README.md'), '# smoke\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'initial');
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
 const schema = z.strictObject({ answer: z.string(), commandSucceeded: z.boolean() });
 const first =
   'This is a smoke test of a headless worker. Use your shell once to run a command that creates a file named probe.txt ' +
@@ -81,7 +110,6 @@ interface Line {
 
 function print(runtime: string, line: Line): void {
   const { receipt } = line;
-  const cost = (receipt.runtime.usage as { total_cost_usd?: unknown } | null)?.total_cost_usd;
   console.log(
     JSON.stringify(
       {
@@ -97,7 +125,6 @@ function print(runtime: string, line: Line): void {
         output: receipt.output,
         denials: receipt.denials,
         files: line.files,
-        costUsd: cost ?? null,
         usage: receipt.runtime.usage,
       },
       null,
@@ -106,8 +133,14 @@ function print(runtime: string, line: Line): void {
   );
 }
 
-async function smoke(runtime: 'claude' | 'codex', executable: string, model: string): Promise<boolean> {
-  const run = checkpoint.createRun({ worktree: location.worktree });
+// Runs the three workers for one runtime and says whether all of them passed.
+// A worker that throws instead of returning a receipt ends the runtime with
+// that error, named after the step that threw.
+async function smoke(workspace: Workspace, { runtime, executable, model }: Target): Promise<boolean> {
+  const { checkpoint } = workspace;
+  const probe = join(workspace.repo, 'probe.txt');
+  const edited = join(workspace.repo, 'edit.txt');
+  const run = checkpoint.createRun({ worktree: workspace.worktree });
   const base: InvocationInput = {
     runtime,
     executable,
@@ -125,7 +158,12 @@ async function smoke(runtime: 'claude' | 'codex', executable: string, model: str
   const step = async (name: string, invocation: InvocationInput): Promise<Line> => {
     rmSync(probe, { force: true });
     rmSync(edited, { force: true });
-    const receipt = await runWorker(checkpoint, run.id, invocation, { runtimes });
+    let receipt: WorkerReceipt;
+    try {
+      receipt = await runWorker(checkpoint, run.id, invocation, { runtimes });
+    } catch (error) {
+      throw new Error(`the ${name} worker threw instead of returning a receipt: ${describe(error)}`, { cause: error });
+    }
     const scratch = checkpoint.fold(run.id).workers[receipt.workerId]?.launch.scratch ?? null;
     const files = {
       'probe.txt': existsSync(probe),
@@ -148,13 +186,39 @@ async function smoke(runtime: 'claude' | 'codex', executable: string, model: str
   return lines.length === 3 && lines.every((line) => line.receipt.outcome === 'completed') && editorWrote;
 }
 
-let passed = true;
-try {
-  if (values.claude !== undefined) passed = (await smoke('claude', values.claude, values['claude-model'])) && passed;
-  if (values.codex !== undefined) passed = (await smoke('codex', values.codex, values['codex-model']!)) && passed;
-} finally {
-  checkpoint.close();
+// Runs every target against one checkpoint. A runtime that throws is reported
+// as a failed line and the next runtime still runs, so the workers already
+// paid for are not wasted and every receipt stays on the ledger.
+async function smokeAll(repo: string): Promise<boolean> {
+  initRepository(repo);
+  const location = locateCheckpoint(repo);
+  const checkpoint = Checkpoint.open(location.root, { engine: engineVersion() });
+  const workspace: Workspace = { repo, worktree: location.worktree, checkpoint };
+  let passed = true;
+  try {
+    for (const target of targets) {
+      try {
+        passed = (await smoke(workspace, target)) && passed;
+      } catch (error) {
+        passed = false;
+        console.log(JSON.stringify({ runtime: target.runtime, failed: describe(error) }));
+      }
+    }
+  } finally {
+    checkpoint.close();
+  }
+  return passed;
 }
-console.log(`repository and checkpoint kept at ${repo}`);
-console.log(passed ? 'smoke passed: every worker completed and every editor wrote its files' : 'smoke FAILED: see the lines above');
-process.exitCode = passed ? 0 : 1;
+
+const repo = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-smoke-')));
+let passed = false;
+try {
+  passed = await smokeAll(repo);
+} catch (error) {
+  // Setting up the repository or checkpoint, or closing the checkpoint, failed.
+  console.log(JSON.stringify({ step: 'repository and checkpoint', failed: describe(error) }));
+} finally {
+  console.log(`repository and checkpoint kept at ${repo}`);
+  console.log(passed ? 'smoke passed: every worker completed and every editor wrote its files' : 'smoke FAILED: see the lines above');
+  process.exitCode = passed ? 0 : 1;
+}
