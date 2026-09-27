@@ -19937,6 +19937,9 @@ var severitySchema = external_exports.enum(severities);
 var candidateIdSchema = external_exports.string().regex(/^[A-Z]+-[1-9][0-9]*$/, "a candidate id is an upper-case prefix, a dash and a number from 1");
 var groupIdSchema = external_exports.string().regex(/^g[1-9][0-9]*$/, "a group id is g and a number from 1");
 var sweepIdPrefix = "SWEEP";
+function candidateIdPrefix(phase, key) {
+  return phase === "sweep" ? sweepIdPrefix : key;
+}
 var triageUnitKey = "SCAN";
 var unitKeySchema = external_exports.string().regex(/^[A-Za-z0-9-]{1,40}$/, "a unit key is letters, digits and dashes");
 var maxRecordedTextLength = 4e3;
@@ -20251,6 +20254,9 @@ function poolPhases(phase) {
 function poolCandidates(review2, phase) {
   const included = new Set(poolPhases(phase));
   return Object.values(review2.candidates).filter((candidate) => included.has(candidate.phase));
+}
+function singleUnitKey(phase) {
+  return phase === "triage" ? triageUnitKey : phase;
 }
 function unitOfLostWorker(phase, key) {
   return phase === null || key === null ? null : unitName(phase, key);
@@ -23356,7 +23362,7 @@ function groupsOf(review2, phase) {
   return review2.plans[phase] ?? planGroups(workingList(review2, phase));
 }
 function unitsOf(review2, phase) {
-  const single = (role) => [{ phase, key: phase === "triage" ? "SCAN" : phase, role, degrades: false }];
+  const single = (role) => [{ phase, key: singleUnitKey(phase), role, degrades: false }];
   switch (phase) {
     case "triage":
       return single("triage");
@@ -23619,8 +23625,9 @@ function invocationFor(unit, context) {
 function failed(unit, receipt, reason) {
   return { kind: "attempt.failed", version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
-function recordCandidates(phase, key, prefix, candidates, state, worktree) {
+function recordCandidates(phase, key, candidates, state, worktree) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  const prefix = candidateIdPrefix(phase, key);
   const locations = normalizeLocations(state.scope, worktree, candidates);
   return candidates.map((candidate, index2) => {
     const location = locations[index2];
@@ -23683,18 +23690,18 @@ function contributionPayload(unit, receipt, review2, state, worktree) {
     case "triage": {
       const output2 = receipt.output;
       checkTriageLeads(output2);
-      const candidates = recordCandidates("triage", unit.key, "SCAN", output2.candidates.map((candidate) => ({ ...candidate, angle: "SCAN" })), state, worktree);
+      const candidates = recordCandidates("triage", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle: "SCAN" })), state, worktree);
       return { phase: "triage", key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output2.leads) };
     }
     case "finders": {
       const output2 = receipt.output;
       const angle = unit.key;
-      const candidates = recordCandidates("finders", unit.key, angle, output2.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
+      const candidates = recordCandidates("finders", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
       return { phase: "finders", key: unit.key, workerId: receipt.workerId, candidates, leads: null };
     }
     case "sweep": {
       const output2 = receipt.output;
-      const candidates = recordCandidates("sweep", unit.key, sweepIdPrefix, output2.candidates, state, worktree);
+      const candidates = recordCandidates("sweep", unit.key, output2.candidates, state, worktree);
       return { phase: "sweep", key: unit.key, workerId: receipt.workerId, candidates, leads: null };
     }
     case "deduplication":
