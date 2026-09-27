@@ -23903,15 +23903,20 @@ function budgetLine(review2, statistics) {
   }
   return `- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent ${spent} USD.`;
 }
-var unlocatedReasons = ["outside", "deleted", "past-end"];
+var unlocatedReasons = ["outside", "deleted", "past-end", "ends-with-changed"];
 var unlocatedWording = {
   outside: "on a file outside the reviewed change",
   deleted: "on a file the change deletes, which has no after state for a line to point into",
-  "past-end": "on a line past the end of the changed file"
+  "past-end": "on a line past the end of the changed file",
+  "ends-with-changed": "on a path that ends with a changed path, naming either an unchanged file of the repository or that changed file without such a line"
 };
+var holdsNoPath = () => false;
+var holdsEveryPath = () => true;
 function whyUnlocated(scope, candidate) {
-  const path = matchScopePath(scope.files.map((file2) => file2.path), candidate.rawFile);
-  if (path === null) return "outside";
+  const paths = scope.files.map((file2) => file2.path);
+  if (matchScopePath(paths, candidate.rawFile, holdsNoPath) === null) return "outside";
+  const path = matchScopePath(paths, candidate.rawFile, holdsEveryPath);
+  if (path === null) return "ends-with-changed";
   return scope.files.find((file2) => file2.path === path)?.after === null ? "deleted" : "past-end";
 }
 function limitations(scope, review2, input2) {
