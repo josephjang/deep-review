@@ -73,20 +73,31 @@ export interface WorkerOutputs {
   readonly finalMessage: string | null;
 }
 
+/**
+ * How a worker's outputs end, as the adapter reads them; exactly one of
+ * three, so a decoder cannot report an answer and an error at once.
+ */
+export type DecodedResult =
+  /** The structured answer, not yet checked against the schema. */
+  | { readonly kind: 'answer'; readonly value: unknown }
+  /** The runtime stopped at the budget it was given, and why it says so. */
+  | { readonly kind: 'budget'; readonly error: string }
+  /** Why the outputs are not a successful answer. */
+  | { readonly kind: 'failed'; readonly error: string };
+
 /** What an adapter read from a worker's outputs, before the launcher validates the answer and decides the outcome. */
 export interface Decoded {
-  /** Every session the worker ran under; includes a pinned or continued id even when the runtime never answered. */
+  /**
+   * Every session id the outputs name, in the order they name them. The
+   * launcher adds the pinned or continued id itself, so a worker that never
+   * answered still names its transcript; an adapter reports only what it read.
+   */
   readonly sessionIds: readonly string[];
   /** Usage as the runtime reported it, or null. Any JSON value. */
   readonly usage: unknown;
   /** Refused tool calls, or null when the runtime gives no evidence either way. */
   readonly denials: readonly DeniedTool[] | null;
-  /** The structured answer, not yet checked against the schema, or null when there is none. */
-  readonly answer: { readonly value: unknown } | null;
-  /** The runtime stopped at the budget it was given. */
-  readonly budgetStop: boolean;
-  /** Why the outputs are not a successful answer, or null. */
-  readonly error: string | null;
+  readonly result: DecodedResult;
 }
 
 /**
@@ -102,6 +113,6 @@ export interface RuntimeAdapter {
   readonly qualification: Qualification;
   /** Translate an invocation the launcher already checked against the capabilities. May refuse the caller's environment. */
   command(invocation: Invocation, plan: LaunchPlan): WorkerCommand;
-  /** Read the worker's outputs. Never throws for a malformed answer; that is `error`. */
+  /** Read the worker's outputs. Never throws for a malformed answer; that is a `failed` result. */
   decode(invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded;
 }

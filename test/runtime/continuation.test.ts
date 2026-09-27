@@ -66,6 +66,8 @@ describe('continuing a session (R9)', () => {
     assert.equal(first.outcome, 'completed');
     assert.equal(receipt.outcome, 'failed');
     assert.match(receipt.error ?? '', /ran thread another-thread, not the continued session/);
+    // The continued session first, as the launcher records it for every worker, then the thread Codex reported.
+    assert.deepEqual(receipt.runtime.sessionIds, [freshThread, 'another-thread']);
   });
 
   it('refuses a session no worker of the run ran', async () => {

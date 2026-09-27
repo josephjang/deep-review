@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
-import type { LaunchPlan } from '../../src/runtime/adapter.ts';
+import type { Decoded, LaunchPlan } from '../../src/runtime/adapter.ts';
 import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter } from '../../src/runtime/codex.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
@@ -184,15 +184,21 @@ describe('codex decode', () => {
   const usage = { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3 };
   const done = { type: 'turn.completed', usage };
   const happy = (): Record<string, unknown>[] => [started, turnStarted, ...agent(message), done];
-  const decode = (stdout: string, finalMessage: string | null = message, planChange: Partial<LaunchPlan> = {}): ReturnType<typeof codexAdapter.decode> =>
+  const decode = (stdout: string, finalMessage: string | null = message, planChange: Partial<LaunchPlan> = {}): Decoded =>
     codexAdapter.decode(invocation(), plan(planChange), { stdout, stderr: '', finalMessage });
+  /** The error of a failed result; an answer fails the assertion. */
+  const failure = (decoded: Decoded): string => {
+    assert.equal(decoded.result.kind, 'failed');
+    return decoded.result.kind === 'failed' ? decoded.result.error : '';
+  };
+  const answered = { kind: 'answer', value: { answer: 'ok' } };
 
   it('reads a completed turn: one thread, usage, the final message as the answer, no denial evidence', () => {
-    assert.deepEqual(decode(stream(...happy())), { sessionIds: [thread], usage, denials: null, answer: { value: { answer: 'ok' } }, budgetStop: false, error: null });
+    assert.deepEqual(decode(stream(...happy())), { sessionIds: [thread], usage, denials: null, result: answered });
   });
 
   it('accepts CRLF line endings and a final message that differs only in surrounding whitespace', () => {
-    assert.equal(decode(happy().map(line).join('\r\n'), `${message}\r\n`).error, null);
+    assert.deepEqual(decode(happy().map(line).join('\r\n'), `${message}\r\n`).result, answered);
   });
 
   it('keeps a command that exited nonzero, since a failing command can be the point', () => {
@@ -200,12 +206,12 @@ describe('codex decode', () => {
       { type: 'item.started', item: { id: 'item_1', type: 'command_execution', command: 'grep x', status: 'in_progress' } },
       { type: 'item.completed', item: { id: 'item_1', type: 'command_execution', command: 'grep x', exit_code: 1, status: 'failed' } },
     ];
-    assert.equal(decode(stream(started, turnStarted, ...command, ...agent(message), done)).error, null);
+    assert.deepEqual(decode(stream(started, turnStarted, ...command, ...agent(message), done)).result, answered);
   });
 
   it('ignores events it does not read, such as item updates', () => {
     const update = { type: 'item.updated', item: { id: 'todo', type: 'todo_list', items: [] } };
-    assert.equal(decode(stream(started, turnStarted, update, ...agent(message), done)).error, null);
+    assert.deepEqual(decode(stream(started, turnStarted, update, ...agent(message), done)).result, answered);
   });
 
   const failures: [string, () => string, RegExp, (string | null)?][] = [
@@ -234,29 +240,28 @@ describe('codex decode', () => {
   for (const [name, stdout, pattern, finalMessage] of failures) {
     it(`fails ${name}`, () => {
       const decoded = decode(stdout(), finalMessage === undefined ? message : finalMessage);
-      assert.match(decoded.error ?? '', pattern);
-      assert.equal(decoded.answer, null);
+      assert.match(failure(decoded), pattern);
       assert.equal(decoded.denials, null);
-      assert.equal(decoded.budgetStop, false);
     });
   }
 
   it('keeps the session id of every well-formed line even when another line is malformed', () => {
     const decoded = decode(`${line(started)}\nnot json\n`);
     assert.deepEqual(decoded.sessionIds, [thread]);
-    assert.match(decoded.error ?? '', /not JSON/);
+    assert.match(failure(decoded), /not JSON/);
   });
 
   it('keeps usage from the completed turn on a failure', () => {
     assert.deepEqual(decode(stream(...happy()), '{"answer":"other"}').usage, usage);
   });
 
-  it('expects the continued session and names both when the thread differs', () => {
-    assert.equal(decode(stream(...happy()), message, { sessionId: thread, resume: thread }).error, null);
+  it('expects the continued session and reports the thread it observed when that differs', () => {
+    assert.deepEqual(decode(stream(...happy()), message, { sessionId: thread, resume: thread }), { sessionIds: [thread], usage, denials: null, result: answered });
     const other = '0199a3c4-0000-7f80-9a1b-2c3d4e5f6a7b';
     const decoded = decode(stream(...happy()), message, { sessionId: other, resume: other });
-    assert.match(decoded.error ?? '', new RegExp(`ran thread ${thread}, not the continued session ${other}`));
-    assert.deepEqual(decoded.sessionIds, [other, thread]);
+    assert.match(failure(decoded), new RegExp(`ran thread ${thread}, not the continued session ${other}`));
+    // The continued id is the launcher's to add; the decoder names only the thread the stream started.
+    assert.deepEqual(decoded.sessionIds, [thread]);
   });
 
   it('fails a worker whose commands the sandbox refused to run, even though its turn completed', () => {
@@ -266,20 +271,25 @@ describe('codex decode', () => {
       '2026-09-27T00:07:23.500940Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "UnsupportedOperation(\\"windows elevated sandbox cannot reopen writable descendants under read-only carveouts directly; refusing to run unsandboxed\\")" }\n' +
       '2026-09-27T00:07:28.455002Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "UnsupportedOperation(\\"second\\")" }\n';
     const decoded = codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: refused, finalMessage: message });
-    assert.match(decoded.error ?? '', /refused to run 2 command\(s\).*cannot reopen writable descendants/);
-    assert.equal(decoded.answer, null);
+    assert.match(failure(decoded), /refused to run 2 command\(s\).*cannot reopen writable descendants/);
     assert.deepEqual(decoded.sessionIds, [thread]);
     assert.deepEqual(decoded.usage, usage);
   });
 
   it('does not mistake other stderr lines for a refused command', () => {
     const noise = '2026-09-27T00:07:23Z WARN codex_core::tools::router: slow tool\nERROR somewhere else: exec_command failed\nmise WARN: chpwd\n';
-    assert.equal(codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: noise, finalMessage: message }).error, null);
+    assert.deepEqual(codexAdapter.decode(invocation(), plan(), { stdout: stream(...happy()), stderr: noise, finalMessage: message }).result, answered);
   });
 
-  it('keeps a continued session id when nothing was printed', () => {
+  it('reports no session when nothing was printed, even for a continuation', () => {
     const decoded = decode('', null, { sessionId: thread, resume: thread });
-    assert.deepEqual(decoded.sessionIds, [thread]);
-    assert.match(decoded.error ?? '', /started 0 threads/);
+    assert.deepEqual(decoded.sessionIds, []);
+    assert.match(failure(decoded), /started 0 threads/);
+  });
+
+  it('reports each thread the stream started once, even when a malformed stream repeats one', () => {
+    const decoded = decode(stream(started, started, { ...started, thread_id: 'other' }, done));
+    assert.deepEqual(decoded.sessionIds, [thread, 'other']);
+    assert.match(failure(decoded), /started 3 threads/);
   });
 });
