@@ -1,11 +1,16 @@
 import { EngineError } from '../errors.ts';
 
-/** The manifest is missing or malformed, names a fragment that does not exist, or leaves a file under fragments/ that no role names. */
+/** The manifest cannot be read, is not JSON or fails its schema, the fragments/ directory cannot be listed, or an entry under fragments/ is one no role names. */
 export class InvalidRoleManifestError extends EngineError {
   override readonly name = 'InvalidRoleManifestError';
 }
 
-/** A fragment breaks an invariant the assembly relies on: not a regular file, not UTF-8 text, a stray CR, no final newline, an include marker. */
+/**
+ * A fragment the manifest names is missing, cannot be read, or breaks an
+ * invariant the assembly relies on: not a regular file, not UTF-8 text, a
+ * byte order mark, empty, a stray CR or NUL, no final newline, a blank
+ * line at either edge, front matter, an include marker.
+ */
 export class InvalidRoleFragmentError extends EngineError {
   override readonly name = 'InvalidRoleFragmentError';
   readonly fragment: string;
