@@ -55,7 +55,8 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
  * Read one fragment and hold it to the invariants the assembly relies on
  * (R3): a regular file of UTF-8 text without a byte order mark, LF line
  * endings, no NUL, not empty, ending in exactly one newline and starting
- * with text, carrying no front matter and no include marker. Each
+ * with text, with no blank or whitespace-only line at either edge,
+ * carrying no front matter and no include marker. Each
  * violation is refused naming the fragment, so a stray CRLF or a stale
  * marker never reaches a worker.
  */
@@ -88,8 +89,9 @@ export function readRoleFragment(rolesRoot: string, name: string): string {
   if (text.includes('\r')) throw new InvalidRoleFragmentError(name, 'contains a carriage return; fragments are LF text');
   if (text.includes('\0')) throw new InvalidRoleFragmentError(name, 'contains a NUL character');
   if (!text.endsWith('\n')) throw new InvalidRoleFragmentError(name, 'does not end with a newline');
-  if (text.endsWith('\n\n')) throw new InvalidRoleFragmentError(name, 'ends with a blank line; the assembly separates fragments itself');
-  if (text.startsWith('\n')) throw new InvalidRoleFragmentError(name, 'starts with a blank line');
+  // A line of only whitespace (spaces, tabs) reads as blank, so it counts as one at either edge.
+  if (/\n[^\S\n]*\n$/.test(text)) throw new InvalidRoleFragmentError(name, 'ends with a blank line; the assembly separates fragments itself');
+  if (/^[^\S\n]*\n/.test(text)) throw new InvalidRoleFragmentError(name, 'starts with a blank line');
   if (text.startsWith('---\n')) throw new InvalidRoleFragmentError(name, 'starts with front matter; a fragment is prompt text only');
   if (/^<!-- include:/m.test(text)) throw new InvalidRoleFragmentError(name, 'contains an include marker; composition is declared in the manifest only');
   return text;

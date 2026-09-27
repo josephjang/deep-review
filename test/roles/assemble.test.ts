@@ -133,7 +133,17 @@ describe('assembleRoles', () => {
     rejectsFragment('contains a NUL', 'one\0two\n', /NUL/);
     rejectsFragment('does not end with a newline', 'text', /does not end with a newline/);
     rejectsFragment('ends with a blank line', 'text\n\n', /ends with a blank line/);
+    rejectsFragment('ends with a line of spaces', 'text\n  \n', /ends with a blank line/);
+    rejectsFragment('ends with a line of tabs and spaces', 'text\n\t \n', /ends with a blank line/);
     rejectsFragment('starts with a blank line', '\ntext\n', /starts with a blank line/);
+    rejectsFragment('starts with a line of spaces', '  \ntext\n', /starts with a blank line/);
+    rejectsFragment('starts with a line of a tab', '\t\ntext\n', /starts with a blank line/);
+    rejectsFragment('is one line of spaces', ' \n', /starts with a blank line/);
+
+    it('accepts leading and trailing spaces on a line that has text', () => {
+      seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': '  indented\ntext  \n' });
+      assert.equal(assembleRoles(root)[0]!.prompt, '  indented\ntext  \n');
+    });
     rejectsFragment('starts with front matter', '---\nmodel: opus\n---\ntext\n', /front matter/);
     rejectsFragment('contains an include marker at a line start', 'text\n<!-- include: references/x.md -->\nmore\n', /include marker/);
 
