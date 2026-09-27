@@ -23764,17 +23764,24 @@ function failureReason(state) {
   const reasons = (state?.failures ?? []).map((failure2) => failure2.reason);
   return `${String(reasons.length)} attempts did not complete: ${reasons.join("; ")}`;
 }
-function degradationOf(review2, unit, state) {
-  if (unit.phase === "finders") return Object.hasOwn(review2.anglesNotRun, unit.key) ? null : { kind: "angle.failed", angle: unit.key, reason: failureReason(state) };
-  if (unit.phase === "verification" || unit.phase === "sweep-verification") {
-    return Object.hasOwn(review2.unverifiedGroups, unitName(unit.phase, unit.key)) ? null : { kind: "group.unverified", phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
+function degraded(review2, unit) {
+  switch (unit.phase) {
+    case "finders":
+      return Object.hasOwn(review2.anglesNotRun, unit.key);
+    case "verification":
+    case "sweep-verification":
+      return Object.hasOwn(review2.unverifiedGroups, unitName(unit.phase, unit.key));
+    default:
+      return false;
   }
+}
+function degradationOf(review2, unit, state) {
+  if (degraded(review2, unit)) return null;
+  if (unit.phase === "finders") return { kind: "angle.failed", angle: unit.key, reason: failureReason(state) };
+  if (unit.phase === "verification" || unit.phase === "sweep-verification") return { kind: "group.unverified", phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
   return null;
 }
-function degraded(review2, unit) {
-  if (unit.phase === "finders") return Object.hasOwn(review2.anglesNotRun, unit.key);
-  return Object.hasOwn(review2.unverifiedGroups, unitName(unit.phase, unit.key));
-}
+var launchableUnit = (review2, unit, state) => !answered2(state) && !degraded(review2, unit) && !exhausted(state);
 var usd2 = (value) => value.toFixed(2);
 function workerFailedBlocker(unit, state) {
   return { code: "worker-failed", detail: `the ${unit.role} worker for ${unit.phase}:${unit.key} failed twice: ${failureReason(state)}`, action: blockerActions["worker-failed"] };
@@ -23805,7 +23812,7 @@ function nextStep(review2, live2) {
   const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
   const blocking = units.find((unit) => !unit.degrades && exhausted(states[unit.key]));
   if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
-  const launchable = units.filter((unit) => !answered2(states[unit.key]) && !exhausted(states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
+  const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     if (live2.budgetUsd !== null && live2.spendUsd !== null && live2.spendUsd >= live2.budgetUsd) {
       return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(live2.spendUsd, live2.budgetUsd) };
@@ -23814,7 +23821,7 @@ function nextStep(review2, live2) {
     return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
   }
   if (running.length > 0) return { kind: "await" };
-  const outcome = units.some((unit) => unit.degrades && degraded(review2, unit)) ? "degraded" : "completed";
+  const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
   return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
 }
 

@@ -129,6 +129,38 @@ describe('nextStep', () => {
     assert.deepEqual(nextStep(again, idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }] });
   });
 
+  it('never launches an angle already recorded as not run, even after a blocked phase gives every unit fresh attempts', () => {
+    const history = triaged().start('finders')
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'first' })
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'second' })
+      .add('angle.failed', { angle: 'RIPPLE', reason: '2 attempts did not complete: first; second' })
+      .finish('finders', 'blocked', 1, budgetBlocker(31, 30))
+      .start('finders', 2);
+    const step = nextStep(history.review(), live({ concurrency: 16 }));
+    assert.equal(step.kind, 'launch');
+    assert.deepEqual(step.kind === 'launch' ? step.units.map((unit) => unit.key) : [], finderAngles.filter((angle) => angle !== 'RIPPLE'), 'RIPPLE is not relaunched');
+    for (const angle of finderAngles) {
+      if (angle !== 'RIPPLE') history.add('candidates.recorded', { phase: 'finders', key: angle, workerId: worker(10 + finderAngles.indexOf(angle)), candidates: [], leads: null });
+    }
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'finish-phase', phase: 'finders', attempt: 2, outcome: 'degraded', blocker: null }, 'the phase finishes degraded with RIPPLE still not run');
+  });
+
+  it('never launches a group already marked unverified, even after a blocked phase gives every unit fresh attempts', () => {
+    const history = found().start('deduplication')
+      .add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [] })
+      .finish('deduplication')
+      .start('verification')
+      .add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }, { id: 'g2', candidateIds: ['RIPPLE-1'] }] })
+      .add('attempt.failed', { phase: 'verification', key: 'g1', workerId: worker(21), reason: 'a' })
+      .add('attempt.failed', { phase: 'verification', key: 'g1', workerId: worker(22), reason: 'b' })
+      .add('group.unverified', { phase: 'verification', groupId: 'g1', reason: '2 attempts did not complete: a; b' })
+      .finish('verification', 'blocked', 1, budgetBlocker(31, 30))
+      .start('verification', 2);
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'launch', units: [{ phase: 'verification', key: 'g2', role: 'verifier', degrades: true }] });
+    history.add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: worker(23), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'e' }] });
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'finish-phase', phase: 'verification', attempt: 2, outcome: 'degraded', blocker: null });
+  });
+
   it('blocks on the budget before a launch, once the running workers have finished, and not when nothing is left to launch', () => {
     const review = triaged().start('finders').review();
     const exhausted = live({ spendUsd: 31.2, budgetUsd: 30 });
