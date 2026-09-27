@@ -22,7 +22,7 @@ context carries a whole file's backlog. Give each verifier the scope
 block, the relevant file(s), and every candidate in its group numbered
 `[0]`, `[1]`, ….
 
-**Do not paste the rubrics below into a verifier prompt.** They are in the
+**Do not paste the rubrics into a verifier prompt.** They are in the
 verifier's role prompt, so every verifier receives them whether or not
 you remember to. They appear here because you need
 them too: which verdict a finding carries decides whether Step 1 fixes it

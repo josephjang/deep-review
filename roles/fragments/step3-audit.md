@@ -37,12 +37,12 @@ in Phase 4 stays whole even where that pushes its cluster past 5.
 
 Give each worker the Phase 0 scope block, its cluster's findings, and the
 relevant files. **Do not paste the operating principle, the fork, or the verdict
-definitions below**: they are in the auditor's role prompt, so every
+definitions**: they are in the auditor's role prompt, so every
 auditor receives them whether or not you remember. Restating
 them buys nothing and is charged to your context and to each prompt. Instruct
 each to RE-VERIFY against the actual code (read it — do not trust the Step 1
 rationale) and return, for EACH finding, exactly one verdict from the three
-defined below.
+defined in this prompt.
 
 Write the auditor cluster plan to `audit.md` at the same time as the
 dispatch, and append each auditor's verdicts verbatim as they return.
