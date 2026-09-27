@@ -5,7 +5,7 @@
  * of `npm run review` during development.
  */
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
@@ -151,7 +151,7 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
   for (const flag of Object.keys(values) as (keyof Values)[]) {
     if (values[flag] !== undefined && !allowed[command]!.includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
-  const location = locateCheckpoint(values.repo === undefined ? io.cwd : join(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === undefined ? io.cwd : resolve(io.cwd, values.repo));
   switch (command) {
     case 'review':
       return review(values, io, location.root, location.worktree);

@@ -73,9 +73,16 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(existsSync(locateCheckpoint(box.repo).root), false, 'nothing was created');
   });
 
-  it('says there is no run before any review, in text and JSON', () => {
+  it('says there is no run before any review, in text and JSON, and finds the repository through --repo given absolute or relative', () => {
     assert.equal(run('status').stdout, 'No run: this repository has no checkpoint yet.\n');
     assert.equal(run('status', '--json').stdout, 'null\n');
+    const elsewhere = spawnSync(process.execPath, [cli, 'status', '--repo', box.repo], { cwd: box.directory, env: environment(), encoding: 'utf8' });
+    assert.equal(elsewhere.stdout, 'No run: this repository has no checkpoint yet.\n', elsewhere.stderr);
+    const relative = spawnSync(process.execPath, [cli, 'status', '--repo', 'repo'], { cwd: box.directory, env: environment(), encoding: 'utf8' });
+    assert.equal(relative.stdout, 'No run: this repository has no checkpoint yet.\n', relative.stderr);
+    const outside = spawnSync(process.execPath, [cli, 'status', '--repo', box.home], { cwd: box.directory, env: environment(), encoding: 'utf8' });
+    assert.equal(outside.status, 1);
+    assert.match(outside.stderr, /NotInRepositoryError/);
     const abandon = run('abandon', '--reason', 'nothing');
     assert.equal(abandon.status, 1);
     assert.match(abandon.stderr, /no checkpoint, so there is no run to abandon/);
