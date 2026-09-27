@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync4 } from "node:fs";
-import { join as join16 } from "node:path";
+import { join as join16, resolve as resolve10 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -5056,7 +5056,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve10) {
+function isRecursive(inst, stack, resolve11) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5066,7 +5066,7 @@ function isRecursive(inst, stack, resolve10) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve10);
+      const answer = isRecursive(child, stack, resolve11);
       if (answer > result)
         result = answer;
     }
@@ -5077,7 +5077,7 @@ function isRecursive(inst, stack, resolve10) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve10) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve11) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -5141,7 +5141,7 @@ function isRecursive(inst, stack, resolve10) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve10 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve11 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -21354,7 +21354,7 @@ async function runProcess(request) {
       return notStarted(error62.message, startedAt);
     }
     superviseChild(child);
-    return await new Promise((resolve10) => {
+    return await new Promise((resolve11) => {
       let started = false;
       let kill;
       const timer = setTimeout(() => {
@@ -21366,14 +21366,14 @@ async function runProcess(request) {
       child.on("error", (error62) => {
         if (started) return;
         clearTimeout(timer);
-        resolve10(notStarted(error62.message, startedAt));
+        resolve11(notStarted(error62.message, startedAt));
       });
       child.once("close", (code, signal) => {
         if (!started) return;
         clearTimeout(timer);
         const endedAt = (/* @__PURE__ */ new Date()).toISOString();
-        if (kill === void 0 || kill.status === "not-running") resolve10({ termination: "exited", exitCode: code, signal, startedAt, endedAt });
-        else resolve10({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
+        if (kill === void 0 || kill.status === "not-running") resolve11({ termination: "exited", exitCode: code, signal, startedAt, endedAt });
+        else resolve11({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
       });
     });
   } finally {
@@ -21467,7 +21467,7 @@ function positiveLimit(name, value) {
   return value;
 }
 function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
-  return new Promise((resolve10, reject) => {
+  return new Promise((resolve11, reject) => {
     let child;
     try {
       child = spawn2(executable, [...args], {
@@ -21521,7 +21521,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
       settled = true;
       clearTimeout(timer);
       if (code === 0) {
-        resolve10(Buffer.concat(stdout).toString("utf8"));
+        resolve11(Buffer.concat(stdout).toString("utf8"));
         return;
       }
       const printedError = Buffer.concat(stderr).toString("utf8").trim();
@@ -23819,6 +23819,7 @@ function nextStep(review2, live2) {
 }
 
 // src/review/controller.ts
+var appendAttempts2 = 50;
 function resumableRuns(checkpoint) {
   return checkpoint.listRuns().filter((run2) => run2.status === "active" && (run2.review === null || run2.review.report === null));
 }
@@ -23922,7 +23923,7 @@ async function runReview(options2) {
             const invocation = invocationFor(unit, context);
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }));
+            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise: promise2 });
           }
           break;
@@ -23932,6 +23933,7 @@ async function runReview(options2) {
           const name = unitName(settled.unit.phase, settled.unit.key);
           const entry = inFlight.get(name);
           inFlight.delete(name);
+          if ("error" in settled) throw settled.error;
           const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
           log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - entry.startedAt)}${usd3(summary.costUsd)}${settled.receipt.error === null ? "" : `: ${settled.receipt.error}`}`);
           state = checkpoint.fold(runId);
@@ -23962,12 +23964,14 @@ async function runReview(options2) {
   }
 }
 function append(checkpoint, state, events) {
-  try {
-    return checkpoint.append(state.id, state.lastSequence, events);
-  } catch (error62) {
-    if (!(error62 instanceof StaleRevisionError)) throw error62;
-    const fresh = checkpoint.fold(state.id);
-    return checkpoint.append(fresh.id, fresh.lastSequence, events);
+  let current = state;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return checkpoint.append(current.id, current.lastSequence, events);
+    } catch (error62) {
+      if (!(error62 instanceof StaleRevisionError) || attempt >= appendAttempts2) throw error62;
+      current = checkpoint.fold(current.id);
+    }
   }
 }
 function recordLostWorkers(checkpoint, state, log) {
@@ -24163,7 +24167,7 @@ async function run(argv, io) {
   for (const flag of Object.keys(values)) {
     if (values[flag] !== void 0 && !allowed[command].includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : join16(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve10(io.cwd, values.repo));
   switch (command) {
     case "review":
       return review(values, io, location.root, location.worktree);

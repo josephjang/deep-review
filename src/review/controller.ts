@@ -55,12 +55,22 @@ export type ReviewOutcome =
   | { readonly kind: 'report'; readonly runId: string; readonly reportPath: string }
   | { readonly kind: 'blocked'; readonly runId: string; readonly blocker: Blocker & { readonly phase: Phase } };
 
-/** How a running worker is remembered until it settles. */
+/** How a launched worker settles: with its receipt, or with the error the launcher threw instead of one. */
+type Settled = { readonly unit: Unit; readonly receipt: WorkerReceipt } | { readonly unit: Unit; readonly error: unknown };
+
+/**
+ * How a running worker is remembered until it settles. The promise never
+ * rejects, so a launcher error is handled when the controller awaits it
+ * and is never an unhandled rejection while another worker is awaited.
+ */
 interface InFlight {
   readonly unit: Unit;
   readonly startedAt: number;
-  readonly promise: Promise<{ unit: Unit; receipt: WorkerReceipt }>;
+  readonly promise: Promise<Settled>;
 }
+
+/** How many times an append is re-folded and retried when a launcher's finish got there first. */
+const appendAttempts = 50;
 
 /** The active runs a review may resume: those without a report. A run created by another tool has no review; one that crashed before its scope or configuration is resumed by completing them. */
 export function resumableRuns(checkpoint: Checkpoint): RunState[] {
@@ -178,7 +188,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             const invocation = invocationFor(unit, context);
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise = runWorker(checkpoint, runId, invocation, { runtimes: options.runtimes, environment, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) }).then((receipt) => ({ unit, receipt }));
+            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes: options.runtimes, environment, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
+              .then((receipt): Settled => ({ unit, receipt }), (error: unknown): Settled => ({ unit, error }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise });
           }
           break;
@@ -188,6 +199,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const name = unitName(settled.unit.phase, settled.unit.key);
           const entry = inFlight.get(name)!;
           inFlight.delete(name);
+          // The launcher threw instead of returning a receipt (a run abandoned meanwhile, an invocation it refused): nothing was recorded for the unit, and the review cannot go on.
+          if ('error' in settled) throw settled.error;
           const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
           log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - entry.startedAt)}${usd(summary.costUsd)}${settled.receipt.error === null ? '' : `: ${settled.receipt.error}`}`);
           state = checkpoint.fold(runId);
@@ -219,17 +232,21 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 }
 
 /**
- * Append with the state's sequence, re-folding and retrying once when another
- * writer got there first: only `abandon` can race a locked run, and it
- * closes the run, so the retry then fails with the closed-run error.
+ * Append with the state's sequence, re-folding and retrying when another
+ * writer got there first: the launchers of the workers in flight append
+ * each finish themselves, so several may land between a fold and its
+ * append. `abandon` can race a locked run too, and it closes the run, so
+ * the retry then fails with the closed-run error.
  */
 function append(checkpoint: Checkpoint, state: RunState, events: readonly NewEvent[]): RunState {
-  try {
-    return checkpoint.append(state.id, state.lastSequence, events);
-  } catch (error) {
-    if (!(error instanceof StaleRevisionError)) throw error;
-    const fresh = checkpoint.fold(state.id);
-    return checkpoint.append(fresh.id, fresh.lastSequence, events);
+  let current = state;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return checkpoint.append(current.id, current.lastSequence, events);
+    } catch (error) {
+      if (!(error instanceof StaleRevisionError) || attempt >= appendAttempts) throw error;
+      current = checkpoint.fold(current.id);
+    }
   }
 }
 

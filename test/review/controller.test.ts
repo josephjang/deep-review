@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { RunClosedError } from '../../src/checkpoint/errors.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { until } from '../helpers/launcher.ts';
 import { acquireRunLock, lockHolder, lockPath } from '../../src/review/lock.ts';
 import { phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
@@ -246,6 +248,30 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(lockHolder(lockPath(box.checkpoint.root, runId)), process.pid);
     taken();
     assert.equal(lockHolder(lockPath(box.checkpoint.root, runId)), null);
+  });
+
+  it('ends with the launcher\'s error when the run is abandoned under a running worker, and no rejection goes unhandled', async () => {
+    const marker = join(box.directory, 'triage-may-answer');
+    box.script({ triage: { waitFor: marker } });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const pending = box.review('claude', { flags: { concurrency: 1 } });
+      await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
+      const state = box.run();
+      box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'abandoned under the worker' } }]);
+      writeFileSync(marker, '');
+      await assert.rejects(pending, RunClosedError);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.deepEqual(unhandled, []);
+      assert.equal(box.run().status, 'abandoned');
+      assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released on the way out');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   it('refuses a resumed run whose runtime differs, and two active runs', async () => {
