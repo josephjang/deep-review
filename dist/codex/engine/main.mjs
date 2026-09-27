@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync4 } from "node:fs";
-import { join as join16, resolve as resolve10 } from "node:path";
+import { join as join17, resolve as resolve10 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -22939,20 +22939,61 @@ function acquireRunLock(checkpointRoot, runId, pid = process.pid) {
 }
 
 // src/review/locations.ts
+import { readdirSync as readdirSync2 } from "node:fs";
+import { join as join14 } from "node:path";
 function normalizeFileName(file2) {
   return file2.replaceAll("\\", "/").replaceAll(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
 }
-function matchScopePath(scopePaths, file2) {
-  const wanted = normalizeFileName(file2);
-  if (wanted.length === 0) return null;
+function worktreeLookup(worktree) {
+  const listings = /* @__PURE__ */ new Map();
+  const list = (segments) => {
+    const key = segments.join("/");
+    let names = listings.get(key);
+    if (names === void 0) {
+      try {
+        names = readdirSync2(join14(worktree, ...segments));
+      } catch (error62) {
+        const code = error62.code;
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
+        names = [];
+      }
+      listings.set(key, names);
+    }
+    return names;
+  };
+  const holds = (parent, rest) => {
+    const [segment, ...below] = rest;
+    if (segment === void 0) return true;
+    return list(parent).some((name) => name.toLowerCase() === segment.toLowerCase() && holds([...parent, name], below));
+  };
+  return (path) => holds([], path.split("/"));
+}
+function relativeTails(name) {
+  const segments = name.split("/");
+  let start = 0;
+  segments.forEach((segment, index2) => {
+    if (segment === "" || segment === "." || segment === ".." || index2 === 0 && /^[A-Za-z]:$/.test(segment)) start = index2 + 1;
+  });
+  return segments.slice(start).map((_, offset) => segments.slice(start + offset).join("/"));
+}
+function onlyPath(paths, pick2) {
   for (const fold of [(text2) => text2, (text2) => text2.toLowerCase()]) {
-    const target = fold(wanted);
-    const suffixes = scopePaths.filter((path) => target === fold(path) || target.endsWith(`/${fold(path)}`));
-    if (suffixes.length > 0) return suffixes.reduce((longest, path) => path.length > longest.length ? path : longest);
-    const tails = scopePaths.filter((path) => fold(path).endsWith(`/${target}`));
-    if (tails.length === 1) return tails[0];
+    const picked = paths.filter((path) => pick2(path, fold));
+    if (picked.length > 1) return null;
+    if (picked.length === 1) return picked[0];
   }
   return null;
+}
+function matchScopePath(scopePaths, file2, inRepo) {
+  const tails = relativeTails(normalizeFileName(file2));
+  const whole = tails[0];
+  if (whole === void 0) return null;
+  for (const tail of tails) {
+    const candidates = scopePaths.filter((path) => path.toLowerCase() === tail.toLowerCase());
+    if (candidates.length > 0) return onlyPath(candidates, (path, fold) => fold(path) === fold(tail));
+    if (inRepo(tail)) return null;
+  }
+  return onlyPath(scopePaths, (path, fold) => fold(path).endsWith(`/${fold(whole)}`));
 }
 function countLines(bytes) {
   let lines = 0;
@@ -22962,6 +23003,7 @@ function countLines(bytes) {
 }
 function normalizeLocations(scope, worktree, candidates) {
   const paths = scope.files.map((file2) => file2.path);
+  const inRepo = worktreeLookup(worktree);
   const lineCounts = /* @__PURE__ */ new Map();
   const linesOf = (path) => {
     let count2 = lineCounts.get(path);
@@ -22974,7 +23016,7 @@ function normalizeLocations(scope, worktree, candidates) {
     return count2;
   };
   return candidates.map((candidate) => {
-    const file2 = matchScopePath(paths, candidate.file);
+    const file2 = matchScopePath(paths, candidate.file, inRepo);
     if (file2 === null) return { file: null, line: null, located: false };
     const lines = linesOf(file2);
     if (lines === null || candidate.line > lines) return { file: null, line: null, located: false };
@@ -22985,7 +23027,7 @@ function normalizeLocations(scope, worktree, candidates) {
 // src/review/policy.ts
 import { createHash as createHash3 } from "node:crypto";
 import { readFileSync as readFileSync7 } from "node:fs";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 var policyFileName = "policy.json";
 var tiers = ["strong", "fast"];
 var tierSchema = external_exports.enum(tiers);
@@ -23015,7 +23057,7 @@ function parsePolicy(value) {
   return parsed.data;
 }
 function readPolicy(rolesRoot) {
-  const path = join14(rolesRoot, policyFileName);
+  const path = join15(rolesRoot, policyFileName);
   let text2;
   try {
     text2 = readFileSync7(path, "utf8");
@@ -24068,7 +24110,7 @@ function describeRun(state, adapter, evidencePath) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute3, join as join15, resolve as resolve9 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute3, join as join16, resolve as resolve9 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var isFile2 = (path) => {
@@ -24098,7 +24140,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   const extensions = platform === "win32" ? extname(name) === "" ? spellingsOf(environment, "PATHEXT", platform)[0]?.[1]?.split(";").filter((extension) => extension.length > 0) ?? defaultPathExt : [""] : [""];
   for (const directory of directories) {
     for (const extension of extensions) {
-      const candidate = join15(directory.replaceAll('"', ""), `${name}${extension}`);
+      const candidate = join16(directory.replaceAll('"', ""), `${name}${extension}`);
       if (isFile2(candidate)) return refuseShim(realpathSync3.native(candidate));
     }
   }
@@ -24230,7 +24272,7 @@ async function run(argv, io) {
   }
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync4(join16(root, ledgerFileName))) return null;
+  if (!create && !existsSync4(join17(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 async function review(values, io, root, worktree) {
