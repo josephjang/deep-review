@@ -5,21 +5,28 @@
 The prompts the engine gives its workers become sources this repository
 owns. The proof of concept assembled twenty-one role prompts from the
 prompt-only `deep-review` skill in `agent-skills`: six agent definitions
-and eighteen reference files, composed by include markers inside the agent
-files and by a manifest beside them. Here they are twenty-eight fragments
-under `roles/fragments/` and one manifest, `roles/manifest.json`, that
-lists for each role the fragments its prompt is joined from, in order; one
-assembler reads them, holds each fragment to a few invariants, and hands
-the engine each role's prompt and its hash. The move keeps every prompt as
-the proof of concept produced it, and a second commit then replaces the
-wording that named Claude Code's subagent mechanism and tools with
-runtime-neutral wording, and nothing else. A review of those two commits
-later corrected, each in a commit of its own, the replacements that
-turned out wrong or were missed, the references to other text that the
-manifest's order made false or that no prompt carries, the place of the
+and eighteen reference files, composed by include markers inside the
+agent files and by a manifest beside them. Here they are twenty-seven
+fragments under `roles/fragments/`, twenty-eight at the move (D2), and
+one manifest, `roles/manifest.json`, that lists for each role the
+fragments its prompt is joined from, in order; one assembler reads them,
+holds each fragment to a few invariants, and hands the engine each
+role's prompt and its hash. The move keeps every prompt as the proof of
+concept produced it, and a second commit then replaces the wording that
+named Claude Code's subagent mechanism and tools with runtime-neutral
+wording, and nothing else. A review of those two commits later
+corrected, each in a commit of its own, the replacements that turned out
+wrong or were missed, the references to other text that the manifest's
+order made false or that no prompt carries, the place of the
 `documentation` role's own section, and gaps in the assembler, the
 manifest rules and the script; they are recorded under D5, D8 and
-Verification. Which model tier, effort, access, shell, budget and
+Verification. The author then decided the questions the review returned
+instead of fixing: the assembler compares the manifest with `fragments/`
+before it reads any fragment and passes over hidden entries there (R4);
+the `auditor`, `answer` and `test-assessment` roles no longer carry text
+written for the driver or the fixer; and a new fragment tells the seven
+roles that read the engine's narration of a review that the narration is
+not their task (D5). Which model tier, effort, access, shell, budget and
 timeout a role runs with, what it must return, and whether a runtime
 needs a different setting are decided with the phases that first run
 each role.
@@ -92,7 +99,16 @@ adapter for the first time. It was read at `agent-skills` commit
   wording that names a mechanism the worker does not have changes, with
   the few sentences review found false about the engine or the
   manifest's order, and the two that pointed at a checkpoint discipline
-  no fragment defines (D5).
+  no fragment defines (D5). The narration is still not rewritten, but
+  since review it is no longer untouched. On questions the review
+  returned, the author decided that three roles stop carrying text
+  written for another reader: `auditor` and `answer` lose the driver's
+  Step 3 text (`step3-audit` and `step3-actions`, which leave the
+  repository and take "Phase R" with them), and `test-assessment` loses
+  the fixer's validation procedure; and that a new fragment,
+  `worker-scope`, second in each of the seven roles that still carry
+  narration, tells the worker that the narration describes how the
+  engine runs a review and is not its task (D5).
 - No change to what the `CONVENTIONS` angle reviews. Its text names
   `CLAUDE.md` files only; widening it to `AGENTS.md` and other instruction
   files changes what the angle finds, and is decided with the first real
@@ -108,7 +124,12 @@ adapter for the first time. It was read at `agent-skills` commit
   moved. The engine is the driver; the element that needs one of them
   takes it then. Review found that phase 1 and phase 2 still saved
   their checkpoint sections "under the checkpoint discipline above",
-  which `resume.md` defined, and those pointers are gone (D5).
+  which `resume.md` defined, and those pointers are gone (D5). Review
+  also found two more references the prompt-only skill gives only its
+  driver, `step3-audit.md` and `step3-actions.md`, which the proof of
+  concept had added to `auditor` and `answer`; the move carried them,
+  and by the author's decision they left both roles, and so this
+  repository, after review (D5).
 - The Claude continuation budget question and the runtime-neutral usage
   view (runtime adapter, Open Questions) stay with the first end-to-end
   element.
@@ -136,7 +157,15 @@ adapter for the first time. It was read at `agent-skills` commit
   read only by a valid fragment name (R4), checked before any file is
   touched, so no caller reaches outside `fragments/`; only a fragment
   that is not there is called missing, and one that cannot be read is
-  refused with the reason the system gave.
+  refused with the reason the system gave. Since the author's decision
+  to compare the manifest with `fragments/` first (R4), the class of
+  two refusals depends on the entry point: through `assembleRoles` a
+  fragment a role names that is not there, and a `fragments/` that is a
+  link, missing or not a directory, are refused by that comparison as
+  manifest errors (`InvalidRoleManifestError`) before any fragment is
+  read, while `readRoleFragment`, reading one fragment on its own,
+  refuses a missing fragment and one in a linked `fragments/` as
+  fragment errors (`InvalidRoleFragmentError`) naming the fragment.
 - R4: A manifest has schema version 1 and at least one role, and gives
   no key twice in one object, of which `JSON.parse` would keep the last
   without a word; a role key is letters, digits and single dashes,
@@ -146,7 +175,18 @@ adapter for the first time. It was read at `agent-skills` commit
   by that rule rather than lost; a fragment name is lower-case words
   joined by single dashes with the `.md` extension and no directory
   part; a role names at least one fragment and none twice; every entry
-  under `fragments/` is a fragment some role names.
+  under `fragments/` is a fragment some role names. As the author
+  decided on two review questions, the assembler holds the manifest and
+  `fragments/` to this before it reads any fragment: a fragment some
+  role names that is not there and a visible entry no role names are
+  reported together in one manifest error, so a renamed fragment shows
+  its old and new names at once, and a name that differs only by case is
+  refused the same way on every file system. A hidden entry, whose name
+  starts with a dot (Finder's `.DS_Store`, a vim swap file), is passed
+  over, because no fragment name starts with a dot and so passing it
+  over cannot hide an unused fragment or a look-alike; every visible
+  stray, such as `notes.txt`, a directory or an editor's `a.md~`, is
+  still refused.
 - R5: At the move commit, each role's assembled prompt equals the proof of
   concept's assembled role after leading, trailing and repeated blank
   lines are collapsed, with one named exception: `documentation` is equal
@@ -174,7 +214,12 @@ adapter for the first time. It was read at `agent-skills` commit
 - R8: The commit that moves the text changes no prompt text; the commit
   that changes wording changes nothing under `roles/` but that wording, and
   carries the test that pins it. Each correction made after review is a
-  commit of its own that names what was false (D5, D8).
+  commit of its own that names what was false (D5, D8). Each change the
+  author decided on a question the review returned is also a commit of
+  its own, naming the question and the option taken, and a change of a
+  role's composition is a commit apart from a change of fragment text; a
+  fragment no role names any more is removed in the commit that stops
+  naming it, as R4 requires, with no text change of its own.
 - R9: The README describes `roles/`, and the suite covers R2, R3, R4, R6
   and R7 on Windows, macOS and Linux.
 
@@ -193,16 +238,20 @@ adapter for the first time. It was read at `agent-skills` commit
   interleaved their own text with markers: the lead's brief, then the
   output contract, then its verify instructions, then the rubrics. Under
   D1 the text between markers becomes fragments of its own, and the
-  manifest lists them in the original order. The twenty-eight fragments
+  manifest lists them in the original order. The twenty-seven fragments
   are, from the agent files, `lead-brief`, `lead-verify`, `analyst-brief`,
   `scout-brief`, `conventions-brief`, `auditor-brief`, `fixer-role`,
-  `fixer-apply`, `fixer-tests` and `fixer-report`, and from the
-  references, under their own names, `finder-lead`, `finder-output`,
-  `angles-scan`, `angles-analyst`, `angles-scout`, `angles-conventions`,
-  `rubrics`, `phase1-finders`, `phase2-verify`, `phase3-sweep`,
-  `phase4-list`, `postreview-fix-test`, `fixer-brief`,
-  `fixer-documentation`, `fixer-validation`, `step3-audit`,
-  `step3-verdicts` and `step3-actions`. The front matter, a Claude Code
+  `fixer-apply`, `fixer-tests` and `fixer-report`; from the references,
+  under their own names, `finder-lead`, `finder-output`, `angles-scan`,
+  `angles-analyst`, `angles-scout`, `angles-conventions`, `rubrics`,
+  `phase1-finders`, `phase2-verify`, `phase3-sweep`, `phase4-list`,
+  `postreview-fix-test`, `fixer-brief`, `fixer-documentation`,
+  `fixer-validation` and `step3-verdicts`; and `worker-scope`, the one
+  fragment written here rather than moved (D5). The move made
+  twenty-eight: two more references, `step3-audit` and `step3-actions`,
+  were fragments until the author's decision on a review question took
+  them out of `auditor` and `answer`, and R4 then refused them as
+  unused (`a118544`). The front matter, a Claude Code
   subagent's name, description, model, effort and tools, was never part
   of a prompt: the proof of concept's assembler stripped it before
   joining. It is the role policy this element leaves out, and its values
@@ -227,9 +276,11 @@ adapter for the first time. It was read at `agent-skills` commit
   from the writing conventions, for role prompts as well as skills.
 
 - **D5: The wording change is the smallest that removes what is false
-  under the engine.** Three kinds of text change and nothing else.
-  Identity: a "subagent of the deep-review skill" becomes a "worker of
-  the deep-review engine", "the orchestrator" becomes "the engine", an
+  under the engine.** At the wording commit three kinds of text change
+  and nothing else; review later added a fourth, added text, and changed
+  what three roles are joined from (below). Identity: a "subagent of
+  the deep-review skill" becomes a "worker of the deep-review engine",
+  "the orchestrator" becomes "the engine", an
   "agent" that means a worker becomes a "worker", and "the agent
   definition" that "the runtime delivers" becomes "the role prompt"
   every worker of that role receives. Mechanism: an `Agent` call with a
@@ -282,7 +333,48 @@ adapter for the first time. It was read at `agent-skills` commit
   terminated and written without waiting to batch it (`a0b43b4`). The
   `Driver lead` label a finder may receive stays: it is the protocol
   between the angle decision and the finders, part of the bookkeeping
-  kept above, and the guard of R6 passes it only in backticks.
+  kept above, and the guard of R6 passes it only in backticks. The
+  passage of `892e066` was in `step3-actions`, and one of the two
+  "same block" passages of `0ea14e1` and the reference `2eb8f65`
+  fixed in the third fragment were in `step3-audit`; they left the
+  repository with those fragments (below), so no prompt carries the
+  `AskUserQuestion` passage any more.
+
+  The author decided the questions the review returned instead of
+  fixing, each choosing the option the review recommended, and four
+  commits carry those decisions. Composition changes in three roles.
+  `answer`, the fixer that carries out the path the author chose, no
+  longer ends with the driver's Step 3 actions, which told it to act on
+  verdicts it never sees and to dispatch fixers "rather than editing
+  here", and its prompt is now the fixer's (`ffefbd3`, RIPPLE-2,
+  option A). `auditor` is its brief and the verdict rules only, as the
+  prompt-only skill's auditor is, without the driver's Step 3 text that
+  told it to run one auditor per cluster and dispatch fixers, against
+  its own brief to return one verdict per finding (`a118544`,
+  RIPPLE-1, option A). `test-assessment` no longer ends with the
+  fixer's validation procedure, which told a reader that owns no files
+  to mutate code and keep "the mutation within your ownership", while
+  its Step 2 already checks each reported validation method in the
+  assessor's voice (`81f6f63`, RIPPLE-4, option B). Added text is the
+  fourth kind: `worker-scope`, five lines written here, stands second
+  in `triage`, `angle-decision`, `deduplication`, `verifier`,
+  `sweep`, `merge-rank` and `test-assessment`, the seven roles that
+  read the phase narration, and tells the worker that the narration
+  describes how the engine runs a review, so it starts no other worker,
+  writes no checkpoint file and goes on to no other phase (`a77e6ec`,
+  SWEEP-8, option A). It brings back the guard the proof of concept's
+  Node controller put before every role prompt in code
+  (`packages/deep-review-driver/src/prompts.ts` in `agent-skills`),
+  which the move did not carry because no role source held it, and it
+  rewrites no sentence of the narration, so the rejection of a
+  per-worker rewrite above stands.
+  Tests pin each decision: `answer` ends with the fixer's return
+  format; no worker that returns to the engine (`fixer`,
+  `documentation`, `auditor`, `answer`) mentions dispatching; no
+  role that opens with the lead's brief carries the mutation
+  instruction; every fragment that speaks of dispatching or checkpoints
+  is on a narration list; and each role that names one of those names
+  `worker-scope` before it.
 
 - **D6: Role policy is deferred, and the proof of concept's values are
   recorded here for that decision.** The agent front matter gave each
@@ -330,9 +422,12 @@ adapter for the first time. It was read at `agent-skills` commit
   `fixer` and its reconciliation rule no longer came last. Review named
   `fixer-documentation` last in `documentation` instead (`fb1bb9d`): the
   prompt ends as the proof of concept's did, and is its text with the
-  first copy removed rather than the second. `fixer` and `answer` are
-  unchanged, and a test pins that the reconciliation rule follows the
-  last return format.
+  first copy removed rather than the second. `fixer` and `answer` were
+  unchanged by that commit, and a test pins that the reconciliation rule
+  follows the last return format. `answer` changed later, by the
+  author's decision on a review question: it dropped `step3-actions`
+  (`ffefbd3`, D5), so its prompt is now `fixer`'s byte for byte, and
+  `fixer` and `answer`, not `fixer` and `documentation`, are the pair.
 
 - **D9: Output schemas arrive with the phases that read them.** Defining
   all twenty-one schemas here was rejected: a schema is the contract
@@ -363,12 +458,43 @@ adapter for the first time. It was read at `agent-skills` commit
 - Wording changes with no run to observe them. Accepted and contained: D5
   limits the change to what is false under the engine, R6 pins it, and
   the first end-to-end element's real run is the check.
-- The driver's bookkeeping stays in worker prompts. A finder reads
-  instructions about checkpoint files it will never write, which costs
-  tokens and may confuse it. Accepted until the element that defines each
-  worker's task decides what that worker needs. Only the pointers to a
-  checkpoint discipline no fragment defines were removed after review,
-  because they sent a worker to text its prompt does not carry (D5).
+- The driver's bookkeeping stays in the prompts of seven roles.
+  `triage`, `angle-decision`, `deduplication`, `verifier`,
+  `sweep`, `merge-rank` and `test-assessment` read about checkpoint
+  files they will never write and workers they must not start, which
+  costs tokens and may still confuse them. Since the author's decision
+  on a review question, `worker-scope` stands before that narration in
+  each of them and says it is not their task, and a test keeps every
+  fragment that speaks of dispatching or checkpoints on the list the
+  guard is checked against (D5); whether a worker heeds the guard is
+  unmeasured until the first real run. Accepted until the element that
+  defines each worker's task decides what that worker needs. Only the
+  pointers to a checkpoint discipline no fragment defines were removed
+  after review, because they sent a worker to text its prompt does not
+  carry (D5).
+- Text left two roles before any run could show it unneeded. By the
+  author's decisions, `auditor` lost the driver's Step 3 text, and with
+  `step3-audit` the measurements behind its fan-out cap, which only
+  `agent-skills` keeps now; `test-assessment` lost the fixer's
+  validation procedure, and with it a few checks its Step 2 does not
+  restate, such as reading a failure's reason rather than only its exit
+  code. Accepted: the element that first runs either role takes what it
+  needs from `agent-skills` then.
+- `answer` and `fixer` have one prompt and one hash since `ffefbd3`,
+  as `triage` and `angle-decision`, and `deduplication` and
+  `verifier`, already had. On the ledger the two are told apart only by
+  the worker's label, its role key (D10), and a worker only by its
+  task. Accepted: an `answer` worker is a fixer carrying out the path
+  the author chose, and the phase that runs it gives the task that says
+  so.
+- Hidden entries under `fragments/` are never checked (R4). A file
+  whose name starts with a dot, left there by mistake, goes unnoticed;
+  accepted, because no fragment name starts with a dot, so such a file
+  can never be read into a prompt. Visible system and editor files, such
+  as Windows' `Thumbs.db` or Emacs' `a.md~` and `#a.md#`, still stop
+  every assembly, and `npm run check`, on the machine that made them;
+  accepted as the price of a rule that can be proved rather than a list
+  to keep up.
 - Two copies of the text now exist, the prompt-only skill's in
   `agent-skills` and this repository's, and they will diverge. Accepted;
   the starting decision to carry only the engine-driven skill implies it.
@@ -439,7 +565,11 @@ against the two commits of this element, `362a89f` (the move) and
   another. What distinguishes such roles is the task the phase gives
   them, which the first end-to-end element defines. The `fixer` and
   `documentation` pair holds at the move only: since `fb1bb9d` the two
-  carry the same fragments in a different order (D8).
+  carry the same fragments in a different order (D8). Since `ffefbd3`,
+  `answer` carries `fixer`'s fragments in `fixer`'s order, so `fixer`
+  and `answer` are an identical pair that was not one at the move (D8).
+  The table records the move; the prompts as they stand after review are
+  in the table of the third pass below.
 - The wording (R6): `a9971c2` makes 45 exact-string replacements from the
   D5 list, one more the inventory of D5 missed ("in one message block" on
   a line naming nothing else), and re-wraps three passages without
@@ -566,3 +696,82 @@ three to the roles. They were checked on the same machine on
   `angle-decision`, `merge-rank` and `test-assessment`; and the
   checkpoint-discipline pin, on `triage`, `angle-decision`,
   `deduplication` and `verifier`.
+
+A third pass of the review returned six questions to the author instead
+of fixing them. The author took the option the review recommended for
+each, and six commits after `1f10cbe`, the documentation commit above,
+carry those decisions, each naming its question and option. They were
+checked on the same machine on 2026-09-27, Node 26.10.0.
+
+- `npm run check` passed before each of those commits, and after the
+  last runs 572 tests: 560 pass and 12 skip. The twelve are the six
+  POSIX signal cases and the four symlink cases above, and two assembler
+  cases bound to a platform: a fragment read on its own through a
+  `fragments/` that is a file, which Windows reports as missing, and a
+  fragment whose file mode denies reading. The same `fragments/` that
+  is a file, met through `assembleRoles`, now runs here, since the
+  comparison lists the directory and Windows reports listing a file as
+  `ENOTDIR` too. So three of R3's refusals, the symlinked fragment and
+  those two, still run only where continuous integration runs them.
+  `npm run verify` matches both artifacts, as `dist/` is untouched.
+- The assembler (R3, R4). DESIGN-3, option A: `assembleRoles` compares
+  the manifest with `fragments/` before it reads any fragment, and
+  reports a fragment some role names that is not there and an entry no
+  role names together in one manifest error; a `fragments/` that is
+  missing, a file or a link is refused by that comparison as a manifest
+  error, while `readRoleFragment` keeps its fragment errors for a
+  fragment read on its own (`0d8272d`). SCAN-10, option B: the
+  comparison passes over entries whose name starts with a dot and still
+  refuses `a.md~` (`977e9cb`).
+- The composition (D5, D8). RIPPLE-2, option A: `answer` drops
+  `step3-actions` and equals `fixer` (`ffefbd3`). RIPPLE-1, option A:
+  `auditor` is `auditor-brief` and `step3-verdicts`, and
+  `step3-audit` and `step3-actions`, which no role names any more, are
+  removed, and with them the test row that pinned the auditor's prompt
+  to carry the text `step3-audit` pointed at (`a118544`). RIPPLE-4,
+  option B: `test-assessment` drops `fixer-validation`, which the fixer
+  roles still name (`81f6f63`). SWEEP-8, option A: `worker-scope` is
+  added second in the seven roles that read the narration (`a77e6ec`).
+  Twenty-seven fragments make the twenty-one prompts, which at
+  `a77e6ec` are:
+
+  | Role | Fragments | Bytes | SHA-256 at `a77e6ec` |
+  |---|---|---|---|
+  | triage | 10 | 26684 | `30dae66a61b79c6b3cd9b67e1d63361616df493ee3048873234a1a5b7e2f615b` |
+  | angle-decision | 10 | 26684 | `30dae66a61b79c6b3cd9b67e1d63361616df493ee3048873234a1a5b7e2f615b` |
+  | finder-SCAN | 6 | 12455 | `c18c34a2fa72783ea5d7eb3c4dca2e68c8acb7b7d33f6cab9e015764a771c1af` |
+  | finder-REMOVALS | 4 | 5192 | `ea796bc2fc5c4dac1de5e4c08196dc248f78cd24a517f5e4637f08c5889e778b` |
+  | finder-RIPPLE | 4 | 7090 | `dd45a38d6f07734a4119bb2e44c750148b81db4f4c80ce68087baf7e6312468c` |
+  | finder-FOOTGUNS | 4 | 7090 | `dd45a38d6f07734a4119bb2e44c750148b81db4f4c80ce68087baf7e6312468c` |
+  | finder-WRAPPERS | 4 | 7090 | `dd45a38d6f07734a4119bb2e44c750148b81db4f4c80ce68087baf7e6312468c` |
+  | finder-EFFICIENCY | 4 | 7090 | `dd45a38d6f07734a4119bb2e44c750148b81db4f4c80ce68087baf7e6312468c` |
+  | finder-DESIGN | 4 | 5192 | `ea796bc2fc5c4dac1de5e4c08196dc248f78cd24a517f5e4637f08c5889e778b` |
+  | finder-DUPLICATION | 4 | 7090 | `dd45a38d6f07734a4119bb2e44c750148b81db4f4c80ce68087baf7e6312468c` |
+  | finder-ALTITUDE | 4 | 5192 | `ea796bc2fc5c4dac1de5e4c08196dc248f78cd24a517f5e4637f08c5889e778b` |
+  | finder-CONVENTIONS | 4 | 3446 | `2e803d3a3d1968329086be42d947e192ceb2d7a1eb7d4eaf203e0f49c5ed68ca` |
+  | deduplication | 6 | 14966 | `5143fc29e4d748262d7e6646a7e9e49d44b2bbdb6cd97c25628aa6621a823375` |
+  | verifier | 6 | 14966 | `5143fc29e4d748262d7e6646a7e9e49d44b2bbdb6cd97c25628aa6621a823375` |
+  | sweep | 10 | 22507 | `8bf902f7e9b064d13104f1f679ecacf690544dd389c81c12f264129f9eb774e2` |
+  | merge-rank | 7 | 30340 | `03f1926f794cea22d7b5e3134a68285db169b635776cde04f8529457a57adc51` |
+  | fixer | 7 | 10988 | `7bf949eb3a7a45d4da5d96082a4d50f12ca4f89ee9b472f041eaeb3beb69c9e3` |
+  | documentation | 7 | 10988 | `60566945effaa835e2d632c8f7f9a587747395c71bb6b88e8e865ab4344e0082` |
+  | test-assessment | 6 | 28686 | `e498e6578cbd97d4c746a38091fbb663a439731c104939d1b1ab4ce7ba42fb38` |
+  | auditor | 2 | 7629 | `4d8eb4d0fcdb58fa2a12ae1c3d99023ebe91807f981c8c3c5a588d5335c4d03b` |
+  | answer | 7 | 10988 | `7bf949eb3a7a45d4da5d96082a4d50f12ca4f89ee9b472f041eaeb3beb69c9e3` |
+
+  `fixer` and `answer` are an identical pair, as are `triage` and
+  `angle-decision`, and `deduplication` and `verifier`; the three
+  analyst angles share one prompt and the five scout angles another.
+  `auditor`, 15924 bytes at the move, is 7629.
+- Tests checked to fail on the code before their fix: the one report of
+  a rename and a case mismatch; the comparison before any read; a
+  missing `fragments/` and one that is a file reported as ones that
+  cannot be listed, and a linked one refused as a manifest error through
+  `assembleRoles`; the hidden entries passed over; `answer` ending
+  with the fixer's return format; no worker that returns to the engine
+  mentioning dispatch, on `auditor`; the mutation pin, on
+  `test-assessment`; and the guard's order, on all seven narrated
+  roles. Two tests hold what already held and guard later changes: a
+  fragment read on its own that is missing is still called missing, and
+  every fragment that speaks of dispatching or checkpoints is on the
+  narration list the guard's order is checked against.
