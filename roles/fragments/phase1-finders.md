@@ -103,5 +103,5 @@ use the same evidence. A missing lead is not grounds to skip an angle.
 Checkpoint `triage.md` — `SCAN`'s full return plus the decision log —
 at the same time as that dispatch. As each finder returns, append its
 `## <ANGLE>` section (its candidates verbatim, with IDs) to
-`candidates.md`, terminated, under the checkpoint discipline above; do not
+`candidates.md`, terminated; do not
 wait for another return just to batch the write.
