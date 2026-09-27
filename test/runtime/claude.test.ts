@@ -165,6 +165,9 @@ describe('claude decode', () => {
         { tool_name: 'Glob', tool_input: {} },
         { tool_input: { path: 'p'.repeat(400) } },
         null,
+        ['Bash', { command: 'ls' }],
+        { tool_name: 'Bash', tool_input: ['ls'] },
+        'Bash',
       ],
     }));
     assert.deepEqual(decoded.denials, [
@@ -173,6 +176,10 @@ describe('claude decode', () => {
       { tool: 'WebFetch', detail: 'https://e.invalid' },
       { tool: 'Glob', detail: null },
       { tool: 'unknown tool', detail: 'p'.repeat(300) },
+      { tool: 'unknown tool', detail: null },
+      // An entry or input that is an array or a bare value has no named members to read.
+      { tool: 'unknown tool', detail: null },
+      { tool: 'Bash', detail: null },
       { tool: 'unknown tool', detail: null },
     ]);
     assert.deepEqual(decoded.answer, { value: { answer: 'ok' } });

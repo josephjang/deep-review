@@ -1,6 +1,7 @@
 import type { Decoded, LaunchPlan, RuntimeAdapter, WorkerCommand, WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { spellingsOf, withoutVariables } from './environment.ts';
+import { isObject } from './json.ts';
 
 /** Flags of the top-level command. */
 const codexRootFlags = ['--ask-for-approval'] as const;
@@ -100,8 +101,6 @@ type CodexEvent = Record<string, unknown>;
  * that shows the worker never had a working shell.
  */
 const refusedCommand = /\bERROR codex_core::tools::router: error=exec_command failed: (.*)$/gm;
-
-const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** The message an `error` or `turn.failed` event carries, if any. */
 function eventMessage(event: CodexEvent): string {
