@@ -20082,6 +20082,10 @@ var reviewConfiguredV1 = external_exports.strictObject({
   /** The run budget in US dollars, or null when there is none or the runtime reports no cost. */
   runBudgetUsd: external_exports.number().positive().nullable()
 });
+var limitsChangedV1 = external_exports.strictObject({
+  concurrency: external_exports.number().int().min(1).max(16),
+  runBudgetUsd: external_exports.number().positive().nullable()
+});
 var phaseStartedV1 = external_exports.strictObject({
   phase: phaseSchema,
   attempt: external_exports.number().int().min(1)
@@ -20219,6 +20223,7 @@ var eventRegistry = defineRegistry({
   "worker.finished": { 1: { schema: workerFinishedV1 } },
   "worker.lost": { 1: { schema: workerLostV1 } },
   "review.configured": { 1: { schema: reviewConfiguredV1 } },
+  "limits.changed": { 1: { schema: limitsChangedV1 } },
   "phase.started": { 1: { schema: phaseStartedV1 } },
   "phase.finished": { 1: { schema: phaseFinishedV1 } },
   "worktree.checked": { 1: { schema: worktreeCheckedV1 } },
@@ -20334,6 +20339,7 @@ var configured = (state, payload, event) => {
   if (state.review !== null) throw invalid(event, "is configured for review twice");
   const review2 = {
     configuration: payload,
+    limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: "pending", attempt: 0 }])),
     blocker: null,
     checks: [],
@@ -20348,6 +20354,11 @@ var configured = (state, payload, event) => {
     report: null
   };
   return withReview(state, review2, event);
+};
+var limitsChanged = (state, payload, event) => {
+  const { current, review: review2 } = requireReview(state, event);
+  if (review2.report !== null) throw invalid(event, "changes its limits after its report");
+  return withReview(current, { ...review2, limits: payload }, event);
 };
 function withFreshAttempts(review2, drafts, phase) {
   const units = drafts.writable(review2.units);
@@ -20520,6 +20531,7 @@ var reportWritten = (state, payload, event) => {
 };
 var reviewReducers = {
   "review.configured@1": configured,
+  "limits.changed@1": limitsChanged,
   "phase.started@1": phaseStarted,
   "phase.finished@1": phaseFinished,
   "worktree.checked@1": worktreeChecked,
@@ -23630,10 +23642,11 @@ function nextStep(review2, live2) {
   if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
-    if (live2.budgetUsd !== null && live2.spendUsd !== null && live2.spendUsd >= live2.budgetUsd) {
-      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(live2.spendUsd, live2.budgetUsd) };
+    const { concurrency, runBudgetUsd } = review2.limits;
+    if (runBudgetUsd !== null && live2.spendUsd !== null && live2.spendUsd >= runBudgetUsd) {
+      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(live2.spendUsd, runBudgetUsd) };
     }
-    const capacity = live2.concurrency - live2.running.size;
+    const capacity = concurrency - live2.running.size;
     return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
   }
   if (running.length > 0) return { kind: "await" };
@@ -23934,7 +23947,7 @@ function statisticsTable(input2) {
   ].join("\n");
 }
 function budgetLine(review2, statistics) {
-  const budget = review2.configuration.runBudgetUsd;
+  const budget = review2.limits.runBudgetUsd;
   const spent = usd2(statistics.total.costUsd);
   if (statistics.budgetApplied && budget !== null) return `- Run budget: ${usd2(budget)} USD, checked before every launch; spent ${spent} USD.`;
   if (statistics.total.costUnreported === null) {
@@ -24072,7 +24085,7 @@ function runSpendUsd(state, adapter) {
 function statisticsOf(state, adapter) {
   const settled = settledWorkers(state);
   const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
-  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.configuration.runBudgetUsd ?? null) !== null };
+  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
 }
 
 // src/review/controller.ts
@@ -24124,15 +24137,14 @@ async function runReview(options2) {
       log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}`);
     }
     const configuration = state.review.configuration;
-    const concurrency = options2.flags.concurrency ?? configuration.concurrency;
-    const budgetUsd = adapter.capabilities.costInUsd ? options2.flags.budgetUsd ?? configuration.runBudgetUsd : null;
+    state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, log);
     state = reenterPhase(checkpoint, state, log);
     const scope = state.scope;
     const block = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) });
     for (; ; ) {
       const review2 = state.review;
-      const live2 = { running: new Set(inFlight.keys()), concurrency, spendUsd: runSpendUsd(state, adapter), budgetUsd };
+      const live2 = { running: new Set(inFlight.keys()), spendUsd: runSpendUsd(state, adapter) };
       const step = nextStep(review2, live2);
       switch (step.kind) {
         case "blocked":
@@ -24306,6 +24318,18 @@ function append(checkpoint, state, events) {
     }
   }
 }
+function limitsInForce(configuration, flags, adapter) {
+  return {
+    concurrency: flags.concurrency ?? configuration.concurrency,
+    runBudgetUsd: adapter.capabilities.costInUsd ? flags.budgetUsd ?? configuration.runBudgetUsd : null
+  };
+}
+function recordLimits(checkpoint, state, limits, log) {
+  const current = state.review.limits;
+  if (current.concurrency === limits.concurrency && current.runBudgetUsd === limits.runBudgetUsd) return state;
+  log(`run ${state.id}: limits in force: concurrency ${String(limits.concurrency)}, ${limits.runBudgetUsd === null ? "no run budget" : `run budget ${limits.runBudgetUsd.toFixed(2)} USD`}`);
+  return append(checkpoint, state, [{ kind: "limits.changed", version: 1, payload: limits }]);
+}
 function recordLostWorkers(checkpoint, state, log) {
   const running = Object.values(state.workers).filter((worker) => worker.status === "running");
   if (running.length === 0) return state;
@@ -24331,6 +24355,7 @@ function describeRun(state, adapter, evidencePath) {
   const counts = { running: workers.filter((worker) => worker.status === "running").length, finished: workers.filter((worker) => worker.status === "finished").length, lost: workers.filter((worker) => worker.status === "lost").length };
   const statistics = review2 === null ? null : statisticsOf(state, adapter);
   const phase = review2 === null ? null : currentPhase(review2);
+  const budgetUsd = review2?.limits.runBudgetUsd ?? null;
   const reportPath = review2?.report === null || review2?.report === void 0 ? null : evidencePath(review2.report.report);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
@@ -24338,7 +24363,7 @@ function describeRun(state, adapter, evidencePath) {
     review2 === null ? "Review: not configured" : `Runtime: ${review2.configuration.runtime} ${review2.configuration.version}; models ${review2.configuration.models.strong} and ${review2.configuration.models.fast}`,
     phase === null ? "Phase: none running" : `Phase: ${phase} (attempt ${String(review2.phases[phase].attempt)}, ${review2.phases[phase].status})`,
     `Workers: ${String(counts.running)} running, ${String(counts.finished)} finished, ${String(counts.lost)} lost`,
-    statistics === null ? "Spend: none" : `Spend: ${statistics.total.costUsd === null ? "no cost reported" : `${statistics.total.costUsd.toFixed(2)} USD`}${review2?.configuration.runBudgetUsd === null || review2?.configuration.runBudgetUsd === void 0 ? "" : ` of ${review2.configuration.runBudgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? "no tokens reported" : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
+    statistics === null ? "Spend: none" : `Spend: ${statistics.total.costUsd === null ? "no cost reported" : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null ? "" : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? "no tokens reported" : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
     ...review2?.blocker === null || review2?.blocker === void 0 ? [] : [`Blocker: ${review2.blocker.code}: ${review2.blocker.detail}`, `Action: ${review2.blocker.action}`],
     ...reportPath === null ? [] : [`Report: ${reportPath}`]
   ];

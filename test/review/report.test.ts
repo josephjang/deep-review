@@ -59,9 +59,17 @@ describe('renderReport', () => {
     assert.match(report, /Findings: 0 \(0 CONFIRMED, 0 PLAUSIBLE\); 1 refuted at verification/);
   });
 
+  it('names the run budget in force at the end, not the one the run was configured with', () => {
+    const raised = ranked().add('limits.changed', { concurrency: 4, runBudgetUsd: 75.5 }).fold();
+    assert.equal(raised.review!.configuration.runBudgetUsd, 30);
+    const report = renderReport(raised, { engine: '0.0.0', statistics });
+    assert.match(report, /^- Run budget: 75\.50 USD, checked before every launch; spent 4\.50 USD\.$/m);
+    assert.doesNotMatch(report, /30\.00 USD/);
+  });
+
   it('says a runtime that reports cost ran without a run budget, rather than that it reports no cost', () => {
     const state = ranked().fold();
-    const unbudgeted = { ...state, review: { ...state.review!, configuration: { ...state.review!.configuration, runBudgetUsd: null } } };
+    const unbudgeted = { ...state, review: { ...state.review!, limits: { ...state.review!.limits, runBudgetUsd: null } } };
     const report = renderReport(unbudgeted, { engine: '0.0.0', statistics: { ...statistics, total: { ...statistics.total, costUnreported: 0 }, budgetApplied: false } });
     assert.match(report, /^- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent 4\.50 USD\.$/m);
     assert.doesNotMatch(report, /reports no cost in USD/);

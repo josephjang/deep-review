@@ -1,13 +1,14 @@
 {
   "schema": 1,
   "ddl": "a551960a9c6792b3e1abeab1abed8361f0b4af510504339b32f11010859d6b82",
-  "registry": "35f4c234edb8e01780844a28a5fd7c3fd198f3315b047d4eaa4d172b67ffc2fb",
+  "registry": "a18fa259c6002c48e4b4143d71e68927dd3af7198943418c7a6e277fd43f9843",
   "kinds": [
     "angle.failed@1",
     "attempt.failed@1",
     "candidates.recorded@1",
     "deduplication.recorded@1",
     "group.unverified@1",
+    "limits.changed@1",
     "phase.finished@1",
     "phase.started@1",
     "ranking.recorded@1",

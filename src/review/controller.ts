@@ -8,7 +8,7 @@
 import { resolve } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import { StaleRevisionError } from '../checkpoint/errors.ts';
-import type { Blocker, ReviewConfiguration, ScopeRequest } from '../checkpoint/events.ts';
+import type { Blocker, ReviewConfiguration, ReviewLimits, ScopeRequest } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -141,10 +141,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}`);
     }
     const configuration = state.review!.configuration;
-    // Per invocation: a higher budget is how a budget blocker is cleared, and a smaller concurrency is how a machine is spared.
-    const concurrency = options.flags.concurrency ?? configuration.concurrency;
-    const budgetUsd = adapter.capabilities.costInUsd ? (options.flags.budgetUsd ?? configuration.runBudgetUsd) : null;
-
+    state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, log);
     state = reenterPhase(checkpoint, state, log);
 
@@ -153,7 +150,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 
     for (;;) {
       const review = state.review!;
-      const live: Live = { running: new Set(inFlight.keys()), concurrency, spendUsd: runSpendUsd(state, adapter), budgetUsd };
+      const live: Live = { running: new Set(inFlight.keys()), spendUsd: runSpendUsd(state, adapter) };
       const step = nextStep(review, live);
       switch (step.kind) {
         case 'blocked':
@@ -287,7 +284,8 @@ interface OpenedRun {
  * - A configured run reads its pinned configuration, not the policy file
  *   or the flags (R3, design: role policy): its roles must still digest
  *   as pinned, and its pinned executable is what is preflighted. Only
- *   `--concurrency` and `--budget-usd` apply per invocation. A run not yet
+ *   `--concurrency` and `--budget-usd` apply per invocation, and the
+ *   limits they put in force are recorded when they change. A run not yet
  *   configured resolves the policy and preflights the command's
  *   executable, before a new run is created so a refusal creates nothing.
  *
@@ -411,6 +409,28 @@ function append(checkpoint: Checkpoint, state: RunState, events: readonly NewEve
   }
 }
 
+/**
+ * The concurrency and the run budget this invocation puts in force: each
+ * flag when given, else the pinned value. Both are per invocation, since a
+ * higher budget is how a budget blocker is cleared and a smaller
+ * concurrency is how a machine is spared. A runtime that reports no cost
+ * has no budget to check.
+ */
+function limitsInForce(configuration: ReviewConfiguration, flags: PolicyFlags, adapter: RuntimeAdapter): ReviewLimits {
+  return {
+    concurrency: flags.concurrency ?? configuration.concurrency,
+    runBudgetUsd: adapter.capabilities.costInUsd ? (flags.budgetUsd ?? configuration.runBudgetUsd) : null,
+  };
+}
+
+/** Record the limits this invocation puts in force when they differ from the ones the run has, so the planner, `status` and the report read the ones in force. */
+function recordLimits(checkpoint: Checkpoint, state: RunState, limits: ReviewLimits, log: (line: string) => void): RunState {
+  const current = state.review!.limits;
+  if (current.concurrency === limits.concurrency && current.runBudgetUsd === limits.runBudgetUsd) return state;
+  log(`run ${state.id}: limits in force: concurrency ${String(limits.concurrency)}, ${limits.runBudgetUsd === null ? 'no run budget' : `run budget ${limits.runBudgetUsd.toFixed(2)} USD`}`);
+  return append(checkpoint, state, [{ kind: 'limits.changed', version: 1, payload: limits }]);
+}
+
 /** Every worker still running on the ledger died with the engine that launched it, or was orphaned by a hard kill: record each lost (TD5). */
 function recordLostWorkers(checkpoint: Checkpoint, state: RunState, log: (line: string) => void): RunState {
   const running = Object.values(state.workers).filter((worker) => worker.status === 'running');
@@ -441,6 +461,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const counts = { running: workers.filter((worker) => worker.status === 'running').length, finished: workers.filter((worker) => worker.status === 'finished').length, lost: workers.filter((worker) => worker.status === 'lost').length };
   const statistics = review === null ? null : statisticsOf(state, adapter);
   const phase = review === null ? null : currentPhase(review);
+  const budgetUsd = review?.limits.runBudgetUsd ?? null;
   const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
@@ -450,7 +471,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     `Workers: ${String(counts.running)} running, ${String(counts.finished)} finished, ${String(counts.lost)} lost`,
     statistics === null
       ? 'Spend: none'
-      : `Spend: ${statistics.total.costUsd === null ? 'no cost reported' : `${statistics.total.costUsd.toFixed(2)} USD`}${review?.configuration.runBudgetUsd === null || review?.configuration.runBudgetUsd === undefined ? '' : ` of ${review.configuration.runBudgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? 'no tokens reported' : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
+      : `Spend: ${statistics.total.costUsd === null ? 'no cost reported' : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null ? '' : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? 'no tokens reported' : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
     ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
   ];

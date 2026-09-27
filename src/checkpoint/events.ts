@@ -257,6 +257,7 @@ export type PinnedRole = z.infer<typeof pinnedRoleSchema>;
  * worker. A resumed run reads it from here and ignores the policy file and
  * the model flags; only the concurrency and the run budget are per
  * invocation, and the values here are the ones in force at the start.
+ * `limits.changed` records every later change to them.
  */
 export const reviewConfiguredV1 = z.strictObject({
   runtime: z.string().min(1),
@@ -273,6 +274,20 @@ export const reviewConfiguredV1 = z.strictObject({
   runBudgetUsd: z.number().positive().nullable(),
 });
 export type ReviewConfiguration = z.infer<typeof reviewConfiguredV1>;
+
+/**
+ * The concurrency and the run budget in force from here on (R6), written
+ * when an invocation of a resumed run puts different ones in force than
+ * the run had: its `--concurrency` or `--budget-usd`, or, without them, the
+ * pinned values again. Both are recorded whole, so the fold replaces the
+ * limits in force and the planner, `status` and the report read them from
+ * one place. The run budget is null when there is none.
+ */
+export const limitsChangedV1 = z.strictObject({
+  concurrency: z.number().int().min(1).max(16),
+  runBudgetUsd: z.number().positive().nullable(),
+});
+export type ReviewLimits = z.infer<typeof limitsChangedV1>;
 
 /** A phase begins, or a resumed engine re-enters a phase that was running or blocked; the attempt counts both. */
 export const phaseStartedV1 = z.strictObject({
@@ -476,6 +491,7 @@ export const eventRegistry = defineRegistry({
   'worker.finished': { 1: { schema: workerFinishedV1 } },
   'worker.lost': { 1: { schema: workerLostV1 } },
   'review.configured': { 1: { schema: reviewConfiguredV1 } },
+  'limits.changed': { 1: { schema: limitsChangedV1 } },
   'phase.started': { 1: { schema: phaseStartedV1 } },
   'phase.finished': { 1: { schema: phaseFinishedV1 } },
   'worktree.checked': { 1: { schema: worktreeCheckedV1 } },
