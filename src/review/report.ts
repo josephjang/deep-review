@@ -8,7 +8,7 @@
 import type { ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
-import { matchScopePath } from './locations.ts';
+import { matchScopePath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
@@ -83,23 +83,42 @@ function budgetLine(review: ReviewState, statistics: ReportInput['statistics']):
   return `- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent ${spent} USD.`;
 }
 
-/** Why a candidate is unlocated, as `normalizeLocations` decided it, in the order the report lists them. */
-const unlocatedReasons = ['outside', 'deleted', 'past-end'] as const;
+/**
+ * Why a candidate is unlocated, in the order the report lists them: its
+ * file names no scope path, names one the change deletes, or names a
+ * changed file whose after state has no such line; or its path only ends
+ * with a changed path, and the ledger alone cannot tell which holds.
+ */
+const unlocatedReasons = ['outside', 'deleted', 'past-end', 'ends-with-changed'] as const;
 type UnlocatedReason = (typeof unlocatedReasons)[number];
 const unlocatedWording: Readonly<Record<UnlocatedReason, string>> = {
   outside: 'on a file outside the reviewed change',
   deleted: 'on a file the change deletes, which has no after state for a line to point into',
   'past-end': 'on a line past the end of the changed file',
+  'ends-with-changed': 'on a path that ends with a changed path, naming either an unchanged file of the repository or that changed file without such a line',
 };
 
+/** A repository holding no path: every tail of a finder's path, and its bare name, may still name a changed file. */
+const holdsNoPath: RepoLookup = () => false;
+/** A repository holding every path: only a finder's whole path, past any root, may name a changed file. */
+const holdsEveryPath: RepoLookup = () => true;
+
 /**
- * Why an unlocated candidate is unlocated, found the way the location was
- * normalized: its raw file names no scope path, or names one the change
- * deletes; otherwise its line lay past the end of the file's after state.
+ * Why an unlocated candidate is unlocated, from the ledger alone, so that
+ * two engines give the same reason. `normalizeLocations` matched the raw
+ * file against the scope with a lookup over the worktree, which the ledger
+ * does not record, so the two extreme lookups bound what it found: a path
+ * that matches nothing even when the repository holds no path matched
+ * nothing, and a path that matches even when the repository holds every
+ * path matched that same scope path. A path between the two only ends with
+ * a changed path, and names either an unchanged file, which was left
+ * unmatched, or that changed file; it is never pinned to the changed file.
  */
 function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedReason {
-  const path = matchScopePath(scope.files.map((file) => file.path), candidate.rawFile);
-  if (path === null) return 'outside';
+  const paths = scope.files.map((file) => file.path);
+  if (matchScopePath(paths, candidate.rawFile, holdsNoPath) === null) return 'outside';
+  const path = matchScopePath(paths, candidate.rawFile, holdsEveryPath);
+  if (path === null) return 'ends-with-changed';
   return scope.files.find((file) => file.path === path)?.after === null ? 'deleted' : 'past-end';
 }
 
