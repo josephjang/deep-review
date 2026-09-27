@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
 import { InvalidHistoryError, UnknownEventError } from '../../src/checkpoint/errors.ts';
-import { eventRegistry } from '../../src/checkpoint/events.ts';
+import { accessSchema, effortSchema, eventRegistry, workerLaunchedV1 } from '../../src/checkpoint/events.ts';
 import { applyEvent, defineModel, foldRun, reducers, runModel, type DecodedEvent } from '../../src/checkpoint/fold.ts';
 import { defineRegistry, registryIdentity, registryKeys } from '../../src/checkpoint/registry.ts';
 import { testModel } from '../helpers/model.ts';
@@ -188,6 +188,39 @@ describe('workers', () => {
     assert.throws(() => foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.finished', finish(workerB))]), /without launching it/);
   });
 
+  it('accepts a continuation under the session it resumes, and every other outcome without an output', () => {
+    const session = '11111111-2222-4333-8444-555555555555';
+    const state = foldRun([
+      created(),
+      event(2, 'worker.launched', launch(workerA, { sessionId: session, resumes: session })),
+      event(3, 'worker.launched', launch(workerB, { sessionId: null, resumes: null })),
+    ]);
+    assert.equal(state.workers[workerA]?.launch.resumes, session);
+    assert.equal(state.workers[workerB]?.launch.sessionId, null);
+    for (const outcome of ['budget', 'timeout', 'failed']) {
+      const finished = foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.finished', finish(workerA, { outcome, output: null }))]);
+      assert.equal(finished.workers[workerA]?.status, 'finished', outcome);
+    }
+  });
+
+  it('names the broken rule when a finish and its output disagree, or a continuation runs under another session', () => {
+    assert.throws(
+      () => foldRun([created(), event(2, 'worker.launched', launch(workerA)), event(3, 'worker.finished', finish(workerA, { output: null }))]),
+      /output is present exactly when the outcome is completed/,
+    );
+    assert.throws(
+      () => foldRun([created(), event(2, 'worker.launched', launch(workerA, { resumes: '99999999-2222-4333-8444-555555555555' }))]),
+      /a continuation runs under the session it resumes/,
+    );
+  });
+
+  it('pins the effort levels and access modes worker.launched@1 records, apart from the runtime contract', () => {
+    assert.deepEqual(workerLaunchedV1.shape.effort.options, ['low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual(workerLaunchedV1.shape.access.options, ['read-only', 'edit']);
+    assert.notEqual(workerLaunchedV1.shape.effort, effortSchema);
+    assert.notEqual(workerLaunchedV1.shape.access, accessSchema);
+  });
+
   it('refuses a worker event before the run exists', () => {
     assert.throws(() => foldRun([event(1, 'worker.launched', launch(workerA))]), /before its creation/);
   });
@@ -206,6 +239,12 @@ describe('workers', () => {
       ['worker.finished', finish(workerA, { usage: { input_tokens: 1 } })],
       ['worker.finished', finish(workerA, { denials: [{ tool: '', detail: null }] })],
       ['worker.finished', finish(workerA, { error: '' })],
+      ['worker.launched', launch(workerA, { resumes: '99999999-2222-4333-8444-555555555555' })],
+      ['worker.launched', launch(workerA, { resumes: '11111111-2222-4333-8444-555555555555', sessionId: null })],
+      ['worker.finished', finish(workerA, { output: null })],
+      ['worker.finished', finish(workerA, { outcome: 'failed', error: 'no', output: reference('e') })],
+      ['worker.finished', finish(workerA, { outcome: 'budget', output: reference('e') })],
+      ['worker.finished', finish(workerA, { outcome: 'timeout', termination: 'killed', output: reference('e') })],
     ];
     for (const [kind, payload] of cases) {
       const events = kind === 'worker.finished' ? [created(), event(2, 'worker.launched', launch(workerA)), event(3, kind, payload)] : [created(), event(2, kind, payload)];
