@@ -20,6 +20,6 @@ Update every affected document you own, respecting repository rules for
 historical or append-only records; never invent shipped behavior from an
 unanswered design question. Do not change code to make a document true.
 Report required documents outside ownership as BLOCKED with exact paths
-and evidence so the driver can extend the same cluster. Return a status
+and evidence so the engine can extend the same cluster. Return a status
 for every queued ID, including `APPLIED (already applied)` for facts you
 verified are already correct, plus FILES, TESTS and SUITE evidence.
