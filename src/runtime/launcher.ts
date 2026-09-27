@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../checkpoint/errors.ts';
@@ -247,11 +247,51 @@ function refuseMissingCapabilities(adapter: RuntimeAdapter, invocation: Invocati
   }
 }
 
+/** How a continuation checks a field it keeps from the worker it continues. */
+interface KeptField {
+  /** What a refusal calls the field. */
+  readonly name: string;
+  /** The value the invocation asks for, in the form compared; undefined when the invocation leaves it to the worker continued. */
+  readonly requested: (invocation: Invocation, schemaDigest: string) => unknown;
+  /** The recorded value in that form; the launch's own field by default. */
+  readonly recorded?: (launch: WorkerLaunch) => unknown;
+}
+
+/**
+ * What a continuation does with each field of the launch it continues (R9):
+ * a kept field must equal the worker continued, an `own` one is the new
+ * worker's. Every field is named, so a field added to the launch, such as a
+ * new permission, fails to compile here until it is classified.
+ */
+export const continuationFields: { readonly [Field in keyof WorkerLaunch]-?: 'own' | KeptField } = {
+  runtime: { name: 'runtime', requested: (invocation) => invocation.runtime },
+  model: { name: 'model', requested: (invocation) => invocation.model },
+  effort: { name: 'effort', requested: (invocation) => invocation.effort },
+  access: { name: 'access', requested: (invocation) => invocation.access },
+  shell: { name: 'shell', requested: (invocation) => invocation.shell },
+  schema: { name: 'output schema digest', requested: (_invocation, schemaDigest) => schemaDigest, recorded: (launch) => launch.schema.sha256 },
+  // The ledger holds the resolved path chooseScratch recorded; the caller's is compared in the same spelling, and may be left out.
+  scratch: { name: 'scratch directory', requested: (invocation) => (invocation.scratch === undefined ? undefined : resolve(invocation.scratch)) },
+  // A new process: its own id, label, prompt, spend and time, under the session it resumes.
+  workerId: 'own',
+  label: 'own',
+  prompt: 'own',
+  budgetUsd: 'own',
+  timeoutMs: 'own',
+  sessionId: 'own',
+  resumes: 'own',
+  // Any qualified binary of the same runtime may continue it, such as the one an auto-update installed; the launch records which ran (R4).
+  executable: 'own',
+  executableArgs: 'own',
+  version: 'own',
+};
+
 /**
  * The finished worker whose session the invocation continues (R9). The
  * session must be one a worker of this run ran under, no worker may still
- * be running in it, and the continuation keeps that worker's runtime,
- * model, effort, permissions and schema. The budget and timeout are the
+ * be running in it, and the continuation keeps every field
+ * `continuationFields` marks kept: the runtime, model, effort, permissions,
+ * schema and scratch directory. The budget and timeout are the
  * continuation's own: it is a new process with its own spend.
  */
 function continuedWorker(state: RunState, invocation: Invocation, schemaDigest: string): Extract<WorkerState, { status: 'finished' }> {
@@ -262,21 +302,18 @@ function continuedWorker(state: RunState, invocation: Invocation, schemaDigest: 
   if (inSession.length === 0) throw new InvalidInvocationError(`No worker of run ${state.id} ran session ${session}, so there is nothing to continue`);
   const running = inSession.find((worker) => worker.status === 'running');
   if (running !== undefined) throw new InvalidInvocationError(`Worker ${running.launch.workerId} is still running in session ${session}; continue it after it finishes`);
+  // A pinned session id is on the ledger before the process exists; if no process ever did, the runtime holds no conversation.
+  if (inSession.every((worker) => worker.status === 'finished' && worker.finish.termination === 'not-started')) {
+    throw new InvalidInvocationError(`No worker of session ${session} ever started, so the runtime has no conversation to continue`);
+  }
   // Workers fold in ledger order, so the last one is the latest word in the session.
   const previous = inSession.at(-1) as Extract<WorkerState, { status: 'finished' }>;
-  const kept: [string, unknown, unknown][] = [
-    ['runtime', previous.launch.runtime, invocation.runtime],
-    ['model', previous.launch.model, invocation.model],
-    ['effort', previous.launch.effort, invocation.effort],
-    ['access', previous.launch.access, invocation.access],
-    ['shell', previous.launch.shell, invocation.shell],
-    ['output schema digest', previous.launch.schema.sha256, schemaDigest],
-  ];
-  for (const [field, before, now] of kept) {
-    if (before !== now) throw new InvalidInvocationError(`A continuation of session ${session} must keep its ${field}: it was ${String(before)}, the invocation has ${String(now)}`);
-  }
-  if (invocation.scratch !== undefined && invocation.scratch !== previous.launch.scratch) {
-    throw new InvalidInvocationError(`A continuation of session ${session} keeps its scratch directory ${String(previous.launch.scratch)}`);
+  for (const [field, rule] of Object.entries(continuationFields) as [keyof WorkerLaunch, 'own' | KeptField][]) {
+    if (rule === 'own') continue;
+    const now = rule.requested(invocation, schemaDigest);
+    if (now === undefined) continue;
+    const before = rule.recorded === undefined ? previous.launch[field] : rule.recorded(previous.launch);
+    if (before !== now) throw new InvalidInvocationError(`A continuation of session ${session} must keep its ${rule.name}: it was ${String(before)}, the invocation has ${String(now)}`);
   }
   return previous;
 }
