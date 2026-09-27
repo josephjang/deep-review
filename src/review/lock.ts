@@ -5,13 +5,20 @@
  * append failed, so the second is refused while the first's process lives;
  * a lock whose process is gone is replaced.
  */
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { blockerActions } from './vocabulary.ts';
 import { ReviewRefusedError } from './errors.ts';
 
 /** The directory under the checkpoint root that holds run locks. */
 export const locksDirectoryName = 'runs';
+
+/**
+ * How old a lock file that holds no pid must be before it is taken for a
+ * leftover and replaced. An engine writes its pid right after creating the
+ * file, so a younger one may be a lock another engine is taking right now.
+ */
+export const unwrittenLockGraceMs = 10_000;
 
 /** Where a run's lock lives. */
 export function lockPath(checkpointRoot: string, runId: string): string {
@@ -28,17 +35,27 @@ export function processAlive(pid: number): boolean {
   }
 }
 
-/** The pid a lock file holds, or null when the file is absent or holds no pid. */
-export function lockHolder(path: string): number | null {
+/** What a lock file holds: nothing (no file), a pid, or no pid (empty or garbage), with the file's age. */
+type LockFile = { readonly kind: 'absent' } | { readonly kind: 'held'; readonly pid: number } | { readonly kind: 'no-pid'; readonly ageMs: number };
+
+function readLock(path: string): LockFile {
   let text: string;
+  let modifiedMs: number;
   try {
+    modifiedMs = statSync(path).mtimeMs;
     text = readFileSync(path, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'absent' };
     throw error;
   }
   const pid = Number(text.trim());
-  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+  return text.trim() !== '' && Number.isSafeInteger(pid) && pid > 0 ? { kind: 'held', pid } : { kind: 'no-pid', ageMs: Date.now() - modifiedMs };
+}
+
+/** The pid a lock file holds, or null when the file is absent or holds no pid. */
+export function lockHolder(path: string): number | null {
+  const lock = readLock(path);
+  return lock.kind === 'held' ? lock.pid : null;
 }
 
 /** What holding a lock gives back: the function that releases it. */
@@ -47,18 +64,23 @@ export type ReleaseLock = () => void;
 /**
  * Take the run's lock for this process, or refuse with the `lock-held`
  * blocker while another live process holds it. A lock left by a process
- * that is gone, or one that holds no pid, is replaced. The lock is created
- * exclusively, so two engines racing for one run cannot both take it.
+ * that is gone is replaced, and so is one that holds no pid once it is
+ * older than `unwrittenLockGraceMs`; a younger one may be another engine's
+ * lock in the instant between its create and its write, and is refused.
+ * The lock is created exclusively, so two engines racing to create it
+ * cannot both take it.
  */
 export function acquireRunLock(checkpointRoot: string, runId: string, pid: number = process.pid): ReleaseLock {
   const path = lockPath(checkpointRoot, runId);
+  const taking = (): ReviewRefusedError => new ReviewRefusedError(`another engine is taking the lock of run ${runId} (${path}); ${blockerActions['lock-held']}`, 'lock-held');
   mkdirSync(join(checkpointRoot, locksDirectoryName), { recursive: true });
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const holder = lockHolder(path);
-    if (holder !== null && holder !== pid && processAlive(holder)) {
-      throw new ReviewRefusedError(`engine ${String(holder)} is running run ${runId} (lock ${path}); ${blockerActions['lock-held']}`, 'lock-held');
+    const lock = readLock(path);
+    if (lock.kind === 'held' && lock.pid !== pid && processAlive(lock.pid)) {
+      throw new ReviewRefusedError(`engine ${String(lock.pid)} is running run ${runId} (lock ${path}); ${blockerActions['lock-held']}`, 'lock-held');
     }
-    if (holder !== null) rmSync(path, { force: true });
+    if (lock.kind === 'no-pid' && lock.ageMs < unwrittenLockGraceMs) throw taking();
+    if (lock.kind !== 'absent') rmSync(path, { force: true });
     try {
       const fd = openSync(path, 'wx');
       try {
@@ -72,5 +94,5 @@ export function acquireRunLock(checkpointRoot: string, runId: string, pid: numbe
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
   }
-  throw new ReviewRefusedError(`another engine is taking the lock of run ${runId} (${path}); ${blockerActions['lock-held']}`, 'lock-held');
+  throw taking();
 }

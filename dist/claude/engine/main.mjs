@@ -22943,9 +22943,10 @@ function parseUnitLabel(label) {
 }
 
 // src/review/lock.ts
-import { closeSync as closeSync3, mkdirSync as mkdirSync4, openSync as openSync3, readFileSync as readFileSync6, rmSync as rmSync2, writeSync as writeSync2 } from "node:fs";
+import { closeSync as closeSync3, mkdirSync as mkdirSync4, openSync as openSync3, readFileSync as readFileSync6, rmSync as rmSync2, statSync as statSync3, writeSync as writeSync2 } from "node:fs";
 import { join as join13 } from "node:path";
 var locksDirectoryName = "runs";
+var unwrittenLockGraceMs = 1e4;
 function lockPath(checkpointRoot, runId) {
   return join13(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
@@ -22957,26 +22958,30 @@ function processAlive(pid) {
     return error62.code === "EPERM";
   }
 }
-function lockHolder(path) {
+function readLock(path) {
   let text2;
+  let modifiedMs;
   try {
+    modifiedMs = statSync3(path).mtimeMs;
     text2 = readFileSync6(path, "utf8");
   } catch (error62) {
-    if (error62.code === "ENOENT") return null;
+    if (error62.code === "ENOENT") return { kind: "absent" };
     throw error62;
   }
   const pid = Number(text2.trim());
-  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+  return text2.trim() !== "" && Number.isSafeInteger(pid) && pid > 0 ? { kind: "held", pid } : { kind: "no-pid", ageMs: Date.now() - modifiedMs };
 }
 function acquireRunLock(checkpointRoot, runId, pid = process.pid) {
   const path = lockPath(checkpointRoot, runId);
+  const taking = () => new ReviewRefusedError(`another engine is taking the lock of run ${runId} (${path}); ${blockerActions["lock-held"]}`, "lock-held");
   mkdirSync4(join13(checkpointRoot, locksDirectoryName), { recursive: true });
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const holder = lockHolder(path);
-    if (holder !== null && holder !== pid && processAlive(holder)) {
-      throw new ReviewRefusedError(`engine ${String(holder)} is running run ${runId} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
+    const lock = readLock(path);
+    if (lock.kind === "held" && lock.pid !== pid && processAlive(lock.pid)) {
+      throw new ReviewRefusedError(`engine ${String(lock.pid)} is running run ${runId} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
     }
-    if (holder !== null) rmSync2(path, { force: true });
+    if (lock.kind === "no-pid" && lock.ageMs < unwrittenLockGraceMs) throw taking();
+    if (lock.kind !== "absent") rmSync2(path, { force: true });
     try {
       const fd = openSync3(path, "wx");
       try {
@@ -22990,7 +22995,7 @@ function acquireRunLock(checkpointRoot, runId, pid = process.pid) {
       if (error62.code !== "EEXIST") throw error62;
     }
   }
-  throw new ReviewRefusedError(`another engine is taking the lock of run ${runId} (${path}); ${blockerActions["lock-held"]}`, "lock-held");
+  throw taking();
 }
 
 // src/review/locations.ts
@@ -24233,13 +24238,13 @@ function describeRun(state, adapter, evidencePath) {
 }
 
 // src/review/executable.ts
-import { realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
+import { realpathSync as realpathSync3, statSync as statSync4 } from "node:fs";
 import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, resolve as resolve9 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var isFile2 = (path) => {
   try {
-    return statSync3(path).isFile();
+    return statSync4(path).isFile();
   } catch {
     return false;
   }
