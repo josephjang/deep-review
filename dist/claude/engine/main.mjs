@@ -23833,7 +23833,7 @@ function findingBlock(position, entry) {
 function statisticsTable(input2) {
   const row = (name, spend) => `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${usd2(spend.costUsd)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
   return [
-    "| Phase | Workers | Seconds | Cost (USD) | Input tokens | Cached input | Output tokens |",
+    "| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |",
     "|---|---|---|---|---|---|---|",
     ...phases.map((phase) => row(phase, input2.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
     row("Total", input2.statistics.total)
@@ -23913,12 +23913,26 @@ function sumReported(values) {
   return reported.length === 0 ? null : reported.reduce((total, value) => total + value, 0);
 }
 var cents = (value) => value === null ? null : Math.round(value * 100) / 100;
+function wallSeconds(workers) {
+  const intervals = workers.map((worker) => ({ start: Date.parse(worker.finish.startedAt), end: Date.parse(worker.finish.endedAt) })).filter((interval) => interval.end > interval.start).sort((a, b) => a.start - b.start);
+  let total = 0;
+  let open2 = null;
+  for (const interval of intervals) {
+    if (open2 !== null && interval.start <= open2.end) {
+      open2.end = Math.max(open2.end, interval.end);
+      continue;
+    }
+    if (open2 !== null) total += open2.end - open2.start;
+    open2 = { ...interval };
+  }
+  if (open2 !== null) total += open2.end - open2.start;
+  return total / 1e3;
+}
 function spendOf(workers, adapter) {
   const summaries = workers.map((worker) => usageOf(worker, adapter));
-  const seconds2 = workers.reduce((total, worker) => total + Math.max(0, (Date.parse(worker.finish.endedAt) - Date.parse(worker.finish.startedAt)) / 1e3), 0);
   return {
     workers: workers.length,
-    seconds: Math.round(seconds2 * 10) / 10,
+    seconds: Math.round(wallSeconds(workers) * 10) / 10,
     costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
     inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
     cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),

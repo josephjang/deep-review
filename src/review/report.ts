@@ -62,7 +62,7 @@ function statisticsTable(input: ReportInput): string {
   const row = (name: string, spend: Spend): string =>
     `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${usd(spend.costUsd)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
   return [
-    '| Phase | Workers | Seconds | Cost (USD) | Input tokens | Cached input | Output tokens |',
+    '| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |',
     '|---|---|---|---|---|---|---|',
     ...phases.map((phase) => row(phase, input.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
     row('Total', input.statistics.total),
