@@ -94,7 +94,7 @@ and still performs the full angle search. Do not pass other angles'
 findings or conclusions. The angle definition, lead-handling rule, and
 output contract are in the finder's role prompt; do not restate them.
 
-**An overridden skip uses the driver's verified reason labeled `Driver lead`, not an invented SCAN run reason.**
+**An overridden skip uses your verified reason labeled `Driver lead`, not an invented SCAN run reason.**
 **No concrete lead available: send `Lead: none` and still run the chosen angle.**
 Record the dispatched lead and its source in the per-angle decision log
 alongside the run/skip decision and any override, so resumed dispatches

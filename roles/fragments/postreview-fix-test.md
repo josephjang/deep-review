@@ -192,7 +192,7 @@ rebuilds the context this step exists to avoid. Instead:
    name the owning cluster for any failure, and include each test, lint and
    typecheck command with its working directory, exit code, and concise
    failure evidence. Capture the command's own exit code, not a log
-   reader's or pipeline's. A fixer's SUITE line is not a driver run.
+   reader's or pipeline's. A fixer's SUITE line is not the aggregate run.
    End the record with `<!-- END STEP1-verify-N -->` using the actual N,
    and confirm the write succeeded before continuing or dispatching repairs.
 4. If anything failed, dispatch the recorded owning fixer rather than
