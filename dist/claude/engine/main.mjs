@@ -24566,6 +24566,15 @@ action: ${outcome.blocker.action}
     checkpoint.close();
   }
 }
+function resolveRun(checkpoint, run2) {
+  if (run2 === void 0) return findActiveRun(checkpoint);
+  try {
+    return checkpoint.fold(run2);
+  } catch (error62) {
+    if (error62 instanceof UnknownRunError) throw new UsageError(error62.message);
+    throw error62;
+  }
+}
 function status2(values, io, root) {
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) {
@@ -24573,7 +24582,7 @@ function status2(values, io, root) {
     return 0;
   }
   try {
-    const state = values.run === void 0 ? findActiveRun(checkpoint) : checkpoint.fold(values.run);
+    const state = resolveRun(checkpoint, values.run);
     if (state === null) {
       io.stdout(values.json === true ? "null\n" : "No active run.\n");
       return 0;
@@ -24584,9 +24593,6 @@ function status2(values, io, root) {
 ` : `${described.lines.join("\n")}
 `);
     return 0;
-  } catch (error62) {
-    if (error62 instanceof UnknownRunError) throw new UsageError(error62.message);
-    throw error62;
   } finally {
     checkpoint.close();
   }
@@ -24597,7 +24603,7 @@ function abandon(values, io, root) {
   if (checkpoint === null) throw new UsageError("this repository has no checkpoint, so there is no run to abandon");
   const releaseStart = acquireStartLock(checkpoint.root);
   try {
-    const state = values.run === void 0 ? findActiveRun(checkpoint) : checkpoint.fold(values.run);
+    const state = resolveRun(checkpoint, values.run);
     if (state === null) throw new UsageError("no active run to abandon");
     const release = acquireRunLock(checkpoint.root, state.id);
     try {
@@ -24608,9 +24614,6 @@ function abandon(values, io, root) {
     io.stdout(`run ${state.id} abandoned: ${values.reason}
 `);
     return 0;
-  } catch (error62) {
-    if (error62 instanceof UnknownRunError) throw new UsageError(error62.message);
-    throw error62;
   } finally {
     releaseStart();
     checkpoint.close();
