@@ -221,6 +221,34 @@ describe('workers', () => {
     assert.notEqual(workerLaunchedV1.shape.access, accessSchema);
   });
 
+  it('never changes a state it was handed', () => {
+    const before = foldRun([created(), event(2, 'worker.launched', launch(workerA))]);
+    const snapshot = structuredClone(before);
+    const after = applyEvent(before, event(3, 'worker.launched', launch(workerB)));
+    assert.deepEqual(Object.keys(after.workers).sort(), [workerA, workerB]);
+    const finished = applyEvent(after, event(4, 'worker.finished', finish(workerA)));
+    assert.equal(after.workers[workerA]?.status, 'running');
+    assert.equal(finished.workers[workerA]?.status, 'finished');
+    assert.equal(finished.workers[workerB]?.status, 'running');
+    assert.deepEqual(before, snapshot);
+  });
+
+  it('gives every fold its own workers, even over the same events', () => {
+    const count = 500;
+    const ids = Array.from({ length: count }, (_, index) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`);
+    const events = [created(), ...ids.map((id, index) => event(2 + index, 'worker.launched', launch(id)))];
+    for (const [index, id] of ids.entries()) if (index % 2 === 0) events.push(event(2 + count + index, 'worker.finished', finish(id)));
+    const first = foldRun(events);
+    const snapshot = structuredClone(first);
+    assert.equal(Object.keys(first.workers).length, count);
+    assert.equal(Object.values(first.workers).filter((worker) => worker.status === 'finished').length, count / 2);
+    assert.equal(first.workers[ids[1]!]?.status, 'running');
+    const longer = foldRun([...events, event(2 + 2 * count, 'worker.finished', finish(ids[1]!))]);
+    assert.notEqual(longer.workers, first.workers);
+    assert.equal(longer.workers[ids[1]!]?.status, 'finished');
+    assert.deepEqual(first, snapshot);
+  });
+
   it('refuses a worker event before the run exists', () => {
     assert.throws(() => foldRun([event(1, 'worker.launched', launch(workerA))]), /before its creation/);
   });

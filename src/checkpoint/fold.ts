@@ -51,7 +51,31 @@ export interface RunState {
   readonly lastSequence: number;
 }
 
-export type Reducer<P> = (state: RunState | undefined, payload: P, event: DecodedEvent) => RunState;
+/**
+ * The records one fold has made and nobody outside it has seen yet. A reducer
+ * asks it for a record it may write to: the record itself when this fold made
+ * it, or a copy that this fold then owns. A fold over many worker events so
+ * copies the workers once rather than once per event, and a state handed in
+ * from outside the fold is never written to. The fold drops it when it
+ * returns, so nothing writes to a returned state afterwards.
+ */
+export class FoldDrafts {
+  readonly #owned = new WeakSet<object>();
+
+  /** `record` itself when this fold made it, otherwise a shallow copy this fold now owns. */
+  writable<V>(record: Readonly<Record<string, V>>): Record<string, V> {
+    if (this.#owned.has(record)) return record as Record<string, V>;
+    const copy = { ...record };
+    this.#owned.add(copy);
+    return copy;
+  }
+}
+
+/**
+ * Turns one event into the next state. A reducer never writes to `state` or
+ * anything it holds, except a record `drafts` hands back as writable.
+ */
+export type Reducer<P> = (state: RunState | undefined, payload: P, event: DecodedEvent, drafts: FoldDrafts) => RunState;
 
 /**
  * A registry and one reducer per `kind@version` it declares. The two are
@@ -93,22 +117,24 @@ const scopeCaptured: Reducer<z.infer<typeof scopeCapturedV1>> = (state, payload,
   return { ...current, scope: payload, lastSequence: event.sequence };
 };
 
-const workerLaunched: Reducer<z.infer<typeof workerLaunchedV1>> = (state, payload, event) => {
+const workerLaunched: Reducer<z.infer<typeof workerLaunchedV1>> = (state, payload, event, drafts) => {
   const current = requireState(state, event);
   if (Object.hasOwn(current.workers, payload.workerId)) {
     throw new InvalidHistoryError(`Run ${event.runId} launches worker ${payload.workerId} twice, at sequence ${String(event.sequence)}`);
   }
-  const worker: WorkerState = { status: 'running', launch: payload, launchedAt: event.recordedAt };
-  return { ...current, workers: { ...current.workers, [payload.workerId]: worker }, lastSequence: event.sequence };
+  const workers = drafts.writable(current.workers);
+  workers[payload.workerId] = { status: 'running', launch: payload, launchedAt: event.recordedAt };
+  return { ...current, workers, lastSequence: event.sequence };
 };
 
-const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payload, event) => {
+const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payload, event, drafts) => {
   const current = requireState(state, event);
   const worker = Object.hasOwn(current.workers, payload.workerId) ? current.workers[payload.workerId] : undefined;
   if (worker === undefined) throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} at sequence ${String(event.sequence)} without launching it`);
   if (worker.status !== 'running') throw new InvalidHistoryError(`Run ${event.runId} finishes worker ${payload.workerId} twice, at sequence ${String(event.sequence)}`);
-  const finished: WorkerState = { status: 'finished', launch: worker.launch, launchedAt: worker.launchedAt, finish: payload };
-  return { ...current, workers: { ...current.workers, [payload.workerId]: finished }, lastSequence: event.sequence };
+  const workers = drafts.writable(current.workers);
+  workers[payload.workerId] = { status: 'finished', launch: worker.launch, launchedAt: worker.launchedAt, finish: payload };
+  return { ...current, workers, lastSequence: event.sequence };
 };
 
 const abandoned: Reducer<z.infer<typeof runAbandonedV1>> = (state, payload, event) => {
@@ -130,26 +156,32 @@ export const runModel: RunModel = defineModel(eventRegistry, reducers);
 
 /** Fold a run's events, in ledger order, into its state. Pure: the same events give the same state. */
 export function foldRun(events: readonly DecodedEvent[], model: RunModel = runModel): RunState {
+  // One set of drafts for the whole fold: its intermediate states are never seen outside it, so each record is copied once.
+  const drafts = new FoldDrafts();
   let state: RunState | undefined;
   for (const event of events) {
     if (state !== undefined && state.status !== 'active') {
       throw new InvalidHistoryError(`Run ${event.runId} was ${state.status} at sequence ${String(state.lastSequence)} but has an event at ${String(event.sequence)}`);
     }
-    state = applyEvent(state, event, model);
+    state = applyEvent(state, event, model, drafts);
   }
   if (state === undefined) throw new InvalidHistoryError('A run needs at least its creation event');
   return state;
 }
 
-/** Apply one event, validating its payload against the model's registry. */
-export function applyEvent(state: RunState | undefined, event: DecodedEvent, model: RunModel = runModel): RunState {
+/**
+ * Apply one event, validating its payload against the model's registry.
+ * `state` is left as it was; `drafts` is for `foldRun`, and a caller applying
+ * one event to a state it holds leaves it out.
+ */
+export function applyEvent(state: RunState | undefined, event: DecodedEvent, model: RunModel = runModel, drafts: FoldDrafts = new FoldDrafts()): RunState {
   const key = `${event.kind}@${String(event.version)}`;
   const definition = lookupEvent(model.registry, event.kind, event.version);
   const reduce = model.reducers[key] as Reducer<unknown> | undefined;
   if (definition === undefined || reduce === undefined) throw new UnknownEventError(event.kind, event.version);
   const parsed = definition.schema.safeParse(event.payload);
   if (!parsed.success) throw new InvalidHistoryError(`Event ${String(event.sequence)} (${key}) has a payload its schema rejects: ${parsed.error.message}`);
-  return reduce(state, parsed.data, event);
+  return reduce(state, parsed.data, event, drafts);
 }
 
 /** For reducers of every kind but creation: the run must already exist. */
