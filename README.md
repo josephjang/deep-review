@@ -7,9 +7,10 @@ This repository is being built one element at a time from what the
 `deep-review-node` proof of concept in `agent-skills` showed. Each element
 arrives with a change proposal under `docs/changes/` that records why it is
 here, what it leaves out and what was rejected. So far: the repository
-skeleton (toolchain, build, install path, continuous integration) and the
-checkpoint ledger the engine will record every run in. The engine has not
-shipped yet, and the installed skill says so.
+skeleton (toolchain, build, install path, continuous integration), the
+checkpoint ledger the engine will record every run in, scope capture, and
+the runtime adapter that runs one model worker on Claude Code or Codex.
+The engine has not shipped yet, and the installed skill says so.
 
 ## Layout
 
@@ -23,7 +24,8 @@ src/build/               assembling and verifying dist/
 src/checkpoint/          the run ledger: location, SQLite, event registry, fold
 src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
-scripts/                 build and fixture entry points
+src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
+scripts/                 build, fixture and smoke entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
 docs/changes/            change proposals, one per behavior change, in one file or a requirements and design pair
@@ -53,6 +55,27 @@ worktree at capture, so a later comparison of the worktree against the
 scope is a per-file question, answered by `compareWorktree`. See
 `docs/changes/2026-09-27-scope-capture.md`.
 
+## The runtime adapter
+
+The engine runs a model worker through one function, `runWorker`, given a
+runtime-neutral invocation: the runtime, the absolute path of its CLI, the
+model and effort, the access (`read-only` or `edit`), whether it has a
+shell, the prompt, the output schema, the timeout, and optionally a budget
+and a session to continue. Each runtime is an adapter that builds a
+command line and decodes the answer; Claude Code and Codex ship, and a
+third is one module and one registration. What a runtime cannot do is
+declared once and refused by name before anything runs.
+
+A worker is on the ledger as `worker.launched` before its process exists,
+with its session id whenever the runtime lets the engine choose it, and is
+closed by `worker.finished` whatever the process did. The prompt, the
+schema, stdout, stderr and the answer are evidence. The outcome is
+`completed`, `budget`, `timeout` or `failed`, and refused tool calls are
+listed beside it without changing it. A worker writes temporary files to
+its own scratch directory under the checkpoint, never into the reviewed
+tree, and at a timeout its whole process tree is killed. See
+`docs/changes/2026-09-27-runtime-adapter.requirements.md` and its design.
+
 ## Developing
 
 Node 26 or newer, npm and git. `.tool-versions` pins the Node major for
@@ -64,6 +87,7 @@ npm run check     # lint, typecheck, test
 npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
+npm run smoke -- --claude <path> --codex <path> --codex-model <model>   # real runtimes, by hand
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the
@@ -72,6 +96,12 @@ transpiled. `npm run verify` assembles both artifacts into a temporary tree
 and compares them with the committed `dist/`, so a commit that claims to
 change only where text lives can be checked rather than trusted.
 Continuous integration runs both on Windows, macOS and Linux.
+
+The suite never calls a model: fake Claude and Codex CLIs stand in for the
+real ones. `npm run smoke` is the real-runtime check. It runs one prompt
+and one continuation through each installed, signed-in CLI, costs a few
+cents, and keeps its temporary repository so every receipt can be read
+afterwards.
 
 Never edit `dist/` by hand. See `AGENTS.md`.
 
