@@ -23143,6 +23143,9 @@ function pinnedRole(roles, role) {
   return found;
 }
 
+// src/review/markdown.ts
+var tableCell = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
+
 // src/review/prompts.ts
 var inlinePatchLimitBytes = 256 * 1024;
 function describeFrozen(frozen, evidence) {
@@ -23150,7 +23153,6 @@ function describeFrozen(frozen, evidence) {
   if ("blob" in frozen) return evidence.pathOf(frozen.blob);
   return `oversized ${frozen.oversized.sha256} ${String(frozen.oversized.size)} bytes`;
 }
-var cell = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 function fenceFor(text2) {
   let longest = 0;
   for (const run2 of text2.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
@@ -23171,7 +23173,7 @@ function scopeBlock(input2) {
   const { scope, evidence } = input2;
   const rows = scope.files.map((file2) => {
     const after = file2.after === null ? "deleted" : "read the file in the worktree";
-    return `| ${cell(file2.path)} | ${file2.status}${file2.symlink ? " (symlink)" : ""} | ${cell(describeFrozen(file2.before, evidence))} | ${after} |`;
+    return `| ${tableCell(file2.path)} | ${file2.status}${file2.symlink ? " (symlink)" : ""} | ${tableCell(describeFrozen(file2.before, evidence))} | ${after} |`;
   });
   const conventions = input2.conventions.length === 0 ? "None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file." : input2.conventions.map((file2) => `- ${file2.path} (${file2.level === "user" ? "user level" : "repository"})`).join("\n");
   return [
@@ -23806,7 +23808,6 @@ var usd2 = (value) => value === null ? "-" : value.toFixed(2);
 var count = (value) => value === null ? "-" : String(value);
 var workersCount = (n) => `${String(n)} worker${n === 1 ? "" : "s"}`;
 var costCell = (spend) => `${usd2(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? "" : ` (${workersCount(spend.costUnreported)} unreported)`}`;
-var cell2 = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 function marks(candidate, unverified) {
   const list = [...candidate.located ? [] : [`unlocated: ${candidate.rawFile}:${String(candidate.rawLine)}`], ...unverified ? ["unverified"] : []];
   return list.length === 0 ? "" : ` (${list.join("; ")})`;
@@ -23820,8 +23821,8 @@ function angleRow(review2, angle) {
   const notRun = review2.anglesNotRun[angle];
   const lead = review2.leads?.find((entry) => entry.angle === angle)?.lead ?? null;
   const ran = review2.units[`finders:${angle}`]?.answeredBy !== null && review2.units[`finders:${angle}`]?.answeredBy !== void 0;
-  const status3 = notRun !== void 0 ? `not run (${cell2(notRun)})` : ran ? "run" : "not run";
-  return `| ${angle} | ${status3} | ${lead === null ? "none" : cell2(lead)} |`;
+  const status3 = notRun !== void 0 ? `not run (${tableCell(notRun)})` : ran ? "run" : "not run";
+  return `| ${angle} | ${status3} | ${lead === null ? "none" : tableCell(lead)} |`;
 }
 function findingBlock(position, entry) {
   const { finding, primary, members: members2, resolution } = entry;
