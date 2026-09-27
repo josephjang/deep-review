@@ -135,12 +135,31 @@ function eventMessage(event: CodexEvent): string {
 }
 
 /**
+ * Whether a failed item is one the model saw and could work around, and so
+ * part of its work rather than the worker's failure: a command that ran and
+ * exited nonzero (a failing reproducer, a grep with no match, a refused
+ * write) or a patch that did not apply. A command that never ran at all has
+ * no exit code and is not survivable: the worker had no working shell. An
+ * item of a kind not named here that failed is not survivable either.
+ */
+function survivableFailure(item: Record<string, unknown>): boolean {
+  if (item.type === 'file_change') return true;
+  return item.type === 'command_execution' && typeof item.exit_code === 'number' && item.exit_code !== 0;
+}
+
+/**
  * Read the `exec --json` event stream, stderr and the final message file.
  * Codex has no denial evidence, so `denials` is always null (TD4); a sandbox
  * that could not run commands at all is a failure, not a denial. Every complete line
  * is parsed before any rule is applied, so a malformed later line cannot hide
  * the session id an earlier one recorded. The session ids are the threads the
  * stream started; the launcher adds a continued one itself.
+ *
+ * A turn that completed is judged by its answer, not by what went wrong on
+ * the way: an `error` event (Codex's report of a stream reconnect), an
+ * `error` item (its report of a warning) and a survivable failed item leave
+ * it standing. Their text stays in stdout, which the launcher keeps as
+ * evidence of the worker. A `turn.failed` event always fails the worker.
  */
 export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
   const sessionIds: string[] = [];
@@ -183,9 +202,15 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
   const thread = threads[0]!.thread_id;
   if (typeof thread !== 'string' || thread.length === 0) return failed('Codex started a thread without an id');
   if (plan.sessionId !== null && thread !== plan.sessionId) return failed(`Codex ran thread ${thread}, not the continued session ${plan.sessionId}`);
-  const failure = events.find((event) => event.type === 'error' || event.type === 'turn.failed');
-  if (failure !== undefined) return failed(`Codex reported ${String(failure.type)}: ${eventMessage(failure)}`);
-  if (completed.length !== 1 || events.at(-1)?.type !== 'turn.completed') return failed('Codex did not end with exactly one completed turn');
+  const turnFailed = events.find((event) => event.type === 'turn.failed');
+  if (turnFailed !== undefined) return failed(`Codex reported turn.failed: ${eventMessage(turnFailed)}`);
+  if (completed.length !== 1 || events.at(-1)?.type !== 'turn.completed') {
+    // Codex reports an error it survives, such as a stream reconnect, as an
+    // `error` event too, so one only explains a turn that did not complete.
+    const lastError = events.findLast((event) => event.type === 'error');
+    const reported = lastError === undefined ? '' : `; it reported error: ${eventMessage(lastError)}`;
+    return failed(`Codex did not end with exactly one completed turn${reported}`);
+  }
 
   const pending = new Set<string>();
   const messages: string[] = [];
@@ -200,9 +225,7 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
       continue;
     }
     pending.delete(item.id);
-    // A command may exit nonzero on purpose: a failing reproducer, a grep with no match, a refused write.
-    const nonzeroCommand = item.type === 'command_execution' && typeof item.exit_code === 'number' && item.exit_code !== 0;
-    if (item.type === 'error' || (item.status === 'failed' && !nonzeroCommand)) return failed(`Codex item ${item.id} (${String(item.type)}) failed`);
+    if (item.status === 'failed' && !survivableFailure(item)) return failed(`Codex item ${item.id} (${String(item.type)}) failed`);
     if (item.type === 'agent_message' && typeof item.text === 'string') messages.push(item.text);
   }
   if (pending.size > 0) return failed(`Codex left ${String(pending.size)} item(s) started without completing: ${[...pending].join(', ')}`);

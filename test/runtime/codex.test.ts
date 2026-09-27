@@ -230,6 +230,23 @@ describe('codex decode', () => {
     assert.deepEqual(decode(stream(started, turnStarted, ...command, ...agent(message), done)).result, answered);
   });
 
+  it('keeps a completed turn that reconnected on the way, with the error still in its stdout', () => {
+    // codex-cli reports a transient stream error as a top-level error event and a warning as an error item.
+    const reconnect = { type: 'error', message: 'Reconnecting... 1/5 (stream disconnected before completion)' };
+    const warning = { type: 'item.completed', item: { id: 'item_0', type: 'error', message: 'Under-development features enabled' } };
+    const stdout = stream(started, turnStarted, reconnect, warning, ...agent(message), done);
+    assert.deepEqual(decode(stdout), { sessionIds: [thread], usage, denials: null, result: answered });
+    assert.match(stdout, /Reconnecting\.\.\. 1\/5/);
+  });
+
+  it('keeps a completed turn after a patch that did not apply, since the model saw the failure and answered anyway', () => {
+    const patch = [
+      { type: 'item.started', item: { id: 'item_1', type: 'file_change', changes: [], status: 'in_progress' } },
+      { type: 'item.completed', item: { id: 'item_1', type: 'file_change', changes: [], status: 'failed' } },
+    ];
+    assert.deepEqual(decode(stream(started, turnStarted, ...patch, ...agent(message), done)).result, answered);
+  });
+
   it('ignores events it does not read, such as item updates', () => {
     const update = { type: 'item.updated', item: { id: 'todo', type: 'todo_list', items: [] } };
     assert.deepEqual(decode(stream(started, turnStarted, update, ...agent(message), done)).result, answered);
@@ -242,13 +259,14 @@ describe('codex decode', () => {
     ['an incomplete turn', () => stream(started, turnStarted, ...agent(message)), /exactly one completed turn/],
     ['two completed turns', () => stream(started, done, ...agent(message), done), /exactly one completed turn/],
     ['a completed turn that is not last', () => stream(started, done, ...agent(message)), /exactly one completed turn/],
-    ['an error event', () => stream(started, { type: 'error', message: 'stream lost' }, ...agent(message), done), /reported error: stream lost/],
+    ['an error event on a turn that never completed', () => stream(started, turnStarted, { type: 'error', message: 'Reconnecting... 1/5' }, { type: 'error', message: 'stream lost' }), /did not end with exactly one completed turn; it reported error: stream lost$/],
+    ['an error event before a failed turn', () => stream(started, { type: 'error', message: 'stream lost' }, { type: 'turn.failed', error: { message: 'quota' } }), /reported turn.failed: quota/],
+    ['a failed turn even when a completed turn follows', () => stream(started, { type: 'turn.failed', error: { message: 'quota' } }, ...agent(message), done), /reported turn.failed: quota/],
     ['a failed turn', () => stream(started, { type: 'turn.failed', error: { message: 'quota' } }, done), /reported turn.failed: quota/],
     ['an MCP tool call', () => stream(started, { type: 'item.started', item: { id: 'm', type: 'mcp_tool_call' } }, ...agent(message), done), /used mcp_tool_call/],
     ['a web search', () => stream(started, { type: 'item.completed', item: { id: 'w', type: 'web_search' } }, ...agent(message), done), /used web_search/],
-    ['a failed file change', () => stream(started, { type: 'item.completed', item: { id: 'f', type: 'file_change', status: 'failed' } }, ...agent(message), done), /item f \(file_change\) failed/],
     ['a failed command without an exit code', () => stream(started, { type: 'item.completed', item: { id: 'c', type: 'command_execution', status: 'failed' } }, ...agent(message), done), /item c \(command_execution\) failed/],
-    ['an error item', () => stream(started, { type: 'item.completed', item: { id: 'e', type: 'error', message: 'x' } }, ...agent(message), done), /item e \(error\) failed/],
+    ['a failed item of a kind it does not know', () => stream(started, { type: 'item.completed', item: { id: 'n', type: 'new_kind', status: 'failed' } }, ...agent(message), done), /item n \(new_kind\) failed/],
     ['an item without an id', () => stream(started, { type: 'item.completed', item: { type: 'agent_message' } }, ...agent(message), done), /without an item id/],
     ['an item left started', () => stream(started, { type: 'item.started', item: { id: 'c', type: 'command_execution' } }, ...agent(message), done), /started without completing: c/],
     ['a malformed line', () => `${line(started)}\n{"type":\n${line(done)}\n`, /line 2 that is not JSON/],
