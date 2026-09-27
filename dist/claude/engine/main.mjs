@@ -20255,6 +20255,9 @@ var angleClasses = {
   ALTITUDE: "design",
   CONVENTIONS: "correctness"
 };
+function roleOfAngle(angle) {
+  return angle === "SCAN" ? "triage" : `finder-${angle}`;
+}
 var phases = ["triage", "finders", "deduplication", "verification", "sweep", "sweep-deduplication", "sweep-verification", "merge-rank", "report"];
 var phaseSchema2 = external_exports.enum(phases);
 var candidatePhases = ["triage", "finders", "sweep"];
@@ -23137,7 +23140,7 @@ import { join as join15 } from "node:path";
 var policyFileName = "policy.json";
 var tiers = ["strong", "fast"];
 var tierSchema = external_exports.enum(tiers);
-var reviewRoles = ["triage", ...finderAngles.map((angle) => `finder-${angle}`), "deduplication", "verifier", "sweep", "merge-rank"];
+var reviewRoles = [...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank"];
 var rolePolicySchema = external_exports.strictObject({
   tier: tierSchema,
   effort: effortSchema,
@@ -23539,7 +23542,7 @@ function unitsOf(review2, phase) {
     case "triage":
       return single("triage");
     case "finders":
-      return finderAngles.map((angle) => ({ phase, key: angle, role: `finder-${angle}`, degrades: true }));
+      return finderAngles.map((angle) => ({ phase, key: angle, role: roleOfAngle(angle), degrades: true }));
     case "deduplication":
     case "sweep-deduplication":
       return poolCandidates(review2, phase).length >= 2 ? single("deduplication") : [];
