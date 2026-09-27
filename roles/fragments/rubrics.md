@@ -113,15 +113,16 @@ to keep the finding; otherwise REFUTE.
 `CONVENTIONS` is precision-first, so the verifier mostly confirms what the
 finder already quoted.
 
-- **CONFIRMED** — the cited CLAUDE.md genuinely governs the changed file
-  (user-level, repo-root, or an ancestor directory of that file) AND the
-  quoted line breaks the quoted rule. Both quotes present and accurate.
+- **CONFIRMED** — the cited rules file (a `CLAUDE.md`, `CLAUDE.local.md`
+  or `AGENTS.md`) genuinely governs the changed file (user-level,
+  repo-root, or an ancestor directory of that file) AND the quoted line
+  breaks the quoted rule. Both quotes present and accurate.
 - **PLAUSIBLE** — the rule governs and the line looks like a violation, but
   whether it actually breaks the rule turns on a reading the verifier can't
   settle alone. State the ambiguity.
 - **REFUTED** — the cited rule doesn't govern this file (an out-of-scope
-  CLAUDE.md), the line doesn't actually violate it, or the "rule" is the
-  finder's own style preference rather than something a CLAUDE.md states.
+  rules file), the line doesn't actually violate it, or the "rule" is the
+  finder's own style preference rather than something a rules file states.
 
 ### All rubrics — verify before you judge
 
