@@ -23382,11 +23382,14 @@ function unlocatedSpellings(candidates) {
 }
 var byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 function chunk(items, size = maxGroupSize) {
+  if (!Number.isInteger(size) || size < 1) throw new RangeError(`A chunk size must be a positive integer, not ${String(size)}`);
+  const count2 = Math.ceil(items.length / size);
   const chunks = [];
-  for (let start = 0; start < items.length; start += size) chunks.push(items.slice(start, start + size));
-  if (chunks.length > 1 && chunks[chunks.length - 1].length === 1) {
-    const last = chunks.pop();
-    chunks[chunks.length - 1] = [...chunks[chunks.length - 1], ...last];
+  let start = 0;
+  for (let index2 = 0; index2 < count2; index2 += 1) {
+    const length = Math.floor(items.length / count2) + (index2 < items.length % count2 ? 1 : 0);
+    chunks.push(items.slice(start, start + length));
+    start += length;
   }
   return chunks;
 }
