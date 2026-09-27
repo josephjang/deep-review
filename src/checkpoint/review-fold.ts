@@ -70,6 +70,20 @@ export interface CandidateState extends RecordedCandidate {
   readonly unverified: boolean;
 }
 
+/**
+ * Where a located candidate points in the scope, as `file:line`, or null
+ * for an unlocated one: the one rule every reader of a candidate's location
+ * goes by, so a task and the report never disagree on which is located.
+ */
+export function scopeLocation(candidate: Pick<RecordedCandidate, 'located' | 'file' | 'line'>): string | null {
+  return candidate.located && candidate.file !== null && candidate.line !== null ? `${candidate.file}:${String(candidate.line)}` : null;
+}
+
+/** Where the finder said a candidate points, as `file:line`, whether or not it was located. */
+export function rawLocation(candidate: Pick<RecordedCandidate, 'rawFile' | 'rawLine'>): string {
+  return `${candidate.rawFile}:${String(candidate.rawLine)}`;
+}
+
 export interface ReviewState {
   readonly configuration: ReviewConfiguration;
   /** The concurrency and the run budget in force: the configuration's, until a `limits.changed` replaces them. */

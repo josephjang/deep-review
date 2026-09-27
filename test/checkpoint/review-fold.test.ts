@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { isAnswered, isUnverified, poolCandidates, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, rawLocation, scopeLocation, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, phases } from '../../src/review/vocabulary.ts';
 import { History, candidate, configuration, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
@@ -76,6 +76,18 @@ describe('the review fold', () => {
     assert.equal(isAnswered(review, 'finders', 'FOOTGUNS'), false, 'failed twice: a record, no answer');
     assert.equal(isAnswered(review, 'verification', 'g1'), false, 'no record at all');
     assert.equal(isAnswered(review, 'triage', 'RIPPLE'), false, 'a key of another phase');
+  });
+
+  it('gives a located candidate its scope location and an unlocated one none, and every candidate its raw location', () => {
+    const { candidates } = swept().review();
+    // SWEEP-2 matched src/a.ts at line 7; SWEEP-1 named a file outside the scope.
+    assert.equal(scopeLocation(candidates['SWEEP-2']!), 'src/a.ts:7');
+    assert.equal(rawLocation(candidates['SWEEP-2']!), 'src/a.ts:7');
+    assert.equal(scopeLocation(candidates['SWEEP-1']!), null);
+    assert.equal(rawLocation(candidates['SWEEP-1']!), 'C:\\elsewhere\\b.ts:9');
+    assert.equal(rawLocation({ rawFile: './src/a.ts', rawLine: 3 }), './src/a.ts:3', 'the raw location is the finder\'s spelling, not the scope path');
+    assert.equal(scopeLocation({ located: true, file: 'src/a.ts', line: null }), null, 'a location missing its line is no scope location, whatever the flag says');
+    assert.equal(scopeLocation({ located: false, file: 'src/a.ts', line: 3 }), null, 'an unlocated candidate has no scope location even with a file and line');
   });
 
   it('lists every unverified group from the plans, with its candidates and reason', () => {
