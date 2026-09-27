@@ -77,7 +77,7 @@ code assignments can proceed; documentation still waits for all code.
 Use the phase's saved plans and returns as the ownership record. Keep a
 stable logical cluster ID and assign a unique execution ID to every
 dispatch, including repairs and replacements; record it on the plan and
-return section, plus the runtime session id when available. Reserve
+return section, plus the runtime worker/task handle when available. Reserve
 the whole eligible batch in a successfully saved plan before any call.
 **Only a final return or confirmed termination releases the current execution's files.**
 Checkpoint that evidence before transferring ownership. Record a failed
