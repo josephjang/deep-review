@@ -58,28 +58,41 @@ Windows machine on 2026-09-27. Nothing uncommitted was used.
 - On this machine `codex` on `PATH` resolves to a launcher under
   `AppData/Local/Programs/OpenAI/Codex/bin/codex` rather than an `.exe`;
   whether a `shell: false` spawn starts it is not yet known.
+- Found during implementation: `codex exec resume` accepts neither
+  `--sandbox` nor `--add-dir`; it takes `--config`, `--model`,
+  `--json`, `--output-schema`, `--output-last-message`,
+  `--ignore-user-config`, `--ignore-rules` and `--skip-git-repo-check`.
+  The directory `codex` resolves into also holds `codex.exe`.
 
 ## Design
 
 ### Invocation (R1, R2)
 
 `src/runtime/contract.ts` holds the zod schema for an invocation: `runtime`
-(a registered name), `executable` (absolute path), `model`, `effort` (one
+(a registered name), `executable` (absolute path), `executableArgs`
+(literal arguments before the adapter's, empty by default, for a CLI that
+runs behind an interpreter such as `node cli.js`), `model`, `effort` (one
 of `low`, `medium`, `high`, `xhigh`, `max`), `access` (`read-only` or
 `edit`), `shell` (boolean), `prompt`, `outputSchema` (a zod schema),
 `timeoutMs` (one second to one hour), and optionally `budgetUsd` (positive,
 at most 100), `scratch` (absolute path), `label` (free text for the
 ledger) and `resume` (a session id; the prompt is then the follow-up
-message). A NUL in any string is refused.
+message). A NUL in any string is refused, and a model or session id that
+starts with a dash, which a CLI would read as an option, is refused too.
+The output schema must compile to draft-07 with an object at its root.
 
 ### Adapter and registry (R2, R4, R10)
 
 `RuntimeAdapter` in `src/runtime/adapter.ts` is `name`, `capabilities`,
-`preflight(executable)`, `command(invocation, paths)` and
-`decode(invocation, outputs)`. `src/runtime/registry.ts` maps a name to its
-adapter and throws on a duplicate registration. The two adapters are
-`src/runtime/claude.ts` and `src/runtime/codex.ts`; nothing outside them
-branches on a runtime name.
+`qualification` (the version pattern and the help texts to read, each
+with the flags it must mention), `command(invocation, plan)` and
+`decode(invocation, plan, outputs)`; the plan is what the launcher
+decided (session id, session resumed, scratch directory, compiled schema,
+schema and final-message file paths, platform, inherited environment).
+`src/runtime/registry.ts` maps a name to its adapter and throws on a
+duplicate registration; `src/runtime/runtimes.ts` registers the two the
+engine ships, `src/runtime/claude.ts` and `src/runtime/codex.ts`.
+Nothing outside them branches on a runtime name.
 
 `capabilities` declares: session id assignable before launch; budget cap
 enforceable; denial evidence available; shell can be withheld; a read-only
@@ -96,10 +109,13 @@ sessions can be resumed. For the two runtimes:
 | Effort levels | low to max | low to xhigh |
 | Resume | `--resume <id>` | `exec resume <id>` |
 
-`preflight` runs `--version` and `--help` (Codex: `exec --help`) with a
-ten second timeout and no model call, matches the version output against
-the runtime's pattern, requires every flag the adapter's command uses to
-appear in the help text, and returns the observed version.
+`preflight` in `src/runtime/preflight.ts` runs the adapter's version
+probe and every help probe (Claude: `--help`; Codex: `--help`,
+`exec --help` and `exec resume --help`) with a ten second timeout and no
+model call, matches the version output against the runtime's pattern,
+requires every flag the adapter's command uses to appear as a whole flag
+in the help text it belongs to, and returns the observed version. A test
+holds each adapter's commands to the flags its qualification lists.
 
 ### Translation, Claude Code (R7, R8, R9)
 
@@ -121,15 +137,21 @@ hide one under another spelling.
 
 ### Translation, Codex (R7, R8, R9)
 
-The command is `-a never exec --ignore-user-config --ignore-rules
---skip-git-repo-check`, `--sandbox read-only` or `workspace-write` from
-`access`, `--add-dir` with the scratch directory only when `access` is
-`edit`, `windows.sandbox="unelevated"` on Windows, the config overrides
-that disable project docs, skill instructions, web search, apps, plugins,
-remote plugins, skill search and skill dependency install, the model,
+The command is `--ask-for-approval never exec --ignore-user-config
+--ignore-rules --skip-git-repo-check`, `--config sandbox_mode=` with
+`"read-only"` or `"workspace-write"` from `access`,
+`--config sandbox_workspace_write.writable_roots=` with the scratch
+directory only when `access` is `edit`, `windows.sandbox="unelevated"` on
+Windows, the config overrides that disable project docs, skill
+instructions, web search, apps, plugins, remote plugins, skill search and
+skill dependency install, the model,
 `model_reasoning_effort`, `--json`, `--output-schema` with the schema
 file, `--output-last-message` with the result file, and `-` for stdin. A
-continuation is `exec resume <session>` with the same flags. `shell:
+continuation is `exec resume` with the same options, then the session and
+`-`. The sandbox is a config override rather than `--sandbox` and
+`--add-dir` because `exec resume` takes neither flag, and a continuation
+has to run under the sandbox of the worker it continues. Every flag is
+written in its long form so the preflight checks exactly what runs. `shell:
 false`, `effort: max` and `budgetUsd` are refused through the capability
 table. On Windows every spelling of `PATH` is merged and directories
 containing `WindowsApps` are removed, because the restricted token cannot
@@ -141,17 +163,23 @@ launch the Store shell.
 does, in order:
 
 1. Fold the run; refuse an unknown or inactive run.
-2. Check the invocation against the adapter's capabilities.
-3. Preflight the executable.
-4. Freeze the prompt and the compiled draft-07 schema as evidence.
-5. Create `<checkpoint root>/scratch/<workerId>` (skipped for a Codex
-   read-only worker).
+2. Check the invocation against the adapter's capabilities, and a
+   continuation against the worker it continues.
+3. Build the command, which may refuse the caller's environment, and
+   preflight the executable.
+4. Freeze the prompt, with its scratch note appended, and the compiled
+   draft-07 schema as evidence.
+5. Create the scratch directory: the continued worker's, the caller's, or
+   `<checkpoint root>/scratch/<workerId>`; none for a read-only worker
+   whose runtime cannot allow writes to it. One inside the reviewed tree is
+   refused unless it is under the checkpoint. Write the prompt and schema
+   to `<checkpoint root>/io/<workerId>/`.
 6. Append `worker.launched`.
-7. Write the prompt to a file and open it as stdin; spawn with `shell:
-   false`, the run's worktree as `cwd`, stdout and stderr redirected to
-   files, and the environment of the adapter with `TEMP`, `TMP` and
-   `TMPDIR` (forward slashes, for Git Bash) pointing at the scratch
-   directory and `MSBUILDDISABLENODEREUSE=1`,
+7. Open the prompt file as stdin; spawn with `shell: false`, the run's
+   worktree as `cwd`, stdout and stderr redirected to files, and the
+   environment of the adapter with `TEMP`, `TMP` and `TMPDIR` (forward
+   slashes, for Git Bash) pointing at the scratch directory and
+   `MSBUILDDISABLENODEREUSE=1`,
    `DOTNET_CLI_USE_MSBUILD_SERVER=0`, `UseSharedCompilation=false` and
    `UseRazorBuildServer=false` set, replacing any inherited spelling of
    those names.
@@ -162,27 +190,34 @@ does, in order:
    as evidence.
 10. Append `worker.finished`, retrying on `StaleRevisionError` by
     re-folding (several launchers may finish on one run at once).
-11. Return the receipt.
+11. Remove the process files, which are all evidence now, and return the
+    receipt.
 
 A failure at step 7 (the process never starts) still runs steps 9 to 11
-with outcome `failed`, so the ledger never holds a launched worker without
-a finish from this launcher. A failure before step 6 writes nothing.
+with outcome `failed` and termination `not-started`, and so does a
+failure of the launcher itself after step 6, so the ledger never holds a
+launched worker without a finish from this launcher. The one exception is
+a run abandoned while its worker ran: it accepts no finish, and
+`runWorker` throws `RunClosedError` with the evidence already frozen. A
+failure before step 6 appends nothing.
 
 ### Receipt and decoding (R5)
 
-The receipt has `process` (exit code, signal, `termination` of `exited` or
-`killed`, `startedAt`, `endedAt`), `runtime` (name, observed version,
-session ids, usage as the runtime reported it), `denials` (an array of
-tool and detail, or `null` when the runtime gives no evidence either way),
-`output` (validated data or `null`), `outcome` (`completed`, `budget`,
-`timeout` or `failed`) and `error` (message or `null`).
+The receipt has `process` (exit code, signal, `termination` of `exited`,
+`killed` or `not-started`, `startedAt`, `endedAt`), `runtime` (name,
+observed version, session ids, usage as the runtime reported it),
+`denials` (an array of tool and detail, or `null` when the runtime gives
+no evidence either way), `output` (validated data or `null`), `outcome`
+(`completed`, `budget`, `timeout` or `failed`), `error` (message or
+`null`) and `evidence` (every reference the two events hold).
 
 Claude decoding requires a `result` envelope with `subtype: success`,
 `is_error: false`, a `structured_output` field and a `permission_denials`
 array; the envelope's `session_id` must equal the pinned or resumed one;
-`terminal_reason: budget_exhausted` or `subtype: error_max_budget` is
-outcome `budget`. Codex decoding parses every JSONL line, requires exactly
-one `thread.started` (its id is the session), exactly one `turn.completed`
+`terminal_reason: budget_exhausted` or a `subtype` starting with
+`error_max_budget` is outcome `budget`. Codex decoding parses every JSONL line, requires exactly
+one `thread.started` (its id is the session, and on a continuation the
+session continued), exactly one `turn.completed`
 as the last event, no `error` or `turn.failed` event, no `mcp_tool_call` or
 `web_search` item, no item left started without completing, no failed
 item other than a command with a nonzero exit code, and a final message
@@ -190,7 +225,9 @@ file equal to the last `agent_message`; `denials` is `null`. stdout,
 stderr and the final message are refused for decoding above 16 MiB and are
 still frozen as evidence. A denial never changes the outcome; a budget
 stop is not `failed`; a rejected schema, a nonzero exit without a budget
-stop or a decode failure is `failed` with the reason.
+stop or a decode failure is `failed` with the reason. A session id the
+ledger's session id pattern cannot hold is named in the error and left off
+the record, so a finish can always be appended.
 
 ### Ledger events and fold (R3, R11)
 
@@ -199,22 +236,27 @@ observed version, model, effort, access, shell, session id or null, the
 session resumed or null, scratch or null, budget or null, timeout, and the
 prompt and schema as artifact references. `worker.finished@1` carries the
 worker id, outcome, exit code, signal, termination, start and end, session
-ids, usage, denials, error, stdout and stderr as references and the output
-as a reference or null. Both are declared in `src/checkpoint/events.ts`
+ids, usage as JSON text (so nothing a runtime prints can be mistaken for
+an artifact reference), denials, error, stdout and stderr as references,
+the runtime's final message file as a reference or null, and the
+validated answer as JSON, a reference present exactly when the outcome is
+`completed`. Both are declared in `src/checkpoint/events.ts`
 and reduced in `src/checkpoint/fold.ts`. `RunState` gains `workers`, keyed
 by id, each `running` (launch only) or `finished` (launch and receipt). A
-finish without a launch, or a second launch with the same id, is invalid
-history. A run created before this element folds with an empty `workers`.
+finish without a launch, a second finish, or a second launch with the
+same id, is invalid history. A run created before this element folds with an empty `workers`.
 Golden fixture `schema-1-03` is added; `schema-1-01` and `schema-1-02`
 stay.
 
 ### Smoke script (R12)
 
 `scripts/smoke-runtime.ts`, run as `npm run smoke -- --claude <path>
---codex <path>`, opens a checkpoint in a temporary repository, runs one
-trivial prompt with a one-field schema through each given CLI, continues
-each session once, and prints every receipt's outcome, version, session
-ids and usage. It is not part of `npm run check`.
+--codex <path> --codex-model <model>`, opens a checkpoint in a temporary
+repository, runs one prompt through each given CLI, continues each session
+once, and prints every receipt's outcome, version, session ids, answer,
+denials and usage. Both prompts ask the worker to create a file in the
+repository with its shell, so the run also shows whose read-only mode
+stops the write, fresh and continued. It is not part of `npm run check`.
 
 ## Technical Decisions
 
@@ -301,13 +343,16 @@ ids and usage. It is not part of `npm run check`.
 
 ## Open Questions
 
-- Does a resumed Claude session with `--json-schema`, and a resumed Codex
-  session with `--output-schema`, return structured output under the
-  schema? Settled by the smoke run's continuation step. If not, PD1 falls
-  back to a fresh worker carrying the earlier response.
-- Does a `shell: false` spawn start the Codex launcher on Windows? Settled
-  by the smoke run. If not, the caller pins the real executable and the
-  design records the path shape that works.
+- Settled: a resumed Claude session with `--json-schema` and a resumed
+  Codex session with `--output-schema` both return structured output under
+  the schema (Verification). PD1 stands.
+- Settled: the caller pins `codex.exe`, the real executable beside the
+  `codex` launcher, and a `shell: false` spawn starts it (Verification).
+- Open: Claude Code reports a resumed session's `total_cost_usd` for the
+  whole session, not the continuation alone (Verification). Whether
+  `--max-budget-usd` on a continuation is also measured against the whole
+  session is unverified; the role element, which sets continuation
+  budgets, settles it before relying on one.
 - Can a Codex read-only worker's refused write be recognised from its
   JSONL (a `command_execution` item with a permission error) well enough
   to fill `denials`? Deferred: the design leaves `denials: null` for Codex
@@ -316,9 +361,10 @@ ids and usage. It is not part of `npm run check`.
 ## Test Strategy
 
 Fakes: `test/helpers/fake-claude.ts` and `test/helpers/fake-codex.ts`,
-run through `process.execPath` as the executable and driven by a scenario
-name in the environment, print the envelope or JSONL the scenario asks
-for, sleep, exit nonzero or spawn a grandchild as instructed. Every case
+run through `process.execPath` as the executable with the fake as its
+argument and steered by `FAKE_*` variables in the environment, print the
+envelope or JSONL they are given, wait for a marker, exit nonzero or
+spawn a grandchild as instructed. Every case
 below runs on all three CI runners.
 
 - R1, R5: one scenario per outcome for each runtime (completed, budget,
@@ -331,7 +377,8 @@ below runs on all three CI runners.
   are untouched.
 - R3: `worker.launched` exists with the session id before the fake starts
   (the fake blocks until a marker file is written by the test after it
-  reads the ledger); a spawn failure (nonexistent executable) leaves a
+  reads the ledger); a spawn failure (nonexistent executable, with the
+  preflight replaced, since the real one refuses it first) leaves a
   launched and a finished event with outcome `failed`.
 - R4: preflight fails on a fake whose help lacks one flag and on a version
   output that does not match; the observed version is on the launch event.
@@ -368,10 +415,75 @@ below runs on all three CI runners.
 
 ## Verification
 
-No checks have run yet. This section is filled by the commit that
-completes the element, with the smoke run's observed versions, outcomes,
-session ids and cost for each runtime and each continuation, and the CI
-run that went green.
+Run on the author's Windows 11 machine on 2026-09-27, Node 26.10.0,
+against the commits of this element up to the smoke script.
+
+- `npm run check`: lint, typecheck and every test pass, with 3 skipped
+  (symlink cases that need a privilege this Windows account lacks,
+  skipped before this element too). `npm run verify`: both artifacts
+  match `dist/`. Continuous integration on Windows, macOS and Linux runs
+  when the branch is pushed and is not yet recorded here.
+- Tests were checked to fail when the behavior they guard is removed:
+  killing only the root at a timeout fails both grandchild tests (which
+  is why the fake's grandchild is detached on Windows: libuv's job object
+  otherwise kills it with its parent whatever the launcher does);
+  pinning environment variables without removing other spellings fails
+  the environment test; allowing one append attempt fails the
+  four-launcher test every time; keeping the process files when the
+  launch append is refused fails its test.
+- Smoke: `npm run smoke -- --claude C:\Users\josep\.local\bin\claude.exe
+  --codex C:\Users\josep\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe
+  --codex-model gpt-5.5`, effort `low`, repository kept at
+  `%TEMP%\deep-review-smoke-ewBRl6`.
+
+  | Runtime | Step | Outcome | Session | Seconds | Shell write | Cost |
+  |---|---|---|---|---|---|---|
+  | claude 2.1.283, haiku | first | completed | 32827e5b-c047-40dd-b02c-d1b7d166a96e | 7.4 | succeeded | 0.0079 USD |
+  | claude 2.1.283, haiku | continuation | completed | the same, resumed | 5.7 | succeeded | 0.0127 USD, whole session |
+  | codex-cli 0.147.0, gpt-5.5 | first | completed | 01a0e026-f88b-7cf0-bb1d-e58c1a60be63 | 10.7 | denied | 22238 input tokens |
+  | codex-cli 0.147.0, gpt-5.5 | continuation | completed | the same, resumed | 6.9 | denied | 45580 input tokens |
+
+  Both Claude receipts had an empty denial list; both Codex receipts had
+  `denials: null`. Each continuation returned an answer under the schema,
+  and `thread.started` on `exec resume` carried the resumed id. The
+  frozen Codex streams show the write command exiting 1 with
+  `UnauthorizedAccessException`, fresh and continued, so the
+  `--config sandbox_mode="read-only"` override holds under both. The
+  Claude write succeeding is PD3 as accepted: Claude Code has no
+  read-only sandbox for the shell.
+- An earlier smoke run with `--codex-model gpt-6-astra`, the model in the
+  author's Codex config, failed both Codex workers with the runtime's
+  error on the receipt ("requires a newer version of Codex"), the thread
+  id kept, and the continuation run against that thread: the failure
+  path working on a real runtime.
+
+Changes from the reviewed design, each also made in the section it
+changes:
+
+- The Codex sandbox and writable roots are `--config` overrides, not
+  `--sandbox` and `--add-dir`, and the preflight reads `exec resume
+  --help` too, because `exec resume` takes neither flag.
+- The invocation gained `executableArgs` for a CLI behind an
+  interpreter. The fakes run that way, and so does an npm-installed
+  Claude Code on Windows, whose `claude.cmd` cannot be spawned without a
+  shell.
+- An adapter declares a `qualification` recipe instead of a
+  `preflight(executable)` method, so the adapter stays free of processes
+  (TD1) and one preflight serves every runtime.
+- `termination` gained `not-started` for a spawn that failed; recording
+  a process that never existed as `exited` would be false.
+- The finish holds the runtime's final message file and the validated
+  answer as two references: the first is what a later engine re-decodes,
+  the second what a later phase reads. Usage is JSON text.
+- A continuation must keep its runtime, model, effort, access, shell,
+  schema and scratch directory, and may not start while another worker
+  runs in the session. Its budget and timeout are its own, since it is a
+  new process with its own spend.
+- An explicit scratch directory for a read-only worker on a runtime that
+  cannot allow it is refused through the capability table
+  (`readOnlyScratch`); without one the worker gets none (R7). No
+  invocation asks for a session id to be assigned before launch, so that
+  capability decides whether the launcher pins one and is never refused.
 
 ## Risks & Migration
 
