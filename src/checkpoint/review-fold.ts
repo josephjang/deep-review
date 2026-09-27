@@ -7,7 +7,6 @@
  * next is read from these by the planner, never stored.
  */
 import {
-  candidatePhases,
   deduplicationPhases,
   finderAngles,
   phases,
@@ -428,6 +427,3 @@ export function unitsOfPhase(review: ReviewState, phase: Phase): Record<string, 
   const prefix = `${phase}:`;
   return Object.fromEntries(Object.entries(review.units).filter(([unit]) => unit.startsWith(prefix)).map(([unit, state]) => [unit.slice(prefix.length), state]));
 }
-
-/** The candidate phases, for callers that iterate them in review order. */
-export const orderedCandidatePhases: readonly CandidatePhase[] = candidatePhases;

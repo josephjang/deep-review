@@ -6,7 +6,7 @@
  */
 import type { CandidateState } from '../checkpoint/review-fold.ts';
 import type { Lead } from '../checkpoint/events.ts';
-import { finderAngles, type Angle, type FinderAngle, type Verdict } from './vocabulary.ts';
+import { finderAngles, type FinderAngle, type Verdict } from './vocabulary.ts';
 
 /** Where a candidate points, as a worker reads it: the scope location, or the finder's own with the unlocated mark. */
 export function describeLocation(candidate: Pick<CandidateState, 'file' | 'line' | 'located' | 'rawFile' | 'rawLine'>): string {
@@ -124,6 +124,3 @@ export function mergeRankTask(inputs: readonly RankInput[]): string {
     list,
   ].join('\n');
 }
-
-/** The angle a candidate is judged by: its own. Named here so the tasks and the ranking agree on the one source. */
-export const angleOf = (candidate: Pick<CandidateState, 'angle'>): Angle => candidate.angle;

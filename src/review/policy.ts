@@ -15,7 +15,7 @@ import { maxBudgetUsd, maxTimeoutMs } from '../runtime/contract.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import { roleKeySchema } from '../roles/manifest.ts';
 import { InvalidPolicyError } from './errors.ts';
-import { finderAngles } from './vocabulary.ts';
+import { angles, roleOfAngle } from './vocabulary.ts';
 
 /** The policy's file name under the roles root. */
 export const policyFileName = 'policy.json';
@@ -26,7 +26,7 @@ export const tierSchema = z.enum(tiers);
 export type Tier = z.infer<typeof tierSchema>;
 
 /** The roles the read-only review runs, in phase order: the policy must name exactly these. */
-export const reviewRoles: readonly string[] = ['triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank'];
+export const reviewRoles: readonly string[] = [...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank'];
 
 export const rolePolicySchema = z.strictObject({
   tier: tierSchema,
