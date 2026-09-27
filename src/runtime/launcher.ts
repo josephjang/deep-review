@@ -13,7 +13,7 @@ import { compileOutputSchema, parseInvocation, type Invocation, type InvocationI
 import { pinVariables } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
 import { preflight } from './preflight.ts';
-import { runProcess, type ProcessResult } from './process.ts';
+import { notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes } from './runtimes.ts';
 
@@ -208,7 +208,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     });
   } catch (error) {
     const now = new Date().toISOString();
-    result = { termination: 'not-started', exitCode: null, signal: null, error: `the launcher could not start it: ${(error as Error).message}`, startedAt: now, endedAt: now };
+    result = notStarted(`the launcher could not start it: ${(error as Error).message}`, now, now);
   }
   let settled: Settled;
   try {
@@ -400,7 +400,10 @@ function settle(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocation: Inv
   let error: string | null;
   let output: unknown = null;
   if (result.termination === 'not-started') [outcome, error] = ['failed', `The worker did not start: ${result.error}`];
-  else if (result.termination === 'killed') [outcome, error] = ['timeout', `The worker ran past its timeout of ${String(invocation.timeoutMs)} ms and was killed with its process tree`];
+  else if (result.termination === 'killed') {
+    const how = result.treeKillError === null ? 'was killed with its process tree' : `was killed, but only its root: ${result.treeKillError}; descendants may still run`;
+    [outcome, error] = ['timeout', `The worker ran past its timeout of ${String(invocation.timeoutMs)} ms and ${how}`];
+  }
   else if (decoded.budgetStop) [outcome, error] = ['budget', decoded.error ?? 'The runtime stopped at its budget'];
   else if (decoded.error !== null) [outcome, error] = ['failed', decoded.error];
   else if (result.exitCode !== 0 || result.signal !== null) {
