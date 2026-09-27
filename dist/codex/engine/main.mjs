@@ -22944,6 +22944,7 @@ function parseUnitLabel(label) {
 
 // src/review/lock.ts
 import { closeSync as closeSync3, mkdirSync as mkdirSync4, openSync as openSync3, readFileSync as readFileSync6, rmSync as rmSync2, statSync as statSync3, writeSync as writeSync2 } from "node:fs";
+import { constants } from "node:os";
 import { join as join13 } from "node:path";
 var locksDirectoryName = "runs";
 var unwrittenLockGraceMs = 1e4;
@@ -22996,6 +22997,27 @@ function acquireRunLock(checkpointRoot, runId, pid = process.pid) {
     }
   }
   throw taking();
+}
+var endingSignals = process.platform === "win32" ? ["SIGINT", "SIGBREAK", "SIGHUP"] : ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
+function exitBySignal(signal) {
+  process.exit(128 + (constants.signals[signal] ?? 0));
+}
+function releaseOnExit(release, end = exitBySignal) {
+  let held = true;
+  const dispose = () => {
+    if (!held) return;
+    held = false;
+    process.off("exit", dispose);
+    for (const signal of endingSignals) process.off(signal, onSignal);
+    release();
+  };
+  const onSignal = (signal) => {
+    dispose();
+    end(signal);
+  };
+  process.on("exit", dispose);
+  for (const signal of endingSignals) process.on(signal, onSignal);
+  return dispose;
 }
 
 // src/review/locations.ts
@@ -24085,9 +24107,7 @@ async function runReview(options2) {
     log(`run ${state.id}: resuming`);
   }
   const runId = state.id;
-  const release = acquireRunLock(checkpoint.root, runId);
-  const onExit = () => release();
-  process.on("exit", onExit);
+  const release = releaseOnExit(acquireRunLock(checkpoint.root, runId));
   try {
     if (state.scope === null) {
       state = captureScope(checkpoint, runId, options2.scope);
@@ -24182,7 +24202,6 @@ async function runReview(options2) {
       }
     }
   } finally {
-    process.off("exit", onExit);
     release();
   }
 }
