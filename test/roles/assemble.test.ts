@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -67,6 +67,31 @@ describe('assembleRoles', () => {
   it('refuses a missing fragments directory by the first fragment it cannot find', () => {
     writeFileSync(join(root, manifestFileName), JSON.stringify({ schemaVersion: 1, roles: { r: ['a.md'] } }));
     assert.throws(() => assembleRoles(root), (error: unknown) => error instanceof InvalidRoleFragmentError && /a\.md does not exist/.test(error.message));
+  });
+
+  it('reports a fragment path that cannot be examined by the failure, not as missing', () => {
+    // A NUL in the path makes lstat itself refuse it, a failure that is not ENOENT on every platform.
+    assert.throws(() => readRoleFragment(`${root}\0`, 'a.md'), (error: unknown) =>
+      error instanceof InvalidRoleFragmentError && error.fragment === 'a.md'
+      && /a\.md cannot be read: .*null bytes/.test(error.message) && !/does not exist/.test(error.message));
+  });
+
+  it('reports a fragments/ that is a file by the lstat failure, not as missing', (t) => {
+    // Windows reports a path through a file as ENOENT; POSIX says ENOTDIR.
+    if (process.platform === 'win32') return t.skip('Windows reports a path through a file as missing');
+    writeFileSync(join(root, manifestFileName), JSON.stringify({ schemaVersion: 1, roles: { r: ['a.md'] } }));
+    writeFileSync(join(root, fragmentsDirectoryName), 'not a directory\n');
+    assert.throws(() => assembleRoles(root), (error: unknown) =>
+      error instanceof InvalidRoleFragmentError && /a\.md cannot be read: ENOTDIR/.test(error.message));
+  });
+
+  it('reports a fragment that cannot be opened by the read failure, not as not UTF-8', (t) => {
+    // Windows has no unreadable mode bits and root reads through them; nothing to test then.
+    if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('file modes do not deny reading here');
+    seed(root, { schemaVersion: 1, roles: { r: ['a.md'] } }, { 'a.md': 'a\n' });
+    chmodSync(join(root, fragmentsDirectoryName, 'a.md'), 0o000);
+    assert.throws(() => assembleRoles(root), (error: unknown) =>
+      error instanceof InvalidRoleFragmentError && /a\.md cannot be read: EACCES/.test(error.message) && !/UTF-8/.test(error.message));
   });
 
   it('refuses a subdirectory under fragments/', () => {

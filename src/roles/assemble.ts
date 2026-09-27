@@ -61,16 +61,25 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
  */
 export function readRoleFragment(rolesRoot: string, name: string): string {
   const path = join(rolesRoot, fragmentsDirectoryName, name);
+  // Only ENOENT means the fragment is missing; any other failure (EACCES, ENOTDIR, ELOOP) is reported as it is.
   let regular: boolean;
   try {
     regular = lstatSync(path).isFile();
-  } catch {
-    throw new InvalidRoleFragmentError(name, 'does not exist');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new InvalidRoleFragmentError(name, 'does not exist');
+    throw new InvalidRoleFragmentError(name, `cannot be read: ${(error as Error).message}`);
   }
   if (!regular) throw new InvalidRoleFragmentError(name, 'is not a regular file');
+  // Reading and decoding fail for different reasons, so each is caught on its own.
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(path);
+  } catch (error) {
+    throw new InvalidRoleFragmentError(name, `cannot be read: ${(error as Error).message}`);
+  }
   let text: string;
   try {
-    text = utf8.decode(readFileSync(path));
+    text = utf8.decode(bytes);
   } catch {
     throw new InvalidRoleFragmentError(name, 'is not UTF-8');
   }
