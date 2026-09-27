@@ -131,10 +131,10 @@
       "fixer-role.md",
       "fixer-brief.md",
       "fixer-apply.md",
-      "fixer-documentation.md",
       "fixer-tests.md",
       "fixer-validation.md",
-      "fixer-report.md"
+      "fixer-report.md",
+      "fixer-documentation.md"
     ],
     "test-assessment": [
       "lead-brief.md",

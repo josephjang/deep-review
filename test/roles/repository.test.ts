@@ -114,6 +114,13 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  it('ends the documentation role with its reconciliation rule, after the fixer\'s return format', () => {
+    const documentation = roles.find((role) => role.key === 'documentation')!;
+    const reconciliation = documentation.prompt.lastIndexOf('**When assigned documentation reconciliation:**');
+    const returnFormat = documentation.prompt.lastIndexOf('## Return format');
+    assert.ok(returnFormat >= 0 && reconciliation > returnFormat, `reconciliation at ${String(reconciliation)}, return format at ${String(returnFormat)}`);
+  });
+
   it('names no mechanism of one runtime in any prompt', () => {
     const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);
