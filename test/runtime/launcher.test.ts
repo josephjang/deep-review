@@ -612,6 +612,15 @@ describe('runWorker', () => {
       assert.equal(worker.status === 'finished' && worker.finish.error, receipt.error);
     });
 
+    it('records no denials for a runtime whose capabilities say it has no evidence of them, whatever its decoder returns', async () => {
+      const blind: RuntimeAdapter = { ...claudeAdapter, name: 'claude-blind', capabilities: { ...claudeAdapter.capabilities, denialEvidence: false } };
+      const receipt = await box.run(box.claude({ runtime: 'claude-blind' }), { FAKE_DENIALS: JSON.stringify([{ tool_name: 'Bash', tool_input: { command: 'touch x' } }]) }, { runtimes: new RuntimeRegistry([blind]) });
+      assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
+      assert.equal(receipt.denials, null);
+      const worker = box.worker(receipt.workerId);
+      assert.equal(worker.status === 'finished' && worker.finish.denials, null);
+    });
+
     it('refuses to decode a final message above 16 MiB, freezes it, and keeps the session', async () => {
       const writer: RuntimeAdapter = {
         ...echo,

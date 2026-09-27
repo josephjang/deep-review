@@ -458,7 +458,8 @@ function settleOutputs(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocati
       startedAt: result.startedAt,
       endedAt: result.endedAt,
       usage: usageText(decoded.usage),
-      denials: decoded.denials === null ? null : [...decoded.denials],
+      // The capability table is the contract (TD4): a runtime without denial evidence states none, whatever its decoder returned.
+      denials: !adapter.capabilities.denialEvidence || decoded.denials === null ? null : [...decoded.denials],
       error: error === null ? null : truncate(error),
       stdout: known.stdout,
       stderr: known.stderr,
