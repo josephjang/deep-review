@@ -34,6 +34,10 @@ function refuseProtoRoleKey(roles: unknown, context: z.RefinementCtx): unknown {
  * role prompts proposal). A fragment may appear in many roles but only once
  * in each, since a prompt that repeats a passage says nothing more.
  *
+ * Role keys are unique ignoring case: a role's prompt is written to a file
+ * named after its key, and on a case-insensitive file system, the default
+ * on Windows and macOS, `finder-SCAN.md` and `finder-scan.md` are one file.
+ *
  * Keys are checked in the refinement rather than by a key schema on the
  * record, so a bad key is reported with the rule it breaks and not as
  * "invalid key in record". The one key the record cannot see, `__proto__`,
@@ -43,8 +47,14 @@ export const roleManifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   roles: z.preprocess(refuseProtoRoleKey, z.record(z.string(), z.array(fragmentNameSchema).min(1)).superRefine((roles, context) => {
     if (Object.keys(roles).length === 0) context.addIssue({ code: 'custom', message: 'at least one role is required' });
+    // Each key by its lower-case form, to find the first key another differs from only by case.
+    const byFolded = new Map<string, string>();
     for (const [key, fragments] of Object.entries(roles)) {
       if (!roleKeyPattern.test(key)) context.addIssue({ code: 'custom', message: roleKeyRule, path: [key] });
+      const folded = key.toLowerCase();
+      const earlier = byFolded.get(folded);
+      if (earlier === undefined) byFolded.set(folded, key);
+      else context.addIssue({ code: 'custom', message: `role keys ${earlier} and ${key} differ only by case, so their prompt files would be one file on a case-insensitive file system`, path: [key] });
       const seen = new Set<string>();
       for (const fragment of fragments) {
         if (seen.has(fragment)) context.addIssue({ code: 'custom', message: `names ${fragment} twice`, path: [key] });
