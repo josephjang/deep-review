@@ -8,6 +8,7 @@
 import type { FrozenFile, ScopeState } from '../checkpoint/events.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { ConventionFile } from './conventions.ts';
+import { tableCell } from './markdown.ts';
 import type { Phase } from './vocabulary.ts';
 
 /** The most bytes of patch that go inline in a prompt (TD3); above it the prompt names the frozen patch's path. */
@@ -27,9 +28,6 @@ export function describeFrozen(frozen: FrozenFile | null, evidence: Pick<Evidenc
   if ('blob' in frozen) return evidence.pathOf(frozen.blob);
   return `oversized ${frozen.oversized.sha256} ${String(frozen.oversized.size)} bytes`;
 }
-
-/** A Markdown table cell: pipes and line breaks would break the row. */
-const cell = (text: string): string => text.replaceAll('|', '\\|').replaceAll(/\r?\n/g, ' ');
 
 /**
  * A fence that the text cannot close: one more backtick than the longest
@@ -62,7 +60,7 @@ export function scopeBlock(input: ScopeBlockInput): string {
   const { scope, evidence } = input;
   const rows = scope.files.map((file) => {
     const after = file.after === null ? 'deleted' : 'read the file in the worktree';
-    return `| ${cell(file.path)} | ${file.status}${file.symlink ? ' (symlink)' : ''} | ${cell(describeFrozen(file.before, evidence))} | ${after} |`;
+    return `| ${tableCell(file.path)} | ${file.status}${file.symlink ? ' (symlink)' : ''} | ${tableCell(describeFrozen(file.before, evidence))} | ${after} |`;
   });
   const conventions = input.conventions.length === 0
     ? 'None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file.'
