@@ -99,6 +99,9 @@ export function checkTriageLeads(output: TriageOutput): void {
 const outOfRange = (what: string, value: number, count: number): StructuralCheckError =>
   new StructuralCheckError(`${what} names index ${String(value)}, but the candidates are numbered [0] to [${String(count - 1)}]`);
 
+/** The indexes of [0, count) an answer never named, in order. */
+const missingIndexes = (seen: ReadonlySet<number>, count: number): number[] => Array.from({ length: count }, (_, position) => position).filter((position) => !seen.has(position));
+
 /** Refuse a deduplication answer that names an index outside the input, groups an index twice, or keeps a non-member. */
 export function checkDeduplication(output: DeduplicationOutput, count: number): void {
   const grouped = new Set<number>();
@@ -121,7 +124,7 @@ export function checkVerdicts(output: VerifierOutput, count: number): void {
     if (seen.has(verdict.index)) throw new StructuralCheckError(`Two verdicts name index ${String(verdict.index)}`);
     seen.add(verdict.index);
   }
-  const missing = Array.from({ length: count }, (_, position) => position).filter((position) => !seen.has(position));
+  const missing = missingIndexes(seen, count);
   if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(', ')} of the ${String(count)} candidates in the group`);
 }
 
@@ -136,6 +139,6 @@ export function checkMergeRank(output: MergeRankOutput, count: number): void {
       seen.add(value);
     }
   }
-  const missing = Array.from({ length: count }, (_, position) => position).filter((position) => !seen.has(position));
+  const missing = missingIndexes(seen, count);
   if (missing.length > 0) throw new StructuralCheckError(`The ranking leaves out index ${missing.map(String).join(', ')} of the ${String(count)} candidates on the working list`);
 }
