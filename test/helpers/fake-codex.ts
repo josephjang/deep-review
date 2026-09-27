@@ -13,7 +13,7 @@ if (argv[0] === '--version') {
 } else if (argv[0] === '--help') {
   printHelp(['--ask-for-approval', '--config', '--model', '--sandbox']);
 } else if (argv.at(-1) === '--help') {
-  printHelp(['--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--config', '--model', '--json', '--output-schema', '--output-last-message']);
+  printHelp(['--ignore-user-config', '--strict-config', '--ignore-rules', '--skip-git-repo-check', '--config', '--model', '--json', '--output-schema', '--output-last-message']);
 } else {
   const stdin = readStdin();
   record(argv, stdin);
