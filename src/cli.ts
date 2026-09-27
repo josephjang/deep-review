@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
 import type { ScopeRequest } from './checkpoint/events.ts';
+import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
@@ -219,6 +220,17 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   }
 }
 
+/** The run a command names with --run, or else the active run, null when there is none; an id the checkpoint does not hold is a usage error. */
+function resolveRun(checkpoint: Checkpoint, run: string | undefined): RunState | null {
+  if (run === undefined) return findActiveRun(checkpoint);
+  try {
+    return checkpoint.fold(run);
+  } catch (error) {
+    if (error instanceof UnknownRunError) throw new UsageError(error.message);
+    throw error;
+  }
+}
+
 function status(values: Values, io: CommandIo, root: string): number {
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) {
@@ -226,7 +238,7 @@ function status(values: Values, io: CommandIo, root: string): number {
     return 0;
   }
   try {
-    const state = values.run === undefined ? findActiveRun(checkpoint) : checkpoint.fold(values.run);
+    const state = resolveRun(checkpoint, values.run);
     if (state === null) {
       io.stdout(values.json === true ? 'null\n' : 'No active run.\n');
       return 0;
@@ -235,9 +247,6 @@ function status(values: Values, io: CommandIo, root: string): number {
     const described = describeRun(state, adapter, (reference) => checkpoint.evidence.pathOf(reference));
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
     return 0;
-  } catch (error) {
-    if (error instanceof UnknownRunError) throw new UsageError(error.message);
-    throw error;
   } finally {
     checkpoint.close();
   }
@@ -250,7 +259,7 @@ function abandon(values: Values, io: CommandIo, root: string): number {
   // Under the start lock, as a review finds or creates its run: an engine resuming the run cannot slip between the find and the append.
   const releaseStart = acquireStartLock(checkpoint.root);
   try {
-    const state = values.run === undefined ? findActiveRun(checkpoint) : checkpoint.fold(values.run);
+    const state = resolveRun(checkpoint, values.run);
     if (state === null) throw new UsageError('no active run to abandon');
     const release = acquireRunLock(checkpoint.root, state.id);
     try {
@@ -260,9 +269,6 @@ function abandon(values: Values, io: CommandIo, root: string): number {
     }
     io.stdout(`run ${state.id} abandoned: ${values.reason}\n`);
     return 0;
-  } catch (error) {
-    if (error instanceof UnknownRunError) throw new UsageError(error.message);
-    throw error;
   } finally {
     releaseStart();
     checkpoint.close();
