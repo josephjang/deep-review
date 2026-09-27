@@ -102,17 +102,19 @@ twenty-one in all. Each role's prompt is assembled from the fragments
 under `roles/fragments/` in the order `roles/manifest.json` lists for
 it, joined with one blank line. The manifest is the only place
 composition is declared, and every fragment is held to a few invariants
-when it is read (UTF-8 text, LF endings, one final newline, no front
-matter, no include marker), so what a worker receives is what the files
-say. The text came from the prompt-only `deep-review` skill in
-`agent-skills`, which the proof of concept assembled its roles from; the
-move kept it as it was, and a second commit replaced the wording that
-named Claude Code's subagents and tools with wording true on every
-runtime, which a test now holds every prompt to. Which model, effort,
-access and budget a role runs with, and what it must return, are not
-declared here: each is decided with the phase that first runs the role.
-`npm run roles -- --output <dir>` writes every assembled prompt for
-reading. See `docs/changes/2026-09-27-role-prompts.md`.
+when it is read (UTF-8 text, LF endings, one final newline, no blank
+line at either edge, no front matter, no include marker), so what a
+worker receives is what the files say. The text came from the
+prompt-only `deep-review` skill in `agent-skills`, which the proof of
+concept assembled its roles from; the move kept it as it was, a second
+commit replaced the wording that named Claude Code's subagents and
+tools with wording true on every runtime, which a test now holds every
+prompt to, and review corrected the few replacements that were wrong or
+missed. Which model, effort, access and budget a role runs with, and
+what it must return, are not declared here: each is decided with the
+phase that first runs the role. `npm run roles -- --output <dir>`
+writes every assembled prompt for reading to a new directory outside
+`roles/`. See `docs/changes/2026-09-27-role-prompts.md`.
 
 ## Developing
 

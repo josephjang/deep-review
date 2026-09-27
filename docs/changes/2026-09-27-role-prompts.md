@@ -13,10 +13,14 @@ assembler reads them, holds each fragment to a few invariants, and hands
 the engine each role's prompt and its hash. The move keeps every prompt as
 the proof of concept produced it, and a second commit then replaces the
 wording that named Claude Code's subagent mechanism and tools with
-runtime-neutral wording, and nothing else. Which model tier, effort,
-access, shell, budget and timeout a role runs with, what it must return,
-and whether a runtime needs a different setting are decided with the
-phases that first run each role.
+runtime-neutral wording, and nothing else. A review of those two commits
+later corrected, each in a commit of its own, the replacements that
+turned out wrong or were missed, the references to other text that the
+manifest's order made false, and gaps in the assembler, the manifest
+rules and the script; they are recorded under D5 and Verification. Which
+model tier, effort, access, shell, budget and timeout a role runs with,
+what it must return, and whether a runtime needs a different setting are
+decided with the phases that first run each role.
 
 ## Problem
 
@@ -83,7 +87,9 @@ adapter for the first time. It was read at `agent-skills` commit
   ownership, "Phase 0" and "Phase R". Under the engine a worker does none
   of that. Deciding what each worker needs to know is the job of the
   element that defines that worker's task and output; here only the
-  wording that names a mechanism the worker does not have changes (D5).
+  wording that names a mechanism the worker does not have changes, with
+  the few sentences review found false about the engine or the
+  manifest's order (D5).
 - No change to what the `CONVENTIONS` angle reviews. Its text names
   `CLAUDE.md` files only; widening it to `AGENTS.md` and other instruction
   files changes what the angle finds, and is decided with the first real
@@ -114,14 +120,22 @@ adapter for the first time. It was read at `agent-skills` commit
   SHA-256 of the prompt.
 - R3: A fragment is a regular file of UTF-8 text without a byte order
   mark, with LF line endings and no NUL, not empty, ending in exactly one
-  newline, not starting with a blank line, with no front matter and no
-  include marker; each violation is refused naming the fragment.
+  newline, neither starting nor ending with a blank line (a line of only
+  spaces and tabs counts as blank), with no front matter and no include
+  marker; each violation is refused naming the fragment. A fragment is
+  read only by a valid fragment name (R4), checked before any file is
+  touched, so no caller reaches outside `fragments/`; only a fragment
+  that is not there is called missing, and one that cannot be read is
+  refused with the reason the system gave.
 - R4: A manifest has schema version 1 and at least one role; a role key
   is letters, digits and single dashes, starting with a letter and ending
-  with a letter or digit; a fragment name is lower-case words joined by
-  single dashes with the `.md` extension and no directory part; a role
-  names at least one fragment and none twice; every entry under
-  `fragments/` is a fragment some role names.
+  with a letter or digit, and no two keys differ only by case, since
+  each names a prompt file; a role key `__proto__`, which `JSON.parse`
+  makes but a record drops, is refused by that rule rather than lost; a
+  fragment name is lower-case words joined by single dashes with the
+  `.md` extension and no directory part; a role names at least one
+  fragment and none twice; every entry under `fragments/` is a fragment
+  some role names.
 - R5: At the move commit, each role's assembled prompt equals the proof of
   concept's assembled role after leading, trailing and repeated blank
   lines are collapsed, with one named exception: `documentation` is equal
@@ -130,15 +144,24 @@ adapter for the first time. It was read at `agent-skills` commit
   recorded under Verification.
 - R6: After the wording commit, no fragment says `subagent`, `Agent` call,
   `subagent_type`, `AskUserQuestion`, `orchestrator`, `agent` for a
-  worker, `agent definition`, `Grep`, `tier table`, or the name of a Claude
-  Code subagent (`deep-review-lead` and the others), and a test holds every
-  fragment to that list.
+  worker, `agent definition`, `Grep`, `tier table`, `message block` or
+  the `same block` that pointed back at one, `deep-review skill`, or the
+  name of a Claude Code subagent (`deep-review-lead` and the others), and
+  a test holds every assembled prompt, and so every fragment, to that
+  list. The test matches each phrase across line wraps and in any case,
+  except `Grep`, since a lower-case `grep` is the shell command every
+  runtime has; `AGENTS.md`, an instruction file, is not an agent.
 - R7: `npm run roles` prints one line per role with its key, fragment
   count, size and hash; `--output DIR` also writes each prompt to
-  `DIR/<key>.md` and refuses a directory that exists.
+  `DIR/<key>.md`. It refuses a `DIR` that is the roles directory or
+  inside it, where the prompts would become stray fragments or files to
+  commit, and a `DIR` that exists, by creating it with a call that fails
+  when anything is already there, so a directory made in the meantime is
+  never written into.
 - R8: The commit that moves the text changes no prompt text; the commit
   that changes wording changes nothing under `roles/` but that wording, and
-  carries the test that pins it.
+  carries the test that pins it. Each correction made after review is a
+  commit of its own that names what was false (D5).
 - R9: The README describes `roles/`, and the suite covers R2, R3, R4, R6
   and R7 on Windows, macOS and Linux.
 
@@ -190,24 +213,49 @@ adapter for the first time. It was read at `agent-skills` commit
 
 - **D5: The wording change is the smallest that removes what is false
   under the engine.** Three kinds of text change and nothing else.
-  Identity: a "subagent of the deep-review skill" becomes a "worker of the
-  deep-review engine", "the orchestrator" becomes "the engine", an "agent"
-  that means a worker becomes a "worker", and "the agent definition" that
-  "the runtime delivers" becomes "the role prompt" every worker of that
-  role receives. Mechanism: an `Agent` call with a `subagent_type`, "a
-  single message block" and "the tier table above" become a worker,
-  workers run in parallel, and no table; the `AskUserQuestion` passage
-  becomes a statement about an interactive run, with the engine
-  continuing the worker with the answers; a `deep-review-fixer` to
-  dispatch becomes a fixer. Tools: "Grep for" becomes "search for".
-  Everything else stays, including the driver's bookkeeping named in
-  Non-Goals and every mention of `CLAUDE.md`. Rewriting each prompt for
-  its worker was rejected here because the pilots validated these
-  semantics and nothing has run them under this engine yet; that rewrite
-  belongs after the first real run, with its evidence. Per-runtime
-  variants of each prompt were rejected because the differences are a
-  handful of words and two copies of the fragments, about 80 KB of text
-  (79617 bytes at the wording commit), would drift.
+  Identity: a "subagent of the deep-review skill" becomes a "worker of
+  the deep-review engine", "the orchestrator" becomes "the engine", an
+  "agent" that means a worker becomes a "worker", and "the agent
+  definition" that "the runtime delivers" becomes "the role prompt"
+  every worker of that role receives. Mechanism: an `Agent` call with a
+  `subagent_type`, "a single message block" and "the tier table above"
+  become a worker, workers run in parallel, and no table; the
+  `AskUserQuestion` passage says that the worker cannot ask the author
+  itself, so it finishes its independent work and returns the open
+  questions to the engine, which asks them and continues the worker with
+  the answers; a `deep-review-fixer` to dispatch becomes a fixer. Tools:
+  "Grep for" becomes "search for". Everything else stays, including the
+  driver's bookkeeping named in Non-Goals and every mention of
+  `CLAUDE.md`. Rewriting each prompt for its worker was rejected here
+  because the pilots validated these semantics and nothing has run them
+  under this engine yet; that rewrite belongs after the first real run,
+  with its evidence. Per-runtime variants of each prompt were rejected
+  because the differences are a handful of words and two copies of the
+  fragments, about 80 KB of text (79617 bytes at the wording commit),
+  would drift.
+
+  Review of the wording commit found it short of this rule, and six
+  later commits correct it, each changing under `roles/` only the
+  sentences it names. Three replacements were wrong: "the runtime
+  agent/task handle" had become "the runtime session id", a different
+  identifier, and is "the runtime worker/task handle" again (`aa8ade7`);
+  the `AskUserQuestion` passage had become "If you can ask the author
+  directly, do", a branch no worker can take, and now reads as above
+  (`892e066`); "the engine reads your report on every subsequent turn"
+  was false of an engine that has no turns, and the fixer's line limit
+  now gives the reason that its report is carried into later passes
+  (`3038650`). Two passages still said "in the same block as" the
+  dispatch, pointing back at the removed message block, and now say "at
+  the same time as" it (`0ea14e1`). References in three fragments said
+  other text comes "below" or "after the angles" where the manifest puts
+  it earlier, and now point at it without a direction (`2eb8f65`); they
+  were false already in the proof of concept's prompts, whose order the
+  move kept, and the wording commit had reworded two of them and kept
+  "below". And one sentence of the fixer's documentation section named
+  "the driver" beside "the engine" and now names the engine (`2a27151`).
+  The `Driver lead` label a finder may receive stays: it is the protocol
+  between the angle decision and the finders, part of the bookkeeping
+  kept above.
 
 - **D6: Role policy is deferred, and the proof of concept's values are
   recorded here for that decision.** The agent front matter gave each
@@ -359,7 +407,11 @@ against the two commits of this element, `362a89f` (the move) and
   a line naming nothing else), and re-wraps three passages without
   changing a word. A search of the fragments for every D5 word is empty
   afterwards, and the test that pins it fails when "orchestrator" is put
-  back into one fragment and passes on the committed text.
+  back into one fragment and passes on the committed text. Review later
+  found three of the replacements wrong, two "same block" passages
+  missed and one "the driver" left beside "the engine" (D5); the guard
+  as it stands after review, run against the fragments of `a9971c2`,
+  finds only the two "same block" passages.
 - Tests checked to fail when the behavior they guard is removed: the
   wording guard as above; the assembler's invariants each have a case
   that plants the violation and asserts the refusal names the fragment,
@@ -369,3 +421,51 @@ against the two commits of this element, `362a89f` (the move) and
   is asserted against one.
 - Continuous integration on the three platforms: not yet run; recorded
   here when the pull request runs.
+
+The review of the pull request added twenty-one commits after its
+verification record, `795e146`, from `6823119` to `5b8410c`, and then
+the documentation commits that bring this proposal in line with them.
+They were checked on the same machine on 2026-09-27, Node 26.10.0.
+
+- `npm run check` passed before each of those commits, and after the
+  last runs 535 tests: 523 pass and 12 skip. Ten are the skips above. The other two are new assembler
+  cases that cannot occur on Windows: a `fragments/` that is a file,
+  which Windows reports as missing rather than as a path through a file,
+  and a fragment whose file mode denies reading, which Windows file modes
+  cannot express and which also skips when run as root. So three of R3's
+  refusals, the symlinked fragment and these two read failures, run only
+  where continuous integration runs them. `npm run verify` matches both
+  artifacts, as `dist/` is untouched.
+- The manifest (R4): a role key `__proto__` is refused by the role key
+  rule instead of dropped (`6823119`); keys that differ only by case are
+  refused, naming both (`fdf6c94`); the test of an empty role asserts
+  the reason, not only the key (`ad13de8`).
+- The assembler (R3): a fragment that cannot be examined or read is
+  refused with the system's reason, and only a decoding failure says
+  "is not UTF-8" (`8df7eba`); a whitespace-only line at either edge
+  counts as blank (`860fe28`); a fragment name with a directory part is
+  refused before any file is touched (`75bc89b`). Without changing
+  behavior, each fragment is hashed once from the bytes read
+  (`b273d88`), the unused-fragment check takes the named fragments from
+  the manifest (`0b86570`), the error classes say what raises them
+  (`8a40b93`) and the byte order mark is written as an escape in the
+  source (`e246084`).
+- The script (R7): an `--output` that is the roles directory or inside
+  it is refused before anything is created (`0633cbc`); an existing
+  `--output` is refused by the create itself, which also refuses a file
+  there and a file system root (`7302680`); the canonical path
+  containment check it uses is shared with the scratch-directory check
+  in `src/paths.ts` (`5b8410c`, no behavior change).
+- The wording (R6, D5): the six corrections of D5 (`aa8ade7`,
+  `892e066`, `3038650`, `0ea14e1`, `2eb8f65`, `2a27151`); the guard
+  matches whole prompts, across line wraps and in any case, and has
+  tests of its own (`c76433f`); and every sentence of a fragment that
+  says text comes below it, or that a role's prompt carries some text,
+  is pinned against the manifest, as is each finder's definition of its
+  own angle (`2eb8f65`, `e0ee651`).
+- Tests checked to fail before their fix, or with the behavior they
+  guard removed: the new manifest cases; the report of a read failure
+  on a path the file system refuses; the refusal of an `--output` inside
+  the roles directory; the guard's own tests against the per-line guard
+  it replaced; and the manifest-order pins against a manifest changed to
+  break each.
