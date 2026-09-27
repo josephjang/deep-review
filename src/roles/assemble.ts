@@ -30,7 +30,41 @@ export function repositoryRolesRoot(): string {
   return resolve(import.meta.dirname, '..', '..', 'roles');
 }
 
-/** Read and validate `<rolesRoot>/manifest.json`. */
+/**
+ * The first key that `text`, already known to be JSON, gives twice in one
+ * object, or undefined. JSON.parse keeps the last of two equal keys without
+ * a word and a reviver sees only that one, so the text itself is scanned: a
+ * string followed by a colon is a key, compared by its decoded value so an
+ * escape cannot hide a repeat.
+ */
+function repeatedJsonKey(text: string): string | undefined {
+  // The keys seen in each object still open, innermost last; an open array holds null.
+  const open: (Set<string> | null)[] = [];
+  // JSON allows only space, tab, LF and CR between a key and its colon.
+  const colon = /[ \t\n\r]*:/y;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '{') open.push(new Set());
+    else if (char === '[') open.push(null);
+    else if (char === '}' || char === ']') open.pop();
+    else if (char === '"') {
+      // Step over the string; a backslash escapes the character after it.
+      let end = index + 1;
+      while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+      const token = text.slice(index, end + 1);
+      index = end;
+      colon.lastIndex = end + 1;
+      if (!colon.test(text)) continue;
+      const key = JSON.parse(token) as string;
+      const keys = open.at(-1);
+      if (keys?.has(key)) return key;
+      keys?.add(key);
+    }
+  }
+  return undefined;
+}
+
+/** Read and validate `<rolesRoot>/manifest.json`, refusing a key given twice in one object. */
 export function readRoleManifest(rolesRoot: string): RoleManifest {
   const path = join(rolesRoot, manifestFileName);
   let text: string;
@@ -44,6 +78,10 @@ export function readRoleManifest(rolesRoot: string): RoleManifest {
     value = JSON.parse(text);
   } catch (error) {
     throw new InvalidRoleManifestError(`The role manifest at ${path} is not JSON: ${(error as Error).message}`);
+  }
+  const repeated = repeatedJsonKey(text);
+  if (repeated !== undefined) {
+    throw new InvalidRoleManifestError(`The role manifest at ${path} gives the key ${JSON.stringify(repeated)} twice in one object, and JSON keeps only the last`);
   }
   return parseRoleManifest(value);
 }
