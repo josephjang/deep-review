@@ -20779,13 +20779,13 @@ function migrate(db, path, from, schema) {
 }
 function planMigration(from, schema) {
   const steps = [];
-  let at = from;
-  while (at < schema.version) {
-    const step = schema.migrations.find((candidate) => candidate.from === at);
-    if (step === void 0) throw new Error(`No migration from ledger schema ${String(at)} toward ${String(schema.version)}`);
-    if (step.to <= at) throw new Error(`Migration from ${String(step.from)} to ${String(step.to)} does not move forward`);
+  let at2 = from;
+  while (at2 < schema.version) {
+    const step = schema.migrations.find((candidate) => candidate.from === at2);
+    if (step === void 0) throw new Error(`No migration from ledger schema ${String(at2)} toward ${String(schema.version)}`);
+    if (step.to <= at2) throw new Error(`Migration from ${String(step.from)} to ${String(step.to)} does not move forward`);
     steps.push(step);
-    at = step.to;
+    at2 = step.to;
   }
   return steps;
 }
@@ -23145,6 +23145,12 @@ function pinnedRole(roles, role) {
 
 // src/review/markdown.ts
 var tableCell = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
+var inlineText = (text2) => text2.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
+function paragraphText(text2) {
+  const line = inlineText(text2).trimStart();
+  if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
+  return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
+}
 
 // src/review/prompts.ts
 var inlinePatchLimitBytes = 256 * 1024;
@@ -23808,11 +23814,12 @@ var usd2 = (value) => value === null ? "-" : value.toFixed(2);
 var count = (value) => value === null ? "-" : String(value);
 var workersCount = (n) => `${String(n)} worker${n === 1 ? "" : "s"}`;
 var costCell = (spend) => `${usd2(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? "" : ` (${workersCount(spend.costUnreported)} unreported)`}`;
+var at = (file2, line) => inlineText(`${file2}:${String(line)}`);
 function marks(candidate, unverified) {
-  const list = [...candidate.located ? [] : [`unlocated: ${candidate.rawFile}:${String(candidate.rawLine)}`], ...unverified ? ["unverified"] : []];
+  const list = [...candidate.located ? [] : [`unlocated: ${at(candidate.rawFile, candidate.rawLine)}`], ...unverified ? ["unverified"] : []];
   return list.length === 0 ? "" : ` (${list.join("; ")})`;
 }
-var shortLocation = (candidate) => candidate.located && candidate.file !== null && candidate.line !== null ? `${candidate.file}:${String(candidate.line)}` : `${candidate.rawFile}:${String(candidate.rawLine)}`;
+var shortLocation = (candidate) => candidate.located && candidate.file !== null && candidate.line !== null ? at(candidate.file, candidate.line) : at(candidate.rawFile, candidate.rawLine);
 function angleRow(review2, angle) {
   if (angle === "SCAN") {
     const ran2 = review2.units["triage:SCAN"]?.answeredBy !== null && review2.units["triage:SCAN"]?.answeredBy !== void 0;
@@ -23830,10 +23837,10 @@ function findingBlock(position, entry) {
   const lines = [
     `### ${String(position)}. [${finding.severity}] ${resolution.verdict}  ${finding.id}${also}  ${shortLocation(primary)}${marks(primary, resolution.unverified)}`,
     "",
-    finding.summary,
+    paragraphText(finding.summary),
     "",
-    `Reason: ${finding.reason}`,
-    `Evidence: ${resolution.evidence ?? "none; the verifier of this group failed twice"}`,
+    `Reason: ${inlineText(finding.reason)}`,
+    `Evidence: ${resolution.evidence === null ? "none; the verifier of this group failed twice" : inlineText(resolution.evidence)}`,
     `Angle: ${[primary, ...members2].map((candidate) => candidate.angle).filter((angle, index2, all) => all.indexOf(angle) === index2).join(", ")}`
   ];
   if (members2.length > 0) lines.push(`Also at: ${members2.map((member) => `${member.id} ${shortLocation(member)}${marks(member, false)}`).join("; ")}`);
@@ -23859,23 +23866,23 @@ function budgetLine(review2, statistics) {
 }
 function limitations(state, review2, input2) {
   const lines = [];
-  for (const [angle, reason] of Object.entries(review2.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${reason}. The sweep was told to cover its territory.`);
+  for (const [angle, reason] of Object.entries(review2.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
   for (const [unit, reason] of Object.entries(review2.unverifiedGroups)) {
     const [phase, groupId] = unit.split(":");
     const ids = review2.plans[phase]?.find((group) => group.id === groupId)?.candidateIds ?? [];
-    lines.push(`- Group ${String(groupId)} of ${String(phase)} was not verified: ${reason}. Its candidates (${ids.join(", ")}) carry PLAUSIBLE with the unverified mark.`);
+    lines.push(`- Group ${String(groupId)} of ${String(phase)} was not verified: ${inlineText(reason)}. Its candidates (${ids.join(", ")}) carry PLAUSIBLE with the unverified mark.`);
   }
   const drifted = review2.checks.filter((check2) => check2.drifted);
-  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference before ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${file2.path} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
+  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference before ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
   lines.push(budgetLine(review2, input2.statistics));
   const unreported = input2.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input2.statistics.budgetApplied ? " and the budget check" : ""} leave such workers out, so the run cost more than the totals show.`);
   }
-  const oversized = (state.scope?.files ?? []).filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => file2.path);
+  const oversized = (state.scope?.files ?? []).filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => inlineText(file2.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(", ")}.`);
   const unlocated = Object.values(review2.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
-  if (unlocated.length > 0) lines.push(`- Unlocated candidates, whose file or line did not match the reviewed change: ${unlocated.map((candidate) => `${candidate.id} (${candidate.rawFile}:${String(candidate.rawLine)})`).join(", ")}.`);
+  if (unlocated.length > 0) lines.push(`- Unlocated candidates, whose file or line did not match the reviewed change: ${unlocated.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(", ")}.`);
   return lines;
 }
 function renderReport(state, input2) {
@@ -23889,13 +23896,13 @@ function renderReport(state, input2) {
   const header = [
     "# Deep review report",
     "",
-    `Repository: ${state.worktree}`,
+    `Repository: ${inlineText(state.worktree)}`,
     `Base: ${scope.base}`,
     `Head: ${scope.head}`,
     `Mode: ${scope.mode}`,
     `Run: ${state.id}`,
     `Engine: ${input2.engine}${state.engine === input2.engine ? "" : ` (run created by ${state.engine})`}`,
-    `Runtime: ${configuration.runtime} ${configuration.version} at ${configuration.executable}`,
+    `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`
@@ -23909,8 +23916,8 @@ function renderReport(state, input2) {
   const refutedSection = [
     "## Refuted at verification",
     "",
-    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${candidate.summary}
-  Evidence: ${evidence}`)
+    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}
+  Evidence: ${inlineText(evidence)}`)
   ];
   const statisticsSection = ["## Statistics", "", statisticsTable(input2)];
   const limitationsSection = ["## Limitations", "", ...limitations(state, review2, input2)];

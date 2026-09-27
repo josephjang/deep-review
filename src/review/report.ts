@@ -8,7 +8,7 @@
 import type { Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState } from '../checkpoint/review-fold.ts';
-import { tableCell } from './markdown.ts';
+import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { angles, phases, type Angle, type Phase } from './vocabulary.ts';
 
@@ -24,14 +24,17 @@ const workersCount = (n: number): string => `${String(n)} worker${n === 1 ? '' :
 /** A cost cell: the reported sum, and how many workers' cost it leaves out. */
 const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? '' : ` (${workersCount(spend.costUnreported)} unreported)`}`;
 
+/** A file and line as one line of text, whatever the file's name holds. */
+const at = (file: string, line: number): string => inlineText(`${file}:${String(line)}`);
+
 /** The marks a candidate carries after its location. */
 function marks(candidate: CandidateState, unverified: boolean): string {
-  const list = [...(candidate.located ? [] : [`unlocated: ${candidate.rawFile}:${String(candidate.rawLine)}`]), ...(unverified ? ['unverified'] : [])];
+  const list = [...(candidate.located ? [] : [`unlocated: ${at(candidate.rawFile, candidate.rawLine)}`]), ...(unverified ? ['unverified'] : [])];
   return list.length === 0 ? '' : ` (${list.join('; ')})`;
 }
 
 /** The location a finding prints: the scope path and line, or the raw one for an unlocated candidate. */
-const shortLocation = (candidate: CandidateState): string => (candidate.located && candidate.file !== null && candidate.line !== null ? `${candidate.file}:${String(candidate.line)}` : `${candidate.rawFile}:${String(candidate.rawLine)}`);
+const shortLocation = (candidate: CandidateState): string => (candidate.located && candidate.file !== null && candidate.line !== null ? at(candidate.file, candidate.line) : at(candidate.rawFile, candidate.rawLine));
 
 function angleRow(review: ReviewState, angle: Angle): string {
   if (angle === 'SCAN') {
@@ -51,10 +54,10 @@ function findingBlock(position: number, entry: ReportFinding): string {
   const lines = [
     `### ${String(position)}. [${finding.severity}] ${resolution.verdict}  ${finding.id}${also}  ${shortLocation(primary)}${marks(primary, resolution.unverified)}`,
     '',
-    finding.summary,
+    paragraphText(finding.summary),
     '',
-    `Reason: ${finding.reason}`,
-    `Evidence: ${resolution.evidence ?? 'none; the verifier of this group failed twice'}`,
+    `Reason: ${inlineText(finding.reason)}`,
+    `Evidence: ${resolution.evidence === null ? 'none; the verifier of this group failed twice' : inlineText(resolution.evidence)}`,
     `Angle: ${[primary, ...members].map((candidate) => candidate.angle).filter((angle, index, all) => all.indexOf(angle) === index).join(', ')}`,
   ];
   if (members.length > 0) lines.push(`Also at: ${members.map((member) => `${member.id} ${shortLocation(member)}${marks(member, false)}`).join('; ')}`);
@@ -85,23 +88,23 @@ function budgetLine(review: ReviewState, statistics: ReportInput['statistics']):
 
 function limitations(state: RunState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
-  for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${reason}. The sweep was told to cover its territory.`);
+  for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
   for (const [unit, reason] of Object.entries(review.unverifiedGroups)) {
     const [phase, groupId] = unit.split(':');
     const ids = review.plans[phase as 'verification' | 'sweep-verification']?.find((group) => group.id === groupId)?.candidateIds ?? [];
-    lines.push(`- Group ${String(groupId)} of ${String(phase)} was not verified: ${reason}. Its candidates (${ids.join(', ')}) carry PLAUSIBLE with the unverified mark.`);
+    lines.push(`- Group ${String(groupId)} of ${String(phase)} was not verified: ${inlineText(reason)}. Its candidates (${ids.join(', ')}) carry PLAUSIBLE with the unverified mark.`);
   }
   const drifted = review.checks.filter((check) => check.drifted);
-  lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? 'none found a difference from the reviewed change' : `${String(drifted.length)} found a difference before ${drifted.map((check) => `${check.phase} (attempt ${String(check.attempt)}: ${check.files.map((file) => `${file.path} ${file.outcome}`).join(', ')})`).join('; ')}; each blocked the run until the tree was restored`}.`);
+  lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? 'none found a difference from the reviewed change' : `${String(drifted.length)} found a difference before ${drifted.map((check) => `${check.phase} (attempt ${String(check.attempt)}: ${check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`).join(', ')})`).join('; ')}; each blocked the run until the tree was restored`}.`);
   lines.push(budgetLine(review, input.statistics));
   const unreported = input.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input.statistics.budgetApplied ? ' and the budget check' : ''} leave such workers out, so the run cost more than the totals show.`);
   }
-  const oversized = (state.scope?.files ?? []).filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => file.path);
+  const oversized = (state.scope?.files ?? []).filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => inlineText(file.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(', ')}.`);
   const unlocated = Object.values(review.candidates).filter((candidate) => !candidate.located && candidate.duplicateOf === null);
-  if (unlocated.length > 0) lines.push(`- Unlocated candidates, whose file or line did not match the reviewed change: ${unlocated.map((candidate) => `${candidate.id} (${candidate.rawFile}:${String(candidate.rawLine)})`).join(', ')}.`);
+  if (unlocated.length > 0) lines.push(`- Unlocated candidates, whose file or line did not match the reviewed change: ${unlocated.map((candidate) => `${candidate.id} (${at(candidate.rawFile, candidate.rawLine)})`).join(', ')}.`);
   return lines;
 }
 
@@ -117,13 +120,13 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const header = [
     '# Deep review report',
     '',
-    `Repository: ${state.worktree}`,
+    `Repository: ${inlineText(state.worktree)}`,
     `Base: ${scope.base}`,
     `Head: ${scope.head}`,
     `Mode: ${scope.mode}`,
     `Run: ${state.id}`,
     `Engine: ${input.engine}${state.engine === input.engine ? '' : ` (run created by ${state.engine})`}`,
-    `Runtime: ${configuration.runtime} ${configuration.version} at ${configuration.executable}`,
+    `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
@@ -137,7 +140,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const refutedSection = [
     '## Refuted at verification',
     '',
-    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${candidate.summary}\n  Evidence: ${evidence}`)),
+    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
   ];
   const statisticsSection = ['## Statistics', '', statisticsTable(input)];
   const limitationsSection = ['## Limitations', '', ...limitations(state, review, input)];

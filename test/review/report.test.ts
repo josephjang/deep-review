@@ -80,6 +80,36 @@ describe('renderReport', () => {
     assert.match(report, /- Files too large to freeze, which no worker could be given a frozen state of: big\.bin\./);
   });
 
+  it('keeps text from workers inside the line it belongs to, so it cannot add a heading, a list item or a paragraph', () => {
+    const state = reported().fold();
+    const review = state.review!;
+    const hostile = {
+      ...state,
+      review: {
+        ...review,
+        ranking: review.ranking!.map((finding, index) => (index === 0 ? { ...finding, summary: '## Injected section\nsecond line', reason: 'because\n- a list item' } : finding)),
+        candidates: {
+          ...review.candidates,
+          'SWEEP-1': { ...review.candidates['SWEEP-1']!, rawFile: 'C:\\x.ts\n## Heading from a path' },
+          'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted\n# Heading', verdict: { verdict: 'REFUTED' as const, evidence: 'line 3\n\n## is a comment' }, duplicateOf: null },
+        },
+        anglesNotRun: { FOOTGUNS: 'timeout\n## Limitation heading' },
+        unverifiedGroups: { 'sweep-verification:g1': 'failed\n# Group heading' },
+      },
+    };
+    const report = renderReport(hostile, { engine: '0.0.0+dev', statistics });
+    const headings = report.split('\n').filter((line) => line.startsWith('#'));
+    assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# Deep review report', '## Angles', '## Findings', '## Refuted at verification', '## Statistics', '## Limitations']);
+    assert.equal(headings.filter((line) => line.startsWith('### ')).length, 2, 'one heading per finding, and nothing else at that level');
+    assert.match(report, /^\\## Injected section second line$/m);
+    assert.match(report, /^Reason: because - a list item$/m);
+    assert.match(report, /\(unlocated: C:\\x\.ts ## Heading from a path:9; unverified\)$/m);
+    assert.match(report, /^- SCAN-1 \(SCAN\) {2}src\/a\.ts:3 {2}refuted # Heading\n {2}Evidence: line 3 ## is a comment$/m);
+    assert.match(report, /^- Angle FOOTGUNS did not run: timeout ## Limitation heading\. /m);
+    assert.match(report, /^- Group g1 of sweep-verification was not verified: failed # Group heading\. /m);
+    assert.ok(!report.split('\n').some((line) => /^[-*+] /.test(line) && line.includes('a list item')), 'no list item opened by a reason');
+  });
+
   it('refuses a run without a review', () => {
     const state = configured().fold();
     assert.throws(() => renderReport({ ...state, review: null }, { engine: 'e', statistics }), /Run run-1 has no review to report on/);
