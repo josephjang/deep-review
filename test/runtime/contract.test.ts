@@ -68,7 +68,7 @@ describe('parseInvocation', () => {
 
 describe('compileOutputSchema', () => {
   it('compiles to draft-07 and keeps the exact text it hands over', () => {
-    const compiled = compileOutputSchema(z.strictObject({ answer: z.string(), count: z.number().int().optional() }));
+    const compiled = compileOutputSchema(z.strictObject({ answer: z.string(), count: z.number().int().nullable() }));
     assert.equal(compiled.json.$schema, 'http://json-schema.org/draft-07/schema#');
     assert.equal(compiled.json.type, 'object');
     assert.equal(compiled.json.additionalProperties, false);
@@ -94,6 +94,45 @@ describe('compileOutputSchema', () => {
     assert.throws(() => compileOutputSchema(z.strictObject({ nested: z.array(z.strictObject({ b: z.string().regex(/(a)\1/) })) })), /backreference/);
     assert.throws(() => compileOutputSchema(z.strictObject({ c: z.union([z.string().regex(/(?<!y)z/), z.number()]) })), /lookaround/);
     assert.throws(() => compileOutputSchema(z.strictObject({ d: z.record(z.string(), z.string().regex(/(?<n>a)\k<n>/)) })), /backreference/);
+  });
+
+  it('refuses a lookaround in a patternProperties key and in a draft-07 dependencies subschema', () => {
+    const keyed = z.strictObject({ m: z.looseRecord(z.string().regex(/^(?=a)x$/), z.number()) });
+    assert.throws(() => compileOutputSchema(keyed), (error: unknown) => error instanceof InvalidInvocationError && /lookaround/.test(error.message));
+    const dependent = z.strictObject({ a: z.string() }).meta({ dependencies: { a: { properties: { a: { pattern: '(?=x)' } } } } });
+    assert.throws(() => compileOutputSchema(z.strictObject({ s: dependent })), /lookaround/);
+  });
+
+  it('refuses an optional property or an open object anywhere, which Codex strict structured output rejects', () => {
+    const recursive: z.ZodType = z.lazy(() => z.object({ value: z.string(), next: recursive.optional() }));
+    const cases: [z.ZodType, RegExp][] = [
+      [z.strictObject({ answer: z.string(), note: z.string().optional() }), /object at # leaves note optional/],
+      [z.strictObject({ findings: z.array(z.strictObject({ file: z.string(), line: z.number().optional() })) }), /object at #\/properties\/findings\/items leaves line optional/],
+      [z.strictObject({ either: z.union([z.string(), z.object({ b: z.string().optional() })]) }), /object at #\/properties\/either\/anyOf\/1 leaves b optional/],
+      [z.strictObject({ list: recursive }), /object at #\/definitions\/__schema0 leaves next optional/],
+      [z.strictObject({ 'a/b': z.strictObject({ c: z.string().optional() }) }), /object at #\/properties\/a~1b leaves c optional/],
+      [z.strictObject({ counts: z.record(z.string(), z.number()) }), /object at #\/properties\/counts allows properties it does not list/],
+      [z.strictObject({ counts: z.looseRecord(z.string().regex(/^x/), z.number()) }), /object at #\/properties\/counts allows properties it does not list/],
+      [z.strictObject({ extra: z.looseObject({ a: z.string() }) }), /object at #\/properties\/extra allows properties it does not list/],
+      [z.looseObject({ a: z.string() }), /object at # allows properties it does not list/],
+    ];
+    for (const [schema, pattern] of cases) {
+      assert.throws(() => compileOutputSchema(schema), (error: unknown) => error instanceof InvalidInvocationError && pattern.test(error.message), String(pattern));
+    }
+  });
+
+  it('accepts a nullable, a defaulted, a nested closed and an empty object field', () => {
+    const compiled = compileOutputSchema(
+      z.strictObject({
+        answer: z.string(),
+        note: z.string().nullable(),
+        tries: z.number().default(1),
+        nested: z.array(z.object({ a: z.string() })),
+        maybe: z.strictObject({ b: z.string() }).nullable(),
+        empty: z.strictObject({}),
+      }),
+    );
+    assert.deepEqual(compiled.json.required, ['answer', 'note', 'tries', 'nested', 'maybe', 'empty']);
   });
 });
 
