@@ -35,7 +35,7 @@ import {
 import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
 import { truncated, type Unit } from './steps.ts';
 import { deduplicationTask, finderTask, mergeRankTask, sweepTask, triageTask, verifierTask } from './tasks.ts';
-import { finderAngles, maxRecordedTextLength, sweepIdPrefix, type Angle, type CandidatePhase, type DeduplicationPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { candidateIdPrefix, finderAngles, maxRecordedTextLength, type Angle, type CandidatePhase, type DeduplicationPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block. */
 export interface PhaseContext {
@@ -119,9 +119,10 @@ function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
   return { kind: 'attempt.failed', version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 
-/** Candidates as a finder returned them, located against the scope and given ids from 1 in the worker's order. */
-function recordCandidates(phase: CandidatePhase, key: string, prefix: string, candidates: readonly (CandidateOutput & { angle: Angle })[], state: RunState, worktree: string): RecordedCandidate[] {
+/** Candidates as a candidate phase's unit returned them, located against the scope and given ids from 1 in the worker's order, under the unit's id prefix. */
+function recordCandidates(phase: CandidatePhase, key: string, candidates: readonly (CandidateOutput & { angle: Angle })[], state: RunState, worktree: string): RecordedCandidate[] {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  const prefix = candidateIdPrefix(phase, key);
   const locations = normalizeLocations(state.scope, worktree, candidates);
   return candidates.map((candidate, index) => {
     const location = locations[index]!;
@@ -197,18 +198,18 @@ function contributionPayload(unit: Unit, receipt: WorkerReceipt, review: ReviewS
     case 'triage': {
       const output = receipt.output as TriageOutput;
       checkTriageLeads(output);
-      const candidates = recordCandidates('triage', unit.key, 'SCAN', output.candidates.map((candidate) => ({ ...candidate, angle: 'SCAN' as const })), state, worktree);
+      const candidates = recordCandidates('triage', unit.key, output.candidates.map((candidate) => ({ ...candidate, angle: 'SCAN' as const })), state, worktree);
       return { phase: 'triage', key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output.leads) };
     }
     case 'finders': {
       const output = receipt.output as FinderOutput;
       const angle = unit.key as FinderAngle;
-      const candidates = recordCandidates('finders', unit.key, angle, output.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
+      const candidates = recordCandidates('finders', unit.key, output.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
       return { phase: 'finders', key: unit.key, workerId: receipt.workerId, candidates, leads: null };
     }
     case 'sweep': {
       const output = receipt.output as SweepOutput;
-      const candidates = recordCandidates('sweep', unit.key, sweepIdPrefix, output.candidates, state, worktree);
+      const candidates = recordCandidates('sweep', unit.key, output.candidates, state, worktree);
       return { phase: 'sweep', key: unit.key, workerId: receipt.workerId, candidates, leads: null };
     }
     case 'deduplication':

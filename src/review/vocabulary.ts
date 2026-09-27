@@ -112,6 +112,14 @@ export const groupIdSchema = z.string().regex(/^g[1-9][0-9]*$/, 'a group id is g
 /** The prefix of a sweep candidate's id; a sweep candidate also names the angle whose territory it sits in. */
 export const sweepIdPrefix = 'SWEEP';
 
+/**
+ * The prefix of the candidate ids a candidate phase's unit assigns: the
+ * unit's angle for the triage (`SCAN`) and a finder, `SWEEP` for the sweep.
+ */
+export function candidateIdPrefix(phase: CandidatePhase, key: string): string {
+  return phase === 'sweep' ? sweepIdPrefix : key;
+}
+
 /** The unit key of the one triage worker, the one sweep worker and the phases with one worker, which is the phase name for those. */
 export const triageUnitKey = 'SCAN';
 
