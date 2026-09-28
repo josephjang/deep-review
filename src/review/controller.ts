@@ -18,11 +18,11 @@ import type { RuntimeRegistry } from '../runtime/registry.ts';
 import { captureScope } from '../scope/capture.ts';
 import { compareWorktree } from '../scope/compare.ts';
 import { conventionFiles } from './conventions.ts';
-import { InvalidPolicyError, ReviewRefusedError } from './errors.ts';
+import { ReviewRefusedError } from './errors.ts';
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
-import { readPolicy, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
+import { readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { runSpendUsd, statisticsOf } from './spend.ts';
@@ -369,24 +369,6 @@ async function resumePinned(runId: string, pinned: ReviewConfiguration, context:
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
   await qualify(context.adapter, pinned.executable, pinned.executableArgs, context);
-}
-
-/**
- * The checks `resolvePolicy` makes of the two flags a resumed run still
- * takes, with its messages: a budget on a runtime that reports no cost
- * could never be checked, and a concurrency outside 1 to 16 or a budget
- * that is not positive is malformed.
- */
-function refuseInvocationFlags(adapter: RuntimeAdapter, flags: PolicyFlags): void {
-  if (flags.budgetUsd !== undefined && !adapter.capabilities.costInUsd) {
-    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
-  }
-  if (flags.concurrency !== undefined && (!Number.isInteger(flags.concurrency) || flags.concurrency < 1 || flags.concurrency > 16)) {
-    throw new InvalidPolicyError(`--concurrency must be a whole number from 1 to 16, not ${String(flags.concurrency)}`);
-  }
-  if (flags.budgetUsd !== undefined && !(Number.isFinite(flags.budgetUsd) && flags.budgetUsd > 0)) {
-    throw new InvalidPolicyError(`--budget-usd must be a positive number, not ${String(flags.budgetUsd)}`);
-  }
 }
 
 /** Preflight the executable and return its version, or refuse with `runtime-unqualified`. */

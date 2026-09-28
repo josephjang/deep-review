@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { Checkpoint } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
+import { maxConcurrency } from '../src/review/policy.ts';
 import { finderAngles } from '../src/review/vocabulary.ts';
 import { baseEnvironment, fakeClaude, fakeCodex, isAlive, until } from './helpers/launcher.ts';
 import { ReviewSandbox } from './helpers/review-sandbox.ts';
@@ -32,6 +33,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     const help = run('--help');
     assert.equal(help.status, 0);
     assert.match(help.stdout, /deep-review review {2}--runtime claude\|codex/);
+    assert.ok(help.stdout.includes(`[--concurrency 1..${String(maxConcurrency)}]`), 'the usage names the bound the flag is checked against');
   });
 
   it('refuses a command-line mistake with the usage and exit 1', () => {
@@ -41,9 +43,12 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
       [claudeFlags('--last-commit', '--worktree'), /choose one scope/],
       [claudeFlags('--from', 'HEAD~1'), /--from and --to go together/],
       [claudeFlags('--last-commit', '--merge-base'), /--merge-base applies to --from and --to only/],
-      [claudeFlags('--last-commit', '--concurrency', '0'), /--concurrency must be a whole number from 1 to 16, not 0/],
-      [claudeFlags('--last-commit', '--concurrency', '17'), /--concurrency must be a whole number/],
+      [claudeFlags('--last-commit', '--concurrency', '0'), new RegExp(`--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not 0`)],
+      [claudeFlags('--last-commit', '--concurrency', String(maxConcurrency + 1)), new RegExp(`--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(maxConcurrency + 1)}`)],
+      [claudeFlags('--last-commit', '--concurrency', '2.5'), /--concurrency must be a whole number from 1 to \d+, not 2\.5/],
       [claudeFlags('--last-commit', '--budget-usd', 'lots'), /--budget-usd must be a number/],
+      [claudeFlags('--last-commit', '--budget-usd', '0'), /--budget-usd must be a positive number, not 0/],
+      [claudeFlags('--last-commit', '--budget-usd=-1'), /--budget-usd must be a positive number, not -1/],
       [['review', '--last-commit'], /--runtime claude\|codex is required/],
       [['review', '--runtime', 'gemini', '--last-commit'], /--runtime must be one of claude, codex/],
       [claudeFlags('--worktree'), /--worktree reviews uncommitted changes, and this tree has none/],

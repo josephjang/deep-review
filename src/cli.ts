@@ -19,7 +19,7 @@ import { findActiveRun, runReview, type ScopeSource } from './review/controller.
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
-import type { PolicyFlags } from './review/policy.ts';
+import { invocationFlagProblem, maxConcurrency, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
 import { describeRun } from './review/status.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
@@ -29,7 +29,7 @@ export const usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
                       [--strong-model <model>] [--fast-model <model>]
                       (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
-                      [--path <path>]... [--concurrency 1..16] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
+                      [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
 
@@ -177,15 +177,16 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   const runtimes = defaultRuntimes();
   if (!runtimes.names().includes(values.runtime)) throw new UsageError(`--runtime must be one of ${runtimes.names().join(', ')}, not ${JSON.stringify(values.runtime)}`);
   const concurrency = number('--concurrency', values.concurrency);
-  if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)) throw new UsageError(`--concurrency must be a whole number from 1 to 16, not ${values.concurrency ?? ''}`);
   const budgetUsd = number('--budget-usd', values['budget-usd']);
-  if (budgetUsd !== undefined && budgetUsd <= 0) throw new UsageError(`--budget-usd must be above zero, not ${values['budget-usd'] ?? ''}`);
   const flags: PolicyFlags = {
     ...(values['strong-model'] === undefined ? {} : { strongModel: values['strong-model'] }),
     ...(values['fast-model'] === undefined ? {} : { fastModel: values['fast-model'] }),
     ...(concurrency === undefined ? {} : { concurrency }),
     ...(budgetUsd === undefined ? {} : { budgetUsd }),
   };
+  // A malformed value is a command-line mistake, refused with the usage before the checkpoint is opened; the policy refuses it with the same message for a caller that does not come through here.
+  const problem = invocationFlagProblem(flags);
+  if (problem !== null) throw new UsageError(problem);
   const executable = resolveExecutable(values.executable ?? values.runtime, io.environment, process.platform, io.cwd);
   const checkpoint = openCheckpoint(root, true)!;
   try {

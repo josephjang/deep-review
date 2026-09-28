@@ -42,11 +42,20 @@ export const runtimePolicySchema = z.strictObject({
 });
 export type RuntimePolicy = z.infer<typeof runtimePolicySchema>;
 
+/**
+ * The most workers a run keeps in flight at once, whether the policy file
+ * or `--concurrency` sets it. The v1 schemas of `review.configured` and
+ * `limits.changed` freeze the same bound as a literal, since a recorded
+ * event's schema never changes; raising this one needs new versions of
+ * both, or a run could be given a concurrency its ledger cannot record.
+ */
+export const maxConcurrency = 16;
+
 export const policyFileSchema = z.strictObject({
   schemaVersion: z.literal(1),
   roles: z.record(roleKeySchema, rolePolicySchema),
   runtimes: z.record(z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
-  concurrency: z.number().int().min(1).max(16),
+  concurrency: z.number().int().min(1).max(maxConcurrency),
 });
 export type PolicyFile = z.infer<typeof policyFileSchema>;
 
@@ -66,6 +75,36 @@ export interface ResolvedPolicy {
   readonly rolesDigest: string;
   readonly concurrency: number;
   readonly runBudgetUsd: number | null;
+}
+
+/**
+ * What is wrong with the two flags a run takes on every invocation, or
+ * null when nothing is: a concurrency must be a whole number from 1 to
+ * `maxConcurrency`, a run budget a positive, finite number. The command
+ * line checks them with this before it opens the checkpoint, and
+ * `refuseInvocationFlags` for every caller that does not come through it.
+ */
+export function invocationFlagProblem(flags: Pick<PolicyFlags, 'concurrency' | 'budgetUsd'>): string | null {
+  const { concurrency, budgetUsd } = flags;
+  if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > maxConcurrency)) {
+    return `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(concurrency)}`;
+  }
+  if (budgetUsd !== undefined && !(Number.isFinite(budgetUsd) && budgetUsd > 0)) return `--budget-usd must be a positive number, not ${String(budgetUsd)}`;
+  return null;
+}
+
+/**
+ * Refuse the per-invocation flags a new run and a resumed one both take:
+ * a `--budget-usd` on a runtime that reports no cost is refused rather
+ * than ignored, since the check it would set could never run, and a
+ * malformed flag is refused with `invocationFlagProblem`'s message.
+ */
+export function refuseInvocationFlags(adapter: Pick<RuntimeAdapter, 'name' | 'capabilities'>, flags: Pick<PolicyFlags, 'concurrency' | 'budgetUsd'>): void {
+  if (flags.budgetUsd !== undefined && !adapter.capabilities.costInUsd) {
+    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
+  }
+  const problem = invocationFlagProblem(flags);
+  if (problem !== null) throw new InvalidPolicyError(problem);
 }
 
 /** Parse a policy file's JSON value, naming every problem in one error. */
@@ -134,15 +173,7 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
       throw new InvalidPolicyError(`The role policy runs ${role} at effort ${entry.effort}, which runtime ${adapter.name} lacks; it has ${capabilities.effortLevels.join(', ')}`);
     }
   }
-  if (flags.budgetUsd !== undefined && !capabilities.costInUsd) {
-    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
-  }
-  if (flags.concurrency !== undefined && (!Number.isInteger(flags.concurrency) || flags.concurrency < 1 || flags.concurrency > 16)) {
-    throw new InvalidPolicyError(`--concurrency must be a whole number from 1 to 16, not ${String(flags.concurrency)}`);
-  }
-  if (flags.budgetUsd !== undefined && !(Number.isFinite(flags.budgetUsd) && flags.budgetUsd > 0)) {
-    throw new InvalidPolicyError(`--budget-usd must be a positive number, not ${String(flags.budgetUsd)}`);
-  }
+  refuseInvocationFlags(adapter, flags);
   for (const [flag, model] of [['--strong-model', flags.strongModel], ['--fast-model', flags.fastModel]] as const) {
     if (model !== undefined && (model.length === 0 || model.startsWith('-') || model.includes('\0'))) throw new InvalidPolicyError(`${flag} must be a model name, not ${JSON.stringify(model)}`);
   }
