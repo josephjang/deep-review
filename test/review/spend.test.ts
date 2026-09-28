@@ -130,4 +130,22 @@ describe('spend', () => {
     assert.equal(statisticsOf(state, codexAdapter).total.costUnreported, null, 'a runtime that reports no cost has no unreported count');
     assert.equal(spendOf([], claudeAdapter).costUnreported, 0);
   });
+
+  it('does not count a worker whose process never started as unreported, since it spent nothing', () => {
+    const notStarted = { outcome: 'failed', termination: 'not-started', exitCode: null, signal: null, output: null, usage: null, error: 'spawn claude ENOENT' };
+    const alone = configured().worker(1, 'triage triage:SCAN', notStarted).fold();
+    assert.equal(statisticsOf(alone, claudeAdapter).total.costUnreported, 0, 'a spawn failure bills nothing');
+    assert.equal(statisticsOf(alone, claudeAdapter).total.costUsd, null);
+    // Beside it, a timed-out worker and a lost one, which both ran, still count.
+    const mixed = configured()
+      .worker(1, 'triage triage:SCAN', notStarted)
+      .worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' })
+      .add('worker.launched', launch(worker(3), 'finder-ALTITUDE finders:ALTITUDE'))
+      .add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'ALTITUDE', reason: 'the engine exited while the worker ran' })
+      .fold();
+    const statistics = statisticsOf(mixed, claudeAdapter);
+    assert.equal(statistics.total.costUnreported, 2, 'the timeout and the lost worker, not the one that never started');
+    assert.equal(statistics.phases.find((entry) => entry.phase === 'triage')!.costUnreported, 0);
+    assert.equal(statisticsOf(mixed, codexAdapter).total.costUnreported, null);
+  });
 });

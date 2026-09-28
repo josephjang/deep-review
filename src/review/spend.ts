@@ -4,11 +4,13 @@
  * phase, the wall time its workers ran, and how many workers spent money no
  * summary reports, with the phase read from the worker's launch label.
  *
- * A worker that timed out or failed before the runtime printed its usage,
- * and a worker lost with its engine, was billed but reports no cost. Its
- * cost is unknowable, so it is left out of every sum and counted instead,
- * and the report says the run cost more than its totals show. The budget
- * check sums the reported costs alone (the design's budget check, R6).
+ * A worker that timed out, or failed after its process started but before
+ * the runtime printed its usage, and a worker lost with its engine, was
+ * billed but reports no cost. Its cost is unknowable, so it is left out of
+ * every sum and counted instead, and the report says the run cost more
+ * than its totals show. A worker whose process never started, a failed
+ * spawn, spent nothing and is not counted. The budget check sums the
+ * reported costs alone (the design's budget check, R6).
  */
 import type { Spend } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
@@ -80,7 +82,9 @@ function wallSeconds(workers: readonly Finished[]): number {
 /**
  * What a set of settled workers spent together. The finished ones give the
  * count, the wall time and the sums; a lost one only adds to the count of
- * workers whose cost is unreported, since nothing observed how it ended.
+ * workers whose cost is unreported, since nothing observed how it ended. A
+ * finished worker that reports no cost adds to that count only when its
+ * process started: one that never started was billed nothing.
  */
 export function spendOf(workers: readonly SettledWorker[], adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): Spend {
   const finished = workers.filter(isFinished);
@@ -90,7 +94,7 @@ export function spendOf(workers: readonly SettledWorker[], adapter: Pick<Runtime
     workers: finished.length,
     seconds: Math.round(wallSeconds(finished) * 10) / 10,
     costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
-    costUnreported: adapter.capabilities.costInUsd ? lost + summaries.filter((summary) => summary.costUsd === null).length : null,
+    costUnreported: adapter.capabilities.costInUsd ? lost + finished.filter((worker, index) => summaries[index]!.costUsd === null && worker.finish.termination !== 'not-started').length : null,
     inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
     cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
     outputTokens: sumReported(summaries.map((summary) => summary.outputTokens)),
