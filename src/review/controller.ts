@@ -461,29 +461,3 @@ function reenterPhase(checkpoint: Checkpoint, state: RunState, log: (line: strin
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}`);
   return append(checkpoint, state, [{ kind: 'phase.started', version: 1, payload: { phase, attempt } }]);
 }
-
-/** What `status` prints about a run, as text lines and as a JSON value. */
-export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string): { lines: string[]; json: Record<string, unknown> } {
-  const status = reviewStatus(state);
-  const review = state.review;
-  const workers = Object.values(state.workers);
-  const counts = { running: workers.filter((worker) => worker.status === 'running').length, finished: workers.filter((worker) => worker.status === 'finished').length, lost: workers.filter((worker) => worker.status === 'lost').length };
-  const statistics = review === null ? null : statisticsOf(state, adapter);
-  const phase = review === null ? null : currentPhase(review);
-  const budgetUsd = review?.limits.runBudgetUsd ?? null;
-  const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
-  const lines = [
-    `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
-    `Worktree: ${state.worktree}`,
-    review === null ? 'Review: not configured' : `Runtime: ${review.configuration.runtime} ${review.configuration.version}; models ${review.configuration.models.strong} and ${review.configuration.models.fast}`,
-    phase === null ? 'Phase: none running' : `Phase: ${phase} (attempt ${String(review!.phases[phase].attempt)}, ${review!.phases[phase].status})`,
-    `Workers: ${String(counts.running)} running, ${String(counts.finished)} finished, ${String(counts.lost)} lost`,
-    statistics === null
-      ? 'Spend: none'
-      : `Spend: ${statistics.total.costUsd === null ? 'no cost reported' : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null ? '' : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? 'no tokens reported' : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
-    ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
-    ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
-  ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, blocker: review?.blocker ?? null, report: reportPath, review };
-  return { lines, json };
-}
