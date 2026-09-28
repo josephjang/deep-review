@@ -103,6 +103,16 @@ export const blockerActions: Readonly<Record<BlockerCode, string>> = {
   'runtime-unqualified': 'fix the runtime installation or pass --executable with a qualifying binary, then run the command again',
 };
 
+/**
+ * The `runtime-unqualified` action for a configured run, which keeps the
+ * executable it pinned and ignores `--executable`, so the action for a new
+ * run would name a flag that changes nothing: the way out is the pinned
+ * path qualifying again, or a new run.
+ */
+export function pinnedRuntimeAction(runId: string, executable: string): string {
+  return `make ${executable}, the executable run ${runId} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one; a configured run ignores --executable`;
+}
+
 /** The verifier's three routing labels (rubrics.md). */
 export const verdicts = ['CONFIRMED', 'PLAUSIBLE', 'REFUTED'] as const;
 export const verdictSchema = z.enum(verdicts);

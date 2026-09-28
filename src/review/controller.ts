@@ -28,7 +28,7 @@ import { renderReport } from './report.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, type Live, type Unit } from './steps.ts';
-import { blockerActions, unitName, type Phase } from './vocabulary.ts';
+import { blockerActions, pinnedRuntimeAction, unitName, type Phase } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved only when the run it acts
@@ -244,8 +244,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       }
     }
   } catch (error) {
-    // A worker's own preflight failed: the runtime stopped qualifying mid-run (an update, a removed binary), which is refused as at startup.
-    throw refusalOf(error);
+    // A worker's own preflight failed: the runtime stopped qualifying mid-run (an update, a removed binary), which is refused as at startup, with the action for the executable the run pinned.
+    const configuration = state.review?.configuration ?? null;
+    throw refusalOf(error, configuration === null ? null : { runId, executable: configuration.executable });
   } finally {
     // No way out of the loop leaves a worker running: after a launcher error,
     // a failed append or any other throw, the rest are awaited and their
@@ -265,9 +266,17 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   }
 }
 
-/** A failed preflight as the `runtime-unqualified` refusal, with the operator's action; any other error as it is. */
-function refusalOf(error: unknown): unknown {
-  return error instanceof PreflightError ? new ReviewRefusedError(`${error.message}; ${blockerActions['runtime-unqualified']}`, 'runtime-unqualified') : error;
+/**
+ * A failed preflight as the `runtime-unqualified` refusal, with the
+ * operator's action; any other error as it is. The action depends on
+ * whether the executable was pinned: `pinned` names the configured run and
+ * its executable, or is null for a run not yet configured, whose
+ * `--executable` still applies.
+ */
+function refusalOf(error: unknown, pinned: { readonly runId: string; readonly executable: string } | null): unknown {
+  if (!(error instanceof PreflightError)) return error;
+  const action = pinned === null ? blockerActions['runtime-unqualified'] : pinnedRuntimeAction(pinned.runId, pinned.executable);
+  return new ReviewRefusedError(`${error.message}; ${action}`, 'runtime-unqualified');
 }
 
 /** The first worker in flight to settle, taken off the map, with the time it started. */
@@ -361,7 +370,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
       const executable = typeof context.executable === 'function' ? context.executable() : context.executable;
       const executableArgs = [...(context.executableArgs ?? [])];
-      const version = await qualify(context.adapter, executable, executableArgs, context);
+      const version = await qualify(context.adapter, executable, executableArgs, context, null);
       configure = { ...resolved, roles: [...resolved.roles], executable, executableArgs, version };
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
@@ -395,15 +404,15 @@ async function resumePinned(runId: string, pinned: ReviewConfiguration, context:
   if (context.flags.strongModel !== undefined || context.flags.fastModel !== undefined) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
-  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context);
+  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
 }
 
-/** Preflight the executable and return its version, or refuse with `runtime-unqualified`. */
-async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: OpenContext): Promise<string> {
+/** Preflight the executable and return its version, or refuse with `runtime-unqualified`; `runId` names the configured run that pinned it, or is null for a new run. */
+async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: OpenContext, runId: string | null): Promise<string> {
   try {
     return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
   } catch (error) {
-    throw refusalOf(error);
+    throw refusalOf(error, runId === null ? null : { runId, executable });
   }
 }
 

@@ -19,6 +19,12 @@ import type { Script } from '../helpers/fake-runtime.ts';
 import { ReviewSandbox } from '../helpers/review-sandbox.ts';
 import { write } from '../helpers/repository.ts';
 
+/** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
+const pinnedAction = (state: RunState): string => {
+  const { executable } = state.review!.configuration;
+  return `; make ${executable}, the executable run ${state.id} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or abandon the run with \`deep-review abandon --run ${state.id} --reason <text>\` and start a new one; a configured run ignores --executable`;
+};
+
 /** The nine leads with nothing in them. */
 const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null }));
 
@@ -422,8 +428,10 @@ describe('runReview', { timeout: 600_000 }, () => {
     } finally {
       writeFileSync(removalsMayAnswer, '');
     }
-    // Refused as at startup, with the blocker code and the operator's action, not as an engine error.
-    await assert.rejects(pending, (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /does not identify itself as claude: .*; fix the runtime installation/.test(error.message));
+    // Refused as at startup, with the blocker code, not as an engine error; the run is configured, so the action is one a resume can take.
+    const configured = box.run();
+    await assert.rejects(pending, (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /does not identify itself as claude: /.test(error.message)
+      && error.message.endsWith(pinnedAction(configured)));
     const state = box.run();
     assert.deepEqual(Object.values(state.workers).filter((worker) => worker.status !== 'finished'), [], 'no worker is left running on the ledger');
     assert.notEqual(state.review!.units.finders.REMOVALS?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');
@@ -458,6 +466,18 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual(state.review!.configuration, pinned);
     assert.ok(Object.values(state.workers).every((worker) => worker.launch.executable === pinned.executable && worker.launch.model !== 'another-model'), 'every worker ran the pinned executable and models');
     assert.ok(box.logs.includes(`run ${state.id} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`));
+  });
+
+  it('refuses to resume a run whose pinned executable no longer qualifies, with an action a resumed run can take', async () => {
+    box.script({ triage: { exit: 2 } });
+    await box.review('claude');
+    const state = box.run();
+    // An update replaced the pinned binary with one lacking a flag; --executable names one that would qualify, which a configured run ignores.
+    await assert.rejects(box.review('claude', { executable: process.execPath }, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified'
+      && /lacks flags the adapter uses/.test(error.message)
+      && error.message.endsWith(pinnedAction(state))
+      && !/pass --executable/.test(error.message));
+    assert.equal(Object.values(box.run().workers).length, 2, 'nothing ran');
   });
 
   it('resolves the command\'s executable only for a run not yet configured, and a refusal of it creates no run', async () => {
@@ -507,7 +527,8 @@ describe('runReview', { timeout: 600_000 }, () => {
   });
 
   it('refuses an unqualified runtime before any run exists', async () => {
-    await assert.rejects(box.review('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /lacks flags the adapter uses/.test(error.message));
+    await assert.rejects(box.review('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /lacks flags the adapter uses/.test(error.message)
+      && error.message.endsWith('; fix the runtime installation or pass --executable with a qualifying binary, then run the command again'));
     assert.deepEqual(box.checkpoint.listRuns(), []);
   });
 
