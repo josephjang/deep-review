@@ -162,10 +162,12 @@ deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   (with the reason of an abandoned run), worktree, runtime, version and
   models, the phase it is in with its attempt, how many workers are
   running, finished and lost, the spend and tokens against the run
-  budget in force, the blocker and its action, and the report path if
-  written. `--json` prints one object holding the same facts (run id,
-  status, worktree, phase, worker counts, the statistics per phase and in
-  total, blocker, report path) and the whole `RunState.review`, whose
+  budget in force, what the budget check counts when that differs from
+  the reported spend (Retries, budget and blockers), the blocker and its
+  action, and the report path if written. `--json` prints one object
+  holding the same facts (run id, status, worktree, phase, worker counts,
+  the statistics per phase and in total, the budget check, blocker,
+  report path) and the whole `RunState.review`, whose
   units and unverified groups are nested by phase.
 - `abandon` appends `run.abandoned@1` under the checkpoint's start lock
   and the run lock (below), after folding the run again under them. A
@@ -241,8 +243,9 @@ scope, and the request, resolved only when a capture happens.
    previous engine or was orphaned by a hard kill; the controller appends
    `worker.lost@1` for each, naming the phase and unit key its launch
    label names, and the fold marks the worker lost and counts it as a
-   failed attempt of that unit (TD5). A phase left running or blocked is
-   then re-entered with `phase.started@1` at the next attempt.
+   failed attempt of that unit, a failure marked `lost` (TD5). A phase
+   left running or blocked is then re-entered with `phase.started@1` at
+   the next attempt.
 4. **Loop.** `step = nextStep(review, live)` (pure, `src/review/steps.ts`,
    over the latest fold, `live` being the units in flight and the spend
    so far); execute the step; append its events with `state.lastSequence`
@@ -259,23 +262,36 @@ scope, and the request, resolved only when a capture happens.
    - `start-phase`: when no phase is running, append `phase.started@1`
      for the next pending phase with attempt = previous attempt + 1.
    - `check-worktree`, once per attempt of the running phase, the report
-     phase included: run `compareWorktree`, append `worktree.checked@1`;
-     a drift appends `phase.finished@1` with outcome `blocked` and code
-     `drift` in the same append.
+     phase included: compare the scope files with their frozen after
+     states (`compareScopeFiles`) and append `worktree.checked@1`, drifted
+     or not, alone.
+   - `finish-phase` blocked with code `drift`, when the attempt has a
+     drifted check, found at its start or before an answer was recorded
+     (below): once no worker is in flight, else `await`. Nothing more is
+     launched in a drifted attempt.
    - `plan-verification`: a verification phase appends its
      `verification.planned@1` once.
    - `write-report`, in the report phase: render, `evidence.put`, append
      `report.written@1` and the report phase's `phase.finished@1`
      together.
    - `degrade`: append `angle.failed@1` or `group.unverified@1` for each
-     unit of a degrading role that has used its two attempts.
+     unit of a degrading role that has used its two attempts, none of
+     them a lost worker.
    - `finish-phase` blocked with code `worker-failed`, once the workers
      in flight have settled, when a unit of a blocking role has used its
-     two attempts.
+     two attempts, or a unit of any role has used them with a lost worker
+     among its failures.
    - `launch`: the phase's units not yet answered, not degraded, with an
      attempt left and no worker in flight, up to `concurrency - running`
      of them. Before each launch the budget check runs (below).
-   - `await`: wait for any running worker; record its contribution.
+   - `await`: wait for any running worker and record what it gave. A
+     completed answer is first held to the tree: the controller compares
+     the scope files with their frozen after states again, and on a
+     difference appends one drifted `worktree.checked@1` for the attempt,
+     unless the attempt already has one, and sets the answer aside,
+     neither recorded nor counted as a failure; every later answer of the
+     attempt is set aside the same way. Any other receipt is recorded as
+     a failed attempt.
    - `finish-phase`: when every unit is answered or degraded, append
      `phase.finished@1` with outcome `completed`, or `degraded` when
      some unit degraded.
@@ -293,8 +309,11 @@ scope, and the request, resolved only when a capture happens.
 
 Resumption is the loop itself: the planner sees the answered units on the
 state and plans only the rest. A unit with one failed attempt gets its
-retry; a unit with two gets its degradation or blocks. Nothing is
-recomputed from evidence; every fact the planner needs is an event.
+retry; a unit with two gets its degradation or blocks, and blocks when a
+lost worker is among the two. A unit whose answer was set aside after a
+drift has neither an answer nor a failure for it, so the re-entered phase
+launches it again without using an attempt. Nothing is recomputed from
+evidence; every fact the planner needs is an event.
 
 ### Policy (R3)
 
@@ -456,11 +475,10 @@ changed root `index.ts`. Failing both, a file that is itself the bare
 tail of exactly one scope path (`a.ts` for `src/a.ts`) matches it. Each
 comparison with a scope path is exact first, then without case, and a
 name that matches two scope paths without case matches neither. Lines
-are counted in the worktree, which the drift check at the start of the
-phase's attempt found equal to the frozen after state (an oversized file
-is frozen as hash and size only, so the worktree is the one place its
-lines can be counted; an edit made while the phase's workers run is not
-seen until the next check). Otherwise the candidate keeps its raw `file`
+are counted in the worktree, which the controller's drift check, run
+just before it records the answer, found equal to the frozen after state
+(an oversized file is frozen as hash and size only, so the worktree is
+the one place its lines can be counted). Otherwise the candidate keeps its raw `file`
 and `line` as `rawFile` and `rawLine`, with `located: false`. A deleted
 file has no after state; a candidate on it is unlocated too, and the
 report says why.
@@ -530,7 +548,10 @@ checks pass: the triage, the finders and the sweep append
 merge-rank appends `ranking.recorded@1`. For any other receipt the phase
 appends `attempt.failed@1` naming the unit, the worker and the reason
 (outcome and error, or the structural check that failed). That event, and
-a lost worker, is what the fold counts against the unit.
+a lost worker, is what the fold counts against the unit, each failure
+marked whether it was a lost worker. A completed answer that settles
+after the worktree drifted is set aside before any of this (Run
+lifecycle, `await`), and appends nothing for its unit.
 
 **Verdict resolution.** After the verification phases, each candidate of
 the working list has one verdict: the recorded one, or `PLAUSIBLE` marked
@@ -551,29 +572,44 @@ same report from the same ledger.
 ### Retries, budget and blockers (R5, R6)
 
 - **Retry rule.** A unit is launched while it has no recorded
-  contribution, no recorded degradation and fewer than 2 `attempt.failed`
-  events (a lost worker counts as one). The retry is a fresh invocation
-  with the same task. A blocked phase re-entered gives its units fresh
-  attempts, but an angle recorded as not run or a group marked unverified
-  stays settled and is never launched again.
-- **Budget check.** Before each launch: `spend = Σ summarizeUsage(finish)
-  .costUsd` over the run's finished workers with a non-null cost. A
-  worker whose cost went unreported (timed out, failed after its process
-  started but before the runtime printed its usage, or lost with its
-  engine) adds nothing to it; the report counts such workers. If the
-  runtime's `costInUsd` capability is false the check is skipped and the
-  report says the run budget did not apply. If a run budget is in force
-  (`review.limits`) and `spend >= budget`, the phase finishes `blocked`
-  with code `budget`, detail "spent 31.20 USD of the 30.00 USD run
-  budget" and the action "run the command again with --budget-usd above
-  31.20, or abandon the run". Workers already running finish and are
-  recorded.
+  contribution, no recorded degradation and fewer than 2 failures, each
+  an `attempt.failed` event or a lost worker. The retry is a fresh
+  invocation with the same task. A unit out of attempts degrades by its
+  role only when none of its failures is a lost worker; with a loss among
+  them it blocks the phase with `worker-failed` whatever its role, since
+  nothing observed it failing. A blocked phase re-entered gives its units
+  fresh attempts, but an angle recorded as not run or a group marked
+  unverified stays settled and is never launched again. An answer set
+  aside after a drift is no failure, so its unit's next launch uses no
+  attempt.
+- **Budget check.** Before each launch, `budgetSpendOf`
+  (`src/review/spend.ts`) counts the run's spend: every cost a finished
+  worker reported (`summarizeUsage(finish).costUsd`), and for a finished
+  worker whose process started but that reported no cost (a timeout, a
+  failure before the runtime printed its usage) the `budgetUsd` its
+  `worker.launched` recorded, the most the runtime let it spend. A worker
+  lost with its engine is counted apart and not charged, since nothing
+  observed what it spent and charging it would block the resume after
+  every Ctrl-C; a worker whose process never started spent nothing. If
+  the runtime's `costInUsd` capability is false the check is skipped and
+  the report says the run budget did not apply. If a run budget is in
+  force (`review.limits`) and the counted spend has reached it, the
+  phase finishes `blocked` with code `budget`, detail "spent 31.20 USD of
+  the 30.00 USD run budget", followed, when the check counted more than
+  the reported costs, by the workers it charged at their caps and the
+  lost ones it left out ("counting 2 workers that reported no cost at
+  their per-worker caps; 1 worker lost with an earlier engine is not
+  counted"), and the action "run the command again with --budget-usd
+  above 31.20, or abandon the run". The report's totals still sum
+  reported costs alone, so `status` prints a `Budget check:` line
+  beside the spend when the two differ, and its JSON carries the check as
+  `budgetCheck`. Workers already running finish and are recorded.
 - **Blockers** are `{ code, detail, action }` on `phase.finished@1`, the
   codes being an enum the report and `status` print with their actions:
 
   | Code | Raised when | Operator action |
   |---|---|---|
-  | `worker-failed` | a blocking role's unit failed twice | run again (two fresh attempts), or abandon |
+  | `worker-failed` | a blocking role's unit failed twice, or any unit's two failures include a lost worker | run again (two fresh attempts), or abandon |
   | `budget` | spend reached the run budget | run again with a higher `--budget-usd`, or abandon |
   | `drift` | the worktree differs from the scope | restore the named files and run again, or abandon and start a new run |
   | `lock-held` | another engine holds the run lock or the start lock | wait for that engine to finish; the lock clears itself when its process ends |
@@ -622,6 +658,9 @@ leave out: finished without a reported cost after their process started
 (a timeout, a failure before the runtime printed its usage), or lost
 with their engine. A worker whose process never started spent nothing
 and is not counted; on a runtime without `costInUsd` the count is null.
+The budget check reads the same workers through `budgetSpendOf`, which
+charges each finished one of them at its launch's per-worker budget and
+counts the lost ones apart (Retries, budget and blockers).
 
 ### Ledger events and fold (R10)
 
@@ -648,7 +687,7 @@ the events that carry the changed words get a new version.
 | `phase.finished` | phase, attempt, outcome (`completed`, `degraded`, `blocked`), blocker `{ code, detail, action }` or null | phase status; sets `blocker` when blocked; invalid without a matching start |
 | `worktree.checked` | phase, attempt, drifted, files `[{ path, outcome }]` (only the not-unchanged ones) | appended to `checks`; the phase must be running at that attempt |
 | `candidates.recorded` | phase (`triage`, `finders`, `sweep`), key (`SCAN`, the angle, `sweep`), workerId, candidates `[{ id, angle, file, line, located, rawFile, rawLine, summary, detail }]`, leads `[{ angle, lead }]` or null (triage only) | candidates by id; leads; marks the unit answered |
-| `attempt.failed` | phase, key, workerId, reason | one more failure of the unit |
+| `attempt.failed` | phase, key, workerId, reason | one more failure of the unit, not lost |
 | `angle.failed` | angle, reason | angle marked not run |
 | `deduplication.recorded` | phase, workerId, groups `[{ members: ids, keep: id, reason }]` | duplicates leave the working list |
 | `verification.planned` | phase, groups `[{ id, candidateIds }]` | the plan the units come from |
@@ -656,7 +695,7 @@ the events that carry the changed words get a new version.
 | `group.unverified` | phase, groupId, reason | its candidates `PLAUSIBLE` + `unverified` |
 | `ranking.recorded` | workerId, findings `[{ id (primary), members, severity, summary, reason }]` | the ranked list |
 | `report.written` | report (artifact reference), statistics (per phase and in total: workers, wall seconds, costUsd or null, costUnreported or null, input, cached input and output tokens or null; budgetApplied) | `report`; the run is complete |
-| `worker.lost` | workerId, phase and key (both, from the launch label, or neither), reason | the worker's state becomes `lost`; a unit it names counts one more failure |
+| `worker.lost` | workerId, phase and key (both, from the launch label, or neither), reason | the worker's state becomes `lost`; a unit it names counts one more failure, marked lost, so the unit blocks rather than degrades when its attempts run out |
 
 `RunState` gains `review: ReviewState | null` with: `configuration`,
 `limits` (the concurrency and run budget in force), `phases` (per phase:
@@ -664,7 +703,8 @@ status `pending | running | completed | degraded | blocked`, attempt),
 `blocker` (with its phase), `checks`, `leads`, `candidates` (by id, with
 angle, phase, worker, location, and its resolution: `duplicateOf`,
 `verdict`, `unverified`), `units` (by phase, then by unit key: the worker
-that answered, and the failures), `anglesNotRun`, `deduplications` (per
+that answered, and the failures, each with its worker, its reason and
+whether the worker was lost), `anglesNotRun`, `deduplications` (per
 deduplication phase), `plans` (per verification phase),
 `unverifiedGroups` (by verification phase, then by group id, with the
 reason), `ranking`, `report`. `WorkerState` gains the variant
@@ -795,7 +835,7 @@ Verification.
   counters.** A counter event (`attempt 2 of 2`) would have to be kept
   consistent with the worker events; counting `attempt.failed` and
   contribution events per unit needs no such invariant, and a lost worker
-  is one more `attempt.failed`-equivalent.
+  is one more `attempt.failed`-equivalent, marked lost.
 - **TD3: The patch is inline under 256 KiB and by path above.** The cap
   keeps a small change's prompt self-contained (the common case: a pull
   request of a few hundred lines is well under it) and a large one from
@@ -810,10 +850,15 @@ Verification.
 - **TD5: A lost worker is recorded, not repaired.** The resuming engine
   cannot know whether an orphaned process still runs; it records the
   worker lost with the reason "the engine exited while the worker ran"
-  and counts it as a failed attempt. Appending a `worker.finished` for it
-  was rejected: that event says what a process did, and nothing observed
-  it. For the same reason the launcher refuses to continue a session
-  that holds a lost worker, since an orphan may still write to it.
+  and counts it as a failed attempt, marked lost, so retries stay
+  bounded. Because nothing observed the worker failing, a unit whose
+  attempts run out with a lost worker among them blocks its phase with
+  `worker-failed` instead of degrading, whatever its role, and the rerun
+  gives it fresh attempts: an interruption costs time, never an angle or
+  a group. Appending a `worker.finished` for it was rejected: that event
+  says what a process did, and nothing observed it. For the same reason
+  the launcher refuses to continue a session that holds a lost worker,
+  since an orphan may still write to it.
 - **TD6: One run lock per run, held as an exclusive SQLite
   transaction.** SQLite serializes appends and `StaleRevisionError`
   catches a race, but two controllers would still both plan the same
@@ -932,8 +977,12 @@ three CI runners.
   of nine; a unit with one failure (retry planned); a unit with two
   failures on a degrading role (degradation event planned) and on a
   blocking role (block planned); a blocked run (returns the blocker); a
-  lost worker counted; every phase with no unit (started, checked and
-  finished with no worker).
+  lost worker counted, and a unit of a degrading role blocking instead
+  when a lost worker is among its two failures, awaiting the workers in
+  flight first; a drifted check awaiting the workers in flight, then
+  blocking; the budget blocker naming the workers charged at their caps
+  and the lost ones left out; every phase with no unit (started, checked
+  and finished with no worker).
 - Controller through the fakes (R1, R2, R5, R6, R7): a full review on
   each fake runtime reaches a report with the expected worker count and
   phase order; killing the engine after the third finder answers and
@@ -945,9 +994,14 @@ three CI runners.
   `worker-failed`, and running again retries it and completes; a Claude
   fake reporting `total_cost_usd` that crosses the run budget blocks with
   `budget`, and running again with a higher `--budget-usd` completes;
-  a Codex fake reaches a report with the budget marked inapplicable;
-  a file edited between phases blocks with `drift` naming the file, and
-  restoring it and running again completes; the run lock refuses a second
+  a timeout that reported no cost is charged at its 8 USD cap and blocks
+  an 8 USD budget; a Codex fake reaches a report with the budget marked
+  inapplicable; a file edited between phases blocks with `drift` naming
+  the file, and restoring it and running again completes; a file edited
+  while a phase's workers run records one drifted check for the attempt,
+  sets aside the answers that settle after it, blocks once the workers
+  in flight settle, and once the file is restored relaunches the
+  set-aside units without using an attempt; the run lock refuses a second
   holder, in the same process or in another, and frees when a holder
   process is killed outright, and a lock file that is no SQLite database
   is refused and left alone; `abandon` during a run is refused.
