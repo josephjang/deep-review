@@ -137,9 +137,9 @@ function listWithin(items: readonly string[], limit: number): string {
  * What a unit's role records once the unit has failed twice (R5, PD6): a
  * finder's angle is not run, a verifier's group is unverified. Null for
  * every other role, whose second failure blocks the run instead. The one
- * place the rule lives: a unit degrades exactly when this names what it
- * records, and a phase added to the review does not compile until it is
- * given a rule here.
+ * place the role's rule lives: a unit degrades exactly when this names
+ * what it records and no worker of it was lost (`exhaustedOutcome`), and a
+ * phase added to the review does not compile until it is given a rule here.
  */
 function degradationOf(unit: Unit): DegradationTarget | null {
   switch (unit.phase) {
@@ -176,14 +176,29 @@ function degraded(review: ReviewState, unit: Unit): boolean {
   }
 }
 
+/** Whether a worker lost with its engine is among a unit's failures: an interruption, which nothing observed failing. */
+const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.lost) ?? false;
+
+/**
+ * What a unit out of attempts records, or null when it blocks its phase
+ * instead: its role's degradation (`degradationOf`), unless a worker lost
+ * with its engine is among its failures. An interruption is not the unit
+ * failing, so it never costs coverage: such a unit blocks with
+ * `worker-failed` whatever its role, and the operator's next run gives it
+ * fresh attempts.
+ */
+function exhaustedOutcome(unit: Unit, state: UnitState | undefined): DegradationTarget | null {
+  return interrupted(state) ? null : degradationOf(unit);
+}
+
 /** Whether a unit may be given a worker: not answered, not degraded, and with an attempt left. */
 const launchableUnit = (review: ReviewState, unit: Unit, state: UnitState | undefined): boolean => !isAnswered(review, unit.phase, unit.key) && !degraded(review, unit) && !exhausted(review, unit, state);
 
 const usd = (value: number): string => value.toFixed(2);
 
-/** The blocker a phase finishes with when a blocking role's unit failed twice. */
+/** The blocker a phase finishes with when a unit failed twice under a blocking role, or with a worker lost with its engine among its failures. */
 export function workerFailedBlocker(unit: Unit, state: UnitState | undefined): Blocker {
-  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice: `;
+  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ', a worker lost with its engine among the failures' : ''}: `;
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions['worker-failed'] };
 }
 
@@ -222,15 +237,15 @@ export function nextStep(review: ReviewState, live: Live): Step {
 
   const units = unitsOf(review, phase);
   const states = review.units[phase];
-  // The units out of attempts whose outcome is not yet on the ledger: a degrading role's are degraded, a blocking role's block the phase.
+  // The units out of attempts whose outcome is not yet on the ledger: a degrading role's are degraded, unless interrupted; the rest block the phase.
   const spent = units.filter((unit) => exhausted(review, unit, states[unit.key]) && !degraded(review, unit));
   const degradations = spent.flatMap((unit): Degradation[] => {
-    const target = degradationOf(unit);
+    const target = exhaustedOutcome(unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
-  const blocking = spent.find((unit) => degradationOf(unit) === null);
+  const blocking = spent.find((unit) => exhaustedOutcome(unit, states[unit.key]) === null);
   if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {

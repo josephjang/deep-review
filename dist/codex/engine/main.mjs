@@ -20347,10 +20347,10 @@ function answered(review2, drafts, { phase, key }, workerId) {
   ofPhase[key] = { answeredBy: workerId, failures: ofPhase[key]?.failures ?? [] };
   return units;
 }
-function withFailure(review2, drafts, { phase, key }, workerId, reason) {
+function withFailure(review2, drafts, { phase, key }, failure2) {
   const { units, ofPhase } = writableUnits(review2, drafts, phase);
   const state = ofPhase[key] ?? { answeredBy: null, failures: [] };
-  ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, { workerId, reason }] };
+  ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, failure2] };
   return { ...review2, units };
 }
 var configured = (state, payload, event) => {
@@ -20443,7 +20443,7 @@ var attemptFailed = (state, payload, event, drafts) => {
   requireRunning(review2, event, payload.phase);
   const unit = { phase: payload.phase, key: payload.key };
   requireUnanswered(review2, event, unit);
-  return withReview(current, withFailure(review2, drafts, unit, payload.workerId, payload.reason), event);
+  return withReview(current, withFailure(review2, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false }), event);
 };
 var angleFailed = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
@@ -20643,7 +20643,7 @@ var workerLost = (state, payload, event, drafts) => {
   workers[payload.workerId] = { status: "lost", launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
   const unit = unitOfLostWorker(payload.phase, payload.key);
   if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unitName(unit.phase, unit.key)} at sequence ${String(event.sequence)} before review.configured`);
-  const review2 = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, payload.workerId, payload.reason);
+  const review2 = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: true });
   return { ...current, workers, review: review2, lastSequence: event.sequence };
 };
 var abandoned = (state, payload, event) => {
@@ -23633,10 +23633,14 @@ function degraded(review2, unit) {
       return isUnverified(review2, target.phase, target.groupId);
   }
 }
+var interrupted = (state) => state?.failures.some((failure2) => failure2.lost) ?? false;
+function exhaustedOutcome(unit, state) {
+  return interrupted(state) ? null : degradationOf(unit);
+}
 var launchableUnit = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && !degraded(review2, unit) && !exhausted(review2, unit, state);
 var usd = (value) => value.toFixed(2);
 function workerFailedBlocker(unit, state) {
-  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice: `;
+  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions["worker-failed"] };
 }
 function budgetBlocker(spendUsd, budgetUsd) {
@@ -23664,12 +23668,12 @@ function nextStep(review2, live2) {
   const states = review2.units[phase];
   const spent = units.filter((unit) => exhausted(review2, unit, states[unit.key]) && !degraded(review2, unit));
   const degradations = spent.flatMap((unit) => {
-    const target = degradationOf(unit);
+    const target = exhaustedOutcome(unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
   if (degradations.length > 0) return { kind: "degrade", phase, degradations };
   const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
-  const blocking = spent.find((unit) => degradationOf(unit) === null);
+  const blocking = spent.find((unit) => exhaustedOutcome(unit, states[unit.key]) === null);
   if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {

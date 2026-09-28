@@ -204,7 +204,8 @@ try {
   ]);
   checkpoint.append(closed.id, closed.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'fixture run closed on purpose' } }]);
   // A third run through every kind of the read-only review: a triage, a
-  // degraded finder phase with a lost worker, deduplication, verification,
+  // finder phase degraded by an angle that failed twice, with a lost worker
+  // whose angle answered on its second attempt, deduplication, verification,
   // a sweep whose one group goes unverified, a budget block that a raised
   // budget and a later start clear, a ranking and the report.
   const reviewed = checkpoint.createRun({ worktree: '/fixture/reviewed' });
@@ -221,11 +222,15 @@ try {
     review.finishWorker('002');
     review.add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: review.id('002'), candidates: [review.candidate('RIPPLE-1', 'RIPPLE', 2), review.candidate('RIPPLE-2', 'RIPPLE', 1)], leads: null });
     review.launch('003', 'finder-FOOTGUNS finders:FOOTGUNS');
-    review.add('worker.lost', { workerId: review.id('003'), phase: 'finders', key: 'FOOTGUNS', reason: 'the engine exited while the worker ran' });
+    review.finishWorker('003', 'failed');
+    review.add('attempt.failed', { phase: 'finders', key: 'FOOTGUNS', workerId: review.id('003'), reason: 'failed: The answer does not match the output schema' });
     review.launch('004', 'finder-FOOTGUNS finders:FOOTGUNS');
     review.finishWorker('004', 'timeout');
     review.add('attempt.failed', { phase: 'finders', key: 'FOOTGUNS', workerId: review.id('004'), reason: 'timeout: The worker ran past its timeout of 600000 ms' });
-    review.add('angle.failed', { angle: 'FOOTGUNS', reason: 'two attempts did not complete: lost; timeout' });
+    review.add('angle.failed', { angle: 'FOOTGUNS', reason: 'two attempts did not complete: failed; timeout' });
+    // WRAPPERS loses its first worker with the engine, which uses one of its attempts; its second answers below.
+    review.launch('005', 'finder-WRAPPERS finders:WRAPPERS');
+    review.add('worker.lost', { workerId: review.id('005'), phase: 'finders', key: 'WRAPPERS', reason: 'the engine exited while the worker ran' });
     for (const angle of finderAngles.filter((name) => name !== 'RIPPLE' && name !== 'FOOTGUNS')) {
       const workerId = `0${String(10 + finderAngles.indexOf(angle))}`;
       review.launch(workerId, `finder-${angle} finders:${angle}`);
@@ -275,13 +280,13 @@ try {
     ] });
   });
   review.phase('report', () => {
-    // The timed-out and the lost finder, and the two failed verifiers, reported no cost.
+    // The failed, the timed-out and the lost finder, and the two failed verifiers, reported no cost.
     const spend = (workers: number, costUnreported = 0) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 2, 'merge-rank': 1, report: 0 };
-    const unreportedPerPhase: Partial<Record<Phase, number>> = { finders: 2, 'sweep-verification': 2 };
+    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 10, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 2, 'merge-rank': 1, report: 0 };
+    const unreportedPerPhase: Partial<Record<Phase, number>> = { finders: 3, 'sweep-verification': 2 };
     review.add('report.written', {
       report: checkpoint.evidence.put('# Deep review\n\nfixture report\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(16, 4), budgetApplied: true },
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(17, 5), budgetApplied: true },
     });
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
