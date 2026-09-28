@@ -290,8 +290,10 @@ scope, and the request, resolved only when a capture happens.
      difference appends one drifted `worktree.checked@1` for the attempt,
      unless the attempt already has one, and sets the answer aside,
      neither recorded nor counted as a failure; every later answer of the
-     attempt is set aside the same way. Any other receipt is recorded as
-     a failed attempt.
+     attempt is set aside the same way. A completed answer on an
+     undrifted tree is recorded as the unit's contribution, or as a
+     failed attempt when a structural check refuses it; any other
+     receipt is recorded as a failed attempt (Recording a contribution).
    - `finish-phase`: when every unit is answered or degraded, append
      `phase.finished@1` with outcome `completed`, or `degraded` when
      some unit degraded.
