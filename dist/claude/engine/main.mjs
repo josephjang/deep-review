@@ -23855,48 +23855,30 @@ function contributionOf(unit, receipt, state, worktree) {
   if (receipt.outcome !== "completed") return failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`);
   const review2 = requireReview2(state);
   try {
-    return { kind: contributionKind(unit), version: 1, payload: contributionPayload(unit, receipt, review2, state, worktree) };
+    return contributionEvent(unit, receipt, review2, state, worktree);
   } catch (error62) {
     if (error62 instanceof StructuralCheckError) return failed(unit, receipt, `structural check: ${error62.message}`);
     throw error62;
   }
 }
-function contributionKind(unit) {
-  switch (unit.phase) {
-    case "triage":
-    case "finders":
-    case "sweep":
-      return "candidates.recorded";
-    case "deduplication":
-    case "sweep-deduplication":
-      return "deduplication.recorded";
-    case "verification":
-    case "sweep-verification":
-      return "verdicts.recorded";
-    case "merge-rank":
-      return "ranking.recorded";
-    case "report":
-      throw new Error("The report phase has no worker");
-  }
-}
-function contributionPayload(unit, receipt, review2, state, worktree) {
+function contributionEvent(unit, receipt, review2, state, worktree) {
   switch (unit.phase) {
     case "triage": {
       const output2 = receipt.output;
       checkTriageLeads(output2);
       const candidates = recordCandidates("triage", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle: "SCAN" })), state, worktree);
-      return { phase: "triage", key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output2.leads) };
+      return { kind: "candidates.recorded", version: 1, payload: { phase: "triage", key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output2.leads) } };
     }
     case "finders": {
       const output2 = receipt.output;
       const angle = unit.key;
       const candidates = recordCandidates("finders", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
-      return { phase: "finders", key: unit.key, workerId: receipt.workerId, candidates, leads: null };
+      return { kind: "candidates.recorded", version: 1, payload: { phase: "finders", key: unit.key, workerId: receipt.workerId, candidates, leads: null } };
     }
     case "sweep": {
       const output2 = receipt.output;
       const candidates = recordCandidates("sweep", unit.key, output2.candidates, state, worktree);
-      return { phase: "sweep", key: unit.key, workerId: receipt.workerId, candidates, leads: null };
+      return { kind: "candidates.recorded", version: 1, payload: { phase: "sweep", key: unit.key, workerId: receipt.workerId, candidates, leads: null } };
     }
     case "deduplication":
     case "sweep-deduplication": {
@@ -23904,7 +23886,7 @@ function contributionPayload(unit, receipt, review2, state, worktree) {
       const pool = poolCandidates(review2, unit.phase);
       checkDeduplication(output2, pool.length);
       const groups = output2.groups.map((group) => ({ members: group.members.map((member) => pool[member].id), keep: pool[group.keep].id, reason: group.reason }));
-      return { phase: unit.phase, workerId: receipt.workerId, groups };
+      return { kind: "deduplication.recorded", version: 1, payload: { phase: unit.phase, workerId: receipt.workerId, groups } };
     }
     case "verification":
     case "sweep-verification": {
@@ -23912,13 +23894,13 @@ function contributionPayload(unit, receipt, review2, state, worktree) {
       const group = groupCandidates(review2, unit.phase, unit.key);
       checkVerdicts(output2, group.length);
       const verdicts2 = output2.verdicts.map((verdict) => ({ id: group[verdict.index].id, verdict: verdict.verdict, evidence: verdict.evidence }));
-      return { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts2 };
+      return { kind: "verdicts.recorded", version: 1, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts2 } };
     }
     case "merge-rank": {
       const output2 = receipt.output;
       const input2 = mergeRankInput(review2);
       checkMergeRank(output2, input2.length);
-      return { workerId: receipt.workerId, findings: orderedRanking(review2, output2, input2) };
+      return { kind: "ranking.recorded", version: 1, payload: { workerId: receipt.workerId, findings: orderedRanking(review2, output2, input2) } };
     }
     case "report":
       throw new Error("The report phase has no worker");
