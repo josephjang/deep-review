@@ -173,7 +173,8 @@ deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   the ledger never closes a review run whose report is written, so the
   event would be accepted and would misstate the run's outcome for good.
   A running engine holds the run lock, so an abandon during a run is
-  refused with "engine <pid> is running run <id>".
+  refused with "engine <pid> is running run <id>", or "another engine"
+  when the lock's side file names no pid (step 2 of the lifecycle).
 
 The command that a skill runs is the bundle: `node <artifact>/engine/main.mjs review ...`.
 
@@ -206,24 +207,33 @@ scope, and the request, resolved only when a capture happens.
    and the log says so. A run not yet configured then appends
    `review.configured@1`. A blocked run is active and is resumed; its
    blocker is cleared by the next `phase.started`.
-2. **Take the run lock.** `<checkpoint>/runs/<runId>.lock`, created with
-   `wx`, holding this process id. A lock whose process is alive
-   (`process.kill(pid, 0)` succeeds) refuses the command with the
-   `lock-held` blocker; a lock whose process is gone is replaced, and so
-   is one that holds no pid once its file is older than 10 s, a younger
-   one being refused as another engine's lock in the instant between its
-   create and its write. A found run's lock is taken before its
-   preflight, so an engine running it refuses this one at once. The found
-   run is folded again once its lock is held, since the engine that held
-   the lock may have appended after the find; a run no longer resumable
-   is released and a new run is created. The lock is released on every
-   way out: the controller's own release, the process's exit, and a
-   signal that would end the engine (`SIGINT`, `SIGTERM`, `SIGHUP`,
-   `SIGQUIT` on POSIX; `SIGINT`, `SIGBREAK`, `SIGHUP` on Windows), whose
-   listener releases the lock and exits with 128 and the signal's number,
-   since Node runs no exit listener for a death by signal. Two engines on
-   one run is the hazard: `StaleRevisionError` protects each append, but
-   two controllers would both dispatch the same step.
+2. **Take the run lock.** `<checkpoint>/runs/<runId>.lock` is an empty
+   SQLite database that the engine opens and holds inside
+   `BEGIN EXCLUSIVE` for as long as it runs the run, taken without
+   waiting (TD6). A lock another connection holds, in another process or
+   in this one, refuses the command at once with the `lock-held` blocker,
+   naming the holder's pid from the side file `<lock>.pid`, or "another
+   engine" when that file is missing or names no pid. The side file is
+   written after the take and removed before the release, so it is best
+   effort: absent for an instant after a take, and stale after a hard
+   kill until the next holder writes its own. The lock file itself is
+   never deleted, since a holder's lock lives on the file it opened, and
+   a file there that is no SQLite database, such as the pid file an
+   older engine left, is refused with its path and no blocker code. A
+   found run's lock is taken before its preflight, so an engine running
+   it refuses this one at once. The found run is folded again once its
+   lock is held, since the engine that held the lock may have appended
+   after the find; a run no longer resumable is released and a new run
+   is created. The operating system drops the lock when the holding
+   process ends, however it ends; the engine also releases it, removing
+   the side file, rolling back and closing, at most once, on every way
+   out: the controller's own release, the process's exit, and a signal
+   that would end the engine (`SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT` on
+   POSIX; `SIGINT`, `SIGBREAK`, `SIGHUP` on Windows), whose listener
+   releases the lock and exits with 128 and the signal's number, since
+   Node runs no exit listener for a death by signal. Two engines on one
+   run is the hazard: `StaleRevisionError` protects each append, but two
+   controllers would both dispatch the same step.
 3. **Record the limits and the lost workers, and re-enter the phase.**
    The concurrency and run budget this invocation puts in force are
    appended as `limits.changed@1` when they differ from the run's (Policy,
@@ -566,7 +576,7 @@ same report from the same ledger.
   | `worker-failed` | a blocking role's unit failed twice | run again (two fresh attempts), or abandon |
   | `budget` | spend reached the run budget | run again with a higher `--budget-usd`, or abandon |
   | `drift` | the worktree differs from the scope | restore the named files and run again, or abandon and start a new run |
-  | `lock-held` | another engine holds the run lock or the start lock | wait for it, or if its process is gone the lock clears itself |
+  | `lock-held` | another engine holds the run lock or the start lock | wait for that engine to finish; the lock clears itself when its process ends |
   | `runtime-unqualified` | the preflight refused the executable | fix the installation or pass `--executable`, then run again |
 
   `lock-held` and `runtime-unqualified` are refusals, printed and never
@@ -804,12 +814,29 @@ Verification.
   was rejected: that event says what a process did, and nothing observed
   it. For the same reason the launcher refuses to continue a session
   that holds a lost worker, since an orphan may still write to it.
-- **TD6: One run lock file per run, by process id.** SQLite serializes
-  appends and `StaleRevisionError` catches a race, but two controllers
-  would still both plan the same step and launch it twice before either
-  append fails. A lock by process id is checkable on every platform
-  (`process.kill(pid, 0)`), needs no daemon, and clears itself when its
-  process is gone. The start lock is the same kind of file at the
+- **TD6: One run lock per run, held as an exclusive SQLite
+  transaction.** SQLite serializes appends and `StaleRevisionError`
+  catches a race, but two controllers would still both plan the same
+  step and launch it twice before either append fails. Each lock is an
+  empty SQLite file (`src/review/lock.ts`) that its holder keeps open
+  inside `BEGIN EXCLUSIVE` for its lifetime. SQLite takes the operating
+  system's file locks for that, so a second holder is refused whether it
+  is another process or another connection in the same one, and the
+  lock frees itself when the holder ends, even by a hard kill; this was
+  probed on Windows before it was built (a second connection and a
+  second process get `SQLITE_BUSY`, and a killed holder frees the lock).
+  The ledger already depends on the same locking. A file holding a pid,
+  checked with `process.kill(pid, 0)` and taken over when the pid looked
+  dead, was the first design and was rejected after review: the
+  takeover (read, remove, create) was not atomic, so two engines could
+  both take a stale lock; a release removed whatever file was there,
+  even another engine's; a reused pid looked alive; and a file holding
+  no pid needed a grace period to tell a crash from a write in progress.
+  Taking over by renaming to a unique name was rejected as complex and
+  still racy among three engines. The price: the pid in a refusal is best
+  effort, read from a side file, and one empty lock file stays per run
+  and per checkpoint (the start lock), which nothing may delete while an
+  engine could run. The start lock is the same kind of file at the
   checkpoint root, held while a run is found or created, because two
   engines that both find no run would otherwise create one each.
 - **TD7: The verification plan is an event.** Grouping could be recomputed
@@ -921,8 +948,9 @@ three CI runners.
   a Codex fake reaches a report with the budget marked inapplicable;
   a file edited between phases blocks with `drift` naming the file, and
   restoring it and running again completes; the run lock refuses a second
-  engine while the first holds it and clears when the holder is gone;
-  `abandon` during a run is refused.
+  holder, in the same process or in another, and frees when a holder
+  process is killed outright, and a lock file that is no SQLite database
+  is refused and left alone; `abandon` during a run is refused.
 - Events and fold (R10): every reducer's invalid histories (configured
   twice, finished without start, attempt out of order, a contribution for
   a unit twice, a verdict for an unknown candidate); the three old
