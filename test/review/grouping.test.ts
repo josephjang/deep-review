@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import type { ScopeState } from '../../src/checkpoint/events.ts';
 import { chunk, maxGroupSize, planGroups, type Groupable } from '../../src/review/grouping.ts';
+import { normalizeLocations } from '../../src/review/locations.ts';
 
 const located = (id: string, file: string, line: number): Groupable => ({ id, file, line, rawFile: file, rawLine: line });
 const unlocated = (id: string, rawFile: string, rawLine: number): Groupable => ({ id, file: null, line: null, rawFile, rawLine });
@@ -122,6 +127,29 @@ describe('planGroups', () => {
   it('gives a file of nine candidates two verifiers, not one of nine', () => {
     const nine = Array.from({ length: 9 }, (_, index) => located(`SCAN-${String(index + 1)}`, 'a.ts', index + 1));
     assert.deepEqual(planGroups(nine).map((group) => group.candidateIds.length), [5, 4]);
+  });
+
+  it('gives the absolute and relative spellings of an unchanged file one group, under its canonical path', () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'deep-review-grouping-'));
+    try {
+      mkdirSync(join(worktree, 'src'));
+      writeFileSync(join(worktree, 'src', 'changed.ts'), 'one\n');
+      writeFileSync(join(worktree, 'src', 'caller.ts'), 'one\ntwo\nthree\n');
+      const blob = { blob: { sha256: 'a'.repeat(64), bytes: 1 } };
+      const scope: ScopeState = { mode: 'worktree', request: { paths: [] }, base: '1'.repeat(40), head: '2'.repeat(40), files: [{ path: 'src/changed.ts', status: 'modified', symlink: false, before: blob, after: blob }], patch: blob.blob };
+      const raw = [
+        { id: 'RIPPLE-1', file: join(worktree, 'src', 'caller.ts'), line: 3 },
+        { id: 'WRAPPERS-1', file: 'src/caller.ts', line: 1 },
+        { id: 'SCAN-1', file: '.\\SRC\\Caller.ts', line: 2 },
+        { id: 'SCAN-2', file: 'src/changed.ts', line: 1 },
+      ];
+      const locations = normalizeLocations(scope, worktree, raw);
+      const plan = planGroups(raw.map((candidate, index) => ({ id: candidate.id, file: locations[index]!.file, line: locations[index]!.line, rawFile: candidate.file, rawLine: candidate.line })));
+      assert.deepEqual(locations.map((location) => location.file), ['src/caller.ts', 'src/caller.ts', 'src/caller.ts', 'src/changed.ts']);
+      assert.deepEqual(plan, [{ id: 'g1', candidateIds: ['WRAPPERS-1', 'SCAN-1', 'RIPPLE-1'] }, { id: 'g2', candidateIds: ['SCAN-2'] }]);
+    } finally {
+      rmSync(worktree, { recursive: true, force: true });
+    }
   });
 
   it('plans nothing for an empty working list', () => {

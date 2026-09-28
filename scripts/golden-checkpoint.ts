@@ -79,7 +79,7 @@ class ReviewHistory {
   }
 
   candidate(id: string, angle: Angle, line: number): RecordedCandidate {
-    return { id, angle, file: 'src/changed.ts', line, located: true, rawFile: 'src/changed.ts', rawLine: line, summary: `${id}: what is wrong at line ${String(line)}`, detail: `${id}: the failure or the value, as the angle asks` };
+    return { id, angle, file: 'src/changed.ts', line, located: true, inScope: true, rawFile: 'src/changed.ts', rawLine: line, summary: `${id}: what is wrong at line ${String(line)}`, detail: `${id}: the failure or the value, as the angle asks` };
   }
 
   launch(tag: string, label: string): void {
@@ -205,7 +205,8 @@ try {
   checkpoint.append(closed.id, closed.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'fixture run closed on purpose' } }]);
   // A third run through every kind of the read-only review: a triage, a
   // finder phase degraded by an angle that failed twice, with a lost worker
-  // whose angle answered on its second attempt, deduplication, verification,
+  // whose angle answered on its second attempt and a candidate on an
+  // unchanged caller outside the change, deduplication, verification,
   // a sweep whose one group goes unverified, a budget block that a raised
   // budget and a later start clear, a ranking and the report.
   const reviewed = checkpoint.createRun({ worktree: '/fixture/reviewed' });
@@ -220,7 +221,7 @@ try {
   review.phase('finders', () => {
     review.launch('002', 'finder-RIPPLE finders:RIPPLE');
     review.finishWorker('002');
-    review.add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: review.id('002'), candidates: [review.candidate('RIPPLE-1', 'RIPPLE', 2), review.candidate('RIPPLE-2', 'RIPPLE', 1)], leads: null });
+    review.add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: review.id('002'), candidates: [review.candidate('RIPPLE-1', 'RIPPLE', 2), review.candidate('RIPPLE-2', 'RIPPLE', 1), { ...review.candidate('RIPPLE-3', 'RIPPLE', 7), file: 'src/caller.ts', inScope: false, rawFile: '/fixture/reviewed/src/caller.ts' }], leads: null });
     review.launch('003', 'finder-FOOTGUNS finders:FOOTGUNS');
     review.finishWorker('003', 'failed');
     review.add('attempt.failed', { phase: 'finders', key: 'FOOTGUNS', workerId: review.id('003'), reason: 'failed: The answer does not match the output schema' });
@@ -244,10 +245,14 @@ try {
     review.add('deduplication.recorded', { phase: 'deduplication', workerId: review.id('020'), groups: [{ members: ['SCAN-1', 'RIPPLE-1'], keep: 'RIPPLE-1', reason: 'the same null dereference, at the same line' }] });
   });
   review.phase('verification', () => {
-    review.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-2', 'RIPPLE-1'] }] });
+    // The unchanged caller sorts before the changed file, so its group comes first.
+    review.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-3'] }, { id: 'g2', candidateIds: ['RIPPLE-2', 'RIPPLE-1'] }] });
     review.launch('021', 'verifier verification:g1');
     review.finishWorker('021');
-    review.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: review.id('021'), verdicts: [{ id: 'RIPPLE-2', verdict: 'REFUTED', evidence: 'line 1 is a comment' }, { id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'line 2 dereferences the null returned above' }] });
+    review.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: review.id('021'), verdicts: [{ id: 'RIPPLE-3', verdict: 'PLAUSIBLE', evidence: 'line 7 passes the result of changed() on unchecked' }] });
+    review.launch('022', 'verifier verification:g2');
+    review.finishWorker('022');
+    review.add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: review.id('022'), verdicts: [{ id: 'RIPPLE-2', verdict: 'REFUTED', evidence: 'line 1 is a comment' }, { id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'line 2 dereferences the null returned above' }] });
   });
   // The sweep blocks on the run budget once; the next invocation raises the
   // budget in force, and its start clears the blocker.
@@ -258,7 +263,7 @@ try {
   review.phase('sweep', () => {
     review.launch('030', 'sweep sweep:sweep');
     review.finishWorker('030');
-    review.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: review.id('030'), candidates: [{ ...review.candidate('SWEEP-1', 'DESIGN', 1), file: null, line: null, located: false, rawFile: 'C:\\elsewhere\\changed.ts' }], leads: null });
+    review.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: review.id('030'), candidates: [{ ...review.candidate('SWEEP-1', 'DESIGN', 1), file: null, line: null, located: false, inScope: false, rawFile: 'C:\\elsewhere\\changed.ts' }], leads: null });
   }, 'completed', 2);
   review.phase('sweep-deduplication', () => {});
   review.phase('sweep-verification', () => {
@@ -276,17 +281,18 @@ try {
     review.finishWorker('040');
     review.add('ranking.recorded', { workerId: review.id('040'), findings: [
       { id: 'RIPPLE-1', members: [], severity: 'major', summary: 'changed() dereferences a null on the empty path', reason: 'a crash on reachable input' },
+      { id: 'RIPPLE-3', members: [], severity: 'minor', summary: 'the caller in src/caller.ts passes the null from changed() on', reason: 'the crash reaches a second site' },
       { id: 'SWEEP-1', members: [], severity: 'minor', summary: 'the two branches of changed() duplicate their parsing', reason: 'one helper reads better' },
     ] });
   });
   review.phase('report', () => {
     // The failed, the timed-out and the lost finder, and the two failed verifiers, reported no cost.
     const spend = (workers: number, costUnreported = 0) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 10, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 2, 'merge-rank': 1, report: 0 };
+    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 10, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 2, 'merge-rank': 1, report: 0 };
     const unreportedPerPhase: Partial<Record<Phase, number>> = { finders: 3, 'sweep-verification': 2 };
     review.add('report.written', {
       report: checkpoint.evidence.put('# Deep review\n\nfixture report\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(17, 5), budgetApplied: true },
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(18, 5), budgetApplied: true },
     });
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');

@@ -78,13 +78,14 @@ export const candidate = (id: string, angle: string, change: Record<string, unkn
   file: 'src/a.ts',
   line: 3,
   located: true,
+  inScope: true,
   rawFile: 'src/a.ts',
   rawLine: 3,
   summary: `${id} summary`,
   detail: `${id} detail`,
   ...change,
 });
-export const unlocated = (id: string, angle: string): Record<string, unknown> => candidate(id, angle, { file: null, line: null, located: false, rawFile: 'C:\\elsewhere\\b.ts', rawLine: 9 });
+export const unlocated = (id: string, angle: string): Record<string, unknown> => candidate(id, angle, { file: null, line: null, located: false, inScope: false, rawFile: 'C:\\elsewhere\\b.ts', rawLine: 9 });
 
 export const leads = finderAngles.map((angle) => ({ angle, lead: angle === 'RIPPLE' ? 'the callers of parse()' : null }));
 

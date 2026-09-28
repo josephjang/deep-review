@@ -9,6 +9,7 @@ import { normalizeFileName } from './locations.ts';
 /** What grouping needs of a candidate: its id and where it points, located or not. */
 export interface Groupable {
   readonly id: string;
+  /** The canonical repository path of a located candidate, in the change or outside it; null when unlocated. */
   readonly file: string | null;
   readonly line: number | null;
   readonly rawFile: string;
@@ -74,11 +75,13 @@ export function chunk<T>(items: readonly T[], size: number = maxGroupSize): T[][
 }
 
 /**
- * Group the working list for verification: located candidates by scope
- * path and unlocated ones by their file spelling (`unlocatedSpellings`),
- * each group sorted by line and then by id, groups in file order with
- * located files first, and every group over `maxGroupSize` split by
- * `chunk`. Group ids are `g1`, `g2`, ... in that order.
+ * Group the working list for verification: located candidates by their
+ * canonical repository path, to which every spelling of one file of the
+ * repository, changed or not, was matched, and unlocated ones by their file
+ * spelling (`unlocatedSpellings`); each group sorted by line and then by
+ * id, groups in file order with located files first, and every group over
+ * `maxGroupSize` split by `chunk`. Group ids are `g1`, `g2`, ... in that
+ * order.
  */
 export function planGroups(candidates: readonly Groupable[]): PlannedGroup[] {
   const spellings = unlocatedSpellings(candidates);

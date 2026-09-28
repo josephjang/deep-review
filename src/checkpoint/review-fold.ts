@@ -79,11 +79,12 @@ export interface CandidateState extends RecordedCandidate {
 }
 
 /**
- * Where a located candidate points in the scope, as `file:line`, or null
- * for an unlocated one: the one rule every reader of a candidate's location
- * goes by, so a task and the report never disagree on which is located.
+ * Where a located candidate points in the repository, as `file:line`, in
+ * the change or outside it, or null for an unlocated one: the one rule
+ * every reader of a candidate's location goes by, so a task and the report
+ * never disagree on which is located.
  */
-export function scopeLocation(candidate: Pick<RecordedCandidate, 'located' | 'file' | 'line'>): string | null {
+export function repositoryLocation(candidate: Pick<RecordedCandidate, 'located' | 'file' | 'line'>): string | null {
   return candidate.located && candidate.file !== null && candidate.line !== null ? `${candidate.file}:${String(candidate.line)}` : null;
 }
 
@@ -275,10 +276,16 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, 
   requireUnanswered(review, event, unit);
   if (payload.phase === 'finders' && Object.hasOwn(review.anglesNotRun, payload.key)) throw invalid(event, `records candidates for angle ${payload.key} after it failed`);
   const candidates = drafts.writable(review.candidates);
+  if (current.scope === null) throw invalid(event, 'records candidates before its scope is captured');
+  // A located candidate is in the change exactly when its file is a changed path of the scope.
+  const scopePaths = new Set(current.scope.files.map((file) => file.path));
   for (const candidate of payload.candidates) {
     if (!candidate.id.startsWith(`${prefix}-`)) throw invalid(event, `records candidate ${candidate.id} under unit ${payload.key}, whose ids start with ${prefix}-`);
     if (payload.phase !== 'sweep' && candidate.angle !== payload.key) throw invalid(event, `records candidate ${candidate.id} with angle ${candidate.angle} under unit ${payload.key}`);
     if (Object.hasOwn(candidates, candidate.id)) throw invalid(event, `records candidate ${candidate.id} twice`);
+    if (candidate.file !== null && candidate.inScope !== scopePaths.has(candidate.file)) {
+      throw invalid(event, `records candidate ${candidate.id} on ${candidate.file} as ${candidate.inScope ? 'in' : 'outside'} the change, which the scope ${candidate.inScope ? 'does not hold' : 'holds'}`);
+    }
     candidates[candidate.id] = { ...candidate, phase: payload.phase, workerId: payload.workerId, duplicateOf: null, verdict: null, unverified: false };
   }
   const leads = payload.leads ?? review.leads;

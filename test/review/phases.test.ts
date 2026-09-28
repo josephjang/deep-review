@@ -93,14 +93,23 @@ describe('contributionOf', () => {
   });
 
   it('records the triage with ids, located candidates, and leads in angle order', () => {
-    const output = { candidates: [{ file: 'src\\a.ts', line: 2, summary: 's', detail: 'd' }, { file: 'src/a.ts', line: 9, summary: 'past the end', detail: 'd' }], leads: [...leads].reverse() };
+    writeFileSync(join(worktree, 'src', 'caller.ts'), 'one\ntwo\n');
+    const output = {
+      candidates: [
+        { file: 'src\\a.ts', line: 2, summary: 's', detail: 'd' },
+        { file: 'src/a.ts', line: 9, summary: 'past the end', detail: 'd' },
+        { file: 'SRC/Caller.ts', line: 2, summary: 'a caller', detail: 'd' },
+      ],
+      leads: [...leads].reverse(),
+    };
     const event = contributionOf(unit('triage', 'SCAN', 'triage'), receipt(output), configured().fold(), worktree);
     assert.equal(event.kind, 'candidates.recorded');
     const payload = event.payload as { candidates: Record<string, unknown>[]; leads: { angle: string }[]; key: string; phase: string };
     assert.equal(payload.phase, 'triage');
     assert.equal(payload.key, 'SCAN');
-    assert.deepEqual(payload.candidates[0], { id: 'SCAN-1', angle: 'SCAN', file: 'src/a.ts', line: 2, located: true, rawFile: 'src\\a.ts', rawLine: 2, summary: 's', detail: 'd' });
-    assert.deepEqual(payload.candidates[1], { id: 'SCAN-2', angle: 'SCAN', file: null, line: null, located: false, rawFile: 'src/a.ts', rawLine: 9, summary: 'past the end', detail: 'd' });
+    assert.deepEqual(payload.candidates[0], { id: 'SCAN-1', angle: 'SCAN', file: 'src/a.ts', line: 2, located: true, inScope: true, rawFile: 'src\\a.ts', rawLine: 2, summary: 's', detail: 'd' });
+    assert.deepEqual(payload.candidates[1], { id: 'SCAN-2', angle: 'SCAN', file: null, line: null, located: false, inScope: false, rawFile: 'src/a.ts', rawLine: 9, summary: 'past the end', detail: 'd' });
+    assert.deepEqual(payload.candidates[2], { id: 'SCAN-3', angle: 'SCAN', file: 'src/caller.ts', line: 2, located: true, inScope: false, rawFile: 'SRC/Caller.ts', rawLine: 2, summary: 'a caller', detail: 'd' }, 'an unchanged file, in the tree\'s spelling');
     assert.deepEqual(payload.leads.map((lead) => lead.angle), ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS']);
   });
 

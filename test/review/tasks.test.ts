@@ -10,6 +10,7 @@ const candidate = (id: string, angle: CandidateState['angle'], change: Partial<C
   file: 'src/a.ts',
   line: 4,
   located: true,
+  inScope: true,
   rawFile: 'src/a.ts',
   rawLine: 4,
   summary: `${id} summary`,
@@ -21,12 +22,14 @@ const candidate = (id: string, angle: CandidateState['angle'], change: Partial<C
   unverified: false,
   ...change,
 });
-const unlocated = candidate('SWEEP-1', 'DESIGN', { file: null, line: null, located: false, rawFile: 'C:\\x\\b.ts', rawLine: 9, phase: 'sweep' });
+const unlocated = candidate('SWEEP-1', 'DESIGN', { file: null, line: null, located: false, inScope: false, rawFile: 'C:\\x\\b.ts', rawLine: 9, phase: 'sweep' });
+const outside = candidate('RIPPLE-3', 'RIPPLE', { file: 'src/caller.ts', line: 12, inScope: false, rawFile: 'C:\\repo\\src\\caller.ts', rawLine: 12 });
 
 describe('describeLocation', () => {
-  it('gives the scope location, or the finder\'s own with the unlocated mark', () => {
+  it('gives the repository location, marked when outside the change, or the finder\'s own with the unlocated mark', () => {
     assert.equal(describeLocation(candidate('SCAN-1', 'SCAN')), 'src/a.ts:4');
-    assert.equal(describeLocation(unlocated), 'C:\\x\\b.ts:9 (unlocated: not a changed file and line of the scope; read it if it exists)');
+    assert.equal(describeLocation(outside), 'src/caller.ts:12 (outside the change: an unchanged file of the repository)', 'the canonical path, not the finder\'s spelling');
+    assert.equal(describeLocation(unlocated), 'C:\\x\\b.ts:9 (unlocated: no file of the repository has this path and line)');
   });
 });
 
@@ -60,8 +63,9 @@ describe('the task texts', () => {
     assert.match(task, /^Group g2: 1 candidate, numbered \[0\] to \[0\]/);
     assert.match(task, /\[0\] SWEEP-1 \(DESIGN\) at C:\\x\\b\.ts:9 \(unlocated/);
     assert.match(task, /exactly one verdict per index/);
-    assert.match(task, /An answer that misses an index is discarded whole and the group is run again./);
+    assert.match(task, /An answer that misses an index is discarded whole and the group is run again\./);
     assert.match(task, /a candidate marked unlocated still gets a verdict/);
+    assert.match(verifierTask('g1', [outside]), /\[0\] RIPPLE-3 \(RIPPLE\) at src\/caller\.ts:12 \(outside the change: an unchanged file of the repository\)\n/);
     assert.match(verifierTask('g1', [candidate('A-1', 'SCAN'), candidate('A-2', 'SCAN')]), /2 candidates, numbered \[0\] to \[1\]/);
   });
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { isAnswered, isUnverified, poolCandidates, rawLocation, scopeLocation, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, phases } from '../../src/review/vocabulary.ts';
 import { History, candidate, configuration, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
@@ -93,16 +93,24 @@ describe('the review fold', () => {
     assert.equal(isAnswered(review, 'triage', 'RIPPLE'), false, 'a key of another phase');
   });
 
-  it('gives a located candidate its scope location and an unlocated one none, and every candidate its raw location', () => {
+  it('gives a located candidate its repository location and an unlocated one none, and every candidate its raw location', () => {
     const { candidates } = swept().review();
-    // SWEEP-2 matched src/a.ts at line 7; SWEEP-1 named a file outside the scope.
-    assert.equal(scopeLocation(candidates['SWEEP-2']!), 'src/a.ts:7');
+    // SWEEP-2 matched src/a.ts at line 7; SWEEP-1 named no file of the repository.
+    assert.equal(repositoryLocation(candidates['SWEEP-2']!), 'src/a.ts:7');
     assert.equal(rawLocation(candidates['SWEEP-2']!), 'src/a.ts:7');
-    assert.equal(scopeLocation(candidates['SWEEP-1']!), null);
+    assert.equal(repositoryLocation(candidates['SWEEP-1']!), null);
     assert.equal(rawLocation(candidates['SWEEP-1']!), 'C:\\elsewhere\\b.ts:9');
     assert.equal(rawLocation({ rawFile: './src/a.ts', rawLine: 3 }), './src/a.ts:3', 'the raw location is the finder\'s spelling, not the scope path');
-    assert.equal(scopeLocation({ located: true, file: 'src/a.ts', line: null }), null, 'a location missing its line is no scope location, whatever the flag says');
-    assert.equal(scopeLocation({ located: false, file: 'src/a.ts', line: 3 }), null, 'an unlocated candidate has no scope location even with a file and line');
+    assert.equal(repositoryLocation({ located: true, file: 'src/a.ts', line: null }), null, 'a location missing its line is no repository location, whatever the flag says');
+    assert.equal(repositoryLocation({ located: false, file: 'src/a.ts', line: 3 }), null, 'an unlocated candidate has no repository location even with a file and line');
+  });
+
+  it('keeps a located candidate on an unchanged file with its canonical path, outside the change', () => {
+    const outside = candidate('RIPPLE-1', 'RIPPLE', { file: 'src/caller.ts', line: 12, inScope: false, rawFile: '/repo/src/caller.ts', rawLine: 12 });
+    const { candidates } = triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [outside], leads: null }).review();
+    assert.equal(candidates['RIPPLE-1']!.inScope, false);
+    assert.equal(repositoryLocation(candidates['RIPPLE-1']!), 'src/caller.ts:12');
+    assert.equal(rawLocation(candidates['RIPPLE-1']!), '/repo/src/caller.ts:12');
   });
 
   it('lists every unverified group from the plans, with its candidates and reason', () => {
@@ -228,7 +236,10 @@ describe('the review fold', () => {
     ['a unit answered twice', () => triaged().add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(2), candidates: [], leads }), /while it is completed/],
     ['a unit answered twice within its phase', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null }).add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), candidates: [], leads: null }), /already answered/],
     ['a candidate id recorded twice', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [candidate('RIPPLE-1', 'RIPPLE'), candidate('RIPPLE-1', 'RIPPLE')], leads: null }), /candidate ids are unique/],
-    ['a located candidate without a line', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [candidate('SCAN-1', 'SCAN', { line: null })], leads }), /a located candidate has a scope file and a line/],
+    ['a located candidate without a line', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [candidate('SCAN-1', 'SCAN', { line: null })], leads }), /a located candidate has a file and a line/],
+    ['an unlocated candidate in the change', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [candidate('SCAN-1', 'SCAN', { file: null, line: null, located: false, inScope: true })], leads }), /a candidate in the change is located/],
+    ['a candidate in the change on a path the scope does not hold', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [candidate('SCAN-1', 'SCAN', { file: 'src/caller.ts' })], leads }), /on src\/caller\.ts as in the change, which the scope does not hold/],
+    ['a candidate outside the change on a changed path', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [candidate('SCAN-1', 'SCAN', { inScope: false })], leads }), /on src\/a\.ts as outside the change, which the scope holds/],
     ['candidates for an angle that failed', () => finding().add('candidates.recorded', { phase: 'finders', key: 'FOOTGUNS', workerId: worker(6), candidates: [], leads: null }), /after it failed/],
     ['a failure for an answered unit', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null }).add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'late' }), /already answered/],
     ['an angle failed twice', () => finding().add('angle.failed', { angle: 'FOOTGUNS', reason: 'again' }), /fails angle FOOTGUNS twice/],
