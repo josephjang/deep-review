@@ -20260,6 +20260,8 @@ var angleClasses = {
 function roleOfAngle(angle) {
   return angle === "SCAN" ? "triage" : `finder-${angle}`;
 }
+var reviewRoles = [...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank"];
+var isFinderRole = (role) => role.startsWith("finder-");
 var phases = ["triage", "finders", "deduplication", "verification", "sweep", "sweep-deduplication", "sweep-verification", "merge-rank", "report"];
 var phaseSchema2 = external_exports.enum(phases);
 var candidatePhases = ["triage", "finders", "sweep"];
@@ -23147,7 +23149,6 @@ import { join as join15 } from "node:path";
 var policyFileName = "policy.json";
 var tiers = ["strong", "fast"];
 var tierSchema = external_exports.enum(tiers);
-var reviewRoles = [...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank"];
 var rolePolicySchema = external_exports.strictObject({
   tier: tierSchema,
   effort: effortSchema,
@@ -23363,9 +23364,10 @@ var mergeRankOutputSchema = external_exports.strictObject({
   findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema2, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
 });
 function outputSchemaOf(role) {
-  if (role === "triage") return triageOutputSchema;
-  if (role.startsWith("finder-")) return finderOutputSchema;
+  if (isFinderRole(role)) return finderOutputSchema;
   switch (role) {
+    case "triage":
+      return triageOutputSchema;
     case "deduplication":
       return deduplicationOutputSchema;
     case "verifier":
@@ -23374,8 +23376,6 @@ function outputSchemaOf(role) {
       return sweepOutputSchema;
     case "merge-rank":
       return mergeRankOutputSchema;
-    default:
-      throw new Error(`No output schema for role ${role}`);
   }
 }
 function checkTriageLeads(output2) {

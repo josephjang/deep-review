@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, angleSchema, candidateIdPrefix, finderAngles, finderAngleSchema, roleOfAngle, singleUnitKey, triageUnitKey } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, angleSchema, candidateIdPrefix, finderAngles, finderAngleSchema, isFinderRole, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -23,6 +23,18 @@ describe('roleOfAngle', () => {
   it('is the triage for SCAN and finder-<angle> for every finder angle', () => {
     assert.equal(roleOfAngle('SCAN'), 'triage');
     assert.deepEqual(finderAngles.map(roleOfAngle), finderAngles.map((angle) => `finder-${angle}`));
+  });
+});
+
+describe('the review roles', () => {
+  it('are the triage, the nine finders in launch order, then the roles of the later phases, each once', () => {
+    assert.deepEqual(reviewRoles, ['triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank']);
+    assert.equal(new Set(reviewRoles).size, reviewRoles.length, 'no role is listed twice');
+  });
+
+  it('name the nine finders, and only them, as finder roles', () => {
+    assert.deepEqual(reviewRoles.filter(isFinderRole), finderAngles.map((angle) => `finder-${angle}`));
+    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['triage', 'deduplication', 'verifier', 'sweep', 'merge-rank']);
   });
 });
 

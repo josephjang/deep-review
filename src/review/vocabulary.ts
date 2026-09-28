@@ -38,10 +38,20 @@ export const angleClasses: Readonly<Record<Angle, AngleClass>> = {
   CONVENTIONS: 'correctness',
 };
 
+/** The role of the finder worker that runs a finder angle. */
+export type FinderRole = `finder-${FinderAngle}`;
+
 /** The role that runs each angle: the triage worker runs `SCAN`, a finder every other. */
-export function roleOfAngle(angle: Angle): string {
+export function roleOfAngle(angle: Angle): 'triage' | FinderRole {
   return angle === 'SCAN' ? 'triage' : `finder-${angle}`;
 }
+
+/** The roles the read-only review runs, in phase order: every angle's role, then the later phases'. The role policy must name exactly these. */
+export const reviewRoles = [...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank'] as const;
+export type ReviewRole = (typeof reviewRoles)[number];
+
+/** Whether a review role is one of the nine finders'. */
+export const isFinderRole = (role: ReviewRole): role is FinderRole => role.startsWith('finder-');
 
 /**
  * The phases of a review, in the order they run (R2). `report` is a phase
