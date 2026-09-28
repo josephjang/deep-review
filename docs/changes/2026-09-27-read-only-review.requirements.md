@@ -166,29 +166,45 @@ Claude continuation budget question and the runtime-neutral usage view
   recorded as not run and the review continues; a verifier's group is
   recorded as unverified and its candidates carry `PLAUSIBLE` with an
   `unverified` mark, as the prompts already say; the triage,
-  deduplication, sweep and merge-rank workers block the run. A blocked
-  run records why and what the operator does: run the command again,
-  raise the run budget, restore the tree, or abandon. The report names
-  every degradation.
+  deduplication, sweep and merge-rank workers block the run. A worker
+  lost with its engine (an interruption, a hard kill) uses one of its
+  unit's two attempts too, so retries stay bounded, but a unit whose
+  attempts run out with a lost worker among them blocks the run whatever
+  its role: nothing observed it failing, so an interruption never costs
+  an angle or a group, and the next run gives the unit fresh attempts. A
+  blocked run records why and what the operator does: run the command
+  again, raise the run budget, restore the tree, or abandon. The report
+  names every degradation.
 - **R6: Concurrency is bounded and the run has a budget.** At most
   `concurrency` workers run at once, 4 by default and 1 to 16 by flag.
-  The run's spend, summed from each finished worker's usage through a
-  runtime-neutral summary, is checked before every launch; when it has
-  reached the run budget the engine launches nothing more and the run
-  blocks, naming the spend, the budget and the flag that raises it. A
+  The run's spend is checked before every launch: each finished
+  worker's reported cost, through a runtime-neutral summary, and for a
+  finished worker that ran but reported no cost (one that timed out, or
+  failed before its runtime printed its usage) the per-worker budget its
+  launch recorded, the most it could have spent. A worker lost with its
+  engine is counted apart and not charged, so a resume after an
+  interruption is not blocked by workers that may have spent little.
+  When the spend has reached the run budget the engine launches nothing
+  more and the run blocks, naming the spend, the budget, the flag that
+  raises it and the workers it charged at their caps or left out. A
   runtime that reports no cost in USD has no run budget check, and the
   report says so.
 - **R7: Workers receive the scope from the engine and read the live
-  tree; the engine checks the tree before every phase.** Each prompt
-  carries the base and head, the changed files with their status, and the
-  patch itself when it is under a size cap, else the path of the frozen
-  patch in the evidence store; the frozen before bytes of each file are
-  named by path too. Workers run with the reviewed worktree as their
-  working directory. Before each phase starts and before the report is
-  written, the engine compares the worktree with the captured scope file
-  by file; a difference blocks the run, naming the files, with the
+  tree; the engine checks the tree before every phase and every answer
+  it records.** Each prompt carries the base and head, the changed files
+  with their status, and the patch itself when it is under a size cap,
+  else the path of the frozen patch in the evidence store; the frozen
+  before bytes of each file are named by path too. Workers run with the
+  reviewed worktree as their working directory. Before each phase
+  starts, before each worker's answer is recorded, and before the report
+  is written, the engine compares the worktree with the captured scope
+  file by file; a difference blocks the run, naming the files, with the
   operator's action being to restore the tree and run again or to
-  abandon and start a new run.
+  abandon and start a new run. An answer that arrives once the tree has
+  drifted is set aside, neither recorded nor counted as a failure; the
+  workers still running are awaited, their answers set aside too, and
+  after the tree is restored each such unit runs again without using an
+  attempt.
 - **R8: Candidate locations are normalized and checked, and a candidate
   is never dropped for its location.** A finder's `file` is matched to
   one changed path of the scope, by suffix, accepting backslashes; its
@@ -255,7 +271,15 @@ Claude continuation budget question and the runtime-neutral usage view
   foreground engine is one process the model waits for, however its
   runtime waits (a background shell call, a long timeout), and the ledger
   is the only state, so an interruption costs at most the workers in
-  flight. That is the case PD4 of the runtime adapter waited for.
+  flight. That is the case PD4 of the runtime adapter waited for. A
+  worker lost to an interruption still uses one of its unit's attempts,
+  but a unit that runs out of attempts with a loss among them blocks
+  instead of degrading (R5), so an interruption never turns into an
+  angle not run or a group unverified. Not counting a lost worker at all
+  was rejected: retries would be unbounded, and a Codex run has no USD
+  budget to stop them. A separate cap on losses before degrading was
+  rejected: a new constant, and after it the same silent loss of
+  coverage.
 - **PD2: The read-only pipeline runs whole, sweep included.** Leaving the
   sweep, or deduplication and merge-rank, to a later element was
   rejected: the prompts assume the whole flow, a report without merging
@@ -321,7 +345,13 @@ Claude continuation budget question and the runtime-neutral usage view
   and a verifier would then have read different code and the report could
   not say which tree it describes. The per-file check the scope element
   built for this gives the operator the file names, and the action is to
-  restore the tree or start over.
+  restore the tree or start over. Checking only as each phase starts was
+  rejected for the same reason: an edit made while a phase's workers run
+  would leave answers computed against another tree on the ledger. The
+  engine therefore checks again before it records each answer and sets
+  aside an answer that arrives after a drift, although it was paid for.
+  Checking at a phase's end and discarding its recorded answers was
+  rejected: it needs a new event and throws away more.
 - **PD11: `CONVENTIONS` covers `AGENTS.md` as well as `CLAUDE.md`.**
   Keeping `CLAUDE.md` alone would leave the angle blind on any Codex
   user's repository and on this one, which keeps its rules in `AGENTS.md`.
@@ -367,13 +397,26 @@ Claude continuation budget question and the runtime-neutral usage view
   limit, and a model that does not know how to wait may report the run
   as failed while it continues. Accepted; the skill texts say how to
   wait on each runtime, an interrupted engine kills its workers and the
-  next invocation resumes, so the cost is time, not correctness.
+  next invocation resumes, so the cost is time, not correctness. A unit
+  interrupted twice blocks its whole phase until the next invocation,
+  one extra run of the command, rather than losing coverage.
 - Risk: a run budget that is checked before each launch, not during a
   worker, can be exceeded by up to `concurrency` workers' caps. Accepted;
   the per-worker cap bounds the overshoot, and the report shows the
-  reported spend and how many workers' cost went unreported. The check
-  sums reported costs only, so a worker that times out, fails before its
-  runtime prints its usage, or is lost with its engine adds nothing to it.
+  reported spend and how many workers' cost went unreported.
+- Risk: the check charges a worker that ran but reported no cost at its
+  full per-worker cap, so a worker that timed out having spent less is
+  overcharged and a run can block early, and the number the check
+  compares differs from the reported total. Accepted; the blocker and
+  `status` name both, and without the charge a run whose workers keep
+  timing out would have no budget at all. A worker lost with its engine
+  is not charged, so its spend, unknowable, is outside the check.
+- Risk: an answer set aside after a drift was paid for and is paid for
+  again when its unit reruns, and an edit made and undone while one
+  worker runs is never seen. Accepted; recording an answer computed
+  against another tree is the worse outcome (PD10). The per-answer check
+  reads and hashes every scope file each time an answer arrives, a cost
+  that grows with the scope.
 - Risk: with no cost in USD from Codex, a Codex run has only per-worker
   timeouts and the worker count as its bound. Accepted and reported;
   a token budget can follow when a token price is known.

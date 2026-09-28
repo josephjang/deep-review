@@ -140,10 +140,11 @@ deduplication and verification; merge and rank; the report. Every angle
 runs on every review. Before each phase, and before each answer is
 recorded, the worktree is compared with the captured scope, and a
 difference blocks the run until the tree is restored; an answer that
-settles after the difference is set aside, and its unit runs again. Everything a phase decides is an event, so the same command
-run again after an interruption records the workers it lost, re-enters
-the phase, and launches only the units whose answer is not on the
-ledger.
+arrives after the difference is set aside, neither recorded nor counted
+as a failure, and its unit runs again once the tree is restored.
+Everything a phase decides is an event, so the same command run again
+after an interruption records the workers it lost, re-enters the phase,
+and launches only the units whose answer is not on the ledger.
 
 Every worker runs read-only with a shell under the policy in
 `roles/policy.json`, pinned on the run's ledger before the first launch:
@@ -155,14 +156,17 @@ worker; a second failure degrades by role: a finder's angle is recorded
 as not run, a verifier's group as unverified with its candidates
 `PLAUSIBLE` and marked, and the triage, deduplication, sweep and
 merge-rank block the run. A worker lost when the engine stops uses an
-attempt too, but a unit with a lost worker among its failures blocks
-the run whatever its role, so an interruption never costs coverage:
-running again gives it fresh attempts. At most `--concurrency` workers run at once (4
-by default), and on a runtime that reports cost the run has a budget
-(`--budget-usd`, 30 USD by default on Claude Code) checked before every
-launch; the check counts a worker that ran but reported no cost, such as
-one that timed out, at its per-worker budget. Every way a run stops short of a report names the operator's
-action: run again, raise the budget, restore the tree, or abandon.
+attempt too, but a unit whose attempts run out with a lost worker among
+them blocks the run whatever its role, so an interruption never costs
+coverage: running again gives the unit fresh attempts. At most
+`--concurrency` workers run at once (4 by default), and on a runtime
+that reports cost the run has a budget (`--budget-usd`, 30 USD by
+default on Claude Code) checked before every launch; the check counts a
+worker that ran but reported no cost, such as one that timed out, at its
+per-worker budget, and names but does not charge a worker lost with an
+earlier engine. Every way a run stops short of a report names the
+operator's action: run again, raise the budget, restore the tree, or
+abandon.
 
 The report is Markdown rendered by the engine into the evidence store;
 the command prints its path as the last line of stdout and exits 0. Its
