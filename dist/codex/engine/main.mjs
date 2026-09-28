@@ -23163,12 +23163,28 @@ var runtimePolicySchema = external_exports.strictObject({
   /** The default run budget in US dollars, or null for none; a runtime that reports no cost has null. */
   runBudgetUsd: external_exports.number().positive().nullable()
 });
+var maxConcurrency = 16;
 var policyFileSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
   roles: external_exports.record(roleKeySchema, rolePolicySchema),
   runtimes: external_exports.record(external_exports.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
-  concurrency: external_exports.number().int().min(1).max(16)
+  concurrency: external_exports.number().int().min(1).max(maxConcurrency)
 });
+function invocationFlagProblem(flags) {
+  const { concurrency, budgetUsd } = flags;
+  if (concurrency !== void 0 && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > maxConcurrency)) {
+    return `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(concurrency)}`;
+  }
+  if (budgetUsd !== void 0 && !(Number.isFinite(budgetUsd) && budgetUsd > 0)) return `--budget-usd must be a positive number, not ${String(budgetUsd)}`;
+  return null;
+}
+function refuseInvocationFlags(adapter, flags) {
+  if (flags.budgetUsd !== void 0 && !adapter.capabilities.costInUsd) {
+    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
+  }
+  const problem = invocationFlagProblem(flags);
+  if (problem !== null) throw new InvalidPolicyError(problem);
+}
 function parsePolicy(value) {
   const parsed = policyFileSchema.safeParse(value);
   if (!parsed.success) throw new InvalidPolicyError(`Invalid role policy: ${external_exports.prettifyError(parsed.error)}`);
@@ -23217,15 +23233,7 @@ function resolvePolicy(policy, roles, adapter, flags = {}) {
       throw new InvalidPolicyError(`The role policy runs ${role} at effort ${entry.effort}, which runtime ${adapter.name} lacks; it has ${capabilities.effortLevels.join(", ")}`);
     }
   }
-  if (flags.budgetUsd !== void 0 && !capabilities.costInUsd) {
-    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
-  }
-  if (flags.concurrency !== void 0 && (!Number.isInteger(flags.concurrency) || flags.concurrency < 1 || flags.concurrency > 16)) {
-    throw new InvalidPolicyError(`--concurrency must be a whole number from 1 to 16, not ${String(flags.concurrency)}`);
-  }
-  if (flags.budgetUsd !== void 0 && !(Number.isFinite(flags.budgetUsd) && flags.budgetUsd > 0)) {
-    throw new InvalidPolicyError(`--budget-usd must be a positive number, not ${String(flags.budgetUsd)}`);
-  }
+  refuseInvocationFlags(adapter, flags);
   for (const [flag, model] of [["--strong-model", flags.strongModel], ["--fast-model", flags.fastModel]]) {
     if (model !== void 0 && (model.length === 0 || model.startsWith("-") || model.includes("\0"))) throw new InvalidPolicyError(`${flag} must be a model name, not ${JSON.stringify(model)}`);
   }
@@ -24300,17 +24308,6 @@ async function resumePinned(runId, pinned, context) {
   }
   await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context);
 }
-function refuseInvocationFlags(adapter, flags) {
-  if (flags.budgetUsd !== void 0 && !adapter.capabilities.costInUsd) {
-    throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
-  }
-  if (flags.concurrency !== void 0 && (!Number.isInteger(flags.concurrency) || flags.concurrency < 1 || flags.concurrency > 16)) {
-    throw new InvalidPolicyError(`--concurrency must be a whole number from 1 to 16, not ${String(flags.concurrency)}`);
-  }
-  if (flags.budgetUsd !== void 0 && !(Number.isFinite(flags.budgetUsd) && flags.budgetUsd > 0)) {
-    throw new InvalidPolicyError(`--budget-usd must be a positive number, not ${String(flags.budgetUsd)}`);
-  }
-}
 async function qualify2(adapter, executable, executableArgs, context) {
   try {
     return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
@@ -24423,7 +24420,7 @@ var usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
                       [--strong-model <model>] [--fast-model <model>]
                       (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
-                      [--path <path>]... [--concurrency 1..16] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
+                      [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
 
@@ -24552,15 +24549,15 @@ async function review(values, io, root, worktree) {
   const runtimes = defaultRuntimes();
   if (!runtimes.names().includes(values.runtime)) throw new UsageError(`--runtime must be one of ${runtimes.names().join(", ")}, not ${JSON.stringify(values.runtime)}`);
   const concurrency = number4("--concurrency", values.concurrency);
-  if (concurrency !== void 0 && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)) throw new UsageError(`--concurrency must be a whole number from 1 to 16, not ${values.concurrency ?? ""}`);
   const budgetUsd = number4("--budget-usd", values["budget-usd"]);
-  if (budgetUsd !== void 0 && budgetUsd <= 0) throw new UsageError(`--budget-usd must be above zero, not ${values["budget-usd"] ?? ""}`);
   const flags = {
     ...values["strong-model"] === void 0 ? {} : { strongModel: values["strong-model"] },
     ...values["fast-model"] === void 0 ? {} : { fastModel: values["fast-model"] },
     ...concurrency === void 0 ? {} : { concurrency },
     ...budgetUsd === void 0 ? {} : { budgetUsd }
   };
+  const problem = invocationFlagProblem(flags);
+  if (problem !== null) throw new UsageError(problem);
   const executable = resolveExecutable(values.executable ?? values.runtime, io.environment, process.platform, io.cwd);
   const checkpoint = openCheckpoint(root, true);
   try {

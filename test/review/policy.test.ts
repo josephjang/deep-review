@@ -9,6 +9,9 @@ import { parsePolicy, pinnedRole, policyFileName, readPolicy, resolvePolicy, rol
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
+import { limitsChangedV1, reviewConfiguredV1 } from '../../src/checkpoint/events.ts';
+import { invocationFlagProblem, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
+import { configuration } from '../helpers/review-history.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
 const committed = readPolicy(repositoryRolesRoot());
@@ -78,13 +81,59 @@ describe('the committed roles/policy.json', () => {
   });
 
   it('refuses malformed flags by name', () => {
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 0 }), /--concurrency must be a whole number from 1 to 16, not 0/);
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 17 }), /--concurrency/);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 0 }), new RegExp(`--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not 0`));
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency + 1 }), /--concurrency/);
     assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 2.5 }), /--concurrency/);
     assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { budgetUsd: 0 }), /--budget-usd must be a positive number, not 0/);
     assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { budgetUsd: NaN }), /--budget-usd must be a positive number/);
     assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { strongModel: '' }), /--strong-model must be a model name/);
     assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { fastModel: '--verbose' }), /--fast-model must be a model name/);
+  });
+});
+
+describe('the per-invocation flags', () => {
+  it('finds no problem with no flag, nor with either at its bounds', () => {
+    assert.equal(invocationFlagProblem({}), null);
+    assert.equal(invocationFlagProblem({ concurrency: 1, budgetUsd: 0.01 }), null);
+    assert.equal(invocationFlagProblem({ concurrency: maxConcurrency }), null);
+  });
+
+  it('names a concurrency outside 1 to the bound, or not whole, with its value', () => {
+    for (const value of [0, maxConcurrency + 1, 2.5]) {
+      assert.equal(invocationFlagProblem({ concurrency: value }), `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(value)}`);
+    }
+  });
+
+  it('names a run budget that is not a positive number, with its value', () => {
+    for (const value of [0, -1, Infinity, NaN]) {
+      assert.equal(invocationFlagProblem({ budgetUsd: value }), `--budget-usd must be a positive number, not ${String(value)}`);
+    }
+  });
+
+  it('refuses a budget on a runtime that reports no cost before it looks at the value of the budget, and a malformed flag as InvalidPolicyError', () => {
+    assert.throws(() => refuseInvocationFlags(codexAdapter, { budgetUsd: 0 }), (error: unknown) => error instanceof InvalidPolicyError && error.message === '--budget-usd does not apply to runtime codex, which reports no cost in USD; the run has no budget there');
+    assert.throws(() => refuseInvocationFlags(claudeAdapter, { budgetUsd: 0 }), (error: unknown) => error instanceof InvalidPolicyError && error.message === '--budget-usd must be a positive number, not 0');
+    assert.throws(() => refuseInvocationFlags(codexAdapter, { concurrency: 0 }), (error: unknown) => error instanceof InvalidPolicyError && error.message === `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not 0`);
+    assert.doesNotThrow(() => refuseInvocationFlags(codexAdapter, { concurrency: maxConcurrency }));
+    assert.doesNotThrow(() => refuseInvocationFlags(claudeAdapter, { concurrency: 1, budgetUsd: 5 }));
+  });
+
+  it('holds the policy file and resolvePolicy to the same bound', () => {
+    assert.equal(parsePolicy(changed((copy) => { copy.concurrency = maxConcurrency; })).concurrency, maxConcurrency);
+    assert.throws(() => parsePolicy(changed((copy) => { copy.concurrency = maxConcurrency + 1; })), (error: unknown) => error instanceof InvalidPolicyError && /concurrency/.test(error.message));
+    assert.equal(resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency }).concurrency, maxConcurrency);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency + 1 }), (error: unknown) => error instanceof InvalidPolicyError && error.message === `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(maxConcurrency + 1)}`);
+  });
+
+  it('is the bound the frozen v1 events accept, so every concurrency a run may be given can be recorded', () => {
+    for (let concurrency = 1; concurrency <= maxConcurrency; concurrency += 1) {
+      assert.ok(reviewConfiguredV1.safeParse({ ...configuration, concurrency }).success, `review.configured@1 with concurrency ${String(concurrency)}`);
+      assert.ok(limitsChangedV1.safeParse({ concurrency, runBudgetUsd: null }).success, `limits.changed@1 with concurrency ${String(concurrency)}`);
+    }
+    for (const concurrency of [0, maxConcurrency + 1]) {
+      assert.ok(!reviewConfiguredV1.safeParse({ ...configuration, concurrency }).success, String(concurrency));
+      assert.ok(!limitsChangedV1.safeParse({ concurrency, runBudgetUsd: null }).success, String(concurrency));
+    }
   });
 });
 
@@ -136,7 +185,7 @@ describe('parsePolicy', () => {
     ['a runtime name in the wrong shape', (copy) => { copy.runtimes.Claude = copy.runtimes.claude!; }, /runtimes/],
     ['a negative run budget', (copy) => { copy.runtimes.claude!.runBudgetUsd = -1; }, /runBudgetUsd/],
     ['a concurrency of zero', (copy) => { copy.concurrency = 0; }, /concurrency/],
-    ['a concurrency above sixteen', (copy) => { copy.concurrency = 17; }, /concurrency/],
+    ['a concurrency above the bound', (copy) => { copy.concurrency = maxConcurrency + 1; }, /concurrency/],
   ];
   for (const [name, change, message] of invalid) {
     it(`refuses ${name}`, () => {
