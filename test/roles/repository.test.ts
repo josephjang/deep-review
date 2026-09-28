@@ -229,6 +229,15 @@ describe('the repository\'s roles/', () => {
     assert.doesNotMatch(verifier.prompt, /the affected candidates|recorded as they arrive/);
   });
 
+  it('tells the verifier that a candidate on an unchanged file is located outside the change, as the engine records it', () => {
+    // normalizeLocations matches such a path to the file and checks its line; only a missing file or line leaves a candidate unlocated.
+    const verifier = roles.find((role) => role.key === 'verifier')!;
+    assert.match(verifier.prompt, /matched to that file, in the repository's own spelling,\s+never to a changed path it merely ends with/);
+    assert.match(verifier.prompt, /the candidate is marked `outside the change`/);
+    assert.match(verifier.prompt, /whose file names no file of the\s+repository, or whose line lies past that\s+file's end, is kept and marked `unlocated`/);
+    assert.doesNotMatch(verifier.prompt, /matches no\s+changed path/);
+  });
+
   it('names no mechanism of one runtime in any prompt', () => {
     const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);
