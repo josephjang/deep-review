@@ -119,7 +119,7 @@ function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
   return { kind: 'attempt.failed', version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 
-/** Candidates as a candidate phase's unit returned them, located against the scope and given ids from 1 in the worker's order, under the unit's id prefix. */
+/** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
 function recordCandidates(phase: CandidatePhase, key: string, candidates: readonly (CandidateOutput & { angle: Angle })[], state: RunState, worktree: string): RecordedCandidate[] {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
   const prefix = candidateIdPrefix(phase, key);
@@ -132,6 +132,7 @@ function recordCandidates(phase: CandidatePhase, key: string, candidates: readon
       file: location.file,
       line: location.line,
       located: location.located,
+      inScope: location.inScope,
       rawFile: candidate.file,
       rawLine: candidate.line,
       summary: candidate.summary,

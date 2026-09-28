@@ -133,9 +133,9 @@ describe('renderReport', () => {
     };
   };
 
-  it('says why each unlocated candidate is unlocated: a file outside the change, a file the change deletes, or a line past the end', () => {
+  it('says why each unlocated candidate is unlocated: a path the repository does not hold, a file the change deletes, or a line past the end', () => {
     const report = renderReport(withUnlocated({ 'SWEEP-3': ['src/gone.ts', 42], 'SWEEP-4': ['src/a.ts', 999], 'SWEEP-5': ['./SRC/A.ts', 998] }), { engine: '0.0.0', statistics });
-    assert.match(report, /^- Unlocated candidates on a file outside the reviewed change: SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)\.$/m);
+    assert.match(report, /^- Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)\.$/m);
     assert.match(report, /^- Unlocated candidates on a file the change deletes, which has no after state for a line to point into: SWEEP-3 \(src\/gone\.ts:42\)\.$/m);
     assert.match(report, /^- Unlocated candidates on a line past the end of the changed file: SWEEP-4 \(src\/a\.ts:999\), SWEEP-5 \(\.\/SRC\/A\.ts:998\)\.$/m, 'a whole path spelled with ./ or in another case names the changed file');
     assert.doesNotMatch(report, /ends with a changed path/, 'no candidate whose whole path names a changed file, or no scope path, is called ambiguous');
@@ -143,15 +143,39 @@ describe('renderReport', () => {
   });
 
   it('never pins a candidate whose path only ends with a changed path to that changed path, since the ledger cannot tell it from an unchanged file', () => {
-    // test/src/a.ts may be an unchanged file that normalizeLocations refused to pin to src/a.ts; /repo/src/gone.ts and a bare a.ts may be either.
+    // test/src/a.ts may be an unchanged file too short for line 3, rather than src/a.ts; /repo/src/gone.ts and a bare a.ts may be either.
     const report = renderReport(withUnlocated({ 'SWEEP-3': ['test/src/a.ts', 3], 'SWEEP-4': ['/repo/src/gone.ts', 42], 'SWEEP-5': ['a.ts', 5] }), { engine: '0.0.0', statistics });
     assert.match(
       report,
-      /^- Unlocated candidates on a path that ends with a changed path, naming either an unchanged file of the repository or that changed file without such a line: SWEEP-3 \(test\/src\/a\.ts:3\), SWEEP-4 \(\/repo\/src\/gone\.ts:42\), SWEEP-5 \(a\.ts:5\)\.$/m,
+      /^- Unlocated candidates on a path that ends with a changed path, naming either that changed file or an unchanged path of the repository, neither with such a line: SWEEP-3 \(test\/src\/a\.ts:3\), SWEEP-4 \(\/repo\/src\/gone\.ts:42\), SWEEP-5 \(a\.ts:5\)\.$/m,
     );
     assert.doesNotMatch(report, /past the end of the changed file/, 'test/src/a.ts:3 and a.ts:5 are not reported as lines of src/a.ts');
     assert.doesNotMatch(report, /on a file the change deletes/, '/repo/src/gone.ts is not reported as the deleted src/gone.ts');
-    assert.match(report, /^- Unlocated candidates on a file outside the reviewed change: SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)\.$/m);
+    assert.match(report, /^- Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)\.$/m);
+  });
+
+  /** The reported run with SWEEP-1 located on an unchanged file outside the change, as normalizeLocations records one. */
+  const withOutside = (): RunState => {
+    const state = reported().fold();
+    const review = state.review!;
+    const outside = { ...review.candidates['SWEEP-1']!, file: 'src/caller.ts', line: 12, located: true, inScope: false, rawFile: 'C:\\repo\\src\\caller.ts', rawLine: 12 };
+    return { ...state, review: { ...review, candidates: { ...review.candidates, 'SWEEP-1': outside } } };
+  };
+
+  it('prints a candidate outside the change at its canonical path with a mark, and lists it apart from the unlocated ones', () => {
+    const report = renderReport(withOutside(), { engine: '0.0.0', statistics });
+    assert.match(report, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/caller\.ts:12 \(outside the change; unverified\)$/m);
+    assert.match(report, /^- Candidates on files outside the reviewed change: SWEEP-1 \(src\/caller\.ts:12\)\. Each points at an unchanged file of the repository, its line checked against the file as the worktree held it; no worktree check covers such a file\.$/m);
+    assert.doesNotMatch(report, /Unlocated candidates/, 'a candidate on an unchanged file is located');
+    assert.doesNotMatch(report, /C:\\repo/, 'the finder\'s spelling is not printed for a located candidate');
+  });
+
+  it('lists no candidate outside the change when none is, and leaves out a duplicate', () => {
+    assert.doesNotMatch(renderReport(reported().fold(), { engine: '0.0.0', statistics }), /outside the reviewed change|outside the change/);
+    const state = withOutside();
+    const review = state.review!;
+    const duplicate = { ...state, review: { ...review, candidates: { ...review.candidates, 'SWEEP-1': { ...review.candidates['SWEEP-1']!, duplicateOf: 'RIPPLE-1' } } } };
+    assert.doesNotMatch(renderReport(duplicate, { engine: '0.0.0', statistics }), /Candidates on files outside the reviewed change/);
   });
 
   it('refuses a run without a review', () => {

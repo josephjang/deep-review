@@ -340,25 +340,35 @@ export type WorktreeCheck = z.infer<typeof worktreeCheckedV1>;
 
 /**
  * One candidate as the engine recorded it (R8): its engine-assigned id, the
- * angle it belongs to, the scope path and line when the finder's location
- * matched the scope, and always the finder's own file and line.
+ * angle it belongs to, the canonical repository path and checked line when
+ * the finder's location names a file of the repository with such a line,
+ * whether that file is a changed path of the scope, and always the finder's
+ * own file and line.
  */
 export const recordedCandidateSchema = z.strictObject({
   id: candidateIdSchema,
   angle: angleSchema,
-  /** The scope path the candidate was matched to, or null when unlocated. */
+  /**
+   * The canonical repository path the candidate was matched to: a changed
+   * path of the scope, or the worktree's own spelling of an unchanged file;
+   * null when unlocated.
+   */
   file: z.string().min(1).nullable(),
-  /** The line, within the file's after state, or null when unlocated. */
+  /** The line, within a changed file's after state or an unchanged file's worktree bytes, or null when unlocated. */
   line: z.number().int().min(1).nullable(),
   located: z.boolean(),
+  /** Whether `file` is a changed path of the scope; false for a candidate on an unchanged file, and for an unlocated one. */
+  inScope: z.boolean(),
   rawFile: z.string().min(1).max(1000),
   rawLine: z.number().int().min(1),
   summary: z.string().min(1).max(400),
   /** The fourth field of the finder output contract: a `failure_scenario` or a `value_statement`, as the angle decides. */
   detail: z.string().min(1).max(2000),
-}).refine((candidate) => candidate.located === (candidate.file !== null && candidate.line !== null), {
-  message: 'a located candidate has a scope file and a line; an unlocated one has neither',
-  path: ['located'],
+}).superRefine((candidate, context) => {
+  if (candidate.located !== (candidate.file !== null && candidate.line !== null)) {
+    context.addIssue({ code: 'custom', message: 'a located candidate has a file and a line; an unlocated one has neither', path: ['located'] });
+  }
+  if (candidate.inScope && !candidate.located) context.addIssue({ code: 'custom', message: 'a candidate in the change is located', path: ['inScope'] });
 });
 export type RecordedCandidate = z.infer<typeof recordedCandidateSchema>;
 

@@ -5,7 +5,7 @@ import { compareFindings, currentPhase, mergeRankInput, mergedResolution, nextPe
 import { configured, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
-  id, angle, file: 'a.ts', line: 1, located: true, rawFile: 'a.ts', rawLine: 1, summary: 's', detail: 'd', phase: 'finders', workerId: worker(1), duplicateOf: null, verdict: null, unverified: false, ...change,
+  id, angle, file: 'a.ts', line: 1, located: true, inScope: true, rawFile: 'a.ts', rawLine: 1, summary: 's', detail: 'd', phase: 'finders', workerId: worker(1), duplicateOf: null, verdict: null, unverified: false, ...change,
 });
 const confirmed = (id: string, angle: CandidateState['angle']): CandidateState => candidate(id, angle, { verdict: { verdict: 'CONFIRMED', evidence: `${id} evidence` } });
 const plausible = (id: string, angle: CandidateState['angle']): CandidateState => candidate(id, angle, { verdict: { verdict: 'PLAUSIBLE', evidence: `${id} evidence` } });

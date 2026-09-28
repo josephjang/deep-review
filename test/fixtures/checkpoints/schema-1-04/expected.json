@@ -976,6 +976,63 @@
             }
           }
         },
+        "00000000-0000-4000-8000-000000000022": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000022",
+            "label": "verifier verification:g2",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000022",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000022",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "f6656e74b8c0a47bc0a227f00a6e568b1f32519bd5de7d01863e5b2aafb3df6d",
+              "bytes": 34
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:64.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000022",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000022"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
         "00000000-0000-4000-8000-000000000030": {
           "status": "finished",
           "launch": {
@@ -1003,7 +1060,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:71.000Z",
+          "launchedAt": "2026-09-26T00:00:74.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000030",
             "outcome": "completed",
@@ -1060,7 +1117,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:81.000Z",
+          "launchedAt": "2026-09-26T00:00:84.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000031",
             "outcome": "failed",
@@ -1114,7 +1171,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:84.000Z",
+          "launchedAt": "2026-09-26T00:00:87.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000032",
             "outcome": "failed",
@@ -1168,7 +1225,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:91.000Z",
+          "launchedAt": "2026-09-26T00:00:94.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000040",
             "outcome": "completed",
@@ -1463,6 +1520,7 @@
             "file": "src/changed.ts",
             "line": 2,
             "located": true,
+            "inScope": true,
             "rawFile": "src/changed.ts",
             "rawLine": 2,
             "summary": "SCAN-1: what is wrong at line 2",
@@ -1479,6 +1537,7 @@
             "file": "src/changed.ts",
             "line": 2,
             "located": true,
+            "inScope": true,
             "rawFile": "src/changed.ts",
             "rawLine": 2,
             "summary": "RIPPLE-1: what is wrong at line 2",
@@ -1498,6 +1557,7 @@
             "file": "src/changed.ts",
             "line": 1,
             "located": true,
+            "inScope": true,
             "rawFile": "src/changed.ts",
             "rawLine": 1,
             "summary": "RIPPLE-2: what is wrong at line 1",
@@ -1511,12 +1571,33 @@
             },
             "unverified": false
           },
+          "RIPPLE-3": {
+            "id": "RIPPLE-3",
+            "angle": "RIPPLE",
+            "file": "src/caller.ts",
+            "line": 7,
+            "located": true,
+            "inScope": false,
+            "rawFile": "/fixture/reviewed/src/caller.ts",
+            "rawLine": 7,
+            "summary": "RIPPLE-3: what is wrong at line 7",
+            "detail": "RIPPLE-3: the failure or the value, as the angle asks",
+            "phase": "finders",
+            "workerId": "00000000-0000-4000-8000-000000000002",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "PLAUSIBLE",
+              "evidence": "line 7 passes the result of changed() on unchecked"
+            },
+            "unverified": false
+          },
           "SWEEP-1": {
             "id": "SWEEP-1",
             "angle": "DESIGN",
             "file": null,
             "line": null,
             "located": false,
+            "inScope": false,
             "rawFile": "C:\\elsewhere\\changed.ts",
             "rawLine": 1,
             "summary": "SWEEP-1: what is wrong at line 1",
@@ -1600,6 +1681,10 @@
             "g1": {
               "answeredBy": "00000000-0000-4000-8000-000000000021",
               "failures": []
+            },
+            "g2": {
+              "answeredBy": "00000000-0000-4000-8000-000000000022",
+              "failures": []
             }
           },
           "sweep": {
@@ -1655,6 +1740,12 @@
             {
               "id": "g1",
               "candidateIds": [
+                "RIPPLE-3"
+              ]
+            },
+            {
+              "id": "g2",
+              "candidateIds": [
                 "RIPPLE-2",
                 "RIPPLE-1"
               ]
@@ -1682,6 +1773,13 @@
             "severity": "major",
             "summary": "changed() dereferences a null on the empty path",
             "reason": "a crash on reachable input"
+          },
+          {
+            "id": "RIPPLE-3",
+            "members": [],
+            "severity": "minor",
+            "summary": "the caller in src/caller.ts passes the null from changed() on",
+            "reason": "the crash reaches a second site"
           },
           {
             "id": "SWEEP-1",
@@ -1729,13 +1827,13 @@
                 "phase": "deduplication"
               },
               {
-                "workers": 1,
-                "seconds": 30,
-                "costUsd": 0.5,
+                "workers": 2,
+                "seconds": 60,
+                "costUsd": 1,
                 "costUnreported": 0,
-                "inputTokens": 1000,
-                "cachedInputTokens": 200,
-                "outputTokens": 100,
+                "inputTokens": 2000,
+                "cachedInputTokens": 400,
+                "outputTokens": 200,
                 "phase": "verification"
               },
               {
@@ -1790,19 +1888,19 @@
               }
             ],
             "total": {
-              "workers": 17,
-              "seconds": 510,
-              "costUsd": 8.5,
+              "workers": 18,
+              "seconds": 540,
+              "costUsd": 9,
               "costUnreported": 5,
-              "inputTokens": 17000,
-              "cachedInputTokens": 3400,
-              "outputTokens": 1700
+              "inputTokens": 18000,
+              "cachedInputTokens": 3600,
+              "outputTokens": 1800
             },
             "budgetApplied": true
           }
         }
       },
-      "lastSequence": 99
+      "lastSequence": 102
     }
   ],
   "evidence": [

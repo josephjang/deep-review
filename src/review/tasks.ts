@@ -4,13 +4,19 @@
  * to them by index (TD4), and describes the same fields its output schema
  * demands (R4). The closing sentence is appended by the prompt composer.
  */
-import { rawLocation, scopeLocation, type CandidateState } from '../checkpoint/review-fold.ts';
+import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
 import type { Lead } from '../checkpoint/events.ts';
 import { finderAngles, type FinderAngle, type Verdict } from './vocabulary.ts';
 
-/** Where a candidate points, as a worker reads it: the scope location, or the finder's own with the unlocated mark. */
-export function describeLocation(candidate: Pick<CandidateState, 'file' | 'line' | 'located' | 'rawFile' | 'rawLine'>): string {
-  return scopeLocation(candidate) ?? `${rawLocation(candidate)} (unlocated: not a changed file and line of the scope; read it if it exists)`;
+/**
+ * Where a candidate points, as a worker reads it: its repository location,
+ * marked when the file is outside the change, or the finder's own location
+ * with the unlocated mark.
+ */
+export function describeLocation(candidate: Pick<CandidateState, 'file' | 'line' | 'located' | 'inScope' | 'rawFile' | 'rawLine'>): string {
+  const location = repositoryLocation(candidate);
+  if (location === null) return `${rawLocation(candidate)} (unlocated: no file of the repository has this path and line)`;
+  return candidate.inScope ? location : `${location} (outside the change: an unchanged file of the repository)`;
 }
 
 /** One candidate as a numbered item of a task, with the fields the worker judges by. */
