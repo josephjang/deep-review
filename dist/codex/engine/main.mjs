@@ -20200,8 +20200,10 @@ var spendSchema = external_exports.strictObject({
   costUsd: external_exports.number().nonnegative().nullable(),
   /**
    * How many workers spent money `costUsd` leaves out: finished without
-   * reporting a cost (timed out, or failed before the runtime printed its
-   * usage) or lost. Null on a runtime that reports no cost in USD at all.
+   * reporting a cost (timed out, or failed after its process started but
+   * before the runtime printed its usage) or lost. A worker whose process
+   * never started spent nothing and is not counted. Null on a runtime that
+   * reports no cost in USD at all.
    */
   costUnreported: external_exports.number().int().nonnegative().nullable(),
   inputTokens: external_exports.number().int().nonnegative().nullable(),
@@ -24076,7 +24078,7 @@ function spendOf(workers, adapter) {
     workers: finished.length,
     seconds: Math.round(wallSeconds(finished) * 10) / 10,
     costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
-    costUnreported: adapter.capabilities.costInUsd ? lost + summaries.filter((summary) => summary.costUsd === null).length : null,
+    costUnreported: adapter.capabilities.costInUsd ? lost + finished.filter((worker, index2) => summaries[index2].costUsd === null && worker.finish.termination !== "not-started").length : null,
     inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
     cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
     outputTokens: sumReported(summaries.map((summary) => summary.outputTokens))
