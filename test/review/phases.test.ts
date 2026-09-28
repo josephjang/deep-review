@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { attemptFailedV1 } from '../../src/checkpoint/events.ts';
+import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
+import { attemptFailedV1, eventRegistry } from '../../src/checkpoint/events.ts';
+import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { contributionOf, groupCandidates, invocationFor, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import { outputSchemaOf } from '../../src/review/schemas.ts';
@@ -114,6 +116,22 @@ describe('contributionOf', () => {
     assert.deepEqual((finder.payload as { candidates: { id: string; angle: string }[] }).candidates.map((candidate) => [candidate.id, candidate.angle]), [['DESIGN-1', 'DESIGN']]);
     const sweep = contributionOf(unit('sweep', 'sweep', 'sweep'), receipt({ candidates: [{ file: 'src/a.ts', line: 1, summary: 's', detail: 'd', angle: 'CONVENTIONS' }, { file: 'x', line: 1, summary: 's', detail: 'd', angle: 'SCAN' }] }), verified().fold(), worktree);
     assert.deepEqual((sweep.payload as { candidates: { id: string; angle: string; located: boolean }[] }).candidates.map((candidate) => [candidate.id, candidate.angle, candidate.located]), [['SWEEP-1', 'CONVENTIONS', true], ['SWEEP-2', 'SCAN', false]]);
+  });
+
+  it('records every contribution under the kind whose schema its payload satisfies', () => {
+    const decodes = (event: NewEvent): boolean => lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success === true;
+    const contributions = [
+      contributionOf(unit('triage', 'SCAN', 'triage'), receipt({ candidates: [], leads }), configured().fold(), worktree),
+      contributionOf(unit('finders', 'DESIGN', 'finder-DESIGN'), receipt({ candidates: [] }), triaged().fold(), worktree),
+      contributionOf(unit('sweep', 'sweep', 'sweep'), receipt({ candidates: [] }), verified().fold(), worktree),
+      contributionOf(unit('deduplication', 'deduplication', 'deduplication'), receipt({ groups: [] }), found().fold(), worktree),
+      contributionOf(unit('sweep-deduplication', 'sweep-deduplication', 'deduplication'), receipt({ groups: [{ members: [0, 1], keep: 1, reason: 'same' }] }), swept().fold(), worktree),
+      contributionOf(unit('verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'REFUTED', evidence: 'e' }] }), verified().fold(), worktree),
+      contributionOf(unit('sweep-verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'PLAUSIBLE', evidence: 'e' }, { index: 1, verdict: 'CONFIRMED', evidence: 'e' }] }), swept().fold(), worktree),
+      contributionOf(unit('merge-rank', 'merge-rank', 'merge-rank'), receipt({ findings: [{ primary: 0, members: [1, 2], severity: 'major', summary: 's', reason: 'r' }] }), swept().fold(), worktree),
+    ];
+    assert.deepEqual(contributions.map((event) => event.kind), ['candidates.recorded', 'candidates.recorded', 'candidates.recorded', 'deduplication.recorded', 'deduplication.recorded', 'verdicts.recorded', 'verdicts.recorded', 'ranking.recorded']);
+    for (const event of contributions) assert.ok(decodes(event), `${event.kind} decodes under its own schema: ${JSON.stringify(event.payload)}`);
   });
 
   it('resolves dedup, verifier and merge-rank indexes against the same fold the task numbered them from', () => {
