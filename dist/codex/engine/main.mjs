@@ -20280,7 +20280,7 @@ var blockerActions = {
   "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
   budget: "run the command again with --budget-usd above the spend, or abandon the run",
   drift: "restore the named files to the reviewed change and run the command again, or abandon the run and start a new one",
-  "lock-held": "wait for that engine to finish; if its process is gone the lock clears itself on the next run",
+  "lock-held": "wait for that engine to finish; the lock clears itself when its process ends",
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
 };
 var verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
@@ -22968,69 +22968,83 @@ function parseUnitLabel(label) {
 }
 
 // src/review/lock.ts
-import { closeSync as closeSync3, mkdirSync as mkdirSync4, openSync as openSync3, readFileSync as readFileSync6, rmSync as rmSync2, statSync as statSync3, writeSync as writeSync2 } from "node:fs";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync6, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { constants } from "node:os";
 import { join as join13 } from "node:path";
+import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 var locksDirectoryName = "runs";
-var unwrittenLockGraceMs = 1e4;
+var sqliteBusy = 5;
+var sqliteNotADatabase = 26;
 function startLockPath(checkpointRoot) {
   return join13(checkpointRoot, "start.lock");
 }
 function lockPath(checkpointRoot, runId) {
   return join13(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
-function processAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error62) {
-    return error62.code === "EPERM";
-  }
+function holderPath(path) {
+  return `${path}.pid`;
 }
-function readLock(path) {
+function lockHolder(path) {
   let text2;
-  let modifiedMs;
   try {
-    modifiedMs = statSync3(path).mtimeMs;
-    text2 = readFileSync6(path, "utf8");
+    text2 = readFileSync6(holderPath(path), "utf8").trim();
   } catch (error62) {
-    if (error62.code === "ENOENT") return { kind: "absent" };
+    if (error62.code === "ENOENT") return null;
     throw error62;
   }
-  const pid = Number(text2.trim());
-  return text2.trim() !== "" && Number.isSafeInteger(pid) && pid > 0 ? { kind: "held", pid } : { kind: "no-pid", ageMs: Date.now() - modifiedMs };
+  const pid = Number(text2);
+  return text2 !== "" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
-function acquireRunLock(checkpointRoot, runId, pid = process.pid) {
+function acquireRunLock(checkpointRoot, runId) {
   mkdirSync4(join13(checkpointRoot, locksDirectoryName), { recursive: true });
-  return acquireLock(lockPath(checkpointRoot, runId), pid, `is running run ${runId}`, `the lock of run ${runId}`);
+  return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
 }
-function acquireStartLock(checkpointRoot, pid = process.pid) {
+function acquireStartLock(checkpointRoot) {
   mkdirSync4(checkpointRoot, { recursive: true });
-  return acquireLock(startLockPath(checkpointRoot), pid, "is starting or ending a run in this repository", "the start lock");
+  return acquireLock(startLockPath(checkpointRoot), "is starting or ending a run in this repository");
 }
-function acquireLock(path, pid, holding, name) {
-  const taking = () => new ReviewRefusedError(`another engine is taking ${name} (${path}); ${blockerActions["lock-held"]}`, "lock-held");
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const lock = readLock(path);
-    if (lock.kind === "held" && lock.pid !== pid && processAlive(lock.pid)) {
-      throw new ReviewRefusedError(`engine ${String(lock.pid)} ${holding} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
+function sqliteCode(error62) {
+  const code = error62?.errcode;
+  return typeof code === "number" ? code & 255 : null;
+}
+function acquireLock(path, holding) {
+  const db = new DatabaseSync2(path, { timeout: 0 });
+  try {
+    db.exec("BEGIN EXCLUSIVE");
+  } catch (error62) {
+    db.close();
+    const code = sqliteCode(error62);
+    if (code === sqliteBusy) {
+      const holder = lockHolder(path);
+      throw new ReviewRefusedError(`${holder === null ? "another engine" : `engine ${String(holder)}`} ${holding} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
     }
-    if (lock.kind === "no-pid" && lock.ageMs < unwrittenLockGraceMs) throw taking();
-    if (lock.kind !== "absent") rmSync2(path, { force: true });
-    try {
-      const fd = openSync3(path, "wx");
-      try {
-        writeSync2(fd, `${String(pid)}
-`);
-      } finally {
-        closeSync3(fd);
-      }
-      return () => rmSync2(path, { force: true });
-    } catch (error62) {
-      if (error62.code !== "EEXIST") throw error62;
+    if (code === sqliteNotADatabase) {
+      throw new ReviewRefusedError(`${path} is not a lock this engine made, perhaps one an older engine left; delete it once no engine runs in this repository, then run the command again`);
     }
+    throw error62;
   }
-  throw taking();
+  let held = true;
+  const release = () => {
+    if (!held) return;
+    held = false;
+    try {
+      rmSync2(holderPath(path), { force: true });
+    } finally {
+      try {
+        db.exec("ROLLBACK");
+      } finally {
+        db.close();
+      }
+    }
+  };
+  try {
+    writeFileSync2(holderPath(path), `${String(process.pid)}
+`);
+  } catch (error62) {
+    release();
+    throw error62;
+  }
+  return release;
 }
 var endingSignals = process.platform === "win32" ? ["SIGINT", "SIGBREAK", "SIGHUP"] : ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
 function exitBySignal(signal) {
