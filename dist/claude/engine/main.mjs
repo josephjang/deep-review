@@ -22895,16 +22895,13 @@ function normalizeRequest(request) {
 }
 
 // src/scope/compare.ts
-function compareWorktree(scope, worktree) {
-  const files = scope.files.map((file2) => {
+function compareScopeFiles(scope, worktree) {
+  return scope.files.map((file2) => {
     const now = readWorktree(worktree, file2.path);
     if (file2.after === null) return { path: file2.path, outcome: now === null ? "unchanged" : "restored" };
     if (now === null) return { path: file2.path, outcome: "deleted" };
     return { path: file2.path, outcome: matchesFrozen(file2.after, now.bytes, now.symlink, file2.symlink) ? "unchanged" : "modified" };
   });
-  const covered = new Set(scope.files.map((file2) => file2.path));
-  const outside = status(worktree).map((entry) => entry.path).filter((path) => !covered.has(path)).sort();
-  return { files, outside };
 }
 function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
   if (symlink !== frozenSymlink) return false;
@@ -23744,7 +23741,10 @@ function nextStep(review2, live2) {
     return { kind: "start-phase", phase: pending, attempt: review2.phases[pending].attempt + 1 };
   }
   const attempt = review2.phases[phase].attempt;
-  if (!review2.checks.some((check2) => check2.phase === phase && check2.attempt === attempt)) return { kind: "check-worktree", phase, attempt };
+  const checks = review2.checks.filter((check2) => check2.phase === phase && check2.attempt === attempt);
+  if (checks.length === 0) return { kind: "check-worktree", phase, attempt };
+  const drift = checks.find((check2) => check2.drifted);
+  if (drift !== void 0) return live2.running.size > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: driftBlocker(drift.files) };
   if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
   if (phase === "report") return { kind: "write-report" };
   const units = unitsOf(review2, phase);
@@ -24078,7 +24078,7 @@ function limitations(scope, review2, input2) {
     lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(", ")}) carry PLAUSIBLE with the unverified mark.`);
   }
   const drifted = review2.checks.filter((check2) => check2.drifted);
-  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference before ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
+  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference in ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
   lines.push(budgetLine(review2, input2.statistics));
   const unreported = input2.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
@@ -24148,6 +24148,10 @@ function findActiveRun(checkpoint) {
 }
 var seconds = (ms) => `${(ms / 1e3).toFixed(1)} s`;
 var usd3 = (value) => value === null ? "" : `, ${value.toFixed(2)} USD`;
+function driftedFiles(scope, worktree) {
+  return compareScopeFiles(scope, worktree).filter((file2) => file2.outcome !== "unchanged");
+}
+var fileList = (files) => files.map((file2) => `${file2.path} (${file2.outcome})`).join(", ");
 async function runReview(options2) {
   const log = options2.log ?? ((line) => {
     process.stderr.write(`${line}
@@ -24169,6 +24173,17 @@ async function runReview(options2) {
     const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
     log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled.receipt.error === null ? "" : `: ${settled.receipt.error}`}`);
     state = checkpoint.fold(runId);
+    if (settled.receipt.outcome === "completed") {
+      const { phase } = settled.unit;
+      const attempt = state.review.phases[phase].attempt;
+      const found = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
+      const files = found?.files ?? driftedFiles(state.scope, options2.worktree);
+      if (files.length > 0) {
+        log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from the scope: ${fileList(files)}`);
+        if (found === void 0) state = append(checkpoint, state, [{ kind: "worktree.checked", version: 1, payload: { phase, attempt, drifted: true, files } }]);
+        return;
+      }
+    }
     const event = contributionOf(settled.unit, settled.receipt, state, options2.worktree);
     if (event.kind === "attempt.failed") log(`worker ${settled.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
     state = append(checkpoint, state, [event]);
@@ -24203,15 +24218,9 @@ async function runReview(options2) {
           state = append(checkpoint, state, [{ kind: "phase.started", version: 1, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case "check-worktree": {
-          const comparison = compareWorktree(scope, options2.worktree);
-          const drifted = comparison.files.filter((file2) => file2.outcome !== "unchanged");
-          const events = [{ kind: "worktree.checked", version: 1, payload: { phase: step.phase, attempt: step.attempt, drifted: drifted.length > 0, files: drifted } }];
-          if (drifted.length > 0) {
-            const blocker = driftBlocker(drifted);
-            events.push({ kind: "phase.finished", version: 1, payload: { phase: step.phase, attempt: step.attempt, outcome: "blocked", blocker } });
-            log(`phase ${step.phase}: the worktree drifted from the scope: ${drifted.map((file2) => `${file2.path} (${file2.outcome})`).join(", ")}`);
-          }
-          state = append(checkpoint, state, events);
+          const drifted = driftedFiles(scope, options2.worktree);
+          if (drifted.length > 0) log(`phase ${step.phase}: the worktree drifted from the scope: ${fileList(drifted)}`);
+          state = append(checkpoint, state, [{ kind: "worktree.checked", version: 1, payload: { phase: step.phase, attempt: step.attempt, drifted: drifted.length > 0, files: drifted } }]);
           break;
         }
         case "plan-verification":

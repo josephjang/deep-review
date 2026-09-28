@@ -297,13 +297,13 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(lines.some((line) => /^Spend: 0\.50 USD; /.test(line)), lines.join('\n'));
   });
 
-  it('blocks with drift when a scope file changes between phases, and completes once it is restored', async () => {
+  it('blocks with drift when a scope file changes while the triage runs, sets its answer aside, and completes once the tree is restored', async () => {
     const marker = join(box.directory, 'triage-may-answer');
     box.script({ triage: { waitFor: marker } });
     const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
     const pending = box.review('claude');
-    // While the triage worker waits, the tree changes; the check before the finders sees it. The edit
-    // waits for the triage worker on the ledger, which launches only after the scope is captured: an
+    // While the triage worker waits, the tree changes; the check before its answer is recorded sees it. The
+    // edit waits for the triage worker on the ledger, which launches only after the scope is captured: an
     // edit made before the capture would be part of the scope, and nothing would have drifted.
     await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
     write(box.repo, 'src/b.ts', 'export const b = 2;\n');
@@ -312,23 +312,56 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(blocked.kind, 'blocked');
     if (blocked.kind === 'blocked') {
       assert.equal(blocked.blocker.code, 'drift');
-      assert.equal(blocked.blocker.phase, 'finders');
+      assert.equal(blocked.blocker.phase, 'triage');
       assert.match(blocked.blocker.detail, /src\/b\.ts \(modified\)/);
       assert.match(blocked.blocker.action, /restore the named files/);
     }
     let state = box.run();
-    assert.deepEqual(state.review!.checks.at(-1), { phase: 'finders', attempt: 1, drifted: true, files: [{ path: 'src/b.ts', outcome: 'modified' }] });
-    assert.equal(state.review!.phases.triage.status, 'completed', 'the triage stands');
-    // Still drifted: blocked again at once, without a worker.
+    assert.deepEqual(state.review!.checks.at(-1), { phase: 'triage', attempt: 1, drifted: true, files: [{ path: 'src/b.ts', outcome: 'modified' }] });
+    assert.equal(state.review!.leads, null, 'the answer computed against the edited tree is not recorded');
+    assert.deepEqual(state.review!.units.triage, {}, 'nor counted as a failure');
+    assert.ok(box.logs.some((line) => /^worker triage triage:SCAN: answer set aside: the worktree drifted from the scope: src\/b\.ts \(modified\)$/.test(line)), box.logs.join('\n'));
+    // Still drifted: the check at the re-entered attempt's start blocks again at once, without a worker.
     const again = await box.review('claude');
-    assert.equal(again.kind, 'blocked');
+    assert.ok(again.kind === 'blocked' && again.blocker.code === 'drift', JSON.stringify(again));
     assert.equal(Object.values(box.run().workers).length, 1);
     write(box.repo, 'src/b.ts', original);
     box.script({});
     const text = report(await box.review('claude'));
     state = box.run();
-    assert.equal(state.review!.phases.finders.attempt, 3);
-    assert.match(text, /- Worktree checks: 11, 2 found a difference before finders \(attempt 1: src\/b\.ts modified\); finders \(attempt 2: src\/b\.ts modified\)/);
+    assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 3 });
+    assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'triage triage:SCAN').length, 2, 'the triage is launched once more');
+    assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'attempt.failed'), []);
+    // Triage attempt 1 has its clean check at the start and the drifted one before its answer; attempts 2 and 3 one each; eight more phases.
+    assert.match(text, /- Worktree checks: 12, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
+  });
+
+  it('sets aside a finder\'s answer when a scope file changes while it runs, lets the others settle, and relaunches it without using an attempt', async () => {
+    const marker = join(box.directory, 'removals-may-answer');
+    box.script({ 'finder-REMOVALS': { waitFor: marker } });
+    const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
+    const pending = box.review('claude');
+    const removals = 'finder-REMOVALS finders:REMOVALS';
+    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === removals && worker.status === 'running')), 'the REMOVALS worker on the ledger', 60_000);
+    write(box.repo, 'src/b.ts', 'export const b = 2;\n');
+    writeFileSync(marker, '');
+    const blocked = await pending;
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'drift' && blocked.blocker.phase === 'finders', JSON.stringify(blocked));
+    const state = box.run();
+    const drifted = state.review!.checks.filter((check) => check.drifted);
+    assert.deepEqual(drifted, [{ phase: 'finders', attempt: 1, drifted: true, files: [{ path: 'src/b.ts', outcome: 'modified' }] }], 'one drifted check for the attempt, however many answers settle after it');
+    assert.equal(state.review!.units.finders.REMOVALS, undefined, 'REMOVALS has no answer and no failure');
+    assert.equal(Object.values(state.workers).filter((worker) => worker.status === 'running').length, 0, 'every worker in flight settled before the phase blocked');
+    assert.deepEqual(state.review!.phases.finders, { status: 'blocked', attempt: 1 });
+
+    write(box.repo, 'src/b.ts', original);
+    box.script({});
+    report(await box.review('claude'));
+    const after = box.run();
+    assert.equal(Object.values(after.workers).filter((worker) => worker.launch.label === removals).length, 2, 'REMOVALS ran once more');
+    assert.equal(typeof after.review!.units.finders.REMOVALS?.answeredBy, 'string', 'and its answer is recorded');
+    assert.deepEqual(after.review!.anglesNotRun, {});
+    assert.deepEqual(box.events(after.id).filter(([kind]) => kind === 'attempt.failed'), [], 'the set-aside answer used no attempt');
   });
 
   it('ends with the launcher\'s error when the run is abandoned under a running worker, and no rejection goes unhandled', async () => {
