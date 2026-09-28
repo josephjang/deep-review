@@ -1,11 +1,17 @@
 /**
- * Path containment judged on canonical paths, shared by every check that must
- * tell whether one directory lies within another however either is spelled:
- * the scratch directory against the reviewed tree and the checkpoint
+ * Questions about paths on the file system, shared across the engine.
+ *
+ * Containment judged on canonical paths, for every check that must tell
+ * whether one directory lies within another however either is spelled: the
+ * scratch directory against the reviewed tree and the checkpoint
  * (`src/runtime/scratch.ts`), and the role prompts' output against the roles
  * directory (`scripts/roles.ts`).
+ *
+ * Whether a path names a regular file, for every lookup that must skip what
+ * is not one: the runtime executable on PATH (`src/review/executable.ts`)
+ * and the rules files that govern a change (`src/review/conventions.ts`).
  */
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
@@ -40,4 +46,18 @@ export function canonicalPath(path: string): string {
 export function isInside(parent: string, child: string): boolean {
   const path = relative(canonicalPath(parent), canonicalPath(child));
   return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
+}
+
+/**
+ * Whether `path` names a regular file, following a symlink to its target. A
+ * path that cannot be examined for any reason (missing, beneath a file, a
+ * dangling link, denied) is not a file, so a lookup moves on rather than
+ * throwing.
+ */
+export function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
