@@ -60,6 +60,7 @@ describe('the task texts', () => {
     assert.match(task, /^Group g2: 1 candidate, numbered \[0\] to \[0\]/);
     assert.match(task, /\[0\] SWEEP-1 \(DESIGN\) at C:\\x\\b\.ts:9 \(unlocated/);
     assert.match(task, /exactly one verdict per index/);
+    assert.match(task, /An answer that misses an index is discarded whole and the group is run again./);
     assert.match(task, /a candidate marked unlocated still gets a verdict/);
     assert.match(verifierTask('g1', [candidate('A-1', 'SCAN'), candidate('A-2', 'SCAN')]), /2 candidates, numbered \[0\] to \[1\]/);
   });
