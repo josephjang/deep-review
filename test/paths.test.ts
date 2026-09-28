@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { canonicalPath, isInside } from '../src/paths.ts';
+import { canonicalPath, isFile, isInside } from '../src/paths.ts';
 
 describe('path containment', () => {
   let sandbox: string;
@@ -91,5 +91,43 @@ describe('path containment', () => {
       assert.equal(isInside(join(sandbox, 'Roles'), join(parent, 'missing')), true);
       assert.equal(isInside(parent, join(sandbox, 'ROLES-assembled')), false);
     });
+  });
+});
+
+describe('isFile', () => {
+  let sandbox: string;
+
+  before(() => {
+    sandbox = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-is-file-')));
+    mkdirSync(join(sandbox, 'directory'));
+    writeFileSync(join(sandbox, 'file'), 'x');
+  });
+
+  after(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  it('is true for a regular file', () => {
+    assert.equal(isFile(join(sandbox, 'file')), true);
+  });
+
+  it('is false, without throwing, for a directory, a missing path and a path beneath a file', () => {
+    assert.equal(isFile(join(sandbox, 'directory')), false);
+    assert.equal(isFile(join(sandbox, 'missing')), false, 'ENOENT');
+    assert.equal(isFile(join(sandbox, 'file', 'child')), false, 'ENOTDIR on POSIX, ENOENT on Windows');
+  });
+
+  it('follows a symlink to its target, so a link to a file is a file and a link to a directory or to nothing is not', (t) => {
+    try {
+      symlinkSync(join(sandbox, 'file'), join(sandbox, 'file-link'), 'file');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('symlinks are not permitted here');
+      throw error;
+    }
+    symlinkSync(join(sandbox, 'directory'), join(sandbox, 'directory-link'), 'dir');
+    symlinkSync(join(sandbox, 'missing'), join(sandbox, 'dangling-link'), 'file');
+    assert.equal(isFile(join(sandbox, 'file-link')), true);
+    assert.equal(isFile(join(sandbox, 'directory-link')), false);
+    assert.equal(isFile(join(sandbox, 'dangling-link')), false);
   });
 });

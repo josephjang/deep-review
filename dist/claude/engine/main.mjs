@@ -21245,7 +21245,7 @@ var PreflightError = class extends EngineError {
 
 // src/runtime/launcher.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync, statSync as statSync2, writeFileSync } from "node:fs";
 import { join as join10, resolve as resolve8 } from "node:path";
 
 // src/runtime/adapter.ts
@@ -22237,7 +22237,7 @@ import { tmpdir } from "node:os";
 import { join as join9, resolve as resolve7 } from "node:path";
 
 // src/paths.ts
-import { realpathSync as realpathSync2 } from "node:fs";
+import { realpathSync as realpathSync2, statSync } from "node:fs";
 import { basename, dirname, isAbsolute as isAbsolute2, join as join8, relative, resolve as resolve6, sep } from "node:path";
 function canonicalPath(path) {
   const absolute = resolve6(path);
@@ -22256,6 +22256,13 @@ function canonicalPath(path) {
 function isInside(parent, child) {
   const path = relative(canonicalPath(parent), canonicalPath(child));
   return path === "" || !(path === ".." || path.startsWith(`..${sep}`) || isAbsolute2(path));
+}
+function isFile(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 // src/runtime/scratch.ts
@@ -22445,7 +22452,7 @@ function continuedWorker(state, invocation, schemaDigest) {
   return previous;
 }
 function requireDirectory(worktree) {
-  const stat = statSync(worktree, { throwIfNoEntry: false });
+  const stat = statSync2(worktree, { throwIfNoEntry: false });
   if (stat === void 0 || !stat.isDirectory()) throw new InvalidInvocationError(`The run's worktree ${worktree} is not a directory`);
 }
 function composePrompt(prompt, scratch) {
@@ -22906,18 +22913,10 @@ function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
 }
 
 // src/review/conventions.ts
-import { statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { join as join12, posix } from "node:path";
 var conventionFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
 var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
-var isFile = (path) => {
-  try {
-    return statSync2(path).isFile();
-  } catch {
-    return false;
-  }
-};
 function ancestorDirectories(changedPaths) {
   const directories = /* @__PURE__ */ new Set([""]);
   for (const path of changedPaths) {
@@ -24377,17 +24376,10 @@ function describeRun(state, adapter, evidencePath) {
 }
 
 // src/review/executable.ts
-import { realpathSync as realpathSync3, statSync as statSync4 } from "node:fs";
+import { realpathSync as realpathSync3 } from "node:fs";
 import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, resolve as resolve10 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
-var isFile2 = (path) => {
-  try {
-    return statSync4(path).isFile();
-  } catch {
-    return false;
-  }
-};
 function refuseShim(executable, flag = "--executable") {
   if (shellShims.has(extname(executable).toLowerCase())) {
     throw new ReviewRefusedError(
@@ -24400,7 +24392,7 @@ function refuseShim(executable, flag = "--executable") {
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
   if (isAbsolute4(name) || name.includes("/") || name.includes("\\")) {
     const absolute = resolve10(cwd, name);
-    if (!isFile2(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
+    if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute));
   }
   const path = spellingsOf(environment, "PATH", platform).map(([, value]) => value ?? "").find((value) => value.length > 0) ?? "";
@@ -24409,7 +24401,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   for (const directory of directories) {
     for (const extension of extensions) {
       const candidate = join16(directory.replaceAll('"', ""), `${name}${extension}`);
-      if (isFile2(candidate)) return refuseShim(realpathSync3.native(candidate));
+      if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate));
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");

@@ -3,8 +3,9 @@
  * by the read-only review): resolved on PATH once, at the command line,
  * recorded on the configuration event and never resolved again.
  */
-import { realpathSync, statSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { delimiter, extname, isAbsolute, join, resolve } from 'node:path';
+import { isFile } from '../paths.ts';
 import { spellingsOf } from '../runtime/environment.ts';
 import { ReviewRefusedError } from './errors.ts';
 
@@ -13,14 +14,6 @@ const defaultPathExt = ['.COM', '.EXE', '.BAT', '.CMD'];
 
 /** Extensions of the shims a spawn without a shell cannot start. */
 const shellShims = new Set(['.cmd', '.bat']);
-
-const isFile = (path: string): boolean => {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-};
 
 /** Refuse an executable that is a shell shim, naming the flag that takes another. */
 export function refuseShim(executable: string, flag = '--executable'): string {
