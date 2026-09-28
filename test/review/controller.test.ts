@@ -9,7 +9,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
-import { policyFileName } from '../../src/review/policy.ts';
+import { maxConcurrency, policyFileName } from '../../src/review/policy.ts';
 import { until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireStartLock, lockPath, startLockPath } from '../../src/review/lock.ts';
@@ -413,7 +413,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     box.script({ triage: { exit: 2 } });
     await box.review('codex');
     await assert.rejects(box.review('codex', { flags: { budgetUsd: 5 } }), (error: unknown) => error instanceof InvalidPolicyError && /--budget-usd does not apply to runtime codex/.test(error.message));
-    await assert.rejects(box.review('codex', { flags: { concurrency: 0 } }), (error: unknown) => error instanceof InvalidPolicyError && /--concurrency must be a whole number from 1 to 16, not 0/.test(error.message));
+    await assert.rejects(box.review('codex', { flags: { concurrency: 0 } }), (error: unknown) => error instanceof InvalidPolicyError && error.message === `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not 0`);
   });
 
   it('refuses a resumed run whose runtime differs, and two active runs', async () => {
