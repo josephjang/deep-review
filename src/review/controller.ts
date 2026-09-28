@@ -7,7 +7,6 @@
  */
 import { resolve } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import { StaleRevisionError } from '../checkpoint/errors.ts';
 import type { Blocker, ReviewConfiguration, ReviewLimits, ScopeRequest } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
@@ -83,12 +82,14 @@ interface InFlight {
   readonly promise: Promise<Settled>;
 }
 
-/** How many times an append is re-folded and retried when a launcher's finish got there first. */
-const appendAttempts = 50;
+/** Whether a review may resume the run: it is active and has no report. A run created by another tool has no review; one that crashed before its scope or configuration is resumed by completing them. */
+export function isResumable(run: RunState): boolean {
+  return run.status === 'active' && (run.review === null || run.review.report === null);
+}
 
-/** The active runs a review may resume: those without a report. A run created by another tool has no review; one that crashed before its scope or configuration is resumed by completing them. */
+/** The active runs a review may resume: those without a report. */
 export function resumableRuns(checkpoint: Checkpoint): RunState[] {
-  return checkpoint.listRuns().filter((run) => run.status === 'active' && (run.review === null || run.review.report === null));
+  return checkpoint.listRuns().filter(isResumable);
 }
 
 /** The one run to resume, or null when there is none; two are refused, naming them. */
@@ -137,7 +138,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files`);
     }
     if (configure !== null) {
-      state = checkpoint.append(runId, state.lastSequence, [{ kind: 'review.configured', version: 1, payload: configure }]);
+      state = append(checkpoint, state, [{ kind: 'review.configured', version: 1, payload: configure }]);
       log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}`);
     }
     const configuration = state.review!.configuration;
@@ -274,8 +275,11 @@ interface OpenedRun {
 /**
  * Find the active run or create one, and take its run lock, all under the
  * checkpoint's start lock: two engines started together would otherwise
- * both find no run and create one each. The active run is found once, and
- * everything that depends on it is decided from that one answer:
+ * both find no run and create one each. A found run is read again once its
+ * lock is held, since the engine that held the lock until a moment ago may
+ * have appended after the find (a late worker finish, its report); one no
+ * longer resumable is let go, and a run is created as if none had been
+ * found. Everything that depends on the run is decided from that one read:
  *
  * - A run with no scope yet, new or left by a capture that failed, gets
  *   the command's scope request, resolved before a new run is created so
@@ -299,17 +303,27 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release: ReleaseLock | null = null;
   try {
-    const found = findActiveRun(checkpoint);
+    let found = findActiveRun(checkpoint);
     // The checkpoint is shared by every worktree of the repository, while a run's scope, worktree checks and workers belong to the worktree it was created in.
     if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
       throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
+    }
+    if (found !== null) {
+      release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
+      // Read again under the lock: what the find returned may predate the last appends of the engine that held it.
+      found = checkpoint.fold(found.id);
+      if (!isResumable(found)) {
+        log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken; a new run is created`);
+        release();
+        release = null;
+        found = null;
+      }
     }
     const pinned = found?.review?.configuration ?? null;
     if (found !== null && pinned !== null && pinned.runtime !== context.runtime) {
       throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${pinned.runtime}, not ${context.runtime}; run it with --runtime ${pinned.runtime}, or abandon it`);
     }
     if (found !== null) {
-      release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
       log(`run ${found.id}: resuming${found.scope === null ? '; it has no scope yet and captures the one this command names' : ''}`);
       if (found.scope !== null && context.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
     }
@@ -391,22 +405,17 @@ function sameDirectory(a: string, b: string): boolean {
 }
 
 /**
- * Append with the state's sequence, re-folding and retrying when another
- * writer got there first: the launchers of the workers in flight append
- * each finish themselves, so several may land between a fold and its
- * append. `abandon` can race a locked run too, and it closes the run, so
- * the retry then fails with the closed-run error.
+ * Append with the state's sequence, once. While it holds the run lock the
+ * controller is the run's one writer: another engine and `abandon` take
+ * that lock first; a found run is read again once its lock is held; and
+ * the launchers of the workers in flight append only while the controller
+ * awaits them, after which `record` folds afresh. So the events were
+ * planned from the ledger as it is, and a `StaleRevisionError` means
+ * another writer broke in: it is thrown, never retried, since a retry would
+ * re-send events planned without what that writer appended.
  */
 function append(checkpoint: Checkpoint, state: RunState, events: readonly NewEvent[]): RunState {
-  let current = state;
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return checkpoint.append(current.id, current.lastSequence, events);
-    } catch (error) {
-      if (!(error instanceof StaleRevisionError) || attempt >= appendAttempts) throw error;
-      current = checkpoint.fold(current.id);
-    }
-  }
+  return checkpoint.append(state.id, state.lastSequence, events);
 }
 
 /**

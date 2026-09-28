@@ -24093,9 +24093,11 @@ function statisticsOf(state, adapter) {
 }
 
 // src/review/controller.ts
-var appendAttempts2 = 50;
+function isResumable(run2) {
+  return run2.status === "active" && (run2.review === null || run2.review.report === null);
+}
 function resumableRuns(checkpoint) {
-  return checkpoint.listRuns().filter((run2) => run2.status === "active" && (run2.review === null || run2.review.report === null));
+  return checkpoint.listRuns().filter(isResumable);
 }
 function findActiveRun(checkpoint) {
   const runs = resumableRuns(checkpoint);
@@ -24137,7 +24139,7 @@ async function runReview(options2) {
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files`);
     }
     if (configure !== null) {
-      state = checkpoint.append(runId, state.lastSequence, [{ kind: "review.configured", version: 1, payload: configure }]);
+      state = append(checkpoint, state, [{ kind: "review.configured", version: 1, payload: configure }]);
       log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}`);
     }
     const configuration = state.review.configuration;
@@ -24242,16 +24244,25 @@ async function openRun(context) {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release = null;
   try {
-    const found = findActiveRun(checkpoint);
+    let found = findActiveRun(checkpoint);
     if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
       throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
+    }
+    if (found !== null) {
+      release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
+      found = checkpoint.fold(found.id);
+      if (!isResumable(found)) {
+        log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken; a new run is created`);
+        release();
+        release = null;
+        found = null;
+      }
     }
     const pinned = found?.review?.configuration ?? null;
     if (found !== null && pinned !== null && pinned.runtime !== context.runtime) {
       throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${pinned.runtime}, not ${context.runtime}; run it with --runtime ${pinned.runtime}, or abandon it`);
     }
     if (found !== null) {
-      release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
       log(`run ${found.id}: resuming${found.scope === null ? "; it has no scope yet and captures the one this command names" : ""}`);
       if (found.scope !== null && context.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
     }
@@ -24312,15 +24323,7 @@ function sameDirectory(a, b) {
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 function append(checkpoint, state, events) {
-  let current = state;
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return checkpoint.append(current.id, current.lastSequence, events);
-    } catch (error62) {
-      if (!(error62 instanceof StaleRevisionError) || attempt >= appendAttempts2) throw error62;
-      current = checkpoint.fold(current.id);
-    }
-  }
+  return checkpoint.append(state.id, state.lastSequence, events);
 }
 function limitsInForce(configuration, flags, adapter) {
   return {
