@@ -24280,9 +24280,10 @@ async function openRun(context) {
       await resumePinned(found.id, pinned, context);
     } else {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
+      const executable = typeof context.executable === "function" ? context.executable() : context.executable;
       const executableArgs = [...context.executableArgs ?? []];
-      const version2 = await qualify2(context.adapter, context.executable, executableArgs, context);
-      configure = { ...resolved, roles: [...resolved.roles], executable: context.executable, executableArgs, version: version2 };
+      const version2 = await qualify2(context.adapter, executable, executableArgs, context);
+      configure = { ...resolved, roles: [...resolved.roles], executable, executableArgs, version: version2 };
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
     if (found === null) {
@@ -24558,7 +24559,6 @@ async function review(values, io, root, worktree) {
   };
   const problem = invocationFlagProblem(flags);
   if (problem !== null) throw new UsageError(problem);
-  const executable = resolveExecutable(values.executable ?? values.runtime, io.environment, process.platform, io.cwd);
   const checkpoint = openCheckpoint(root, true);
   try {
     const scope = {
@@ -24569,12 +24569,14 @@ async function review(values, io, root, worktree) {
         return chosen.request;
       }
     };
+    const runtime = values.runtime;
     const outcome = await runReview({
       checkpoint,
       worktree,
       runtimes,
-      runtime: values.runtime,
-      executable,
+      runtime,
+      // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned.
+      executable: () => resolveExecutable(values.executable ?? runtime, io.environment, process.platform, io.cwd),
       executableArgs: values["executable-arg"] ?? [],
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { delimiter, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { Checkpoint } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
@@ -75,7 +75,39 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     const missing = run('review', '--runtime', 'claude', '--executable', join(box.directory, 'absent'), '--last-commit');
     assert.equal(missing.status, 2);
     assert.match(missing.stderr, /is not a file; pass --executable/);
-    assert.equal(existsSync(locateCheckpoint(box.repo).root), false, 'nothing was created');
+    // The executable is resolved once the engine knows the run is new, which takes the checkpoint; the refusal comes before a run is created.
+    assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
+    assert.equal(run('status').stdout, 'No active run.\n');
+  });
+
+  it('resumes a configured run with its pinned executable, never resolving or refusing the one the command names or finds on PATH', () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal(run(...claudeFlags('--last-commit')).status, 2);
+    const pinned = box.run().review!.configuration;
+    // A shim the command refuses for a new run, first on PATH as an npm install on Windows puts claude.cmd there, and named by the flag.
+    const shims = join(box.directory, 'shims');
+    mkdirSync(shims);
+    const shim = join(shims, 'claude.cmd');
+    writeFileSync(shim, '@echo off\r\n');
+    const env = { ...Object.fromEntries(Object.entries(environment()).filter(([name]) => name.toUpperCase() !== 'PATH')), PATH: `${shims}${delimiter}${process.env.PATH ?? ''}` };
+    const review = (...args: string[]): SpawnSyncReturns<string> => spawnSync(process.execPath, [cli, 'review', '--runtime', 'claude', '--roles', box.rolesRoot, ...args], { cwd: box.repo, env, encoding: 'utf8' });
+    // Named by the flag: the run resumes, and blocks again only because its triage fails again.
+    const named = review('--executable', shim);
+    assert.equal(named.status, 2, named.stderr);
+    assert.match(named.stderr, /^blocked in triage \(worker-failed\)/m);
+    assert.doesNotMatch(named.stderr, /runtime-unqualified/);
+    // Found on PATH, as the command resolves a runtime name with no --executable: the run resumes to its report.
+    box.script({});
+    const found = review();
+    assert.equal(found.status, 0, found.stderr);
+    const state = box.run();
+    assert.deepEqual(state.review!.configuration, pinned);
+    assert.ok(Object.values(state.workers).every((worker) => worker.launch.executable === pinned.executable), 'every worker ran the pinned executable');
+    // A new run still resolves the command's executable, and refuses the shim before it creates a run.
+    const fresh = review('--executable', shim, '--last-commit');
+    assert.equal(fresh.status, 2, fresh.stderr);
+    assert.match(fresh.stderr, /^blocked \(runtime-unqualified\): .*claude\.cmd is a \.cmd shim, which cannot be spawned without a shell/);
+    assert.equal(box.checkpoint.listRuns().length, 1, 'no new run was created');
   });
 
   it('says there is no run before any review, in text and JSON, and finds the repository through --repo given absolute or relative', () => {
