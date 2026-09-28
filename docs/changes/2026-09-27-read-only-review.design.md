@@ -9,15 +9,16 @@ repository it is run in, creates or resumes a run, and drives a fixed
 sequence of phases through one controller loop: fold the ledger, compute
 the next step from the state alone, execute it (launch workers, record
 their answers), append what happened, repeat until the report is written
-or the run blocks. Every phase is a module with a pure planner over the
-folded state and an executor that turns plans into `runWorker` calls; the
+or the run blocks. One pure planner over the folded state gives the next
+step of whichever phase is running, and one phases module turns a planned
+unit into a `runWorker` invocation and its receipt into an event; the
 planner is what makes a resumed run continue exactly where the ledger
 stops. Roles get their tasks as a prompt composed from the assembled role
 prompt, a scope block and the phase's inputs, and their answers are
 validated by a zod schema per role, with candidate ids assigned by the
-engine. Fourteen new event kinds record the pinned policy, each phase's
-progress, every worker's contribution and the report; the fold exposes them
-as `RunState.review`. The build gains an esbuild step that bundles the
+engine. Fifteen new event kinds record the pinned policy, the limits in
+force, each phase's progress, every worker's contribution and the report;
+the fold exposes them as `RunState.review`. The build gains an esbuild step that bundles the
 command into each artifact beside a copy of `roles/`, and the engine's
 identity becomes the bundle's hash.
 
@@ -119,11 +120,11 @@ during development. It uses `node:util`'s `parseArgs` with `strict: true`
 and three subcommands.
 
 ```
-deep-review review  --runtime claude|codex [--executable <abs path>]
+deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
                     [--strong-model <m>] [--fast-model <m>]
                     [--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base]]
                     [--path <p>]... [--concurrency 1..16] [--budget-usd <n>]
-                    [--repo <dir>]
+                    [--repo <dir>] [--roles <dir>]
 deep-review status  [--run <id>] [--json] [--repo <dir>]
 deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
 ```
@@ -135,82 +136,150 @@ deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   `{ paths }`; `--ref` and `--from/--to` map to `ScopeRequest` directly.
   The scope element's own validation refuses the rest (a `to` that is
   not HEAD, an unmerged path).
-- `--executable` is optional. When absent the command resolves the
-  runtime's command name (`claude`, `codex`) on `PATH` once, at the
-  command line, records the absolute path on the configuration event and
-  never resolves again (TD10 of the runtime adapter is kept: the launch
-  records what runs, the resolution happens once before it). A result
-  that is a `.cmd` or `.bat` shim is refused with a message naming the
-  flag, since such a shim cannot be spawned without a shell (runtime
-  adapter, Verification).
+- `--executable` is optional. The command's executable, the flag's path
+  made absolute or, when the flag is absent, the runtime's command name
+  (`claude`, `codex`) resolved on `PATH`, is resolved once, and only for
+  a run not yet configured: its absolute path is recorded on the
+  configuration event and never resolved again (TD10 of the runtime
+  adapter is kept: the launch records what runs, the resolution happens
+  once before it). A resumed configured run neither resolves nor refuses
+  the command's executable, `--executable` included, and preflights the
+  one it pinned. An executable a spawn without a shell cannot start is
+  refused with a message naming the flag: a `.cmd` or `.bat` shim on
+  every platform, and on Windows anything but a `.exe` or `.com` (a
+  `.ps1`, `.vbs` or `.js` file, or a file without an extension), which
+  Node 26 refuses to spawn there (runtime adapter, Verification).
 - `review` prints progress to stderr, one line per phase start and end
   and per worker start and end (role, angle or group, outcome, seconds,
   cost when known), and on success prints the report's absolute path as
-  the last line of stdout. Exit code 0 on a report, 2 on a blocked run
-  (with the blocker and its action on stderr), 1 on any other error.
-- `status` prints the fold of the active run or `--run`: phase and
-  attempt, workers running and finished per phase, spend against the
-  budget, the blocker and its action, and the report path if written;
-  `--json` prints the `RunState.review` projection.
-- `abandon` appends `run.abandoned@1` after taking the run lock (below).
-  A running engine holds the lock, so an abandon during a run is refused
-  with "engine <pid> is running this run".
+  the last line of stdout. Exit code 0 on a report; 2 on a blocked run
+  (with the blocker and its action on stderr) and on every refusal, with
+  or without a blocker code (a held lock, an unqualified runtime, two
+  active runs, a run pinned to another runtime or active in another
+  worktree, roles that no longer digest as pinned); 1 on a usage error
+  and on any other error.
+- `status` prints the fold of the active run or `--run`: its status
+  (with the reason of an abandoned run), worktree, runtime, version and
+  models, the phase it is in with its attempt, how many workers are
+  running, finished and lost, the spend and tokens against the run
+  budget in force, the blocker and its action, and the report path if
+  written. `--json` prints one object holding the same facts (run id,
+  status, worktree, phase, worker counts, the statistics per phase and in
+  total, blocker, report path) and the whole `RunState.review`, whose
+  units and unverified groups are nested by phase.
+- `abandon` appends `run.abandoned@1` under the checkpoint's start lock
+  and the run lock (below), after folding the run again under them. A
+  run that is complete or already abandoned is refused as a usage error:
+  the ledger never closes a review run whose report is written, so the
+  event would be accepted and would misstate the run's outcome for good.
+  A running engine holds the run lock, so an abandon during a run is
+  refused with "engine <pid> is running run <id>".
 
 The command that a skill runs is the bundle: `node <artifact>/engine/main.mjs review ...`.
 
 ### Run lifecycle and resumption (R1, R10)
 
-`src/review/controller.ts` exports `runReview(context)` where the context
-holds the checkpoint, the worktree, the runtime registry, the roles root,
-the resolved policy and the flags.
+`src/review/controller.ts` exports `runReview(options)` where the options
+hold the checkpoint, the worktree, the runtime registry and the runtime's
+name, the executable (a path, or the function that resolves one), the
+roles root, the flags and the scope source: whether the command named a
+scope, and the request, resolved only when a capture happens.
 
-1. **Find or create the run.** `checkpoint.listRuns()` filtered to
-   `status === 'active'` and `review.report === null`. Zero: create a run,
-   capture the scope, append `review.configured@1`. One: resume it,
-   refusing when its pinned runtime differs from `--runtime` (the operator
-   abandons or drops the flag). More than one: refuse, naming the ids;
-   the operator abandons all but one. A blocked run is active and is
-   resumed; its blocker is cleared by the next `phase.started`.
+1. **Find or create the run, under the start lock.**
+   `<checkpoint>/start.lock`, taken like a run lock (step 2), covers
+   finding the run, creating one and taking its run lock, so two engines
+   started together cannot both find no run and create one each;
+   `abandon` takes it too. `checkpoint.listRuns()` filtered to
+   `status === 'active'` and no report. More than one: refuse, naming the
+   ids; the operator abandons all but one. One created in another
+   worktree of the repository (paths compared resolved, and without case
+   on Windows): refuse, naming its worktree; the operator runs the
+   command there or abandons the run. One: take its run lock (step 2) and
+   resume it, refusing when its pinned runtime differs from `--runtime`
+   (the operator abandons or drops the flag); a configured run is held
+   to what it pinned (Policy, below). Zero: resolve the policy
+   and the command's executable and preflight it, then create a run and
+   take its lock, so a refusal creates nothing. A run with no scope yet,
+   new or left by a capture that failed, captures the scope the command
+   names, resolved before a new run is created so a refused request
+   creates nothing; a run that has one ignores the command's scope flags,
+   and the log says so. A run not yet configured then appends
+   `review.configured@1`. A blocked run is active and is resumed; its
+   blocker is cleared by the next `phase.started`.
 2. **Take the run lock.** `<checkpoint>/runs/<runId>.lock`, created with
    `wx`, holding this process id. A lock whose process is alive
    (`process.kill(pid, 0)` succeeds) refuses the command with the
-   `lock-held` blocker; a lock whose process is gone is replaced. The
-   lock is removed on every exit path the launcher already hooks (normal
-   exit, `SIGINT`, `SIGTERM`, `SIGHUP` on POSIX). Two engines on one run
-   is the hazard: `StaleRevisionError` protects each append, but two
-   controllers would both dispatch the same step.
-3. **Record lost workers.** Every worker in `running` state at resume
-   died with the previous engine or was orphaned by a hard kill; the
-   controller appends `worker.lost@1` for each, and the fold treats a
-   lost worker as finished with outcome `failed` for the retry count
-   (TD5).
-4. **Loop.** `state = checkpoint.fold(runId)`; `step = nextStep(state)`
-   (pure, `src/review/steps.ts`); execute the step; append its events with
-   `state.lastSequence` as the expected sequence, retrying the fold and
-   the append once on `StaleRevisionError` (only `abandon` can race a
-   locked run); repeat. The steps are, in order of precedence:
+   `lock-held` blocker; a lock whose process is gone is replaced, and so
+   is one that holds no pid once its file is older than 10 s, a younger
+   one being refused as another engine's lock in the instant between its
+   create and its write. A found run's lock is taken before its
+   preflight, so an engine running it refuses this one at once. The found
+   run is folded again once its lock is held, since the engine that held
+   the lock may have appended after the find; a run no longer resumable
+   is released and a new run is created. The lock is released on every
+   way out: the controller's own release, the process's exit, and a
+   signal that would end the engine (`SIGINT`, `SIGTERM`, `SIGHUP`,
+   `SIGQUIT` on POSIX; `SIGINT`, `SIGBREAK`, `SIGHUP` on Windows), whose
+   listener releases the lock and exits with 128 and the signal's number,
+   since Node runs no exit listener for a death by signal. Two engines on
+   one run is the hazard: `StaleRevisionError` protects each append, but
+   two controllers would both dispatch the same step.
+3. **Record the limits and the lost workers, and re-enter the phase.**
+   The concurrency and run budget this invocation puts in force are
+   appended as `limits.changed@1` when they differ from the run's (Policy,
+   below). Every worker in `running` state at resume died with the
+   previous engine or was orphaned by a hard kill; the controller appends
+   `worker.lost@1` for each, naming the phase and unit key its launch
+   label names, and the fold marks the worker lost and counts it as a
+   failed attempt of that unit (TD5). A phase left running or blocked is
+   then re-entered with `phase.started@1` at the next attempt.
+4. **Loop.** `step = nextStep(review, live)` (pure, `src/review/steps.ts`,
+   over the latest fold, `live` being the units in flight and the spend
+   so far); execute the step; append its events with `state.lastSequence`
+   as the expected sequence, once, the append returning the state folded
+   anew; repeat. The
+   append is never retried: while it holds the run lock the controller
+   is the run's one writer (another engine and `abandon` take the lock
+   first, and the launchers of the workers in flight append only while
+   the controller awaits them, after which it folds afresh), so a
+   `StaleRevisionError` means another writer broke in, and it is thrown.
+   The steps are, in order of precedence:
    - `blocked`: return with the blocker.
-   - `check-worktree` before a phase that has not started, and before the
-     report: run `compareWorktree`, append `worktree.checked@1`; a drift
-     appends `phase.finished@1` with outcome `blocked` and code `drift`
-     for the phase about to start.
-   - `start-phase`: append `phase.started@1` with attempt = previous
-     attempt + 1.
-   - `launch`: the phase planner's list of units not yet answered, whose
-     attempt count is below 2, minus the units whose worker is running;
-     up to `concurrency - running` of them. Before each launch the budget
-     check runs (below).
+   - `complete`: the report is written; return its path.
+   - `start-phase`: when no phase is running, append `phase.started@1`
+     for the next pending phase with attempt = previous attempt + 1.
+   - `check-worktree`, once per attempt of the running phase, the report
+     phase included: run `compareWorktree`, append `worktree.checked@1`;
+     a drift appends `phase.finished@1` with outcome `blocked` and code
+     `drift` in the same append.
+   - `plan-verification`: a verification phase appends its
+     `verification.planned@1` once.
+   - `write-report`, in the report phase: render, `evidence.put`, append
+     `report.written@1` and the report phase's `phase.finished@1`
+     together.
+   - `degrade`: append `angle.failed@1` or `group.unverified@1` for each
+     unit of a degrading role that has used its two attempts.
+   - `finish-phase` blocked with code `worker-failed`, once the workers
+     in flight have settled, when a unit of a blocking role has used its
+     two attempts.
+   - `launch`: the phase's units not yet answered, not degraded, with an
+     attempt left and no worker in flight, up to `concurrency - running`
+     of them. Before each launch the budget check runs (below).
    - `await`: wait for any running worker; record its contribution.
-   - `finish-phase`: when every unit is answered or exhausted, append
-     `phase.finished@1` with outcome `completed`, `degraded` (some unit
-     exhausted and the role degrades) or `blocked` (a unit exhausted and
-     the role blocks, code `worker-failed`).
-   - `write-report`: render, `evidence.put`, append `report.written@1`.
+   - `finish-phase`: when every unit is answered or degraded, append
+     `phase.finished@1` with outcome `completed`, or `degraded` when
+     some unit degraded.
 
-   Workers run concurrently through a small pool (`src/review/pool.ts`)
-   that resolves one at a time so each receipt is recorded before the
+   The controller keeps the workers in flight in a map and awaits the
+   first to settle, one at a time, so each receipt is recorded before the
    next launch decision, which keeps the budget check exact to the
-   receipts seen.
+   receipts seen; a worker's promise never rejects, so a launcher error
+   surfaces when it is awaited, never as an unhandled rejection. Every
+   way out of the loop, a launcher error or a failed append included,
+   first waits for the workers still in flight and records their answers,
+   and only then releases the lock. A runtime that stops qualifying
+   mid-run, found by a worker's own preflight, is refused as
+   `runtime-unqualified`, as it is at startup.
 
 Resumption is the loop itself: the planner sees the answered units on the
 state and plans only the rest. A unit with one failed attempt gets its
@@ -254,20 +323,33 @@ recomputed from evidence; every fact the planner needs is an event.
   values are the proof of concept's (role prompts, D6). Efforts are
   checked against the runtime's `effortLevels` at resolution, so a policy
   value a runtime lacks is refused before any run exists.
-- Resolution: `resolvePolicy(file, runtime, flags)` gives the pinned
-  configuration: runtime, executable, `executableArgs` (empty), models
+- Resolution: `resolvePolicy(policy, roles, adapter, flags)` gives the
+  policy part of the pinned configuration: runtime, models
   `{ strong, fast }` from flags else the runtime's defaults, per-role
   `{ model, effort, budgetUsd, timeoutMs }` with `budgetUsd` set to null
   when the runtime lacks `budgetCap` (the launcher would refuse it), the
   concurrency and the run budget (flag, else the runtime's default, else
   null), and the roles digest: SHA-256 over the sorted `roleKey:sha256`
-  lines of `assembleRoles`, so a run says which prompts it ran.
+  lines of `assembleRoles`, so a run says which prompts it ran. The
+  controller adds the executable, the `executableArgs` given by
+  `--executable-arg` (empty by default) and the version the preflight
+  observed.
 - `review.configured@1` holds the resolved configuration verbatim. A
-  resumed run reads it from the fold and ignores the file and the flags,
-  except `--concurrency` and `--budget-usd`, which are per invocation:
-  raising the budget is how a `budget` blocker is cleared, so the check
-  uses the flag when given and the pinned value otherwise, and the report
-  records the value in force at the end.
+  resumed configured run reads it from the fold and never reads the
+  policy file. It is refused, naming both digests, when its roles no
+  longer digest as pinned (the operator runs it with `--roles` naming the
+  roles it started with, or abandons it); it preflights its pinned
+  executable, not the command's; and the model flags, which do not apply
+  to it, are logged as ignored. `--concurrency` and `--budget-usd` are
+  per invocation, checked on every invocation by the one rule the
+  command line and the policy use (`invocationFlagProblem`): raising the
+  budget is how a `budget` blocker is cleared and lowering the
+  concurrency is how a machine is spared, so each flag when given, else
+  the pinned value, is in force for the invocation. When the limits in
+  force differ from the run's, they are appended as
+  `limits.changed@1 { concurrency, runBudgetUsd }`, and the planner,
+  `status` and the report read the limits in force from the fold, so the
+  report records the value in force at the end.
 
 ### Prompts (R7)
 
@@ -307,7 +389,7 @@ prose and the schema agree (R4):
 | deduplication | scope, candidates numbered `[0]`.. with id, file, line, summary and detail | group candidates that describe the same defect at the same location for the same reason; name the member to keep per group; a candidate in no group stands alone |
 | verifier | scope, the group's candidates numbered `[0]`.. with the angle each came from and the `unlocated` mark | one verdict per index with one evidence line, by the rubric of the candidate's angle |
 | sweep | scope, the verified list (id, location, summary, verdict), the refuted list (id, location, summary, evidence) | find gaps only; return candidates each with the angle whose territory it sits in |
-| merge-rank | scope, the working list with verdicts | fold same-root-cause findings across locations, rank most severe first with a severity per finding |
+| merge-rank | scope, the working list with verdicts | fold same-root-cause findings across locations; give each finding a severity, a `CONVENTIONS` violation taking the severity of the rule it breaks; the engine orders them (TD9), and the order returned is not kept |
 
 Candidates are numbered by the engine in the input and referred to by
 index in the answer (dedup members, verdicts), so no worker copies ids
@@ -348,31 +430,53 @@ every index of the working list is a primary or a member exactly once.
 in the worker's discovery order, numbered from 1 per angle. A retried
 finder numbers from 1 again; only the answer that is recorded has ids.
 
-**Locations** (`src/review/locations.ts`): `normalizeLocation(scope,
-candidate)` returns `{ file: <scope path>, line, located: true }` when
-the candidate's `file`, with backslashes turned to slashes and any prefix
-that is not part of a scope path removed, is a suffix match of exactly one
-scope path (longest match wins), and `line` is at most the line count of
-that file's after state, counted in the worktree, which the drift check
-has just confirmed equals the frozen after state (an oversized file is
-frozen as hash and size only, so the worktree is the one place its lines
-can be counted). Otherwise the candidate keeps its
-raw `file` and `line` with `located: false`. A deleted file has no after
-state; a candidate on it is unlocated too, and the report says why.
+**Locations** (`src/review/locations.ts`): `normalizeLocations(scope,
+worktree, candidates)` gives a candidate `{ file: <scope path>, line,
+located: true }` when `matchScopePath` finds one scope path for its
+`file`, and `line` is at most the line count of that file's after state.
+The file is normalized as a scope path is spelled (backslashes turned to
+slashes, runs of slashes and a leading `./` removed), and its
+repository-relative tails, after any root or drive and after the last
+`.` or `..` segment, are tried longest first: a tail that is a scope path
+matches it, so an absolute or otherwise prefixed spelling of a changed
+file is found; a tail that is not a scope path but names an entry the
+worktree holds, compared without case, is a different, unchanged file,
+and the candidate matches nothing, so `src/index.ts` is never pinned to a
+changed root `index.ts`. Failing both, a file that is itself the bare
+tail of exactly one scope path (`a.ts` for `src/a.ts`) matches it. Each
+comparison with a scope path is exact first, then without case, and a
+name that matches two scope paths without case matches neither. Lines
+are counted in the worktree, which the drift check at the start of the
+phase's attempt found equal to the frozen after state (an oversized file
+is frozen as hash and size only, so the worktree is the one place its
+lines can be counted; an edit made while the phase's workers run is not
+seen until the next check). Otherwise the candidate keeps its raw `file`
+and `line` as `rawFile` and `rawLine`, with `located: false`. A deleted
+file has no after state; a candidate on it is unlocated too, and the
+report says why.
 
 ### Phases (R2, R5)
 
-Each phase module in `src/review/phases/` exports `plan(state): Unit[]`,
-`invocation(unit, state, context): InvocationInput` and
-`record(unit, receipt, state): NewEvent[]`. A unit is `{ phase, key }`
-where the key is the angle, the group id or the phase name for a phase
-with one worker; the attempt count of a unit is the number of workers
-whose launch `label` is the role and whose recorded contribution (or
-failure) names the key. To make that count readable from the fold, each
-contribution event and each failure event names its `workerId`, and the
-planner counts them; the launch label carries the role key (D10 of the
-role prompts) and the engine appends `:<key>` for a finder or verifier
-(`finder-RIPPLE`, `verifier:g3`), which is free text on the ledger.
+The planner, `src/review/steps.ts`, and one module for every phase's
+work, `src/review/phases.ts`, carry the phases. `unitsOf(review, phase)`
+lists a phase's units in the order they launch; `invocationFor(unit,
+context)` builds a unit's invocation from its role's pinned policy and
+prompt, its task and the scope block; and `contributionOf(unit, receipt,
+state, worktree)` turns its receipt into the one event the ledger
+records, a contribution or a failed attempt, each contribution's kind
+and payload built together as a typed pair so the two cannot disagree. A
+unit is `{ phase, key, role }`, where the key is the angle for a finder,
+the group id for a verifier, `SCAN` for the triage and the phase's own
+name for the other phases with one worker. A unit's attempts are counted
+from the fold, which keeps every unit by phase and then by key with the
+worker whose contribution is recorded and the failures before it: each
+`attempt.failed` names the unit's phase and key, and so does each
+`worker.lost` whose launch label names a unit. The launch label is the
+role key (D10 of the role prompts), a space and the unit:
+`<role> <phase>:<key>`, such as `finder-RIPPLE finders:RIPPLE` or
+`verifier verification:g3`, which is free text on the ledger. The
+controller parses it to name a lost worker's unit, and `spend.ts` to
+count a worker toward its phase.
 
 | Phase | Units | Role | Degradation after two failures |
 |---|---|---|---|
@@ -386,29 +490,37 @@ role prompts) and the engine appends `:<key>` for a finder or verifier
 | merge-rank | one, only when the working list is non-empty | `merge-rank` | blocks |
 | report | none (engine) | | |
 
-A phase with no unit (an empty sweep, an empty working list) is started
-and finished with outcome `completed` in one append, so the ledger shows it
-ran. When merge-rank has nothing to rank, the report's Findings section
-says no finding survived verification and lists the refuted ones.
+A phase with no unit (an empty sweep, an empty working list) is started,
+checked against the worktree and finished with outcome `completed`, three
+appends and no worker (a verification phase with no group also records
+its empty plan), so the ledger shows it ran. When merge-rank has nothing
+to rank, the report's Findings section says no finding survived
+verification and lists the refuted ones.
 
 **Grouping for verification** (`src/review/grouping.ts`, pure): take the
-working list (every candidate not dropped as a dedup duplicate), group by
-normalized file, unlocated candidates by their raw `file` string; sort each
-group by line; split a group of more than 8 into consecutive chunks of at
-most 8, the last chunk absorbing a remainder of 1 into its predecessor so
-no chunk holds a single candidate when the group had more. Group ids are
-`g<n>` in file order. The plan is recorded once per verification phase as
+working list (every candidate not dropped as a dedup duplicate) and group
+located candidates by scope path and unlocated ones by their `file`
+normalized as a scope path is spelled and folded to lower case, an
+absolute spelling joining the longest relative spelling given for it
+that it ends with (so `C:\repo\src\a.ts` and `src/a.ts` share a
+verifier, while two absolute spellings of one file that no relative one
+names stay two groups); sort each group by line, then by id; split a
+group of more than 8 into as few consecutive chunks as the cap of 8
+allows, balanced so their lengths differ by at most one (9 gives 5 and 4,
+17 gives 6, 6 and 5), so no chunk holds more than 8, nor a single
+candidate when its group had more. Group ids are `g<n>` in file order,
+located files first. The plan is recorded once per verification phase as
 `verification.planned@1`, so a later engine with a different grouping rule
 still resumes the plan this run made.
 
 **Recording a contribution.** For a `completed` receipt whose structural
-checks pass: finders and the triage append `candidates.recorded@1` (and
-the triage its `leads`); dedup appends `deduplication.recorded@1`; a
-verifier appends `verdicts.recorded@1`; merge-rank appends
-`ranking.recorded@1`. For any other receipt the phase appends
-`attempt.failed@1` naming the unit, the worker and the reason (outcome and
-error, or the structural check that failed). That event is what the
-planner counts.
+checks pass: the triage, the finders and the sweep append
+`candidates.recorded@1` (and the triage its `leads`); dedup appends
+`deduplication.recorded@1`; a verifier appends `verdicts.recorded@1`;
+merge-rank appends `ranking.recorded@1`. For any other receipt the phase
+appends `attempt.failed@1` naming the unit, the worker and the reason
+(outcome and error, or the structural check that failed). That event, and
+a lost worker, is what the fold counts against the unit.
 
 **Verdict resolution.** After the verification phases, each candidate of
 the working list has one verdict: the recorded one, or `PLAUSIBLE` marked
@@ -421,24 +533,31 @@ every member is unverified.
 
 **Ranking.** The engine orders the recorded findings by severity
 (`critical`, `major`, `minor`), then verdict (`CONFIRMED` before
-`PLAUSIBLE`), then the correctness angles before the design angles (the
-rubric's cross-class tiebreak), then by primary id. The worker's order is
+`PLAUSIBLE`), then the correctness angles, `CONVENTIONS` included, before
+the design angles (the rubric's cross-class tiebreak), then by primary id. The worker's order is
 advisory; the recorded order is the engine's, so two engines render the
 same report from the same ledger.
 
 ### Retries, budget and blockers (R5, R6)
 
 - **Retry rule.** A unit is launched while it has no recorded
-  contribution and fewer than 2 `attempt.failed` events (a lost worker
-  counts as one). The retry is a fresh invocation with the same task.
+  contribution, no recorded degradation and fewer than 2 `attempt.failed`
+  events (a lost worker counts as one). The retry is a fresh invocation
+  with the same task. A blocked phase re-entered gives its units fresh
+  attempts, but an angle recorded as not run or a group marked unverified
+  stays settled and is never launched again.
 - **Budget check.** Before each launch: `spend = Σ summarizeUsage(finish)
-  .costUsd` over the run's finished workers with a non-null cost. If the
+  .costUsd` over the run's finished workers with a non-null cost. A
+  worker whose cost went unreported (timed out, failed after its process
+  started but before the runtime printed its usage, or lost with its
+  engine) adds nothing to it; the report counts such workers. If the
   runtime's `costInUsd` capability is false the check is skipped and the
-  report's Statistics says the run budget did not apply. If the run has a
-  budget and `spend >= budget`, the phase finishes `blocked` with code
-  `budget`, detail "spent 31.20 USD of 30.00 USD" and the action "run
-  again with --budget-usd above 31.20, or abandon". Workers already
-  running finish and are recorded.
+  report says the run budget did not apply. If a run budget is in force
+  (`review.limits`) and `spend >= budget`, the phase finishes `blocked`
+  with code `budget`, detail "spent 31.20 USD of the 30.00 USD run
+  budget" and the action "run the command again with --budget-usd above
+  31.20, or abandon the run". Workers already running finish and are
+  recorded.
 - **Blockers** are `{ code, detail, action }` on `phase.finished@1`, the
   codes being an enum the report and `status` print with their actions:
 
@@ -447,11 +566,13 @@ same report from the same ledger.
   | `worker-failed` | a blocking role's unit failed twice | run again (two fresh attempts), or abandon |
   | `budget` | spend reached the run budget | run again with a higher `--budget-usd`, or abandon |
   | `drift` | the worktree differs from the scope | restore the named files and run again, or abandon and start a new run |
-  | `lock-held` | another engine holds the run lock | wait for it, or if its process is gone the lock clears itself |
+  | `lock-held` | another engine holds the run lock or the start lock | wait for it, or if its process is gone the lock clears itself |
   | `runtime-unqualified` | the preflight refused the executable | fix the installation or pass `--executable`, then run again |
 
-  `lock-held` and `runtime-unqualified` are refusals before any event and
-  are printed, not recorded; the other three are on the ledger. A test
+  `lock-held` and `runtime-unqualified` are refusals, printed and never
+  recorded: before any event, or, for a runtime that stops qualifying
+  mid-run, once the workers in flight are recorded. The other three are
+  on the ledger. A test
   enumerates the codes and asserts each has an action string and each
   survives `status --json` (plan principle 1).
 
@@ -483,51 +604,75 @@ interface UsageSummary {
   summary can be recomputed by a later engine.
 
 `src/review/spend.ts` sums summaries over `RunState.workers` and per
-phase for the report, with the phase of a worker read from the
-contribution or failure event that names it.
+phase for the report, with the phase of a worker read from its launch
+label. A phase's seconds, and the run's, are wall time: the length of
+the union of its workers' process intervals, so workers that ran at once
+count once. `costUnreported` counts the workers whose cost the sums
+leave out: finished without a reported cost after their process started
+(a timeout, a failure before the runtime printed its usage), or lost
+with their engine. A worker whose process never started spent nothing
+and is not counted; on a runtime without `costInUsd` the count is null.
 
 ### Ledger events and fold (R10)
 
 New kinds, all version 1, in `src/checkpoint/events.ts`, each with a
-reducer in `src/checkpoint/fold.ts`; the fixture `schema-1-04` is
-committed with them. Payloads are strict; free text fields are bounded.
+reducer in `src/checkpoint/review-fold.ts`, which `src/checkpoint/fold.ts`
+registers beside the run's own (`worker.lost`'s reducer is in `fold.ts`
+itself, since it changes a worker); the fixture `schema-1-04` is
+committed with them. Payloads are strict; free text fields are bounded,
+a failed attempt's reason, an angle's or a group's reason and a
+blocker's detail at 4000 characters, one frozen cap the engine cuts the
+text it composes to. The v1 schemas write out the review vocabulary they
+record (the angles, phases, outcomes, blocker codes, verdicts and
+severities, the spellings of candidate ids, group ids and unit keys, and
+the count of leads) instead of importing it from
+`src/review/vocabulary.ts`, so a later change there cannot change what a
+v1 event means; a test holds the two equal, so such a change fails until
+the events that carry the changed words get a new version.
 
 | Kind | Payload | Reducer effect on `state.review` |
 |---|---|---|
-| `review.configured` | runtime, executable, executableArgs, version (preflight), models, roles (per role: model, effort, budgetUsd, timeoutMs), rolesDigest, concurrency, runBudgetUsd | creates `review` with the policy; twice is invalid history |
-| `phase.started` | phase (enum), attempt | phase status `running`; clears `blocker`; attempt must be previous + 1 |
+| `review.configured` | runtime, executable, executableArgs, version (preflight), models, roles (per role: model, effort, budgetUsd, timeoutMs), rolesDigest, concurrency, runBudgetUsd | creates `review` with the configuration, whose concurrency and run budget are the first limits in force; twice, or before the scope, is invalid history |
+| `limits.changed` | concurrency, runBudgetUsd | replaces the limits in force; invalid after the report |
+| `phase.started` | phase (enum), attempt | phase status `running`; clears `blocker`; attempt must be previous + 1; invalid after the phase completed or degraded, or while an earlier phase has not; a blocked phase re-entered forgets its units' failures |
 | `phase.finished` | phase, attempt, outcome (`completed`, `degraded`, `blocked`), blocker `{ code, detail, action }` or null | phase status; sets `blocker` when blocked; invalid without a matching start |
-| `worktree.checked` | before (phase or `report`), drifted, files `[{ path, outcome }]` (only the not-unchanged ones) | appended to `checks` |
-| `candidates.recorded` | phase (`triage`, `finders`, `sweep`), angle, workerId, candidates `[{ id, file, line, located, rawFile, rawLine, summary, detail }]`, leads `[{ angle, lead }]` or null (triage only) | candidates by id; leads; marks the unit answered |
-| `attempt.failed` | phase, key, workerId, reason | counted per unit |
-| `angle.failed` | phase, angle, reason | angle marked not run |
+| `worktree.checked` | phase, attempt, drifted, files `[{ path, outcome }]` (only the not-unchanged ones) | appended to `checks`; the phase must be running at that attempt |
+| `candidates.recorded` | phase (`triage`, `finders`, `sweep`), key (`SCAN`, the angle, `sweep`), workerId, candidates `[{ id, angle, file, line, located, rawFile, rawLine, summary, detail }]`, leads `[{ angle, lead }]` or null (triage only) | candidates by id; leads; marks the unit answered |
+| `attempt.failed` | phase, key, workerId, reason | one more failure of the unit |
+| `angle.failed` | angle, reason | angle marked not run |
 | `deduplication.recorded` | phase, workerId, groups `[{ members: ids, keep: id, reason }]` | duplicates leave the working list |
 | `verification.planned` | phase, groups `[{ id, candidateIds }]` | the plan the units come from |
 | `verdicts.recorded` | phase, groupId, workerId, verdicts `[{ id, verdict, evidence }]` | verdicts by candidate id |
 | `group.unverified` | phase, groupId, reason | its candidates `PLAUSIBLE` + `unverified` |
 | `ranking.recorded` | workerId, findings `[{ id (primary), members, severity, summary, reason }]` | the ranked list |
-| `report.written` | report (artifact reference), statistics (per phase workers, seconds, costUsd or null, tokens) | `report`; the run is complete |
-| `worker.lost` | workerId, reason | the worker's state becomes `lost` |
+| `report.written` | report (artifact reference), statistics (per phase and in total: workers, wall seconds, costUsd or null, costUnreported or null, input, cached input and output tokens or null; budgetApplied) | `report`; the run is complete |
+| `worker.lost` | workerId, phase and key (both, from the launch label, or neither), reason | the worker's state becomes `lost`; a unit it names counts one more failure |
 
-`RunState` gains `review: ReviewState | null` with: `policy`, `phases`
-(per phase: status `pending | running | completed | degraded | blocked`,
-attempt), `blocker`, `checks`, `leads`, `candidates` (by id, with angle,
-phase, location, and its resolution: `duplicateOf`, `verdict`,
-`unverified`), `plans` (per verification phase), `failures` (per unit),
-`anglesNotRun`, `ranking`, `report`. `WorkerState` gains the variant
-`{ status: 'lost'; launch; launchedAt; reason }`. The status line becomes
-`active | blocked | complete | abandoned`, derived: `blocked` when
-`blocker !== null`, `complete` when `report !== null`.
+`RunState` gains `review: ReviewState | null` with: `configuration`,
+`limits` (the concurrency and run budget in force), `phases` (per phase:
+status `pending | running | completed | degraded | blocked`, attempt),
+`blocker` (with its phase), `checks`, `leads`, `candidates` (by id, with
+angle, phase, worker, location, and its resolution: `duplicateOf`,
+`verdict`, `unverified`), `units` (by phase, then by unit key: the worker
+that answered, and the failures), `anglesNotRun`, `deduplications` (per
+deduplication phase), `plans` (per verification phase),
+`unverifiedGroups` (by verification phase, then by group id, with the
+reason), `ranking`, `report`. `WorkerState` gains the variant
+`{ status: 'lost'; launch; launchedAt; reason }`. The status line
+`active | blocked | complete | abandoned` is derived: `blocked` when
+`blocker !== null`, `complete` when `report !== null` (`reviewStatus`;
+`RunState.status` itself stays two-valued, see Verification).
 
-The four existing fixtures must fold with `review: null` and `workers`
+The three existing fixtures must fold with `review: null` and `workers`
 untouched, which is the forward-compatibility proof the AGENTS.md rule
 asks for; the new fixture holds one run through every kind, including a
 blocked phase, a lost worker and a degraded angle.
 
 ### Report (R9)
 
-`src/review/report.ts` exports `renderReport(state): string`, pure over
-the fold, and the controller stores it with `evidence.put` and appends
+`src/review/report.ts` exports `renderReport(state, { engine, statistics
+}): string`, pure over the fold and the statistics `spend.ts` gives,
+and the controller stores it with `evidence.put` and appends
 `report.written@1`. Sections as R9 lists them; the header names the
 engine identity, the runtime and version, the models, the policy digest
 and the run id; the Angles section prints the ten angles in the fixed
@@ -541,9 +686,19 @@ Evidence: <verifier's line>
 ```
 
 with `(unlocated: <raw file>:<raw line>)` and `(unverified)` where they
-apply. Statistics is one table per phase and a total; Limitations lists
-the degraded units, every drift check's outcome, the budget's
-applicability and the oversized files no worker could be given frozen.
+apply. Statistics is one table with a row per phase and a total, each
+cost cell naming how many workers' cost went unreported. Limitations
+lists the angles not run and the unverified groups (in plan order),
+every drift check's outcome, the run budget in force at the end or why
+none applied, how many workers reported no cost (so the run cost more
+than the totals show), the oversized files no worker could be given
+frozen, and the unlocated candidates by why they are unlocated: on a
+file outside the change, on a file the change deletes, on a line past
+the end of a changed file, or on a path that only ends with a changed
+path, which the ledger alone cannot tell an unchanged file from. Text a
+worker or a finder wrote goes through `inlineText` or `paragraphText`
+(`src/review/markdown.ts`), so no summary, reason, evidence or file name
+can change the report's structure.
 The renderer is tested against a snapshot of a synthetic state, and the
 snapshot is read by a person once, in review.
 
@@ -644,15 +799,19 @@ Verification.
   exist or belongs to another group; an index is checked structurally.
 - **TD5: A lost worker is recorded, not repaired.** The resuming engine
   cannot know whether an orphaned process still runs; it records the
-  worker lost with the reason "engine exited while the worker ran" and
-  counts it as a failed attempt. Appending a `worker.finished` for it was
-  rejected: that event says what a process did, and nothing observed it.
+  worker lost with the reason "the engine exited while the worker ran"
+  and counts it as a failed attempt. Appending a `worker.finished` for it
+  was rejected: that event says what a process did, and nothing observed
+  it. For the same reason the launcher refuses to continue a session
+  that holds a lost worker, since an orphan may still write to it.
 - **TD6: One run lock file per run, by process id.** SQLite serializes
   appends and `StaleRevisionError` catches a race, but two controllers
   would still both plan the same step and launch it twice before either
   append fails. A lock by process id is checkable on every platform
   (`process.kill(pid, 0)`), needs no daemon, and clears itself when its
-  process is gone.
+  process is gone. The start lock is the same kind of file at the
+  checkpoint root, held while a run is found or created, because two
+  engines that both find no run would otherwise create one each.
 - **TD7: The verification plan is an event.** Grouping could be recomputed
   from the candidates at every fold, but a later engine with a different
   chunking rule would then plan different groups for a run in progress
@@ -703,10 +862,12 @@ Verification.
 - Deferred: whether angle skipping returns as a cost measure, decided on
   the gate's cost per angle.
 - Deferred: the `.cmd` shim case for a Claude Code installed through npm
-  on Windows. The command refuses the shim and names `--executable`; the
-  runtime adapter's `executableArgs` exists for a caller that wants to
-  spawn the shim's target through `node`, and the skill text can say how
-  once a user hits it.
+  on Windows. For a new run the command refuses the shim, and on Windows
+  anything but a `.exe` or `.com`, and names `--executable` with
+  `--executable-arg`, which gives the runtime adapter's `executableArgs`
+  for a caller that spawns the shim's target through `node`; a resumed
+  run keeps the executable it pinned. The skill text can say how once a
+  user hits it.
 
 ## Test Strategy
 
@@ -729,20 +890,23 @@ three CI runners.
   index in two groups, a verdict index twice or missing, a merge that
   drops an index) and the refusal is recorded as `attempt.failed` with the
   reason.
-- Locations (R8): suffix match with forward and backward slashes and an
-  absolute prefix; ambiguity (two scope paths with the same suffix, only
-  the longer matches); a line past the end; a deleted file; an oversized
-  file measured from the worktree; every failure yields `located: false`
-  and keeps the candidate.
-- Grouping: by file, sorted by line, chunks of 8, remainder of 1
-  absorbed, unlocated by raw file; ids stable.
+- Locations (R8): tails tried longest first, with forward and backward
+  slashes and an absolute prefix; a path naming an unchanged file of the
+  worktree, in any case, never pinned to a changed path it ends with; the
+  bare-tail rule; ambiguity without case matching neither; a line past
+  the end; a deleted file; an oversized file measured from the worktree;
+  every failure yields `located: false` and keeps the candidate.
+- Grouping: by scope path, sorted by line; balanced chunks of at most 8
+  for every length from 0 to 100, 9 giving 5 and 4; an invalid chunk size
+  refused; the spellings of one unlocated file, in slashes, `./`, case or
+  an absolute path, grouped together; ids stable.
 - Planner (R1, R2, R5): synthetic folds for every step in the precedence
   order, including: nothing done; a phase running with two units answered
   of nine; a unit with one failure (retry planned); a unit with two
   failures on a degrading role (degradation event planned) and on a
   blocking role (block planned); a blocked run (returns the blocker); a
-  lost worker counted; every phase with no unit (started and finished in
-  one append).
+  lost worker counted; every phase with no unit (started, checked and
+  finished with no worker).
 - Controller through the fakes (R1, R2, R5, R6, R7): a full review on
   each fake runtime reaches a report with the expected worker count and
   phase order; killing the engine after the third finder answers and
@@ -761,7 +925,7 @@ three CI runners.
   `abandon` during a run is refused.
 - Events and fold (R10): every reducer's invalid histories (configured
   twice, finished without start, attempt out of order, a contribution for
-  a unit twice, a verdict for an unknown candidate); the four old
+  a unit twice, a verdict for an unknown candidate); the three old
   fixtures fold with `review: null`; `schema-1-04` folds to its recorded
   state; the golden test refuses the registry change without it.
 - Usage (R6): `summarizeUsage` on the recorded usage of the runtime
@@ -983,9 +1147,9 @@ why they were chosen are recorded here when it does.
   verifier, and one misjudgment spreads. Accepted: the rubric says each
   candidate is judged on its own claim, and the proof of concept ran the
   same grouping.
-- Migration: none for existing checkpoints. The four fixtures fold with
-  `review: null`; a run recorded before this element has no review and
-  `status` says so. No event changes shape; every new kind is version 1.
+- Migration: none for existing checkpoints. The three older fixtures
+  fold with `review: null`; a run recorded before this element has no
+  review and `status` says so. No event changes shape; every new kind is version 1.
 - Migration for installs: the placeholder skill is replaced at the next
   `plugin marketplace update` or directory copy; a user who runs the new
   skill without Node 26 gets Node's own error, and the skill text names
