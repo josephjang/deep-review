@@ -20291,6 +20291,9 @@ var blockerActions = {
   "lock-held": "wait for that engine to finish; the lock clears itself when its process ends",
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
 };
+function pinnedRuntimeAction(runId, executable) {
+  return `make ${executable}, the executable run ${runId} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one; a configured run ignores --executable`;
+}
 var verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
 var verdictSchema2 = external_exports.enum(verdicts);
 var severities = ["critical", "major", "minor"];
@@ -24334,7 +24337,8 @@ async function runReview(options2) {
       }
     }
   } catch (error62) {
-    throw refusalOf(error62);
+    const configuration = state.review?.configuration ?? null;
+    throw refusalOf(error62, configuration === null ? null : { runId, executable: configuration.executable });
   } finally {
     if (inFlight.size > 0) log(`run ${runId}: waiting for ${String(inFlight.size)} worker${inFlight.size === 1 ? "" : "s"} in flight`);
     while (inFlight.size > 0) {
@@ -24348,8 +24352,10 @@ async function runReview(options2) {
     release();
   }
 }
-function refusalOf(error62) {
-  return error62 instanceof PreflightError ? new ReviewRefusedError(`${error62.message}; ${blockerActions["runtime-unqualified"]}`, "runtime-unqualified") : error62;
+function refusalOf(error62, pinned) {
+  if (!(error62 instanceof PreflightError)) return error62;
+  const action = pinned === null ? blockerActions["runtime-unqualified"] : pinnedRuntimeAction(pinned.runId, pinned.executable);
+  return new ReviewRefusedError(`${error62.message}; ${action}`, "runtime-unqualified");
 }
 async function nextSettled(inFlight) {
   const settled = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
@@ -24393,7 +24399,7 @@ async function openRun(context) {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
       const executable = typeof context.executable === "function" ? context.executable() : context.executable;
       const executableArgs = [...context.executableArgs ?? []];
-      const version2 = await qualify2(context.adapter, executable, executableArgs, context);
+      const version2 = await qualify2(context.adapter, executable, executableArgs, context, null);
       configure = { ...resolved, roles: [...resolved.roles], executable, executableArgs, version: version2 };
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
@@ -24418,13 +24424,13 @@ async function resumePinned(runId, pinned, context) {
   if (context.flags.strongModel !== void 0 || context.flags.fastModel !== void 0) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
-  await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context);
+  await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
 }
-async function qualify2(adapter, executable, executableArgs, context) {
+async function qualify2(adapter, executable, executableArgs, context, runId) {
   try {
     return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
   } catch (error62) {
-    throw refusalOf(error62);
+    throw refusalOf(error62, runId === null ? null : { runId, executable });
   }
 }
 function sameDirectory(a, b) {

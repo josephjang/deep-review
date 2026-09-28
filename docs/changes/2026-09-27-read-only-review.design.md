@@ -144,7 +144,9 @@ deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   adapter is kept: the launch records what runs, the resolution happens
   once before it). A resumed configured run neither resolves nor refuses
   the command's executable, `--executable` included, and preflights the
-  one it pinned. An executable a spawn without a shell cannot start is
+  one it pinned; its refusal names the pinned path and the run, and says
+  to make that path qualify again or abandon the run, never to pass
+  `--executable`. An executable a spawn without a shell cannot start is
   refused with a message naming the flag: a `.cmd` or `.bat` shim on
   every platform, and on Windows anything but a `.exe` or `.com` (a
   `.ps1`, `.vbs` or `.js` file, or a file without an extension), which
@@ -626,7 +628,7 @@ same report from the same ledger.
   | `budget` | spend reached the run budget | run again with a higher `--budget-usd`, or abandon |
   | `drift` | the worktree differs from the scope | restore the named files and run again, or abandon and start a new run |
   | `lock-held` | another engine holds the run lock or the start lock | wait for that engine to finish; the lock clears itself when its process ends |
-  | `runtime-unqualified` | the preflight refused the executable | fix the installation or pass `--executable`, then run again |
+  | `runtime-unqualified` | the preflight refused the executable | for a new run, fix the installation or pass `--executable`, then run again; for a configured run, which ignores `--executable`, make the pinned executable qualify again and run again, or abandon and start a new run |
 
   `lock-held` and `runtime-unqualified` are refusals, printed and never
   recorded: before any event, or, for a runtime that stops qualifying
