@@ -2,15 +2,18 @@
 
 **Paths are canonical.** Finders return the same file as absolute,
 repo-relative, or backslash-separated paths. The engine normalizes every
-candidate's `file` to the repo-relative spelling by suffix-matching
-against the changed-file list in the scope block (longest match wins),
-so that dedup, grouping, and the report all agree on one spelling. A
-path that names an unchanged file of the repository is never matched to
-a changed path it merely ends with. A candidate whose file matches no
-changed path, or whose line lies outside that file, is kept and marked
-`unlocated`: it keeps the finder's own spelling, is grouped with the
-other spellings of that path the engine can recognize, is still
-deduplicated and verified, and the report shows the mark.
+candidate's `file` to one repo-relative path by suffix-matching against
+the changed-file list in the scope block and the files the repository
+holds (longest match wins), so that dedup, grouping, and the report all
+agree on one spelling. A path that names an unchanged file of the
+repository is matched to that file, in the repository's own spelling,
+never to a changed path it merely ends with; its line is checked against
+the file, and the candidate is marked `outside the change`. A candidate
+whose file names no file of the repository, or whose line lies past that
+file's end, is kept and marked `unlocated`: it keeps the finder's own
+spelling, is grouped with the other spellings of that path the engine
+can recognize, is still deduplicated and verified, and the report shows
+the mark.
 
 Then a deduplication worker groups near-duplicates (same defect, same
 location, same reason → keep one). Tiebreak by picking the candidate
