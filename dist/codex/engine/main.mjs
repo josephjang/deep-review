@@ -24355,28 +24355,6 @@ function reenterPhase(checkpoint, state, log) {
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}`);
   return append(checkpoint, state, [{ kind: "phase.started", version: 1, payload: { phase, attempt } }]);
 }
-function describeRun(state, adapter, evidencePath) {
-  const status3 = reviewStatus(state);
-  const review2 = state.review;
-  const workers = Object.values(state.workers);
-  const counts = { running: workers.filter((worker) => worker.status === "running").length, finished: workers.filter((worker) => worker.status === "finished").length, lost: workers.filter((worker) => worker.status === "lost").length };
-  const statistics = review2 === null ? null : statisticsOf(state, adapter);
-  const phase = review2 === null ? null : currentPhase(review2);
-  const budgetUsd = review2?.limits.runBudgetUsd ?? null;
-  const reportPath = review2?.report === null || review2?.report === void 0 ? null : evidencePath(review2.report.report);
-  const lines = [
-    `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
-    `Worktree: ${state.worktree}`,
-    review2 === null ? "Review: not configured" : `Runtime: ${review2.configuration.runtime} ${review2.configuration.version}; models ${review2.configuration.models.strong} and ${review2.configuration.models.fast}`,
-    phase === null ? "Phase: none running" : `Phase: ${phase} (attempt ${String(review2.phases[phase].attempt)}, ${review2.phases[phase].status})`,
-    `Workers: ${String(counts.running)} running, ${String(counts.finished)} finished, ${String(counts.lost)} lost`,
-    statistics === null ? "Spend: none" : `Spend: ${statistics.total.costUsd === null ? "no cost reported" : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null ? "" : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? "no tokens reported" : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
-    ...review2?.blocker === null || review2?.blocker === void 0 ? [] : [`Blocker: ${review2.blocker.code}: ${review2.blocker.detail}`, `Action: ${review2.blocker.action}`],
-    ...reportPath === null ? [] : [`Report: ${reportPath}`]
-  ];
-  const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, blocker: review2?.blocker ?? null, report: reportPath, review: review2 };
-  return { lines, json: json2 };
-}
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
@@ -24414,6 +24392,30 @@ function resolveExecutable(name, environment = process.env, platform = process.p
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
+}
+
+// src/review/status.ts
+function describeRun(state, adapter, evidencePath) {
+  const status3 = reviewStatus(state);
+  const review2 = state.review;
+  const workers = Object.values(state.workers);
+  const counts = { running: workers.filter((worker) => worker.status === "running").length, finished: workers.filter((worker) => worker.status === "finished").length, lost: workers.filter((worker) => worker.status === "lost").length };
+  const statistics = review2 === null ? null : statisticsOf(state, adapter);
+  const phase = review2 === null ? null : currentPhase(review2);
+  const budgetUsd = review2?.limits.runBudgetUsd ?? null;
+  const reportPath = review2?.report === null || review2?.report === void 0 ? null : evidencePath(review2.report.report);
+  const lines = [
+    `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
+    `Worktree: ${state.worktree}`,
+    review2 === null ? "Review: not configured" : `Runtime: ${review2.configuration.runtime} ${review2.configuration.version}; models ${review2.configuration.models.strong} and ${review2.configuration.models.fast}`,
+    phase === null ? "Phase: none running" : `Phase: ${phase} (attempt ${String(review2.phases[phase].attempt)}, ${review2.phases[phase].status})`,
+    `Workers: ${String(counts.running)} running, ${String(counts.finished)} finished, ${String(counts.lost)} lost`,
+    statistics === null ? "Spend: none" : `Spend: ${statistics.total.costUsd === null ? "no cost reported" : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null ? "" : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? "no tokens reported" : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
+    ...review2?.blocker === null || review2?.blocker === void 0 ? [] : [`Blocker: ${review2.blocker.code}: ${review2.blocker.detail}`, `Action: ${review2.blocker.action}`],
+    ...reportPath === null ? [] : [`Report: ${reportPath}`]
+  ];
+  const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, blocker: review2?.blocker ?? null, report: reportPath, review: review2 };
+  return { lines, json: json2 };
 }
 
 // src/cli.ts
