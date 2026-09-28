@@ -205,8 +205,9 @@ Claude continuation budget question and the runtime-neutral usage view
   merge and rank, most severe first, with its id, merged ids, verdict,
   evidence line, location and the unlocated or unverified marks), Refuted
   at verification (id, location, summary and the verifier's evidence),
-  Statistics (per phase: workers, wall time, cost where known and tokens),
-  and Limitations (degraded angles and groups, the drift checks, and
+  Statistics (per phase and in total: workers, wall time, counting once
+  the time workers ran at once, cost where known with the number of
+  workers whose cost went unreported, and tokens), and Limitations (degraded angles and groups, the drift checks, and
   anything the run could not do). The skill shows the path and repeats
   nothing of the report in its own words.
 - **R10: Every phase decision is on the ledger and the fold gives the
@@ -369,7 +370,10 @@ Claude continuation budget question and the runtime-neutral usage view
   next invocation resumes, so the cost is time, not correctness.
 - Risk: a run budget that is checked before each launch, not during a
   worker, can be exceeded by up to `concurrency` workers' caps. Accepted;
-  the per-worker cap bounds the overshoot and the report shows the spend.
+  the per-worker cap bounds the overshoot, and the report shows the
+  reported spend and how many workers' cost went unreported. The check
+  sums reported costs only, so a worker that times out, fails before its
+  runtime prints its usage, or is lost with its engine adds nothing to it.
 - Risk: with no cost in USD from Codex, a Codex run has only per-worker
   timeouts and the worker count as its bound. Accepted and reported;
   a token budget can follow when a token price is known.
