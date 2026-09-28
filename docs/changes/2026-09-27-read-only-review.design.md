@@ -939,7 +939,9 @@ Verification.
 
 ## Open Questions
 
-- Open: the change the gate reviews (R14, PD15). Criteria: a merged pull
+- Resolved 2026-09-29: the change the gate reviews (R14, PD15) is
+  colinhacks/zod #6530; the criteria, the candidates and the reasons are
+  in Verification. Criteria: a merged pull
   request of 200 to 800 changed lines in a widely used repository that
   Node and git can clone without credentials, touching more than one
   file, with at least one deletion or replacement (so `REMOVALS` has
@@ -950,7 +952,9 @@ Verification.
   per-role timeouts (600 s, the proof of concept's, which its pilot D5
   first set too low at 180 s). The gate's two runs are the first
   measurement; the policy file is changed by a later commit when they
-  say so.
+  say so. Measured 2026-09-29 (Verification): the Claude gate run spent
+  13.27 USD and its longest worker ran 328 s, the Codex run's 310 s, so
+  neither limit was approached and the policy is unchanged.
 - Open, carried: whether `--max-budget-usd` on a Claude continuation
   counts the whole session (runtime adapter). Nothing here continues a
   session, so the question stays with the element that first does.
@@ -1446,13 +1450,75 @@ Two controller tests were tightened and one added. On the same machine,
 Node 26.10.0, `npm run check` ends at 960 tests, 944 passing and 16
 skipped as before, and `npm run verify` matches the rebuilt bundle.
 
-**R14, the gate on a real change from a well-known open-source
-repository on both runtimes, has not run.** It needs the real Claude Code
-and Codex CLIs signed in, costs real money, and its subject, the pull
-request the Open Questions describe, is the author's to choose. Until it
-runs, the element is complete in its code and its suite but not
-accepted; the two reports' statistics, the repository, the change and
-why they were chosen are recorded here when it does.
+**R14 passed on 2026-09-29: the gate change reached a report on each
+runtime with no hand on either run.**
+
+The change is colinhacks/zod #6530, "fix(v4): parse recursive schemas
+built by a factory", reviewed as the range from its merge base
+`eca96871` to its head `e48a0055`: 7 files, +511/-172, TypeScript. It
+was chosen from five candidates the author was shown (zod #6530 and
+#6587, astral-sh/uv #22042, eslint/eslint #21247, vitest-dev/vitest
+#11218), each a merged fix of 4 to 15 files changing source and tests
+together, in a repository with a root rules file and no submodules.
+zod #6530 stands for the common case of a real fix that carries a
+refactor with it: a core walk, a memoizer and seven object builders
+changed, 300 lines of tests added, a 22 KB `AGENTS.md` for
+`CONVENTIONS`, deletions for `REMOVALS`, and 21 commits and 25 review
+rounds on the pull request as a human baseline. Its description states
+the invariants it relies on, which gives the verifiers claims to test.
+
+Both runs used the shipped bundle, `node dist/<runtime>/engine/main.mjs`
+at engine `0.0.0+eba735c9e667`, on the author's Windows 11 machine with
+Node 26.10.0, one after the other, from a clone checked out at the head.
+Neither retried, degraded or blocked a unit, and each run's nine
+worktree checks found no drift.
+
+| | Claude Code | Codex |
+|---|---|---|
+| Run | `7daab352` | `488b2ac1` |
+| Runtime | claude 2.1.284 | codex-cli 0.157.1 |
+| Models | opus, sonnet | gpt-6-astra, gpt-5.6-terra |
+| Workers | 26 | 27 |
+| Wall seconds | 1274 | 1553 |
+| Longest worker | triage, 328 s | triage, 310 s |
+| Cost | 13.27 USD of 30 | not reported; the budget did not apply |
+| Input tokens (cached) | 7532101 (6435902) | 9254652 (7637504) |
+| Output tokens | 243196 | 99728 |
+| Findings | 28: 17 CONFIRMED, 11 PLAUSIBLE | 35: 33 CONFIRMED, 2 PLAUSIBLE |
+| Refuted at verification | 9 | 2 |
+| Verification groups (sweep) | 9 (3) | 9 (4) |
+
+The two reports agree on the substance. Both confirm that the memoizer
+latches a schema whose walk only assumed a cycle (`memoizer.ts` 256 and
+264), that a lazy is followed one hop and a getter never, so strict
+`z.compile` rejects acyclic schemas (`memoizer.ts` 72 and 140), that
+mini's `.check()` still spreads a def and runs a recursive getter
+early (`mini/schemas.ts:78`), and that each cloned def resolves the
+source's raw shape again (`schemas.ts:2093`). Each also found what
+the other did not: Claude that outputs of a shared input alias once
+the memoizer latches, Codex that eagerly mirrored derived shapes
+snapshot a source that is later changed, and that a child parser that
+throws leaves its entry on the memoizer's global stack. Most findings
+came with a probe the verifier ran against the clone.
+
+Two differences are the runtimes', not the engine's, and are recorded
+for the policy rather than changed here: Codex's verifiers confirmed 33
+of 35 where Claude's confirmed 17 of 28, and Codex's merge-rank kept
+twelve `CONVENTIONS` sites under zod's two comment rules (comment form
+and JSDoc length) as twelve findings, where Claude's folded thirteen
+sites of the same two rules into two.
+
+A shakedown before the gate, on zod #6587 (5 files, +110/-16,
+`--last-commit`) with Claude and the engine run from source, reached a
+report in 737 s for 7.46 USD with 13 findings, 5 of them confirmed by
+probes. Its `CONVENTIONS` finder cited the reviewer's own
+`~/.codex/AGENTS.md` against zod's code, which TD11 allows by listing
+the home directory's rules files; whether a review of another party's
+repository should apply them is left to a later element.
+
+The commit hashes this Verification cites are those on main. The rebase
+merges of PR #5 and PR #7 rewrote 80 of them; each was replaced by the
+commit on main with the same subject and the same patch id.
 
 ## Risks & Migration
 
