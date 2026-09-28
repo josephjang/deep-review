@@ -24377,15 +24377,21 @@ function describeRun(state, adapter, evidencePath) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, resolve as resolve10 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, posix as posix2, resolve as resolve10, win32 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
-function refuseShim(executable, flag = "--executable") {
-  if (shellShims.has(extname(executable).toLowerCase())) {
-    throw new ReviewRefusedError(
-      `${executable} is a ${extname(executable)} shim, which cannot be spawned without a shell; pass ${flag} with the runtime's real executable (for an npm install, the node binary with --executable-arg naming the CLI's entry script)`,
-      "runtime-unqualified"
-    );
+var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
+var unspawnable = (why) => new ReviewRefusedError(
+  `${why}; pass --executable with the runtime's real executable (for an npm install, the node binary with --executable-arg naming the CLI's entry script)`,
+  "runtime-unqualified"
+);
+function refuseShim(executable, platform = process.platform) {
+  const extension = (platform === "win32" ? win32 : posix2).extname(executable);
+  if (shellShims.has(extension.toLowerCase())) {
+    throw unspawnable(`${executable} is a ${extension} shim, which cannot be spawned without a shell`);
+  }
+  if (platform === "win32" && !windowsSpawnable.has(extension.toLowerCase())) {
+    throw unspawnable(`${executable} is ${extension === "" ? "a file without an extension" : `a ${extension} file`}, and Windows starts only a .exe or .com without a shell`);
   }
   return executable;
 }
@@ -24393,7 +24399,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   if (isAbsolute4(name) || name.includes("/") || name.includes("\\")) {
     const absolute = resolve10(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
-    return refuseShim(realpathSync3.native(absolute));
+    return refuseShim(realpathSync3.native(absolute), platform);
   }
   const path = spellingsOf(environment, "PATH", platform).map(([, value]) => value ?? "").find((value) => value.length > 0) ?? "";
   const directories = path.split(delimiter).filter((directory) => directory.length > 0);
@@ -24401,7 +24407,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   for (const directory of directories) {
     for (const extension of extensions) {
       const candidate = join16(directory.replaceAll('"', ""), `${name}${extension}`);
-      if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate));
+      if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
