@@ -25,7 +25,7 @@ import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock } from './prompts.ts';
 import { renderReport } from './report.ts';
-import { runSpendUsd, statisticsOf } from './spend.ts';
+import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { driftBlocker, nextStep, type Live, type Unit } from './steps.ts';
 import { blockerActions, unitName, type Phase } from './vocabulary.ts';
@@ -159,7 +159,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 
     for (;;) {
       const review = state.review!;
-      const live: Live = { running: new Set(inFlight.keys()), spendUsd: runSpendUsd(state, adapter) };
+      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter) };
       const step = nextStep(review, live);
       switch (step.kind) {
         case 'blocked':

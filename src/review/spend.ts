@@ -9,8 +9,9 @@
  * billed but reports no cost. Its cost is unknowable, so it is left out of
  * every sum and counted instead, and the report says the run cost more
  * than its totals show. A worker whose process never started, a failed
- * spawn, spent nothing and is not counted. The budget check sums the
- * reported costs alone (the design's budget check, R6).
+ * spawn, spent nothing and is not counted. The budget check (R6) counts
+ * each finished worker of those at its per-worker budget instead, and
+ * names the lost ones without charging them: see `budgetSpendOf`.
  */
 import type { Spend } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
@@ -101,13 +102,60 @@ export function spendOf(workers: readonly SettledWorker[], adapter: Pick<Runtime
   };
 }
 
+/** What the run budget check counts, and what it could not price. */
+export interface BudgetSpend {
+  /** The USD the check compares with the run budget, or null on a runtime that reports no cost in USD, which has no run budget. */
+  readonly usd: number | null;
+  /** The finished workers that ran but reported no cost, each counted in `usd` at the per-worker budget its launch recorded. */
+  readonly charged: number;
+  /** The workers lost with an earlier engine: nothing observed how they ended or what they cost, so `usd` leaves them out. */
+  readonly lost: number;
+}
+
 /**
- * The run's spend in USD so far, for the budget check: the costs of every
- * finished worker that reported one, or null when none did. A worker whose
- * cost is unreported adds nothing here; the report counts it.
+ * The run's spend so far as the budget check counts it (R6): every cost a
+ * finished worker reported, and, for a finished worker that ran (its
+ * process started) but reported no cost, such as one that timed out or
+ * failed before the runtime printed its usage, the per-worker budget its
+ * launch recorded, the most the runtime let it spend. Without that charge a
+ * run whose workers keep timing out would never reach its budget. A worker
+ * lost with an earlier engine is counted apart and not charged, so that a
+ * resume after an interruption is not blocked by workers that may have
+ * spent little; a worker whose process never started spent nothing; and a
+ * launch that recorded no per-worker budget, which a runtime that reports
+ * cost in USD and caps each worker never makes, has none to charge.
  */
-export function runSpendUsd(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): number | null {
-  return spendOf(settledWorkers(state), adapter).costUsd;
+export function budgetSpendOf(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): BudgetSpend {
+  if (!adapter.capabilities.costInUsd) return { usd: null, charged: 0, lost: 0 };
+  const settled = settledWorkers(state);
+  const finished = settled.filter(isFinished);
+  let usd = 0;
+  let charged = 0;
+  for (const worker of finished) {
+    const reported = usageOf(worker, adapter).costUsd;
+    if (reported !== null) {
+      usd += reported;
+    } else if (worker.finish.termination !== 'not-started' && worker.launch.budgetUsd !== null) {
+      usd += worker.launch.budgetUsd;
+      charged += 1;
+    }
+  }
+  return { usd: cents(usd), charged, lost: settled.length - finished.length };
+}
+
+const counted = (count: number, one: string, many: string): string => `${String(count)} ${count === 1 ? one : many}`;
+
+/**
+ * What the budget check counted beyond the reported costs, for the budget
+ * blocker and `status`: the workers charged at their caps and the lost
+ * ones left out, or null when it counted the reported costs alone.
+ */
+export function budgetSpendNote({ charged, lost }: Pick<BudgetSpend, 'charged' | 'lost'>): string | null {
+  const parts = [
+    ...(charged > 0 ? [`counting ${counted(charged, 'worker that reported no cost at its per-worker cap', 'workers that reported no cost at their per-worker caps')}`] : []),
+    ...(lost > 0 ? [`${counted(lost, 'worker lost with an earlier engine is', 'workers lost with an earlier engine are')} not counted`] : []),
+  ];
+  return parts.length === 0 ? null : parts.join('; ');
 }
 
 /**

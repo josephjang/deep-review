@@ -8,6 +8,7 @@
 import type { Blocker } from '../checkpoint/events.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
+import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
 import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, singleUnitKey, unitName, type Phase, type ReviewRole, type VerificationPhase } from './vocabulary.ts';
 
@@ -25,8 +26,8 @@ export interface Unit {
 export interface Live {
   /** The unit names (`phase:key`) whose worker this engine has in flight, launched or about to be. */
   readonly running: ReadonlySet<string>;
-  /** The run's spend in USD so far, or null when the runtime reports no cost. */
-  readonly spendUsd: number | null;
+  /** The run's spend so far as the budget check counts it (`budgetSpendOf`); its `usd` is null when the runtime reports no cost. */
+  readonly spend: BudgetSpend;
 }
 
 /** What a degrading role records for a unit that failed twice: its angle not run, or its group unverified. */
@@ -202,9 +203,14 @@ export function workerFailedBlocker(unit: Unit, state: UnitState | undefined): B
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions['worker-failed'] };
 }
 
-/** The blocker a phase finishes with when the spend reached the run budget. */
-export function budgetBlocker(spendUsd: number, budgetUsd: number): Blocker {
-  return { code: 'budget', detail: `spent ${usd(spendUsd)} USD of the ${usd(budgetUsd)} USD run budget`, action: `run the command again with --budget-usd above ${usd(spendUsd)}, or abandon the run` };
+/** The blocker a phase finishes with when the spend the budget check counts reached the run budget, naming the workers it counted at their caps and the lost ones it left out. */
+export function budgetBlocker(spend: BudgetSpend & { readonly usd: number }, budgetUsd: number): Blocker {
+  const note = budgetSpendNote(spend);
+  return {
+    code: 'budget',
+    detail: `spent ${usd(spend.usd)} USD of the ${usd(budgetUsd)} USD run budget${note === null ? '' : `, ${note}`}`,
+    action: `run the command again with --budget-usd above ${usd(spend.usd)}, or abandon the run`,
+  };
 }
 
 /** The blocker a phase finishes with when the worktree drifted from the scope: the drifted files, as many as the detail holds, and the count of the rest. */
@@ -250,8 +256,9 @@ export function nextStep(review: ReviewState, live: Live): Step {
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     const { concurrency, runBudgetUsd } = review.limits;
-    if (runBudgetUsd !== null && live.spendUsd !== null && live.spendUsd >= runBudgetUsd) {
-      return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(live.spendUsd, runBudgetUsd) };
+    const countedUsd = live.spend.usd;
+    if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
+      return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker({ ...live.spend, usd: countedUsd }, runBudgetUsd) };
     }
     const capacity = concurrency - live.running.size;
     return capacity > 0 ? { kind: 'launch', units: launchable.slice(0, capacity) } : { kind: 'await' };

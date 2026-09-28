@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseUnitLabel, unitLabel } from '../../src/review/labels.ts';
 import type { WorkerState } from '../../src/checkpoint/fold.ts';
-import { runSpendUsd, settledWorkers, spendOf, statisticsOf, usageOf } from '../../src/review/spend.ts';
+import { budgetSpendNote, budgetSpendOf, settledWorkers, spendOf, statisticsOf, usageOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
-import { History, configuration, configured, launch, reported, scope, worker } from '../helpers/review-history.ts';
+import { History, configuration, configured, finish, launch, reported, scope, worker } from '../helpers/review-history.ts';
 
 type Finished = Extract<WorkerState, { status: 'finished' }>;
 const finishedOf = (workers: readonly WorkerState[]): Finished[] => workers.filter((entry): entry is Finished => entry.status === 'finished');
@@ -39,14 +39,14 @@ describe('spend', () => {
     // Fifteen workers reported 0.5 USD and 100 tokens of each kind, the FOOTGUNS finder whose answer the schema refused among them; the timed-out one reported nothing, and one was lost.
     // Every synthetic worker ran over the same 30 seconds, so the wall time is 30, not 16 times 30.
     assert.deepEqual(spend, { workers: 16, seconds: 30, costUsd: 7.5, costUnreported: 2, inputTokens: 3000, cachedInputTokens: 1500, outputTokens: 1500 });
-    assert.equal(runSpendUsd(state, claudeAdapter), 7.5);
-    assert.equal(runSpendUsd(configured().fold(), claudeAdapter), null, 'no worker, no spend');
+    assert.deepEqual(budgetSpendOf(state, claudeAdapter), { usd: 15.5, charged: 1, lost: 1 }, 'the timed-out finder is charged its 8 USD cap; the lost one is named, not charged');
+    assert.deepEqual(budgetSpendOf(configured().fold(), claudeAdapter), { usd: 0, charged: 0, lost: 0 }, 'no worker, nothing spent');
     const floating = configured().worker(1, 'triage triage:SCAN', {}, 0.1).worker(2, 'sweep sweep:sweep', {}, 0.2).fold();
-    assert.equal(runSpendUsd(floating, claudeAdapter), 0.3);
+    assert.equal(budgetSpendOf(floating, claudeAdapter).usd, 0.3);
   });
 
   it('rounds a cost half a cent up, even where the float times a hundred falls just below the half', () => {
-    const costOf = (usd: number): number | null => runSpendUsd(configured().worker(1, 'triage triage:SCAN', {}, usd).fold(), claudeAdapter);
+    const costOf = (usd: number): number | null => budgetSpendOf(configured().worker(1, 'triage triage:SCAN', {}, usd).fold(), claudeAdapter).usd;
     // 1.005 * 100 is 100.49999999999999 and 2.675 * 100 is 267.49999999999997 in binary floating point.
     assert.equal(costOf(1.005), 1.01);
     assert.equal(costOf(2.675), 2.68);
@@ -79,7 +79,7 @@ describe('spend', () => {
 
   it('reports no cost through a runtime that reports none, and says the budget did not apply', () => {
     const state = reported().fold();
-    assert.equal(runSpendUsd(state, codexAdapter), null);
+    assert.deepEqual(budgetSpendOf(state, codexAdapter), { usd: null, charged: 0, lost: 0 }, 'a runtime that reports no cost has no budget to count against');
     assert.equal(statisticsOf(state, codexAdapter).budgetApplied, false);
     assert.equal(statisticsOf(state, claudeAdapter).budgetApplied, true);
   });
@@ -108,7 +108,7 @@ describe('spend', () => {
     assert.equal(statistics.total.costUnreported, 2);
   });
 
-  it('counts every settled worker whose cost is unknown, and leaves it out of the budget sum', () => {
+  it('counts every settled worker whose cost is unknown, and leaves it out of the reported sums', () => {
     const history = configured()
       .worker(1, 'triage triage:SCAN', {}, 1.25)
       .worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' })
@@ -126,9 +126,35 @@ describe('spend', () => {
     assert.equal(finders.inputTokens, 5, 'tokens are summed where reported, independent of cost');
     assert.equal(statistics.total.costUnreported, 3);
     assert.equal(statistics.total.costUsd, 1.25);
-    assert.equal(runSpendUsd(state, claudeAdapter), 1.25, 'the budget check sums the reported costs alone');
     assert.equal(statisticsOf(state, codexAdapter).total.costUnreported, null, 'a runtime that reports no cost has no unreported count');
     assert.equal(spendOf([], claudeAdapter).costUnreported, 0);
+  });
+
+  it('charges the budget check each worker that ran and reported no cost at its per-worker cap, and names the lost ones without charging them', () => {
+    const notStarted = { outcome: 'failed', termination: 'not-started', exitCode: null, signal: null, output: null, usage: null, error: 'spawn claude ENOENT' };
+    const state = configured()
+      .worker(1, 'triage triage:SCAN', {}, 1.25)
+      .worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' })
+      .worker(3, 'finder-DESIGN finders:DESIGN', { outcome: 'failed', exitCode: 1, output: null, usage: JSON.stringify({ usage: { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1 }, modelUsage: null }), error: 'no envelope' })
+      .add('worker.launched', launch(worker(4), 'finder-ALTITUDE finders:ALTITUDE'))
+      .add('worker.lost', { workerId: worker(4), phase: 'finders', key: 'ALTITUDE', reason: 'the engine exited while the worker ran' })
+      .worker(5, 'finder-WRAPPERS finders:WRAPPERS', notStarted)
+      .add('worker.launched', launch(worker(6), 'finder-EFFICIENCY finders:EFFICIENCY'))
+      .fold();
+    // 1.25 reported, and the timeout and the failure that named no cost at their 8 USD caps; the lost, the never-started and the running worker add nothing.
+    assert.deepEqual(budgetSpendOf(state, claudeAdapter), { usd: 17.25, charged: 2, lost: 1 });
+    assert.equal(statisticsOf(state, claudeAdapter).total.costUsd, 1.25, 'the report still sums what was reported');
+    assert.deepEqual(budgetSpendOf(state, codexAdapter), { usd: null, charged: 0, lost: 0 });
+    const uncapped = configured().add('worker.launched', { ...launch(worker(1), 'triage triage:SCAN'), budgetUsd: null }).add('worker.finished', { ...finish(worker(1), { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' }) }).fold();
+    assert.deepEqual(budgetSpendOf(uncapped, claudeAdapter), { usd: 0, charged: 0, lost: 0 }, 'a launch with no cap has none to charge');
+  });
+
+  it('says what the budget check counted beyond the reported costs, or nothing when it counted only those', () => {
+    assert.equal(budgetSpendNote({ charged: 0, lost: 0 }), null);
+    assert.equal(budgetSpendNote({ charged: 1, lost: 0 }), 'counting 1 worker that reported no cost at its per-worker cap');
+    assert.equal(budgetSpendNote({ charged: 2, lost: 0 }), 'counting 2 workers that reported no cost at their per-worker caps');
+    assert.equal(budgetSpendNote({ charged: 0, lost: 1 }), '1 worker lost with an earlier engine is not counted');
+    assert.equal(budgetSpendNote({ charged: 2, lost: 3 }), 'counting 2 workers that reported no cost at their per-worker caps; 3 workers lost with an earlier engine are not counted');
   });
 
   it('does not count a worker whose process never started as unreported, since it spent nothing', () => {
