@@ -1437,6 +1437,15 @@ new location cases that need a file system telling names apart by case
 alone, which this one does not; `npm run verify` matches. Continuous
 integration has not run for these commits either.
 
+On 2026-09-29, recording the accepted symlink pin (Risks & Migration)
+showed that a configured run refused as `runtime-unqualified`, on resume
+or mid-run, was told to pass `--executable`, which it ignores. `5254bb2`
+gives that refusal its own action: make the pinned path qualify again, or
+abandon the run and start a new one; a new run keeps the table's action.
+Two controller tests were tightened and one added. On the same machine,
+Node 26.10.0, `npm run check` ends at 960 tests, 944 passing and 16
+skipped as before, and `npm run verify` matches the rebuilt bundle.
+
 **R14, the gate on a real change from a well-known open-source
 repository on both runtimes, has not run.** It needs the real Claude Code
 and Codex CLIs signed in, costs real money, and its subject, the pull
@@ -1467,6 +1476,20 @@ why they were chosen are recorded here when it does.
   with every run until a retention rule exists. Accepted, with no code
   change: each alternative TD3 names is unmeasured or worse, and the
   gate's runs (R14) decide the cap, which then decides this cost.
+- Risk: `resolveExecutable` records the real path of the executable it
+  finds, not the symlink it found, so a run is pinned to the file a
+  symlink named when the run was configured. Claude Code's native
+  installer links `claude` to a versioned file, and an automatic update
+  may remove that file before a resume; the resumed run's preflight then
+  refuses it as `runtime-unqualified`. Accepted by the author on
+  2026-09-29: the pin is what makes a resumed run launch the binary it
+  started with, which is the point of pinning (runtime adapter, TD10), and
+  following the symlink instead would let an update change the runtime's
+  version in the middle of a run. The cost is that such a run can only
+  resume once that version is installed again at the same path, or be
+  abandoned and started anew; a resumed run ignores `--executable`, so
+  that flag is no way out, and the refusal of a configured run says so
+  instead of the new run's action.
 - Risk: the `SCAN` worker, asked for a lead per angle and its own
   review, gives weak leads when the diff supports none. Mitigation: the
   task says `null` is the right answer when no lead is apparent, and a
