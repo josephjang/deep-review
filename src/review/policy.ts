@@ -15,7 +15,7 @@ import { maxBudgetUsd, maxTimeoutMs } from '../runtime/contract.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import { roleKeySchema } from '../roles/manifest.ts';
 import { InvalidPolicyError } from './errors.ts';
-import { angles, roleOfAngle } from './vocabulary.ts';
+import { reviewRoles } from './vocabulary.ts';
 
 /** The policy's file name under the roles root. */
 export const policyFileName = 'policy.json';
@@ -24,9 +24,6 @@ export const policyFileName = 'policy.json';
 export const tiers = ['strong', 'fast'] as const;
 export const tierSchema = z.enum(tiers);
 export type Tier = z.infer<typeof tierSchema>;
-
-/** The roles the read-only review runs, in phase order: the policy must name exactly these. */
-export const reviewRoles: readonly string[] = [...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank'];
 
 export const rolePolicySchema = z.strictObject({
   tier: tierSchema,
@@ -115,7 +112,7 @@ export function rolesDigest(roles: readonly Pick<AssembledRole, 'key' | 'sha256'
  */
 export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags = {}): ResolvedPolicy {
   const named = Object.keys(policy.roles).sort();
-  const expected = [...reviewRoles].sort();
+  const expected: string[] = [...reviewRoles].sort();
   const missing = expected.filter((role) => !named.includes(role));
   const extra = named.filter((role) => !expected.includes(role));
   if (missing.length > 0 || extra.length > 0) {

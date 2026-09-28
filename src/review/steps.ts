@@ -9,7 +9,7 @@ import type { Blocker } from '../checkpoint/events.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
-import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, singleUnitKey, unitName, type Phase, type VerificationPhase } from './vocabulary.ts';
+import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, singleUnitKey, unitName, type Phase, type ReviewRole, type VerificationPhase } from './vocabulary.ts';
 
 /** How many times a unit is tried before its role's rule decides (R5, PD6). */
 export const maxAttempts = 2;
@@ -18,7 +18,7 @@ export const maxAttempts = 2;
 export interface Unit {
   readonly phase: Phase;
   readonly key: string;
-  readonly role: string;
+  readonly role: ReviewRole;
   /** Whether two failures degrade the unit (an angle not run, a group unverified) rather than block the run. */
   readonly degrades: boolean;
 }
@@ -55,7 +55,7 @@ export function groupsOf(review: ReviewState, phase: VerificationPhase): readonl
 
 /** The units of a phase (R2): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
-  const single = (role: string): Unit[] => [{ phase, key: singleUnitKey(phase), role, degrades: false }];
+  const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role, degrades: false }];
   switch (phase) {
     case 'triage':
       return single('triage');

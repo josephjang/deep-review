@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { StructuralCheckError } from '../../src/review/errors.ts';
-import { reviewRoles } from '../../src/review/policy.ts';
 import {
   checkDeduplication,
   checkMergeRank,
@@ -16,7 +15,7 @@ import {
   triageOutputSchema,
   verifierOutputSchema,
 } from '../../src/review/schemas.ts';
-import { finderAngles } from '../../src/review/vocabulary.ts';
+import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
 import { compileOutputSchema } from '../../src/runtime/contract.ts';
 
 const candidate = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ file: 'src/a.ts', line: 3, summary: 's', detail: 'd', ...change });
@@ -29,7 +28,12 @@ describe('the output schemas', () => {
       assert.equal(compiled.json.type, 'object', role);
       assert.equal(compiled.json.additionalProperties, false, role);
     }
-    assert.throws(() => outputSchemaOf('fixer'), /No output schema for role fixer/);
+  });
+
+  it('does not compile a role the review does not run', () => {
+    // The typecheck is the assertion: the directive fails `npm run typecheck` if `outputSchemaOf` ever accepts a role outside `reviewRoles`.
+    // @ts-expect-error: the fix pass's roles have no review output schema
+    void (() => outputSchemaOf('fixer'));
   });
 
   it('gives every finder one schema, the triage its own, and the sweep one with an angle per candidate', () => {
