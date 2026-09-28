@@ -70,5 +70,5 @@ None.
 - Group g1 of sweep-verification was not verified: 2 attempts did not complete: failed; failed again. Its candidates (SWEEP-1, SWEEP-2) carry PLAUSIBLE with the unverified mark.
 - Worktree checks: 9, none found a difference from the reviewed change.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
-- Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above and the budget check leave such workers out, so the run cost more than the totals show.
+- Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
 - Unlocated candidates on a file outside the reviewed change: SWEEP-1 (C:\elsewhere\b.ts:9).

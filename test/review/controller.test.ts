@@ -281,6 +281,22 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.doesNotMatch(text, /did not apply|No run budget was set/);
   });
 
+  it('charges a timed-out worker, which reports no cost, at its per-worker cap, so timeouts reach the run budget', async () => {
+    // Every worker reports 0.5 USD but REMOVALS, which hangs until its timeout; every role is capped at 8 USD.
+    // One worker at a time, so REMOVALS, the first angle, is the only finder launched before its timeout settles.
+    box.script({ '*': { costUsd: 0.5 }, 'finder-REMOVALS': { hang: true } });
+    const blocked = await box.review('claude', { flags: { budgetUsd: 8, concurrency: 1 } });
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'budget', JSON.stringify(blocked));
+    // The triage reported 0.50 USD and the timeout counts its 8 USD cap, so REMOVALS is not tried again.
+    assert.equal(blocked.blocker.detail, 'spent 8.50 USD of the 8.00 USD run budget, counting 1 worker that reported no cost at its per-worker cap');
+    const state = box.run();
+    assert.equal(Object.values(state.workers).length, 2, 'the triage and the one REMOVALS worker');
+    assert.equal(state.review!.anglesNotRun.REMOVALS, undefined, 'the angle is blocked on the budget, not given up');
+    const lines = describeRun(state, claudeAdapter, () => '').lines;
+    assert.ok(lines.includes('Budget check: 8.50 USD of 8.00 USD, counting 1 worker that reported no cost at its per-worker cap'), lines.join('\n'));
+    assert.ok(lines.some((line) => /^Spend: 0\.50 USD; /.test(line)), lines.join('\n'));
+  });
+
   it('blocks with drift when a scope file changes between phases, and completes once it is restored', async () => {
     const marker = join(box.directory, 'triage-may-answer');
     box.script({ triage: { waitFor: marker } });
