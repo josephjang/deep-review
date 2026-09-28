@@ -161,12 +161,16 @@ Claude continuation budget question and the runtime-neutral usage view
 - **R5: A worker that does not complete is run once more as a fresh
   worker; a second failure degrades by role and never leaves the run
   without an operator action.** A `failed`, `timeout` or `budget`
-  outcome, or an answer the schema rejects, is retried once with a new
-  worker and the same task. On the second failure: a finder's angle is
-  recorded as not run and the review continues; a verifier's group is
-  recorded as unverified and its candidates carry `PLAUSIBLE` with an
-  `unverified` mark, as the prompts already say; the triage,
-  deduplication, sweep and merge-rank workers block the run. A worker
+  outcome, or an answer the schema or a structural check rejects, is
+  retried once with a new worker and the same task. A verifier's answer
+  is all or nothing: one that misses a candidate of its group is
+  discarded whole, like a worker that dies, and none of its verdicts is
+  recorded. On the second failure: a finder's angle is recorded as not
+  run and the review continues; a verifier's group is recorded as
+  unverified and every one of its candidates carries `PLAUSIBLE` with an
+  `unverified` mark, including any a discarded answer refuted, as the
+  verifier's prompt and task tell it; the triage, deduplication, sweep
+  and merge-rank workers block the run. A worker
   lost with its engine (an interruption, a hard kill) uses one of its
   unit's two attempts too, so retries stay bounded, but a unit whose
   attempts run out with a lost worker among them blocks the run whatever
@@ -207,11 +211,17 @@ Claude continuation budget question and the runtime-neutral usage view
   attempt.
 - **R8: Candidate locations are normalized and checked, and a candidate
   is never dropped for its location.** A finder's `file` is matched to
-  one changed path of the scope, by suffix, accepting backslashes; its
-  `line` must lie within the after state of that file. A candidate whose
-  file matches no changed path, or whose line is outside the file, keeps
-  its verdict path and is marked unlocated, in the verifier's input and
-  in the report. No anchor text is required.
+  one canonical path of the repository, accepting backslashes and
+  absolute or otherwise prefixed spellings: a changed path of the scope,
+  or an unchanged file the worktree holds, in the worktree's own
+  spelling. Its `line` must lie within that file: a changed file's after
+  state, or an unchanged file as the worktree holds it. A candidate on an
+  unchanged file is located and marked outside the change. A candidate
+  whose file names no single file of the repository, names a file the
+  change deletes, or whose line is past the file's end keeps its own path
+  and line and is marked unlocated, in the verifier's input and in the
+  report, so unlocated means only that the repository has no such file
+  and line. No anchor text is required.
 - **R9: The report is a Markdown file in the evidence store, named by
   one event, and the command prints its path.** The engine renders it
   deterministically from the fold. Its sections, in order: the header
@@ -219,12 +229,15 @@ Claude continuation budget question and the runtime-neutral usage view
   (each of the ten, run or not run, with its lead and the reason when it
   did not run), Findings (every `CONFIRMED` or `PLAUSIBLE` finding after
   merge and rank, most severe first, with its id, merged ids, verdict,
-  evidence line, location and the unlocated or unverified marks), Refuted
+  evidence line, location and the outside-the-change, unlocated or
+  unverified marks), Refuted
   at verification (id, location, summary and the verifier's evidence),
   Statistics (per phase and in total: workers, wall time, counting once
   the time workers ran at once, cost where known with the number of
-  workers whose cost went unreported, and tokens), and Limitations (degraded angles and groups, the drift checks, and
-  anything the run could not do). The skill shows the path and repeats
+  workers whose cost went unreported, and tokens), and Limitations
+  (degraded angles and groups, the drift checks, the candidates outside
+  the change and the unlocated ones by why, and anything the run could
+  not do). The skill shows the path and repeats
   nothing of the report in its own words.
 - **R10: Every phase decision is on the ledger and the fold gives the
   run's next step.** The pinned policy, each phase's start and end with
@@ -320,7 +333,14 @@ Claude continuation budget question and the runtime-neutral usage view
   nothing here needs a session to continue. A finder or a verifier is
   degraded rather than fatal because the pipeline defines a meaning for
   their absence (an angle not run, a group unverified); the phases that
-  every later step depends on block instead.
+  every later step depends on block instead. A verifier's answer that
+  misses a candidate is one such failure, discarded whole. Keeping the
+  verdicts it did give was rejected: it needs a new version of the
+  verdicts event, a planner state for a partly answered group and a rule
+  for numbering its retry, and the all-or-nothing rule never drops a
+  candidate. The cost is accepted: a candidate the discarded answer
+  refuted with evidence reaches the report as `PLAUSIBLE`, unverified,
+  when the retry fails too.
 - **PD7: Concurrency defaults to 4 and the run has a budget.** Unbounded
   concurrency was rejected without a measurement of rate limits and local
   load. A per-worker cap alone, as the proof of concept had, was rejected:
@@ -358,13 +378,21 @@ Claude continuation budget question and the runtime-neutral usage view
   A flag-configured list was rejected for now: the prompt would need a
   variable where it names the files, and no repository has asked for
   another name.
-- **PD12: Locations are normalized and checked lightly, and never
-  dropped.** Requiring an anchor string, as the proof of concept did, was
-  rejected: it produced the CRLF defect (D4) and discarded a valid
-  candidate over whitespace. No check at all was rejected: a file the
-  scope does not contain breaks grouping by file. An unlocated candidate
-  still reaches a verifier, which can read the code, and the report
-  shows the mark.
+- **PD12: Locations are normalized against the whole repository,
+  checked lightly, and never dropped.** Requiring an anchor string, as
+  the proof of concept did, was rejected: it produced the CRLF defect
+  (D4) and discarded a valid candidate over whitespace. No check at all
+  was rejected: two spellings of one file would break grouping by file.
+  Matching against the changed paths alone, and leaving a candidate on
+  an unchanged file unlocated, was the first design and was rejected
+  after review: a real caller that a `RIPPLE` or `WRAPPERS` finder
+  names and a path nobody holds shared one mark, the report printed the
+  finder's raw spelling, its line was never checked, and two absolute
+  spellings of one caller went to two verifiers. Reusing `located` alone
+  and deriving whether a file is in the change was rejected, since it
+  would quietly change what the recorded `file` means; the candidate
+  records `inScope` instead. An unlocated candidate still reaches a
+  verifier, which can read the code, and the report shows the mark.
 - **PD13: One runtime per run.** Mixing runtimes by role was rejected for
   now: the policy would need a runtime column, the flags would double, and
   nothing measured says a mix is better. It can be added as one column
@@ -411,6 +439,11 @@ Claude continuation budget question and the runtime-neutral usage view
   `status` name both, and without the charge a run whose workers keep
   timing out would have no budget at all. A worker lost with its engine
   is not charged, so its spend, unknowable, is outside the check.
+- Risk: a candidate outside the change points at a file the scope did
+  not freeze, so no worktree check covers it, and an edit to it during
+  the run goes unseen. Accepted; its line is checked against the file as
+  the worktree held it when the answer was recorded, and the report's
+  Limitations list such candidates and say so.
 - Risk: an answer set aside after a drift was paid for and is paid for
   again when its unit reruns, and an edit made and undone while one
   worker runs is never seen. Accepted; recording an answer computed
