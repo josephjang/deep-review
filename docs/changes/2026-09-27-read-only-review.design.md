@@ -1164,14 +1164,18 @@ from its text, each recorded here rather than silently:
   same append as the check. A resumed engine re-enters a running or
   blocked phase with `phase.started` at the next attempt, which is what
   makes it check the tree again and clears a blocker; the attempt counts
-  entries into the phase, not worker attempts.
+  entries into the phase, not worker attempts. Since `1831d56` the
+  check is appended alone and the planner finishes the phase blocked
+  once no worker is in flight, as it does for a drift found before an
+  answer is recorded.
 - **Unit attempts are counted per unit, and reset by a block.** Failures
   are `attempt.failed` events and lost workers, counted per unit across
   the phase's attempts, so an interruption does not give a unit fresh
   attempts. A `phase.started` on a blocked phase forgets its units'
   failures, which is what "run again (two fresh attempts)" promises the
   operator after `worker-failed`; an interruption resumes with the count
-  intact.
+  intact. Since `ec3ab73` a unit that runs out with a lost worker among
+  its failures blocks with `worker-failed` instead of degrading.
 - **A lost worker carries its unit.** `worker.lost@1` names the phase and
   unit key parsed from the launch label, `<role> <phase>:<key>`, and the
   fold counts it as a failed attempt of that unit; a label the parser
@@ -1355,6 +1359,79 @@ cases, five symlink cases (the four above and `isFile`'s), the two
 assembler cases bound to a platform, and the run lock's real-`SIGTERM`
 case, which Windows cannot deliver; `npm run verify` matches.
 Continuous integration has not run for these commits either.
+
+The review's audit left eight questions only the author could decide,
+and the author answered each on 2026-09-28. Six took code, in eight
+commits after `21cea41`, each with `dist/` rebuilt in the same commit;
+`16e31b4` was written as `f24209f` on its own branch from `21cea41`
+and integrated after `1831d56`. The design above is corrected to the
+code they leave. The commits, in order, with the decision each
+implements:
+
+- `ec3ab73` (interruption and coverage) a lost worker still uses an
+  attempt, but a unit that runs out with a loss among its failures
+  blocks with `worker-failed` instead of degrading; failures in the
+  fold carry `lost`.
+- `67fce66` (budget and unreported cost) the budget check charges a
+  finished worker that ran but reported no cost at its per-worker cap,
+  and names the lost ones without charging them; `status` gains the
+  `Budget check:` line.
+- `1831d56` (drift while workers run) the scope files are compared
+  again before each answer is recorded; an answer after a drift is set
+  aside, the attempt blocks once the workers in flight settle, and the
+  unit reruns without using an attempt.
+- `16e31b4` (locks) each lock is an empty SQLite file held inside
+  `BEGIN EXCLUSIVE`; the pid check, the takeover and the grace period
+  are gone, and the test of a stale lock with them.
+- `4c66055` text (verifier answers are all or nothing):
+  `phase2-verify.md` says an answer that misses a candidate is
+  discarded whole and the whole group then goes unverified.
+- `49f117d` (the same decision) the verifier task says an answer that
+  misses an index is discarded whole and the group is run again.
+- `ddddf86` (locations outside the change) a candidate on an unchanged
+  file is located on its canonical path with a checked line and
+  `inScope: false` on `candidates.recorded@1`; unlocated means only no
+  such file and line.
+- `89834d1` text (the same decision) `phase2-verify.md` says such a
+  candidate is marked outside the change.
+
+Of the other two, the accepted overshoot of the run budget by up to
+`concurrency` workers' caps was kept as the requirements' Risks and the
+decision above record it, with no change, and the storage the frozen
+prompts cost was recorded in TD3 and the Risks, with no code change.
+The documentation commits that follow the eight bring this proposal
+and the README in line with them.
+
+The two text commits changed the prompts of the roles that include
+`phase2-verify.md`. After `4c66055` the deduplication and verifier
+prompt was 15480 bytes; after `89834d1`, from `npm run roles`:
+
+| Role | Fragments | Bytes | SHA-256 |
+|---|---|---|---|
+| deduplication, verifier | 6 | 15658 | `0891f73b3af710f5ccfd850e76ae204543b75f40d47917b73a74e4147511a974` |
+
+Every other role keeps its hash from the tables above, merge-rank the
+one `b2abbbe` gave it, and the `rolesDigest` a run pins changes with
+this one.
+
+The fixture `schema-1-04` was regenerated in place again, since it is
+still this element's own and unreleased: `ec3ab73` gave each unit
+failure in its `expected.json` a `lost` flag, and its golden run now
+degrades `FOOTGUNS` on two real failures and loses the first
+`WRAPPERS` worker, whose second answers, as this engine records them;
+`ddddf86` gave every recorded candidate `inScope` and added `RIPPLE-3`
+on the unchanged `src/caller.ts`, spelled absolute by its finder and
+verified in a group of its own. No event kind was added, so its
+identity and registry digest are unchanged, and the three older
+fixtures still fold with `review: null`.
+
+After the last of them, on the same machine and Node, `npm run check`
+ends at 957 tests, 941 passing and 16 skipped: the six POSIX signal
+cases, the five symlink cases, the two assembler cases bound to a
+platform and the run lock's real-`SIGTERM` case, as before, and two
+new location cases that need a file system telling names apart by case
+alone, which this one does not; `npm run verify` matches. Continuous
+integration has not run for these commits either.
 
 **R14, the gate on a real change from a well-known open-source
 repository on both runtimes, has not run.** It needs the real Claude Code
