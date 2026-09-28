@@ -49,7 +49,15 @@ export interface ReviewOptions {
   readonly worktree: string;
   readonly runtimes: RuntimeRegistry;
   readonly runtime: string;
-  readonly executable: string;
+  /**
+   * The executable a run not yet configured pins: its path, or a function
+   * that resolves it, called only for such a run. A configured run
+   * preflights and launches the executable it pinned, so the command's is
+   * then neither resolved nor refused: a run started with `--executable`
+   * resumes without it, even where the runtime's name finds a shim on PATH.
+   */
+  readonly executable: string | (() => string);
+  /** The arguments a run not yet configured pins before every worker's own; a configured run keeps its pinned ones. */
   readonly executableArgs?: readonly string[];
   readonly rolesRoot: string;
   readonly flags: PolicyFlags;
@@ -290,8 +298,9 @@ interface OpenedRun {
  *   as pinned, and its pinned executable is what is preflighted. Only
  *   `--concurrency` and `--budget-usd` apply per invocation, and the
  *   limits they put in force are recorded when they change. A run not yet
- *   configured resolves the policy and preflights the command's
- *   executable, before a new run is created so a refusal creates nothing.
+ *   configured resolves the policy and the command's executable and
+ *   preflights it, before a new run is created so a refusal creates
+ *   nothing.
  *
  * The run lock is taken before the preflight for a found run, so an
  * engine running it refuses this one at once, and is released on every
@@ -333,9 +342,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       await resumePinned(found.id, pinned, context);
     } else {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
+      const executable = typeof context.executable === 'function' ? context.executable() : context.executable;
       const executableArgs = [...(context.executableArgs ?? [])];
-      const version = await qualify(context.adapter, context.executable, executableArgs, context);
-      configure = { ...resolved, roles: [...resolved.roles], executable: context.executable, executableArgs, version };
+      const version = await qualify(context.adapter, executable, executableArgs, context);
+      configure = { ...resolved, roles: [...resolved.roles], executable, executableArgs, version };
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
     if (found === null) {
