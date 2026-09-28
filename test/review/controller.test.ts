@@ -286,8 +286,10 @@ describe('runReview', { timeout: 600_000 }, () => {
     box.script({ triage: { waitFor: marker } });
     const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
     const pending = box.review('claude');
-    // While the triage worker waits, the tree changes; the check before the finders sees it.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // While the triage worker waits, the tree changes; the check before the finders sees it. The edit
+    // waits for the triage worker on the ledger, which launches only after the scope is captured: an
+    // edit made before the capture would be part of the scope, and nothing would have drifted.
+    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
     write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     writeFileSync(marker, '');
     const blocked = await pending;
