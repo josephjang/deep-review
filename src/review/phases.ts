@@ -7,7 +7,7 @@
  * attempt with the reason.
  */
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Lead, PinnedRole, RankedFinding, RecordedCandidate, ReviewConfiguration } from '../checkpoint/events.ts';
+import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, VerdictsRecorded } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
@@ -35,7 +35,7 @@ import {
 import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
 import { truncated, type Unit } from './steps.ts';
 import { deduplicationTask, finderTask, mergeRankTask, sweepTask, triageTask, verifierTask } from './tasks.ts';
-import { candidateIdPrefix, finderAngles, maxRecordedTextLength, type Angle, type CandidatePhase, type DeduplicationPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { candidateIdPrefix, finderAngles, maxRecordedTextLength, type Angle, type CandidatePhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block. */
 export interface PhaseContext {
@@ -167,72 +167,67 @@ export function contributionOf(unit: Unit, receipt: WorkerReceipt, state: RunSta
   if (receipt.outcome !== 'completed') return failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`);
   const review = requireReview(state);
   try {
-    return { kind: contributionKind(unit), version: 1, payload: contributionPayload(unit, receipt, review, state, worktree) };
+    return contributionEvent(unit, receipt, review, state, worktree);
   } catch (error) {
     if (error instanceof StructuralCheckError) return failed(unit, receipt, `structural check: ${error.message}`);
     throw error;
   }
 }
 
-function contributionKind(unit: Unit): string {
-  switch (unit.phase) {
-    case 'triage':
-    case 'finders':
-    case 'sweep':
-      return 'candidates.recorded';
-    case 'deduplication':
-    case 'sweep-deduplication':
-      return 'deduplication.recorded';
-    case 'verification':
-    case 'sweep-verification':
-      return 'verdicts.recorded';
-    case 'merge-rank':
-      return 'ranking.recorded';
-    case 'report':
-      throw new Error('The report phase has no worker');
-  }
-}
+/** The events a unit's contribution is recorded as, each kind with its own payload. */
+type ContributionEvent =
+  | { readonly kind: 'candidates.recorded'; readonly version: 1; readonly payload: CandidatesRecorded }
+  | { readonly kind: 'deduplication.recorded'; readonly version: 1; readonly payload: DeduplicationRecorded }
+  | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
+  | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded };
 
-function contributionPayload(unit: Unit, receipt: WorkerReceipt, review: ReviewState, state: RunState, worktree: string): unknown {
+/**
+ * The contribution event of a completed unit whose answer passes its
+ * structural checks. Each phase's case builds the kind and its payload
+ * together, typed as a pair, so the two cannot disagree; a phase added to
+ * the review does not compile until it is given a case. Throws
+ * `StructuralCheckError` for an answer a check refuses.
+ */
+function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewState, state: RunState, worktree: string): ContributionEvent {
   switch (unit.phase) {
     case 'triage': {
       const output = receipt.output as TriageOutput;
       checkTriageLeads(output);
       const candidates = recordCandidates('triage', unit.key, output.candidates.map((candidate) => ({ ...candidate, angle: 'SCAN' as const })), state, worktree);
-      return { phase: 'triage', key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output.leads) };
+      return { kind: 'candidates.recorded', version: 1, payload: { phase: 'triage', key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output.leads) } };
     }
     case 'finders': {
       const output = receipt.output as FinderOutput;
       const angle = unit.key as FinderAngle;
       const candidates = recordCandidates('finders', unit.key, output.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
-      return { phase: 'finders', key: unit.key, workerId: receipt.workerId, candidates, leads: null };
+      return { kind: 'candidates.recorded', version: 1, payload: { phase: 'finders', key: unit.key, workerId: receipt.workerId, candidates, leads: null } };
     }
     case 'sweep': {
       const output = receipt.output as SweepOutput;
       const candidates = recordCandidates('sweep', unit.key, output.candidates, state, worktree);
-      return { phase: 'sweep', key: unit.key, workerId: receipt.workerId, candidates, leads: null };
+      return { kind: 'candidates.recorded', version: 1, payload: { phase: 'sweep', key: unit.key, workerId: receipt.workerId, candidates, leads: null } };
     }
     case 'deduplication':
     case 'sweep-deduplication': {
       const output = receipt.output as DeduplicationOutput;
-      const pool = poolCandidates(review, unit.phase as DeduplicationPhase);
+      const pool = poolCandidates(review, unit.phase);
       checkDeduplication(output, pool.length);
       const groups = output.groups.map((group) => ({ members: group.members.map((member) => pool[member]!.id), keep: pool[group.keep]!.id, reason: group.reason }));
-      return { phase: unit.phase, workerId: receipt.workerId, groups };
+      return { kind: 'deduplication.recorded', version: 1, payload: { phase: unit.phase, workerId: receipt.workerId, groups } };
     }
     case 'verification':
     case 'sweep-verification': {
       const output = receipt.output as VerifierOutput;
-      const group = groupCandidates(review, unit.phase as VerificationPhase, unit.key);
+      const group = groupCandidates(review, unit.phase, unit.key);
       checkVerdicts(output, group.length);
       const verdicts = output.verdicts.map((verdict) => ({ id: group[verdict.index]!.id, verdict: verdict.verdict, evidence: verdict.evidence }));
-      return { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts };
+      return { kind: 'verdicts.recorded', version: 1, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts } };
     }
     case 'merge-rank': {
       const output = receipt.output as MergeRankOutput;
       const input = mergeRankInput(review);
       checkMergeRank(output, input.length);
-      return { workerId: receipt.workerId, findings: orderedRanking(review, output, input) };
+      return { kind: 'ranking.recorded', version: 1, payload: { workerId: receipt.workerId, findings: orderedRanking(review, output, input) } };
     }
     case 'report':
       throw new Error('The report phase has no worker');
