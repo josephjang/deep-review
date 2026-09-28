@@ -1115,6 +1115,138 @@ held and stale, and the engine killed after three finders answered,
 whose next invocation records the lost workers and launches exactly the
 units without an answer.
 
+A deep review of the pull request at `ae55a0b`, on 2026-09-28, found
+defects the suite had not, and the 54 commits after it, from `e4e81aa`
+to `4a34f5e`, fix them, one defect or one refactor to a commit, each
+with `dist/` rebuilt in the same commit. The design above is corrected
+to the code they leave. `npm run check` and `npm run verify` passed
+after each group of fixes was integrated; the three commits from
+`9d26cae` to `d690002` do not typecheck on their own, since the report
+there called the location matcher with the signature `f4ff88b` had
+replaced, until `0abe32d`. The commits, in order:
+
+- `e4e81aa` a unit whose degradation was recorded was launched again
+  after a blocked phase's re-entry, and the fold's refusal crashed every
+  resume.
+- `c3fc0d1` a degradation's reason or a blocker's detail could exceed
+  the ledger's 4000-character cap and crash the append; each is cut to
+  fit, still quoting every failure.
+- `4a6bbb9` refactor: one missing-index check for verdicts and ranking.
+- `1285914` refactor: the angle list derived once, each angle's class
+  declared once.
+- `fbe8700` refactor: a recorded ranking is ordered through the report's
+  `rankedFindings`.
+- `0cb7c81` refactor: the candidate id prefix and the single unit key
+  named once.
+- `032e9a6` the merge-rank task asked for an order the engine discards;
+  it now states the engine's order.
+- `b2abbbe` text: `phase4-list.md` said the report keeps the worker's
+  order and left `CONVENTIONS` out of the correctness class.
+- `f4ff88b` a candidate in an unchanged file was located on a changed
+  path its own path merely ends with.
+- `b5f4e06` spellings of one unlocated file went to separate verifiers.
+- `2994819` a group of 8n+1 candidates gave one verifier nine; chunks
+  are balanced within eight, and a chunk size of 0 no longer loops.
+- `625ee85` text: `phase2-verify.md` says how the engine locates and
+  groups unlocated paths.
+- `a618545` a finish after a loss was refused as a second finish.
+- `963c2b1` the launcher continued a session holding a lost worker.
+- `34ca097` the statistics' seconds summed worker time, not wall time.
+- `88179fa` a cost's half cent was lost to floating-point
+  representation.
+- `efb8cf6` workers whose cost went unreported vanished from the
+  totals; `costUnreported` counts them.
+- `ccca024` refactor: one Markdown table-cell escaper.
+- `1ee56ea` worker text could change the report's structure.
+- `9d26cae` Limitations gave every unlocated candidate one reason; each
+  class now says why it is unlocated.
+- `b831be4` refactor: the report asks the fold whether a unit answered
+  or went unverified.
+- `d690002` the v1 review events took their enums from the live
+  vocabulary; they are frozen.
+- `0abe32d` the report classified unlocated candidates with the old
+  matcher's signature and rule.
+- `c095e35` test: the lock test moved to its own file under a name its
+  body supports.
+- `c1d42c5` a lock file holding no pid refused every command for good.
+- `62997f3` a signal that ended the engine left its run lock behind.
+- `ea8e058` a throw in the loop left the workers in flight unrecorded
+  and paid for again.
+- `bf2e7d6` a runtime that stopped qualifying mid-run exited 1 instead
+  of being refused.
+- `00472db` a refusal without a blocker code exited 1.
+- `dc2f811` two engines started together could each create a run.
+- `1d590e9` the command and the controller each found the active run,
+  so a paid review could run on a scope nobody asked for.
+- `9901ed3` a run was resumed from another worktree, mixing two trees.
+- `e44896d` a resumed run re-read the policy file, never checked its
+  roles digest and preflighted the command's executable.
+- `7bdc2e7` refactor: `--run` resolved in one place.
+- `2dd7528` abandoning a complete run misstated its outcome for good.
+- `b9465cc` refactor: `currentPhase` names the phase for the controller
+  and `status`.
+- `468f9bb` the limits an invocation put in force were not recorded, so
+  the report, `status` and `budgetApplied` read the pinned ones; adds
+  `limits.changed@1`.
+- `5102d92` refactor: unused exports dropped, finder roles named once.
+- `262712e` refactor: the fold checks candidate ids through
+  `candidateIdPrefix`.
+- `6da8fe3` refactor: the planner asks the fold whether a unit answered
+  or went unverified.
+- `25d5b5f` refactor: units and unverified groups kept by phase, then by
+  key.
+- `a0d7bf3` refactor: one rule reads a candidate's location.
+- `80d8063` refactor: the frozen 4000-character cap named once.
+- `1ba0c95` refactor: the review's roles typed, not plain strings.
+- `06f0868` refactor: whether a unit degrades derived from its phase
+  alone.
+- `7314afa` refactor: each contribution's kind and payload built
+  together.
+- `0fb5b37` a worker whose process never started was counted as
+  unreported cost.
+- `792f70e` refactor: one `isFile` in `src/paths.ts`.
+- `14efc49` on Windows an executable no spawn without a shell can start
+  passed the command line and failed later at preflight.
+- `cb5700e` a found run was planned from a read older than its lock,
+  and a stale append was retried over another writer's events.
+- `1be1b05` refactor: `describeRun` moved to `src/review/status.ts`.
+- `87c4ddf` the per-invocation flag checks lived in three copies that
+  had drifted.
+- `1091d91` a resumed configured run resolved, and could refuse, the
+  command's executable.
+- `4a34f5e` test: the drift test slept a fixed 500 ms and could edit the
+  tree before the scope was captured.
+
+The two text commits changed the prompts of the roles that include
+their fragments. After `625ee85` (`phase2-verify.md`) and `b2abbbe`
+(`phase4-list.md`), from `npm run roles`:
+
+| Role | Fragments | Bytes | SHA-256 |
+|---|---|---|---|
+| deduplication, verifier | 6 | 15369 | `03e7cfcaf94f21b296398e238752a797e31bd5f7658a9e93a71847f4af861c78` |
+| merge-rank | 6 | 13322 | `8504ff3d42b09c40914b084f61fe74f0a4dcc4f4cfeef0aa24b5ba4d4fadedba` |
+
+Every other role keeps its hash from the tables above, and the
+`rolesDigest` a run pins changes with these.
+
+The fixture `schema-1-04` is this element's own and unreleased, so it
+was regenerated in place rather than given a new serial: `efb8cf6` added
+`costUnreported` to the statistics of `report.written@1`; `468f9bb`
+added `limits.changed@1` to the registry, so the identity names it and
+its registry digest is now
+`a18fa259c6002c48e4b4143d71e68927dd3af7198943418c7a6e277fd43f9843`, and
+the golden run raises its budget before the sweep's re-entry; `25d5b5f`
+changed only its `expected.json`, whose units and unverified groups are
+nested by phase. The three older fixtures still fold with
+`review: null`.
+
+After the last of them, on the same machine and Node, `npm run check`
+ends at 928 tests, 914 passing and 14 skipped: the six POSIX signal
+cases, five symlink cases (the four above and `isFile`'s), the two
+assembler cases bound to a platform, and the run lock's real-`SIGTERM`
+case, which Windows cannot deliver; `npm run verify` matches.
+Continuous integration has not run for these commits either.
+
 **R14, the gate on a real change from a well-known open-source
 repository on both runtimes, has not run.** It needs the real Claude Code
 and Codex CLIs signed in, costs real money, and its subject, the pull
