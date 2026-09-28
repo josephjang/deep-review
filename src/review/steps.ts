@@ -19,8 +19,6 @@ export interface Unit {
   readonly phase: Phase;
   readonly key: string;
   readonly role: ReviewRole;
-  /** Whether two failures degrade the unit (an angle not run, a group unverified) rather than block the run. */
-  readonly degrades: boolean;
 }
 
 /** What the controller knows that the ledger does not. */
@@ -31,10 +29,13 @@ export interface Live {
   readonly spendUsd: number | null;
 }
 
-/** A degradation the planner asks for: the event that records a unit exhausted under a degrading role. */
-export type Degradation =
-  | { readonly kind: 'angle.failed'; readonly angle: string; readonly reason: string }
-  | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string; readonly reason: string };
+/** What a degrading role records for a unit that failed twice: its angle not run, or its group unverified. */
+type DegradationTarget =
+  | { readonly kind: 'angle.failed'; readonly angle: string }
+  | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string };
+
+/** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. */
+export type Degradation = DegradationTarget & { readonly reason: string };
 
 export type Step =
   | { readonly kind: 'blocked'; readonly blocker: Blocker & { readonly phase: Phase } }
@@ -55,18 +56,18 @@ export function groupsOf(review: ReviewState, phase: VerificationPhase): readonl
 
 /** The units of a phase (R2): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
-  const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role, degrades: false }];
+  const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
     case 'triage':
       return single('triage');
     case 'finders':
-      return finderAngles.map((angle) => ({ phase, key: angle, role: roleOfAngle(angle), degrades: true }));
+      return finderAngles.map((angle) => ({ phase, key: angle, role: roleOfAngle(angle) }));
     case 'deduplication':
     case 'sweep-deduplication':
       return poolCandidates(review, phase).length >= 2 ? single('deduplication') : [];
     case 'verification':
     case 'sweep-verification':
-      return groupsOf(review, phase).map((group) => ({ phase, key: group.id, role: 'verifier', degrades: true }));
+      return groupsOf(review, phase).map((group) => ({ phase, key: group.id, role: 'verifier' }));
     case 'sweep':
       return single('sweep');
     case 'merge-rank':
@@ -133,6 +134,31 @@ function listWithin(items: readonly string[], limit: number): string {
 }
 
 /**
+ * What a unit's role records once the unit has failed twice (R5, PD6): a
+ * finder's angle is not run, a verifier's group is unverified. Null for
+ * every other role, whose second failure blocks the run instead. The one
+ * place the rule lives: a unit degrades exactly when this names what it
+ * records, and a phase added to the review does not compile until it is
+ * given a rule here.
+ */
+function degradationOf(unit: Unit): DegradationTarget | null {
+  switch (unit.phase) {
+    case 'finders':
+      return { kind: 'angle.failed', angle: unit.key };
+    case 'verification':
+    case 'sweep-verification':
+      return { kind: 'group.unverified', phase: unit.phase, groupId: unit.key };
+    case 'triage':
+    case 'deduplication':
+    case 'sweep':
+    case 'sweep-deduplication':
+    case 'merge-rank':
+    case 'report':
+      return null;
+  }
+}
+
+/**
  * Whether a unit's degradation is already on the ledger: an angle recorded
  * as not run, or a group marked unverified. A degraded unit is settled for
  * the rest of the run; the fold refuses any later contribution from it, so
@@ -140,23 +166,14 @@ function listWithin(items: readonly string[], limit: number): string {
  * fresh attempts.
  */
 function degraded(review: ReviewState, unit: Unit): boolean {
-  switch (unit.phase) {
-    case 'finders':
-      return Object.hasOwn(review.anglesNotRun, unit.key);
-    case 'verification':
-    case 'sweep-verification':
-      return isUnverified(review, unit.phase, unit.key);
-    default:
-      return false;
+  const target = degradationOf(unit);
+  if (target === null) return false;
+  switch (target.kind) {
+    case 'angle.failed':
+      return Object.hasOwn(review.anglesNotRun, target.angle);
+    case 'group.unverified':
+      return isUnverified(review, target.phase, target.groupId);
   }
-}
-
-/** The degradation a phase records for an exhausted unit of a degrading role, or null when it is already recorded or the phase has no such rule. */
-function degradationOf(review: ReviewState, unit: Unit, state: UnitState | undefined): Degradation | null {
-  if (degraded(review, unit)) return null;
-  if (unit.phase === 'finders') return { kind: 'angle.failed', angle: unit.key, reason: failureReason(state) };
-  if (unit.phase === 'verification' || unit.phase === 'sweep-verification') return { kind: 'group.unverified', phase: unit.phase, groupId: unit.key, reason: failureReason(state) };
-  return null;
 }
 
 /** Whether a unit may be given a worker: not answered, not degraded, and with an attempt left. */
@@ -205,10 +222,15 @@ export function nextStep(review: ReviewState, live: Live): Step {
 
   const units = unitsOf(review, phase);
   const states = review.units[phase];
-  const degradations = units.filter((unit) => unit.degrades && exhausted(review, unit, states[unit.key])).map((unit) => degradationOf(review, unit, states[unit.key])).filter((degradation): degradation is Degradation => degradation !== null);
+  // The units out of attempts whose outcome is not yet on the ledger: a degrading role's are degraded, a blocking role's block the phase.
+  const spent = units.filter((unit) => exhausted(review, unit, states[unit.key]) && !degraded(review, unit));
+  const degradations = spent.flatMap((unit): Degradation[] => {
+    const target = degradationOf(unit);
+    return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
+  });
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
-  const blocking = units.find((unit) => !unit.degrades && exhausted(review, unit, states[unit.key]));
+  const blocking = spent.find((unit) => degradationOf(unit) === null);
   if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
