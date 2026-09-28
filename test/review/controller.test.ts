@@ -398,6 +398,26 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(box.logs.includes(`run ${state.id} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`));
   });
 
+  it('resolves the command\'s executable only for a run not yet configured, and a refusal of it creates no run', async () => {
+    const refused = (): never => {
+      throw new ReviewRefusedError('the executable was refused', 'runtime-unqualified');
+    };
+    await assert.rejects(box.review('claude', { executable: refused }), (error: unknown) => error instanceof ReviewRefusedError && error.message === 'the executable was refused');
+    assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
+    assert.equal(existsSync(startLockPath(box.checkpoint.root)), false, 'the start lock is released');
+    let resolved = 0;
+    const resolve = (): string => {
+      resolved += 1;
+      return process.execPath;
+    };
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.review('claude', { executable: resolve })).kind, 'blocked');
+    assert.equal(resolved, 1, 'a new run resolves it once');
+    assert.equal(box.run().review!.configuration.executable, process.execPath, 'and pins what it resolved');
+    box.script({});
+    report(await box.review('claude', { executable: () => assert.fail('a configured run resolved the command\'s executable') }));
+  });
+
   it('refuses to resume a run whose role prompts changed since it was configured, naming both digests', async () => {
     box.script({ triage: { exit: 2 } });
     await box.review('claude');

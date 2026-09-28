@@ -187,7 +187,6 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   // A malformed value is a command-line mistake, refused with the usage before the checkpoint is opened; the policy refuses it with the same message for a caller that does not come through here.
   const problem = invocationFlagProblem(flags);
   if (problem !== null) throw new UsageError(problem);
-  const executable = resolveExecutable(values.executable ?? values.runtime, io.environment, process.platform, io.cwd);
   const checkpoint = openCheckpoint(root, true)!;
   try {
     // The controller resolves the scope only for a run that has none yet: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on.
@@ -199,12 +198,14 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
         return chosen.request;
       },
     };
+    const runtime = values.runtime;
     const outcome = await runReview({
       checkpoint,
       worktree,
       runtimes,
-      runtime: values.runtime,
-      executable,
+      runtime,
+      // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned.
+      executable: () => resolveExecutable(values.executable ?? runtime, io.environment, process.platform, io.cwd),
       executableArgs: values['executable-arg'] ?? [],
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,
