@@ -470,8 +470,10 @@ export const spendSchema = z.strictObject({
   costUsd: z.number().nonnegative().nullable(),
   /**
    * How many workers spent money `costUsd` leaves out: finished without
-   * reporting a cost (timed out, or failed before the runtime printed its
-   * usage) or lost. Null on a runtime that reports no cost in USD at all.
+   * reporting a cost (timed out, or failed after its process started but
+   * before the runtime printed its usage) or lost. A worker whose process
+   * never started spent nothing and is not counted. Null on a runtime that
+   * reports no cost in USD at all.
    */
   costUnreported: z.number().int().nonnegative().nullable(),
   inputTokens: z.number().int().nonnegative().nullable(),
