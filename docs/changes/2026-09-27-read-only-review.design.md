@@ -416,7 +416,7 @@ prose and the schema agree (R4):
 | triage | scope | run `SCAN` over every hunk and its enclosing function; return candidates, and for each of the nine other angles one lead (a file, symbol or mechanism to inspect) or `null`, never a skip |
 | finder-`<ANGLE>` | scope, the angle, `lead` and its source (`SCAN` or `none`) | run the angle; check the lead first; return candidates |
 | deduplication | scope, candidates numbered `[0]`.. with id, file, line, summary and detail | group candidates that describe the same defect at the same location for the same reason; name the member to keep per group; a candidate in no group stands alone |
-| verifier | scope, the group's candidates numbered `[0]`.. with the angle each came from and the `unlocated` mark | one verdict per index with one evidence line, by the rubric of the candidate's angle |
+| verifier | scope, the group's candidates numbered `[0]`.. with the angle each came from and the `outside the change` or `unlocated` mark | one verdict per index with one evidence line, by the rubric of the candidate's angle; an answer that misses an index is discarded whole and the group is run again |
 | sweep | scope, the verified list (id, location, summary, verdict), the refuted list (id, location, summary, evidence) | find gaps only; return candidates each with the angle whose territory it sits in |
 | merge-rank | scope, the working list with verdicts | fold same-root-cause findings across locations; give each finding a severity, a `CONVENTIONS` violation taking the severity of the rule it breaks; the engine orders them (TD9), and the order returned is not kept |
 
@@ -452,7 +452,9 @@ treated exactly like a schema rejection (the attempt is `failed` for the
 retry rule, with the reason on the ledger in the phase's record): triage
 leads cover the nine angles once each; dedup indexes exist, no index is in
 two groups, `keep` is a member; each verifier index appears exactly once
-and every index of the group has a verdict; merge-rank indexes exist and
+and every index of the group has a verdict, so an answer that misses one
+is refused whole and none of its verdicts is recorded, as the verifier's
+prompt (`phase2-verify.md`) and task say; merge-rank indexes exist and
 every index of the working list is a primary or a member exactly once.
 
 **Ids** are assigned by the engine: `SCAN-<n>`, `<ANGLE>-<n>`, `SWEEP-<n>`
@@ -460,28 +462,36 @@ in the worker's discovery order, numbered from 1 per angle. A retried
 finder numbers from 1 again; only the answer that is recorded has ids.
 
 **Locations** (`src/review/locations.ts`): `normalizeLocations(scope,
-worktree, candidates)` gives a candidate `{ file: <scope path>, line,
-located: true }` when `matchScopePath` finds one scope path for its
-`file`, and `line` is at most the line count of that file's after state.
-The file is normalized as a scope path is spelled (backslashes turned to
-slashes, runs of slashes and a leading `./` removed), and its
-repository-relative tails, after any root or drive and after the last
-`.` or `..` segment, are tried longest first: a tail that is a scope path
-matches it, so an absolute or otherwise prefixed spelling of a changed
-file is found; a tail that is not a scope path but names an entry the
-worktree holds, compared without case, is a different, unchanged file,
-and the candidate matches nothing, so `src/index.ts` is never pinned to a
-changed root `index.ts`. Failing both, a file that is itself the bare
-tail of exactly one scope path (`a.ts` for `src/a.ts`) matches it. Each
-comparison with a scope path is exact first, then without case, and a
-name that matches two scope paths without case matches neither. Lines
-are counted in the worktree, which the controller's drift check, run
-just before it records the answer, found equal to the frozen after state
-(an oversized file is frozen as hash and size only, so the worktree is
-the one place its lines can be counted). Otherwise the candidate keeps its raw `file`
-and `line` as `rawFile` and `rawLine`, with `located: false`. A deleted
-file has no after state; a candidate on it is unlocated too, and the
-report says why.
+worktree, candidates)` gives a candidate `{ file, line, located: true,
+inScope }` when `matchRepositoryPath` finds one canonical path of the
+repository for its `file` and `line` is at most that file's line count.
+The canonical path is a changed path of the scope (`inScope: true`) or
+an unchanged file of the worktree in the worktree's own spelling
+(`inScope: false`, "outside the change"). The file is normalized as a
+scope path is spelled (backslashes turned to slashes, runs of slashes
+and a leading `./` removed), and its repository-relative tails, after
+any root or drive and after the last `.` or `..` segment, are tried
+longest first: a tail that is a scope path matches it, so an absolute or
+otherwise prefixed spelling of a changed file is found; a tail that is
+not a scope path but names an entry the worktree holds, compared without
+case, matches that unchanged entry, and no shorter tail is tried, so
+`src/index.ts` is never pinned to a changed root `index.ts`. Failing
+both, a file that is itself the bare tail of exactly one scope path
+(`a.ts` for `src/a.ts`) matches it. Each comparison is exact first,
+then without case, and a name that matches two paths without case, and
+neither exactly, matches nothing: two scope paths, or two entries of a
+case-sensitive worktree that differ only in case. Lines are counted in
+the worktree. For a changed file the controller's drift check, run just
+before it records the answer, found the worktree equal to the frozen
+after state (an oversized file is frozen as hash and size only, so the
+worktree is the one place its lines can be counted); an unchanged file,
+which the scope froze nothing of and no drift check covers, is read as
+the worktree holds it, in chunks, and a link is counted by its target
+text, as the scope freezes a link. A candidate that matches nothing, or
+matches a directory, a file the change deletes (which has no after
+state) or a file with fewer lines, keeps its raw `file` and `line` as
+`rawFile` and `rawLine`, with `located: false` and `inScope: false`,
+and the report says why.
 
 ### Phases (R2, R5)
 
@@ -527,7 +537,8 @@ verification and lists the refuted ones.
 
 **Grouping for verification** (`src/review/grouping.ts`, pure): take the
 working list (every candidate not dropped as a dedup duplicate) and group
-located candidates by scope path and unlocated ones by their `file`
+located candidates by their canonical repository path, in the change
+or outside it, and unlocated ones by their `file`
 normalized as a scope path is spelled and folded to lower case, an
 absolute spelling joining the longest relative spelling given for it
 that it ends with (so `C:\repo\src\a.ts` and `src/a.ts` share a
@@ -686,7 +697,7 @@ the events that carry the changed words get a new version.
 | `phase.started` | phase (enum), attempt | phase status `running`; clears `blocker`; attempt must be previous + 1; invalid after the phase completed or degraded, or while an earlier phase has not; a blocked phase re-entered forgets its units' failures |
 | `phase.finished` | phase, attempt, outcome (`completed`, `degraded`, `blocked`), blocker `{ code, detail, action }` or null | phase status; sets `blocker` when blocked; invalid without a matching start |
 | `worktree.checked` | phase, attempt, drifted, files `[{ path, outcome }]` (only the not-unchanged ones) | appended to `checks`; the phase must be running at that attempt |
-| `candidates.recorded` | phase (`triage`, `finders`, `sweep`), key (`SCAN`, the angle, `sweep`), workerId, candidates `[{ id, angle, file, line, located, rawFile, rawLine, summary, detail }]`, leads `[{ angle, lead }]` or null (triage only) | candidates by id; leads; marks the unit answered |
+| `candidates.recorded` | phase (`triage`, `finders`, `sweep`), key (`SCAN`, the angle, `sweep`), workerId, candidates `[{ id, angle, file, line, located, inScope, rawFile, rawLine, summary, detail }]` (the schema refuses `inScope` on an unlocated candidate), leads `[{ angle, lead }]` or null (triage only) | candidates by id; leads; marks the unit answered; invalid when a located candidate's `inScope` disagrees with whether the scope holds its `file` |
 | `attempt.failed` | phase, key, workerId, reason | one more failure of the unit, not lost |
 | `angle.failed` | angle, reason | angle marked not run |
 | `deduplication.recorded` | phase, workerId, groups `[{ members: ids, keep: id, reason }]` | duplicates leave the working list |
@@ -735,17 +746,20 @@ finding prints as
 Evidence: <verifier's line>
 ```
 
-with `(unlocated: <raw file>:<raw line>)` and `(unverified)` where they
-apply. Statistics is one table with a row per phase and a total, each
+with `(outside the change)` or `(unlocated: <raw file>:<raw line>)`, and
+`(unverified)`, where they apply. Statistics is one table with a row per phase and a total, each
 cost cell naming how many workers' cost went unreported. Limitations
 lists the angles not run and the unverified groups (in plan order),
 every drift check's outcome, the run budget in force at the end or why
 none applied, how many workers reported no cost (so the run cost more
 than the totals show), the oversized files no worker could be given
-frozen, and the unlocated candidates by why they are unlocated: on a
-file outside the change, on a file the change deletes, on a line past
-the end of a changed file, or on a path that only ends with a changed
-path, which the ledger alone cannot tell an unchanged file from. Text a
+frozen, the candidates on files outside the change (which no worktree
+check covers), and the unlocated candidates by why they are unlocated:
+on a path the repository does not hold or a line past the end of an
+unchanged file, on a file the change deletes, on a line past the end of
+a changed file, or on a path that ends with a changed path and could
+name either that changed file or an unchanged path, neither with such a
+line, which the ledger alone cannot tell apart. Text a
 worker or a finder wrote goes through `inlineText` or `paragraphText`
 (`src/review/markdown.ts`), so no summary, reason, evidence or file name
 can change the report's structure.
@@ -964,11 +978,16 @@ three CI runners.
   reason.
 - Locations (R8): tails tried longest first, with forward and backward
   slashes and an absolute prefix; a path naming an unchanged file of the
-  worktree, in any case, never pinned to a changed path it ends with; the
-  bare-tail rule; ambiguity without case matching neither; a line past
-  the end; a deleted file; an oversized file measured from the worktree;
-  every failure yields `located: false` and keeps the candidate.
-- Grouping: by scope path, sorted by line; balanced chunks of at most 8
+  worktree, in any case or an absolute spelling, located on that file in
+  the worktree's spelling, outside the change, with its line checked,
+  and never pinned to a changed path it ends with; the bare-tail rule;
+  ambiguity without case matching neither, among scope paths or among
+  entries of a case-sensitive worktree; a line past the end; a deleted
+  file; a directory and a missing path; an oversized file measured from
+  the worktree and a file counted across read chunks; every failure
+  yields `located: false` and keeps the candidate.
+- Grouping: by canonical repository path, sorted by line, the absolute,
+  relative and other-case spellings of one unchanged file together; balanced chunks of at most 8
   for every length from 0 to 100, 9 giving 5 and 4; an invalid chunk size
   refused; the spellings of one unlocated file, in slashes, `./`, case or
   an absolute path, grouped together; ids stable.
