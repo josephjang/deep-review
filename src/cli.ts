@@ -15,12 +15,13 @@ import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
 import { EngineError } from './errors.ts';
-import { describeRun, findActiveRun, runReview, type ScopeSource } from './review/controller.ts';
+import { findActiveRun, runReview, type ScopeSource } from './review/controller.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import type { PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
+import { describeRun } from './review/status.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
 
