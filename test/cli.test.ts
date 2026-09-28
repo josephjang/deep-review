@@ -218,11 +218,13 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     box.script({ triage: { exit: 2 } });
     assert.equal(run(...claudeFlags('--last-commit')).status, 2);
     const runId = box.run().id;
-    const release = acquireRunLock(box.checkpoint.root, runId, process.pid);
+    // This test process holds the lock, as a running engine would; the command runs in a process of its own.
+    const release = acquireRunLock(box.checkpoint.root, runId);
     try {
       const held = run('abandon', '--reason', 'stuck');
       assert.equal(held.status, 2, held.stderr);
-      assert.match(held.stderr, /^blocked \(lock-held\): engine \d+ is running run /);
+      assert.ok(held.stderr.startsWith(`blocked (lock-held): engine ${String(process.pid)} is running run ${runId} (lock `), held.stderr);
+      assert.ok(held.stderr.endsWith('; wait for that engine to finish; the lock clears itself when its process ends\n'), held.stderr);
       const review = run(...claudeFlags());
       assert.equal(review.status, 2, review.stderr);
       assert.match(review.stderr, /blocked \(lock-held\)/);
@@ -230,11 +232,11 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
       release();
     }
     // An engine between finding its run and locking it holds the start lock; abandon waits its turn too.
-    const starting = acquireStartLock(box.checkpoint.root, process.pid);
+    const starting = acquireStartLock(box.checkpoint.root);
     try {
       const held = run('abandon', '--reason', 'stuck');
       assert.equal(held.status, 2, held.stderr);
-      assert.match(held.stderr, /^blocked \(lock-held\): engine \d+ is starting or ending a run in this repository/);
+      assert.ok(held.stderr.startsWith(`blocked (lock-held): engine ${String(process.pid)} is starting or ending a run in this repository`), held.stderr);
     } finally {
       starting();
     }

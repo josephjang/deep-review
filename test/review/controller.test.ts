@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
@@ -12,7 +12,7 @@ import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.
 import { maxConcurrency, policyFileName } from '../../src/review/policy.ts';
 import { until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
-import { acquireStartLock, lockPath, startLockPath } from '../../src/review/lock.ts';
+import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
@@ -54,6 +54,17 @@ const fullScript: Script = {
 const frozenLaunch = (checkpoint: Checkpoint, workerId: string, label: string): Record<string, unknown> => ({ ...launch(workerId, label), prompt: checkpoint.evidence.put('a prompt'), schema: checkpoint.evidence.put('{}') });
 /** A worker finish as another writer appends it, its outputs frozen in the checkpoint's evidence store. */
 const frozenFinish = (checkpoint: Checkpoint, workerId: string): Record<string, unknown> => ({ ...finish(workerId), stdout: checkpoint.evidence.put('out'), stderr: checkpoint.evidence.put(''), output: checkpoint.evidence.put('{}') });
+
+/** Whether a lock is free: this process takes it and lets it go at once, where a lock still held, by another connection in this process too, is refused. */
+const lockFree = (acquire: () => ReleaseLock): boolean => {
+  try {
+    acquire()();
+    return true;
+  } catch (error) {
+    if (error instanceof ReviewRefusedError && error.code === 'lock-held') return false;
+    throw error;
+  }
+};
 
 /**
  * The checkpoint as a review sees it, with `act` run once right after the
@@ -152,7 +163,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(box.promptOf(state, 'merge-rank merge-rank:merge-rank'), /3 findings, numbered \[0\] to \[2\]/);
     assert.ok(box.logs.some((line) => /^phase triage: started \(attempt 1\)$/.test(line)));
     assert.ok(box.logs.some((line) => /^worker finder-WRAPPERS finders:WRAPPERS: attempt failed: failed: The answer does not match the output schema/.test(line)));
-    assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released');
+    assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released');
   });
 
   it('reviews on the fake Codex, with no budget and no cost, and the report says the budget did not apply', async () => {
@@ -384,7 +395,7 @@ describe('runReview', { timeout: 600_000 }, () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
       assert.deepEqual(unhandled, []);
       assert.equal(box.run().status, 'abandoned');
-      assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released on the way out');
+      assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released on the way out');
       assert.equal(process.listenerCount('SIGINT'), signalListeners, 'and its signal listener with it');
     } finally {
       process.off('unhandledRejection', onUnhandled);
@@ -416,7 +427,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const state = box.run();
     assert.deepEqual(Object.values(state.workers).filter((worker) => worker.status !== 'finished'), [], 'no worker is left running on the ledger');
     assert.notEqual(state.review!.units.finders.REMOVALS?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');
-    assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released after the last worker');
+    assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released after the last worker');
   });
 
   it('refuses to resume a run from another worktree of the repository, naming the run\'s worktree', async () => {
@@ -455,7 +466,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     };
     await assert.rejects(box.review('claude', { executable: refused }), (error: unknown) => error instanceof ReviewRefusedError && error.message === 'the executable was refused');
     assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
-    assert.equal(existsSync(startLockPath(box.checkpoint.root)), false, 'the start lock is released');
+    assert.equal(lockFree(() => acquireStartLock(box.checkpoint.root)), true, 'the start lock is released');
     let resolved = 0;
     const resolve = (): string => {
       resolved += 1;
@@ -501,17 +512,17 @@ describe('runReview', { timeout: 600_000 }, () => {
   });
 
   it('finds or creates the run under the start lock, so an engine starting meanwhile is refused and creates no run of its own', async () => {
-    // The parent of this test process is alive and is not this process: an engine between its find and its run lock.
-    const release = acquireStartLock(box.checkpoint.root, process.ppid);
+    // Another holder of the start lock, as an engine between its find and its run lock holds it; a second connection in this process is refused like another process.
+    const release = acquireStartLock(box.checkpoint.root);
     try {
-      await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'lock-held' && new RegExp(`^engine ${String(process.ppid)} is starting or ending a run in this repository`).test(error.message));
+      await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'lock-held' && new RegExp(`^engine ${String(process.pid)} is starting or ending a run in this repository`).test(error.message));
       assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
     } finally {
       release();
     }
     box.script({});
     report(await box.review('claude'));
-    assert.equal(existsSync(startLockPath(box.checkpoint.root)), false, 'the start lock is released once the run is locked');
+    assert.equal(lockFree(() => acquireStartLock(box.checkpoint.root)), true, 'the start lock is released once the run is locked');
   });
 
   it('appends every event once: a foreign append between its plan and its append is refused as stale, not re-sent, and the lock is released', async () => {
@@ -530,7 +541,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const state = box.run();
     assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'phase.started'), [], 'the phase.started planned before the foreign append is not re-sent over it');
     assert.equal(state.workers[worker(90)]?.status, 'running', 'the foreign event stands');
-    assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released');
+    assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released');
   });
 
   it('reads a found run again once its lock is held, so a worker finished after the find is not recorded lost', async () => {
@@ -569,6 +580,6 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(outcome.runId, runs[1]!.id, 'the review ran a run of its own');
     assert.equal(box.checkpoint.fold(first.id).lastSequence, first.lastSequence + 1, 'nothing but the close was appended to the first run');
     assert.ok(box.logs.includes(`run ${first.id}: abandoned before its lock was taken; a new run is created`), box.logs.join('\n'));
-    assert.equal(existsSync(lockPath(box.checkpoint.root, first.id)), false, 'its lock is released');
+    assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, first.id)), true, 'its lock is released');
   });
 });

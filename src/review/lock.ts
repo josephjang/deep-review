@@ -1,27 +1,43 @@
 /**
- * One engine per run (TD6 of the read-only review): a lock file under the
- * checkpoint, holding the process id of the engine that runs the run. Two
- * engines would both plan the same step and launch it twice before either
- * append failed, so the second is refused while the first's process lives;
- * a lock whose process is gone is replaced. A second lock, the start lock,
- * covers finding or creating the run until its run lock is taken, so two
- * engines started together cannot both find no run and create one each.
+ * One engine per run (TD6 of the read-only review). Two engines would
+ * both plan the same step and launch it twice before either append
+ * failed, so each run has a lock that one engine holds while it runs the
+ * run, and a second lock, the start lock, covers finding or creating the
+ * run until its run lock is taken, so two engines started together
+ * cannot both find no run and create one each.
+ *
+ * A lock is an empty SQLite database file that the holder keeps open
+ * inside a `BEGIN EXCLUSIVE` transaction for as long as it holds the
+ * lock. SQLite takes the operating system's file locks for that, so a
+ * second holder is refused whether it is another process or another
+ * connection in this one, and the operating system drops the lock when
+ * the holding process ends, however it ends, even by a hard kill. No
+ * process id is checked and nothing is taken over, so two holders at
+ * once cannot happen, and neither can a reused pid that looks alive.
+ *
+ * The lock file is never deleted: a holder's lock lives on the file it
+ * opened, so an engine that deleted the file and made a new one would
+ * hold a lock nobody else sees. Nothing but the lock may open the file
+ * either, since on POSIX closing any other descriptor of it drops every
+ * lock this process holds on it. Beside each lock, `<lock>.pid` names
+ * the holder's pid for the refusal's message; it is written after the
+ * lock is taken and removed before it is released, so it is best effort:
+ * absent for an instant after a take, and stale after a hard kill until
+ * the next holder writes its own.
  */
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { constants } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { blockerActions } from './vocabulary.ts';
 import { ReviewRefusedError } from './errors.ts';
 
 /** The directory under the checkpoint root that holds run locks. */
 export const locksDirectoryName = 'runs';
 
-/**
- * How old a lock file that holds no pid must be before it is taken for a
- * leftover and replaced. An engine writes its pid right after creating the
- * file, so a younger one may be a lock another engine is taking right now.
- */
-export const unwrittenLockGraceMs = 10_000;
+/** SQLite's primary result codes for a lock another connection holds, and for a file that is no database; an extended code keeps its primary one in its low byte. */
+const sqliteBusy = 5;
+const sqliteNotADatabase = 26;
 
 /** Where the start lock lives: at the checkpoint root, where no run's lock can be named like it. */
 export function startLockPath(checkpointRoot: string): string {
@@ -33,91 +49,100 @@ export function lockPath(checkpointRoot: string, runId: string): string {
   return join(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
 
-/** Whether a process with this id exists: a signal of 0 is delivered to none, and EPERM means it exists under another user. */
-export function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
+/** The side file beside the lock at `path` that names its holder's pid. */
+export function holderPath(path: string): string {
+  return `${path}.pid`;
 }
 
-/** What a lock file holds: nothing (no file), a pid, or no pid (empty or garbage), with the file's age. */
-type LockFile = { readonly kind: 'absent' } | { readonly kind: 'held'; readonly pid: number } | { readonly kind: 'no-pid'; readonly ageMs: number };
-
-function readLock(path: string): LockFile {
+/**
+ * The pid the side file of the lock at `path` names, or null when there is
+ * none or it names no pid. While the lock is held this is its holder, save
+ * for the instant between the take and the write; once a holder was
+ * killed outright it names that process until the next holder writes.
+ */
+export function lockHolder(path: string): number | null {
   let text: string;
-  let modifiedMs: number;
   try {
-    modifiedMs = statSync(path).mtimeMs;
-    text = readFileSync(path, 'utf8');
+    text = readFileSync(holderPath(path), 'utf8').trim();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'absent' };
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   }
-  const pid = Number(text.trim());
-  return text.trim() !== '' && Number.isSafeInteger(pid) && pid > 0 ? { kind: 'held', pid } : { kind: 'no-pid', ageMs: Date.now() - modifiedMs };
-}
-
-/** The pid a lock file holds, or null when the file is absent or holds no pid. */
-export function lockHolder(path: string): number | null {
-  const lock = readLock(path);
-  return lock.kind === 'held' ? lock.pid : null;
+  const pid = Number(text);
+  return text !== '' && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
 /** What holding a lock gives back: the function that releases it. */
 export type ReleaseLock = () => void;
 
-/** Take the run's lock for this process, or refuse with the `lock-held` blocker while another live process holds it (see `acquireLock`). */
-export function acquireRunLock(checkpointRoot: string, runId: string, pid: number = process.pid): ReleaseLock {
+/** Take the run's lock for this engine, or refuse with the `lock-held` blocker while another engine, in this process or another, holds it (see `acquireLock`). */
+export function acquireRunLock(checkpointRoot: string, runId: string): ReleaseLock {
   mkdirSync(join(checkpointRoot, locksDirectoryName), { recursive: true });
-  return acquireLock(lockPath(checkpointRoot, runId), pid, `is running run ${runId}`, `the lock of run ${runId}`);
+  return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
 }
 
 /**
- * Take the checkpoint's start lock for this process, held while a command
+ * Take the checkpoint's start lock for this engine, held while a command
  * finds or creates the run it acts on and takes that run's lock, or refuse
- * with the `lock-held` blocker while another live process holds it.
+ * with the `lock-held` blocker while another engine holds it.
  */
-export function acquireStartLock(checkpointRoot: string, pid: number = process.pid): ReleaseLock {
+export function acquireStartLock(checkpointRoot: string): ReleaseLock {
   mkdirSync(checkpointRoot, { recursive: true });
-  return acquireLock(startLockPath(checkpointRoot), pid, 'is starting or ending a run in this repository', 'the start lock');
+  return acquireLock(startLockPath(checkpointRoot), 'is starting or ending a run in this repository');
+}
+
+/** The primary SQLite result code of an error `node:sqlite` threw, or null for any other error. */
+function sqliteCode(error: unknown): number | null {
+  const code = (error as { errcode?: unknown } | null)?.errcode;
+  return typeof code === 'number' ? code & 0xff : null;
 }
 
 /**
- * Take the lock at `path` for `pid`, or refuse with the `lock-held`
- * blocker while another live process holds it; `holding` says what the
- * holder is doing and `name` names the lock. A lock left by a process
- * that is gone is replaced, and so is one that holds no pid once it is
- * older than `unwrittenLockGraceMs`; a younger one may be another engine's
- * lock in the instant between its create and its write, and is refused.
- * The lock is created exclusively, so two engines racing to create it
- * cannot both take it.
+ * Take the lock at `path`, or refuse with the `lock-held` blocker while
+ * any other connection holds it; `holding` says what the holder is doing.
+ * The transaction is taken without waiting, so a held lock refuses at
+ * once, naming the holder the side file names. A file that is no SQLite
+ * database is no lock this engine made, and is refused with its path.
+ * The returned release removes the side file, then ends the transaction
+ * and closes the connection; it releases at most once.
  */
-function acquireLock(path: string, pid: number, holding: string, name: string): ReleaseLock {
-  const taking = (): ReviewRefusedError => new ReviewRefusedError(`another engine is taking ${name} (${path}); ${blockerActions['lock-held']}`, 'lock-held');
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const lock = readLock(path);
-    if (lock.kind === 'held' && lock.pid !== pid && processAlive(lock.pid)) {
-      throw new ReviewRefusedError(`engine ${String(lock.pid)} ${holding} (lock ${path}); ${blockerActions['lock-held']}`, 'lock-held');
+function acquireLock(path: string, holding: string): ReleaseLock {
+  const db = new DatabaseSync(path, { timeout: 0 });
+  try {
+    db.exec('BEGIN EXCLUSIVE');
+  } catch (error) {
+    db.close();
+    const code = sqliteCode(error);
+    if (code === sqliteBusy) {
+      const holder = lockHolder(path);
+      throw new ReviewRefusedError(`${holder === null ? 'another engine' : `engine ${String(holder)}`} ${holding} (lock ${path}); ${blockerActions['lock-held']}`, 'lock-held');
     }
-    if (lock.kind === 'no-pid' && lock.ageMs < unwrittenLockGraceMs) throw taking();
-    if (lock.kind !== 'absent') rmSync(path, { force: true });
-    try {
-      const fd = openSync(path, 'wx');
-      try {
-        writeSync(fd, `${String(pid)}\n`);
-      } finally {
-        closeSync(fd);
-      }
-      return () => rmSync(path, { force: true });
-    } catch (error) {
-      // Another engine created the lock between our read and our create; look at whose it is once more.
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (code === sqliteNotADatabase) {
+      throw new ReviewRefusedError(`${path} is not a lock this engine made, perhaps one an older engine left; delete it once no engine runs in this repository, then run the command again`);
     }
+    throw error;
   }
-  throw taking();
+  let held = true;
+  const release = (): void => {
+    if (!held) return;
+    held = false;
+    try {
+      rmSync(holderPath(path), { force: true });
+    } finally {
+      try {
+        db.exec('ROLLBACK');
+      } finally {
+        db.close();
+      }
+    }
+  };
+  try {
+    writeFileSync(holderPath(path), `${String(process.pid)}\n`);
+  } catch (error) {
+    release();
+    throw error;
+  }
+  return release;
 }
 
 /**
@@ -135,9 +160,11 @@ function exitBySignal(signal: NodeJS.Signals): void {
 /**
  * Hold a lock until the engine ends, however it ends: the returned function
  * releases it, and so do the process's exit and a signal that would end
- * the process. Node runs no exit listener for a death by signal, so the
- * signal listener releases the lock itself and then ends the process with
- * `end`. It owns the ending while it listens: the launcher's own signal
+ * the process. The operating system would drop the lock itself as the
+ * process ends; releasing it here also removes the side file, so no pid
+ * of an ended engine is left behind. Node runs no exit listener for a
+ * death by signal, so the signal listener releases the lock itself and
+ * then ends the process with `end`. It owns the ending while it listens: the launcher's own signal
  * listener re-raises the signal only when it is the signal's sole
  * listener. The lock is released at most once, and releasing removes
  * every listener.

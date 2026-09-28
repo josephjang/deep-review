@@ -99,7 +99,7 @@ export const blockerActions: Readonly<Record<BlockerCode, string>> = {
   'worker-failed': 'run the command again, which gives the failed worker two fresh attempts, or abandon the run',
   budget: 'run the command again with --budget-usd above the spend, or abandon the run',
   drift: 'restore the named files to the reviewed change and run the command again, or abandon the run and start a new one',
-  'lock-held': 'wait for that engine to finish; if its process is gone the lock clears itself on the next run',
+  'lock-held': 'wait for that engine to finish; the lock clears itself when its process ends',
   'runtime-unqualified': 'fix the runtime installation or pass --executable with a qualifying binary, then run the command again',
 };
 
