@@ -129,19 +129,21 @@ export const triaged = (): History =>
 
 /**
  * The run in its finders phase: RIPPLE finds one, FOOTGUNS fails twice
- * (once by a lost worker) and is not run, WRAPPERS fails once and then
- * answers, and every other angle answers with nothing.
+ * (an answer the schema refuses, then a timeout) and is not run, WRAPPERS
+ * loses its first worker with the engine and then answers, and every other
+ * angle answers with nothing.
  */
 export const finding = (): History => {
   const history = triaged().start('finders');
   history.worker(2, 'finder-RIPPLE finders:RIPPLE');
   history.add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [candidate('RIPPLE-1', 'RIPPLE', { line: 4, rawLine: 4 })], leads: null });
-  history.add('worker.launched', launch(worker(3), 'finder-FOOTGUNS finders:FOOTGUNS'));
-  history.add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'FOOTGUNS', reason: 'the engine exited while the worker ran' });
+  history.worker(3, 'finder-FOOTGUNS finders:FOOTGUNS', { outcome: 'failed', output: null, error: 'The answer does not match the output schema' });
+  history.add('attempt.failed', { phase: 'finders', key: 'FOOTGUNS', workerId: worker(3), reason: 'failed: The answer does not match the output schema' });
   history.worker(4, 'finder-FOOTGUNS finders:FOOTGUNS', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'The worker ran past its timeout' });
   history.add('attempt.failed', { phase: 'finders', key: 'FOOTGUNS', workerId: worker(4), reason: 'timeout: The worker ran past its timeout' });
-  history.add('angle.failed', { angle: 'FOOTGUNS', reason: '2 attempts did not complete: the engine exited while the worker ran; timeout: The worker ran past its timeout' });
-  history.add('attempt.failed', { phase: 'finders', key: 'WRAPPERS', workerId: worker(5), reason: 'failed: The answer does not match the output schema' });
+  history.add('angle.failed', { angle: 'FOOTGUNS', reason: '2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout' });
+  history.add('worker.launched', launch(worker(5), 'finder-WRAPPERS finders:WRAPPERS'));
+  history.add('worker.lost', { workerId: worker(5), phase: 'finders', key: 'WRAPPERS', reason: 'the engine exited while the worker ran' });
   for (const angle of finderAngles.filter((name) => name !== 'RIPPLE' && name !== 'FOOTGUNS')) {
     history.worker(10 + finderAngles.indexOf(angle), `finder-${angle} finders:${angle}`);
     history.add('candidates.recorded', { phase: 'finders', key: angle, workerId: worker(10 + finderAngles.indexOf(angle)), candidates: [], leads: null });

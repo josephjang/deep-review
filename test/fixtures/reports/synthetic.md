@@ -18,7 +18,7 @@ Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
 | SCAN | run (as the triage) | - |
 | REMOVALS | run | none |
 | RIPPLE | run | the callers of parse() |
-| FOOTGUNS | not run (2 attempts did not complete: the engine exited while the worker ran; timeout: The worker ran past its timeout) | none |
+| FOOTGUNS | not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout) | none |
 | WRAPPERS | run | none |
 | EFFICIENCY | run | none |
 | DESIGN | run | none |
@@ -66,7 +66,7 @@ None.
 
 ## Limitations
 
-- Angle FOOTGUNS did not run: 2 attempts did not complete: the engine exited while the worker ran; timeout: The worker ran past its timeout. The sweep was told to cover its territory.
+- Angle FOOTGUNS did not run: 2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout. The sweep was told to cover its territory.
 - Group g1 of sweep-verification was not verified: 2 attempts did not complete: failed; failed again. Its candidates (SWEEP-1, SWEEP-2) carry PLAUSIBLE with the unverified mark.
 - Worktree checks: 9, none found a difference from the reviewed change.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.

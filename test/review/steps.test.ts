@@ -100,11 +100,65 @@ describe('nextStep', () => {
     const lost = triaged().start('finders').add('worker.launched', { ...launchOf(3, 'finder-RIPPLE finders:RIPPLE') }).add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' }).review();
     const step = nextStep(limited(lost, { concurrency: 16 }), idle);
     assert.ok(step.kind === 'launch' && step.units.some((unit) => unit.key === 'RIPPLE'), 'one more attempt remains');
-    const lostTwice = triaged().start('finders')
+  });
+
+  /** A finders phase in which RIPPLE lost two workers with their engines. */
+  const findersLostTwice = (): History => triaged().start('finders')
+    .add('worker.launched', launchOf(3, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' })
+    .add('worker.launched', launchOf(4, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(4), phase: 'finders', key: 'RIPPLE', reason: 'engine exited again' });
+
+  it('blocks the phase, rather than degrade, when a degrading unit ran out of attempts with a lost worker among its failures', () => {
+    const lostTwice = findersLostTwice().review();
+    const step = nextStep(lostTwice, idle);
+    assert.equal(step.kind, 'finish-phase', JSON.stringify(step));
+    if (step.kind === 'finish-phase') {
+      assert.equal(step.outcome, 'blocked');
+      assert.equal(step.blocker?.code, 'worker-failed');
+      assert.match(step.blocker?.detail ?? '', /^the finder-RIPPLE worker for finders:RIPPLE failed twice, a worker lost with its engine among the failures: 2 attempts did not complete: engine exited; engine exited again$/);
+    }
+    assert.deepEqual(nextStep(lostTwice, live({ running: new Set(['finders:REMOVALS']) })), { kind: 'await' }, 'the workers still running settle first');
+    const lostThenTimedOut = triaged().start('finders')
       .add('worker.launched', launchOf(3, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' })
-      .add('worker.launched', launchOf(4, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(4), phase: 'finders', key: 'RIPPLE', reason: 'engine exited again' })
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(4), reason: 'timeout: ran long' })
       .review();
-    assert.equal(nextStep(lostTwice, idle).kind, 'degrade');
+    const mixed = nextStep(lostThenTimedOut, idle);
+    assert.ok(mixed.kind === 'finish-phase' && mixed.outcome === 'blocked' && mixed.blocker?.code === 'worker-failed', `a loss and a timeout block: ${JSON.stringify(mixed)}`);
+    const timedOutThenLost = triaged().start('finders')
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'timeout: ran long' })
+      .add('worker.launched', launchOf(4, 'finder-RIPPLE finders:RIPPLE')).add('worker.lost', { workerId: worker(4), phase: 'finders', key: 'RIPPLE', reason: 'engine exited' })
+      .review();
+    assert.equal(nextStep(timedOutThenLost, idle).kind, 'finish-phase', 'the loss blocks whichever attempt it was');
+  });
+
+  it('blocks a verification group whose verifier was lost twice rather than leave its candidates unverified', () => {
+    const history = found().start('deduplication')
+      .add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [] })
+      .finish('deduplication')
+      .start('verification')
+      .add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }, { id: 'g2', candidateIds: ['RIPPLE-1'] }] })
+      .add('worker.launched', launchOf(21, 'verifier verification:g1')).add('worker.lost', { workerId: worker(21), phase: 'verification', key: 'g1', reason: 'engine exited' })
+      .add('worker.launched', launchOf(22, 'verifier verification:g1')).add('worker.lost', { workerId: worker(22), phase: 'verification', key: 'g1', reason: 'engine exited again' })
+      .add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: worker(23), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'e' }] });
+    const step = nextStep(history.review(), idle);
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'worker-failed', JSON.stringify(step));
+    assert.match(step.kind === 'finish-phase' ? step.blocker?.detail ?? '' : '', /^the verifier worker for verification:g1 failed twice, a worker lost with its engine among the failures: /);
+  });
+
+  it('gives a unit blocked by its lost workers fresh attempts when its phase is started again, and launches it', () => {
+    const history = findersLostTwice();
+    for (const angle of finderAngles.filter((name) => name !== 'RIPPLE')) history.add('candidates.recorded', { phase: 'finders', key: angle, workerId: worker(10 + finderAngles.indexOf(angle)), candidates: [], leads: null });
+    const blocked = nextStep(history.review(), idle);
+    assert.ok(blocked.kind === 'finish-phase' && blocked.outcome === 'blocked');
+    history.finish('finders', 'blocked', 1, blocked.kind === 'finish-phase' ? blocked.blocker : null).start('finders', 2);
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'launch', units: [{ phase: 'finders', key: 'RIPPLE', role: 'finder-RIPPLE' }] });
+    history.add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(5), candidates: [], leads: null });
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'finish-phase', phase: 'finders', attempt: 2, outcome: 'completed', blocker: null }, 'no angle was given up');
+  });
+
+  it('keeps a running phase\'s losses when a resumed engine re-enters it, so a second loss still blocks', () => {
+    const reentered = findersLostTwice().add('phase.started', { phase: 'finders', attempt: 2 }).add('worktree.checked', { phase: 'finders', attempt: 2, drifted: false, files: [] }).review();
+    const step = nextStep(reentered, idle);
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.attempt === 2, JSON.stringify(step));
   });
 
   it('blocks the run when a blocking role fails twice, after the running workers finish', () => {
@@ -286,7 +340,7 @@ describe('nextStep', () => {
 describe('the blockers', () => {
   it('name the operator action for a failed worker and a drift', () => {
     const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage' as const };
-    const blocker = workerFailedBlocker(unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
+    const blocker = workerFailedBlocker(unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false }, { workerId: worker(2), reason: 'y', lost: false }] });
     assert.equal(blocker.code, 'worker-failed');
     assert.match(blocker.action, /two fresh attempts/);
     const drift = driftBlocker([{ path: 'a.ts', outcome: 'modified' }, { path: 'b.ts', outcome: 'deleted' }]);
@@ -320,7 +374,7 @@ describe('truncated', () => {
 describe('the recorded reasons and details', () => {
   // attempt.failed records a reason of up to 4000 characters, so two of them overflow a reason that quotes both.
   const long = (fill: string): string => fill.repeat(4000);
-  const twoLongFailures = { answeredBy: null, failures: [{ workerId: worker(1), reason: long('x') }, { workerId: worker(2), reason: long('y') }] };
+  const twoLongFailures = { answeredBy: null, failures: [{ workerId: worker(1), reason: long('x'), lost: false }, { workerId: worker(2), reason: long('y'), lost: false }] };
 
   it('fit an angle.failed and a group.unverified however long the failures were, and still quote each one', () => {
     const finders = triaged().start('finders')
@@ -352,7 +406,7 @@ describe('the recorded reasons and details', () => {
   });
 
   it('keep short failures whole', () => {
-    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
+    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false }, { workerId: worker(2), reason: 'y', lost: false }] });
     assert.equal(blocker.detail, 'the triage worker for triage:SCAN failed twice: 2 attempts did not complete: x; y');
   });
 
@@ -364,7 +418,7 @@ describe('the recorded reasons and details', () => {
   });
 
   it('fit a worker-failed blocker when a lost worker added a third failure', () => {
-    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z') }] });
+    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z'), lost: true }] });
     blockerSchema.parse(blocker);
     assert.match(blocker.detail, /3 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]; z+ \[truncated\]$/);
   });

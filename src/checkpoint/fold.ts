@@ -149,7 +149,8 @@ const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payloa
 /**
  * A running worker whose engine stopped is lost: its state says so, and when
  * its launch label named a review unit, that unit counts one more failed
- * attempt (TD5 of the read-only review).
+ * attempt, marked lost, so that a unit out of attempts with a loss among
+ * them blocks its phase instead of degrading (TD5 of the read-only review).
  */
 const workerLost: Reducer<z.infer<typeof workerLostV1>> = (state, payload, event, drafts) => {
   const current = requireState(state, event);
@@ -160,7 +161,7 @@ const workerLost: Reducer<z.infer<typeof workerLostV1>> = (state, payload, event
   workers[payload.workerId] = { status: 'lost', launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
   const unit = unitOfLostWorker(payload.phase, payload.key);
   if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unitName(unit.phase, unit.key)} at sequence ${String(event.sequence)} before review.configured`);
-  const review = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, payload.workerId, payload.reason);
+  const review = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: true });
   return { ...current, workers, review, lastSequence: event.sequence };
 };
 
