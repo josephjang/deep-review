@@ -7,8 +7,8 @@
  */
 import type { ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { isAnswered, rawLocation, scopeLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
-import { matchScopePath, type RepoLookup } from './locations.ts';
+import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
@@ -28,14 +28,18 @@ const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnr
 /** The finder's own file and line, as one line of text whatever the file's name holds. */
 const rawAt = (candidate: CandidateState): string => inlineText(rawLocation(candidate));
 
+/** Whether a candidate is located on an unchanged file of the repository, outside the reviewed change. */
+const outsideChange = (candidate: CandidateState): boolean => repositoryLocation(candidate) !== null && !candidate.inScope;
+
 /** The marks a candidate carries after its location. */
 function marks(candidate: CandidateState, unverified: boolean): string {
-  const list = [...(scopeLocation(candidate) === null ? [`unlocated: ${rawAt(candidate)}`] : []), ...(unverified ? ['unverified'] : [])];
+  const where = repositoryLocation(candidate) === null ? [`unlocated: ${rawAt(candidate)}`] : outsideChange(candidate) ? ['outside the change'] : [];
+  const list = [...where, ...(unverified ? ['unverified'] : [])];
   return list.length === 0 ? '' : ` (${list.join('; ')})`;
 }
 
-/** The location a finding prints: the scope path and line, or the raw one for an unlocated candidate. */
-const shortLocation = (candidate: CandidateState): string => inlineText(scopeLocation(candidate) ?? rawLocation(candidate));
+/** The location a finding prints: the repository path and line, or the raw one for an unlocated candidate. */
+const shortLocation = (candidate: CandidateState): string => inlineText(repositoryLocation(candidate) ?? rawLocation(candidate));
 
 function angleRow(review: ReviewState, angle: Angle): string {
   if (angle === 'SCAN') return `| SCAN | ${isAnswered(review, 'triage', triageUnitKey) ? 'run (as the triage)' : 'not run'} | - |`;
@@ -85,41 +89,43 @@ function budgetLine(review: ReviewState, statistics: ReportInput['statistics']):
 
 /**
  * Why a candidate is unlocated, in the order the report lists them: its
- * file names no scope path, names one the change deletes, or names a
- * changed file whose after state has no such line; or its path only ends
- * with a changed path, and the ledger alone cannot tell which holds.
+ * path names no changed file, and no file of the repository that has such
+ * a line; or it names a changed file the change deletes, or one whose after
+ * state has no such line; or it only ends with a changed path, and the
+ * ledger alone cannot tell which of the two it named.
  */
-const unlocatedReasons = ['outside', 'deleted', 'past-end', 'ends-with-changed'] as const;
+const unlocatedReasons = ['absent', 'deleted', 'past-end', 'ends-with-changed'] as const;
 type UnlocatedReason = (typeof unlocatedReasons)[number];
 const unlocatedWording: Readonly<Record<UnlocatedReason, string>> = {
-  outside: 'on a file outside the reviewed change',
+  absent: 'on a path the repository does not hold, or on a line past the end of an unchanged file',
   deleted: 'on a file the change deletes, which has no after state for a line to point into',
   'past-end': 'on a line past the end of the changed file',
-  'ends-with-changed': 'on a path that ends with a changed path, naming either an unchanged file of the repository or that changed file without such a line',
+  'ends-with-changed': 'on a path that ends with a changed path, naming either that changed file or an unchanged path of the repository, neither with such a line',
 };
 
 /** A repository holding no path: every tail of a finder's path, and its bare name, may still name a changed file. */
-const holdsNoPath: RepoLookup = () => false;
-/** A repository holding every path: only a finder's whole path, past any root, may name a changed file. */
-const holdsEveryPath: RepoLookup = () => true;
+const holdsNoPath: RepoLookup = () => [];
+/** A repository holding every path: a finder's whole path, past any root, names a changed file or an unchanged one. */
+const holdsEveryPath: RepoLookup = (path) => [path];
 
 /**
  * Why an unlocated candidate is unlocated, from the ledger alone, so that
  * two engines give the same reason. `normalizeLocations` matched the raw
- * file against the scope with a lookup over the worktree, which the ledger
- * does not record, so the two extreme lookups bound what it found: a path
- * that matches nothing even when the repository holds no path matched
- * nothing, and a path that matches even when the repository holds every
- * path matched that same scope path. A path between the two only ends with
- * a changed path, and names either an unchanged file, which was left
- * unmatched, or that changed file; it is never pinned to the changed file.
+ * file with a lookup over the worktree, which the ledger does not record,
+ * so the two extreme lookups bound what it found. A path that names no
+ * changed path even when the repository holds no path named none, so it
+ * named nothing the repository holds, or an unchanged file without such a
+ * line. A path that names a changed path even when the repository holds
+ * every path named that changed path, which is deleted or too short. A
+ * path between the two only ends with a changed path, and named either
+ * that changed file or an unchanged path of the repository.
  */
 function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedReason {
   const paths = scope.files.map((file) => file.path);
-  if (matchScopePath(paths, candidate.rawFile, holdsNoPath) === null) return 'outside';
-  const path = matchScopePath(paths, candidate.rawFile, holdsEveryPath);
-  if (path === null) return 'ends-with-changed';
-  return scope.files.find((file) => file.path === path)?.after === null ? 'deleted' : 'past-end';
+  if (matchRepositoryPath(paths, candidate.rawFile, holdsNoPath) === null) return 'absent';
+  const match = matchRepositoryPath(paths, candidate.rawFile, holdsEveryPath);
+  if (match === null || !match.inScope) return 'ends-with-changed';
+  return scope.files.find((file) => file.path === match.path)?.after === null ? 'deleted' : 'past-end';
 }
 
 function limitations(scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
@@ -137,7 +143,12 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
   }
   const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => inlineText(file.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(', ')}.`);
-  const unlocated = Object.values(review.candidates).filter((candidate) => scopeLocation(candidate) === null && candidate.duplicateOf === null);
+  const standing = Object.values(review.candidates).filter((candidate) => candidate.duplicateOf === null);
+  const outside = standing.filter(outsideChange);
+  if (outside.length > 0) {
+    lines.push(`- Candidates on files outside the reviewed change: ${outside.map((candidate) => `${candidate.id} (${shortLocation(candidate)})`).join(', ')}. Each points at an unchanged file of the repository, its line checked against the file as the worktree held it; no worktree check covers such a file.`);
+  }
+  const unlocated = standing.filter((candidate) => repositoryLocation(candidate) === null);
   for (const reason of unlocatedReasons) {
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(', ')}.`);

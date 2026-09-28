@@ -20118,19 +20118,27 @@ var worktreeCheckedV1 = external_exports.strictObject({
 var recordedCandidateSchema = external_exports.strictObject({
   id: candidateIdSchema,
   angle: angleSchema,
-  /** The scope path the candidate was matched to, or null when unlocated. */
+  /**
+   * The canonical repository path the candidate was matched to: a changed
+   * path of the scope, or the worktree's own spelling of an unchanged file;
+   * null when unlocated.
+   */
   file: external_exports.string().min(1).nullable(),
-  /** The line, within the file's after state, or null when unlocated. */
+  /** The line, within a changed file's after state or an unchanged file's worktree bytes, or null when unlocated. */
   line: external_exports.number().int().min(1).nullable(),
   located: external_exports.boolean(),
+  /** Whether `file` is a changed path of the scope; false for a candidate on an unchanged file, and for an unlocated one. */
+  inScope: external_exports.boolean(),
   rawFile: external_exports.string().min(1).max(1e3),
   rawLine: external_exports.number().int().min(1),
   summary: external_exports.string().min(1).max(400),
   /** The fourth field of the finder output contract: a `failure_scenario` or a `value_statement`, as the angle decides. */
   detail: external_exports.string().min(1).max(2e3)
-}).refine((candidate) => candidate.located === (candidate.file !== null && candidate.line !== null), {
-  message: "a located candidate has a scope file and a line; an unlocated one has neither",
-  path: ["located"]
+}).superRefine((candidate, context) => {
+  if (candidate.located !== (candidate.file !== null && candidate.line !== null)) {
+    context.addIssue({ code: "custom", message: "a located candidate has a file and a line; an unlocated one has neither", path: ["located"] });
+  }
+  if (candidate.inScope && !candidate.located) context.addIssue({ code: "custom", message: "a candidate in the change is located", path: ["inScope"] });
 });
 var leadSchema = external_exports.strictObject({
   angle: finderAngleSchema,
@@ -20302,7 +20310,7 @@ var maxRecordedTextLength = 4e3;
 var unitName = (phase, key) => `${phase}:${key}`;
 
 // src/checkpoint/review-fold.ts
-function scopeLocation(candidate) {
+function repositoryLocation(candidate) {
   return candidate.located && candidate.file !== null && candidate.line !== null ? `${candidate.file}:${String(candidate.line)}` : null;
 }
 function rawLocation(candidate) {
@@ -20429,10 +20437,15 @@ var candidatesRecorded = (state, payload, event, drafts) => {
   requireUnanswered(review2, event, unit);
   if (payload.phase === "finders" && Object.hasOwn(review2.anglesNotRun, payload.key)) throw invalid(event, `records candidates for angle ${payload.key} after it failed`);
   const candidates = drafts.writable(review2.candidates);
+  if (current.scope === null) throw invalid(event, "records candidates before its scope is captured");
+  const scopePaths = new Set(current.scope.files.map((file2) => file2.path));
   for (const candidate of payload.candidates) {
     if (!candidate.id.startsWith(`${prefix}-`)) throw invalid(event, `records candidate ${candidate.id} under unit ${payload.key}, whose ids start with ${prefix}-`);
     if (payload.phase !== "sweep" && candidate.angle !== payload.key) throw invalid(event, `records candidate ${candidate.id} with angle ${candidate.angle} under unit ${payload.key}`);
     if (Object.hasOwn(candidates, candidate.id)) throw invalid(event, `records candidate ${candidate.id} twice`);
+    if (candidate.file !== null && candidate.inScope !== scopePaths.has(candidate.file)) {
+      throw invalid(event, `records candidate ${candidate.id} on ${candidate.file} as ${candidate.inScope ? "in" : "outside"} the change, which the scope ${candidate.inScope ? "does not hold" : "holds"}`);
+    }
     candidates[candidate.id] = { ...candidate, phase: payload.phase, workerId: payload.workerId, duplicateOf: null, verdict: null, unverified: false };
   }
   const leads = payload.leads ?? review2.leads;
@@ -23069,8 +23082,9 @@ function releaseOnExit(release, end = exitBySignal) {
 }
 
 // src/review/locations.ts
-import { readdirSync as readdirSync2 } from "node:fs";
+import { closeSync as closeSync3, lstatSync as lstatSync4, openSync as openSync3, readdirSync as readdirSync2, readlinkSync as readlinkSync2, readSync } from "node:fs";
 import { join as join14 } from "node:path";
+var unlocated = { file: null, line: null, located: false, inScope: false };
 function normalizeFileName(file2) {
   return file2.replaceAll("\\", "/").replaceAll(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
 }
@@ -23091,12 +23105,12 @@ function worktreeLookup(worktree) {
     }
     return names;
   };
-  const holds = (parent, rest) => {
+  const spellings = (parent, rest) => {
     const [segment, ...below] = rest;
-    if (segment === void 0) return true;
-    return list(parent).some((name) => name.toLowerCase() === segment.toLowerCase() && holds([...parent, name], below));
+    if (segment === void 0) return [parent.join("/")];
+    return list(parent).filter((name) => name.toLowerCase() === segment.toLowerCase()).flatMap((name) => spellings([...parent, name], below));
   };
-  return (path) => holds([], path.split("/"));
+  return (path) => spellings([], path.split("/"));
 }
 function relativeTails(name) {
   const segments = name.split("/");
@@ -23114,43 +23128,75 @@ function onlyPath(paths, pick2) {
   }
   return null;
 }
-function matchScopePath(scopePaths, file2, inRepo) {
+function matchRepositoryPath(scopePaths, file2, inRepo) {
   const tails = relativeTails(normalizeFileName(file2));
   const whole = tails[0];
   if (whole === void 0) return null;
+  const sameTail = (tail) => (path2, fold) => fold(path2) === fold(tail);
   for (const tail of tails) {
-    const candidates = scopePaths.filter((path) => path.toLowerCase() === tail.toLowerCase());
-    if (candidates.length > 0) return onlyPath(candidates, (path, fold) => fold(path) === fold(tail));
-    if (inRepo(tail)) return null;
+    const changed = scopePaths.filter((path2) => path2.toLowerCase() === tail.toLowerCase());
+    if (changed.length > 0) {
+      const path2 = onlyPath(changed, sameTail(tail));
+      return path2 === null ? null : { path: path2, inScope: true };
+    }
+    const held = [...new Set(inRepo(tail))];
+    if (held.length > 0) {
+      const path2 = onlyPath(held, sameTail(tail));
+      return path2 === null ? null : { path: path2, inScope: false };
+    }
   }
-  return onlyPath(scopePaths, (path, fold) => fold(path).endsWith(`/${fold(whole)}`));
+  const path = onlyPath(scopePaths, (candidate, fold) => fold(candidate).endsWith(`/${fold(whole)}`));
+  return path === null ? null : { path, inScope: true };
 }
 function countLines(bytes) {
+  return countLinesOf([bytes]);
+}
+function countLinesOf(chunks) {
   let lines = 0;
-  for (const byte of bytes) if (byte === 10) lines += 1;
-  if (bytes.length > 0 && bytes[bytes.length - 1] !== 10) lines += 1;
+  let last;
+  for (const chunk2 of chunks) {
+    for (let at = chunk2.indexOf(10); at !== -1; at = chunk2.indexOf(10, at + 1)) lines += 1;
+    if (chunk2.length > 0) last = chunk2[chunk2.length - 1];
+  }
+  if (last !== void 0 && last !== 10) lines += 1;
   return lines;
+}
+function* fileChunks(path) {
+  const descriptor = openSync3(path, "r");
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    for (let read = readSync(descriptor, buffer); read > 0; read = readSync(descriptor, buffer)) yield buffer.subarray(0, read);
+  } finally {
+    closeSync3(descriptor);
+  }
+}
+function worktreeLines(worktree, path) {
+  const absolute = join14(worktree, ...path.split("/"));
+  const stat = lstatSync4(absolute, { throwIfNoEntry: false });
+  if (stat === void 0) return null;
+  if (stat.isSymbolicLink()) return countLines(Buffer.from(readlinkSync2(absolute)));
+  if (stat.isFile()) return countLinesOf(fileChunks(absolute));
+  return null;
 }
 function normalizeLocations(scope, worktree, candidates) {
   const paths = scope.files.map((file2) => file2.path);
   const inRepo = worktreeLookup(worktree);
   const lineCounts = /* @__PURE__ */ new Map();
-  const linesOf = (path) => {
-    let count2 = lineCounts.get(path);
+  const linesOf = (match) => {
+    let count2 = lineCounts.get(match.path);
     if (count2 === void 0) {
-      const file2 = scope.files.find((candidate) => candidate.path === path);
-      const entry = file2.after === null ? null : readWorktree(worktree, path);
-      count2 = entry === null ? null : countLines(entry.bytes);
-      lineCounts.set(path, count2);
+      const deleted = match.inScope && scope.files.find((file2) => file2.path === match.path).after === null;
+      count2 = deleted ? null : worktreeLines(worktree, match.path);
+      lineCounts.set(match.path, count2);
     }
     return count2;
   };
   return candidates.map((candidate) => {
-    const file2 = matchScopePath(paths, candidate.file, inRepo);
-    if (file2 === null) return { file: null, line: null, located: false };
-    const lines = linesOf(file2);
-    if (lines === null || candidate.line > lines) return { file: null, line: null, located: false };
-    return { file: file2, line: candidate.line, located: true };
+    const match = matchRepositoryPath(paths, candidate.file, inRepo);
+    if (match === null) return unlocated;
+    const lines = linesOf(match);
+    if (lines === null || candidate.line > lines) return unlocated;
+    return { file: match.path, line: candidate.line, located: true, inScope: match.inScope };
   });
 }
 
@@ -23789,7 +23835,9 @@ function nextStep(review2, live2) {
 
 // src/review/tasks.ts
 function describeLocation(candidate) {
-  return scopeLocation(candidate) ?? `${rawLocation(candidate)} (unlocated: not a changed file and line of the scope; read it if it exists)`;
+  const location = repositoryLocation(candidate);
+  if (location === null) return `${rawLocation(candidate)} (unlocated: no file of the repository has this path and line)`;
+  return candidate.inScope ? location : `${location} (outside the change: an unchanged file of the repository)`;
 }
 function candidateItem(index2, candidate, extra = []) {
   return [
@@ -23942,6 +23990,7 @@ function recordCandidates(phase, key, candidates, state, worktree) {
       file: location.file,
       line: location.line,
       located: location.located,
+      inScope: location.inScope,
       rawFile: candidate.file,
       rawLine: candidate.line,
       summary: candidate.summary,
@@ -24024,11 +24073,13 @@ var count = (value) => value === null ? "-" : String(value);
 var workersCount = (n) => `${String(n)} worker${n === 1 ? "" : "s"}`;
 var costCell = (spend) => `${usd2(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? "" : ` (${workersCount(spend.costUnreported)} unreported)`}`;
 var rawAt = (candidate) => inlineText(rawLocation(candidate));
+var outsideChange = (candidate) => repositoryLocation(candidate) !== null && !candidate.inScope;
 function marks(candidate, unverified) {
-  const list = [...scopeLocation(candidate) === null ? [`unlocated: ${rawAt(candidate)}`] : [], ...unverified ? ["unverified"] : []];
+  const where = repositoryLocation(candidate) === null ? [`unlocated: ${rawAt(candidate)}`] : outsideChange(candidate) ? ["outside the change"] : [];
+  const list = [...where, ...unverified ? ["unverified"] : []];
   return list.length === 0 ? "" : ` (${list.join("; ")})`;
 }
-var shortLocation = (candidate) => inlineText(scopeLocation(candidate) ?? rawLocation(candidate));
+var shortLocation = (candidate) => inlineText(repositoryLocation(candidate) ?? rawLocation(candidate));
 function angleRow(review2, angle) {
   if (angle === "SCAN") return `| SCAN | ${isAnswered(review2, "triage", triageUnitKey) ? "run (as the triage)" : "not run"} | - |`;
   const notRun = review2.anglesNotRun[angle];
@@ -24069,21 +24120,21 @@ function budgetLine(review2, statistics) {
   }
   return `- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent ${spent} USD.`;
 }
-var unlocatedReasons = ["outside", "deleted", "past-end", "ends-with-changed"];
+var unlocatedReasons = ["absent", "deleted", "past-end", "ends-with-changed"];
 var unlocatedWording = {
-  outside: "on a file outside the reviewed change",
+  absent: "on a path the repository does not hold, or on a line past the end of an unchanged file",
   deleted: "on a file the change deletes, which has no after state for a line to point into",
   "past-end": "on a line past the end of the changed file",
-  "ends-with-changed": "on a path that ends with a changed path, naming either an unchanged file of the repository or that changed file without such a line"
+  "ends-with-changed": "on a path that ends with a changed path, naming either that changed file or an unchanged path of the repository, neither with such a line"
 };
-var holdsNoPath = () => false;
-var holdsEveryPath = () => true;
+var holdsNoPath = () => [];
+var holdsEveryPath = (path) => [path];
 function whyUnlocated(scope, candidate) {
   const paths = scope.files.map((file2) => file2.path);
-  if (matchScopePath(paths, candidate.rawFile, holdsNoPath) === null) return "outside";
-  const path = matchScopePath(paths, candidate.rawFile, holdsEveryPath);
-  if (path === null) return "ends-with-changed";
-  return scope.files.find((file2) => file2.path === path)?.after === null ? "deleted" : "past-end";
+  if (matchRepositoryPath(paths, candidate.rawFile, holdsNoPath) === null) return "absent";
+  const match = matchRepositoryPath(paths, candidate.rawFile, holdsEveryPath);
+  if (match === null || !match.inScope) return "ends-with-changed";
+  return scope.files.find((file2) => file2.path === match.path)?.after === null ? "deleted" : "past-end";
 }
 function limitations(scope, review2, input2) {
   const lines = [];
@@ -24100,9 +24151,14 @@ function limitations(scope, review2, input2) {
   }
   const oversized = scope.files.filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => inlineText(file2.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(", ")}.`);
-  const unlocated = Object.values(review2.candidates).filter((candidate) => scopeLocation(candidate) === null && candidate.duplicateOf === null);
+  const standing = Object.values(review2.candidates).filter((candidate) => candidate.duplicateOf === null);
+  const outside = standing.filter(outsideChange);
+  if (outside.length > 0) {
+    lines.push(`- Candidates on files outside the reviewed change: ${outside.map((candidate) => `${candidate.id} (${shortLocation(candidate)})`).join(", ")}. Each points at an unchanged file of the repository, its line checked against the file as the worktree held it; no worktree check covers such a file.`);
+  }
+  const unlocated2 = standing.filter((candidate) => repositoryLocation(candidate) === null);
   for (const reason of unlocatedReasons) {
-    const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
+    const matching = unlocated2.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(", ")}.`);
   }
   return lines;
