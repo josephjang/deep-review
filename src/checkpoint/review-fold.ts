@@ -56,7 +56,15 @@ export interface UnitState {
   /** The worker whose contribution is recorded, or null while none is. */
   readonly answeredBy: string | null;
   /** Every attempt that did not contribute, in order. Cleared when a blocked phase is re-entered, which gives the unit fresh attempts. */
-  readonly failures: readonly { readonly workerId: string; readonly reason: string }[];
+  readonly failures: readonly UnitFailure[];
+}
+
+/** One attempt of a unit that did not contribute: its worker, why, and whether the worker was lost rather than seen to fail. */
+export interface UnitFailure {
+  readonly workerId: string;
+  readonly reason: string;
+  /** True for a worker lost with the engine that ran it (`worker.lost`), false for one recorded failing (`attempt.failed`). */
+  readonly lost: boolean;
 }
 
 /** A candidate as recorded, with the phase and worker it came from and what later phases decided about it. */
@@ -172,11 +180,11 @@ function answered(review: ReviewState, drafts: FoldDrafts, { phase, key }: UnitR
   return units;
 }
 
-/** Record one failed attempt of `unit`; shared by `attempt.failed` and a lost worker with a unit. */
-export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, key }: UnitRef, workerId: string, reason: string): ReviewState {
+/** Record one failed attempt of `unit`; shared by `attempt.failed`, whose failure is not lost, and a lost worker with a unit, whose failure is. */
+export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, key }: UnitRef, failure: UnitFailure): ReviewState {
   const { units, ofPhase } = writableUnits(review, drafts, phase);
   const state = ofPhase[key] ?? { answeredBy: null, failures: [] };
-  ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, { workerId, reason }] };
+  ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, failure] };
   return { ...review, units };
 }
 
@@ -282,7 +290,7 @@ const attemptFailed: Reducer<AttemptFailed> = (state, payload, event, drafts) =>
   requireRunning(review, event, payload.phase);
   const unit: UnitRef = { phase: payload.phase, key: payload.key };
   requireUnanswered(review, event, unit);
-  return withReview(current, withFailure(review, drafts, unit, payload.workerId, payload.reason), event);
+  return withReview(current, withFailure(review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false }), event);
 };
 
 const angleFailed: Reducer<AngleFailed> = (state, payload, event) => {

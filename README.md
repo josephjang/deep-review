@@ -153,7 +153,10 @@ fails its schema or a structural check, is run once more as a fresh
 worker; a second failure degrades by role: a finder's angle is recorded
 as not run, a verifier's group as unverified with its candidates
 `PLAUSIBLE` and marked, and the triage, deduplication, sweep and
-merge-rank block the run. At most `--concurrency` workers run at once (4
+merge-rank block the run. A worker lost when the engine stops uses an
+attempt too, but a unit with a lost worker among its failures blocks
+the run whatever its role, so an interruption never costs coverage:
+running again gives it fresh attempts. At most `--concurrency` workers run at once (4
 by default), and on a runtime that reports cost the run has a budget
 (`--budget-usd`, 30 USD by default on Claude Code) checked before every
 launch. Every way a run stops short of a report names the operator's

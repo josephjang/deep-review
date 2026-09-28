@@ -326,7 +326,7 @@
           }
         },
         "00000000-0000-4000-8000-000000000003": {
-          "status": "lost",
+          "status": "finished",
           "launch": {
             "workerId": "00000000-0000-4000-8000-000000000003",
             "label": "finder-FOOTGUNS finders:FOOTGUNS",
@@ -353,7 +353,31 @@
             }
           },
           "launchedAt": "2026-09-26T00:00:21.000Z",
-          "reason": "the engine exited while the worker ran"
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000003",
+            "outcome": "failed",
+            "exitCode": 1,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000003"
+            ],
+            "usage": null,
+            "denials": [],
+            "error": "The answer does not match the output schema",
+            "stdout": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": null
+          }
         },
         "00000000-0000-4000-8000-000000000004": {
           "status": "finished",
@@ -382,7 +406,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:23.000Z",
+          "launchedAt": "2026-09-26T00:00:24.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000004",
             "outcome": "timeout",
@@ -408,6 +432,36 @@
             "finalMessage": null,
             "output": null
           }
+        },
+        "00000000-0000-4000-8000-000000000005": {
+          "status": "lost",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000005",
+            "label": "finder-WRAPPERS finders:WRAPPERS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000005",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000005",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "bc0b7f4bc265f8312bbed70e4ba66edd6620b8180e2b515288e7b3add9edabf6",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:28.000Z",
+          "reason": "the engine exited while the worker ran"
         },
         "00000000-0000-4000-8000-000000000010": {
           "status": "finished",
@@ -436,7 +490,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:27.000Z",
+          "launchedAt": "2026-09-26T00:00:30.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000010",
             "outcome": "completed",
@@ -493,7 +547,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:30.000Z",
+          "launchedAt": "2026-09-26T00:00:33.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000013",
             "outcome": "completed",
@@ -550,7 +604,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:33.000Z",
+          "launchedAt": "2026-09-26T00:00:36.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000014",
             "outcome": "completed",
@@ -607,7 +661,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:36.000Z",
+          "launchedAt": "2026-09-26T00:00:39.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000015",
             "outcome": "completed",
@@ -664,7 +718,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:39.000Z",
+          "launchedAt": "2026-09-26T00:00:42.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000016",
             "outcome": "completed",
@@ -721,7 +775,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:42.000Z",
+          "launchedAt": "2026-09-26T00:00:45.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000017",
             "outcome": "completed",
@@ -778,7 +832,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:45.000Z",
+          "launchedAt": "2026-09-26T00:00:48.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000018",
             "outcome": "completed",
@@ -835,7 +889,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:51.000Z",
+          "launchedAt": "2026-09-26T00:00:54.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000020",
             "outcome": "completed",
@@ -892,7 +946,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:58.000Z",
+          "launchedAt": "2026-09-26T00:00:61.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000021",
             "outcome": "completed",
@@ -949,7 +1003,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:68.000Z",
+          "launchedAt": "2026-09-26T00:00:71.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000030",
             "outcome": "completed",
@@ -1006,7 +1060,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:78.000Z",
+          "launchedAt": "2026-09-26T00:00:81.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000031",
             "outcome": "failed",
@@ -1060,7 +1114,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:81.000Z",
+          "launchedAt": "2026-09-26T00:00:84.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000032",
             "outcome": "failed",
@@ -1114,7 +1168,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:88.000Z",
+          "launchedAt": "2026-09-26T00:00:91.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000040",
             "outcome": "completed",
@@ -1491,20 +1545,28 @@
               "failures": [
                 {
                   "workerId": "00000000-0000-4000-8000-000000000003",
-                  "reason": "the engine exited while the worker ran"
+                  "reason": "failed: The answer does not match the output schema",
+                  "lost": false
                 },
                 {
                   "workerId": "00000000-0000-4000-8000-000000000004",
-                  "reason": "timeout: The worker ran past its timeout of 600000 ms"
+                  "reason": "timeout: The worker ran past its timeout of 600000 ms",
+                  "lost": false
+                }
+              ]
+            },
+            "WRAPPERS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000013",
+              "failures": [
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000005",
+                  "reason": "the engine exited while the worker ran",
+                  "lost": true
                 }
               ]
             },
             "REMOVALS": {
               "answeredBy": "00000000-0000-4000-8000-000000000010",
-              "failures": []
-            },
-            "WRAPPERS": {
-              "answeredBy": "00000000-0000-4000-8000-000000000013",
               "failures": []
             },
             "EFFICIENCY": {
@@ -1553,11 +1615,13 @@
               "failures": [
                 {
                   "workerId": "00000000-0000-4000-8000-000000000031",
-                  "reason": "failed: The answer does not match the output schema"
+                  "reason": "failed: The answer does not match the output schema",
+                  "lost": false
                 },
                 {
                   "workerId": "00000000-0000-4000-8000-000000000032",
-                  "reason": "failed: Claude Code printed no result envelope"
+                  "reason": "failed: Claude Code printed no result envelope",
+                  "lost": false
                 }
               ]
             }
@@ -1571,7 +1635,7 @@
           "report": {}
         },
         "anglesNotRun": {
-          "FOOTGUNS": "two attempts did not complete: lost; timeout"
+          "FOOTGUNS": "two attempts did not complete: failed; timeout"
         },
         "deduplications": {
           "deduplication": [
@@ -1645,13 +1709,13 @@
                 "phase": "triage"
               },
               {
-                "workers": 9,
-                "seconds": 270,
-                "costUsd": 4.5,
-                "costUnreported": 2,
-                "inputTokens": 9000,
-                "cachedInputTokens": 1800,
-                "outputTokens": 900,
+                "workers": 10,
+                "seconds": 300,
+                "costUsd": 5,
+                "costUnreported": 3,
+                "inputTokens": 10000,
+                "cachedInputTokens": 2000,
+                "outputTokens": 1000,
                 "phase": "finders"
               },
               {
@@ -1726,19 +1790,19 @@
               }
             ],
             "total": {
-              "workers": 16,
-              "seconds": 480,
-              "costUsd": 8,
-              "costUnreported": 4,
-              "inputTokens": 16000,
-              "cachedInputTokens": 3200,
-              "outputTokens": 1600
+              "workers": 17,
+              "seconds": 510,
+              "costUsd": 8.5,
+              "costUnreported": 5,
+              "inputTokens": 17000,
+              "cachedInputTokens": 3400,
+              "outputTokens": 1700
             },
             "budgetApplied": true
           }
         }
       },
-      "lastSequence": 96
+      "lastSequence": 99
     }
   ],
   "evidence": [
