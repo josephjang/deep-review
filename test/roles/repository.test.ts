@@ -221,6 +221,14 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  it('tells the verifier that an answer missing a candidate is discarded whole, as the engine does', () => {
+    // checkVerdicts refuses the whole answer, so a prompt that says only the missed candidates fall back would be false.
+    const verifier = roles.find((role) => role.key === 'verifier')!;
+    assert.match(verifier.prompt, /an answer\s+that misses one is discarded whole/);
+    assert.match(verifier.prompt, /every candidate in the group is kept as PLAUSIBLE/);
+    assert.doesNotMatch(verifier.prompt, /the affected candidates|recorded as they arrive/);
+  });
+
   it('names no mechanism of one runtime in any prompt', () => {
     const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);

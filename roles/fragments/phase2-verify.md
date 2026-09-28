@@ -42,16 +42,17 @@ matches that candidate's angle — plus one line of `evidence` quoting or
 citing the line(s) that justify the verdict. Grouping is not dedup:
 every candidate keeps its own verdict.
 
-**Verifier-failure policy.** If a verifier worker dies, or returns no
-verdict for some candidate in its group, the engine re-runs that group
-once with a fresh worker. If it fails again, the affected candidates are
-kept as PLAUSIBLE — tagged "unverified" — and flow onward like any
-PLAUSIBLE finding, with the tag carried into the report. At this effort
-level a silently dropped candidate is a silently missed bug: never
-fabricate a verdict, and never drop a candidate because its verifier
-failed.
+**Verifier-failure policy.** A verifier's answer is recorded only when
+it gives exactly one verdict for every candidate in its group; an answer
+that misses one is discarded whole, like a verifier worker that dies.
+Either way the engine re-runs that group once with a fresh worker. If it
+fails again, every candidate in the group is kept as PLAUSIBLE — tagged
+"unverified" — and flows onward like any PLAUSIBLE finding, with the tag
+carried into the report. At this effort level a silently dropped
+candidate is a silently missed bug: never fabricate a verdict, and never
+drop a candidate because its verifier failed.
 
-Each verifier's verdicts and evidence lines are recorded as they arrive,
+Each complete answer's verdicts and evidence lines are recorded,
 REFUTED included. CONFIRMED and PLAUSIBLE (including
 PLAUSIBLE-unverified) stay on the working list. Each REFUTED candidate
 is recorded with its ID, location, summary, and the verifier's one-line
