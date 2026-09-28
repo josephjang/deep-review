@@ -7,7 +7,7 @@
  */
 import { resolve } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, ReviewConfiguration, ReviewLimits, ScopeRequest } from '../checkpoint/events.ts';
+import type { Blocker, ReviewConfiguration, ReviewLimits, ScopeRequest, ScopeState, WorktreeCheck } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -16,7 +16,7 @@ import { runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import { captureScope } from '../scope/capture.ts';
-import { compareWorktree } from '../scope/compare.ts';
+import { compareScopeFiles } from '../scope/compare.ts';
 import { conventionFiles } from './conventions.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { parseUnitLabel } from './labels.ts';
@@ -27,7 +27,7 @@ import { scopeBlock } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
-import { driftBlocker, nextStep, type Live, type Unit } from './steps.ts';
+import { nextStep, type Live, type Unit } from './steps.ts';
 import { blockerActions, unitName, type Phase } from './vocabulary.ts';
 
 /**
@@ -112,6 +112,16 @@ export function findActiveRun(checkpoint: Checkpoint): RunState | null {
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 const usd = (value: number | null): string => (value === null ? '' : `, ${value.toFixed(2)} USD`);
 
+type DriftedFile = WorktreeCheck['files'][number];
+
+/** The scope files that differ in the worktree from their frozen after state, as a drifted `worktree.checked` records them. */
+function driftedFiles(scope: ScopeState, worktree: string): DriftedFile[] {
+  return compareScopeFiles(scope, worktree).filter((file): file is DriftedFile => file.outcome !== 'unchanged');
+}
+
+/** Drifted files as the log names them. */
+const fileList = (files: readonly DriftedFile[]): string => files.map((file) => `${file.path} (${file.outcome})`).join(', ');
+
 /** Run a review to its report or its blocker. */
 export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> {
   const log = options.log ?? ((line: string): void => {
@@ -136,6 +146,18 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
     log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd(summary.costUsd)}${settled.receipt.error === null ? '' : `: ${settled.receipt.error}`}`);
     state = checkpoint.fold(runId);
+    if (settled.receipt.outcome === 'completed') {
+      // An answer is recorded only while the tree is the one reviewed (PD10): once a scope file drifted in this attempt, every answer settling is set aside, neither recorded nor counted as a failure, and the attempt blocks when the workers in flight have settled.
+      const { phase } = settled.unit;
+      const attempt = state.review!.phases[phase].attempt;
+      const found = state.review!.checks.find((check) => check.phase === phase && check.attempt === attempt && check.drifted);
+      const files = found?.files ?? driftedFiles(state.scope!, options.worktree);
+      if (files.length > 0) {
+        log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from the scope: ${fileList(files)}`);
+        if (found === undefined) state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 1, payload: { phase, attempt, drifted: true, files } }]);
+        return;
+      }
+    }
     const event = contributionOf(settled.unit, settled.receipt, state, options.worktree);
     if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
     state = append(checkpoint, state, [event]);
@@ -172,15 +194,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           state = append(checkpoint, state, [{ kind: 'phase.started', version: 1, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case 'check-worktree': {
-          const comparison = compareWorktree(scope, options.worktree);
-          const drifted = comparison.files.filter((file) => file.outcome !== 'unchanged') as { path: string; outcome: 'modified' | 'deleted' | 'restored' }[];
-          const events: NewEvent[] = [{ kind: 'worktree.checked', version: 1, payload: { phase: step.phase, attempt: step.attempt, drifted: drifted.length > 0, files: drifted } }];
-          if (drifted.length > 0) {
-            const blocker = driftBlocker(drifted);
-            events.push({ kind: 'phase.finished', version: 1, payload: { phase: step.phase, attempt: step.attempt, outcome: 'blocked', blocker } });
-            log(`phase ${step.phase}: the worktree drifted from the scope: ${drifted.map((file) => `${file.path} (${file.outcome})`).join(', ')}`);
-          }
-          state = append(checkpoint, state, events);
+          // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
+          const drifted = driftedFiles(scope, options.worktree);
+          if (drifted.length > 0) log(`phase ${step.phase}: the worktree drifted from the scope: ${fileList(drifted)}`);
+          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 1, payload: { phase: step.phase, attempt: step.attempt, drifted: drifted.length > 0, files: drifted } }]);
           break;
         }
         case 'plan-verification':

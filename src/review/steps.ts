@@ -223,7 +223,9 @@ export function driftBlocker(files: readonly { path: string; outcome: string }[]
 /**
  * The next step, in order of precedence: a blocked run returns its blocker;
  * a written report is complete; a phase that is not running starts; a
- * running phase is checked against the worktree once per attempt, then a
+ * running phase is checked against the worktree once per attempt, and an
+ * attempt with a drifted check (at its start, or one the controller made
+ * before recording an answer) blocks once no worker is in flight; then a
  * verification phase is planned, then units are degraded, blocked,
  * launched or awaited, and the phase finishes when nothing is left.
  */
@@ -237,7 +239,11 @@ export function nextStep(review: ReviewState, live: Live): Step {
     return { kind: 'start-phase', phase: pending, attempt: review.phases[pending].attempt + 1 };
   }
   const attempt = review.phases[phase].attempt;
-  if (!review.checks.some((check) => check.phase === phase && check.attempt === attempt)) return { kind: 'check-worktree', phase, attempt };
+  const checks = review.checks.filter((check) => check.phase === phase && check.attempt === attempt);
+  if (checks.length === 0) return { kind: 'check-worktree', phase, attempt };
+  // A drift found at the attempt's start, or before an answer was recorded, blocks the attempt once every worker in flight has settled; nothing more is launched.
+  const drift = checks.find((check) => check.drifted);
+  if (drift !== undefined) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: driftBlocker(drift.files) };
   if ((phase === 'verification' || phase === 'sweep-verification') && review.plans[phase] === null) return { kind: 'plan-verification', phase, groups: groupsOf(review, phase) };
   if (phase === 'report') return { kind: 'write-report' };
 

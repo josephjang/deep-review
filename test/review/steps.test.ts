@@ -57,6 +57,20 @@ describe('nextStep', () => {
     assert.deepEqual(nextStep(reentered.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 2 });
   });
 
+  it('awaits the workers in flight once a drift is found while the phase runs, then blocks with it, launching nothing more', () => {
+    const files = [{ path: 'src/a.ts', outcome: 'modified' }];
+    // The check at the attempt's start was clean; a later one, made before recording an answer, found the drift.
+    const drifted = triaged().start('finders').add('worktree.checked', { phase: 'finders', attempt: 1, drifted: true, files }).review();
+    assert.deepEqual(nextStep(limited(drifted, { concurrency: 16 }), live({ running: new Set(['finders:REMOVALS']) })), { kind: 'await' }, 'nothing more is launched while one runs');
+    assert.deepEqual(nextStep(drifted, idle), { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: driftBlocker(files) });
+    // The check at the start of an attempt that finds a drift blocks the same way, before any launch.
+    const atStart = configured().add('phase.started', { phase: 'triage', attempt: 1 }).add('worktree.checked', { phase: 'triage', attempt: 1, drifted: true, files }).review();
+    assert.deepEqual(nextStep(atStart, idle), { kind: 'finish-phase', phase: 'triage', attempt: 1, outcome: 'blocked', blocker: driftBlocker(files) });
+    // A drift found in an earlier attempt does not block the re-entered one, whose own check was clean.
+    const reentered = triaged().start('finders').add('worktree.checked', { phase: 'finders', attempt: 1, drifted: true, files }).finish('finders', 'blocked', 1, driftBlocker(files)).start('finders', 2).review();
+    assert.equal(nextStep(reentered, idle).kind, 'launch');
+  });
+
   it('returns the blocker of a blocked run', () => {
     const blocker = { code: 'drift', detail: 'src/a.ts modified', action: 'restore it' };
     const review = configured().add('phase.started', { phase: 'triage', attempt: 1 }).add('worktree.checked', { phase: 'triage', attempt: 1, drifted: true, files: [{ path: 'src/a.ts', outcome: 'modified' }] }).finish('triage', 'blocked', 1, blocker).review();

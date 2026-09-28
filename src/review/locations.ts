@@ -125,9 +125,9 @@ export function countLines(bytes: Uint8Array): number {
 
 /**
  * Normalize every candidate's location against the scope, counting a file's
- * lines from the worktree, which the drift check has just confirmed equals
- * the frozen after state and which is the one place an oversized file's
- * lines can be counted. The worktree also tells which unchanged files the
+ * lines from the worktree, which the controller's drift check, run just
+ * before it records an answer, has confirmed equals the frozen after state,
+ * and which is the one place an oversized file's lines can be counted. The worktree also tells which unchanged files the
  * repository holds, so a path naming one is not taken for a changed path it
  * ends with. A candidate on a file the scope does not hold, on a deleted
  * file, or on a line past the file's end is unlocated.

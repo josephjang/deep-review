@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -7,7 +7,7 @@ import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import type { ScopeState } from '../../src/checkpoint/events.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { captureScope, freezeLimitBytes } from '../../src/scope/capture.ts';
-import { compareWorktree } from '../../src/scope/compare.ts';
+import { compareScopeFiles, compareWorktree } from '../../src/scope/compare.ts';
 import { commitAll, git, remove, repositoryWith, write } from '../helpers/repository.ts';
 
 describe('compareWorktree', () => {
@@ -83,5 +83,19 @@ describe('compareWorktree', () => {
     write(repo, 'edit.txt', 'e3\n');
     compareWorktree(scope, repo);
     assert.equal(checkpoint.ledger.lastSequence(checkpoint.listRuns()[0]!.id), before);
+  });
+  it('compares the scope files as compareWorktree does, reading only them, so a copy of the tree outside its repository compares too', () => {
+    write(repo, 'edit.txt', 'e3\n');
+    write(repo, 'stray.log', 'log\n');
+    assert.deepEqual(compareScopeFiles(scope, repo), compareWorktree(scope, repo).files);
+    // A copy of the tree without its repository: only the scope files are read.
+    const copy = join(sandbox, 'copy');
+    cpSync(repo, copy, { recursive: true, filter: (source) => !source.split(/[\/]/).includes('.git') });
+    assert.deepEqual(compareScopeFiles(scope, copy), [
+      { path: 'big.bin', outcome: 'unchanged' },
+      { path: 'edit.txt', outcome: 'modified' },
+      { path: 'gone.txt', outcome: 'unchanged' },
+      { path: 'new.txt', outcome: 'unchanged' },
+    ]);
   });
 });

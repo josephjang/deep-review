@@ -87,7 +87,7 @@ describe('renderReport', () => {
       scope: { ...state.scope!, files: [...state.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] },
     };
     const report = renderReport(drifted, { engine: '0.0.0', statistics });
-    assert.match(report, /- Worktree checks: 10, 1 found a difference before report \(attempt 1: src\/a\.ts modified\); each blocked the run/);
+    assert.match(report, /- Worktree checks: 10, 1 found a difference in report \(attempt 1: src\/a\.ts modified\); each blocked the run/);
     assert.match(report, /- Files too large to freeze, which no worker could be given a frozen state of: big\.bin\./);
   });
 
