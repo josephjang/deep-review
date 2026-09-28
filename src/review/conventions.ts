@@ -5,9 +5,9 @@
  * and in every ancestor directory of a changed file. The engine lists the
  * ones that exist; the `CONVENTIONS` worker verifies the list itself.
  */
-import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, posix } from 'node:path';
+import { isFile } from '../paths.ts';
 
 /** The rules files a directory may hold, in the order they are listed. */
 export const conventionFileNames = ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md'] as const;
@@ -21,14 +21,6 @@ export interface ConventionFile {
   /** Absolute for a user file; repository-relative with forward slashes for a repository file, as a worker's working directory is the worktree. */
   readonly path: string;
 }
-
-const isFile = (path: string): boolean => {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-};
 
 /** Every directory from the repository root down to each changed file's own, repository-relative, root first as ``, sorted and without repeats. */
 export function ancestorDirectories(changedPaths: readonly string[]): string[] {
