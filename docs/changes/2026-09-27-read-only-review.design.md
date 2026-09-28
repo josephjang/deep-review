@@ -1075,8 +1075,8 @@ three CI runners.
 ## Verification
 
 Run on the author's Windows 11 machine on 2026-09-28, Node 26.10.0, over
-the eleven commits that build the element after the proposal (`71b693f`),
-from `76f1ba9` to `4cc1a80`, and the fix commit `9085ae6` after the
+the eleven commits that build the element after the proposal (`25ff51d`),
+from `d0642fd` to `dadc928`, and the fix commit `0973112` after the
 first documentation commit. `npm run check` and
 `npm run verify` passed before each commit, `npm run check` ending at 811
 tests, 799 passing and 12 skipped: the six POSIX signal cases, the four
@@ -1087,27 +1087,27 @@ runs when the pull request opens, and its result is recorded here then.
 
 The commits, in order, and what each carries:
 
-- `76f1ba9` usage summary: `summarizeUsage` and `costInUsd` per adapter.
-- `c9516c1` the fourteen event kinds, the reducers, `worker.lost`, and
+- `d0642fd` usage summary: `summarizeUsage` and `costInUsd` per adapter.
+- `6b83b79` the fourteen event kinds, the reducers, `worker.lost`, and
   the golden fixture `schema-1-04`, whose third run goes through every
   kind; the three older fixtures fold with `review: null`.
-- `2c159d7` the narration rewrite (text commit 1 of PD14).
-- `89e231a` the `CONVENTIONS` wording (text commit 2, R12).
-- `21375c5` `roles/policy.json` and its resolution.
-- `6c10afa` output schemas, structural checks, locations, grouping.
-- `c98728a` the scope block, the rules files, the task texts, `pathOf`.
-- `1664edc` the state selectors, the planner, labels, spend, the report.
-- `105cbd4` the controller, the lock, the executable resolution, the
+- `534324a` the narration rewrite (text commit 1 of PD14).
+- `b5f0e52` the `CONVENTIONS` wording (text commit 2, R12).
+- `d7af182` `roles/policy.json` and its resolution.
+- `6f7395a` output schemas, structural checks, locations, grouping.
+- `56141a5` the scope block, the rules files, the task texts, `pathOf`.
+- `5c37fc6` the state selectors, the planner, labels, spend, the report.
+- `f4cd465` the controller, the lock, the executable resolution, the
   command, the scripted fakes and the whole-review tests.
-- `7c1fcd6` the esbuild bundle in both artifacts.
-- `4cc1a80` the skill texts, rebuilt into `dist/`.
-- `9085ae6` three defects a review of the controller found before any
+- `9e2a151` the esbuild bundle in both artifacts.
+- `dadc928` the skill texts, rebuilt into `dist/`.
+- `0973112` three defects a review of the controller found before any
   real run: a launched worker's error could surface as an unhandled
   rejection while another worker was awaited, the controller's append
   retried once against the finishes the launchers append themselves, and
   `--repo` mangled an absolute path; `dist/` rebuilt with them.
 
-The roles' hashes after each text commit. At `2c159d7` (narration):
+The roles' hashes after each text commit. At `534324a` (narration):
 
 | Role | Fragments | Bytes | SHA-256 |
 |---|---|---|---|
@@ -1122,11 +1122,11 @@ The roles' hashes after each text commit. At `2c159d7` (narration):
 | test-assessment | 6 | 28705 | `e63e40d70ff705c6db786c6e4876cf451348ecbd80bba45678273806d1786082` |
 
 `fixer`, `documentation`, `auditor` and `answer` kept their hashes from
-`a77e6ec`. The finders changed only through `finder-lead.md`
+`115cca6`. The finders changed only through `finder-lead.md`
 (`Driver lead` gone); the lead roles through the four phase fragments,
 `lead-brief.md` and `rubrics.md`; `test-assessment` through `rubrics.md`.
 
-At `89e231a` (`CONVENTIONS` wording), which changed `angles-conventions.md`,
+At `b5f0e52` (`CONVENTIONS` wording), which changed `angles-conventions.md`,
 the `CONVENTIONS` rubric in `rubrics.md` and one bullet of
 `phase3-sweep.md`:
 
@@ -1168,7 +1168,7 @@ from its text, each recorded here rather than silently:
   same append as the check. A resumed engine re-enters a running or
   blocked phase with `phase.started` at the next attempt, which is what
   makes it check the tree again and clears a blocker; the attempt counts
-  entries into the phase, not worker attempts. Since `1831d56` the
+  entries into the phase, not worker attempts. Since `b090a2d` the
   check is appended alone and the planner finishes the phase blocked
   once no worker is in flight, as it does for a drift found before an
   answer is recorded.
@@ -1178,7 +1178,7 @@ from its text, each recorded here rather than silently:
   attempts. A `phase.started` on a blocked phase forgets its units'
   failures, which is what "run again (two fresh attempts)" promises the
   operator after `worker-failed`; an interruption resumes with the count
-  intact. Since `ec3ab73` a unit that runs out with a lost worker among
+  intact. Since `2c19267` a unit that runs out with a lost worker among
   its failures blocks with `worker-failed` instead of degrading.
 - **A lost worker carries its unit.** `worker.lost@1` names the phase and
   unit key parsed from the launch label, `<role> <phase>:<key>`, and the
@@ -1232,110 +1232,110 @@ held and stale, and the engine killed after three finders answered,
 whose next invocation records the lost workers and launches exactly the
 units without an answer.
 
-A deep review of the pull request at `ae55a0b`, on 2026-09-28, found
-defects the suite had not, and the 54 commits after it, from `e4e81aa`
-to `4a34f5e`, fix them, one defect or one refactor to a commit, each
+A deep review of the pull request at `a7542c7`, on 2026-09-28, found
+defects the suite had not, and the 54 commits after it, from `35a6051`
+to `1dde67c`, fix them, one defect or one refactor to a commit, each
 with `dist/` rebuilt in the same commit. The design above is corrected
 to the code they leave. `npm run check` and `npm run verify` passed
 after each group of fixes was integrated; the three commits from
-`9d26cae` to `d690002` do not typecheck on their own, since the report
-there called the location matcher with the signature `f4ff88b` had
-replaced, until `0abe32d`. The commits, in order:
+`f760f32` to `b3bcf13` do not typecheck on their own, since the report
+there called the location matcher with the signature `353b939` had
+replaced, until `7265592`. The commits, in order:
 
-- `e4e81aa` a unit whose degradation was recorded was launched again
+- `35a6051` a unit whose degradation was recorded was launched again
   after a blocked phase's re-entry, and the fold's refusal crashed every
   resume.
-- `c3fc0d1` a degradation's reason or a blocker's detail could exceed
+- `b14be80` a degradation's reason or a blocker's detail could exceed
   the ledger's 4000-character cap and crash the append; each is cut to
   fit, still quoting every failure.
-- `4a6bbb9` refactor: one missing-index check for verdicts and ranking.
-- `1285914` refactor: the angle list derived once, each angle's class
+- `ae2b376` refactor: one missing-index check for verdicts and ranking.
+- `31964af` refactor: the angle list derived once, each angle's class
   declared once.
-- `fbe8700` refactor: a recorded ranking is ordered through the report's
+- `9e9115b` refactor: a recorded ranking is ordered through the report's
   `rankedFindings`.
-- `0cb7c81` refactor: the candidate id prefix and the single unit key
+- `c060262` refactor: the candidate id prefix and the single unit key
   named once.
-- `032e9a6` the merge-rank task asked for an order the engine discards;
+- `6c98af7` the merge-rank task asked for an order the engine discards;
   it now states the engine's order.
-- `b2abbbe` text: `phase4-list.md` said the report keeps the worker's
+- `16387b1` text: `phase4-list.md` said the report keeps the worker's
   order and left `CONVENTIONS` out of the correctness class.
-- `f4ff88b` a candidate in an unchanged file was located on a changed
+- `353b939` a candidate in an unchanged file was located on a changed
   path its own path merely ends with.
-- `b5f4e06` spellings of one unlocated file went to separate verifiers.
-- `2994819` a group of 8n+1 candidates gave one verifier nine; chunks
+- `013bbea` spellings of one unlocated file went to separate verifiers.
+- `e7938a4` a group of 8n+1 candidates gave one verifier nine; chunks
   are balanced within eight, and a chunk size of 0 no longer loops.
-- `625ee85` text: `phase2-verify.md` says how the engine locates and
+- `0e7473f` text: `phase2-verify.md` says how the engine locates and
   groups unlocated paths.
-- `a618545` a finish after a loss was refused as a second finish.
-- `963c2b1` the launcher continued a session holding a lost worker.
-- `34ca097` the statistics' seconds summed worker time, not wall time.
-- `88179fa` a cost's half cent was lost to floating-point
+- `fae7df2` a finish after a loss was refused as a second finish.
+- `10a58e4` the launcher continued a session holding a lost worker.
+- `0b2e327` the statistics' seconds summed worker time, not wall time.
+- `78b4c92` a cost's half cent was lost to floating-point
   representation.
-- `efb8cf6` workers whose cost went unreported vanished from the
+- `512eae0` workers whose cost went unreported vanished from the
   totals; `costUnreported` counts them.
-- `ccca024` refactor: one Markdown table-cell escaper.
-- `1ee56ea` worker text could change the report's structure.
-- `9d26cae` Limitations gave every unlocated candidate one reason; each
+- `3f61acd` refactor: one Markdown table-cell escaper.
+- `0000f59` worker text could change the report's structure.
+- `f760f32` Limitations gave every unlocated candidate one reason; each
   class now says why it is unlocated.
-- `b831be4` refactor: the report asks the fold whether a unit answered
+- `8a5684f` refactor: the report asks the fold whether a unit answered
   or went unverified.
-- `d690002` the v1 review events took their enums from the live
+- `b3bcf13` the v1 review events took their enums from the live
   vocabulary; they are frozen.
-- `0abe32d` the report classified unlocated candidates with the old
+- `7265592` the report classified unlocated candidates with the old
   matcher's signature and rule.
-- `c095e35` test: the lock test moved to its own file under a name its
+- `7b52975` test: the lock test moved to its own file under a name its
   body supports.
-- `c1d42c5` a lock file holding no pid refused every command for good.
-- `62997f3` a signal that ended the engine left its run lock behind.
-- `ea8e058` a throw in the loop left the workers in flight unrecorded
+- `2e04945` a lock file holding no pid refused every command for good.
+- `aaafd1d` a signal that ended the engine left its run lock behind.
+- `a7d0a4a` a throw in the loop left the workers in flight unrecorded
   and paid for again.
-- `bf2e7d6` a runtime that stopped qualifying mid-run exited 1 instead
+- `d12216d` a runtime that stopped qualifying mid-run exited 1 instead
   of being refused.
-- `00472db` a refusal without a blocker code exited 1.
-- `dc2f811` two engines started together could each create a run.
-- `1d590e9` the command and the controller each found the active run,
+- `0a871f3` a refusal without a blocker code exited 1.
+- `2af6717` two engines started together could each create a run.
+- `3ef4879` the command and the controller each found the active run,
   so a paid review could run on a scope nobody asked for.
-- `9901ed3` a run was resumed from another worktree, mixing two trees.
-- `e44896d` a resumed run re-read the policy file, never checked its
+- `6d8dac1` a run was resumed from another worktree, mixing two trees.
+- `96d450e` a resumed run re-read the policy file, never checked its
   roles digest and preflighted the command's executable.
-- `7bdc2e7` refactor: `--run` resolved in one place.
-- `2dd7528` abandoning a complete run misstated its outcome for good.
-- `b9465cc` refactor: `currentPhase` names the phase for the controller
+- `c25a9ce` refactor: `--run` resolved in one place.
+- `2ff6f9b` abandoning a complete run misstated its outcome for good.
+- `e3b6bbf` refactor: `currentPhase` names the phase for the controller
   and `status`.
-- `468f9bb` the limits an invocation put in force were not recorded, so
+- `eb9b610` the limits an invocation put in force were not recorded, so
   the report, `status` and `budgetApplied` read the pinned ones; adds
   `limits.changed@1`.
-- `5102d92` refactor: unused exports dropped, finder roles named once.
-- `262712e` refactor: the fold checks candidate ids through
+- `a74a874` refactor: unused exports dropped, finder roles named once.
+- `a44d9eb` refactor: the fold checks candidate ids through
   `candidateIdPrefix`.
-- `6da8fe3` refactor: the planner asks the fold whether a unit answered
+- `006033b` refactor: the planner asks the fold whether a unit answered
   or went unverified.
-- `25d5b5f` refactor: units and unverified groups kept by phase, then by
+- `6755022` refactor: units and unverified groups kept by phase, then by
   key.
-- `a0d7bf3` refactor: one rule reads a candidate's location.
-- `80d8063` refactor: the frozen 4000-character cap named once.
-- `1ba0c95` refactor: the review's roles typed, not plain strings.
-- `06f0868` refactor: whether a unit degrades derived from its phase
+- `d4fce3a` refactor: one rule reads a candidate's location.
+- `222cc9f` refactor: the frozen 4000-character cap named once.
+- `38ba617` refactor: the review's roles typed, not plain strings.
+- `898fc41` refactor: whether a unit degrades derived from its phase
   alone.
-- `7314afa` refactor: each contribution's kind and payload built
+- `29606a7` refactor: each contribution's kind and payload built
   together.
-- `0fb5b37` a worker whose process never started was counted as
+- `04329be` a worker whose process never started was counted as
   unreported cost.
-- `792f70e` refactor: one `isFile` in `src/paths.ts`.
-- `14efc49` on Windows an executable no spawn without a shell can start
+- `70d6f06` refactor: one `isFile` in `src/paths.ts`.
+- `477edcc` on Windows an executable no spawn without a shell can start
   passed the command line and failed later at preflight.
-- `cb5700e` a found run was planned from a read older than its lock,
+- `021a0c2` a found run was planned from a read older than its lock,
   and a stale append was retried over another writer's events.
-- `1be1b05` refactor: `describeRun` moved to `src/review/status.ts`.
-- `87c4ddf` the per-invocation flag checks lived in three copies that
+- `ba1e248` refactor: `describeRun` moved to `src/review/status.ts`.
+- `65ac5a6` the per-invocation flag checks lived in three copies that
   had drifted.
-- `1091d91` a resumed configured run resolved, and could refuse, the
+- `32f6b4d` a resumed configured run resolved, and could refuse, the
   command's executable.
-- `4a34f5e` test: the drift test slept a fixed 500 ms and could edit the
+- `1dde67c` test: the drift test slept a fixed 500 ms and could edit the
   tree before the scope was captured.
 
 The two text commits changed the prompts of the roles that include
-their fragments. After `625ee85` (`phase2-verify.md`) and `b2abbbe`
+their fragments. After `0e7473f` (`phase2-verify.md`) and `16387b1`
 (`phase4-list.md`), from `npm run roles`:
 
 | Role | Fragments | Bytes | SHA-256 |
@@ -1347,12 +1347,12 @@ Every other role keeps its hash from the tables above, and the
 `rolesDigest` a run pins changes with these.
 
 The fixture `schema-1-04` is this element's own and unreleased, so it
-was regenerated in place rather than given a new serial: `efb8cf6` added
-`costUnreported` to the statistics of `report.written@1`; `468f9bb`
+was regenerated in place rather than given a new serial: `512eae0` added
+`costUnreported` to the statistics of `report.written@1`; `eb9b610`
 added `limits.changed@1` to the registry, so the identity names it and
 its registry digest is now
 `a18fa259c6002c48e4b4143d71e68927dd3af7198943418c7a6e277fd43f9843`, and
-the golden run raises its budget before the sweep's re-entry; `25d5b5f`
+the golden run raises its budget before the sweep's re-entry; `6755022`
 changed only its `expected.json`, whose units and unverified groups are
 nested by phase. The three older fixtures still fold with
 `review: null`.
@@ -1366,37 +1366,37 @@ Continuous integration has not run for these commits either.
 
 The review's audit left eight questions only the author could decide,
 and the author answered each on 2026-09-28. Six took code, in eight
-commits after `21cea41`, each with `dist/` rebuilt in the same commit;
-`16e31b4` was written as `f24209f` on its own branch from `21cea41`
-and integrated after `1831d56`. The design above is corrected to the
+commits after `346e4dd`, each with `dist/` rebuilt in the same commit;
+`68bfac4` was written on its own branch from `346e4dd` and integrated
+after `b090a2d`. The design above is corrected to the
 code they leave. The commits, in order, with the decision each
 implements:
 
-- `ec3ab73` (interruption and coverage) a lost worker still uses an
+- `2c19267` (interruption and coverage) a lost worker still uses an
   attempt, but a unit that runs out with a loss among its failures
   blocks with `worker-failed` instead of degrading; failures in the
   fold carry `lost`.
-- `67fce66` (budget and unreported cost) the budget check charges a
+- `2bc60a4` (budget and unreported cost) the budget check charges a
   finished worker that ran but reported no cost at its per-worker cap,
   and names the lost ones without charging them; `status` gains the
   `Budget check:` line.
-- `1831d56` (drift while workers run) the scope files are compared
+- `b090a2d` (drift while workers run) the scope files are compared
   again before each answer is recorded; an answer after a drift is set
   aside, the attempt blocks once the workers in flight settle, and the
   unit reruns without using an attempt.
-- `16e31b4` (locks) each lock is an empty SQLite file held inside
+- `68bfac4` (locks) each lock is an empty SQLite file held inside
   `BEGIN EXCLUSIVE`; the pid check, the takeover and the grace period
   are gone, and the test of a stale lock with them.
-- `4c66055` text (verifier answers are all or nothing):
+- `106d646` text (verifier answers are all or nothing):
   `phase2-verify.md` says an answer that misses a candidate is
   discarded whole and the whole group then goes unverified.
-- `49f117d` (the same decision) the verifier task says an answer that
+- `64006e3` (the same decision) the verifier task says an answer that
   misses an index is discarded whole and the group is run again.
-- `ddddf86` (locations outside the change) a candidate on an unchanged
+- `399c0e9` (locations outside the change) a candidate on an unchanged
   file is located on its canonical path with a checked line and
   `inScope: false` on `candidates.recorded@1`; unlocated means only no
   such file and line.
-- `89834d1` text (the same decision) `phase2-verify.md` says such a
+- `42a951b` text (the same decision) `phase2-verify.md` says such a
   candidate is marked outside the change.
 
 Of the other two, the accepted overshoot of the run budget by up to
@@ -1407,23 +1407,23 @@ The documentation commits that follow the eight bring this proposal
 and the README in line with them.
 
 The two text commits changed the prompts of the roles that include
-`phase2-verify.md`. After `4c66055` the deduplication and verifier
-prompt was 15480 bytes; after `89834d1`, from `npm run roles`:
+`phase2-verify.md`. After `106d646` the deduplication and verifier
+prompt was 15480 bytes; after `42a951b`, from `npm run roles`:
 
 | Role | Fragments | Bytes | SHA-256 |
 |---|---|---|---|
 | deduplication, verifier | 6 | 15658 | `0891f73b3af710f5ccfd850e76ae204543b75f40d47917b73a74e4147511a974` |
 
 Every other role keeps its hash from the tables above, merge-rank the
-one `b2abbbe` gave it, and the `rolesDigest` a run pins changes with
+one `16387b1` gave it, and the `rolesDigest` a run pins changes with
 this one.
 
 The fixture `schema-1-04` was regenerated in place again, since it is
-still this element's own and unreleased: `ec3ab73` gave each unit
+still this element's own and unreleased: `2c19267` gave each unit
 failure in its `expected.json` a `lost` flag, and its golden run now
 degrades `FOOTGUNS` on two real failures and loses the first
 `WRAPPERS` worker, whose second answers, as this engine records them;
-`ddddf86` gave every recorded candidate `inScope` and added `RIPPLE-3`
+`399c0e9` gave every recorded candidate `inScope` and added `RIPPLE-3`
 on the unchanged `src/caller.ts`, spelled absolute by its finder and
 verified in a group of its own. No event kind was added, so its
 identity and registry digest are unchanged, and the three older
@@ -1439,7 +1439,7 @@ integration has not run for these commits either.
 
 On 2026-09-29, recording the accepted symlink pin (Risks & Migration)
 showed that a configured run refused as `runtime-unqualified`, on resume
-or mid-run, was told to pass `--executable`, which it ignores. `5254bb2`
+or mid-run, was told to pass `--executable`, which it ignores. `b7d9f65`
 gives that refusal its own action: make the pinned path qualify again, or
 abandon the run and start a new one; a new run keeps the table's action.
 Two controller tests were tightened and one added. On the same machine,
