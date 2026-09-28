@@ -159,7 +159,8 @@ the run whatever its role, so an interruption never costs coverage:
 running again gives it fresh attempts. At most `--concurrency` workers run at once (4
 by default), and on a runtime that reports cost the run has a budget
 (`--budget-usd`, 30 USD by default on Claude Code) checked before every
-launch. Every way a run stops short of a report names the operator's
+launch; the check counts a worker that ran but reported no cost, such as
+one that timed out, at its per-worker budget. Every way a run stops short of a report names the operator's
 action: run again, raise the budget, restore the tree, or abandon.
 
 The report is Markdown rendered by the engine into the evidence store;

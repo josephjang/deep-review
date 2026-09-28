@@ -23547,6 +23547,84 @@ function planGroups(candidates) {
   return planned;
 }
 
+// src/review/spend.ts
+var isFinished = (worker) => worker.status === "finished";
+function settledWorkers(state) {
+  return Object.values(state.workers).filter((worker) => worker.status !== "running");
+}
+function usageOf(worker, adapter) {
+  if (worker.finish.usage === null) return emptyUsageSummary;
+  try {
+    return adapter.summarizeUsage(JSON.parse(worker.finish.usage));
+  } catch {
+    return emptyUsageSummary;
+  }
+}
+function sumReported(values) {
+  const reported = values.filter((value) => value !== null);
+  return reported.length === 0 ? null : reported.reduce((total, value) => total + value, 0);
+}
+var cents = (value) => value === null ? null : Math.round(Number((value * 100).toPrecision(12))) / 100;
+function wallSeconds(workers) {
+  const intervals = workers.map((worker) => ({ start: Date.parse(worker.finish.startedAt), end: Date.parse(worker.finish.endedAt) })).filter((interval) => interval.end > interval.start).sort((a, b) => a.start - b.start);
+  let total = 0;
+  let open2 = null;
+  for (const interval of intervals) {
+    if (open2 !== null && interval.start <= open2.end) {
+      open2.end = Math.max(open2.end, interval.end);
+      continue;
+    }
+    if (open2 !== null) total += open2.end - open2.start;
+    open2 = { ...interval };
+  }
+  if (open2 !== null) total += open2.end - open2.start;
+  return total / 1e3;
+}
+function spendOf(workers, adapter) {
+  const finished = workers.filter(isFinished);
+  const summaries = finished.map((worker) => usageOf(worker, adapter));
+  const lost = workers.length - finished.length;
+  return {
+    workers: finished.length,
+    seconds: Math.round(wallSeconds(finished) * 10) / 10,
+    costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
+    costUnreported: adapter.capabilities.costInUsd ? lost + finished.filter((worker, index2) => summaries[index2].costUsd === null && worker.finish.termination !== "not-started").length : null,
+    inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
+    cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
+    outputTokens: sumReported(summaries.map((summary) => summary.outputTokens))
+  };
+}
+function budgetSpendOf(state, adapter) {
+  if (!adapter.capabilities.costInUsd) return { usd: null, charged: 0, lost: 0 };
+  const settled = settledWorkers(state);
+  const finished = settled.filter(isFinished);
+  let usd4 = 0;
+  let charged = 0;
+  for (const worker of finished) {
+    const reported = usageOf(worker, adapter).costUsd;
+    if (reported !== null) {
+      usd4 += reported;
+    } else if (worker.finish.termination !== "not-started" && worker.launch.budgetUsd !== null) {
+      usd4 += worker.launch.budgetUsd;
+      charged += 1;
+    }
+  }
+  return { usd: cents(usd4), charged, lost: settled.length - finished.length };
+}
+var counted = (count2, one, many) => `${String(count2)} ${count2 === 1 ? one : many}`;
+function budgetSpendNote({ charged, lost }) {
+  const parts = [
+    ...charged > 0 ? [`counting ${counted(charged, "worker that reported no cost at its per-worker cap", "workers that reported no cost at their per-worker caps")}`] : [],
+    ...lost > 0 ? [`${counted(lost, "worker lost with an earlier engine is", "workers lost with an earlier engine are")} not counted`] : []
+  ];
+  return parts.length === 0 ? null : parts.join("; ");
+}
+function statisticsOf(state, adapter) {
+  const settled = settledWorkers(state);
+  const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
+  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
+}
+
 // src/review/steps.ts
 var maxAttempts = 2;
 function groupsOf(review2, phase) {
@@ -23643,8 +23721,13 @@ function workerFailedBlocker(unit, state) {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions["worker-failed"] };
 }
-function budgetBlocker(spendUsd, budgetUsd) {
-  return { code: "budget", detail: `spent ${usd(spendUsd)} USD of the ${usd(budgetUsd)} USD run budget`, action: `run the command again with --budget-usd above ${usd(spendUsd)}, or abandon the run` };
+function budgetBlocker(spend, budgetUsd) {
+  const note = budgetSpendNote(spend);
+  return {
+    code: "budget",
+    detail: `spent ${usd(spend.usd)} USD of the ${usd(budgetUsd)} USD run budget${note === null ? "" : `, ${note}`}`,
+    action: `run the command again with --budget-usd above ${usd(spend.usd)}, or abandon the run`
+  };
 }
 function driftBlocker(files) {
   const prefix = "the worktree differs from the reviewed change: ";
@@ -23678,8 +23761,9 @@ function nextStep(review2, live2) {
   const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     const { concurrency, runBudgetUsd } = review2.limits;
-    if (runBudgetUsd !== null && live2.spendUsd !== null && live2.spendUsd >= runBudgetUsd) {
-      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(live2.spendUsd, runBudgetUsd) };
+    const countedUsd = live2.spend.usd;
+    if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
+      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker({ ...live2.spend, usd: countedUsd }, runBudgetUsd) };
     }
     const capacity = concurrency - live2.running.size;
     return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
@@ -23998,7 +24082,7 @@ function limitations(scope, review2, input2) {
   lines.push(budgetLine(review2, input2.statistics));
   const unreported = input2.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
-    lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input2.statistics.budgetApplied ? " and the budget check" : ""} leave such workers out, so the run cost more than the totals show.`);
+    lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show.${input2.statistics.budgetApplied ? " The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out." : ""}`);
   }
   const oversized = scope.files.filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => inlineText(file2.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(", ")}.`);
@@ -24046,62 +24130,6 @@ function renderReport(state, input2) {
   const statisticsSection = ["## Statistics", "", statisticsTable(input2)];
   const limitationsSection = ["## Limitations", "", ...limitations(scope, review2, input2)];
   return [header, anglesSection, findingsSection, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
-}
-
-// src/review/spend.ts
-var isFinished = (worker) => worker.status === "finished";
-function settledWorkers(state) {
-  return Object.values(state.workers).filter((worker) => worker.status !== "running");
-}
-function usageOf(worker, adapter) {
-  if (worker.finish.usage === null) return emptyUsageSummary;
-  try {
-    return adapter.summarizeUsage(JSON.parse(worker.finish.usage));
-  } catch {
-    return emptyUsageSummary;
-  }
-}
-function sumReported(values) {
-  const reported = values.filter((value) => value !== null);
-  return reported.length === 0 ? null : reported.reduce((total, value) => total + value, 0);
-}
-var cents = (value) => value === null ? null : Math.round(Number((value * 100).toPrecision(12))) / 100;
-function wallSeconds(workers) {
-  const intervals = workers.map((worker) => ({ start: Date.parse(worker.finish.startedAt), end: Date.parse(worker.finish.endedAt) })).filter((interval) => interval.end > interval.start).sort((a, b) => a.start - b.start);
-  let total = 0;
-  let open2 = null;
-  for (const interval of intervals) {
-    if (open2 !== null && interval.start <= open2.end) {
-      open2.end = Math.max(open2.end, interval.end);
-      continue;
-    }
-    if (open2 !== null) total += open2.end - open2.start;
-    open2 = { ...interval };
-  }
-  if (open2 !== null) total += open2.end - open2.start;
-  return total / 1e3;
-}
-function spendOf(workers, adapter) {
-  const finished = workers.filter(isFinished);
-  const summaries = finished.map((worker) => usageOf(worker, adapter));
-  const lost = workers.length - finished.length;
-  return {
-    workers: finished.length,
-    seconds: Math.round(wallSeconds(finished) * 10) / 10,
-    costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
-    costUnreported: adapter.capabilities.costInUsd ? lost + finished.filter((worker, index2) => summaries[index2].costUsd === null && worker.finish.termination !== "not-started").length : null,
-    inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
-    cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
-    outputTokens: sumReported(summaries.map((summary) => summary.outputTokens))
-  };
-}
-function runSpendUsd(state, adapter) {
-  return spendOf(settledWorkers(state), adapter).costUsd;
-}
-function statisticsOf(state, adapter) {
-  const settled = settledWorkers(state);
-  const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
-  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
 }
 
 // src/review/controller.ts
@@ -24162,7 +24190,7 @@ async function runReview(options2) {
     const block = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) });
     for (; ; ) {
       const review2 = state.review;
-      const live2 = { running: new Set(inFlight.keys()), spendUsd: runSpendUsd(state, adapter) };
+      const live2 = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter) };
       const step = nextStep(review2, live2);
       switch (step.kind) {
         case "blocked":
@@ -24405,6 +24433,10 @@ function describeRun(state, adapter, evidencePath) {
   const statistics = review2 === null ? null : statisticsOf(state, adapter);
   const phase = review2 === null ? null : currentPhase(review2);
   const budgetUsd = review2?.limits.runBudgetUsd ?? null;
+  const budgetSpend = review2 === null ? null : budgetSpendOf(state, adapter);
+  const budgetNote = budgetSpend === null ? null : budgetSpendNote(budgetSpend);
+  const checkedUsd = budgetSpend?.usd ?? null;
+  const budgetCheckLine = budgetUsd === null || checkedUsd === null || budgetNote === null ? null : `Budget check: ${checkedUsd.toFixed(2)} USD of ${budgetUsd.toFixed(2)} USD, ${budgetNote}`;
   const reportPath = review2?.report === null || review2?.report === void 0 ? null : evidencePath(review2.report.report);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
@@ -24412,11 +24444,12 @@ function describeRun(state, adapter, evidencePath) {
     review2 === null ? "Review: not configured" : `Runtime: ${review2.configuration.runtime} ${review2.configuration.version}; models ${review2.configuration.models.strong} and ${review2.configuration.models.fast}`,
     phase === null ? "Phase: none running" : `Phase: ${phase} (attempt ${String(review2.phases[phase].attempt)}, ${review2.phases[phase].status})`,
     `Workers: ${String(counts.running)} running, ${String(counts.finished)} finished, ${String(counts.lost)} lost`,
-    statistics === null ? "Spend: none" : `Spend: ${statistics.total.costUsd === null ? "no cost reported" : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null ? "" : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? "no tokens reported" : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
+    statistics === null ? "Spend: none" : `Spend: ${statistics.total.costUsd === null ? "no cost reported" : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null || budgetCheckLine !== null ? "" : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? "no tokens reported" : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
+    ...budgetCheckLine === null ? [] : [budgetCheckLine],
     ...review2?.blocker === null || review2?.blocker === void 0 ? [] : [`Blocker: ${review2.blocker.code}: ${review2.blocker.detail}`, `Action: ${review2.blocker.action}`],
     ...reportPath === null ? [] : [`Report: ${reportPath}`]
   ];
-  const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, blocker: review2?.blocker ?? null, report: reportPath, review: review2 };
+  const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review2?.blocker ?? null, report: reportPath, review: review2 };
   return { lines, json: json2 };
 }
 

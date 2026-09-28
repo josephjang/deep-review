@@ -7,8 +7,12 @@ import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated
 import { finderAngles, phases, unitName, type Phase } from '../../src/review/vocabulary.ts';
 import { candidate, configured, type History, finding, found, leads, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
-const idle: Live = { running: new Set(), spendUsd: 0 };
+/** What the budget check counted: `usd`, with `charged` workers at their caps and `lost` ones named. */
+const counted = (usd: number, charged = 0, lost = 0): { usd: number; charged: number; lost: number } => ({ usd, charged, lost });
+const idle: Live = { running: new Set(), spend: counted(0) };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
+/** The part of `Live` the budget check reads: `usd` counted, or null on a runtime that reports no cost. */
+const spent = (usd: number | null, charged = 0, lost = 0): Partial<Live> => ({ spend: { usd, charged, lost } });
 /** The review with other limits in force than its configuration's 4 workers and 30 USD, as a `limits.changed` would put. */
 const limited = (review: ReviewState, change: Partial<ReviewLimits>): ReviewState => ({ ...review, limits: { ...review.limits, ...change } });
 
@@ -216,7 +220,7 @@ describe('nextStep', () => {
       .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'first' })
       .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'second' })
       .add('angle.failed', { angle: 'RIPPLE', reason: '2 attempts did not complete: first; second' })
-      .finish('finders', 'blocked', 1, budgetBlocker(31, 30))
+      .finish('finders', 'blocked', 1, budgetBlocker(counted(31), 30))
       .start('finders', 2);
     const step = nextStep(limited(history.review(), { concurrency: 16 }), idle);
     assert.equal(step.kind, 'launch');
@@ -236,7 +240,7 @@ describe('nextStep', () => {
       .add('attempt.failed', { phase: 'verification', key: 'g1', workerId: worker(21), reason: 'a' })
       .add('attempt.failed', { phase: 'verification', key: 'g1', workerId: worker(22), reason: 'b' })
       .add('group.unverified', { phase: 'verification', groupId: 'g1', reason: '2 attempts did not complete: a; b' })
-      .finish('verification', 'blocked', 1, budgetBlocker(31, 30))
+      .finish('verification', 'blocked', 1, budgetBlocker(counted(31), 30))
       .start('verification', 2);
     assert.deepEqual(nextStep(history.review(), idle), { kind: 'launch', units: [{ phase: 'verification', key: 'g2', role: 'verifier' }] });
     history.add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: worker(23), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'e' }] });
@@ -245,28 +249,35 @@ describe('nextStep', () => {
 
   it('blocks on the budget before a launch, once the running workers have finished, and not when nothing is left to launch', () => {
     const review = triaged().start('finders').review();
-    const exhausted = live({ spendUsd: 31.2 });
+    const exhausted = live(spent(31.2));
     const step = nextStep(review, exhausted);
-    assert.deepEqual(step, { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: budgetBlocker(31.2, 30) });
-    assert.equal(budgetBlocker(31.2, 30).detail, 'spent 31.20 USD of the 30.00 USD run budget');
-    assert.equal(budgetBlocker(31.2, 30).action, 'run the command again with --budget-usd above 31.20, or abandon the run');
+    assert.deepEqual(step, { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: budgetBlocker(counted(31.2), 30) });
+    assert.equal(budgetBlocker(counted(31.2), 30).detail, 'spent 31.20 USD of the 30.00 USD run budget');
+    assert.equal(budgetBlocker(counted(31.2), 30).action, 'run the command again with --budget-usd above 31.20, or abandon the run');
+    const withUnreported = nextStep(review, live(spent(33.25, 2, 1)));
+    assert.deepEqual(withUnreported, { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: budgetBlocker(counted(33.25, 2, 1), 30) });
+    assert.equal(
+      budgetBlocker(counted(33.25, 2, 1), 30).detail,
+      'spent 33.25 USD of the 30.00 USD run budget, counting 2 workers that reported no cost at their per-worker caps; 1 worker lost with an earlier engine is not counted',
+      'the detail names the workers counted at their caps and the lost ones left out',
+    );
     assert.deepEqual(nextStep(review, { ...exhausted, running: new Set(['finders:REMOVALS']) }), { kind: 'await' });
-    assert.equal(nextStep(review, live({ spendUsd: 29.99 })).kind, 'launch');
-    assert.equal(nextStep(review, live({ spendUsd: null })).kind, 'launch', 'a runtime without cost has no budget check');
-    assert.equal(nextStep(limited(review, { runBudgetUsd: null }), live({ spendUsd: 100 })).kind, 'launch', 'no budget, no check');
+    assert.equal(nextStep(review, live(spent(29.99))).kind, 'launch');
+    assert.equal(nextStep(review, live(spent(null))).kind, 'launch', 'a runtime without cost has no budget check');
+    assert.equal(nextStep(limited(review, { runBudgetUsd: null }), live(spent(100))).kind, 'launch', 'no budget, no check');
     const done = finding().review();
     assert.equal(nextStep(done, exhausted).kind, 'finish-phase', 'nothing to launch, so the budget does not block');
   });
 
   it('checks the budget and fills the concurrency a recorded limits.changed put in force, not the pinned ones', () => {
-    const blocked = triaged().start('finders').finish('finders', 'blocked', 1, budgetBlocker(31.2, 30));
+    const blocked = triaged().start('finders').finish('finders', 'blocked', 1, budgetBlocker(counted(31.2), 30));
     const raised = blocked.add('limits.changed', { concurrency: 2, runBudgetUsd: 60 }).start('finders', 2).review();
     assert.equal(raised.configuration.runBudgetUsd, 30);
-    const step = nextStep(raised, live({ spendUsd: 31.2 }));
+    const step = nextStep(raised, live(spent(31.2)));
     assert.deepEqual(step.kind === 'launch' ? step.units.map((unit) => unit.key) : [], ['REMOVALS', 'RIPPLE'], 'two launch under the raised budget, at the concurrency in force');
-    assert.deepEqual(nextStep(raised, live({ spendUsd: 60 })), { kind: 'finish-phase', phase: 'finders', attempt: 2, outcome: 'blocked', blocker: budgetBlocker(60, 60) });
+    assert.deepEqual(nextStep(raised, live(spent(60))), { kind: 'finish-phase', phase: 'finders', attempt: 2, outcome: 'blocked', blocker: budgetBlocker(counted(60), 60) });
     const unbudgeted = triaged().add('limits.changed', { concurrency: 4, runBudgetUsd: null }).start('finders').review();
-    assert.equal(nextStep(unbudgeted, live({ spendUsd: 1000 })).kind, 'launch', 'no budget in force, no check');
+    assert.equal(nextStep(unbudgeted, live(spent(1000))).kind, 'launch', 'no budget in force, no check');
   });
 
   it('starts and finishes a phase with no unit, after its check', () => {

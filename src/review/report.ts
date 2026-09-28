@@ -133,7 +133,7 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
   lines.push(budgetLine(review, input.statistics));
   const unreported = input.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
-    lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above${input.statistics.budgetApplied ? ' and the budget check' : ''} leave such workers out, so the run cost more than the totals show.`);
+    lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show.${input.statistics.budgetApplied ? ' The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.' : ''}`);
   }
   const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => inlineText(file.path));
   if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(', ')}.`);

@@ -33,7 +33,7 @@ describe('renderReport', () => {
     assert.match(report, /- Unlocated candidates.*SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)/);
     assert.match(report, /^\| Total \| 9 \| 22\.5 \| 4\.50 \(1 worker unreported\) \| 900 \| 180 \| 90 \|$/m);
     assert.match(report, /^\| triage \| 1 \| 2\.5 \| 0\.50 \| 100 \| 20 \| 10 \|$/m, 'a row with every cost reported carries no mark');
-    assert.match(report, /^- Workers with no reported cost: 1\. .* the costs above and the budget check leave such workers out, so the run cost more than the totals show\.$/m);
+    assert.match(report, /^- Workers with no reported cost: 1\. .* the costs above leave such workers out, so the run cost more than the totals show\. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out\.$/m);
     assert.match(report, /Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 0 refuted at verification/);
     assert.ok(report.endsWith('\n') && !report.endsWith('\n\n'));
   });
@@ -74,6 +74,8 @@ describe('renderReport', () => {
     assert.match(report, /^- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent 4\.50 USD\.$/m);
     assert.doesNotMatch(report, /reports no cost in USD/);
     assert.doesNotMatch(report, /no reported cost/, 'no line for zero unreported workers');
+    const withUnreported = renderReport(unbudgeted, { engine: '0.0.0', statistics: { ...statistics, budgetApplied: false } });
+    assert.match(withUnreported, /^- Workers with no reported cost: 1\. .* so the run cost more than the totals show\.$/m, 'no budget check ran, so the line says nothing of one');
   });
 
   it('reports a drift check and an oversized file among the limitations', () => {

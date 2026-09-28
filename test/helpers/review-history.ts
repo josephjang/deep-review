@@ -31,6 +31,7 @@ export const configuration: ReviewConfiguration = {
   runBudgetUsd: 30,
 };
 
+/** A launch under a review label, capped at the 8 USD per-worker budget the configuration's roles pin, as Claude Code's launches are. */
 export const launch = (workerId: string, label: string): Record<string, unknown> => ({
   workerId,
   label,
@@ -45,7 +46,7 @@ export const launch = (workerId: string, label: string): Record<string, unknown>
   sessionId: null,
   resumes: null,
   scratch: null,
-  budgetUsd: null,
+  budgetUsd: 8,
   timeoutMs: 60_000,
   prompt: reference('a'),
   schema: reference('b'),
