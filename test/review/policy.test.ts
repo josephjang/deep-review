@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { assembleRoles, repositoryRolesRoot, type AssembledRole } from '../../src/roles/assemble.ts';
 import { InvalidPolicyError } from '../../src/review/errors.ts';
-import { parsePolicy, pinnedRole, policyFileName, readPolicy, resolvePolicy, reviewRoles, rolesDigest, type PolicyFile } from '../../src/review/policy.ts';
+import { parsePolicy, pinnedRole, policyFileName, readPolicy, resolvePolicy, rolesDigest, type PolicyFile } from '../../src/review/policy.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
-import { finderAngles } from '../../src/review/vocabulary.ts';
+import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
 const committed = readPolicy(repositoryRolesRoot());
@@ -187,7 +187,7 @@ describe('rolesDigest', () => {
   });
 
   it('is one digest over every role, not only the fourteen the review runs', () => {
-    assert.notEqual(rolesDigest(roles), rolesDigest(roles.filter((role) => reviewRoles.includes(role.key))));
+    assert.notEqual(rolesDigest(roles), rolesDigest(roles.filter((role) => (reviewRoles as readonly string[]).includes(role.key))));
     assert.equal(finderAngles.length + 5, reviewRoles.length);
   });
 });

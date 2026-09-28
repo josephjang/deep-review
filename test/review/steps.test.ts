@@ -261,7 +261,7 @@ describe('nextStep', () => {
 
 describe('the blockers', () => {
   it('name the operator action for a failed worker and a drift', () => {
-    const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage', degrades: false };
+    const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage' as const, degrades: false };
     const blocker = workerFailedBlocker(unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
     assert.equal(blocker.code, 'worker-failed');
     assert.match(blocker.action, /two fresh attempts/);

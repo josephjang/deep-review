@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, finderAngles, finderAngleSchema, severitySchema, verdictSchema } from './vocabulary.ts';
+import { angleSchema, finderAngles, finderAngleSchema, isFinderRole, severitySchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -66,11 +66,12 @@ export const mergeRankOutputSchema = z.strictObject({
 });
 export type MergeRankOutput = z.infer<typeof mergeRankOutputSchema>;
 
-/** The output schema of each role the review runs; every finder shares one. */
-export function outputSchemaOf(role: string): z.ZodType {
-  if (role === 'triage') return triageOutputSchema;
-  if (role.startsWith('finder-')) return finderOutputSchema;
+/** The output schema of each role the review runs; every finder shares one. A role the review does not run does not compile. */
+export function outputSchemaOf(role: ReviewRole): z.ZodType {
+  if (isFinderRole(role)) return finderOutputSchema;
   switch (role) {
+    case 'triage':
+      return triageOutputSchema;
     case 'deduplication':
       return deduplicationOutputSchema;
     case 'verifier':
@@ -79,8 +80,6 @@ export function outputSchemaOf(role: string): z.ZodType {
       return sweepOutputSchema;
     case 'merge-rank':
       return mergeRankOutputSchema;
-    default:
-      throw new Error(`No output schema for role ${role}`);
   }
 }
 

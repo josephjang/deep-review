@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { attemptFailedV1 } from '../../src/checkpoint/events.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { contributionOf, groupCandidates, invocationFor, taskFor, type PhaseContext } from '../../src/review/phases.ts';
-import { reviewRoles } from '../../src/review/policy.ts';
 import { outputSchemaOf } from '../../src/review/schemas.ts';
 import type { Unit } from '../../src/review/steps.ts';
+import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { configuration, configured, found, ranked, swept, triaged, verified } from '../helpers/review-history.ts';
 
@@ -24,7 +24,7 @@ const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerRe
   evidence: { prompt: reference, schema: reference, stdout: reference, stderr: reference, finalMessage: null, output: reference },
   ...change,
 });
-const unit = (phase: Unit['phase'], key: string, role: string, degrades = false): Unit => ({ phase, key, role, degrades });
+const unit = (phase: Unit['phase'], key: string, role: ReviewRole, degrades = false): Unit => ({ phase, key, role, degrades });
 const leads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: angle === 'DESIGN' ? 'the new helper' : null }));
 
 describe('taskFor', () => {
@@ -38,7 +38,7 @@ describe('taskFor', () => {
     assert.match(sweep, /These angles did not run, so their territory is yours to cover: FOOTGUNS/);
     assert.match(sweep, /- RIPPLE-1 \(RIPPLE\) at src\/a\.ts:4: RIPPLE-1 summary \[CONFIRMED\]/);
     assert.match(taskFor(unit('merge-rank', 'merge-rank', 'merge-rank'), swept().review()), /3 findings, numbered \[0\] to \[2\][\s\S]*\[0\] RIPPLE-1[\s\S]*verdict: CONFIRMED[\s\S]*\[1\] SWEEP-1[\s\S]*verdict: PLAUSIBLE \(unverified\)/);
-    assert.throws(() => taskFor(unit('report', 'report', 'report'), ranked().review()), /no worker/);
+    assert.throws(() => taskFor(unit('report', 'report', 'merge-rank'), ranked().review()), /no worker/);
     assert.throws(() => groupCandidates(verified().review(), 'verification', 'g9'), /no planned group g9/);
   });
 });
@@ -65,7 +65,7 @@ describe('invocationFor', () => {
   it('leaves the budget out for a role pinned without one, and refuses a role without a prompt', () => {
     const invocation = invocationFor(unit('triage', 'SCAN', 'triage'), context(configured().fold()));
     assert.equal('budgetUsd' in invocation, false);
-    assert.throws(() => invocationFor(unit('finders', 'RIPPLE', 'nobody', true), context()), /No assembled prompt for role nobody/);
+    assert.throws(() => invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE', true), { ...context(), roles: new Map() }), /No assembled prompt for role finder-RIPPLE/);
   });
 });
 
