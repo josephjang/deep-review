@@ -3,9 +3,9 @@ import { describe, it } from 'node:test';
 import { angleFailedV1, blockerSchema, groupUnverifiedV1, type ReviewLimits } from '../../src/checkpoint/events.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
-import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step } from '../../src/review/steps.ts';
-import { finderAngles, phases, unitName } from '../../src/review/vocabulary.ts';
-import { candidate, configured, finding, found, leads, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step, type Unit } from '../../src/review/steps.ts';
+import { finderAngles, phases, unitName, type Phase } from '../../src/review/vocabulary.ts';
+import { candidate, configured, type History, finding, found, leads, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spendUsd: 0 };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -15,24 +15,24 @@ const limited = (review: ReviewState, change: Partial<ReviewLimits>): ReviewStat
 describe('unitsOf', () => {
   it('gives one unit to the triage, the sweep and merge-rank, nine to the finders and none to the report', () => {
     const review = configured().review();
-    assert.deepEqual(unitsOf(review, 'triage'), [{ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }]);
-    assert.deepEqual(unitsOf(review, 'finders').map((unit) => [unit.key, unit.role, unit.degrades]), finderAngles.map((angle) => [angle, `finder-${angle}`, true]));
-    assert.deepEqual(unitsOf(review, 'sweep'), [{ phase: 'sweep', key: 'sweep', role: 'sweep', degrades: false }]);
+    assert.deepEqual(unitsOf(review, 'triage'), [{ phase: 'triage', key: 'SCAN', role: 'triage' }]);
+    assert.deepEqual(unitsOf(review, 'finders').map((unit) => [unit.key, unit.role]), finderAngles.map((angle) => [angle, `finder-${angle}`]));
+    assert.deepEqual(unitsOf(review, 'sweep'), [{ phase: 'sweep', key: 'sweep', role: 'sweep' }]);
     assert.deepEqual(unitsOf(review, 'report'), []);
   });
 
   it('gives deduplication a unit only when its pool holds two candidates, and merge-rank only when something survived', () => {
     assert.deepEqual(unitsOf(triaged().review(), 'deduplication'), [], 'one candidate cannot repeat');
-    assert.deepEqual(unitsOf(found().review(), 'deduplication'), [{ phase: 'deduplication', key: 'deduplication', role: 'deduplication', degrades: false }]);
+    assert.deepEqual(unitsOf(found().review(), 'deduplication'), [{ phase: 'deduplication', key: 'deduplication', role: 'deduplication' }]);
     assert.deepEqual(unitsOf(verified().review(), 'sweep-deduplication'), []);
-    assert.deepEqual(unitsOf(swept().review(), 'sweep-deduplication'), [{ phase: 'sweep-deduplication', key: 'sweep-deduplication', role: 'deduplication', degrades: false }]);
-    assert.deepEqual(unitsOf(swept().review(), 'merge-rank'), [{ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank', degrades: false }]);
+    assert.deepEqual(unitsOf(swept().review(), 'sweep-deduplication'), [{ phase: 'sweep-deduplication', key: 'sweep-deduplication', role: 'deduplication' }]);
+    assert.deepEqual(unitsOf(swept().review(), 'merge-rank'), [{ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank' }]);
     assert.deepEqual(unitsOf(configured().review(), 'merge-rank'), []);
   });
 
   it('gives verification one unit per planned group, from the recorded plan when there is one and from the working list otherwise', () => {
     const planned = verified().review();
-    assert.deepEqual(unitsOf(planned, 'verification'), [{ phase: 'verification', key: 'g1', role: 'verifier', degrades: true }]);
+    assert.deepEqual(unitsOf(planned, 'verification'), [{ phase: 'verification', key: 'g1', role: 'verifier' }]);
     const unplanned = found().start('deduplication').add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [] }).finish('deduplication').start('verification').review();
     assert.deepEqual(groupsOf(unplanned, 'verification'), [{ id: 'g1', candidateIds: ['SCAN-1', 'RIPPLE-1'] }]);
     assert.deepEqual(unitsOf(unplanned, 'verification').map((unit) => unit.key), ['g1']);
@@ -48,7 +48,7 @@ describe('nextStep', () => {
     const started = configured().add('phase.started', { phase: 'triage', attempt: 1 });
     assert.deepEqual(nextStep(started.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 1 });
     const checked = started.add('worktree.checked', { phase: 'triage', attempt: 1, drifted: false, files: [] });
-    assert.deepEqual(nextStep(checked.review(), idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }] });
+    assert.deepEqual(nextStep(checked.review(), idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage' }] });
     const reentered = checked.add('phase.started', { phase: 'triage', attempt: 2 });
     assert.deepEqual(nextStep(reentered.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 2 });
   });
@@ -123,6 +123,30 @@ describe('nextStep', () => {
     assert.deepEqual(nextStep(failed, live({ running: new Set(['triage:SCAN']) })), { kind: 'await' });
   });
 
+  it('takes whether a unit degrades from its phase, never from a flag the unit carries', () => {
+    // The typecheck is the assertion: the directive fails `npm run typecheck` if a unit ever carries a degrade flag again.
+    // @ts-expect-error: a unit carries no degrade flag; degradationOf decides from its phase
+    void ({ phase: 'triage', key: 'SCAN', role: 'triage', degrades: true } satisfies Unit);
+  });
+
+  it('blocks the run when any blocking role fails twice: the deduplications, the sweep and merge-rank as well as the triage', () => {
+    const failedTwice = (history: History, phase: Phase): ReviewState => history.start(phase)
+      .add('attempt.failed', { phase, key: phase, workerId: worker(90), reason: 'first' })
+      .add('attempt.failed', { phase, key: phase, workerId: worker(91), reason: 'second' })
+      .review();
+    const sweptTwo = (): History => verified().start('sweep')
+      .add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: worker(30), candidates: [unlocated('SWEEP-1', 'DESIGN'), candidate('SWEEP-2', 'SCAN', { line: 7, rawLine: 7 })], leads: null })
+      .finish('sweep');
+    const beforeMergeRank = sweptTwo().start('sweep-deduplication').add('deduplication.recorded', { phase: 'sweep-deduplication', workerId: worker(31), groups: [] }).finish('sweep-deduplication')
+      .start('sweep-verification').add('verification.planned', { phase: 'sweep-verification', groups: [{ id: 'g1', candidateIds: ['SWEEP-1', 'SWEEP-2'] }] })
+      .add('verdicts.recorded', { phase: 'sweep-verification', groupId: 'g1', workerId: worker(32), verdicts: [{ id: 'SWEEP-1', verdict: 'PLAUSIBLE', evidence: 'e' }, { id: 'SWEEP-2', verdict: 'CONFIRMED', evidence: 'e' }] })
+      .finish('sweep-verification');
+    for (const [phase, history] of [['deduplication', found()], ['sweep', verified()], ['sweep-deduplication', sweptTwo()], ['merge-rank', beforeMergeRank]] as const) {
+      const step = nextStep(failedTwice(history, phase), idle);
+      assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'worker-failed', `${phase} blocks: ${JSON.stringify(step)}`);
+    }
+  });
+
   it('gives a blocked phase fresh attempts when it is started again', () => {
     const again = configured().start('triage')
       .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(1), reason: 'first' })
@@ -130,7 +154,7 @@ describe('nextStep', () => {
       .finish('triage', 'blocked', 1, { code: 'worker-failed', detail: 'd', action: 'a' })
       .start('triage', 2)
       .review();
-    assert.deepEqual(nextStep(again, idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }] });
+    assert.deepEqual(nextStep(again, idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage' }] });
   });
 
   it('never launches an angle already recorded as not run, even after a blocked phase gives every unit fresh attempts', () => {
@@ -160,7 +184,7 @@ describe('nextStep', () => {
       .add('group.unverified', { phase: 'verification', groupId: 'g1', reason: '2 attempts did not complete: a; b' })
       .finish('verification', 'blocked', 1, budgetBlocker(31, 30))
       .start('verification', 2);
-    assert.deepEqual(nextStep(history.review(), idle), { kind: 'launch', units: [{ phase: 'verification', key: 'g2', role: 'verifier', degrades: true }] });
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'launch', units: [{ phase: 'verification', key: 'g2', role: 'verifier' }] });
     history.add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: worker(23), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'e' }] });
     assert.deepEqual(nextStep(history.review(), idle), { kind: 'finish-phase', phase: 'verification', attempt: 2, outcome: 'degraded', blocker: null });
   });
@@ -208,7 +232,7 @@ describe('nextStep', () => {
       .start('verification');
     assert.deepEqual(nextStep(review.review(), idle), { kind: 'plan-verification', phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }] });
     review.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }] });
-    assert.deepEqual(nextStep(review.review(), idle), { kind: 'launch', units: [{ phase: 'verification', key: 'g1', role: 'verifier', degrades: true }] });
+    assert.deepEqual(nextStep(review.review(), idle), { kind: 'launch', units: [{ phase: 'verification', key: 'g1', role: 'verifier' }] });
   });
 
   it('degrades a verification group that failed twice and finishes the phase degraded', () => {
@@ -261,7 +285,7 @@ describe('nextStep', () => {
 
 describe('the blockers', () => {
   it('name the operator action for a failed worker and a drift', () => {
-    const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage' as const, degrades: false };
+    const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage' as const };
     const blocker = workerFailedBlocker(unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
     assert.equal(blocker.code, 'worker-failed');
     assert.match(blocker.action, /two fresh attempts/);
@@ -328,19 +352,19 @@ describe('the recorded reasons and details', () => {
   });
 
   it('keep short failures whole', () => {
-    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
+    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x' }, { workerId: worker(2), reason: 'y' }] });
     assert.equal(blocker.detail, 'the triage worker for triage:SCAN failed twice: 2 attempts did not complete: x; y');
   });
 
   it('fit a worker-failed blocker however long the failures were', () => {
-    const blocker = workerFailedBlocker({ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank', degrades: false }, twoLongFailures);
+    const blocker = workerFailedBlocker({ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank' }, twoLongFailures);
     blockerSchema.parse(blocker);
     assert.ok(blocker.detail.length <= 4000, String(blocker.detail.length));
     assert.match(blocker.detail, /^the merge-rank worker for merge-rank:merge-rank failed twice: 2 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]$/);
   });
 
   it('fit a worker-failed blocker when a lost worker added a third failure', () => {
-    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage', degrades: false }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z') }] });
+    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z') }] });
     blockerSchema.parse(blocker);
     assert.match(blocker.detail, /3 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]; z+ \[truncated\]$/);
   });
