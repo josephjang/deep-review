@@ -137,9 +137,10 @@ one lead per other angle; the nine other finder angles in parallel, each
 given its lead; deduplication; one verifier per group of candidates in
 one file; a gap sweep told which angles did not run; the sweep's own
 deduplication and verification; merge and rank; the report. Every angle
-runs on every review. Before each phase the worktree is compared with
-the captured scope, and a difference blocks the run until the tree is
-restored. Everything a phase decides is an event, so the same command
+runs on every review. Before each phase, and before each answer is
+recorded, the worktree is compared with the captured scope, and a
+difference blocks the run until the tree is restored; an answer that
+settles after the difference is set aside, and its unit runs again. Everything a phase decides is an event, so the same command
 run again after an interruption records the workers it lost, re-enters
 the phase, and launches only the units whose answer is not on the
 ledger.

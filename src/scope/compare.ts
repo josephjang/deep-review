@@ -13,16 +13,26 @@ export interface WorktreeComparison {
 }
 
 /**
- * Compare the worktree with a captured scope, file by file. Reports only:
- * whether a difference matters is the caller's decision (D9).
+ * Compare each scope file in the worktree with its frozen after state, in
+ * scope order. Reads only the scope's files and runs no git command, so it
+ * is cheap enough to run before every answer is recorded.
  */
-export function compareWorktree(scope: ScopeState, worktree: string): WorktreeComparison {
-  const files = scope.files.map((file) => {
+export function compareScopeFiles(scope: ScopeState, worktree: string): WorktreeComparison['files'] {
+  return scope.files.map((file) => {
     const now = readWorktree(worktree, file.path);
     if (file.after === null) return { path: file.path, outcome: now === null ? ('unchanged' as const) : ('restored' as const) };
     if (now === null) return { path: file.path, outcome: 'deleted' as const };
     return { path: file.path, outcome: matchesFrozen(file.after, now.bytes, now.symlink, file.symlink) ? ('unchanged' as const) : ('modified' as const) };
   });
+}
+
+/**
+ * Compare the worktree with a captured scope, file by file, and name the
+ * changed or untracked paths git reports outside it. Reports only: whether
+ * a difference matters is the caller's decision (D9).
+ */
+export function compareWorktree(scope: ScopeState, worktree: string): WorktreeComparison {
+  const files = compareScopeFiles(scope, worktree);
   const covered = new Set(scope.files.map((file) => file.path));
   const outside = gitApi
     .status(worktree)
