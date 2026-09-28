@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -18,7 +18,10 @@ describe('resolveExecutable', () => {
   let first: string;
   let second: string;
   beforeEach(() => {
-    sandbox = mkdtempSync(join(tmpdir(), 'deep-review-executable-'));
+    // resolveExecutable returns the path as the file system spells it (realpath), and the
+    // temporary directory may not be spelled that way: /var is a link to /private/var on
+    // macOS, and Windows may hand out an 8.3 short name such as RUNNER~1.
+    sandbox = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-executable-')));
     first = join(sandbox, 'first');
     second = join(sandbox, 'second');
     mkdirSync(first);
@@ -62,12 +65,21 @@ describe('resolveExecutable', () => {
     assert.equal(resolveExecutable('codex', { PATH: first }, 'linux'), join(first, 'codex'));
   });
 
-  it('takes a path as given, made absolute, and refuses one that is not a file', () => {
+  it('takes a path made absolute, as the file system spells it, and refuses one that is not a file', () => {
     writeFileSync(join(first, 'claude'), '');
     assert.equal(resolveExecutable(join(first, 'claude'), {}, 'linux'), join(first, 'claude'));
     assert.equal(resolveExecutable('./first/claude', {}, 'linux', sandbox), join(first, 'claude'));
     refused(() => resolveExecutable(join(first, 'absent'), {}, 'linux'), /is not a file; pass --executable/);
     refused(() => resolveExecutable(first, {}, 'linux'), /is not a file/);
+  });
+
+  it('records a path reached through a linked directory as the file it links to', () => {
+    writeFileSync(join(first, 'claude'), '');
+    const linked = join(sandbox, 'linked');
+    // A junction on Windows needs no privilege; the type is ignored elsewhere.
+    symlinkSync(first, linked, 'junction');
+    assert.equal(resolveExecutable(join(linked, 'claude'), {}, 'linux'), join(first, 'claude'));
+    assert.equal(resolveExecutable('claude', { PATH: linked }, 'linux'), join(first, 'claude'));
   });
 });
 
