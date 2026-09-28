@@ -3,12 +3,15 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { RunClosedError } from '../../src/checkpoint/errors.ts';
+import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
+import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
 import { describeRun, type ReviewOutcome } from '../../src/review/controller.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { policyFileName } from '../../src/review/policy.ts';
 import { until } from '../helpers/launcher.ts';
+import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireStartLock, lockPath, startLockPath } from '../../src/review/lock.ts';
 import { phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
@@ -44,6 +47,38 @@ const fullScript: Script = {
     { primary: 0, members: [1], severity: 'major', summary: 'parse dereferences null; also at the unlocated caller', reason: 'one root cause' },
     { primary: 2, members: [], severity: 'minor', summary: 'duplicate call', reason: 'a cleanup' },
   ] } },
+};
+
+/** A worker launch as another writer appends it, its prompt and schema frozen in the checkpoint's evidence store, which the append verifies. */
+const frozenLaunch = (checkpoint: Checkpoint, workerId: string, label: string): Record<string, unknown> => ({ ...launch(workerId, label), prompt: checkpoint.evidence.put('a prompt'), schema: checkpoint.evidence.put('{}') });
+/** A worker finish as another writer appends it, its outputs frozen in the checkpoint's evidence store. */
+const frozenFinish = (checkpoint: Checkpoint, workerId: string): Record<string, unknown> => ({ ...finish(workerId), stdout: checkpoint.evidence.put('out'), stderr: checkpoint.evidence.put(''), output: checkpoint.evidence.put('{}') });
+
+/**
+ * The checkpoint as a review sees it, with `act` run once right after the
+ * first `listRuns`: another writer appending between the find of the run
+ * and the take of its lock. Every other member goes to the checkpoint
+ * itself, whose private fields a proxy receiver would not reach.
+ */
+const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => void): { checkpoint: Checkpoint; acted: () => boolean } => {
+  let acted = false;
+  const proxy = new Proxy(checkpoint, {
+    get(target, property): unknown {
+      if (property === 'listRuns') {
+        return (): RunState[] => {
+          const runs = target.listRuns();
+          if (!acted) {
+            acted = true;
+            act(target);
+          }
+          return runs;
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  return { checkpoint: proxy, acted: () => acted };
 };
 
 describe('runReview', { timeout: 600_000 }, () => {
@@ -405,5 +440,63 @@ describe('runReview', { timeout: 600_000 }, () => {
     box.script({});
     report(await box.review('claude'));
     assert.equal(existsSync(startLockPath(box.checkpoint.root)), false, 'the start lock is released once the run is locked');
+  });
+
+  it('appends every event once: a foreign append between its plan and its append is refused as stale, not re-sent, and the lock is released', async () => {
+    let foreign = 0;
+    const log = (line: string): void => {
+      box.logs.push(line);
+      // Another writer breaks in between the plan that starts the triage and its append.
+      if (line === 'phase triage: started (attempt 1)') {
+        const state = box.run();
+        box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'worker.launched', version: 1, payload: frozenLaunch(box.checkpoint, worker(90), 'another writer') }]);
+        foreign += 1;
+      }
+    };
+    await assert.rejects(box.review('claude', { log }), (error: unknown) => error instanceof StaleRevisionError);
+    assert.equal(foreign, 1);
+    const state = box.run();
+    assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'phase.started'), [], 'the phase.started planned before the foreign append is not re-sent over it');
+    assert.equal(state.workers[worker(90)]?.status, 'running', 'the foreign event stands');
+    assert.equal(existsSync(lockPath(box.checkpoint.root, state.id)), false, 'the lock is released');
+  });
+
+  it('reads a found run again once its lock is held, so a worker finished after the find is not recorded lost', async () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.review('claude')).kind, 'blocked');
+    const runId = box.run().id;
+    // A worker another engine launched and still runs, as the ledger says when this engine looks for its run.
+    box.checkpoint.append(runId, box.run().lastSequence, [{ kind: 'worker.launched', version: 1, payload: frozenLaunch(box.checkpoint, worker(91), 'another engine') }]);
+    // That engine records the worker's finish right after the find, before this one takes the run lock.
+    const late = afterFind(box.checkpoint, (target) => {
+      target.append(runId, target.fold(runId).lastSequence, [{ kind: 'worker.finished', version: 1, payload: frozenFinish(target, worker(91)) }]);
+    });
+    box.script({});
+    report(await box.review('claude', { checkpoint: late.checkpoint }));
+    assert.equal(late.acted(), true);
+    const state = box.run();
+    assert.equal(state.workers[worker(91)]?.status, 'finished', 'the late finish stands');
+    assert.deepEqual(box.events(runId).filter(([kind]) => kind === 'worker.lost'), [], 'no worker is recorded lost');
+    assert.ok(!box.logs.some((line) => /lost with the previous engine/.test(line)), box.logs.join('\n'));
+  });
+
+  it('creates a new run when the found run stops being resumable before its lock is taken, and leaves that run as it is', async () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.review('claude')).kind, 'blocked');
+    const first = box.run();
+    // The run is closed right after the find, as the report an engine writes as it ends would close it to a review.
+    const late = afterFind(box.checkpoint, (target) => {
+      target.append(first.id, target.fold(first.id).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'closed after the find' } }]);
+    });
+    box.script({});
+    const outcome = await box.review('claude', { checkpoint: late.checkpoint });
+    assert.equal(late.acted(), true);
+    report(outcome);
+    const runs = box.checkpoint.listRuns();
+    assert.deepEqual(runs.map((run) => [run.id === first.id, run.status]), [[true, 'abandoned'], [false, 'active']]);
+    assert.equal(outcome.runId, runs[1]!.id, 'the review ran a run of its own');
+    assert.equal(box.checkpoint.fold(first.id).lastSequence, first.lastSequence + 1, 'nothing but the close was appended to the first run');
+    assert.ok(box.logs.includes(`run ${first.id}: abandoned before its lock was taken; a new run is created`), box.logs.join('\n'));
+    assert.equal(existsSync(lockPath(box.checkpoint.root, first.id)), false, 'its lock is released');
   });
 });
