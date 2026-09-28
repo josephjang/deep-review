@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { isFile } from '../../src/paths.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { refuseShim, resolveExecutable } from '../../src/review/executable.ts';
 
@@ -37,25 +38,36 @@ describe('resolveExecutable', () => {
     refused(() => resolveExecutable('codex', { PATH: path }, 'linux'), /no codex was found on PATH/);
   });
 
+  // The Windows cases run on every platform, so their files are named with the extension
+  // exactly as PATHEXT spells it: a case-sensitive file system (Linux) finds nothing else.
   it('tries PATHEXT in order on Windows for a bare name, and refuses a .cmd or .bat shim by name', () => {
     writeFileSync(join(first, 'claude.CMD'), '');
-    writeFileSync(join(second, 'claude.exe'), '');
+    writeFileSync(join(second, 'claude.EXE'), '');
     const environment = { Path: [first, second].join(delimiter), PATHEXT: '.COM;.EXE;.BAT;.CMD' };
     // PATH order comes first: the shim in `first` is found before the executable in `second`, and refused.
     refused(() => resolveExecutable('claude', environment, 'win32'), /claude\.CMD is a \.CMD shim, which cannot be spawned without a shell; pass --executable/);
-    assert.equal(resolveExecutable('claude', { Path: [second, first].join(delimiter), PATHEXT: '.COM;.EXE;.BAT;.CMD' }, 'win32'), join(second, 'claude.exe'));
-    assert.equal(resolveExecutable('claude', { PATH: second }, 'win32'), join(second, 'claude.exe'), 'the default PATHEXT includes .EXE');
-    writeFileSync(join(second, 'codex.bat'), '');
-    refused(() => resolveExecutable('codex', { PATH: second }, 'win32'), /codex\.bat is a \.bat shim/);
+    assert.equal(resolveExecutable('claude', { Path: [second, first].join(delimiter), PATHEXT: '.COM;.EXE;.BAT;.CMD' }, 'win32'), join(second, 'claude.EXE'));
+    assert.equal(resolveExecutable('claude', { PATH: second }, 'win32'), join(second, 'claude.EXE'), 'the default PATHEXT includes .EXE');
+    writeFileSync(join(second, 'codex.BAT'), '');
+    refused(() => resolveExecutable('codex', { PATH: second }, 'win32'), /codex\.BAT is a \.BAT shim/);
   });
 
   it('refuses on Windows a file PATHEXT finds that Windows cannot start without a shell', () => {
     writeFileSync(join(first, 'claude.JS'), '');
-    writeFileSync(join(second, 'claude.exe'), '');
+    writeFileSync(join(second, 'claude.EXE'), '');
     // PATHEXT lists .JS first, so the script in `first` is found before the executable in `second`, and refused.
     const environment = { PATH: [first, second].join(delimiter), PATHEXT: '.JS;.EXE' };
     refused(() => resolveExecutable('claude', environment, 'win32'), /claude\.JS is a \.JS file, and Windows starts only a \.exe or \.com without a shell; pass --executable with the runtime's real executable/);
-    assert.equal(resolveExecutable('claude', { PATH: second, PATHEXT: '.JS;.EXE' }, 'win32'), join(second, 'claude.exe'), 'the executable is taken where no script comes first');
+    assert.equal(resolveExecutable('claude', { PATH: second, PATHEXT: '.JS;.EXE' }, 'win32'), join(second, 'claude.EXE'), 'the executable is taken where no script comes first');
+  });
+
+  it("records on Windows the file's own spelling when PATHEXT spells the extension differently", (t) => {
+    writeFileSync(join(first, 'claude.exe'), '');
+    if (!isFile(join(first, 'claude.EXE'))) {
+      t.skip('the file system is case-sensitive, so a PATHEXT of .EXE cannot find claude.exe');
+      return;
+    }
+    assert.equal(resolveExecutable('claude', { PATH: first, PATHEXT: '.EXE' }, 'win32'), join(first, 'claude.exe'));
   });
 
   it('refuses an extensionless executable on Windows and takes it on POSIX', () => {
