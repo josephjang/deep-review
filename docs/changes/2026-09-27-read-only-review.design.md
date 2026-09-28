@@ -853,10 +853,18 @@ Verification.
 - **TD3: The patch is inline under 256 KiB and by path above.** The cap
   keeps a small change's prompt self-contained (the common case: a pull
   request of a few hundred lines is well under it) and a large one from
-  filling every worker's context; the runtime adapter freezes the prompt
-  whatever its size, so evidence is unaffected. The frozen before states
-  are always by path, since a worker reads them only when the diff does
-  not show enough.
+  filling every worker's context. The runtime adapter freezes each
+  worker's prompt whole, whatever its size, and every prompt differs in
+  its task, so a run stores the inline patch once per worker: about 8 to
+  11 MB of evidence per run at the 256 KiB cap with 30 to 40 workers,
+  and 1 to 2 MB for a typical change. Nothing prunes the evidence store
+  yet (see Risks). Lowering the cap was rejected as unmeasured, freezing
+  the scope block once and naming its path as a worse common case (every
+  worker would have to read a file), and deduplicating the stored
+  prompts because it would change the evidence store's format, which
+  this element leaves alone. The frozen before states are always by
+  path, since a worker reads them only when the diff does not show
+  enough.
 - **TD4: Indexes in, ids out.** Workers refer to candidates by the index
   the engine numbered them with in the prompt, and the engine assigns and
   keeps ids. A worker that returned ids could return one that does not
@@ -1372,6 +1380,12 @@ why they were chosen are recorded here when it does.
   rather than on the review. Mitigation: the cap is one constant, the
   failure is a `failed` outcome with the runtime's message on the ledger,
   and the gate's runs show whether the cap is right.
+- Risk: each worker's frozen prompt holds the inline patch (TD3), so a
+  run at the 256 KiB cap adds about 8 to 11 MB to the evidence store, a
+  typical change 1 to 2 MB, and nothing prunes the store, so it grows
+  with every run until a retention rule exists. Accepted, with no code
+  change: each alternative TD3 names is unmeasured or worse, and the
+  gate's runs (R14) decide the cap, which then decides this cost.
 - Risk: the `SCAN` worker, asked for a lead per angle and its own
   review, gives weak leads when the diff supports none. Mitigation: the
   task says `null` is the right answer when no lead is apparent, and a
