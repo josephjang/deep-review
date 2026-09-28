@@ -11,7 +11,7 @@ skeleton (toolchain, build, install path, continuous integration), the
 checkpoint ledger the engine records every run in, scope capture, the
 runtime adapter that runs one model worker on Claude Code or Codex, the
 role prompts those workers are given, and the read-only review: one
-command that runs a change through the  triage, nine more finder
+command that runs a change through the triage, nine more finder
 angles, deduplication, verification, a gap sweep and a merge-and-rank
 pass and writes a Markdown report, editing nothing. The engine ships as
 one bundle inside both artifacts, and the installed skill runs it.
@@ -164,12 +164,17 @@ the command prints its path as the last line of stdout and exits 0. Its
 sections are the header, Angles, Findings (most severe first, with the
 merged ids, verdict, evidence and the unlocated and unverified marks),
 Refuted at verification, Statistics per phase and Limitations. A blocked
-run exits 2 with the blocker and its action on stderr. `deep-review
+run exits 2 with the blocker and its action on stderr, and so does a
+refusal, such as another engine holding the run, a runtime that does not
+qualify, or an active run that belongs to another worktree or runtime.
+A resumed run keeps the scope, policy and executable it pinned; only
+`--concurrency` and `--budget-usd` apply to each invocation. `deep-review
 status` prints the fold of the active run, as text or `--json`;
-`deep-review abandon --reason <text>` closes it. The engine ships as one
-esbuild bundle, `engine/main.mjs`, in both artifacts, with a sidecar
-holding its version and hash and a copy of `roles/`; every event the
-installed engine writes carries `<version>+<hash prefix>` as its engine.
+`deep-review abandon --reason <text>` closes an active or blocked run.
+The engine ships as one esbuild bundle, `engine/main.mjs`, in both
+artifacts, with a sidecar holding its version and hash and a copy of
+`roles/`; every event the installed engine writes carries
+`<version>+<hash prefix>` as its engine.
 See `docs/changes/2026-09-27-read-only-review.requirements.md` and its
 design.
 
