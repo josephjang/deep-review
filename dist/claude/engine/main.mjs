@@ -21465,7 +21465,8 @@ async function runProcess(request) {
         stdio: descriptors,
         shell: false,
         windowsHide: true,
-        detached: process.platform !== "win32"
+        detached: process.platform !== "win32",
+        windowsVerbatimArguments: request.verbatimArguments === true
       });
     } catch (error62) {
       return notStarted(error62.message, startedAt);
