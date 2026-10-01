@@ -337,7 +337,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const revisions = state.review!.fix?.revisions ?? [];
           const patches = revisions.length === 0 ? [] : patchSeries(scope, revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree)).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
-          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics }));
+          const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
+          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
           state = append(checkpoint, state, [
             { kind: 'report.written', version: 2, payload: { report, statistics, patches } },
             { kind: 'phase.finished', version: 2, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },

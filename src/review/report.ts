@@ -1,13 +1,16 @@
 /**
- * The report (R9, PD8 of the read-only review): Markdown rendered by the
- * engine from the fold alone, so two engines render the same report from
- * the same ledger and no model rewrites a finding. Sections in order: the
- * header, Angles, Findings, Refuted at verification, Statistics and
- * Limitations.
+ * The report (R9, PD8 of the read-only review; R13 of the fix pass):
+ * Markdown rendered by the engine from the fold alone, so two engines
+ * render the same report from the same ledger and no model rewrites a
+ * finding. Sections in order: the header, Angles, Findings, for a fix run
+ * Fixes, Checks and Changed files (fix-report.ts), Refuted at
+ * verification, Statistics and Limitations.
  */
 import type { ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import type { ArtifactReference } from '../evidence/store.ts';
+import { fixHeaderLine, fixLimitations, fixSections } from './fix-report.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
@@ -18,6 +21,8 @@ export interface ReportInput {
   readonly engine: string;
   /** One row per phase the run did not skip, and the total. */
   readonly statistics: { readonly phases: readonly (Spend & { readonly phase: Phase })[]; readonly total: Spend; readonly budgetApplied: boolean };
+  /** For a fix run: where a frozen blob is, for the checks' output, and the patch series' paths in ledger order. */
+  readonly fix?: { readonly evidencePath: (reference: ArtifactReference) => string; readonly patches: readonly string[] };
 }
 
 const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
@@ -137,7 +142,10 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
     lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(', ')}) carry PLAUSIBLE with the unverified mark.`);
   }
   const drifted = review.checks.filter((check) => check.drifted);
-  lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? 'none found a difference from the reviewed change' : `${String(drifted.length)} found a difference in ${drifted.map((check) => `${check.phase} (attempt ${String(check.attempt)}: ${check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`).join(', ')})`).join('; ')}; each blocked the run until the tree was restored`}.`);
+  // A fix run's tree is compared with what the run expected, the change and every revision since; a read-only run's with the change alone.
+  const against = review.fix === null ? 'the reviewed change' : 'what the run expected';
+  const headMoved = (check: (typeof drifted)[number]): string[] => (check.head === null ? [] : [`HEAD moved to ${check.head.actual}`]);
+  lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? `none found a difference from ${against}` : `${String(drifted.length)} found a difference in ${drifted.map((check) => `${check.phase} (attempt ${String(check.attempt)}: ${[...headMoved(check), ...check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`)].join(', ')})`).join('; ')}; each blocked the run until the tree was restored`}.`);
   lines.push(budgetLine(review, input.statistics));
   const unreported = input.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
@@ -155,6 +163,7 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(', ')}.`);
   }
+  lines.push(...fixLimitations(review));
   return lines;
 }
 
@@ -180,6 +189,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
+    ...[fixHeaderLine(review)].filter((line) => line !== null),
   ];
   const anglesSection = ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))];
   const findingsSection = [
@@ -194,6 +204,8 @@ export function renderReport(state: RunState, input: ReportInput): string {
   ];
   const statisticsSection = ['## Statistics', '', statisticsTable(review, input)];
   const limitationsSection = ['## Limitations', '', ...limitations(scope, review, input)];
-  return [header, anglesSection, findingsSection, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
+  // A fix run's sections follow its findings; a run without the fix pass has none.
+  const fixed = input.fix === undefined ? [] : fixSections(state, input.fix.evidencePath, input.fix.patches);
+  return [header, anglesSection, findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
 }
 

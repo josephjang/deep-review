@@ -95,9 +95,15 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(readFileSync(join(box.repo, 'test', 'a.test.ts'), 'utf8'), testA);
     assert.equal(git(box.repo, 'log', '--format=%s', '-1'), 'the change under review', 'the run commits nothing');
     assert.ok(review.checks.every((check) => !check.drifted), JSON.stringify(review.checks.filter((check) => check.drifted)));
-    // One patch per revision (R13).
+    // One patch per revision (R13), and the report says what the fix pass did.
     assert.equal(review.report!.patches.length, 2);
-    assert.match(text, /^# Deep review report\n/);
+    assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 2 patches; the edits are in the working tree, uncommitted$/m);
+    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nCluster: c1 \(src\/a\.ts\); patch \d$/m);
+    assert.match(text, /^### 3\. SWEEP-1 held for the author$/m);
+    assert.match(text, /^\| build \| ".*fake-check\.mjs" build \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
+    assert.match(text, /^\| test\/a\.test\.ts \| created \| c1 \|$/m);
+    for (const patch of review.report!.patches) assert.ok(text.includes(box.checkpoint.evidence.pathOf(patch)), 'the report names each patch by its path');
+    assert.match(text, /^- After the repair: not run, since no check the baseline passed failed after the fixes\.$/m);
     // The two clusters' fixers ran at once: both launched before either finished.
     const events = box.events(state.id);
     const launched = (cluster: string): number => events.findIndex(([kind, payload]) => kind === 'worker.launched' && payload.label === `fixer fixes:${cluster}`);
