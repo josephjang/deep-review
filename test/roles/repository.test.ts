@@ -133,6 +133,18 @@ describe('the repository\'s roles/', () => {
     assert.doesNotMatch(answer.prompt, /\bdispatch/i);
   });
 
+  it('gives every fixer role the fix pass\'s ownership rule: its own files, any file no cluster owns, never another cluster\'s (R4 of the fix pass)', () => {
+    for (const key of fixerRoles) {
+      const prompt = roles.find((role) => role.key === key)!.prompt;
+      assert.match(prompt, /You own your files exclusively for this pass/, key);
+      assert.match(prompt, /You may also edit any file of the repository that no cluster owns,\s+existing or new, when a fix or its tests need it, and you report every\s+such file/, key);
+      assert.match(prompt, /Never touch a file another cluster owns: if a fix genuinely\s+requires one, report the finding blocked and name the file/, key);
+      assert.match(prompt, /the files other clusters own, and the project's checks/, key);
+      // The proof of concept's rule, owned files only, is gone wherever it was said.
+      assert.doesNotMatch(prompt, /must not edit anything outside them|required edits outside ownership|requires another file/, key);
+    }
+  });
+
   it('tells no worker that returns to the engine to dispatch other workers', () => {
     // The auditor and the fixer roles each return one report; starting workers is the engine's job.
     const returning = roles.filter((role) => ['auditor-brief.md', 'fixer-role.md'].includes(role.fragments[0]!.name));

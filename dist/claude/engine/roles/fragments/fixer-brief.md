@@ -16,7 +16,8 @@ member as though it already existed.
 **If the target remains missing or ambiguous, report BLOCKED with the unresolved anchor; do not guess.**
 **Correcting a brief does not expand file ownership or authorize a different behavior.**
 If the finding still holds, adapt its authorized edit to the verified
-location. Keep required edits outside ownership BLOCKED. If corrected or
+location. Keep a required edit to a file another cluster owns BLOCKED.
+If corrected or
 unverified facts leave the intended fix unjustified, report DEFERRED with
 that evidence for the audit rather than applying the literal instruction.
 
