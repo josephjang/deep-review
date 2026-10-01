@@ -1,9 +1,17 @@
 ## Applying a fix
 
-Fix each assigned finding, highest severity first. Apply each with clean
-design in mind: fix the underlying cause, do not patch around the smell.
-After each fix, re-read the touched code and its enclosing function to
-confirm the fix is correct and has not broken adjacent logic.
+Fix each assigned finding in the order your task numbers them, which
+puts the most severe first. Apply each with clean design in mind: fix
+the underlying cause, do not patch around the smell. After each fix,
+re-read the touched code and its enclosing function to confirm the fix
+is correct and has not broken adjacent logic.
+
+**Snapshot after each finding.** Your task gives a snapshot command.
+When you have finished a finding, whatever its status, and before you
+start the next, run that command with the finding's index. It copies
+what you changed into your scratch directory, so the engine can tell
+each finding's edits apart and commit them one by one; a finding you do
+not snapshot is folded into the next one's commit.
 
 **A finding's stated reason is part of the fix, not commentary.** Each
 finding names the failure it fears or the divergence it sees — its
