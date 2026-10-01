@@ -17,7 +17,7 @@ import type { Spend } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
 import { emptyUsageSummary, type RuntimeAdapter, type UsageSummary } from '../runtime/adapter.ts';
 import { parseUnitLabel } from './labels.ts';
-import { phases, type Phase } from './vocabulary.ts';
+import { isCheckPhase, phases, type CheckPhase, type Phase } from './vocabulary.ts';
 
 type Finished = Extract<WorkerState, { status: 'finished' }>;
 type Lost = Extract<WorkerState, { status: 'lost' }>;
@@ -159,13 +159,29 @@ export function budgetSpendNote({ charged, lost }: Pick<BudgetSpend, 'charged' |
 }
 
 /**
- * The statistics the report prints: one row per phase, from the workers
- * whose label names it, and a total over every settled worker; and whether
- * the run budget in force applied, which it does on a runtime that reports
- * cost when there is one.
+ * The seconds a checks phase spent running checks: the sum of each run's
+ * wall time, since checks run one after another (R12 of the fix pass). A
+ * skipped check ran for none.
+ */
+function checkSeconds(state: RunState, phase: CheckPhase): number {
+  const runs = state.review?.fix?.checks.runs[phase] ?? [];
+  const total = runs.filter((run) => run.outcome !== 'skipped').reduce((sum, run) => sum + Math.max(0, Date.parse(run.endedAt) - Date.parse(run.startedAt)), 0);
+  return Math.round(total / 100) / 10;
+}
+
+/**
+ * The statistics the report prints: one row per phase the run did not
+ * skip, from the workers whose label names it (a checks phase has none,
+ * and its seconds are its checks'), and a total over every settled worker;
+ * and whether the run budget in force applied, which it does on a runtime
+ * that reports cost when there is one.
  */
 export function statisticsOf(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): { phases: (Spend & { phase: Phase })[]; total: Spend; budgetApplied: boolean } {
   const settled = settledWorkers(state);
-  const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
+  const listed = phases.filter((phase) => state.review?.phases[phase].status !== 'skipped');
+  const byPhase = listed.map((phase) => {
+    const spend = spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter);
+    return { phase, ...spend, ...(isCheckPhase(phase) ? { seconds: checkSeconds(state, phase) } : {}) };
+  });
   return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
 }

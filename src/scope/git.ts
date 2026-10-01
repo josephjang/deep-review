@@ -160,3 +160,10 @@ export function blobThroughFilters(repo: string, commit: string, path: string): 
 export function blobRaw(repo: string, objectId: string): Buffer {
   return git(repo, ['cat-file', 'blob', objectId]);
 }
+
+/** The hash the repository names its objects with: `sha1`, or `sha256` for a repository created with that format. */
+export function objectFormat(repo: string): 'sha1' | 'sha256' {
+  const format = gitText(repo, ['rev-parse', '--show-object-format']).trim();
+  if (format !== 'sha1' && format !== 'sha256') throw new Error(`git reports an object format this engine does not know: ${format}`);
+  return format;
+}

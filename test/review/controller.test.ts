@@ -14,7 +14,7 @@ import { until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
 import { describeRun } from '../../src/review/status.ts';
-import { phases } from '../../src/review/vocabulary.ts';
+import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
 import { ReviewSandbox } from '../helpers/review-sandbox.ts';
 import { write } from '../helpers/repository.ts';
@@ -119,7 +119,10 @@ describe('runReview', { timeout: 600_000 }, () => {
     const text = report(outcome);
     const state = box.run();
     assert.equal(state.review?.report !== null, true);
-    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed']);
+    // A run without --fix skips the five phases of the fix pass, and has no fix state.
+    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.equal(state.review!.fix, null);
+    assert.equal(state.review!.configuration.fix, false);
     // Workers: triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1.
     const workers = Object.values(state.workers);
     assert.equal(workers.length, 17);
@@ -129,10 +132,14 @@ describe('runReview', { timeout: 600_000 }, () => {
     // Every phase started after the previous one finished, and every phase's check came first.
     const events = box.events(state.id);
     const kinds = events.map(([kind]) => kind);
-    const order = phases.map((phase) => events.findIndex(([kind, payload]) => kind === 'phase.started' && payload.phase === phase));
-    assert.ok(order.every((position) => position >= 0), 'every phase started');
+    const run = phases.filter((phase) => !(fixPhases as readonly string[]).includes(phase));
+    const order = run.map((phase) => events.findIndex(([kind, payload]) => kind === 'phase.started' && payload.phase === phase));
+    assert.ok(order.every((position) => position >= 0), 'every phase it runs started');
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
+    assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && (fixPhases as readonly string[]).includes(payload.phase as string)), 'no phase of the fix pass started');
     assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 9);
+    // The engine writes only the second version of each kind that carries a phase.
+    assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => ['review.configured', 'phase.started', 'phase.finished', 'worktree.checked', 'attempt.failed', 'report.written'].includes(event.kind) && event.version !== 2).map((event) => `${event.kind}@${String(event.version)}`), []);
     // Candidates: ids assigned, locations normalized, the unlocated one kept.
     const candidates = state.review!.candidates;
     assert.deepEqual(Object.keys(candidates), ['SCAN-1', 'SCAN-2', 'RIPPLE-1', 'RIPPLE-2', 'SWEEP-1']);
@@ -327,22 +334,29 @@ describe('runReview', { timeout: 600_000 }, () => {
     writeFileSync(marker, '');
     const blocked = await pending;
     assert.equal(blocked.kind, 'blocked');
+    let expectedAt = '';
     if (blocked.kind === 'blocked') {
       assert.equal(blocked.blocker.code, 'drift');
       assert.equal(blocked.blocker.phase, 'triage');
-      assert.match(blocked.blocker.detail, /src\/b\.ts \(modified\)/);
-      assert.match(blocked.blocker.action, /restore the named files/);
+      // The detail names where the bytes the run expected are, so the operator can put the file back (R7 of the fix pass).
+      const named = /src\/b\.ts \(modified; expected at (.+)\)$/.exec(blocked.blocker.detail);
+      assert.ok(named !== null, blocked.blocker.detail);
+      expectedAt = named[1]!;
+      assert.match(blocked.blocker.action, /restore the named files to the bytes the run expected/);
     }
+    assert.equal(readFileSync(expectedAt, 'utf8'), original, 'the evidence path holds the bytes the run expected');
     let state = box.run();
-    assert.deepEqual(state.review!.checks.at(-1), { phase: 'triage', attempt: 1, drifted: true, files: [{ path: 'src/b.ts', outcome: 'modified' }] });
+    const check = state.review!.checks.at(-1)!;
+    assert.deepEqual({ ...check, files: check.files.map((file) => ({ path: file.path, outcome: file.outcome })) }, { phase: 'triage', attempt: 1, moment: 'answer', drifted: true, head: null, files: [{ path: 'src/b.ts', outcome: 'modified' }], strays: [] });
     assert.equal(state.review!.leads, null, 'the answer computed against the edited tree is not recorded');
     assert.deepEqual(state.review!.units.triage, {}, 'nor counted as a failure');
-    assert.ok(box.logs.some((line) => /^worker triage triage:SCAN: answer set aside: the worktree drifted from the scope: src\/b\.ts \(modified\)$/.test(line)), box.logs.join('\n'));
+    assert.ok(box.logs.some((line) => /^worker triage triage:SCAN: answer set aside: the worktree drifted from what the run expects: src\/b\.ts \(modified\)$/.test(line)), box.logs.join('\n'));
     // Still drifted: the check at the re-entered attempt's start blocks again at once, without a worker.
     const again = await box.review('claude');
     assert.ok(again.kind === 'blocked' && again.blocker.code === 'drift', JSON.stringify(again));
     assert.equal(Object.values(box.run().workers).length, 1);
-    write(box.repo, 'src/b.ts', original);
+    // Restored from the path the blocker named.
+    writeFileSync(join(box.repo, 'src', 'b.ts'), readFileSync(expectedAt));
     box.script({});
     const text = report(await box.review('claude'));
     state = box.run();
@@ -366,7 +380,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'drift' && blocked.blocker.phase === 'finders', JSON.stringify(blocked));
     const state = box.run();
     const drifted = state.review!.checks.filter((check) => check.drifted);
-    assert.deepEqual(drifted, [{ phase: 'finders', attempt: 1, drifted: true, files: [{ path: 'src/b.ts', outcome: 'modified' }] }], 'one drifted check for the attempt, however many answers settle after it');
+    assert.deepEqual(drifted.map((check) => [check.phase, check.attempt, check.moment, check.files.map((file) => `${file.path} ${file.outcome}`)]), [['finders', 1, 'answer', ['src/b.ts modified']]], 'one drifted check for the attempt, however many answers settle after it');
     assert.equal(state.review!.units.finders.REMOVALS, undefined, 'REMOVALS has no answer and no failure');
     assert.equal(Object.values(state.workers).filter((worker) => worker.status === 'running').length, 0, 'every worker in flight settled before the phase blocked');
     assert.deepEqual(state.review!.phases.finders, { status: 'blocked', attempt: 1 });

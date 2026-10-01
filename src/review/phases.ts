@@ -1,23 +1,29 @@
 /**
  * What each phase asks of a worker and how it records the answer (R2, R4,
- * R5, R8 of the read-only review). `invocationFor` turns a planned unit
- * into the launcher's invocation; `contributionOf` turns the receipt into
- * the one event the ledger records for it: a contribution when the worker
- * completed and its answer passes the structural checks, else a failed
- * attempt with the reason.
+ * R5, R8 of the read-only review; R4, R5, R11 of the fix pass).
+ * `invocationFor` turns a planned unit into the launcher's invocation;
+ * `contributionOf` turns the receipt into the events the ledger records
+ * for it: a contribution when the worker completed and its answer passes
+ * the structural checks, with the revisions of the tree an editing unit
+ * made, else a failed attempt with the reason.
  */
+import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, VerdictsRecorded } from '../checkpoint/events.ts';
+import { fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { StructuralCheckError } from './errors.ts';
+import { fixAnswerEvents, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations } from './locations.ts';
 import { pinnedRole } from './policy.ts';
 import { composeWorkerPrompt } from './prompts.ts';
+import { snapshotsDirectoryName } from './snapshot.ts';
 import {
   checkDeduplication,
   checkMergeRank,
@@ -33,11 +39,11 @@ import {
   type VerifierOutput,
 } from './schemas.ts';
 import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
-import { truncated, type Unit } from './steps.ts';
-import { deduplicationTask, finderTask, mergeRankTask, sweepTask, triageTask, verifierTask } from './tasks.ts';
-import { candidateIdPrefix, finderAngles, maxRecordedTextLength, type Angle, type CandidatePhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { fixPlanOf, truncated, type Unit } from './steps.ts';
+import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, sweepTask, triageTask, verifierTask, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
+import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
-/** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block. */
+/** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, and for an editing unit its scratch and snapshot command. */
 export interface PhaseContext {
   readonly state: RunState;
   readonly worktree: string;
@@ -45,6 +51,12 @@ export interface PhaseContext {
   readonly configuration: ReviewConfiguration;
   /** The scope block every worker of the run shares, rendered once. */
   readonly scopeBlock: string;
+  /** The evidence store, for the frozen logs a repair task quotes. */
+  readonly evidence: Pick<EvidenceStore, 'read' | 'pathOf'>;
+  /** A fresh scratch directory for an editing worker, outside the reviewed tree and the checkpoint, so its task can name its snapshot directory. */
+  readonly newScratch: () => string;
+  /** The command a fixer runs to snapshot into a directory, holding `snapshotIndexPlaceholder` for the index. */
+  readonly snapshotCommand: (into: string) => string;
 }
 
 function requireReview(state: RunState): ReviewState {
@@ -63,8 +75,77 @@ export function groupCandidates(review: ReviewState, phase: VerificationPhase, g
   });
 }
 
-/** The task text of a unit, from the fold at launch time. */
-export function taskFor(unit: Unit, review: ReviewState): string {
+/** What an editing unit's task names beyond the fold: the directory its snapshots go to, and the command that takes one. */
+export interface EditingTaskInput {
+  readonly snapshotCommand: string;
+}
+
+/** Whether an earlier worker on an editing unit may have left part of its work in the tree: a re-entered phase, an earlier failure or loss, or a revision that reached its files (an earlier answer's violation). */
+function mayHoldWork(review: ReviewState, phase: EditingPhase, key: string, owned: readonly string[]): boolean {
+  if (review.phases[phase].attempt > 1 || (review.units[phase][key]?.failures.length ?? 0) > 0) return true;
+  return (review.fix?.revisions ?? []).some((revision) => revision.phase === phase && revision.files.some((file) => owned.includes(file.path)));
+}
+
+/** A fixer's task over its cluster, from the plan, the ranked findings and the pinned checks. */
+function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput): string {
+  const plan = fixPlanOf(review);
+  const cluster = plan.clusters.find((candidate) => candidate.id === unit.key);
+  if (cluster === undefined) throw new Error(`The fix plan has no cluster ${unit.key}`);
+  const ranked = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
+  const findings = cluster.findingIds.map((id): FixerTaskFinding => {
+    const entry = ranked.get(id);
+    if (entry === undefined) throw new Error(`Cluster ${cluster.id} names finding ${id}, which the ranking does not hold`);
+    return {
+      id,
+      severity: entry.finding.severity,
+      verdict: entry.resolution.verdict,
+      unverified: entry.resolution.unverified,
+      angle: entry.primary.angle,
+      location: describeLocation(entry.primary),
+      summary: entry.finding.summary,
+      detail: entry.primary.detail,
+      evidence: entry.resolution.evidence,
+      reason: entry.finding.reason,
+      also: entry.members.map((member) => `${member.id} at ${describeLocation(member)}`),
+    };
+  });
+  return fixerTask({
+    cluster: cluster.id,
+    findings,
+    owned: cluster.files,
+    othersOwned: plan.clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
+    checks: review.fix?.checks.planned?.checks ?? [],
+    snapshotCommand: editing.snapshotCommand,
+    mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files),
+  });
+}
+
+/** The last bytes of a frozen stream, and its path. */
+function tailOf(evidence: Pick<EvidenceStore, 'read' | 'pathOf'>, reference: ArtifactReference | null): { tail: Buffer; path: string } {
+  if (reference === null) return { tail: Buffer.alloc(0), path: 'none' };
+  const bytes = evidence.read(reference);
+  return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
+}
+
+/** The repair worker's task: the checks the fixers broke with their output, everything the fixes changed, and what each fixer did. */
+function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'read' | 'pathOf'>): string {
+  const fix = review.fix;
+  if (fix === null) throw new Error('The repair runs only in a run with the fix pass');
+  const checks = repairTargets(fix).map((kind): RepairTaskCheck => {
+    const run = lastRun(fix, 'checks', kind)!;
+    return { kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr) };
+  });
+  const owned = fixesRevisedPaths(fix);
+  const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ cluster: answer.key, id: finding.id, status: finding.status, note: finding.note })));
+  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned) });
+}
+
+/** The task text of a unit, from the fold at launch time; an editing unit's names its snapshot command too. */
+export function taskFor(unit: Unit, review: ReviewState, editing: EditingTaskInput | null = null, evidence: Pick<EvidenceStore, 'read' | 'pathOf'> | null = null): string {
+  const requireEditing = (): EditingTaskInput => {
+    if (editing === null) throw new Error(`The ${unit.phase} unit ${unit.key} needs its snapshot command`);
+    return editing;
+  };
   switch (unit.phase) {
     case 'triage':
       return triageTask();
@@ -86,37 +167,55 @@ export function taskFor(unit: Unit, review: ReviewState): string {
       });
     case 'merge-rank':
       return mergeRankTask(mergeRankInput(review).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
+    case 'fixes':
+      return fixerTaskOf(unit, review, requireEditing());
+    case 'repair':
+      if (evidence === null) throw new Error('The repair task quotes frozen logs and needs the evidence store');
+      return repairTaskOf(review, requireEditing(), evidence);
+    case 'baseline-checks':
+    case 'checks':
+    case 'repair-checks':
+      throw new Error(`The ${unit.phase} phase runs checks, not workers`);
     case 'report':
       throw new Error('The report phase has no worker');
   }
 }
 
-/** The launcher's invocation for a unit: the pinned model, effort, budget and timeout of its role, read-only with a shell, labelled with its unit. */
+/**
+ * The launcher's invocation for a unit: the pinned model, effort, budget
+ * and timeout of its role, with a shell, labelled with its unit. A unit
+ * of an editing phase has edit access and its own scratch directory,
+ * which its task names as where its snapshots go (TD7 of the fix pass);
+ * every other unit is read-only.
+ */
 export function invocationFor(unit: Unit, context: PhaseContext): InvocationInput {
   const review = requireReview(context.state);
   const role = context.roles.get(unit.role);
   if (role === undefined) throw new Error(`No assembled prompt for role ${unit.role}`);
   const policy: PinnedRole = pinnedRole(context.configuration.roles, unit.role);
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review) }, context.scopeBlock);
+  const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)) };
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, editing, context.evidence) }, context.scopeBlock);
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
     executableArgs: [...context.configuration.executableArgs],
     model: policy.model,
     effort: policy.effort,
-    access: 'read-only',
+    access: scratch === null ? 'read-only' : 'edit',
     shell: true,
     prompt,
     outputSchema: outputSchemaOf(unit.role),
     timeoutMs: policy.timeoutMs,
     ...(policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd }),
+    ...(scratch === null ? {} : { scratch }),
     label: unitLabel(unit.role, unit.phase, unit.key),
   };
 }
 
 /** The failed attempt a unit records for a receipt or a refused answer. */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
-  return { kind: 'attempt.failed', version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
+  return { kind: 'attempt.failed', version: 2, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
@@ -159,18 +258,20 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
 }
 
 /**
- * The event a unit's receipt becomes. A receipt that did not complete, or
+ * The events a unit's receipt becomes. A receipt that did not complete, or
  * whose answer fails a structural check, is a failed attempt with the
  * reason; otherwise the phase's contribution, with ids assigned and indexes
- * resolved against the same fold the task was numbered from.
+ * resolved against the same fold the task was numbered from: one event,
+ * or for an editing unit its recorded answer and the revisions of the
+ * tree it made.
  */
-export function contributionOf(unit: Unit, receipt: WorkerReceipt, state: RunState, worktree: string): NewEvent {
-  if (receipt.outcome !== 'completed') return failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`);
-  const review = requireReview(state);
+export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: RevisionContext): NewEvent[] {
+  if (receipt.outcome !== 'completed') return [failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`)];
+  const review = requireReview(context.state);
   try {
-    return contributionEvent(unit, receipt, review, state, worktree);
+    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review, context.state, context.worktree)];
   } catch (error) {
-    if (error instanceof StructuralCheckError) return failed(unit, receipt, `structural check: ${error.message}`);
+    if (error instanceof StructuralCheckError) return [failed(unit, receipt, `structural check: ${error.message}`)];
     throw error;
   }
 }
@@ -230,7 +331,13 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
       checkMergeRank(output, input.length);
       return { kind: 'ranking.recorded', version: 1, payload: { workerId: receipt.workerId, findings: orderedRanking(review, output, input) } };
     }
+    case 'fixes':
+    case 'repair':
+      throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
+    case 'baseline-checks':
+    case 'checks':
+    case 'repair-checks':
     case 'report':
-      throw new Error('The report phase has no worker');
+      throw new Error(`The ${unit.phase} phase has no worker`);
   }
 }

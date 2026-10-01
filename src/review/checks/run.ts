@@ -12,9 +12,10 @@ import { join } from 'node:path';
 import type { EvidenceStore, ArtifactReference } from '../../evidence/store.ts';
 import { pinVariables, workerEnvironment } from '../../runtime/environment.ts';
 import { notStarted, runProcess, type ProcessResult } from '../../runtime/process.ts';
+import type { CheckOutcome } from '../vocabulary.ts';
 
-/** How a check ended: its command exited 0, exited otherwise, ran past its timeout, or never started. `skipped` is recorded by the planner, never run. */
-export type CheckOutcome = 'passed' | 'failed' | 'timeout' | 'not-started';
+/** How a check that ran ended: its command exited 0, exited otherwise, ran past its timeout, or never started. `skipped` is recorded for a check the planner never ran. */
+export type RunOutcome = Exclude<CheckOutcome, 'skipped'>;
 
 /** The shell a check runs through, and the arguments that hand it the command. */
 export interface ShellInvocation {
@@ -74,7 +75,7 @@ export interface CheckRequest {
 
 /** What one check did, with its output frozen. */
 export interface CheckResult {
-  readonly outcome: CheckOutcome;
+  readonly outcome: RunOutcome;
   readonly exitCode: number | null;
   readonly signal: string | null;
   readonly termination: ProcessResult['termination'];
@@ -88,7 +89,7 @@ export interface CheckResult {
 }
 
 /** The outcome a process result gives a check: 0 after an exit of its own passes, any other exit fails. */
-export function checkOutcomeOf(result: ProcessResult): CheckOutcome {
+export function checkOutcomeOf(result: ProcessResult): RunOutcome {
   switch (result.termination) {
     case 'not-started':
       return 'not-started';

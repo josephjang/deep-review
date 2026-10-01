@@ -1,16 +1,36 @@
 /**
- * The planner (TD1, TD2 of the read-only review): from the folded state,
- * which holds the concurrency and the run budget in force, and what the
- * controller knows only at run time (the workers in flight and the spend so
- * far), the one next step. Pure, so a resumed run and a running run take
- * the same path, and every resume test is a fold test.
+ * The planner (TD1, TD2 of the read-only review; Planner steps of the fix
+ * pass): from the folded state, which holds the concurrency and the run
+ * budget in force, and what the controller knows only at run time (the
+ * workers in flight, the spend so far, where evidence lives), the one next
+ * step. Pure, so a resumed run and a running run take the same path, and
+ * every resume test is a fold test.
  */
-import type { Blocker } from '../checkpoint/events.ts';
-import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState } from '../checkpoint/review-fold.ts';
+import type { ArtifactReference } from '../evidence/store.ts';
+import type { Blocker, FrozenFile } from '../checkpoint/events.ts';
+import { isNotAttempted, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
+import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
+import { planFixes, type FixPlan } from './fixes.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
-import { currentPhase, mergeRankInput, nextPendingPhase, workingList } from './state.ts';
-import { blockerActions, finderAngles, maxRecordedTextLength, roleOfAngle, singleUnitKey, unitName, type Phase, type ReviewRole, type VerificationPhase } from './vocabulary.ts';
+import { currentPhase, mergeRankInput, nextPendingPhase, rankedFindings, workingList } from './state.ts';
+import {
+  blockerActions,
+  finderAngles,
+  isCheckPhase,
+  isEditingPhase,
+  maxRecordedTextLength,
+  repairUnitKey,
+  roleOfAngle,
+  singleUnitKey,
+  unitName,
+  type CheckKind,
+  type CheckPhase,
+  type EditingPhase,
+  type Phase,
+  type ReviewRole,
+  type VerificationPhase,
+} from './vocabulary.ts';
 
 /** How many times a unit is tried before its role's rule decides (R5, PD6). */
 export const maxAttempts = 2;
@@ -28,22 +48,34 @@ export interface Live {
   readonly running: ReadonlySet<string>;
   /** The run's spend so far as the budget check counts it (`budgetSpendOf`); its `usd` is null when the runtime reports no cost. */
   readonly spend: BudgetSpend;
+  /** Where a frozen blob lives, so a drift blocker names the bytes to restore (R7 of the fix pass). */
+  readonly evidencePath: (reference: ArtifactReference) => string;
 }
 
-/** What a degrading role records for a unit that failed twice: its angle not run, or its group unverified. */
+/** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, or its cluster's findings not attempted. */
 type DegradationTarget =
   | { readonly kind: 'angle.failed'; readonly angle: string }
-  | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string };
+  | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string }
+  | { readonly kind: 'cluster.failed'; readonly phase: EditingPhase; readonly key: string };
 
 /** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. */
 export type Degradation = DegradationTarget & { readonly reason: string };
+
+/** A check due in a checks phase: run it, or record it skipped with the reason when `build` did not pass. */
+export interface DueCheck {
+  readonly kind: CheckKind;
+  readonly command: string;
+  readonly skip: string | null;
+}
 
 export type Step =
   | { readonly kind: 'blocked'; readonly blocker: Blocker & { readonly phase: Phase } }
   | { readonly kind: 'complete' }
   | { readonly kind: 'start-phase'; readonly phase: Phase; readonly attempt: number }
-  | { readonly kind: 'check-worktree'; readonly phase: Phase; readonly attempt: number }
+  | { readonly kind: 'check-worktree'; readonly phase: Phase; readonly attempt: number; readonly moment: 'start' | 'end' }
   | { readonly kind: 'plan-verification'; readonly phase: VerificationPhase; readonly groups: readonly PlannedGroup[] }
+  | { readonly kind: 'plan-fixes'; readonly plan: FixPlan }
+  | { readonly kind: 'run-check'; readonly phase: CheckPhase; readonly attempt: number; readonly check: DueCheck }
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
   | { readonly kind: 'degrade'; readonly phase: Phase; readonly degradations: readonly Degradation[] }
@@ -55,7 +87,12 @@ export function groupsOf(review: ReviewState, phase: VerificationPhase): readonl
   return review.plans[phase] ?? planGroups(workingList(review, phase));
 }
 
-/** The units of a phase (R2): what its workers are asked, in the order they are launched. */
+/** The fix plan: the recorded one, or the one the ranked findings give. */
+export function fixPlanOf(review: ReviewState): FixPlan {
+  return review.fix?.plan ?? planFixes(rankedFindings(review));
+}
+
+/** The units of a phase (R2; R1, R11 of the fix pass): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
   const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
@@ -73,6 +110,13 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
       return single('sweep');
     case 'merge-rank':
       return mergeRankInput(review).length > 0 ? single('merge-rank') : [];
+    case 'fixes':
+      return fixPlanOf(review).clusters.map((cluster) => ({ phase, key: cluster.id, role: 'fixer' }));
+    case 'repair':
+      return review.fix !== null && repairTargets(review.fix).length > 0 ? [{ phase, key: repairUnitKey, role: 'fixer' }] : [];
+    case 'baseline-checks':
+    case 'checks':
+    case 'repair-checks':
     case 'report':
       return [];
   }
@@ -135,12 +179,13 @@ function listWithin(items: readonly string[], limit: number): string {
 }
 
 /**
- * What a unit's role records once the unit has failed twice (R5, PD6): a
- * finder's angle is not run, a verifier's group is unverified. Null for
- * every other role, whose second failure blocks the run instead. The one
- * place the role's rule lives: a unit degrades exactly when this names
- * what it records and no worker of it was lost (`exhaustedOutcome`), and a
- * phase added to the review does not compile until it is given a rule here.
+ * What a unit's role records once the unit has failed twice (R5, PD6; R12
+ * of the fix pass): a finder's angle is not run, a verifier's group is
+ * unverified, a fixer's cluster is not attempted. Null for every other
+ * role, whose second failure blocks the run instead. The one place the
+ * role's rule lives: a unit degrades exactly when this names what it
+ * records and no worker of it was lost (`exhaustedOutcome`), and a phase
+ * added to the review does not compile until it is given a rule here.
  */
 function degradationOf(unit: Unit): DegradationTarget | null {
   switch (unit.phase) {
@@ -149,11 +194,17 @@ function degradationOf(unit: Unit): DegradationTarget | null {
     case 'verification':
     case 'sweep-verification':
       return { kind: 'group.unverified', phase: unit.phase, groupId: unit.key };
+    case 'fixes':
+    case 'repair':
+      return { kind: 'cluster.failed', phase: unit.phase, key: unit.key };
     case 'triage':
     case 'deduplication':
     case 'sweep':
     case 'sweep-deduplication':
     case 'merge-rank':
+    case 'baseline-checks':
+    case 'checks':
+    case 'repair-checks':
     case 'report':
       return null;
   }
@@ -161,10 +212,10 @@ function degradationOf(unit: Unit): DegradationTarget | null {
 
 /**
  * Whether a unit's degradation is already on the ledger: an angle recorded
- * as not run, or a group marked unverified. A degraded unit is settled for
- * the rest of the run; the fold refuses any later contribution from it, so
- * it is never launched again, even when a re-entered phase gives its units
- * fresh attempts.
+ * as not run, a group marked unverified, a cluster not attempted. A
+ * degraded unit is settled for the rest of the run; the fold refuses any
+ * later contribution from it, so it is never launched again, even when a
+ * re-entered phase gives its units fresh attempts.
  */
 function degraded(review: ReviewState, unit: Unit): boolean {
   const target = degradationOf(unit);
@@ -174,6 +225,8 @@ function degraded(review: ReviewState, unit: Unit): boolean {
       return Object.hasOwn(review.anglesNotRun, target.angle);
     case 'group.unverified':
       return isUnverified(review, target.phase, target.groupId);
+    case 'cluster.failed':
+      return review.fix !== null && isNotAttempted(review.fix, target.phase, target.key);
   }
 }
 
@@ -213,21 +266,63 @@ export function budgetBlocker(spend: BudgetSpend & { readonly usd: number }, bud
   };
 }
 
-/** The blocker a phase finishes with when the worktree drifted from the scope: the drifted files, as many as the detail holds, and the count of the rest. */
-export function driftBlocker(files: readonly { path: string; outcome: string }[]): Blocker {
-  const prefix = 'the worktree differs from the reviewed change: ';
-  const listed = listWithin(files.map((file) => `${file.path} (${file.outcome})`), maxRecordedTextLength - prefix.length);
-  return { code: 'drift', detail: `${prefix}${listed}`, action: blockerActions.drift };
+/** Where the bytes the run expected at a path are, as a drift blocker names them: the frozen blob's evidence path, or why there is none; nothing for a check recorded before the expected state was. */
+function expectedBytes(expected: FrozenFile | null | undefined, evidencePath: Live['evidencePath']): string {
+  if (expected === undefined) return '';
+  if (expected === null) return '; expected absent';
+  if ('blob' in expected) return `; expected at ${evidencePath(expected.blob)}`;
+  return `; expected ${expected.oversized.sha256}, ${String(expected.oversized.size)} bytes, too large to have been kept`;
+}
+
+/**
+ * The blocker a phase finishes with when the worktree drifted from what the
+ * run expects (R7 of the fix pass): each drifted file with where the bytes
+ * the run expected are, or that it expected none, and the head when it
+ * moved, as many as the detail holds, and the count of the rest.
+ */
+export function driftBlocker(check: Pick<WorktreeCheckState, 'files' | 'head'>, evidencePath: Live['evidencePath']): Blocker {
+  const prefix = 'the worktree differs from what the run expects: ';
+  const items = [
+    ...(check.head === null ? [] : [`HEAD is ${check.head.actual}, the run expects ${check.head.expected}`]),
+    ...check.files.map((file) => `${file.path} (${file.outcome}${expectedBytes(file.expected, evidencePath)})`),
+  ];
+  return { code: 'drift', detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions.drift };
+}
+
+/**
+ * The check a checks phase runs next (R9, R10, PD7 of the fix pass), or
+ * null when none is due: the first available kind in the order `build`,
+ * `typecheck`, `lint`, `test` that has no run in this phase, one at a time;
+ * once `build` ran and did not pass, each later kind is skipped with the
+ * reason instead. The three after `build` never wait on one another. The
+ * `checks` phase runs only when the fixes changed the tree, and
+ * `repair-checks` only when the repair phase had a unit.
+ */
+export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | null {
+  const fix = review.fix;
+  const planned = fix?.checks.planned ?? null;
+  if (fix === null || planned === null) return null;
+  if (phase === 'checks' && !fix.revisions.some((revision) => revision.phase === 'fixes')) return null;
+  if (phase === 'repair-checks' && repairTargets(fix).length === 0) return null;
+  const build = lastRun(fix, phase, 'build');
+  for (const check of planned.checks) {
+    if (check.command === null || lastRun(fix, phase, check.kind) !== null) continue;
+    const skip = check.kind !== 'build' && build !== null && build.outcome !== 'passed' ? `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}` : null;
+    return { kind: check.kind, command: check.command, skip };
+  }
+  return null;
 }
 
 /**
  * The next step, in order of precedence: a blocked run returns its blocker;
  * a written report is complete; a phase that is not running starts; a
  * running phase is checked against the worktree once per attempt, and an
- * attempt with a drifted check (at its start, or one the controller made
- * before recording an answer) blocks once no worker is in flight; then a
- * verification phase is planned, then units are degraded, blocked,
- * launched or awaited, and the phase finishes when nothing is left.
+ * attempt with a drifted check (at its start, before an answer, or at its
+ * end) blocks once no worker is in flight; then a verification phase or
+ * the fixes are planned, the report is written, a checks phase runs its
+ * checks one at a time, and units are degraded, blocked, launched or
+ * awaited; an editing phase whose units have all settled is checked once
+ * more, and the phase finishes when nothing is left.
  */
 export function nextStep(review: ReviewState, live: Live): Step {
   if (review.blocker !== null) return { kind: 'blocked', blocker: review.blocker };
@@ -240,12 +335,17 @@ export function nextStep(review: ReviewState, live: Live): Step {
   }
   const attempt = review.phases[phase].attempt;
   const checks = review.checks.filter((check) => check.phase === phase && check.attempt === attempt);
-  if (checks.length === 0) return { kind: 'check-worktree', phase, attempt };
-  // A drift found at the attempt's start, or before an answer was recorded, blocks the attempt once every worker in flight has settled; nothing more is launched.
+  if (checks.length === 0) return { kind: 'check-worktree', phase, attempt, moment: 'start' };
+  // A drift found at the attempt's start, before an answer was recorded, or at its end, blocks the attempt once every worker in flight has settled; nothing more is launched.
   const drift = checks.find((check) => check.drifted);
-  if (drift !== undefined) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: driftBlocker(drift.files) };
+  if (drift !== undefined) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: driftBlocker(drift, live.evidencePath) };
   if ((phase === 'verification' || phase === 'sweep-verification') && review.plans[phase] === null) return { kind: 'plan-verification', phase, groups: groupsOf(review, phase) };
+  if (phase === 'fixes' && review.fix !== null && review.fix.plan === null) return { kind: 'plan-fixes', plan: fixPlanOf(review) };
   if (phase === 'report') return { kind: 'write-report' };
+  if (isCheckPhase(phase)) {
+    const due = dueCheck(review, phase);
+    return due === null ? { kind: 'finish-phase', phase, attempt, outcome: 'completed', blocker: null } : { kind: 'run-check', phase, attempt, check: due };
+  }
 
   const units = unitsOf(review, phase);
   const states = review.units[phase];
@@ -270,6 +370,8 @@ export function nextStep(review: ReviewState, live: Live): Step {
     return capacity > 0 ? { kind: 'launch', units: launchable.slice(0, capacity) } : { kind: 'await' };
   }
   if (running.length > 0) return { kind: 'await' };
+  // An editing phase's tree is checked whole once its last unit settled, so a change no answer accounted for blocks it (TD2 of the fix pass).
+  if (isEditingPhase(phase) && units.length > 0 && !checks.some((check) => check.moment === 'end')) return { kind: 'check-worktree', phase, attempt, moment: 'end' };
   const outcome = units.some((unit) => degraded(review, unit)) ? 'degraded' : 'completed';
   return { kind: 'finish-phase', phase, attempt, outcome, blocker: null };
 }

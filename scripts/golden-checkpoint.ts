@@ -8,7 +8,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
-import type { RecordedCandidate, ReviewConfiguration, ScopeState, WorkerFinish, WorkerLaunch } from '../src/checkpoint/events.ts';
+import { reviewVocabularyV1, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
 import { finderAngles, phases, type Angle, type Phase } from '../src/review/vocabulary.ts';
@@ -40,14 +40,41 @@ class ReviewHistory {
     return `00000000-0000-4000-8000-0000000${tag.padStart(5, '0')}`;
   }
 
-  add(kind: string, payload: unknown): void {
-    const event: NewEvent = { kind, version: 1, payload };
+  add(kind: string, payload: unknown, version = 1): void {
+    const event: NewEvent = { kind, version, payload };
     this.#lastSequence = this.#checkpoint.append(this.#runId, this.#lastSequence, [event]).lastSequence;
+  }
+
+  /** Start a phase at its next attempt with a clean worktree check at version 2, as the engine now writes them, run `body`, and finish it. */
+  phaseV2(phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+    const number = (this.#attempts[phase] ?? 0) + 1;
+    this.#attempts[phase] = number;
+    this.add('phase.started', { phase, attempt: number }, 2);
+    this.add('worktree.checked', { phase, attempt: number, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 2);
+    body();
+    if (check.end === true) this.add('worktree.checked', { phase, attempt: number, moment: 'end', drifted: false, head: null, files: [], strays: check.strays ?? [] }, 2);
+    this.add('phase.finished', { phase, attempt: number, outcome, blocker: null }, 2);
+  }
+
+  /** One check as it ran in a checks phase, four seconds long. */
+  check(phase: 'baseline-checks' | 'checks' | 'repair-checks', kind: string, command: string, outcome: 'passed' | 'failed'): void {
+    const attempt = this.#attempts[phase] ?? 1;
+    this.add('check.ran', {
+      phase, attempt, kind, command, outcome,
+      exitCode: outcome === 'passed' ? 0 : 1, signal: null, termination: 'exited',
+      startedAt: '2026-10-01T02:00:00.000Z', endedAt: '2026-10-01T02:00:04.000Z',
+      stdout: this.#checkpoint.evidence.put(`${kind} ${outcome}\n`), stderr: this.#checkpoint.evidence.put(''), error: null,
+    });
+  }
+
+  /** A file's state frozen as a blob. */
+  frozen(text: string): { blob: { sha256: string; bytes: number } } {
+    return { blob: this.#checkpoint.evidence.put(text) };
   }
 
   configure(): void {
     const role = (name: string, tier: 'strong' | 'fast', effort: 'high' | 'medium' = 'high') => ({ role: name, model: tier === 'strong' ? 'opus' : 'sonnet', effort, budgetUsd: 8, timeoutMs: 600_000 });
-    const configuration: ReviewConfiguration = {
+    const configuration: ReviewConfigurationV1 = {
       runtime: 'claude',
       executable: '/fixture/bin/claude',
       executableArgs: [],
@@ -288,12 +315,167 @@ try {
   review.phase('report', () => {
     // The failed, the timed-out and the lost finder, and the two failed verifiers, reported no cost.
     const spend = (workers: number, costUnreported = 0) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 10, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 2, 'merge-rank': 1, report: 0 };
-    const unreportedPerPhase: Partial<Record<Phase, number>> = { finders: 3, 'sweep-verification': 2 };
+    const workersPerPhase: Record<(typeof reviewVocabularyV1.phases)[number], number> = { triage: 1, finders: 10, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 2, 'merge-rank': 1, report: 0 };
+    const unreportedPerPhase: Partial<Record<(typeof reviewVocabularyV1.phases)[number], number>> = { finders: 3, 'sweep-verification': 2 };
     review.add('report.written', {
       report: checkpoint.evidence.put('# Deep review\n\nfixture report\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(18, 5), budgetApplied: true },
+      statistics: { phases: reviewVocabularyV1.phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(18, 5), budgetApplied: true },
     });
+  });
+  // A fourth run through the fix pass, every event recorded at the version
+  // the engine now writes: a review whose plan holds one held finding and
+  // two clusters; a lint check that rewrites a file at baseline and a test
+  // that fails there; a fixer that reports an edit to the other cluster's
+  // file (a violation) and leaves a stray; the lint the fixers broke,
+  // repaired, and the test still failing; the report with one patch per
+  // revision; and the commits built from it afterwards.
+  const fixedRun = checkpoint.createRun({ worktree: '/fixture/fixed' });
+  const fixScope: ScopeState = { ...scope, files: [scope.files[0]!], request: { paths: [] } };
+  const fix = new ReviewHistory(checkpoint, fixedRun.id, checkpoint.append(fixedRun.id, fixedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  const pinned = (name: string, tier: 'strong' | 'fast', effort: 'high' | 'medium' = 'high', timeoutMs = 600_000) => ({ role: name, model: tier === 'strong' ? 'opus' : 'sonnet', effort, budgetUsd: 8, timeoutMs });
+  fix.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.283',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: [
+      pinned('triage', 'strong'),
+      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
+      pinned('deduplication', 'strong'),
+      pinned('verifier', 'strong'),
+      pinned('sweep', 'strong'),
+      pinned('merge-rank', 'strong'),
+      pinned('fixer', 'strong', 'high', 1_200_000),
+    ],
+    rolesDigest: '5'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 30,
+    fix: true,
+    checks: { timeoutMs: 1_200_000 },
+  }, 2);
+  const checks = { build: 'npm run build', lint: 'npm run lint:check', test: 'npm run test' };
+  fix.add('checks.planned', {
+    checks: [
+      { kind: 'build', command: checks.build, origin: 'package', reason: null },
+      { kind: 'typecheck', command: null, origin: 'none', reason: 'no --check flag, Taskfile task, Makefile target, justfile recipe, package.json script or language default names it' },
+      { kind: 'lint', command: checks.lint, origin: 'package', reason: null },
+      { kind: 'test', command: checks.test, origin: 'package', reason: null },
+    ],
+    manager: 'npm',
+  });
+  fix.phaseV2('triage', () => {
+    fix.launch('101', 'triage triage:SCAN');
+    fix.finishWorker('101');
+    fix.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: fix.id('101'), candidates: [fix.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  fix.phaseV2('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = String(110 + finderAngles.indexOf(angle));
+      fix.launch(tag, `finder-${angle} finders:${angle}`);
+      fix.finishWorker(tag);
+      const found = angle === 'RIPPLE'
+        ? [{ ...fix.candidate('RIPPLE-1', 'RIPPLE', 3), file: 'src/caller.ts', inScope: false, rawFile: 'src/caller.ts' }]
+        : angle === 'DESIGN' ? [fix.candidate('DESIGN-1', 'DESIGN', 1)] : [];
+      fix.add('candidates.recorded', { phase: 'finders', key: angle, workerId: fix.id(tag), candidates: found, leads: null });
+    }
+  });
+  fix.phaseV2('deduplication', () => {
+    fix.launch('120', 'deduplication deduplication:deduplication');
+    fix.finishWorker('120');
+    fix.add('deduplication.recorded', { phase: 'deduplication', workerId: fix.id('120'), groups: [] });
+  });
+  fix.phaseV2('verification', () => {
+    fix.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }, { id: 'g2', candidateIds: ['DESIGN-1', 'SCAN-1'] }] });
+    fix.launch('121', 'verifier verification:g1');
+    fix.finishWorker('121');
+    fix.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: fix.id('121'), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'line 3 passes the null on' }] });
+    fix.launch('122', 'verifier verification:g2');
+    fix.finishWorker('122');
+    fix.add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: fix.id('122'), verdicts: [{ id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'the helper would read better' }, { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null' }] });
+  });
+  fix.phaseV2('sweep', () => {
+    fix.launch('130', 'sweep sweep:sweep');
+    fix.finishWorker('130');
+    fix.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: fix.id('130'), candidates: [], leads: null });
+  });
+  fix.phaseV2('sweep-deduplication', () => {});
+  fix.phaseV2('sweep-verification', () => {
+    fix.add('verification.planned', { phase: 'sweep-verification', groups: [] });
+  });
+  fix.phaseV2('merge-rank', () => {
+    fix.launch('140', 'merge-rank merge-rank:merge-rank');
+    fix.finishWorker('140');
+    fix.add('ranking.recorded', { workerId: fix.id('140'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'RIPPLE-1', members: [], severity: 'minor', summary: 'the caller passes the null on', reason: 'the crash reaches a second site' },
+      { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one helper reads better' },
+    ] });
+  });
+  // The lint check rewrites the changed file at baseline, and the test fails there already.
+  fix.phaseV2('baseline-checks', () => {
+    fix.check('baseline-checks', 'build', checks.build, 'passed');
+    fix.check('baseline-checks', 'lint', checks.lint, 'passed');
+    fix.add('tree.revised', { phase: 'baseline-checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 'chore: apply the lint check\'s rewrite', body: 'The lint check rewrote these files.' } }, files: [{ path: 'src/changed.ts', status: 'modified', symlink: false, after: fix.frozen('after;\n') }] });
+    fix.check('baseline-checks', 'test', checks.test, 'failed');
+  });
+  const message = (subject: string) => ({ subject, body: `Why: ${subject}.` });
+  const finding = (id: string, status: 'applied' | 'deferred', files: string[], subject: string | null) => ({
+    id, status, file: files[0] ?? 'src/changed.ts', line: 1, note: `${id} ${status}`, message: subject === null ? null : message(subject), files,
+    corrections: [], validation: [{ method: 'old-code', source: 'test/changed.test.ts', evidence: 'red before the fix, green after' }], requiredFiles: [],
+  });
+  fix.phaseV2('fixes', () => {
+    fix.add('fixes.planned', {
+      routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'RIPPLE-1', route: 'fixer' }, { id: 'DESIGN-1', route: 'held' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }, { id: 'c2', findingIds: ['RIPPLE-1'], files: ['src/caller.ts'] }],
+    });
+    fix.launch('150', 'fixer fixes:c1');
+    fix.finishWorker('150');
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c1', workerId: fix.id('150'), findings: [finding('SCAN-1', 'applied', ['src/caller.ts', 'src/changed.ts', 'test/changed.test.ts'], 'fix: Guard the null in changed()')], drift: [{ file: 'README.md', what: 'changed() no longer throws on null' }], tests: [{ file: 'test/changed.test.ts', covers: 'changed(null) returns 0' }], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: ['src/caller.ts'] });
+    fix.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1', workerId: fix.id('150') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
+      { path: 'src/caller.ts', status: 'modified', symlink: false, after: fix.frozen('caller();\n') },
+      { path: 'src/changed.ts', status: 'modified', symlink: false, after: fix.frozen('after; // guarded\n') },
+      { path: 'test/changed.test.ts', status: 'created', symlink: false, after: fix.frozen('test();\n') },
+    ] });
+    fix.launch('151', 'fixer fixes:c2');
+    fix.finishWorker('151');
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c2', workerId: fix.id('151'), findings: [finding('RIPPLE-1', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
+  }, 'completed', { end: true, strays: ['notes.txt'] });
+  // The fixers broke lint, which the repair takes; test failed before any fix, so no repair is owed it.
+  fix.phaseV2('checks', () => {
+    fix.check('checks', 'build', checks.build, 'passed');
+    fix.check('checks', 'lint', checks.lint, 'failed');
+    fix.check('checks', 'test', checks.test, 'failed');
+  });
+  fix.phaseV2('repair', () => {
+    fix.launch('160', 'fixer repair:repair');
+    fix.finishWorker('160');
+    fix.add('fix.recorded', { phase: 'repair', key: 'repair', workerId: fix.id('160'), findings: [finding('lint', 'applied', ['src/changed.ts'], 'style: Format the guard as lint asks')], drift: [], tests: [], suite: { result: 'pass', command: 'npm run lint:check', failures: '' }, violations: [] });
+    fix.add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: fix.id('160') }, change: { findings: ['lint'], message: message('style: Format the guard as lint asks') }, files: [{ path: 'src/changed.ts', status: 'modified', symlink: false, after: fix.frozen('after; /* guarded */\n') }] });
+  }, 'completed', { end: true });
+  fix.phaseV2('repair-checks', () => {
+    fix.check('repair-checks', 'build', checks.build, 'passed');
+    fix.check('repair-checks', 'lint', checks.lint, 'passed');
+    fix.check('repair-checks', 'test', checks.test, 'failed');
+  });
+  fix.phaseV2('report', () => {
+    const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 2, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
+    fix.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run\n'),
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(18), budgetApplied: true },
+      patches: ['lint rewrite', 'guard', 'format'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
+    }, 2);
+  });
+  fix.add('commits.created', {
+    commits: [
+      { sha: 'a'.repeat(40), revision: 'change', subject: 'feat: The change under review' },
+      { sha: 'b'.repeat(40), revision: 0, subject: 'chore: apply the lint check\'s rewrite' },
+      { sha: 'c'.repeat(40), revision: 1, subject: 'fix: Guard the null in changed()' },
+      { sha: 'd'.repeat(40), revision: 2, subject: 'style: Format the guard as lint asks' },
+    ],
+    from: fixScope.head,
+    to: 'd'.repeat(40),
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };

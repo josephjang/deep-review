@@ -36,7 +36,7 @@ if (argv[0] === '--version') {
   if (scripted === null) {
     await answer(() => envelope(JSON.parse(environment.FAKE_OUTPUT ?? '{"answer":"ok"}') as unknown, 0.001), session);
   } else {
-    const exit = await beginScriptedStep(scripted.step);
+    const exit = await beginScriptedStep(scripted.step, stdin);
     process.stdout.write(envelope(scripted.step.malformed === true ? 'not the shape the schema describes' : scripted.step.output, scripted.step.costUsd ?? 0.001));
     process.exitCode = exit;
   }

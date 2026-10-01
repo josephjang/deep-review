@@ -2,10 +2,10 @@
 // spend and report tests: a run created, scoped and configured, then taken
 // through its phases one scenario at a time.
 import assert from 'node:assert/strict';
-import type { ReviewConfiguration, ScopeState } from '../../src/checkpoint/events.ts';
+import type { ReviewConfiguration, ReviewConfigurationV1, ScopeState } from '../../src/checkpoint/events.ts';
 import { foldRun, type DecodedEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
-import { finderAngles, phases } from '../../src/review/vocabulary.ts';
+import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
 
 export const reference = (fill: string, bytes = 1): { sha256: string; bytes: number } => ({ sha256: fill.repeat(64), bytes });
 export const worker = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -19,7 +19,8 @@ export const scope: ScopeState = {
   patch: reference('c'),
 };
 
-export const configuration: ReviewConfiguration = {
+/** The configuration as version 1 records it, before the fix pass existed; the histories here record it so. */
+export const configurationV1: ReviewConfigurationV1 = {
   runtime: 'claude',
   executable: '/bin/claude',
   executableArgs: [],
@@ -30,6 +31,9 @@ export const configuration: ReviewConfiguration = {
   concurrency: 4,
   runBudgetUsd: 30,
 };
+
+/** The configuration as the fold holds it: version 1's, read as a run without the fix pass. */
+export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null };
 
 /** A launch under a review label, capped at the 8 USD per-worker budget the configuration's roles pin, as Claude Code's launches are. */
 export const launch = (workerId: string, label: string): Record<string, unknown> => ({
@@ -89,20 +93,25 @@ export const unlocated = (id: string, angle: string): Record<string, unknown> =>
 
 export const leads = finderAngles.map((angle) => ({ angle, lead: angle === 'RIPPLE' ? 'the callers of parse()' : null }));
 
+/** Whether a phase is one of the fix pass's, which only version 2 of the events that carry a phase can name. */
+const isFixPhase = (phase: string): boolean => (fixPhases as readonly string[]).includes(phase);
+
 /** A history builder that numbers events as it goes, so a scenario reads as its event list. */
 export class History {
   readonly events: DecodedEvent[] = [];
-  add(kind: string, payload: unknown): this {
+  /** Add an event, at version 1 unless another is given. */
+  add(kind: string, payload: unknown, version = 1): this {
     const sequence = this.events.length + 1;
-    this.events.push({ sequence, runId: 'run-1', kind, version: 1, payload, recordedAt: `2026-09-27T00:00:${String(sequence % 60).padStart(2, '0')}.000Z`, engine: '0.0.0' });
+    this.events.push({ sequence, runId: 'run-1', kind, version, payload, recordedAt: `2026-09-27T00:00:${String(sequence % 60).padStart(2, '0')}.000Z`, engine: '0.0.0' });
     return this;
   }
-  /** Start a phase at the given attempt and record a clean worktree check for it. */
+  /** Start a phase at the given attempt and record a clean worktree check for it: at version 1 for a read-only phase, as the histories here were recorded, and version 2 for a phase of the fix pass. */
   start(phase: string, attempt = 1): this {
-    return this.add('phase.started', { phase, attempt }).add('worktree.checked', { phase, attempt, drifted: false, files: [] });
+    if (!isFixPhase(phase)) return this.add('phase.started', { phase, attempt }).add('worktree.checked', { phase, attempt, drifted: false, files: [] });
+    return this.add('phase.started', { phase, attempt }, 2).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 2);
   }
   finish(phase: string, outcome = 'completed', attempt = 1, blocker: unknown = null): this {
-    return this.add('phase.finished', { phase, attempt, outcome, blocker });
+    return this.add('phase.finished', { phase, attempt, outcome, blocker }, isFixPhase(phase) ? 2 : 1);
   }
   /** Launch and finish one worker under a review label, so spend and lost-worker tests have a worker to count. */
   worker(n: number, label: string, change: Record<string, unknown> = {}, costUsd = 0.5, tokens = 100): this {
@@ -119,7 +128,7 @@ export class History {
 }
 
 /** A run created, scoped and configured, before any phase. */
-export const configured = (): History => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', configuration);
+export const configured = (): History => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', configurationV1);
 
 /** The run through its triage, with one SCAN candidate and the leads. */
 export const triaged = (): History =>
@@ -190,19 +199,106 @@ export const ranking = [
   { id: 'SWEEP-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one improvement' },
 ];
 export const statistics = {
-  phases: phases.map((phase) => ({ phase, workers: 1, seconds: 2.5, costUsd: 0.5, costUnreported: phase === 'finders' ? 1 : 0, inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 })),
+  phases: phases.filter((phase) => !(fixPhases as readonly string[]).includes(phase)).map((phase) => ({ phase, workers: 1, seconds: 2.5, costUsd: 0.5, costUnreported: phase === 'finders' ? 1 : 0, inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 })),
   total: { workers: 9, seconds: 22.5, costUsd: 4.5, costUnreported: 1, inputTokens: 900, cachedInputTokens: 180, outputTokens: 90 },
   budgetApplied: true,
 };
 
-/** The run through merge and rank, its report phase started and checked but not yet written. */
-export const ranked = (): History =>
+/** The run through merge and rank, before its report phase. */
+export const mergeRanked = (): History =>
   swept()
     .start('merge-rank')
     .worker(40, 'merge-rank merge-rank:merge-rank')
     .add('ranking.recorded', { workerId: worker(40), findings: ranking })
-    .finish('merge-rank')
-    .start('report');
+    .finish('merge-rank');
+
+/** The run through merge and rank, its report phase started and checked but not yet written. */
+export const ranked = (): History => mergeRanked().start('report');
 
 /** The whole run, report written. */
 export const reported = (): History => ranked().add('report.written', { report: reference('e', 2048), statistics }).finish('report');
+
+/** The checks a fix run pins in these histories: a package script for build, lint and test, and no typecheck. */
+export const plannedChecks = {
+  checks: [
+    { kind: 'build', command: 'npm run build', origin: 'package', reason: null },
+    { kind: 'typecheck', command: null, origin: 'none', reason: 'nothing names it' },
+    { kind: 'lint', command: 'npm run lint', origin: 'package', reason: null },
+    { kind: 'test', command: 'npm run test', origin: 'package', reason: null },
+  ],
+  manager: 'npm',
+};
+
+/** The same history, configured with the fix pass: its configuration recorded at version 2 with `fix`, the checks pinned beside it. */
+export function withFixPass(history: History): History {
+  const fixed = new History();
+  for (const event of history.events) {
+    if (event.kind !== 'review.configured') {
+      fixed.add(event.kind, event.payload, event.version);
+      continue;
+    }
+    fixed.add('review.configured', { ...(event.payload as object), fix: true, checks: { timeoutMs: 600_000 } }, 2);
+    fixed.add('checks.planned', plannedChecks);
+  }
+  return fixed;
+}
+
+/** A check's run as `check.ran` records it: passed, failed, timed out, not started, or skipped because build did not pass. */
+export function checkRun(phase: string, kind: string, outcome = 'passed', attempt = 1): Record<string, unknown> {
+  const command = plannedChecks.checks.find((check) => check.kind === kind)?.command ?? 'none';
+  const at = { startedAt: '2026-09-27T01:00:00.000Z', endedAt: '2026-09-27T01:00:04.000Z' };
+  if (outcome === 'skipped') return { phase, attempt, kind, command, outcome, exitCode: null, signal: null, termination: null, ...at, stdout: null, stderr: null, error: 'build failed' };
+  return {
+    phase, attempt, kind, command, outcome,
+    exitCode: outcome === 'passed' ? 0 : outcome === 'failed' ? 1 : null,
+    signal: outcome === 'timeout' ? 'SIGKILL' : null,
+    termination: outcome === 'timeout' ? 'killed' : outcome === 'not-started' ? 'not-started' : 'exited',
+    ...at,
+    stdout: reference('c'),
+    stderr: reference('d', 0),
+    error: outcome === 'not-started' ? 'spawn ENOENT' : null,
+  };
+}
+
+/** A checks phase whose available kinds ran with the outcomes given, passed otherwise. */
+export function checksPhase(history: History, phase: string, outcomes: Readonly<Record<string, string>> = {}): History {
+  history.start(phase);
+  for (const kind of ['build', 'lint', 'test']) history.add('check.ran', checkRun(phase, kind, outcomes[kind] ?? 'passed'));
+  return history.finish(phase);
+}
+
+/** The fix plan of these histories: RIPPLE-1, CONFIRMED with SWEEP-2 merged in, to a fixer that owns src/a.ts; SWEEP-1, a PLAUSIBLE design finding, held. */
+export const fixPlan = { routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }], clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }] };
+
+/** The answer c1's fixer recorded, applying RIPPLE-1. */
+export const fixAnswer = (workerId: string, change: Record<string, unknown> = {}): Record<string, unknown> => ({
+  phase: 'fixes', key: 'c1', workerId,
+  findings: [{ id: 'RIPPLE-1', status: 'applied', file: 'src/a.ts', line: 4, note: 'guarded the null', message: { subject: 'fix: Guard the null', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }],
+  drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [],
+  ...change,
+});
+
+/** The revision c1's answer made of src/a.ts. */
+export const fixRevision = (workerId: string, after = reference('f')): Record<string, unknown> => ({
+  phase: 'fixes',
+  source: { kind: 'fix', key: 'c1', workerId },
+  change: { findings: ['RIPPLE-1'], message: { subject: 'fix: Guard the null', body: 'Why.' } },
+  files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: after } }],
+});
+
+/** A clean check at an editing phase's end. */
+export const endCheck = (phase: string, attempt = 1): Record<string, unknown> => ({ phase, attempt, moment: 'end', drifted: false, head: null, files: [], strays: [] });
+
+/** A fix run through its baseline checks, each passing unless `outcomes` says otherwise. */
+export const baselined = (outcomes: Readonly<Record<string, string>> = {}): History => checksPhase(withFixPass(mergeRanked()), 'baseline-checks', outcomes);
+
+/** A fix run through its fixes: c1 answered and revised src/a.ts, and the end check was clean. */
+export const fixed = (baseline: Readonly<Record<string, string>> = {}): History =>
+  baselined(baseline)
+    .start('fixes')
+    .add('fixes.planned', fixPlan)
+    .worker(50, 'fixer fixes:c1')
+    .add('fix.recorded', fixAnswer(worker(50)))
+    .add('tree.revised', fixRevision(worker(50)))
+    .add('worktree.checked', endCheck('fixes'), 2)
+    .finish('fixes');

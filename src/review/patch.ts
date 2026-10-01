@@ -10,9 +10,9 @@
  */
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
-import type { FrozenFile } from '../checkpoint/events.ts';
+import type { FrozenFile, ScopeState, TreeRevised } from '../checkpoint/events.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
-import type { ExpectedFile, ExpectedTree } from './tree.ts';
+import { applyRevision, expectedTree, type ExpectedFile, type ExpectedTree } from './tree.ts';
 
 /** Reads a frozen blob's bytes. */
 export type BlobReader = (reference: ArtifactReference) => Buffer;
@@ -244,6 +244,22 @@ export function renderPatch(before: ExpectedTree, after: ExpectedTree, paths: It
     .sort()
     .map((path) => fileDiff(path, content(before, path), content(after, path), format))
     .join('');
+}
+
+/**
+ * The run's patch series (R13 of the fix pass): one mail per revision, in
+ * ledger order, each the diff of the paths it changed from the expected
+ * tree before it to the tree with it, under its message, so the series
+ * applies in order on a tree at the scope's state and reconstructs the
+ * last revision's tree.
+ */
+export function patchSeries(scope: Pick<ScopeState, 'files'>, revisions: readonly Pick<TreeRevised, 'files' | 'change'>[], read: BlobReader, format: ObjectFormat): string[] {
+  const state = expectedTree(scope, []);
+  return revisions.map((revision, index) => {
+    const before = new Map(state);
+    applyRevision(state, revision.files);
+    return renderMail(revision.change.message, index + 1, revisions.length, renderPatch(before, state, revision.files.map((file) => file.path), read, format));
+  });
 }
 
 /** A commit message for one patch of a series. */

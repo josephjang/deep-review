@@ -44,7 +44,7 @@ if (argv[0] === '--version') {
     if (final !== '' && finalFile !== undefined && environment.FAKE_HANG === undefined) writeFileSync(finalFile, final);
     await answer(() => stream(output, commandOutput), thread);
   } else {
-    const exit = await beginScriptedStep(scripted.step);
+    const exit = await beginScriptedStep(scripted.step, stdin);
     const output = scripted.step.malformed === true ? '"not the shape the schema describes"' : JSON.stringify(scripted.step.output);
     if (finalFile !== undefined) writeFileSync(finalFile, output);
     process.stdout.write(stream(output));

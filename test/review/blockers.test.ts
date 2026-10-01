@@ -25,6 +25,12 @@ describe('the blocker codes', () => {
     }
   });
 
+  it('tell the operator of a drift where the expected bytes are and what to do with a moved HEAD (R7 of the fix pass)', () => {
+    assert.match(blockerActions.drift, /restore the named files to the bytes the run expected, which the detail gives as evidence paths/);
+    assert.match(blockerActions.drift, /a file expected absent is removed/);
+    assert.match(blockerActions.drift, /reset a moved HEAD to the recorded head/);
+  });
+
   for (const code of recordedBlockerCodes) {
     it(`keep a recorded ${code} blocker, its detail and its action, through status --json`, () => {
       const blocker = { code, detail: `the ${code} detail`, action: blockerActions[code] };

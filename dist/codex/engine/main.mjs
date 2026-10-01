@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync5 } from "node:fs";
-import { join as join19, resolve as resolve11 } from "node:path";
+import { join as join24, resolve as resolve11 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -2077,8 +2077,8 @@ var _undefined = /^undefined$/i;
 var lowercase = /^[^A-Z]*$/;
 var uppercase = /^[^a-z]*$/;
 var hex = /^[0-9a-fA-F]*$/;
-function fixedBase64(bodyLength, padding) {
-  return new RegExp(`^[A-Za-z0-9+/]{${bodyLength}}${padding}$`);
+function fixedBase64(bodyLength2, padding) {
+  return new RegExp(`^[A-Za-z0-9+/]{${bodyLength2}}${padding}$`);
 }
 function fixedBase64url(length) {
   return new RegExp(`^[A-Za-z0-9_-]{${length}}$`);
@@ -20227,27 +20227,250 @@ var reportWrittenV1 = external_exports.strictObject({
     budgetApplied: external_exports.boolean()
   })
 });
+var reviewVocabularyV2 = {
+  phases: [
+    "triage",
+    "finders",
+    "deduplication",
+    "verification",
+    "sweep",
+    "sweep-deduplication",
+    "sweep-verification",
+    "merge-rank",
+    "baseline-checks",
+    "fixes",
+    "checks",
+    "repair",
+    "repair-checks",
+    "report"
+  ],
+  checkPhases: ["baseline-checks", "checks", "repair-checks"],
+  editingPhases: ["fixes", "repair"],
+  phaseOutcomes: ["completed", "degraded", "blocked"],
+  recordedBlockerCodes: ["worker-failed", "budget", "drift"],
+  checkKinds: ["build", "typecheck", "lint", "test"],
+  checkOrigins: ["flag", "taskfile", "makefile", "justfile", "package", "language", "none"],
+  checkOutcomes: ["passed", "failed", "timeout", "not-started", "skipped"],
+  fixStatuses: ["applied", "already-applied", "deferred", "blocked"],
+  validationMethods: ["old-code", "mutation", "static", "existing", "limited"],
+  suiteResults: ["pass", "fail", "not-run"]
+};
+var reviewIdentifiersV2 = {
+  clusterId: external_exports.string().regex(/^c[1-9][0-9]*$/, "a cluster id is c and a number from 1"),
+  repairKey: external_exports.literal("repair")
+};
+var vocabularyV2 = reviewVocabularyV2;
+var phaseSchemaV2 = external_exports.enum(vocabularyV2.phases);
+var checkPhaseSchemaV2 = external_exports.enum(vocabularyV2.checkPhases);
+var editingPhaseSchemaV2 = external_exports.enum(vocabularyV2.editingPhases);
+var checkKindSchemaV2 = external_exports.enum(vocabularyV2.checkKinds);
+var clusterIdSchemaV2 = reviewIdentifiersV2.clusterId;
+var blockerSchemaV2 = external_exports.strictObject({
+  code: external_exports.enum(vocabularyV2.recordedBlockerCodes),
+  detail: recordedTextSchema,
+  action: external_exports.string().min(1).max(1e3)
+});
+var reviewConfiguredV2 = external_exports.strictObject({
+  ...reviewConfiguredV1.shape,
+  fix: external_exports.boolean(),
+  checks: external_exports.strictObject({ timeoutMs: external_exports.number().int().positive() }).nullable()
+}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
+  message: "the checks are pinned exactly when the run fixes",
+  path: ["checks"]
+});
+var phaseStartedV2 = external_exports.strictObject({
+  phase: phaseSchemaV2,
+  attempt: external_exports.number().int().min(1)
+});
+var phaseFinishedV2 = external_exports.strictObject({
+  phase: phaseSchemaV2,
+  attempt: external_exports.number().int().min(1),
+  outcome: external_exports.enum(vocabularyV2.phaseOutcomes),
+  blocker: blockerSchemaV2.nullable()
+}).refine((finish) => finish.outcome === "blocked" === (finish.blocker !== null), {
+  message: "a blocker is present exactly when the outcome is blocked",
+  path: ["blocker"]
+});
+var worktreeCheckedV2 = external_exports.strictObject({
+  phase: phaseSchemaV2,
+  attempt: external_exports.number().int().min(1),
+  /** At the attempt's start, before an answer is recorded, or once an editing phase's last unit settled. */
+  moment: external_exports.enum(["start", "answer", "end"]),
+  drifted: external_exports.boolean(),
+  head: external_exports.strictObject({ expected: commitId, actual: commitId }).nullable(),
+  files: external_exports.array(external_exports.strictObject({ path: external_exports.string().min(1), outcome: external_exports.enum(["modified", "deleted", "restored"]), expected: frozenFileSchema.nullable() })).max(2e3),
+  strays: external_exports.array(external_exports.string().min(1)).max(2e3)
+}).refine((check2) => check2.drifted === (check2.files.length > 0 || check2.head !== null), {
+  message: "drifted exactly when some file differs or HEAD moved",
+  path: ["drifted"]
+});
+var attemptFailedV2 = external_exports.strictObject({
+  phase: phaseSchemaV2,
+  key: unitKeySchema,
+  workerId: external_exports.uuid(),
+  reason: recordedTextSchema
+});
+var workerLostV2 = external_exports.strictObject({
+  workerId: external_exports.uuid(),
+  phase: phaseSchemaV2.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: external_exports.string().min(1).max(1e3)
+}).refine((lost) => lost.phase === null === (lost.key === null), {
+  message: "a lost worker names both its phase and its unit key, or neither",
+  path: ["key"]
+});
+var reportWrittenV2 = external_exports.strictObject({
+  report: artifactReferenceSchema,
+  statistics: external_exports.strictObject({
+    phases: external_exports.array(spendSchema.extend({ phase: phaseSchemaV2 })),
+    total: spendSchema,
+    budgetApplied: external_exports.boolean()
+  }),
+  patches: external_exports.array(artifactReferenceSchema).max(2e3)
+});
+var fixesPlannedV1 = external_exports.strictObject({
+  routes: external_exports.array(external_exports.strictObject({ id: candidateIdSchema, route: external_exports.enum(["fixer", "held"]) })),
+  clusters: external_exports.array(external_exports.strictObject({
+    id: clusterIdSchemaV2,
+    findingIds: external_exports.array(candidateIdSchema).min(1),
+    files: external_exports.array(external_exports.string().min(1))
+  }))
+});
+var plannedCheckSchema = external_exports.strictObject({
+  kind: checkKindSchemaV2,
+  command: external_exports.string().min(1).nullable(),
+  origin: external_exports.enum(vocabularyV2.checkOrigins),
+  reason: external_exports.string().min(1).max(1e3).nullable()
+}).refine((check2) => check2.command === null === (check2.reason !== null), {
+  message: "a reason is given exactly when the kind has no command",
+  path: ["reason"]
+});
+var checksPlannedV1 = external_exports.strictObject({
+  checks: external_exports.array(plannedCheckSchema).length(vocabularyV2.checkKinds.length),
+  manager: external_exports.string().min(1).nullable()
+}).refine((planned) => planned.checks.every((check2, index2) => check2.kind === vocabularyV2.checkKinds[index2]), {
+  message: "one check per kind, in the order the kinds run",
+  path: ["checks"]
+});
+var checkRanV1 = external_exports.strictObject({
+  phase: checkPhaseSchemaV2,
+  attempt: external_exports.number().int().min(1),
+  kind: checkKindSchemaV2,
+  command: external_exports.string().min(1),
+  outcome: external_exports.enum(vocabularyV2.checkOutcomes),
+  exitCode: external_exports.number().int().nullable(),
+  signal: external_exports.string().min(1).nullable(),
+  termination: external_exports.enum(["exited", "killed", "not-started"]).nullable(),
+  startedAt: external_exports.iso.datetime(),
+  endedAt: external_exports.iso.datetime(),
+  stdout: artifactReferenceSchema.nullable(),
+  stderr: artifactReferenceSchema.nullable(),
+  error: external_exports.string().min(1).max(recordedTextLengthV1).nullable()
+}).superRefine((check2, context) => {
+  const skipped = check2.outcome === "skipped";
+  if (skipped !== (check2.termination === null) || skipped !== (check2.stdout === null) || skipped !== (check2.stderr === null)) {
+    context.addIssue({ code: "custom", message: "a skipped check alone has no termination and no output", path: ["outcome"] });
+  }
+  if (skipped && check2.error === null) context.addIssue({ code: "custom", message: "a skipped check records why", path: ["error"] });
+  if (check2.outcome === "passed" && (check2.termination !== "exited" || check2.exitCode !== 0)) context.addIssue({ code: "custom", message: "a passed check exited with code 0", path: ["outcome"] });
+  if (check2.outcome === "timeout" && check2.termination !== "killed") context.addIssue({ code: "custom", message: "a check that timed out was killed", path: ["outcome"] });
+  if (check2.outcome === "not-started" && check2.termination !== "not-started") context.addIssue({ code: "custom", message: "a check that did not start has the termination to say so", path: ["outcome"] });
+});
+var commitMessageSchema = external_exports.strictObject({ subject: external_exports.string().min(1).max(200), body: external_exports.string().max(4e3) });
+var fixedFindingSchema = external_exports.strictObject({
+  /** The finding's candidate id, or the check kind a repair answered. */
+  id: external_exports.string().min(1).max(40),
+  status: external_exports.enum(vocabularyV2.fixStatuses),
+  file: external_exports.string().min(1).max(1e3),
+  line: external_exports.number().int().min(1).nullable(),
+  note: external_exports.string().min(1).max(400),
+  message: commitMessageSchema.nullable(),
+  files: external_exports.array(external_exports.string().min(1)).max(200),
+  corrections: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1), anchor: external_exports.string().min(1), claim: external_exports.string().min(1), fact: external_exports.string().min(1), evidence: external_exports.string().min(1) })).max(20),
+  validation: external_exports.array(external_exports.strictObject({ method: external_exports.enum(vocabularyV2.validationMethods), source: external_exports.string().min(1), evidence: external_exports.string().min(1) })).max(20),
+  requiredFiles: external_exports.array(external_exports.string().min(1)).max(50)
+});
+var fixRecordedV1 = external_exports.strictObject({
+  phase: editingPhaseSchemaV2,
+  key: unitKeySchema,
+  workerId: external_exports.uuid(),
+  findings: external_exports.array(fixedFindingSchema),
+  drift: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1), what: external_exports.string().min(1) })).max(50),
+  tests: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1), covers: external_exports.string().min(1) })).max(50),
+  suite: external_exports.strictObject({ result: external_exports.enum(vocabularyV2.suiteResults), command: external_exports.string(), failures: external_exports.string() }),
+  violations: external_exports.array(external_exports.string().min(1))
+}).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+  message: "each finding is answered once",
+  path: ["findings"]
+});
+var revisedFileSchema = external_exports.strictObject({
+  path: external_exports.string().min(1),
+  status: external_exports.enum(["created", "modified", "deleted"]),
+  symlink: external_exports.boolean(),
+  after: frozenFileSchema.nullable()
+}).refine((file2) => file2.status === "deleted" === (file2.after === null), {
+  message: "a deleted file alone has no after state",
+  path: ["after"]
+});
+var treeRevisedV1 = external_exports.strictObject({
+  phase: phaseSchemaV2,
+  source: external_exports.discriminatedUnion("kind", [
+    /** A recorded answer's edits, for the findings `change` names. */
+    external_exports.strictObject({ kind: external_exports.literal("fix"), key: unitKeySchema, workerId: external_exports.uuid() }),
+    /** A check's writes to files the run expected. */
+    external_exports.strictObject({ kind: external_exports.literal("check"), check: checkKindSchemaV2 }),
+    /** The edits the failed workers of a unit that degraded left in its owned files. */
+    external_exports.strictObject({ kind: external_exports.literal("unanswered"), key: unitKeySchema })
+  ]),
+  change: external_exports.strictObject({ findings: external_exports.array(external_exports.string().min(1)), message: commitMessageSchema }),
+  files: external_exports.array(revisedFileSchema).min(1).max(2e3)
+}).superRefine((revision, context) => {
+  if (new Set(revision.files.map((file2) => file2.path)).size !== revision.files.length) context.addIssue({ code: "custom", message: "each path is revised once", path: ["files"] });
+  if (revision.source.kind === "fix" !== revision.change.findings.length > 0) context.addIssue({ code: "custom", message: "a fix revision alone names findings", path: ["change"] });
+});
+var clusterFailedV1 = external_exports.strictObject({
+  phase: editingPhaseSchemaV2,
+  key: unitKeySchema,
+  reason: recordedTextSchema
+});
+var commitsCreatedV1 = external_exports.strictObject({
+  commits: external_exports.array(external_exports.strictObject({
+    sha: commitId,
+    /** The index of the revision it commits in the run's revisions, or `change` for the captured change in worktree mode. */
+    revision: external_exports.union([external_exports.number().int().nonnegative(), external_exports.literal("change")]),
+    subject: external_exports.string().min(1).max(200)
+  })).min(1),
+  from: commitId,
+  to: commitId
+});
 var eventRegistry = defineRegistry({
   "run.created": { 1: { schema: runCreatedV1 } },
   "run.abandoned": { 1: { schema: runAbandonedV1 } },
   "scope.captured": { 1: { schema: scopeCapturedV1 } },
   "worker.launched": { 1: { schema: workerLaunchedV1 } },
   "worker.finished": { 1: { schema: workerFinishedV1 } },
-  "worker.lost": { 1: { schema: workerLostV1 } },
-  "review.configured": { 1: { schema: reviewConfiguredV1 } },
+  "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 } },
+  "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 } },
   "limits.changed": { 1: { schema: limitsChangedV1 } },
-  "phase.started": { 1: { schema: phaseStartedV1 } },
-  "phase.finished": { 1: { schema: phaseFinishedV1 } },
-  "worktree.checked": { 1: { schema: worktreeCheckedV1 } },
+  "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 } },
+  "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 } },
+  "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 } },
   "candidates.recorded": { 1: { schema: candidatesRecordedV1 } },
-  "attempt.failed": { 1: { schema: attemptFailedV1 } },
+  "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 } },
   "angle.failed": { 1: { schema: angleFailedV1 } },
   "deduplication.recorded": { 1: { schema: deduplicationRecordedV1 } },
   "verification.planned": { 1: { schema: verificationPlannedV1 } },
   "verdicts.recorded": { 1: { schema: verdictsRecordedV1 } },
   "group.unverified": { 1: { schema: groupUnverifiedV1 } },
   "ranking.recorded": { 1: { schema: rankingRecordedV1 } },
-  "report.written": { 1: { schema: reportWrittenV1 } }
+  "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 } },
+  "fixes.planned": { 1: { schema: fixesPlannedV1 } },
+  "checks.planned": { 1: { schema: checksPlannedV1 } },
+  "check.ran": { 1: { schema: checkRanV1 } },
+  "fix.recorded": { 1: { schema: fixRecordedV1 } },
+  "tree.revised": { 1: { schema: treeRevisedV1 } },
+  "cluster.failed": { 1: { schema: clusterFailedV1 } },
+  "commits.created": { 1: { schema: commitsCreatedV1 } }
 });
 
 // src/review/vocabulary.ts
@@ -20270,10 +20493,36 @@ var angleClasses = {
 function roleOfAngle(angle) {
   return angle === "SCAN" ? "triage" : `finder-${angle}`;
 }
-var reviewRoles = [...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank"];
+var reviewRoles = [...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank", "fixer"];
 var isFinderRole = (role) => role.startsWith("finder-");
-var phases = ["triage", "finders", "deduplication", "verification", "sweep", "sweep-deduplication", "sweep-verification", "merge-rank", "report"];
+var phases = [
+  "triage",
+  "finders",
+  "deduplication",
+  "verification",
+  "sweep",
+  "sweep-deduplication",
+  "sweep-verification",
+  "merge-rank",
+  "baseline-checks",
+  "fixes",
+  "checks",
+  "repair",
+  "repair-checks",
+  "report"
+];
 var phaseSchema2 = external_exports.enum(phases);
+var fixPhases = ["baseline-checks", "fixes", "checks", "repair", "repair-checks"];
+var checkPhases = ["baseline-checks", "checks", "repair-checks"];
+var checkPhaseSchema = external_exports.enum(checkPhases);
+var editingPhases = ["fixes", "repair"];
+var editingPhaseSchema = external_exports.enum(editingPhases);
+var isCheckPhase = (phase) => checkPhases.includes(phase);
+var isEditingPhase = (phase) => editingPhases.includes(phase);
+var repairUnitKey = "repair";
+var clusterIdSchema = external_exports.string().regex(/^c[1-9][0-9]*$/, "a cluster id is c and a number from 1");
+var checkOutcomes = ["passed", "failed", "timeout", "not-started", "skipped"];
+var checkOutcomeSchema = external_exports.enum(checkOutcomes);
 var candidatePhases = ["triage", "finders", "sweep"];
 var candidatePhaseSchema2 = external_exports.enum(candidatePhases);
 var deduplicationPhases = ["deduplication", "sweep-deduplication"];
@@ -20287,7 +20536,7 @@ var recordedBlockerCodeSchema2 = external_exports.enum(recordedBlockerCodes);
 var blockerActions = {
   "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
   budget: "run the command again with --budget-usd above the spend, or abandon the run",
-  drift: "restore the named files to the reviewed change and run the command again, or abandon the run and start a new one",
+  drift: "restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one",
   "lock-held": "wait for that engine to finish; the lock clears itself when its process ends",
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
 };
@@ -20321,6 +20570,37 @@ function singleUnitKey(phase) {
 var unitKeySchema2 = external_exports.string().regex(/^[A-Za-z0-9-]{1,40}$/, "a unit key is letters, digits and dashes");
 var maxRecordedTextLength = 4e3;
 var unitName = (phase, key) => `${phase}:${key}`;
+
+// src/checkpoint/fix-state.ts
+function emptyFixState() {
+  return {
+    checks: { planned: null, runs: Object.fromEntries(checkPhases.map((phase) => [phase, []])) },
+    plan: null,
+    answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
+    revisions: [],
+    notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
+    commits: null
+  };
+}
+function lastRun(fix, phase, kind) {
+  return fix.checks.runs[phase].findLast((run2) => run2.kind === kind) ?? null;
+}
+function repairTargets(fix) {
+  const planned = fix.checks.planned?.checks ?? [];
+  return planned.map((check2) => check2.kind).filter((kind) => lastRun(fix, "baseline-checks", kind)?.outcome === "passed" && ["failed", "timeout"].includes(lastRun(fix, "checks", kind)?.outcome ?? ""));
+}
+function clusterOf(fix, key) {
+  return fix.plan?.clusters.find((cluster) => cluster.id === key) ?? null;
+}
+function fixesRevisedPaths(fix) {
+  return [...new Set(fix.revisions.filter((revision) => revision.phase === "fixes").flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
+}
+function ownedFiles(fix, phase, key) {
+  return phase === "repair" ? fixesRevisedPaths(fix) : clusterOf(fix, key)?.files ?? [];
+}
+function isNotAttempted(fix, phase, key) {
+  return Object.hasOwn(fix.notAttempted[phase], key);
+}
 
 // src/checkpoint/review-fold.ts
 function repositoryLocation(candidate) {
@@ -20378,10 +20658,11 @@ var configured = (state, payload, event) => {
   if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, "is configured for review before its scope is captured");
   if (state.review !== null) throw invalid(event, "is configured for review twice");
+  const skipped = new Set(payload.fix ? [] : fixPhases);
   const review2 = {
     configuration: payload,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
-    phases: Object.fromEntries(phases.map((phase) => [phase, { status: "pending", attempt: 0 }])),
+    phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? "skipped" : "pending", attempt: 0 }])),
     blocker: null,
     checks: [],
     leads: null,
@@ -20392,10 +20673,12 @@ var configured = (state, payload, event) => {
     plans: Object.fromEntries(verificationPhases.map((phase) => [phase, null])),
     unverifiedGroups: Object.fromEntries(verificationPhases.map((phase) => [phase, {}])),
     ranking: null,
-    report: null
+    report: null,
+    fix: payload.fix ? emptyFixState() : null
   };
   return withReview(state, review2, event);
 };
+var configuredV1 = (state, payload, event, drafts) => configured(state, { ...payload, fix: false, checks: null }, event, drafts);
 var limitsChanged = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   if (review2.report !== null) throw invalid(event, "changes its limits after its report");
@@ -20412,10 +20695,11 @@ var phaseStarted = (state, payload, event, drafts) => {
   const { current, review: review2 } = requireReview(state, event);
   const phase = review2.phases[payload.phase];
   if (phase.status === "completed" || phase.status === "degraded") throw invalid(event, `starts phase ${payload.phase} again after it ${phase.status}`);
+  if (phase.status === "skipped") throw invalid(event, `starts phase ${payload.phase}, which a run without the fix pass skips`);
   if (payload.attempt !== phase.attempt + 1) throw invalid(event, `starts phase ${payload.phase} at attempt ${String(payload.attempt)} after attempt ${String(phase.attempt)}`);
   for (const earlier of phases.slice(0, phases.indexOf(payload.phase))) {
     const status3 = review2.phases[earlier].status;
-    if (status3 !== "completed" && status3 !== "degraded") throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status3}`);
+    if (status3 !== "completed" && status3 !== "degraded" && status3 !== "skipped") throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status3}`);
   }
   const units = phase.status === "blocked" ? withFreshAttempts(review2, drafts, payload.phase) : review2.units;
   const phaseStates = { ...review2.phases, [payload.phase]: { status: "running", attempt: payload.attempt } };
@@ -20432,6 +20716,10 @@ var worktreeChecked = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, payload.phase, payload.attempt);
   return withReview(current, { ...review2, checks: [...review2.checks, payload] }, event);
+};
+var worktreeCheckedV12 = (state, payload, event, drafts) => {
+  const first = !(state?.review?.checks.some((check2) => check2.phase === payload.phase && check2.attempt === payload.attempt) ?? false);
+  return worktreeChecked(state, { ...payload, moment: first ? "start" : "answer", head: null, strays: [] }, event, drafts);
 };
 function requireCandidateUnit(payload, event) {
   if (payload.phase === "finders") {
@@ -20569,23 +20857,32 @@ var reportWritten = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, "report");
   if (review2.report !== null) throw invalid(event, "writes its report twice");
+  const revisions = review2.fix?.revisions.length ?? 0;
+  if (payload.patches.length !== revisions) throw invalid(event, `writes ${String(payload.patches.length)} patches for ${String(revisions)} revisions`);
   return withReview(current, { ...review2, report: payload }, event);
 };
+var reportWrittenV12 = (state, payload, event, drafts) => reportWritten(state, { ...payload, patches: [] }, event, drafts);
 var reviewReducers = {
-  "review.configured@1": configured,
+  "review.configured@1": configuredV1,
+  "review.configured@2": configured,
   "limits.changed@1": limitsChanged,
   "phase.started@1": phaseStarted,
+  "phase.started@2": phaseStarted,
   "phase.finished@1": phaseFinished,
-  "worktree.checked@1": worktreeChecked,
+  "phase.finished@2": phaseFinished,
+  "worktree.checked@1": worktreeCheckedV12,
+  "worktree.checked@2": worktreeChecked,
   "candidates.recorded@1": candidatesRecorded,
   "attempt.failed@1": attemptFailed,
+  "attempt.failed@2": attemptFailed,
   "angle.failed@1": angleFailed,
   "deduplication.recorded@1": deduplicationRecorded,
   "verification.planned@1": verificationPlanned,
   "verdicts.recorded@1": verdictsRecorded,
   "group.unverified@1": groupUnverified,
   "ranking.recorded@1": rankingRecorded,
-  "report.written@1": reportWritten
+  "report.written@1": reportWrittenV12,
+  "report.written@2": reportWritten
 };
 function isAnswered(review2, phase, key) {
   return (review2.units[phase][key]?.answeredBy ?? null) !== null;
@@ -20601,6 +20898,143 @@ function unverifiedGroupsOf(review2) {
     })
   );
 }
+
+// src/checkpoint/fix-fold.ts
+function requireFix(state, event) {
+  const { current, review: review2 } = requireReview(state, event);
+  if (review2.fix === null) throw invalid(event, `has ${event.kind} on a run configured without the fix pass`);
+  return { current, review: review2, fix: review2.fix };
+}
+var withFix = (current, review2, fix, event, units = review2.units) => withReview(current, { ...review2, fix, units }, event);
+function unitIds(fix, phase, key) {
+  if (phase === "repair") {
+    const targets = repairTargets(fix);
+    return key === repairUnitKey && targets.length > 0 ? targets : null;
+  }
+  return clusterOf(fix, key)?.findingIds ?? null;
+}
+var checksPlanned = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  if (fix.checks.planned !== null) throw invalid(event, "plans its checks twice");
+  const baseline = review2.phases["baseline-checks"].status;
+  if (baseline === "completed" || baseline === "degraded") throw invalid(event, `plans its checks after the baseline phase ${baseline}`);
+  return withFix(current, review2, { ...fix, checks: { ...fix.checks, planned: payload } }, event);
+};
+var fixesPlanned = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, "fixes");
+  if (fix.plan !== null) throw invalid(event, "plans its fixes twice");
+  const ranked = (review2.ranking ?? []).map((finding) => finding.id);
+  const routed = payload.routes.map((route) => route.id);
+  if (new Set(routed).size !== routed.length || routed.length !== ranked.length || !ranked.every((id) => routed.includes(id))) {
+    throw invalid(event, `routes [${routed.join(", ")}], which is not every ranked finding [${ranked.join(", ")}] once`);
+  }
+  const toFixer = new Set(payload.routes.filter((route) => route.route === "fixer").map((route) => route.id));
+  const clustered = /* @__PURE__ */ new Set();
+  const owner = /* @__PURE__ */ new Map();
+  payload.clusters.forEach((cluster, index2) => {
+    if (cluster.id !== `c${String(index2 + 1)}` || !clusterIdSchema.safeParse(cluster.id).success) throw invalid(event, `numbers cluster ${String(index2 + 1)} ${cluster.id}`);
+    for (const id of cluster.findingIds) {
+      if (!toFixer.has(id)) throw invalid(event, `clusters finding ${id}, which is not routed to a fixer`);
+      if (clustered.has(id)) throw invalid(event, `clusters finding ${id} twice`);
+      clustered.add(id);
+    }
+    for (const file2 of cluster.files) {
+      const first = owner.get(file2);
+      if (first !== void 0) throw invalid(event, `gives file ${file2} to clusters ${first} and ${cluster.id}`);
+      owner.set(file2, cluster.id);
+    }
+  });
+  const unclustered = [...toFixer].filter((id) => !clustered.has(id));
+  if (unclustered.length > 0) throw invalid(event, `routes ${unclustered.join(", ")} to a fixer but clusters none of them`);
+  return withFix(current, review2, { ...fix, plan: payload }, event);
+};
+var checkRan = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, payload.phase, payload.attempt);
+  const planned = fix.checks.planned?.checks.find((check2) => check2.kind === payload.kind);
+  if (planned === void 0) throw invalid(event, `runs the ${payload.kind} check before the checks are planned`);
+  if (planned.command === null) throw invalid(event, `runs the ${payload.kind} check, which has no command`);
+  if (planned.command !== payload.command) throw invalid(event, `runs ${JSON.stringify(payload.command)} for the ${payload.kind} check, pinned as ${JSON.stringify(planned.command)}`);
+  if (lastRun(fix, payload.phase, payload.kind) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}`);
+  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], payload] };
+  return withFix(current, review2, { ...fix, checks: { ...fix.checks, runs } }, event);
+};
+var fixRecorded = (state, payload, event, drafts) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, payload.phase);
+  const ids = unitIds(fix, payload.phase, payload.key);
+  if (ids === null) throw invalid(event, `records an answer for ${payload.phase}:${payload.key}, which the phase does not have`);
+  requireUnanswered(review2, event, { phase: payload.phase, key: payload.key });
+  if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `records an answer for ${payload.phase}:${payload.key} after it failed`);
+  const given = payload.findings.map((finding) => finding.id);
+  if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(", ")}] for ${payload.phase}:${payload.key}, which holds [${ids.join(", ")}]`);
+  const others = new Set((fix.plan?.clusters ?? []).filter((cluster) => payload.phase === "fixes" && cluster.id !== payload.key).flatMap((cluster) => cluster.files));
+  const named = new Set(payload.findings.flatMap((finding) => finding.files));
+  for (const path of payload.violations) {
+    if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster owns`);
+  }
+  const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
+  return withFix(current, review2, { ...fix, answers }, event, answered(review2, drafts, { phase: payload.phase, key: payload.key }, payload.workerId));
+};
+var treeRevised = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, payload.phase);
+  const { source } = payload;
+  switch (source.kind) {
+    case "fix": {
+      if (!isEditingPhase(payload.phase)) throw invalid(event, `revises the tree for an answer in ${payload.phase}, which no fixer runs in`);
+      const answer = fix.answers[payload.phase][source.key];
+      if (answer === void 0 || answer.workerId !== source.workerId) throw invalid(event, `revises the tree for ${payload.phase}:${source.key} by worker ${source.workerId}, whose answer is not recorded`);
+      const ids = new Set(answer.findings.map((finding) => finding.id));
+      const revisedBefore = new Set(fix.revisions.filter((revision) => revision.phase === payload.phase && revision.source.kind === "fix" && revision.source.key === source.key).flatMap((revision) => revision.change.findings));
+      for (const id of payload.change.findings) {
+        if (!ids.has(id)) throw invalid(event, `revises the tree for ${id}, which ${payload.phase}:${source.key} did not answer`);
+        if (revisedBefore.has(id)) throw invalid(event, `revises the tree for ${id} twice`);
+      }
+      break;
+    }
+    case "check": {
+      if (!isCheckPhase(payload.phase)) throw invalid(event, `revises the tree for the ${source.check} check in ${payload.phase}, which runs no check`);
+      const run2 = lastRun(fix, payload.phase, source.check);
+      if (run2 === null || run2.outcome === "skipped") throw invalid(event, `revises the tree for the ${source.check} check, which did not run in ${payload.phase}`);
+      break;
+    }
+    case "unanswered":
+      if (!isEditingPhase(payload.phase) || !isNotAttempted(fix, payload.phase, source.key)) throw invalid(event, `revises the tree for ${payload.phase}:${source.key}, which did not fail twice`);
+      break;
+  }
+  return withFix(current, review2, { ...fix, revisions: [...fix.revisions, payload] }, event);
+};
+var clusterFailed = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, payload.phase);
+  if (unitIds(fix, payload.phase, payload.key) === null) throw invalid(event, `fails ${payload.phase}:${payload.key}, which the phase does not have`);
+  requireUnanswered(review2, event, { phase: payload.phase, key: payload.key });
+  if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `fails ${payload.phase}:${payload.key} twice`);
+  const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: payload.reason } };
+  return withFix(current, review2, { ...fix, notAttempted }, event);
+};
+var commitsCreated = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  if (review2.report === null) throw invalid(event, "creates commits before its report");
+  if (fix.commits !== null) throw invalid(event, "creates its commits twice");
+  if (current.scope === null || payload.from !== current.scope.head) throw invalid(event, `creates commits on ${payload.from}, not the scope's head`);
+  const expected = [...current.scope.mode === "worktree" ? ["change"] : [], ...fix.revisions.map((_, index2) => index2)];
+  const given = payload.commits.map((commit) => commit.revision);
+  if (given.length !== expected.length || given.some((revision, index2) => revision !== expected[index2])) throw invalid(event, `creates commits for [${given.join(", ")}], not [${expected.join(", ")}]`);
+  if (payload.commits.at(-1).sha !== payload.to) throw invalid(event, "moves the branch to a commit that is not its last");
+  return withFix(current, review2, { ...fix, commits: payload }, event);
+};
+var fixReducers = {
+  "checks.planned@1": checksPlanned,
+  "fixes.planned@1": fixesPlanned,
+  "check.ran@1": checkRan,
+  "fix.recorded@1": fixRecorded,
+  "tree.revised@1": treeRevised,
+  "cluster.failed@1": clusterFailed,
+  "commits.created@1": commitsCreated
+};
 
 // src/checkpoint/fold.ts
 var FoldDrafts = class {
@@ -20683,7 +21117,9 @@ var reducers = {
   "worker.launched@1": workerLaunched,
   "worker.finished@1": workerFinished,
   "worker.lost@1": workerLost,
-  ...reviewReducers
+  "worker.lost@2": workerLost,
+  ...reviewReducers,
+  ...fixReducers
 };
 var runModel = defineModel(eventRegistry, reducers);
 function foldRun(events, model = runModel) {
@@ -21232,7 +21668,8 @@ function engineRolesRoot(directory = import.meta.dirname) {
 }
 
 // src/review/controller.ts
-import { resolve as resolve9 } from "node:path";
+import { randomUUID as randomUUID4 } from "node:crypto";
+import { join as join22, resolve as resolve9 } from "node:path";
 
 // src/runtime/errors.ts
 var InvalidInvocationError = class extends EngineError {
@@ -22759,6 +23196,11 @@ function blobThroughFilters(repo, commit, path) {
 function blobRaw(repo, objectId) {
   return git(repo, ["cat-file", "blob", objectId]);
 }
+function objectFormat(repo) {
+  const format = gitText(repo, ["rev-parse", "--show-object-format"]).trim();
+  if (format !== "sha1" && format !== "sha256") throw new Error(`git reports an object format this engine does not know: ${format}`);
+  return format;
+}
 
 // src/scope/capture.ts
 var freezeLimitBytes = 8 * 1024 * 1024;
@@ -22921,48 +23363,9 @@ function normalizeRequest(request) {
   return normalized;
 }
 
-// src/scope/compare.ts
-function compareScopeFiles(scope, worktree) {
-  return scope.files.map((file2) => {
-    const now = readWorktree(worktree, file2.path);
-    if (file2.after === null) return { path: file2.path, outcome: now === null ? "unchanged" : "restored" };
-    if (now === null) return { path: file2.path, outcome: "deleted" };
-    return { path: file2.path, outcome: matchesFrozen(file2.after, now.bytes, now.symlink, file2.symlink) ? "unchanged" : "modified" };
-  });
-}
-function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
-  if (symlink !== frozenSymlink) return false;
-  if ("blob" in frozen) return frozen.blob.bytes === bytes.length && frozen.blob.sha256 === sha256Hex(bytes);
-  return frozen.oversized.size === bytes.length && frozen.oversized.sha256 === sha256Hex(bytes);
-}
-
-// src/review/conventions.ts
-import { homedir } from "node:os";
-import { join as join12, posix } from "node:path";
-var conventionFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
-var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
-function ancestorDirectories(changedPaths) {
-  const directories = /* @__PURE__ */ new Set([""]);
-  for (const path of changedPaths) {
-    const parts = path.split("/").slice(0, -1);
-    for (let depth = 1; depth <= parts.length; depth += 1) directories.add(parts.slice(0, depth).join("/"));
-  }
-  return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
-}
-function conventionFiles(worktree, changedPaths, home = homedir()) {
-  const found = [];
-  for (const relative2 of userConventionFiles) {
-    const absolute = join12(home, ...relative2.split("/"));
-    if (isFile(absolute)) found.push({ level: "user", path: absolute });
-  }
-  for (const directory of ancestorDirectories(changedPaths)) {
-    for (const name of conventionFileNames) {
-      const relative2 = directory === "" ? name : posix.join(directory, name);
-      if (isFile(join12(worktree, ...relative2.split("/")))) found.push({ level: "repository", path: relative2 });
-    }
-  }
-  return found;
-}
+// src/review/checks/discover.ts
+import { readdirSync as readdirSync2, readFileSync as readFileSync6, statSync as statSync3 } from "node:fs";
+import { join as join12 } from "node:path";
 
 // src/review/errors.ts
 var InvalidPolicyError = class extends EngineError {
@@ -22981,123 +23384,283 @@ var ReviewRefusedError = class extends EngineError {
   }
 };
 
-// src/review/labels.ts
-function unitLabel(role, phase, key) {
-  return `${role} ${phase}:${key}`;
+// src/review/checks/discover.ts
+var taskfileNames = ["Taskfile.yml", "taskfile.yml", "Taskfile.yaml", "taskfile.yaml"];
+var makefileNames = ["GNUmakefile", "makefile", "Makefile"];
+var justfileNames = ["justfile", "Justfile", ".justfile"];
+var manifestNames = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  ...taskfileNames,
+  ...makefileNames,
+  ...justfileNames,
+  "go.mod",
+  "Cargo.toml",
+  "pyproject.toml",
+  "pytest.ini"
+];
+var noCheckFlags = { commands: {}, dropped: [] };
+var lockFiles = [
+  ["pnpm-lock.yaml", "pnpm"],
+  ["yarn.lock", "yarn"],
+  ["bun.lock", "bun"],
+  ["bun.lockb", "bun"],
+  ["package-lock.json", "npm"],
+  ["npm-shrinkwrap.json", "npm"]
+];
+var packageScriptNames = {
+  build: ["build"],
+  typecheck: ["typecheck", "type-check", "check-types", "tsc"],
+  lint: ["lint"],
+  test: ["test"]
+};
+var languageDefaults = [
+  { marks: (root) => root.files["go.mod"] !== void 0, commands: { build: "go build ./...", typecheck: "go vet ./...", test: "go test ./..." } },
+  { marks: (root) => root.files["Cargo.toml"] !== void 0, commands: { build: "cargo build --workspace", typecheck: "cargo check --workspace", lint: "cargo clippy --workspace", test: "cargo test --workspace" } },
+  { marks: (root) => root.files["pyproject.toml"] !== void 0 || root.files["pytest.ini"] !== void 0, commands: { test: "python -m pytest" } },
+  { marks: (root) => root.entries.some((name) => /\.(sln|csproj)$/i.test(name)), commands: { build: "dotnet build", test: "dotnet test --no-build" } }
+];
+var escape = (text2) => text2.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var linesOf = (text2) => text2.split(/\r?\n/);
+function taskfileHas(text2, kind) {
+  const lines = linesOf(text2);
+  const start = lines.findIndex((line) => /^tasks:\s*(#.*)?$/.test(line));
+  if (start === -1) return false;
+  let indent = null;
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s*(#.*)?$/.test(line)) continue;
+    const leading = /^[ \t]*/.exec(line)[0];
+    if (leading.length === 0) return false;
+    indent ??= leading;
+    if (leading === indent && new RegExp(`^${escape(indent)}${escape(kind)}:(\\s|$)`).test(line)) return true;
+  }
+  return false;
 }
-function parseUnitLabel(label) {
-  if (label === null) return null;
-  const match = /^(\S+) ([a-z-]+):([A-Za-z0-9-]+)$/.exec(label);
-  if (match === null) return null;
-  const phase = phaseSchema2.safeParse(match[2]);
-  const key = unitKeySchema2.safeParse(match[3]);
-  return phase.success && key.success ? { role: match[1], phase: phase.data, key: key.data } : null;
+function makefileHas(text2, kind) {
+  return linesOf(text2).some((line) => {
+    const rule = /^([^\s:#=][^:#=]*?)\s*::?(?!=)/.exec(line);
+    return rule !== null && rule[1].split(/\s+/).includes(kind);
+  });
+}
+function justfileHas(text2, kind) {
+  return linesOf(text2).some((line) => new RegExp(`^@?${escape(kind)}(\\s[^:]*)?:(?!=)`).test(line));
+}
+function packageScripts(text2) {
+  if (text2 === void 0) return null;
+  let value;
+  try {
+    value = JSON.parse(text2);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const scripts = value.scripts;
+  if (typeof scripts !== "object" || scripts === null) return null;
+  return Object.fromEntries(Object.entries(scripts).filter((entry) => typeof entry[1] === "string"));
+}
+function declaredManager(text2) {
+  if (text2 === void 0) return null;
+  try {
+    const field = JSON.parse(text2).packageManager;
+    if (typeof field !== "string") return null;
+    const name = /^([a-z][a-z0-9-]*)(@.*)?$/.exec(field);
+    return name === null ? null : name[1];
+  } catch {
+    return null;
+  }
+}
+function packageScriptFor(scripts, kind) {
+  const name = packageScriptNames[kind].find((candidate) => Object.hasOwn(scripts, candidate));
+  if (name === void 0) return null;
+  return Object.hasOwn(scripts, `${name}:check`) ? `${name}:check` : name;
+}
+function packageManager(root) {
+  const declared = declaredManager(root.files["package.json"]);
+  if (declared !== null) return declared;
+  const present = lockFiles.filter(([name]) => root.files[name] !== void 0);
+  const managers = [...new Set(present.map(([, manager]) => manager))];
+  if (managers.length > 1) {
+    throw new ReviewRefusedError(`the repository holds lock files of more than one package manager (${present.map(([name]) => name).join(", ")}) and package.json names none in its packageManager field; name each check's command with --check <kind>=<command>, or add the field`);
+  }
+  return managers[0] ?? "npm";
+}
+function taskRunnerCheck(root, kind) {
+  const first = (names) => names.map((name) => root.files[name]).find((text2) => text2 !== void 0);
+  const taskfile = first(taskfileNames);
+  if (taskfile !== void 0 && taskfileHas(taskfile, kind)) return { command: `task ${kind}`, origin: "taskfile" };
+  const makefile = first(makefileNames);
+  if (makefile !== void 0 && makefileHas(makefile, kind)) return { command: `make ${kind}`, origin: "makefile" };
+  const justfile = first(justfileNames);
+  if (justfile !== void 0 && justfileHas(justfile, kind)) return { command: `just ${kind}`, origin: "justfile" };
+  return null;
+}
+var noSourceReason = "no --check flag, Taskfile task, Makefile target, justfile recipe, package.json script or language default names it";
+var droppedReason = "dropped by --no-check";
+function discoverChecks(root, flags = noCheckFlags) {
+  const scripts = packageScripts(root.files["package.json"]);
+  let manager = null;
+  const checks = checkKinds.map((kind) => {
+    if (flags.dropped.includes(kind)) return { kind, command: null, origin: "flag", reason: droppedReason };
+    const flagged = flags.commands[kind];
+    if (flagged !== void 0) return { kind, command: flagged, origin: "flag", reason: null };
+    const runner = taskRunnerCheck(root, kind);
+    if (runner !== null) return { kind, ...runner, reason: null };
+    const script = scripts === null ? null : packageScriptFor(scripts, kind);
+    if (script !== null) {
+      manager ??= packageManager(root);
+      return { kind, command: `${manager} run ${script}`, origin: "package", reason: null };
+    }
+    const language = languageDefaults.find((entry) => entry.marks(root) && entry.commands[kind] !== void 0);
+    if (language !== void 0) return { kind, command: language.commands[kind], origin: "language", reason: null };
+    return { kind, command: null, origin: "none", reason: noSourceReason };
+  });
+  return { checks, manager };
+}
+function readRootManifests(root) {
+  const entries = readdirSync2(root);
+  const files = {};
+  for (const name of manifestNames) {
+    if (!entries.includes(name)) continue;
+    const path = join12(root, name);
+    if (statSync3(path, { throwIfNoEntry: false })?.isFile() !== true) continue;
+    files[name] = readFileSync6(path, "utf8");
+  }
+  return { files, entries };
 }
 
-// src/review/lock.ts
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync6, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { constants } from "node:os";
+// src/review/checks/run.ts
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync7, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join13 } from "node:path";
-import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
-var locksDirectoryName = "runs";
-var sqliteBusy = 5;
-var sqliteNotADatabase = 26;
-function startLockPath(checkpointRoot) {
-  return join13(checkpointRoot, "start.lock");
-}
-function lockPath(checkpointRoot, runId) {
-  return join13(checkpointRoot, locksDirectoryName, `${runId}.lock`);
-}
-function holderPath(path) {
-  return `${path}.pid`;
-}
-function lockHolder(path) {
-  let text2;
-  try {
-    text2 = readFileSync6(holderPath(path), "utf8").trim();
-  } catch (error62) {
-    if (error62.code === "ENOENT") return null;
-    throw error62;
+function shellInvocation(command, platform = process.platform, shell) {
+  if (platform === "win32") {
+    const cmd = shell ?? join13(process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows", "System32", "cmd.exe");
+    return { executable: cmd, args: ["/d", "/s", "/c", `"${command}"`], verbatimArguments: true };
   }
-  const pid = Number(text2);
-  return text2 !== "" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+  return { executable: shell ?? "/bin/sh", args: ["-c", command], verbatimArguments: false };
 }
-function acquireRunLock(checkpointRoot, runId) {
-  mkdirSync4(join13(checkpointRoot, locksDirectoryName), { recursive: true });
-  return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
+var checkPins = {
+  CI: "true",
+  NO_COLOR: "1",
+  FORCE_COLOR: "0",
+  TERM: "dumb",
+  GIT_TERMINAL_PROMPT: "0"
+};
+function checkEnvironment(environment, platform = process.platform) {
+  return pinVariables(workerEnvironment(environment, null, platform), checkPins, platform);
 }
-function acquireStartLock(checkpointRoot) {
-  mkdirSync4(checkpointRoot, { recursive: true });
-  return acquireLock(startLockPath(checkpointRoot), "is starting or ending a run in this repository");
-}
-function sqliteCode(error62) {
-  const code = error62?.errcode;
-  return typeof code === "number" ? code & 255 : null;
-}
-function acquireLock(path, holding) {
-  const db = new DatabaseSync2(path, { timeout: 0 });
-  try {
-    db.exec("BEGIN EXCLUSIVE");
-  } catch (error62) {
-    db.close();
-    const code = sqliteCode(error62);
-    if (code === sqliteBusy) {
-      const holder = lockHolder(path);
-      throw new ReviewRefusedError(`${holder === null ? "another engine" : `engine ${String(holder)}`} ${holding} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
-    }
-    if (code === sqliteNotADatabase) {
-      throw new ReviewRefusedError(`${path} is not a lock this engine made, perhaps one an older engine left; delete it once no engine runs in this repository, then run the command again`);
-    }
-    throw error62;
+function checkOutcomeOf(result) {
+  switch (result.termination) {
+    case "not-started":
+      return "not-started";
+    case "killed":
+      return "timeout";
+    case "exited":
+      return result.exitCode === 0 && result.signal === null ? "passed" : "failed";
   }
-  let held = true;
-  const release = () => {
-    if (!held) return;
-    held = false;
+}
+function checkError(result, timeoutMs) {
+  if (result.termination === "not-started") return result.error;
+  if (result.termination === "killed") {
+    return result.treeKillError === null ? null : `The check ran past its timeout of ${String(timeoutMs)} ms and was killed, but only its root: ${result.treeKillError}; descendants may still run`;
+  }
+  return null;
+}
+async function runCheck(evidence, request) {
+  mkdirSync4(join13(request.ioDirectory, ".."), { recursive: true });
+  mkdirSync4(request.ioDirectory);
+  let keep = false;
+  try {
+    const stdinFile = join13(request.ioDirectory, "stdin");
+    const stdoutFile = join13(request.ioDirectory, "stdout");
+    const stderrFile = join13(request.ioDirectory, "stderr");
+    writeFileSync2(stdinFile, "", { flag: "wx" });
+    const shell = shellInvocation(request.command, process.platform, request.shell);
+    let result;
     try {
-      rmSync2(holderPath(path), { force: true });
-    } finally {
-      try {
-        db.exec("ROLLBACK");
-      } finally {
-        db.close();
-      }
+      result = await runProcess({
+        executable: shell.executable,
+        args: shell.args,
+        verbatimArguments: shell.verbatimArguments,
+        cwd: request.worktree,
+        environment: checkEnvironment(request.environment),
+        stdinFile,
+        stdoutFile,
+        stderrFile,
+        timeoutMs: request.timeoutMs
+      });
+    } catch (error62) {
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      result = notStarted(`the engine could not start it: ${error62.message}`, now, now);
     }
-  };
+    let stdout;
+    let stderr;
+    try {
+      stdout = evidence.put(readOutput(stdoutFile));
+      stderr = evidence.put(readOutput(stderrFile));
+    } catch (error62) {
+      keep = true;
+      throw new Error(`The check's output could not be frozen and is kept in ${request.ioDirectory}: ${error62.message}`, { cause: error62 });
+    }
+    return {
+      outcome: checkOutcomeOf(result),
+      exitCode: result.exitCode,
+      signal: result.signal,
+      termination: result.termination,
+      startedAt: result.startedAt,
+      endedAt: result.endedAt,
+      stdout,
+      stderr,
+      error: checkError(result, request.timeoutMs)
+    };
+  } finally {
+    if (!keep) rmSync2(request.ioDirectory, { recursive: true, force: true });
+  }
+}
+function readOutput(file2) {
   try {
-    writeFileSync2(holderPath(path), `${String(process.pid)}
-`);
+    return readFileSync7(file2);
   } catch (error62) {
-    release();
+    if (error62.code === "ENOENT") return Buffer.alloc(0);
     throw error62;
   }
-  return release;
 }
-var endingSignals = process.platform === "win32" ? ["SIGINT", "SIGBREAK", "SIGHUP"] : ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
-function exitBySignal(signal) {
-  process.exit(128 + (constants.signals[signal] ?? 0));
+
+// src/review/conventions.ts
+import { homedir } from "node:os";
+import { join as join14, posix } from "node:path";
+var conventionFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
+var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
+function ancestorDirectories(changedPaths) {
+  const directories = /* @__PURE__ */ new Set([""]);
+  for (const path of changedPaths) {
+    const parts = path.split("/").slice(0, -1);
+    for (let depth = 1; depth <= parts.length; depth += 1) directories.add(parts.slice(0, depth).join("/"));
+  }
+  return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
 }
-function releaseOnExit(release, end = exitBySignal) {
-  let held = true;
-  const dispose = () => {
-    if (!held) return;
-    held = false;
-    process.off("exit", dispose);
-    for (const signal of endingSignals) process.off(signal, onSignal);
-    release();
-  };
-  const onSignal = (signal) => {
-    dispose();
-    end(signal);
-  };
-  process.on("exit", dispose);
-  for (const signal of endingSignals) process.on(signal, onSignal);
-  return dispose;
+function conventionFiles(worktree, changedPaths, home = homedir()) {
+  const found = [];
+  for (const relative3 of userConventionFiles) {
+    const absolute = join14(home, ...relative3.split("/"));
+    if (isFile(absolute)) found.push({ level: "user", path: absolute });
+  }
+  for (const directory of ancestorDirectories(changedPaths)) {
+    for (const name of conventionFileNames) {
+      const relative3 = directory === "" ? name : posix.join(directory, name);
+      if (isFile(join14(worktree, ...relative3.split("/")))) found.push({ level: "repository", path: relative3 });
+    }
+  }
+  return found;
 }
 
 // src/review/locations.ts
-import { closeSync as closeSync3, lstatSync as lstatSync4, openSync as openSync3, readdirSync as readdirSync2, readlinkSync as readlinkSync2, readSync } from "node:fs";
-import { join as join14 } from "node:path";
+import { closeSync as closeSync3, lstatSync as lstatSync4, openSync as openSync3, readdirSync as readdirSync3, readlinkSync as readlinkSync2, readSync } from "node:fs";
+import { join as join15 } from "node:path";
 var unlocated = { file: null, line: null, located: false, inScope: false };
 function normalizeFileName(file2) {
   return file2.replaceAll("\\", "/").replaceAll(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
@@ -23109,7 +23672,7 @@ function worktreeLookup(worktree) {
     let names = listings.get(key);
     if (names === void 0) {
       try {
-        names = readdirSync2(join14(worktree, ...segments));
+        names = readdirSync3(join15(worktree, ...segments));
       } catch (error62) {
         const code = error62.code;
         if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
@@ -23185,7 +23748,7 @@ function* fileChunks(path) {
   }
 }
 function worktreeLines(worktree, path) {
-  const absolute = join14(worktree, ...path.split("/"));
+  const absolute = join15(worktree, ...path.split("/"));
   const stat = lstatSync4(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return countLines(Buffer.from(readlinkSync2(absolute)));
@@ -23196,7 +23759,7 @@ function normalizeLocations(scope, worktree, candidates) {
   const paths = scope.files.map((file2) => file2.path);
   const inRepo = worktreeLookup(worktree);
   const lineCounts = /* @__PURE__ */ new Map();
-  const linesOf = (match) => {
+  const linesOf3 = (match) => {
     let count2 = lineCounts.get(match.path);
     if (count2 === void 0) {
       const deleted = match.inScope && scope.files.find((file2) => file2.path === match.path).after === null;
@@ -23208,16 +23771,1303 @@ function normalizeLocations(scope, worktree, candidates) {
   return candidates.map((candidate) => {
     const match = matchRepositoryPath(paths, candidate.file, inRepo);
     if (match === null) return unlocated;
-    const lines = linesOf(match);
+    const lines = linesOf3(match);
     if (lines === null || candidate.line > lines) return unlocated;
     return { file: match.path, line: candidate.line, located: true, inScope: match.inScope };
   });
 }
 
-// src/review/policy.ts
+// src/review/grouping.ts
+var maxGroupSize = 8;
+var spellingOf = (candidate) => normalizeFileName(candidate.rawFile).toLowerCase();
+var isAbsolute3 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
+function unlocatedSpellings(candidates) {
+  const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
+  const relative3 = [...spellings].filter((spelling) => !isAbsolute3(spelling));
+  const joined = /* @__PURE__ */ new Map();
+  for (const spelling of spellings) {
+    const within = isAbsolute3(spelling) ? relative3.filter((name) => spelling.endsWith(`/${name}`)) : [];
+    joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
+  }
+  return joined;
+}
+function unlocatedSpellingIn(candidates) {
+  const spellings = unlocatedSpellings(candidates);
+  return (candidate) => spellings.get(spellingOf(candidate)) ?? spellingOf(candidate);
+}
+var byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+function chunk(items, size = maxGroupSize) {
+  if (!Number.isInteger(size) || size < 1) throw new RangeError(`A chunk size must be a positive integer, not ${String(size)}`);
+  const count2 = Math.ceil(items.length / size);
+  const chunks = [];
+  let start = 0;
+  for (let index2 = 0; index2 < count2; index2 += 1) {
+    const length = Math.floor(items.length / count2) + (index2 < items.length % count2 ? 1 : 0);
+    chunks.push(items.slice(start, start + length));
+    start += length;
+  }
+  return chunks;
+}
+function planGroups(candidates) {
+  const spelling = unlocatedSpellingIn(candidates);
+  const groupKey = (candidate) => candidate.file === null ? `unlocated:${spelling(candidate)}` : `located:${candidate.file}`;
+  const groups = /* @__PURE__ */ new Map();
+  for (const candidate of candidates) {
+    const key = groupKey(candidate);
+    const group = groups.get(key);
+    if (group === void 0) groups.set(key, [candidate]);
+    else group.push(candidate);
+  }
+  const keys = [...groups.keys()].sort((a, b) => {
+    return byText(a, b);
+  });
+  const planned = [];
+  for (const key of keys) {
+    const members2 = [...groups.get(key)].sort((a, b) => (a.line ?? a.rawLine) - (b.line ?? b.rawLine) || byText(a.id, b.id));
+    for (const part of chunk(members2)) planned.push({ id: `g${String(planned.length + 1)}`, candidateIds: part.map((candidate) => candidate.id) });
+  }
+  return planned;
+}
+
+// src/review/fixes.ts
+function routeOf(entry) {
+  if (entry.resolution.verdict === "CONFIRMED") return "fixer";
+  return angleClasses[entry.primary.angle] === "correctness" ? "fixer" : "held";
+}
+var locatedKey = (path) => `located\0${path}`;
+var unlocatedKey = (spelling) => `unlocated\0${spelling}`;
+var ownedPath = (key) => key.startsWith("located\0") ? key.slice("located\0".length) : null;
+function planFixes(findings) {
+  const routes = findings.map((entry) => ({ id: entry.finding.id, route: routeOf(entry) }));
+  const routed = findings.filter((entry) => routeOf(entry) === "fixer");
+  const candidatesOf = (entry) => [entry.primary, ...entry.members];
+  const spelling = unlocatedSpellingIn(routed.flatMap(candidatesOf));
+  const keysOf = (entry) => [...new Set(candidatesOf(entry).map((candidate) => candidate.located && candidate.file !== null ? locatedKey(candidate.file) : unlocatedKey(spelling(candidate))))];
+  const parent = routed.map((_, index2) => index2);
+  const find = (index2) => {
+    let root = index2;
+    while (parent[root] !== root) root = parent[root];
+    return root;
+  };
+  const owner = /* @__PURE__ */ new Map();
+  const keys = routed.map(keysOf);
+  keys.forEach((findingKeys, index2) => {
+    for (const key of findingKeys) {
+      const first = owner.get(key);
+      if (first === void 0) owner.set(key, index2);
+      else {
+        const [a, b] = [find(first), find(index2)];
+        if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
+      }
+    }
+  });
+  const members2 = /* @__PURE__ */ new Map();
+  routed.forEach((_, index2) => {
+    const root = find(index2);
+    const list = members2.get(root);
+    if (list === void 0) members2.set(root, [index2]);
+    else list.push(index2);
+  });
+  const clusters = [...members2.entries()].sort(([a], [b]) => a - b).map(([, indexes], position) => ({
+    id: `c${String(position + 1)}`,
+    findingIds: indexes.map((index2) => routed[index2].finding.id),
+    files: [...new Set(indexes.flatMap((index2) => keys[index2].map(ownedPath).filter((path) => path !== null)))].sort()
+  }));
+  return { routes, clusters };
+}
+
+// src/review/labels.ts
+function unitLabel(role, phase, key) {
+  return `${role} ${phase}:${key}`;
+}
+function parseUnitLabel(label) {
+  if (label === null) return null;
+  const match = /^(\S+) ([a-z-]+):([A-Za-z0-9-]+)$/.exec(label);
+  if (match === null) return null;
+  const phase = phaseSchema2.safeParse(match[2]);
+  const key = unitKeySchema2.safeParse(match[3]);
+  return phase.success && key.success ? { role: match[1], phase: phase.data, key: key.data } : null;
+}
+
+// src/review/spend.ts
+var isFinished = (worker) => worker.status === "finished";
+function settledWorkers(state) {
+  return Object.values(state.workers).filter((worker) => worker.status !== "running");
+}
+function usageOf(worker, adapter) {
+  if (worker.finish.usage === null) return emptyUsageSummary;
+  try {
+    return adapter.summarizeUsage(JSON.parse(worker.finish.usage));
+  } catch {
+    return emptyUsageSummary;
+  }
+}
+function sumReported(values) {
+  const reported = values.filter((value) => value !== null);
+  return reported.length === 0 ? null : reported.reduce((total, value) => total + value, 0);
+}
+var cents = (value) => value === null ? null : Math.round(Number((value * 100).toPrecision(12))) / 100;
+function wallSeconds(workers) {
+  const intervals = workers.map((worker) => ({ start: Date.parse(worker.finish.startedAt), end: Date.parse(worker.finish.endedAt) })).filter((interval) => interval.end > interval.start).sort((a, b) => a.start - b.start);
+  let total = 0;
+  let open2 = null;
+  for (const interval of intervals) {
+    if (open2 !== null && interval.start <= open2.end) {
+      open2.end = Math.max(open2.end, interval.end);
+      continue;
+    }
+    if (open2 !== null) total += open2.end - open2.start;
+    open2 = { ...interval };
+  }
+  if (open2 !== null) total += open2.end - open2.start;
+  return total / 1e3;
+}
+function spendOf(workers, adapter) {
+  const finished = workers.filter(isFinished);
+  const summaries = finished.map((worker) => usageOf(worker, adapter));
+  const lost = workers.length - finished.length;
+  return {
+    workers: finished.length,
+    seconds: Math.round(wallSeconds(finished) * 10) / 10,
+    costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
+    costUnreported: adapter.capabilities.costInUsd ? lost + finished.filter((worker, index2) => summaries[index2].costUsd === null && worker.finish.termination !== "not-started").length : null,
+    inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
+    cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
+    outputTokens: sumReported(summaries.map((summary) => summary.outputTokens))
+  };
+}
+function budgetSpendOf(state, adapter) {
+  if (!adapter.capabilities.costInUsd) return { usd: null, charged: 0, lost: 0 };
+  const settled = settledWorkers(state);
+  const finished = settled.filter(isFinished);
+  let usd4 = 0;
+  let charged = 0;
+  for (const worker of finished) {
+    const reported = usageOf(worker, adapter).costUsd;
+    if (reported !== null) {
+      usd4 += reported;
+    } else if (worker.finish.termination !== "not-started" && worker.launch.budgetUsd !== null) {
+      usd4 += worker.launch.budgetUsd;
+      charged += 1;
+    }
+  }
+  return { usd: cents(usd4), charged, lost: settled.length - finished.length };
+}
+var counted = (count2, one, many) => `${String(count2)} ${count2 === 1 ? one : many}`;
+function budgetSpendNote({ charged, lost }) {
+  const parts = [
+    ...charged > 0 ? [`counting ${counted(charged, "worker that reported no cost at its per-worker cap", "workers that reported no cost at their per-worker caps")}`] : [],
+    ...lost > 0 ? [`${counted(lost, "worker lost with an earlier engine is", "workers lost with an earlier engine are")} not counted`] : []
+  ];
+  return parts.length === 0 ? null : parts.join("; ");
+}
+function checkSeconds(state, phase) {
+  const runs = state.review?.fix?.checks.runs[phase] ?? [];
+  const total = runs.filter((run2) => run2.outcome !== "skipped").reduce((sum, run2) => sum + Math.max(0, Date.parse(run2.endedAt) - Date.parse(run2.startedAt)), 0);
+  return Math.round(total / 100) / 10;
+}
+function statisticsOf(state, adapter) {
+  const settled = settledWorkers(state);
+  const listed = phases.filter((phase) => state.review?.phases[phase].status !== "skipped");
+  const byPhase = listed.map((phase) => {
+    const spend = spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter);
+    return { phase, ...spend, ...isCheckPhase(phase) ? { seconds: checkSeconds(state, phase) } : {} };
+  });
+  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
+}
+
+// src/review/state.ts
+function reviewStatus(state) {
+  if (state.status === "abandoned") return "abandoned";
+  if (state.review?.report !== null && state.review?.report !== void 0) return "complete";
+  if (state.review?.blocker !== null && state.review?.blocker !== void 0) return "blocked";
+  return "active";
+}
+function currentPhase(review2) {
+  return phases.find((phase) => review2.phases[phase].status === "running" || review2.phases[phase].status === "blocked") ?? null;
+}
+function nextPendingPhase(review2) {
+  return phases.find((phase) => review2.phases[phase].status === "pending") ?? null;
+}
+function workingList(review2, phase) {
+  return poolCandidates(review2, phase).filter((candidate) => candidate.duplicateOf === null);
+}
+function resolutionOf(candidate) {
+  if (candidate.verdict !== null) return { verdict: candidate.verdict.verdict, unverified: false, evidence: candidate.verdict.evidence };
+  if (candidate.unverified) return { verdict: "PLAUSIBLE", unverified: true, evidence: null };
+  return null;
+}
+function survivors(review2, phase) {
+  return workingList(review2, phase).map((candidate) => ({ candidate, resolution: resolutionOf(candidate) })).filter((entry) => entry.resolution !== null && entry.resolution.verdict !== "REFUTED");
+}
+function refutedIn(review2, phase) {
+  return workingList(review2, phase).filter((candidate) => candidate.verdict?.verdict === "REFUTED").map((candidate) => ({ candidate, evidence: candidate.verdict.evidence }));
+}
+function refuted(review2) {
+  return [...refutedIn(review2, "verification"), ...refutedIn(review2, "sweep-verification")];
+}
+function mergeRankInput(review2) {
+  return [...survivors(review2, "verification"), ...survivors(review2, "sweep-verification")];
+}
+function mergedResolution(candidates) {
+  const resolutions = candidates.map(resolutionOf).filter((resolution) => resolution !== null);
+  const verdict = resolutions.some((resolution) => resolution.verdict === "CONFIRMED") ? "CONFIRMED" : "PLAUSIBLE";
+  const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
+  const evidence = resolutions.find((resolution) => resolution.evidence !== null)?.evidence ?? null;
+  return { verdict, unverified, evidence };
+}
+var idParts = (id) => {
+  const dash = id.lastIndexOf("-");
+  return [id.slice(0, dash), Number(id.slice(dash + 1))];
+};
+function compareFindings(a, b) {
+  const severity = severities.indexOf(a.finding.severity) - severities.indexOf(b.finding.severity);
+  if (severity !== 0) return severity;
+  const verdict = Number(a.resolution.verdict !== "CONFIRMED") - Number(b.resolution.verdict !== "CONFIRMED");
+  if (verdict !== 0) return verdict;
+  const angle = Number(angleClasses[a.primary.angle] !== "correctness") - Number(angleClasses[b.primary.angle] !== "correctness");
+  if (angle !== 0) return angle;
+  const [prefixA, numberA] = idParts(a.finding.id);
+  const [prefixB, numberB] = idParts(b.finding.id);
+  return prefixA < prefixB ? -1 : prefixA > prefixB ? 1 : numberA - numberB;
+}
+function rankedFindings(review2, findings = review2.ranking ?? []) {
+  const resolved = findings.map((finding) => {
+    const primary = review2.candidates[finding.id];
+    const members2 = finding.members.map((id) => review2.candidates[id]);
+    if (primary === void 0 || members2.some((member) => member === void 0)) throw new Error(`Ranking names a candidate the run never recorded: ${finding.id}`);
+    return { finding, primary, members: members2, resolution: mergedResolution([primary, ...members2]) };
+  });
+  return resolved.sort(compareFindings);
+}
+
+// src/review/steps.ts
+var maxAttempts = 2;
+function groupsOf(review2, phase) {
+  return review2.plans[phase] ?? planGroups(workingList(review2, phase));
+}
+function fixPlanOf(review2) {
+  return review2.fix?.plan ?? planFixes(rankedFindings(review2));
+}
+function unitsOf(review2, phase) {
+  const single = (role) => [{ phase, key: singleUnitKey(phase), role }];
+  switch (phase) {
+    case "triage":
+      return single("triage");
+    case "finders":
+      return finderAngles.map((angle) => ({ phase, key: angle, role: roleOfAngle(angle) }));
+    case "deduplication":
+    case "sweep-deduplication":
+      return poolCandidates(review2, phase).length >= 2 ? single("deduplication") : [];
+    case "verification":
+    case "sweep-verification":
+      return groupsOf(review2, phase).map((group) => ({ phase, key: group.id, role: "verifier" }));
+    case "sweep":
+      return single("sweep");
+    case "merge-rank":
+      return mergeRankInput(review2).length > 0 ? single("merge-rank") : [];
+    case "fixes":
+      return fixPlanOf(review2).clusters.map((cluster) => ({ phase, key: cluster.id, role: "fixer" }));
+    case "repair":
+      return review2.fix !== null && repairTargets(review2.fix).length > 0 ? [{ phase, key: repairUnitKey, role: "fixer" }] : [];
+    case "baseline-checks":
+    case "checks":
+    case "repair-checks":
+    case "report":
+      return [];
+  }
+}
+var exhausted = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && (state?.failures.length ?? 0) >= maxAttempts;
+var truncationMark = " [truncated]";
+function truncated(text2, limit) {
+  if (text2.length <= limit) return text2;
+  const room = Math.max(0, limit);
+  const kept = room > truncationMark.length ? room - truncationMark.length : room;
+  const last = text2.charCodeAt(kept - 1);
+  const end = last >= 55296 && last <= 56319 ? kept - 1 : kept;
+  return `${text2.slice(0, end)}${room > truncationMark.length ? truncationMark : ""}`;
+}
+function failureReason(state, limit = maxRecordedTextLength) {
+  const reasons = (state?.failures ?? []).map((failure2) => failure2.reason);
+  const header = `${String(reasons.length)} attempts did not complete: `;
+  const separator = "; ";
+  const share = Math.floor((limit - header.length - separator.length * Math.max(0, reasons.length - 1)) / Math.max(1, reasons.length));
+  return truncated(`${header}${reasons.map((reason) => truncated(reason, share)).join(separator)}`, limit);
+}
+function listWithin(items, limit) {
+  const all = items.join(", ");
+  if (all.length <= limit) return all;
+  const more = (count2) => count2 > 0 ? `, and ${String(count2)} more` : "";
+  const reserve = more(items.length).length;
+  let text2 = "";
+  let shown = 0;
+  for (const item of items) {
+    const next = shown === 0 ? item : `${text2}, ${item}`;
+    if (next.length + reserve > limit) break;
+    text2 = next;
+    shown += 1;
+  }
+  if (shown > 0) return `${text2}${more(items.length - shown)}`;
+  const rest = more(items.length - 1);
+  return `${truncated(items[0] ?? "", limit - rest.length)}${rest}`;
+}
+function degradationOf(unit) {
+  switch (unit.phase) {
+    case "finders":
+      return { kind: "angle.failed", angle: unit.key };
+    case "verification":
+    case "sweep-verification":
+      return { kind: "group.unverified", phase: unit.phase, groupId: unit.key };
+    case "fixes":
+    case "repair":
+      return { kind: "cluster.failed", phase: unit.phase, key: unit.key };
+    case "triage":
+    case "deduplication":
+    case "sweep":
+    case "sweep-deduplication":
+    case "merge-rank":
+    case "baseline-checks":
+    case "checks":
+    case "repair-checks":
+    case "report":
+      return null;
+  }
+}
+function degraded(review2, unit) {
+  const target = degradationOf(unit);
+  if (target === null) return false;
+  switch (target.kind) {
+    case "angle.failed":
+      return Object.hasOwn(review2.anglesNotRun, target.angle);
+    case "group.unverified":
+      return isUnverified(review2, target.phase, target.groupId);
+    case "cluster.failed":
+      return review2.fix !== null && isNotAttempted(review2.fix, target.phase, target.key);
+  }
+}
+var interrupted = (state) => state?.failures.some((failure2) => failure2.lost) ?? false;
+function exhaustedOutcome(unit, state) {
+  return interrupted(state) ? null : degradationOf(unit);
+}
+var launchableUnit = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && !degraded(review2, unit) && !exhausted(review2, unit, state);
+var usd = (value) => value.toFixed(2);
+function workerFailedBlocker(unit, state) {
+  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
+  return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions["worker-failed"] };
+}
+function budgetBlocker(spend, budgetUsd) {
+  const note = budgetSpendNote(spend);
+  return {
+    code: "budget",
+    detail: `spent ${usd(spend.usd)} USD of the ${usd(budgetUsd)} USD run budget${note === null ? "" : `, ${note}`}`,
+    action: `run the command again with --budget-usd above ${usd(spend.usd)}, or abandon the run`
+  };
+}
+function expectedBytes(expected, evidencePath) {
+  if (expected === void 0) return "";
+  if (expected === null) return "; expected absent";
+  if ("blob" in expected) return `; expected at ${evidencePath(expected.blob)}`;
+  return `; expected ${expected.oversized.sha256}, ${String(expected.oversized.size)} bytes, too large to have been kept`;
+}
+function driftBlocker(check2, evidencePath) {
+  const prefix = "the worktree differs from what the run expects: ";
+  const items = [
+    ...check2.head === null ? [] : [`HEAD is ${check2.head.actual}, the run expects ${check2.head.expected}`],
+    ...check2.files.map((file2) => `${file2.path} (${file2.outcome}${expectedBytes(file2.expected, evidencePath)})`)
+  ];
+  return { code: "drift", detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions.drift };
+}
+function dueCheck(review2, phase) {
+  const fix = review2.fix;
+  const planned = fix?.checks.planned ?? null;
+  if (fix === null || planned === null) return null;
+  if (phase === "checks" && !fix.revisions.some((revision) => revision.phase === "fixes")) return null;
+  if (phase === "repair-checks" && repairTargets(fix).length === 0) return null;
+  const build = lastRun(fix, phase, "build");
+  for (const check2 of planned.checks) {
+    if (check2.command === null || lastRun(fix, phase, check2.kind) !== null) continue;
+    const skip = check2.kind !== "build" && build !== null && build.outcome !== "passed" ? `build ${build.outcome === "failed" ? "failed" : build.outcome === "timeout" ? "timed out" : "did not start"}` : null;
+    return { kind: check2.kind, command: check2.command, skip };
+  }
+  return null;
+}
+function nextStep(review2, live2) {
+  if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };
+  if (review2.report !== null) return { kind: "complete" };
+  const phase = currentPhase(review2);
+  if (phase === null) {
+    const pending = nextPendingPhase(review2);
+    if (pending === null) throw new Error("Every phase has finished but no report was written");
+    return { kind: "start-phase", phase: pending, attempt: review2.phases[pending].attempt + 1 };
+  }
+  const attempt = review2.phases[phase].attempt;
+  const checks = review2.checks.filter((check2) => check2.phase === phase && check2.attempt === attempt);
+  if (checks.length === 0) return { kind: "check-worktree", phase, attempt, moment: "start" };
+  const drift = checks.find((check2) => check2.drifted);
+  if (drift !== void 0) return live2.running.size > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: driftBlocker(drift, live2.evidencePath) };
+  if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
+  if (phase === "fixes" && review2.fix !== null && review2.fix.plan === null) return { kind: "plan-fixes", plan: fixPlanOf(review2) };
+  if (phase === "report") return { kind: "write-report" };
+  if (isCheckPhase(phase)) {
+    const due = dueCheck(review2, phase);
+    return due === null ? { kind: "finish-phase", phase, attempt, outcome: "completed", blocker: null } : { kind: "run-check", phase, attempt, check: due };
+  }
+  const units = unitsOf(review2, phase);
+  const states = review2.units[phase];
+  const spent = units.filter((unit) => exhausted(review2, unit, states[unit.key]) && !degraded(review2, unit));
+  const degradations = spent.flatMap((unit) => {
+    const target = exhaustedOutcome(unit, states[unit.key]);
+    return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
+  });
+  if (degradations.length > 0) return { kind: "degrade", phase, degradations };
+  const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
+  const blocking = spent.find((unit) => exhaustedOutcome(unit, states[unit.key]) === null);
+  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
+  const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
+  if (launchable.length > 0) {
+    const { concurrency, runBudgetUsd } = review2.limits;
+    const countedUsd = live2.spend.usd;
+    if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
+      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker({ ...live2.spend, usd: countedUsd }, runBudgetUsd) };
+    }
+    const capacity = concurrency - live2.running.size;
+    return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
+  }
+  if (running.length > 0) return { kind: "await" };
+  if (isEditingPhase(phase) && units.length > 0 && !checks.some((check2) => check2.moment === "end")) return { kind: "check-worktree", phase, attempt, moment: "end" };
+  const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
+  return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
+}
+
+// src/review/tree.ts
+import { lstatSync as lstatSync5, readFileSync as readFileSync8, readlinkSync as readlinkSync3 } from "node:fs";
+import { join as join16 } from "node:path";
+
+// src/scope/compare.ts
+function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
+  if (symlink !== frozenSymlink) return false;
+  if ("blob" in frozen) return frozen.blob.bytes === bytes.length && frozen.blob.sha256 === sha256Hex(bytes);
+  return frozen.oversized.size === bytes.length && frozen.oversized.sha256 === sha256Hex(bytes);
+}
+
+// src/review/tree.ts
+function expectedTree(scope, revisions) {
+  const tree = /* @__PURE__ */ new Map();
+  for (const file2 of scope.files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
+  for (const revision of revisions) applyRevision(tree, revision.files);
+  return tree;
+}
+function applyRevision(tree, files) {
+  for (const file2 of files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
+}
+function readTreeEntry(worktree, path) {
+  const absolute = join16(worktree, ...path.split("/"));
+  let stat;
+  try {
+    stat = lstatSync5(absolute, { throwIfNoEntry: false });
+  } catch (error62) {
+    if (error62.code === "ENOTDIR") return null;
+    throw error62;
+  }
+  if (stat === void 0) return null;
+  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync3(absolute)), symlink: true };
+  if (stat.isFile()) return { bytes: readFileSync8(absolute), symlink: false };
+  return null;
+}
+var worktreeReader = (worktree) => (path) => readTreeEntry(worktree, path);
+function matchesExpected(expected, now) {
+  if (expected === void 0 || expected === null) return now === null;
+  return now !== null && matchesFrozen(expected.frozen, now.bytes, now.symlink, expected.symlink);
+}
+function compareExpected(expected, read, excluded = /* @__PURE__ */ new Set()) {
+  const drifted2 = [];
+  for (const path of [...expected.keys()].sort()) {
+    if (excluded.has(path)) continue;
+    const want = expected.get(path) ?? null;
+    const now = read(path);
+    if (now === void 0 || matchesExpected(want, now)) continue;
+    const outcome = want === null ? "restored" : now === null ? "deleted" : "modified";
+    drifted2.push({ path, outcome, expected: want?.frozen ?? null });
+  }
+  return drifted2;
+}
+function headMoved(worktree, expectedHead) {
+  const actual = head(worktree);
+  return actual === expectedHead ? null : { expected: expectedHead, actual };
+}
+function straysOf(worktree, expected) {
+  return status(worktree).filter((entry) => entry.code === "??" && !expected.has(entry.path)).map((entry) => entry.path).sort();
+}
+function reviseFrom(evidence, read, expected, paths) {
+  const revised = [];
+  for (const path of [...new Set(paths)].sort()) {
+    const now = read(path);
+    if (now === void 0) continue;
+    const before = expected.get(path) ?? null;
+    if (matchesExpected(before, now)) continue;
+    if (now === null) revised.push({ path, status: "deleted", symlink: false, after: null });
+    else revised.push({ path, status: before === null ? "created" : "modified", symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
+  }
+  return revised;
+}
+function revisionsFromSnapshots(evidence, sources, expected, paths, findings) {
+  const state = new Map(expected);
+  const revisions = [];
+  let carried = [];
+  findings.forEach((id, index2) => {
+    carried.push(id);
+    const read = index2 === findings.length - 1 ? sources.worktree : sources.snapshot(index2);
+    if (read === null) return;
+    const files = reviseFrom(evidence, read, state, paths);
+    if (files.length === 0) return;
+    revisions.push({ findings: carried, files });
+    applyRevision(state, files);
+    carried = [];
+  });
+  return revisions;
+}
+
+// src/review/drift.ts
+function expectedTreeOf(state) {
+  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  return expectedTree(state.scope, state.review?.fix?.revisions ?? []);
+}
+function unsettledFiles(state, phase) {
+  const review2 = state.review;
+  const fix = review2?.fix ?? null;
+  if (review2 === null || fix === null || !isEditingPhase(phase)) return /* @__PURE__ */ new Set();
+  return new Set(
+    unitsOf(review2, phase).filter((unit) => !isAnswered(review2, phase, unit.key) && !isNotAttempted(fix, phase, unit.key)).flatMap((unit) => ownedFiles(fix, phase, unit.key))
+  );
+}
+function findDrift(state, worktree, excluded = /* @__PURE__ */ new Set()) {
+  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  return { files: compareExpected(expectedTreeOf(state), worktreeReader(worktree), excluded), head: headMoved(worktree, state.scope.head) };
+}
+var drifted = (found) => found.files.length > 0 || found.head !== null;
+function worktreeChecked2(state, worktree, phase, attempt, moment, found) {
+  return {
+    phase,
+    attempt,
+    moment,
+    drifted: drifted(found),
+    head: found.head,
+    files: found.files.map((file2) => ({ path: file2.path, outcome: file2.outcome, expected: file2.expected })),
+    strays: straysOf(worktree, expectedTreeOf(state))
+  };
+}
+function phaseCheck(state, worktree, phase, attempt, moment) {
+  const excluded = moment === "start" ? unsettledFiles(state, phase) : /* @__PURE__ */ new Set();
+  return worktreeChecked2(state, worktree, phase, attempt, moment, findDrift(state, worktree, excluded));
+}
+
+// src/review/fix-events.ts
+import { join as join18 } from "node:path";
+
+// src/review/fix-answer.ts
+import { isAbsolute as isAbsolute4, relative as relative2 } from "node:path";
+var rooted = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute4(name);
+function resolveReportedPath(worktree, lookup, raw) {
+  let name = normalizeFileName(raw.trim()).replace(/\/+$/, "");
+  if (rooted(name)) {
+    const inside = relative2(canonicalPath(worktree), canonicalPath(raw.trim()));
+    if (inside === "" || inside.startsWith("..") || isAbsolute4(inside)) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
+    name = inside.replaceAll("\\", "/");
+  }
+  const segments = name.split("/");
+  if (name === "" || segments.some((segment) => segment === "" || segment === "." || segment === "..")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is not a path inside the repository`);
+  if (segments.some((segment) => segment.toLowerCase() === ".git")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is in the git directory, which no fixer edits`);
+  const held = [...new Set(lookup(name))];
+  return held.length === 1 ? held[0] : name;
+}
+function resolveFixerAnswer(output2, context) {
+  const resolve12 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
+  const owned = new Set(context.owned);
+  const findings = output2.findings.map((finding) => {
+    const files = [...new Set(finding.files.map(resolve12))];
+    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve12))];
+    const own2 = requiredFiles.filter((path) => owned.has(path));
+    if (own2.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${own2.join(", ")}, which its own cluster owns`);
+    return { ...finding, files, requiredFiles };
+  });
+  const named = new Set(findings.flatMap((finding) => finding.files));
+  const violations = [...named].filter((path) => context.othersOwned.has(path)).sort();
+  return { findings, named, violations };
+}
+function requireOwnedReported(changedOwned, named) {
+  const unreported = changedOwned.filter((path) => !named.has(path));
+  if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned file${unreported.length === 1 ? "" : "s"} ${unreported.join(", ")}, whose bytes changed; every owned file a fixer changes is reported under the finding it served`);
+}
+
+// src/review/schemas.ts
+var candidateFields = {
+  /** The path as the finder gives it; the engine normalizes it against the scope. */
+  file: external_exports.string().min(1).max(1e3),
+  /** The line in the new version of the file. */
+  line: external_exports.number().int().min(1),
+  summary: external_exports.string().min(1).max(400),
+  /** The `failure_scenario` or `value_statement` of the finder output contract, as the angle decides. */
+  detail: external_exports.string().min(1).max(2e3)
+};
+var candidateSchema = external_exports.strictObject(candidateFields);
+var sweepCandidateSchema = external_exports.strictObject({ ...candidateFields, angle: angleSchema2 });
+var maxCandidates = 12;
+var leadOutputSchema = external_exports.strictObject({ angle: finderAngleSchema2, lead: external_exports.string().min(1).max(1e3).nullable() });
+var triageOutputSchema = external_exports.strictObject({
+  candidates: external_exports.array(candidateSchema).max(maxCandidates),
+  leads: external_exports.array(leadOutputSchema).length(finderAngles.length)
+});
+var finderOutputSchema = external_exports.strictObject({ candidates: external_exports.array(candidateSchema).max(maxCandidates) });
+var sweepOutputSchema = external_exports.strictObject({ candidates: external_exports.array(sweepCandidateSchema).max(maxCandidates) });
+var index = external_exports.number().int().min(0);
+var deduplicationOutputSchema = external_exports.strictObject({
+  groups: external_exports.array(external_exports.strictObject({ members: external_exports.array(index).min(2), keep: index, reason: external_exports.string().min(1).max(1e3) }))
+});
+var verifierOutputSchema = external_exports.strictObject({
+  verdicts: external_exports.array(external_exports.strictObject({ index, verdict: verdictSchema2, evidence: external_exports.string().min(1).max(1e3) }))
+});
+var mergeRankOutputSchema = external_exports.strictObject({
+  findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema2, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
+});
+var reportedPath = external_exports.string().min(1).max(1e3);
+var fixerOutputSchema = external_exports.strictObject({
+  findings: external_exports.array(external_exports.strictObject({
+    index,
+    status: fixStatusSchema,
+    /** Where the fix is, or where the finding was judged when nothing was edited. */
+    file: reportedPath,
+    line: external_exports.number().int().min(1).nullable(),
+    note: external_exports.string().min(1).max(400),
+    /** The commit message of an applied finding, in the repository's own style; null for every other status. */
+    message: external_exports.strictObject({ subject: external_exports.string().min(1).max(72), body: external_exports.string().max(2e3) }).nullable(),
+    /** Every file edited or created for this finding. */
+    files: external_exports.array(reportedPath).max(200),
+    corrections: external_exports.array(external_exports.strictObject({
+      file: external_exports.string().min(1).max(400),
+      anchor: external_exports.string().min(1).max(400),
+      claim: external_exports.string().min(1).max(400),
+      fact: external_exports.string().min(1).max(400),
+      evidence: external_exports.string().min(1).max(400)
+    })).max(20),
+    validation: external_exports.array(external_exports.strictObject({ method: validationMethodSchema, source: external_exports.string().min(1).max(400), evidence: external_exports.string().min(1).max(1e3) })).max(20),
+    /** The files another cluster owns that a blocked finding needs; empty for every other status. */
+    requiredFiles: external_exports.array(reportedPath).max(50)
+  })),
+  drift: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1).max(1e3), what: external_exports.string().min(1).max(400) })).max(50),
+  tests: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1).max(1e3), covers: external_exports.string().min(1).max(400) })).max(50),
+  suite: external_exports.strictObject({ result: suiteResultSchema, command: external_exports.string().max(400), failures: external_exports.string().max(2e3) })
+});
+function checkFixerAnswer(output2, count2) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const finding of output2.findings) {
+    const what = `Finding [${String(finding.index)}]`;
+    if (finding.index >= count2) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count2 - 1)}]`);
+    if (seen.has(finding.index)) throw new StructuralCheckError(`${what} is answered twice`);
+    seen.add(finding.index);
+    if (finding.status === "applied" !== (finding.message !== null)) {
+      throw new StructuralCheckError(finding.status === "applied" ? `${what} is applied and has no commit message` : `${what} is ${finding.status} and has a commit message, which only an applied finding carries`);
+    }
+    if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith("."))) {
+      throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(finding.message.subject)}`);
+    }
+    if (finding.requiredFiles.length > 0 && finding.status !== "blocked") throw new StructuralCheckError(`${what} is ${finding.status} and names required files, which only a blocked finding does`);
+  }
+  const missing = missingIndexes(seen, count2);
+  if (missing.length > 0) throw new StructuralCheckError(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(", ")} of the ${String(count2)} the task gave`);
+}
+function outputSchemaOf(role) {
+  if (isFinderRole(role)) return finderOutputSchema;
+  switch (role) {
+    case "triage":
+      return triageOutputSchema;
+    case "deduplication":
+      return deduplicationOutputSchema;
+    case "verifier":
+      return verifierOutputSchema;
+    case "sweep":
+      return sweepOutputSchema;
+    case "merge-rank":
+      return mergeRankOutputSchema;
+    case "fixer":
+      return fixerOutputSchema;
+  }
+}
+function checkTriageLeads(output2) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const lead of output2.leads) {
+    if (seen.has(lead.angle)) throw new StructuralCheckError(`The triage returned two leads for angle ${lead.angle}`);
+    seen.add(lead.angle);
+  }
+  const missing = finderAngles.filter((angle) => !seen.has(angle));
+  if (missing.length > 0) throw new StructuralCheckError(`The triage returned no lead for ${missing.join(", ")}`);
+}
+var outOfRange = (what, value, count2) => new StructuralCheckError(`${what} names index ${String(value)}, but the candidates are numbered [0] to [${String(count2 - 1)}]`);
+var missingIndexes = (seen, count2) => Array.from({ length: count2 }, (_, position) => position).filter((position) => !seen.has(position));
+function checkDeduplication(output2, count2) {
+  const grouped = /* @__PURE__ */ new Set();
+  for (const [position, group] of output2.groups.entries()) {
+    const what = `Deduplication group ${String(position)}`;
+    for (const member of group.members) {
+      if (member >= count2) throw outOfRange(what, member, count2);
+      if (grouped.has(member)) throw new StructuralCheckError(`${what} names index ${String(member)}, which another group already names`);
+      grouped.add(member);
+    }
+    if (!group.members.includes(group.keep)) throw new StructuralCheckError(`${what} keeps index ${String(group.keep)}, which is not one of its members`);
+  }
+}
+function checkVerdicts(output2, count2) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const verdict of output2.verdicts) {
+    if (verdict.index >= count2) throw outOfRange("A verdict", verdict.index, count2);
+    if (seen.has(verdict.index)) throw new StructuralCheckError(`Two verdicts name index ${String(verdict.index)}`);
+    seen.add(verdict.index);
+  }
+  const missing = missingIndexes(seen, count2);
+  if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(", ")} of the ${String(count2)} candidates in the group`);
+}
+function checkMergeRank(output2, count2) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const [position, finding] of output2.findings.entries()) {
+    const what = `Finding ${String(position)}`;
+    for (const value of [finding.primary, ...finding.members]) {
+      if (value >= count2) throw outOfRange(what, value, count2);
+      if (seen.has(value)) throw new StructuralCheckError(`${what} names index ${String(value)}, which another finding, or the same one, already names`);
+      seen.add(value);
+    }
+  }
+  const missing = missingIndexes(seen, count2);
+  if (missing.length > 0) throw new StructuralCheckError(`The ranking leaves out index ${missing.map(String).join(", ")} of the ${String(count2)} candidates on the working list`);
+}
+
+// src/review/snapshot.ts
 import { createHash as createHash3 } from "node:crypto";
-import { readFileSync as readFileSync7 } from "node:fs";
-import { join as join15 } from "node:path";
+import { existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname2, join as join17 } from "node:path";
+var snapshotPathsFileName = "paths.json";
+var snapshotsDirectoryName = "snapshots";
+var listedFileSchema = external_exports.union([
+  external_exports.literal("absent"),
+  external_exports.strictObject({ sha256: external_exports.string().regex(/^[a-f0-9]{64}$/), size: external_exports.number().int().nonnegative(), symlink: external_exports.boolean() })
+]);
+var snapshotListingSchema = external_exports.strictObject({
+  finding: external_exports.number().int().nonnegative(),
+  paths: external_exports.record(external_exports.string(), listedFileSchema)
+});
+var sha256 = (bytes) => createHash3("sha256").update(bytes).digest("hex");
+function safePath(path) {
+  try {
+    validateScopePath(path);
+    return !path.includes("\\") && !path.split("/").some((part) => part === "" || part === ".");
+  } catch (error62) {
+    if (error62 instanceof InvalidScopeRequestError) return false;
+    throw error62;
+  }
+}
+function listedPaths(into) {
+  const file2 = join17(into, snapshotPathsFileName);
+  if (!existsSync4(file2)) return [];
+  const parsed = external_exports.array(external_exports.string()).safeParse(JSON.parse(readFileSync9(file2, "utf8")));
+  if (!parsed.success) throw new Error(`${file2} is not a list of paths`);
+  return parsed.data;
+}
+function takeSnapshot(request) {
+  if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
+  const copies = join17(request.into, String(request.finding));
+  const listingFile = join17(request.into, `${String(request.finding)}.json`);
+  rmSync3(listingFile, { force: true });
+  rmSync3(copies, { recursive: true, force: true });
+  mkdirSync5(copies, { recursive: true });
+  const changed = status(request.worktree).map((entry) => entry.path);
+  const paths = [.../* @__PURE__ */ new Set([...changed, ...listedPaths(request.into)])].filter(safePath).sort();
+  const listed = paths.map((path) => {
+    const entry = readTreeEntry(request.worktree, path);
+    if (entry === null) return [path, "absent"];
+    const copy = join17(copies, ...path.split("/"));
+    mkdirSync5(dirname2(copy), { recursive: true });
+    writeFileSync3(copy, entry.bytes);
+    return [path, { sha256: sha256(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
+  });
+  const listing = { finding: request.finding, paths: Object.fromEntries(listed) };
+  const temporary = `${listingFile}.${String(process.pid)}.tmp`;
+  writeFileSync3(temporary, `${JSON.stringify(listing)}
+`);
+  renameSync2(temporary, listingFile);
+  return listing;
+}
+function readSnapshot(into, finding) {
+  const listingFile = join17(into, `${String(finding)}.json`);
+  if (!existsSync4(listingFile)) return null;
+  let listing;
+  try {
+    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync9(listingFile, "utf8")));
+    if (!parsed.success || parsed.data.finding !== finding) return null;
+    listing = parsed.data;
+  } catch {
+    return null;
+  }
+  return (path) => {
+    if (!Object.hasOwn(listing.paths, path) || !safePath(path)) return void 0;
+    const listed = listing.paths[path];
+    if (listed === "absent") return null;
+    let bytes;
+    try {
+      bytes = readFileSync9(join17(into, String(finding), ...path.split("/")));
+    } catch {
+      return void 0;
+    }
+    return bytes.length === listed.size && sha256(bytes) === listed.sha256 ? { bytes, symlink: listed.symlink } : void 0;
+  };
+}
+function prepareSnapshots(into, paths) {
+  mkdirSync5(into, { recursive: true });
+  writeFileSync3(join17(into, snapshotPathsFileName), `${JSON.stringify([...new Set(paths)].sort())}
+`);
+}
+
+// src/review/fix-events.ts
+var subjectLength = 72;
+var bodyLength = 4e3;
+function requireFix2(state) {
+  const fix = state.review?.fix ?? null;
+  if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
+  return fix;
+}
+function unitIds2(state, phase, key) {
+  const fix = requireFix2(state);
+  if (phase === "repair") return repairTargets(fix);
+  const cluster = fixPlanOf(state.review).clusters.find((candidate) => candidate.id === key);
+  if (cluster === void 0) throw new Error(`The fix plan has no cluster ${key}`);
+  return cluster.findingIds;
+}
+function othersOwned(state, phase, key) {
+  if (phase === "repair") return /* @__PURE__ */ new Map();
+  return new Map(fixPlanOf(state.review).clusters.filter((cluster) => cluster.id !== key).flatMap((cluster) => cluster.files.map((file2) => [file2, cluster.id])));
+}
+function revisionMessage(revision, findings) {
+  const held = findings.filter((finding) => revision.findings.includes(finding.id));
+  const applied = held.filter((finding) => finding.message !== null);
+  if (applied.length === 1) {
+    const only = applied[0];
+    const folded = held.filter((finding) => finding !== only).map((finding) => finding.id);
+    const note = folded.length === 0 ? "" : `
+
+This commit also holds the edits made for ${folded.join(", ")}, which no snapshot of the fixer's set apart.`;
+    return { subject: only.message.subject, body: truncated(`${only.message.body.trimEnd()}${note}`.trimStart(), bodyLength) };
+  }
+  if (applied.length > 1) {
+    return {
+      subject: truncated(`Apply ${held.map((finding) => finding.id).join(", ")}`, subjectLength),
+      body: truncated(applied.map((finding) => `${finding.message.subject}
+
+${finding.message.body.trimEnd()}`.trimEnd()).join("\n\n"), bodyLength)
+    };
+  }
+  return {
+    subject: truncated(`Keep the edits made for ${held.map((finding) => finding.id).join(", ")}`, subjectLength),
+    body: truncated(held.map((finding) => `${finding.id} ${finding.status}: ${finding.note}`).join("\n"), bodyLength)
+  };
+}
+function fixAnswerEvents(unit, receipt, context) {
+  const { state, worktree, evidence } = context;
+  const phase = unit.phase;
+  const fix = requireFix2(state);
+  const output2 = receipt.output;
+  const ids = unitIds2(state, phase, unit.key);
+  checkFixerAnswer(output2, ids.length);
+  const owned = ownedFiles(fix, phase, unit.key);
+  const resolved = resolveFixerAnswer(output2, { worktree, lookup: worktreeLookup(worktree), owned, othersOwned: othersOwned(state, phase, unit.key) });
+  const expected = expectedTreeOf(state);
+  const read = worktreeReader(worktree);
+  requireOwnedReported(owned.filter((path) => !matchesExpected(expected.get(path), read(path) ?? null)), resolved.named);
+  const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
+  const findings = ids.map((id, index2) => {
+    const answer = byIndex.get(index2);
+    return {
+      id,
+      status: answer.status,
+      file: answer.file,
+      line: answer.line,
+      note: answer.note,
+      message: answer.message,
+      files: [...answer.files],
+      corrections: answer.corrections,
+      validation: answer.validation,
+      requiredFiles: [...answer.requiredFiles]
+    };
+  });
+  const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
+  const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
+  const into = scratch === null ? null : join18(scratch, snapshotsDirectoryName);
+  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, [...owned, ...resolved.named], ids);
+  return [
+    { kind: "fix.recorded", version: 1, payload: recorded },
+    ...revisions.map((revision) => ({
+      kind: "tree.revised",
+      version: 1,
+      payload: { phase, source: { kind: "fix", key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] }
+    }))
+  ];
+}
+function unansweredRevision(context, phase, key, reason) {
+  const { state, worktree, evidence } = context;
+  const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), ownedFiles(requireFix2(state), phase, key));
+  if (files.length === 0) return null;
+  const who = phase === "repair" ? "the repair" : `cluster ${key}`;
+  const payload = {
+    phase,
+    source: { kind: "unanswered", key },
+    change: {
+      findings: [],
+      message: {
+        subject: `chore: keep the partial edits of ${who}`,
+        body: truncated(`The workers of ${who} failed twice and its findings were not attempted: ${reason}
+
+The files are recorded as those workers left them; nothing here is a fix an answer accounted for.`, bodyLength)
+      }
+    },
+    files
+  };
+  return { kind: "tree.revised", version: 1, payload };
+}
+function checkRevision(context, phase, kind, command) {
+  const { state, worktree, evidence } = context;
+  const expected = expectedTreeOf(state);
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, expected.keys());
+  if (files.length === 0) return null;
+  const payload = {
+    phase,
+    source: { kind: "check", check: kind },
+    change: { findings: [], message: { subject: `chore: apply the ${kind} check's rewrite`, body: truncated(`The ${kind} check, \`${command}\`, rewrote these files when run ${state.id} ran it in ${phase}.`, bodyLength) } },
+    files
+  };
+  return { kind: "tree.revised", version: 1, payload };
+}
+
+// src/review/lock.ts
+import { mkdirSync as mkdirSync6, readFileSync as readFileSync10, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { constants } from "node:os";
+import { join as join19 } from "node:path";
+import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
+var locksDirectoryName = "runs";
+var sqliteBusy = 5;
+var sqliteNotADatabase = 26;
+function startLockPath(checkpointRoot) {
+  return join19(checkpointRoot, "start.lock");
+}
+function lockPath(checkpointRoot, runId) {
+  return join19(checkpointRoot, locksDirectoryName, `${runId}.lock`);
+}
+function holderPath(path) {
+  return `${path}.pid`;
+}
+function lockHolder(path) {
+  let text2;
+  try {
+    text2 = readFileSync10(holderPath(path), "utf8").trim();
+  } catch (error62) {
+    if (error62.code === "ENOENT") return null;
+    throw error62;
+  }
+  const pid = Number(text2);
+  return text2 !== "" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+function acquireRunLock(checkpointRoot, runId) {
+  mkdirSync6(join19(checkpointRoot, locksDirectoryName), { recursive: true });
+  return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
+}
+function acquireStartLock(checkpointRoot) {
+  mkdirSync6(checkpointRoot, { recursive: true });
+  return acquireLock(startLockPath(checkpointRoot), "is starting or ending a run in this repository");
+}
+function sqliteCode(error62) {
+  const code = error62?.errcode;
+  return typeof code === "number" ? code & 255 : null;
+}
+function acquireLock(path, holding) {
+  const db = new DatabaseSync2(path, { timeout: 0 });
+  try {
+    db.exec("BEGIN EXCLUSIVE");
+  } catch (error62) {
+    db.close();
+    const code = sqliteCode(error62);
+    if (code === sqliteBusy) {
+      const holder = lockHolder(path);
+      throw new ReviewRefusedError(`${holder === null ? "another engine" : `engine ${String(holder)}`} ${holding} (lock ${path}); ${blockerActions["lock-held"]}`, "lock-held");
+    }
+    if (code === sqliteNotADatabase) {
+      throw new ReviewRefusedError(`${path} is not a lock this engine made, perhaps one an older engine left; delete it once no engine runs in this repository, then run the command again`);
+    }
+    throw error62;
+  }
+  let held = true;
+  const release = () => {
+    if (!held) return;
+    held = false;
+    try {
+      rmSync4(holderPath(path), { force: true });
+    } finally {
+      try {
+        db.exec("ROLLBACK");
+      } finally {
+        db.close();
+      }
+    }
+  };
+  try {
+    writeFileSync4(holderPath(path), `${String(process.pid)}
+`);
+  } catch (error62) {
+    release();
+    throw error62;
+  }
+  return release;
+}
+var endingSignals = process.platform === "win32" ? ["SIGINT", "SIGBREAK", "SIGHUP"] : ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
+function exitBySignal(signal) {
+  process.exit(128 + (constants.signals[signal] ?? 0));
+}
+function releaseOnExit(release, end = exitBySignal) {
+  let held = true;
+  const dispose = () => {
+    if (!held) return;
+    held = false;
+    process.off("exit", dispose);
+    for (const signal of endingSignals) process.off(signal, onSignal);
+    release();
+  };
+  const onSignal = (signal) => {
+    dispose();
+    end(signal);
+  };
+  process.on("exit", dispose);
+  for (const signal of endingSignals) process.on(signal, onSignal);
+  return dispose;
+}
+
+// src/review/patch.ts
+import { createHash as createHash4 } from "node:crypto";
+import { deflateSync } from "node:zlib";
+var contextLines = 3;
+var maxDifferences = 2e3;
+var contentOf = (file2, read) => ({ bytes: "blob" in file2.frozen ? read(file2.frozen.blob) : null, symlink: file2.symlink, frozen: file2.frozen });
+function gitBlobId(bytes, format) {
+  return createHash4(format).update(`blob ${String(bytes.length)}\0`).update(bytes).digest("hex");
+}
+var nullId = (format) => "0".repeat(format === "sha1" ? 40 : 64);
+function isText(bytes) {
+  if (bytes.includes(0)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var linesOf2 = (text2) => text2 === "" ? [] : text2.split(/(?<=\n)/);
+function editScript(a, b) {
+  let head2 = 0;
+  while (head2 < a.length && head2 < b.length && a[head2] === b[head2]) head2 += 1;
+  let tail = 0;
+  while (tail < a.length - head2 && tail < b.length - head2 && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1;
+  const x0 = a.slice(head2, a.length - tail);
+  const y0 = b.slice(head2, b.length - tail);
+  const middle = myers(x0, y0);
+  if (middle === null) return null;
+  return [...Array(head2).fill("="), ...middle, ...Array(tail).fill("=")];
+}
+function myers(a, b) {
+  const n = a.length;
+  const m = b.length;
+  const limit = Math.min(n + m, maxDifferences);
+  const offset = limit + 1;
+  const v = new Int32Array(2 * limit + 3);
+  const trace = [];
+  for (let d = 0; d <= limit; d += 1) {
+    trace.push(v.slice());
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || k !== d && v[offset + k - 1] < v[offset + k + 1] ? v[offset + k + 1] : v[offset + k - 1] + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) {
+        x += 1;
+        y += 1;
+      }
+      v[offset + k] = x;
+      if (x >= n && y >= m) return backtrack(trace, offset, n, m);
+    }
+  }
+  return null;
+}
+function backtrack(trace, offset, n, m) {
+  const operations = [];
+  let x = n;
+  let y = m;
+  for (let d = trace.length - 1; d >= 0; d -= 1) {
+    const v = trace[d];
+    const k = x - y;
+    const previousK = k === -d || k !== d && v[offset + k - 1] < v[offset + k + 1] ? k + 1 : k - 1;
+    const previousX = v[offset + previousK];
+    const previousY = previousX - previousK;
+    while (x > previousX && y > previousY) {
+      operations.push("=");
+      x -= 1;
+      y -= 1;
+    }
+    if (d > 0) operations.push(x === previousX ? "+" : "-");
+    x = previousX;
+    y = previousY;
+  }
+  return operations.reverse();
+}
+var diffLine = (prefix, line) => line.endsWith("\n") ? `${prefix}${line}` : `${prefix}${line}
+\\ No newline at end of file
+`;
+function hunks(before, after) {
+  const a = linesOf2(before);
+  const b = linesOf2(after);
+  const script = editScript(a, b) ?? [...Array(a.length).fill("-"), ...Array(b.length).fill("+")];
+  const steps = [];
+  let i = 0;
+  let j = 0;
+  for (const operation of script) {
+    steps.push({ operation, oldIndex: i, newIndex: j });
+    if (operation !== "+") i += 1;
+    if (operation !== "-") j += 1;
+  }
+  const changes = steps.flatMap((step, index2) => step.operation === "=" ? [] : [index2]);
+  if (changes.length === 0) return "";
+  const ranges = [];
+  for (const index2 of changes) {
+    const start = Math.max(0, index2 - contextLines);
+    const end = Math.min(steps.length, index2 + contextLines + 1);
+    const last = ranges.at(-1);
+    if (last !== void 0 && start <= last[1]) last[1] = Math.max(last[1], end);
+    else ranges.push([start, end]);
+  }
+  const out = [];
+  for (const [start, end] of ranges) {
+    const part = steps.slice(start, end);
+    const oldCount = part.filter((step) => step.operation !== "+").length;
+    const newCount = part.filter((step) => step.operation !== "-").length;
+    const first = part[0];
+    const oldStart = oldCount === 0 ? first.oldIndex : first.oldIndex + 1;
+    const newStart = newCount === 0 ? first.newIndex : first.newIndex + 1;
+    out.push(`@@ -${String(oldStart)},${String(oldCount)} +${String(newStart)},${String(newCount)} @@
+`);
+    for (const step of part) {
+      if (step.operation === "=") out.push(diffLine(" ", a[step.oldIndex]));
+      else if (step.operation === "-") out.push(diffLine("-", a[step.oldIndex]));
+      else out.push(diffLine("+", b[step.newIndex]));
+    }
+  }
+  return out.join("");
+}
+var base85Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
+function base85Lines(bytes) {
+  const lines = [];
+  for (let start = 0; start < bytes.length; start += 52) {
+    const chunk2 = bytes.subarray(start, Math.min(bytes.length, start + 52));
+    const length = chunk2.length <= 26 ? String.fromCharCode(64 + chunk2.length) : String.fromCharCode(96 + chunk2.length - 26);
+    let encoded = "";
+    for (let at = 0; at < chunk2.length; at += 4) {
+      let value = 0;
+      for (let byte = 0; byte < 4; byte += 1) value = value * 256 + (chunk2[at + byte] ?? 0);
+      let group = "";
+      for (let digit = 0; digit < 5; digit += 1) {
+        group = base85Alphabet[value % 85] + group;
+        value = Math.floor(value / 85);
+      }
+      encoded += group;
+    }
+    lines.push(`${length}${encoded}
+`);
+  }
+  return lines.join("");
+}
+function binaryPatch(before, after) {
+  return `GIT binary patch
+literal ${String(after.length)}
+${base85Lines(deflateSync(after))}
+literal ${String(before.length)}
+${base85Lines(deflateSync(before))}
+`;
+}
+var modeOf = (content) => content.symlink ? "120000" : "100644";
+function fileDiff(path, before, after, format) {
+  if (before !== null && after !== null && before.symlink !== after.symlink) return fileDiff(path, before, null, format) + fileDiff(path, null, after, format);
+  if (before === null && after === null) return "";
+  const header = [`diff --git a/${path} b/${path}
+`];
+  if (before === null) header.push(`new file mode ${modeOf(after)}
+`);
+  if (after === null) header.push(`deleted file mode ${modeOf(before)}
+`);
+  if (before !== null && before.bytes === null || after !== null && after.bytes === null) {
+    return `${header.join("")}Binary files ${before === null ? "/dev/null" : `a/${path}`} and ${after === null ? "/dev/null" : `b/${path}`} differ
+`;
+  }
+  const oldBytes = before?.bytes ?? Buffer.alloc(0);
+  const newBytes = after?.bytes ?? Buffer.alloc(0);
+  if (before !== null && after !== null && oldBytes.equals(newBytes)) return "";
+  const oldId = before === null ? nullId(format) : gitBlobId(oldBytes, format);
+  const newId = after === null ? nullId(format) : gitBlobId(newBytes, format);
+  header.push(`index ${oldId}..${newId}${before !== null && after !== null ? ` ${modeOf(after)}` : ""}
+`);
+  if (!isText(oldBytes) || !isText(newBytes)) return `${header.join("")}${binaryPatch(oldBytes, newBytes)}`;
+  const body = hunks(oldBytes.toString("utf8"), newBytes.toString("utf8"));
+  return `${header.join("")}--- ${before === null ? "/dev/null" : `a/${path}`}
++++ ${after === null ? "/dev/null" : `b/${path}`}
+${body}`;
+}
+function renderPatch(before, after, paths, read, format = "sha1") {
+  const content = (tree, path) => {
+    const file2 = tree.get(path) ?? null;
+    return file2 === null ? null : contentOf(file2, read);
+  };
+  return [...new Set(paths)].sort().map((path) => fileDiff(path, content(before, path), content(after, path), format)).join("");
+}
+function patchSeries(scope, revisions, read, format) {
+  const state = expectedTree(scope, []);
+  return revisions.map((revision, index2) => {
+    const before = new Map(state);
+    applyRevision(state, revision.files);
+    return renderMail(revision.change.message, index2 + 1, revisions.length, renderPatch(before, state, revision.files.map((file2) => file2.path), read, format));
+  });
+}
+var patchAuthor = "deep-review <deep-review@deep-review.invalid>";
+function headerText(text2) {
+  if (/^[\x20-\x7e]*$/.test(text2)) return text2;
+  const encoded = [...Buffer.from(text2, "utf8")].map((byte) => byte === 32 ? "_" : /[A-Za-z0-9!*+\-/]/.test(String.fromCharCode(byte)) ? String.fromCharCode(byte) : `=${byte.toString(16).toUpperCase().padStart(2, "0")}`).join("");
+  return `=?UTF-8?q?${encoded}?=`;
+}
+var bodyLine = (line) => /^(---|diff -|Index: )/.test(line) ? ` ${line}` : line;
+function renderMail(message, number5, total, diff) {
+  const body = message.body.trim() === "" ? "" : `${message.body.replace(/\r\n/g, "\n").split("\n").map(bodyLine).join("\n").replace(/\n*$/, "\n")}`;
+  return [
+    "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n",
+    `From: ${patchAuthor}
+`,
+    `Subject: [PATCH ${String(number5)}/${String(total)}] ${headerText(message.subject)}
+`,
+    "MIME-Version: 1.0\n",
+    "Content-Type: text/plain; charset=UTF-8\n",
+    "Content-Transfer-Encoding: 8bit\n",
+    "\n",
+    body,
+    "---\n",
+    diff,
+    "-- \n",
+    "deep-review\n",
+    "\n"
+  ].join("");
+}
+
+// src/review/phases.ts
+import { join as join21 } from "node:path";
+
+// src/review/policy.ts
+import { createHash as createHash5 } from "node:crypto";
+import { readFileSync as readFileSync11 } from "node:fs";
+import { join as join20 } from "node:path";
 var policyFileName = "policy.json";
 var tiers = ["strong", "fast"];
 var tierSchema = external_exports.enum(tiers);
@@ -23235,9 +25085,13 @@ var runtimePolicySchema = external_exports.strictObject({
   runBudgetUsd: external_exports.number().positive().nullable()
 });
 var maxConcurrency = 16;
+var checksPolicySchema = external_exports.strictObject({
+  timeoutMs: external_exports.number().int().min(1e3).max(maxTimeoutMs)
+});
 var policyFileSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
   roles: external_exports.record(roleKeySchema, rolePolicySchema),
+  checks: checksPolicySchema,
   runtimes: external_exports.record(external_exports.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
   concurrency: external_exports.number().int().min(1).max(maxConcurrency)
 });
@@ -23262,10 +25116,10 @@ function parsePolicy(value) {
   return parsed.data;
 }
 function readPolicy(rolesRoot) {
-  const path = join15(rolesRoot, policyFileName);
+  const path = join20(rolesRoot, policyFileName);
   let text2;
   try {
-    text2 = readFileSync7(path, "utf8");
+    text2 = readFileSync11(path, "utf8");
   } catch (error62) {
     throw new InvalidPolicyError(`Cannot read the role policy at ${path}: ${error62.message}`);
   }
@@ -23279,7 +25133,7 @@ function readPolicy(rolesRoot) {
 }
 function rolesDigest(roles) {
   const lines = roles.map((role) => `${role.key}:${role.sha256}`).sort();
-  return createHash3("sha256").update(lines.join("\n")).digest("hex");
+  return createHash5("sha256").update(lines.join("\n")).digest("hex");
 }
 function resolvePolicy(policy, roles, adapter, flags = {}) {
   const named = Object.keys(policy.roles).sort();
@@ -23319,7 +25173,8 @@ function resolvePolicy(policy, roles, adapter, flags = {}) {
     roles: pinned,
     rolesDigest: rolesDigest(roles),
     concurrency: flags.concurrency ?? policy.concurrency,
-    runBudgetUsd: capabilities.costInUsd ? flags.budgetUsd ?? runtime.runBudgetUsd : null
+    runBudgetUsd: capabilities.costInUsd ? flags.budgetUsd ?? runtime.runBudgetUsd : null,
+    checks: policy.checks
   };
 }
 function pinnedRole(roles, role) {
@@ -23413,472 +25268,6 @@ ${body}
 `;
 }
 
-// src/review/schemas.ts
-var candidateFields = {
-  /** The path as the finder gives it; the engine normalizes it against the scope. */
-  file: external_exports.string().min(1).max(1e3),
-  /** The line in the new version of the file. */
-  line: external_exports.number().int().min(1),
-  summary: external_exports.string().min(1).max(400),
-  /** The `failure_scenario` or `value_statement` of the finder output contract, as the angle decides. */
-  detail: external_exports.string().min(1).max(2e3)
-};
-var candidateSchema = external_exports.strictObject(candidateFields);
-var sweepCandidateSchema = external_exports.strictObject({ ...candidateFields, angle: angleSchema2 });
-var maxCandidates = 12;
-var leadOutputSchema = external_exports.strictObject({ angle: finderAngleSchema2, lead: external_exports.string().min(1).max(1e3).nullable() });
-var triageOutputSchema = external_exports.strictObject({
-  candidates: external_exports.array(candidateSchema).max(maxCandidates),
-  leads: external_exports.array(leadOutputSchema).length(finderAngles.length)
-});
-var finderOutputSchema = external_exports.strictObject({ candidates: external_exports.array(candidateSchema).max(maxCandidates) });
-var sweepOutputSchema = external_exports.strictObject({ candidates: external_exports.array(sweepCandidateSchema).max(maxCandidates) });
-var index = external_exports.number().int().min(0);
-var deduplicationOutputSchema = external_exports.strictObject({
-  groups: external_exports.array(external_exports.strictObject({ members: external_exports.array(index).min(2), keep: index, reason: external_exports.string().min(1).max(1e3) }))
-});
-var verifierOutputSchema = external_exports.strictObject({
-  verdicts: external_exports.array(external_exports.strictObject({ index, verdict: verdictSchema2, evidence: external_exports.string().min(1).max(1e3) }))
-});
-var mergeRankOutputSchema = external_exports.strictObject({
-  findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema2, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
-});
-var reportedPath = external_exports.string().min(1).max(1e3);
-var fixerOutputSchema = external_exports.strictObject({
-  findings: external_exports.array(external_exports.strictObject({
-    index,
-    status: fixStatusSchema,
-    /** Where the fix is, or where the finding was judged when nothing was edited. */
-    file: reportedPath,
-    line: external_exports.number().int().min(1).nullable(),
-    note: external_exports.string().min(1).max(400),
-    /** The commit message of an applied finding, in the repository's own style; null for every other status. */
-    message: external_exports.strictObject({ subject: external_exports.string().min(1).max(72), body: external_exports.string().max(2e3) }).nullable(),
-    /** Every file edited or created for this finding. */
-    files: external_exports.array(reportedPath).max(200),
-    corrections: external_exports.array(external_exports.strictObject({
-      file: external_exports.string().min(1).max(400),
-      anchor: external_exports.string().min(1).max(400),
-      claim: external_exports.string().min(1).max(400),
-      fact: external_exports.string().min(1).max(400),
-      evidence: external_exports.string().min(1).max(400)
-    })).max(20),
-    validation: external_exports.array(external_exports.strictObject({ method: validationMethodSchema, source: external_exports.string().min(1).max(400), evidence: external_exports.string().min(1).max(1e3) })).max(20),
-    /** The files another cluster owns that a blocked finding needs; empty for every other status. */
-    requiredFiles: external_exports.array(reportedPath).max(50)
-  })),
-  drift: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1).max(1e3), what: external_exports.string().min(1).max(400) })).max(50),
-  tests: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1).max(1e3), covers: external_exports.string().min(1).max(400) })).max(50),
-  suite: external_exports.strictObject({ result: suiteResultSchema, command: external_exports.string().max(400), failures: external_exports.string().max(2e3) })
-});
-function outputSchemaOf(role) {
-  if (isFinderRole(role)) return finderOutputSchema;
-  switch (role) {
-    case "triage":
-      return triageOutputSchema;
-    case "deduplication":
-      return deduplicationOutputSchema;
-    case "verifier":
-      return verifierOutputSchema;
-    case "sweep":
-      return sweepOutputSchema;
-    case "merge-rank":
-      return mergeRankOutputSchema;
-  }
-}
-function checkTriageLeads(output2) {
-  const seen = /* @__PURE__ */ new Set();
-  for (const lead of output2.leads) {
-    if (seen.has(lead.angle)) throw new StructuralCheckError(`The triage returned two leads for angle ${lead.angle}`);
-    seen.add(lead.angle);
-  }
-  const missing = finderAngles.filter((angle) => !seen.has(angle));
-  if (missing.length > 0) throw new StructuralCheckError(`The triage returned no lead for ${missing.join(", ")}`);
-}
-var outOfRange = (what, value, count2) => new StructuralCheckError(`${what} names index ${String(value)}, but the candidates are numbered [0] to [${String(count2 - 1)}]`);
-var missingIndexes = (seen, count2) => Array.from({ length: count2 }, (_, position) => position).filter((position) => !seen.has(position));
-function checkDeduplication(output2, count2) {
-  const grouped = /* @__PURE__ */ new Set();
-  for (const [position, group] of output2.groups.entries()) {
-    const what = `Deduplication group ${String(position)}`;
-    for (const member of group.members) {
-      if (member >= count2) throw outOfRange(what, member, count2);
-      if (grouped.has(member)) throw new StructuralCheckError(`${what} names index ${String(member)}, which another group already names`);
-      grouped.add(member);
-    }
-    if (!group.members.includes(group.keep)) throw new StructuralCheckError(`${what} keeps index ${String(group.keep)}, which is not one of its members`);
-  }
-}
-function checkVerdicts(output2, count2) {
-  const seen = /* @__PURE__ */ new Set();
-  for (const verdict of output2.verdicts) {
-    if (verdict.index >= count2) throw outOfRange("A verdict", verdict.index, count2);
-    if (seen.has(verdict.index)) throw new StructuralCheckError(`Two verdicts name index ${String(verdict.index)}`);
-    seen.add(verdict.index);
-  }
-  const missing = missingIndexes(seen, count2);
-  if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(", ")} of the ${String(count2)} candidates in the group`);
-}
-function checkMergeRank(output2, count2) {
-  const seen = /* @__PURE__ */ new Set();
-  for (const [position, finding] of output2.findings.entries()) {
-    const what = `Finding ${String(position)}`;
-    for (const value of [finding.primary, ...finding.members]) {
-      if (value >= count2) throw outOfRange(what, value, count2);
-      if (seen.has(value)) throw new StructuralCheckError(`${what} names index ${String(value)}, which another finding, or the same one, already names`);
-      seen.add(value);
-    }
-  }
-  const missing = missingIndexes(seen, count2);
-  if (missing.length > 0) throw new StructuralCheckError(`The ranking leaves out index ${missing.map(String).join(", ")} of the ${String(count2)} candidates on the working list`);
-}
-
-// src/review/state.ts
-function reviewStatus(state) {
-  if (state.status === "abandoned") return "abandoned";
-  if (state.review?.report !== null && state.review?.report !== void 0) return "complete";
-  if (state.review?.blocker !== null && state.review?.blocker !== void 0) return "blocked";
-  return "active";
-}
-function currentPhase(review2) {
-  return phases.find((phase) => review2.phases[phase].status === "running" || review2.phases[phase].status === "blocked") ?? null;
-}
-function nextPendingPhase(review2) {
-  return phases.find((phase) => review2.phases[phase].status === "pending") ?? null;
-}
-function workingList(review2, phase) {
-  return poolCandidates(review2, phase).filter((candidate) => candidate.duplicateOf === null);
-}
-function resolutionOf(candidate) {
-  if (candidate.verdict !== null) return { verdict: candidate.verdict.verdict, unverified: false, evidence: candidate.verdict.evidence };
-  if (candidate.unverified) return { verdict: "PLAUSIBLE", unverified: true, evidence: null };
-  return null;
-}
-function survivors(review2, phase) {
-  return workingList(review2, phase).map((candidate) => ({ candidate, resolution: resolutionOf(candidate) })).filter((entry) => entry.resolution !== null && entry.resolution.verdict !== "REFUTED");
-}
-function refutedIn(review2, phase) {
-  return workingList(review2, phase).filter((candidate) => candidate.verdict?.verdict === "REFUTED").map((candidate) => ({ candidate, evidence: candidate.verdict.evidence }));
-}
-function refuted(review2) {
-  return [...refutedIn(review2, "verification"), ...refutedIn(review2, "sweep-verification")];
-}
-function mergeRankInput(review2) {
-  return [...survivors(review2, "verification"), ...survivors(review2, "sweep-verification")];
-}
-function mergedResolution(candidates) {
-  const resolutions = candidates.map(resolutionOf).filter((resolution) => resolution !== null);
-  const verdict = resolutions.some((resolution) => resolution.verdict === "CONFIRMED") ? "CONFIRMED" : "PLAUSIBLE";
-  const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
-  const evidence = resolutions.find((resolution) => resolution.evidence !== null)?.evidence ?? null;
-  return { verdict, unverified, evidence };
-}
-var idParts = (id) => {
-  const dash = id.lastIndexOf("-");
-  return [id.slice(0, dash), Number(id.slice(dash + 1))];
-};
-function compareFindings(a, b) {
-  const severity = severities.indexOf(a.finding.severity) - severities.indexOf(b.finding.severity);
-  if (severity !== 0) return severity;
-  const verdict = Number(a.resolution.verdict !== "CONFIRMED") - Number(b.resolution.verdict !== "CONFIRMED");
-  if (verdict !== 0) return verdict;
-  const angle = Number(angleClasses[a.primary.angle] !== "correctness") - Number(angleClasses[b.primary.angle] !== "correctness");
-  if (angle !== 0) return angle;
-  const [prefixA, numberA] = idParts(a.finding.id);
-  const [prefixB, numberB] = idParts(b.finding.id);
-  return prefixA < prefixB ? -1 : prefixA > prefixB ? 1 : numberA - numberB;
-}
-function rankedFindings(review2, findings = review2.ranking ?? []) {
-  const resolved = findings.map((finding) => {
-    const primary = review2.candidates[finding.id];
-    const members2 = finding.members.map((id) => review2.candidates[id]);
-    if (primary === void 0 || members2.some((member) => member === void 0)) throw new Error(`Ranking names a candidate the run never recorded: ${finding.id}`);
-    return { finding, primary, members: members2, resolution: mergedResolution([primary, ...members2]) };
-  });
-  return resolved.sort(compareFindings);
-}
-
-// src/review/grouping.ts
-var maxGroupSize = 8;
-var spellingOf = (candidate) => normalizeFileName(candidate.rawFile).toLowerCase();
-var isAbsolute3 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
-function unlocatedSpellings(candidates) {
-  const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
-  const relative2 = [...spellings].filter((spelling) => !isAbsolute3(spelling));
-  const joined = /* @__PURE__ */ new Map();
-  for (const spelling of spellings) {
-    const within = isAbsolute3(spelling) ? relative2.filter((name) => spelling.endsWith(`/${name}`)) : [];
-    joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
-  }
-  return joined;
-}
-function unlocatedSpellingIn(candidates) {
-  const spellings = unlocatedSpellings(candidates);
-  return (candidate) => spellings.get(spellingOf(candidate)) ?? spellingOf(candidate);
-}
-var byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-function chunk(items, size = maxGroupSize) {
-  if (!Number.isInteger(size) || size < 1) throw new RangeError(`A chunk size must be a positive integer, not ${String(size)}`);
-  const count2 = Math.ceil(items.length / size);
-  const chunks = [];
-  let start = 0;
-  for (let index2 = 0; index2 < count2; index2 += 1) {
-    const length = Math.floor(items.length / count2) + (index2 < items.length % count2 ? 1 : 0);
-    chunks.push(items.slice(start, start + length));
-    start += length;
-  }
-  return chunks;
-}
-function planGroups(candidates) {
-  const spelling = unlocatedSpellingIn(candidates);
-  const groupKey = (candidate) => candidate.file === null ? `unlocated:${spelling(candidate)}` : `located:${candidate.file}`;
-  const groups = /* @__PURE__ */ new Map();
-  for (const candidate of candidates) {
-    const key = groupKey(candidate);
-    const group = groups.get(key);
-    if (group === void 0) groups.set(key, [candidate]);
-    else group.push(candidate);
-  }
-  const keys = [...groups.keys()].sort((a, b) => {
-    return byText(a, b);
-  });
-  const planned = [];
-  for (const key of keys) {
-    const members2 = [...groups.get(key)].sort((a, b) => (a.line ?? a.rawLine) - (b.line ?? b.rawLine) || byText(a.id, b.id));
-    for (const part of chunk(members2)) planned.push({ id: `g${String(planned.length + 1)}`, candidateIds: part.map((candidate) => candidate.id) });
-  }
-  return planned;
-}
-
-// src/review/spend.ts
-var isFinished = (worker) => worker.status === "finished";
-function settledWorkers(state) {
-  return Object.values(state.workers).filter((worker) => worker.status !== "running");
-}
-function usageOf(worker, adapter) {
-  if (worker.finish.usage === null) return emptyUsageSummary;
-  try {
-    return adapter.summarizeUsage(JSON.parse(worker.finish.usage));
-  } catch {
-    return emptyUsageSummary;
-  }
-}
-function sumReported(values) {
-  const reported = values.filter((value) => value !== null);
-  return reported.length === 0 ? null : reported.reduce((total, value) => total + value, 0);
-}
-var cents = (value) => value === null ? null : Math.round(Number((value * 100).toPrecision(12))) / 100;
-function wallSeconds(workers) {
-  const intervals = workers.map((worker) => ({ start: Date.parse(worker.finish.startedAt), end: Date.parse(worker.finish.endedAt) })).filter((interval) => interval.end > interval.start).sort((a, b) => a.start - b.start);
-  let total = 0;
-  let open2 = null;
-  for (const interval of intervals) {
-    if (open2 !== null && interval.start <= open2.end) {
-      open2.end = Math.max(open2.end, interval.end);
-      continue;
-    }
-    if (open2 !== null) total += open2.end - open2.start;
-    open2 = { ...interval };
-  }
-  if (open2 !== null) total += open2.end - open2.start;
-  return total / 1e3;
-}
-function spendOf(workers, adapter) {
-  const finished = workers.filter(isFinished);
-  const summaries = finished.map((worker) => usageOf(worker, adapter));
-  const lost = workers.length - finished.length;
-  return {
-    workers: finished.length,
-    seconds: Math.round(wallSeconds(finished) * 10) / 10,
-    costUsd: cents(sumReported(summaries.map((summary) => summary.costUsd))),
-    costUnreported: adapter.capabilities.costInUsd ? lost + finished.filter((worker, index2) => summaries[index2].costUsd === null && worker.finish.termination !== "not-started").length : null,
-    inputTokens: sumReported(summaries.map((summary) => summary.inputTokens)),
-    cachedInputTokens: sumReported(summaries.map((summary) => summary.cachedInputTokens)),
-    outputTokens: sumReported(summaries.map((summary) => summary.outputTokens))
-  };
-}
-function budgetSpendOf(state, adapter) {
-  if (!adapter.capabilities.costInUsd) return { usd: null, charged: 0, lost: 0 };
-  const settled = settledWorkers(state);
-  const finished = settled.filter(isFinished);
-  let usd4 = 0;
-  let charged = 0;
-  for (const worker of finished) {
-    const reported = usageOf(worker, adapter).costUsd;
-    if (reported !== null) {
-      usd4 += reported;
-    } else if (worker.finish.termination !== "not-started" && worker.launch.budgetUsd !== null) {
-      usd4 += worker.launch.budgetUsd;
-      charged += 1;
-    }
-  }
-  return { usd: cents(usd4), charged, lost: settled.length - finished.length };
-}
-var counted = (count2, one, many) => `${String(count2)} ${count2 === 1 ? one : many}`;
-function budgetSpendNote({ charged, lost }) {
-  const parts = [
-    ...charged > 0 ? [`counting ${counted(charged, "worker that reported no cost at its per-worker cap", "workers that reported no cost at their per-worker caps")}`] : [],
-    ...lost > 0 ? [`${counted(lost, "worker lost with an earlier engine is", "workers lost with an earlier engine are")} not counted`] : []
-  ];
-  return parts.length === 0 ? null : parts.join("; ");
-}
-function statisticsOf(state, adapter) {
-  const settled = settledWorkers(state);
-  const byPhase = phases.map((phase) => ({ phase, ...spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter) }));
-  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
-}
-
-// src/review/steps.ts
-var maxAttempts = 2;
-function groupsOf(review2, phase) {
-  return review2.plans[phase] ?? planGroups(workingList(review2, phase));
-}
-function unitsOf(review2, phase) {
-  const single = (role) => [{ phase, key: singleUnitKey(phase), role }];
-  switch (phase) {
-    case "triage":
-      return single("triage");
-    case "finders":
-      return finderAngles.map((angle) => ({ phase, key: angle, role: roleOfAngle(angle) }));
-    case "deduplication":
-    case "sweep-deduplication":
-      return poolCandidates(review2, phase).length >= 2 ? single("deduplication") : [];
-    case "verification":
-    case "sweep-verification":
-      return groupsOf(review2, phase).map((group) => ({ phase, key: group.id, role: "verifier" }));
-    case "sweep":
-      return single("sweep");
-    case "merge-rank":
-      return mergeRankInput(review2).length > 0 ? single("merge-rank") : [];
-    case "report":
-      return [];
-  }
-}
-var exhausted = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && (state?.failures.length ?? 0) >= maxAttempts;
-var truncationMark = " [truncated]";
-function truncated(text2, limit) {
-  if (text2.length <= limit) return text2;
-  const room = Math.max(0, limit);
-  const kept = room > truncationMark.length ? room - truncationMark.length : room;
-  const last = text2.charCodeAt(kept - 1);
-  const end = last >= 55296 && last <= 56319 ? kept - 1 : kept;
-  return `${text2.slice(0, end)}${room > truncationMark.length ? truncationMark : ""}`;
-}
-function failureReason(state, limit = maxRecordedTextLength) {
-  const reasons = (state?.failures ?? []).map((failure2) => failure2.reason);
-  const header = `${String(reasons.length)} attempts did not complete: `;
-  const separator = "; ";
-  const share = Math.floor((limit - header.length - separator.length * Math.max(0, reasons.length - 1)) / Math.max(1, reasons.length));
-  return truncated(`${header}${reasons.map((reason) => truncated(reason, share)).join(separator)}`, limit);
-}
-function listWithin(items, limit) {
-  const all = items.join(", ");
-  if (all.length <= limit) return all;
-  const more = (count2) => count2 > 0 ? `, and ${String(count2)} more` : "";
-  const reserve = more(items.length).length;
-  let text2 = "";
-  let shown = 0;
-  for (const item of items) {
-    const next = shown === 0 ? item : `${text2}, ${item}`;
-    if (next.length + reserve > limit) break;
-    text2 = next;
-    shown += 1;
-  }
-  if (shown > 0) return `${text2}${more(items.length - shown)}`;
-  const rest = more(items.length - 1);
-  return `${truncated(items[0] ?? "", limit - rest.length)}${rest}`;
-}
-function degradationOf(unit) {
-  switch (unit.phase) {
-    case "finders":
-      return { kind: "angle.failed", angle: unit.key };
-    case "verification":
-    case "sweep-verification":
-      return { kind: "group.unverified", phase: unit.phase, groupId: unit.key };
-    case "triage":
-    case "deduplication":
-    case "sweep":
-    case "sweep-deduplication":
-    case "merge-rank":
-    case "report":
-      return null;
-  }
-}
-function degraded(review2, unit) {
-  const target = degradationOf(unit);
-  if (target === null) return false;
-  switch (target.kind) {
-    case "angle.failed":
-      return Object.hasOwn(review2.anglesNotRun, target.angle);
-    case "group.unverified":
-      return isUnverified(review2, target.phase, target.groupId);
-  }
-}
-var interrupted = (state) => state?.failures.some((failure2) => failure2.lost) ?? false;
-function exhaustedOutcome(unit, state) {
-  return interrupted(state) ? null : degradationOf(unit);
-}
-var launchableUnit = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && !degraded(review2, unit) && !exhausted(review2, unit, state);
-var usd = (value) => value.toFixed(2);
-function workerFailedBlocker(unit, state) {
-  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
-  return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions["worker-failed"] };
-}
-function budgetBlocker(spend, budgetUsd) {
-  const note = budgetSpendNote(spend);
-  return {
-    code: "budget",
-    detail: `spent ${usd(spend.usd)} USD of the ${usd(budgetUsd)} USD run budget${note === null ? "" : `, ${note}`}`,
-    action: `run the command again with --budget-usd above ${usd(spend.usd)}, or abandon the run`
-  };
-}
-function driftBlocker(files) {
-  const prefix = "the worktree differs from the reviewed change: ";
-  const listed = listWithin(files.map((file2) => `${file2.path} (${file2.outcome})`), maxRecordedTextLength - prefix.length);
-  return { code: "drift", detail: `${prefix}${listed}`, action: blockerActions.drift };
-}
-function nextStep(review2, live2) {
-  if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };
-  if (review2.report !== null) return { kind: "complete" };
-  const phase = currentPhase(review2);
-  if (phase === null) {
-    const pending = nextPendingPhase(review2);
-    if (pending === null) throw new Error("Every phase has finished but no report was written");
-    return { kind: "start-phase", phase: pending, attempt: review2.phases[pending].attempt + 1 };
-  }
-  const attempt = review2.phases[phase].attempt;
-  const checks = review2.checks.filter((check2) => check2.phase === phase && check2.attempt === attempt);
-  if (checks.length === 0) return { kind: "check-worktree", phase, attempt };
-  const drift = checks.find((check2) => check2.drifted);
-  if (drift !== void 0) return live2.running.size > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: driftBlocker(drift.files) };
-  if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
-  if (phase === "report") return { kind: "write-report" };
-  const units = unitsOf(review2, phase);
-  const states = review2.units[phase];
-  const spent = units.filter((unit) => exhausted(review2, unit, states[unit.key]) && !degraded(review2, unit));
-  const degradations = spent.flatMap((unit) => {
-    const target = exhaustedOutcome(unit, states[unit.key]);
-    return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
-  });
-  if (degradations.length > 0) return { kind: "degrade", phase, degradations };
-  const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
-  const blocking = spent.find((unit) => exhaustedOutcome(unit, states[unit.key]) === null);
-  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
-  const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
-  if (launchable.length > 0) {
-    const { concurrency, runBudgetUsd } = review2.limits;
-    const countedUsd = live2.spend.usd;
-    if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
-      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker({ ...live2.spend, usd: countedUsd }, runBudgetUsd) };
-    }
-    const capacity = concurrency - live2.running.size;
-    return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
-  }
-  if (running.length > 0) return { kind: "await" };
-  const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
-  return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
-}
-
 // src/review/tasks.ts
 function describeLocation(candidate) {
   const location = repositoryLocation(candidate);
@@ -23949,7 +25338,100 @@ function sweepTask(inputs) {
     "Return your gap candidates, up to 12, each naming in `angle` the angle whose territory it sits in; its `detail` is that angle's fourth field. An empty list is the correct answer when there is nothing new."
   ].join("\n");
 }
+var snapshotIndexPlaceholder = "<index>";
+function checksBlock(checks) {
+  if (checks.every((check2) => check2.command === null)) return "No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.";
+  return [
+    "The engine runs these checks, in this order, before any fixer edits and again after every fixer returns:",
+    ...checks.map((check2) => check2.command === null ? `- ${check2.kind}: not available (${check2.reason ?? "no command"})` : `- ${check2.kind}: ${check2.command}`),
+    "Run the ones that cover your change before you return, and report the suite you ran in `suite`."
+  ].join("\n");
+}
+function snapshotBlock(command, unit) {
+  return [
+    `After finishing each ${unit}, and before starting the next, run this from the repository root with that ${unit}'s index in place of ${snapshotIndexPlaceholder}:`,
+    "",
+    `    ${command}`,
+    "",
+    `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
+  ].join("\n");
+}
+var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, and null for any other status; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+var scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
+var earlierWork = (unit) => `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
+var fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
+function fixerTask(input2) {
+  const count2 = input2.findings.length;
+  const findings = input2.findings.map((finding, index2) => [
+    `[${String(index2)}] ${finding.id} [${finding.severity}] ${finding.verdict}${finding.unverified ? " (unverified)" : ""} (${finding.angle}) at ${finding.location}`,
+    `    summary: ${finding.summary}`,
+    `    detail: ${finding.detail}`,
+    `    evidence: ${finding.evidence ?? "none; the verifier of its group failed twice"}`,
+    `    reason: ${finding.reason}`,
+    ...finding.also.length === 0 ? [] : [`    also at: ${finding.also.join("; ")}`]
+  ].join("\n"));
+  const others = input2.othersOwned.filter((cluster) => cluster.files.length > 0);
+  return [
+    `Cluster ${input2.cluster}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
+    "",
+    ...findings,
+    "",
+    "Files you own for this pass, which no other worker edits:",
+    fileList(input2.owned),
+    "",
+    "Files other clusters own, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:",
+    others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2} (${cluster.cluster})`)).join("\n"),
+    "",
+    "You may edit any other file of the repository, existing or new, when a fix or its tests need it; report every file you edit or create under the finding it served.",
+    "",
+    checksBlock(input2.checks),
+    "",
+    snapshotBlock(input2.snapshotCommand, "finding"),
+    "",
+    ...input2.mayHoldWork ? [earlierWork("finding"), ""] : [],
+    answerFields("finding"),
+    "",
+    scratchRule
+  ].join("\n");
+}
 var repairTailBytes = 16 * 1024;
+function outputTail(name, tail, path) {
+  const text2 = tail.toString("utf8");
+  if (text2.trim() === "") return `    ${name}: empty (frozen at ${path})`;
+  const fence = fenceFor(text2);
+  return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text2.endsWith("\n") ? text2.slice(0, -1) : text2, fence].join("\n");
+}
+function repairTask(input2) {
+  const count2 = input2.checks.length;
+  const checks = input2.checks.map((check2, index2) => [
+    `[${String(index2)}] ${check2.kind}: ${check2.command}`,
+    `    ${check2.outcome === "timeout" ? "ran past its timeout and was killed" : `exited with code ${check2.exitCode === null ? "none (ended by a signal)" : String(check2.exitCode)}`}`,
+    outputTail("stdout", check2.stdout.tail, check2.stdout.path),
+    outputTail("stderr", check2.stderr.tail, check2.stderr.path)
+  ].join("\n"));
+  return [
+    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], passed before any fixer edited the tree and fail${count2 === 1 ? "s" : ""} now. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
+    "",
+    ...checks,
+    "",
+    "Files you own: every file the fixers changed.",
+    fileList(input2.owned),
+    "",
+    "You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.",
+    "",
+    "What each fixer did:",
+    input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer) => `- ${answer.cluster} ${answer.id} ${answer.status}: ${answer.note}`).join("\n"),
+    "",
+    checksBlock(input2.allChecks),
+    "",
+    snapshotBlock(input2.snapshotCommand, "check"),
+    "",
+    ...input2.mayHoldWork ? [earlierWork("check"), ""] : [],
+    `${answerFields("check")} The \`message\` of an applied check describes what the repair changed.`,
+    "",
+    scratchRule
+  ].join("\n");
+}
 function mergeRankTask(inputs) {
   const list = inputs.map(
     ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdict}${unverified ? " (unverified)" : ""}`, `evidence: ${evidence ?? "none; the group's verifier failed twice"}`])
@@ -23975,7 +25457,63 @@ function groupCandidates(review2, phase, groupId) {
     return candidate;
   });
 }
-function taskFor(unit, review2) {
+function mayHoldWork(review2, phase, key, owned) {
+  if (review2.phases[phase].attempt > 1 || (review2.units[phase][key]?.failures.length ?? 0) > 0) return true;
+  return (review2.fix?.revisions ?? []).some((revision) => revision.phase === phase && revision.files.some((file2) => owned.includes(file2.path)));
+}
+function fixerTaskOf(unit, review2, editing) {
+  const plan = fixPlanOf(review2);
+  const cluster = plan.clusters.find((candidate) => candidate.id === unit.key);
+  if (cluster === void 0) throw new Error(`The fix plan has no cluster ${unit.key}`);
+  const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
+  const findings = cluster.findingIds.map((id) => {
+    const entry = ranked.get(id);
+    if (entry === void 0) throw new Error(`Cluster ${cluster.id} names finding ${id}, which the ranking does not hold`);
+    return {
+      id,
+      severity: entry.finding.severity,
+      verdict: entry.resolution.verdict,
+      unverified: entry.resolution.unverified,
+      angle: entry.primary.angle,
+      location: describeLocation(entry.primary),
+      summary: entry.finding.summary,
+      detail: entry.primary.detail,
+      evidence: entry.resolution.evidence,
+      reason: entry.finding.reason,
+      also: entry.members.map((member) => `${member.id} at ${describeLocation(member)}`)
+    };
+  });
+  return fixerTask({
+    cluster: cluster.id,
+    findings,
+    owned: cluster.files,
+    othersOwned: plan.clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
+    checks: review2.fix?.checks.planned?.checks ?? [],
+    snapshotCommand: editing.snapshotCommand,
+    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files)
+  });
+}
+function tailOf(evidence, reference) {
+  if (reference === null) return { tail: Buffer.alloc(0), path: "none" };
+  const bytes = evidence.read(reference);
+  return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
+}
+function repairTaskOf(review2, editing, evidence) {
+  const fix = review2.fix;
+  if (fix === null) throw new Error("The repair runs only in a run with the fix pass");
+  const checks = repairTargets(fix).map((kind) => {
+    const run2 = lastRun(fix, "checks", kind);
+    return { kind, command: run2.command, outcome: run2.outcome === "timeout" ? "timeout" : "failed", exitCode: run2.exitCode, stdout: tailOf(evidence, run2.stdout), stderr: tailOf(evidence, run2.stderr) };
+  });
+  const owned = fixesRevisedPaths(fix);
+  const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ cluster: answer.key, id: finding.id, status: finding.status, note: finding.note })));
+  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned) });
+}
+function taskFor(unit, review2, editing = null, evidence = null) {
+  const requireEditing = () => {
+    if (editing === null) throw new Error(`The ${unit.phase} unit ${unit.key} needs its snapshot command`);
+    return editing;
+  };
   switch (unit.phase) {
     case "triage":
       return triageTask();
@@ -23997,6 +25535,15 @@ function taskFor(unit, review2) {
       });
     case "merge-rank":
       return mergeRankTask(mergeRankInput(review2).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
+    case "fixes":
+      return fixerTaskOf(unit, review2, requireEditing());
+    case "repair":
+      if (evidence === null) throw new Error("The repair task quotes frozen logs and needs the evidence store");
+      return repairTaskOf(review2, requireEditing(), evidence);
+    case "baseline-checks":
+    case "checks":
+    case "repair-checks":
+      throw new Error(`The ${unit.phase} phase runs checks, not workers`);
     case "report":
       throw new Error("The report phase has no worker");
   }
@@ -24006,24 +25553,27 @@ function invocationFor(unit, context) {
   const role = context.roles.get(unit.role);
   if (role === void 0) throw new Error(`No assembled prompt for role ${unit.role}`);
   const policy = pinnedRole(context.configuration.roles, unit.role);
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2) }, context.scopeBlock);
+  const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join21(scratch, snapshotsDirectoryName)) };
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, editing, context.evidence) }, context.scopeBlock);
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
     executableArgs: [...context.configuration.executableArgs],
     model: policy.model,
     effort: policy.effort,
-    access: "read-only",
+    access: scratch === null ? "read-only" : "edit",
     shell: true,
     prompt,
     outputSchema: outputSchemaOf(unit.role),
     timeoutMs: policy.timeoutMs,
     ...policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd },
+    ...scratch === null ? {} : { scratch },
     label: unitLabel(unit.role, unit.phase, unit.key)
   };
 }
 function failed(unit, receipt, reason) {
-  return { kind: "attempt.failed", version: 1, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
+  return { kind: "attempt.failed", version: 2, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 function recordCandidates(phase, key, candidates, state, worktree) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -24058,13 +25608,13 @@ function orderedRanking(review2, output2, input2) {
   }));
   return rankedFindings(review2, findings).map((entry) => entry.finding);
 }
-function contributionOf(unit, receipt, state, worktree) {
-  if (receipt.outcome !== "completed") return failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`);
-  const review2 = requireReview2(state);
+function contributionOf(unit, receipt, context) {
+  if (receipt.outcome !== "completed") return [failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`)];
+  const review2 = requireReview2(context.state);
   try {
-    return contributionEvent(unit, receipt, review2, state, worktree);
+    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review2, context.state, context.worktree)];
   } catch (error62) {
-    if (error62 instanceof StructuralCheckError) return failed(unit, receipt, `structural check: ${error62.message}`);
+    if (error62 instanceof StructuralCheckError) return [failed(unit, receipt, `structural check: ${error62.message}`)];
     throw error62;
   }
 }
@@ -24109,8 +25659,14 @@ function contributionEvent(unit, receipt, review2, state, worktree) {
       checkMergeRank(output2, input2.length);
       return { kind: "ranking.recorded", version: 1, payload: { workerId: receipt.workerId, findings: orderedRanking(review2, output2, input2) } };
     }
+    case "fixes":
+    case "repair":
+      throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
+    case "baseline-checks":
+    case "checks":
+    case "repair-checks":
     case "report":
-      throw new Error("The report phase has no worker");
+      throw new Error(`The ${unit.phase} phase has no worker`);
   }
 }
 
@@ -24149,12 +25705,13 @@ function findingBlock(position, entry) {
   if (members2.length > 0) lines.push(`Also at: ${members2.map((member) => `${member.id} ${shortLocation(member)}${marks(member, false)}`).join("; ")}`);
   return lines.join("\n");
 }
-function statisticsTable(input2) {
+function statisticsTable(review2, input2) {
   const row = (name, spend) => `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${costCell(spend)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
   return [
     "| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |",
     "|---|---|---|---|---|---|---|",
-    ...phases.map((phase) => row(phase, input2.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
+    // Every phase the run did not skip, in phase order; a phase the statistics have no row for ran no worker.
+    ...phases.filter((phase) => review2.phases[phase].status !== "skipped").map((phase) => row(phase, input2.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
     row("Total", input2.statistics.total)
   ].join("\n");
 }
@@ -24189,8 +25746,8 @@ function limitations(scope, review2, input2) {
   for (const group of unverifiedGroupsOf(review2)) {
     lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(", ")}) carry PLAUSIBLE with the unverified mark.`);
   }
-  const drifted = review2.checks.filter((check2) => check2.drifted);
-  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted.length)} found a difference in ${drifted.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
+  const drifted2 = review2.checks.filter((check2) => check2.drifted);
+  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted2.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted2.length)} found a difference in ${drifted2.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
   lines.push(budgetLine(review2, input2.statistics));
   const unreported = input2.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
@@ -24244,7 +25801,7 @@ function renderReport(state, input2) {
     ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}
   Evidence: ${inlineText(evidence)}`)
   ];
-  const statisticsSection = ["## Statistics", "", statisticsTable(input2)];
+  const statisticsSection = ["## Statistics", "", statisticsTable(review2, input2)];
   const limitationsSection = ["## Limitations", "", ...limitations(scope, review2, input2)];
   return [header, anglesSection, findingsSection, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
 }
@@ -24265,10 +25822,10 @@ function findActiveRun(checkpoint) {
 }
 var seconds = (ms) => `${(ms / 1e3).toFixed(1)} s`;
 var usd3 = (value) => value === null ? "" : `, ${value.toFixed(2)} USD`;
-function driftedFiles(scope, worktree) {
-  return compareScopeFiles(scope, worktree).filter((file2) => file2.outcome !== "unchanged");
+var driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
+function snapshotCommandFor(engineEntry, into) {
+  return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
 }
-var fileList = (files) => files.map((file2) => `${file2.path} (${file2.outcome})`).join(", ");
 async function runReview(options2) {
   const log = options2.log ?? ((line) => {
     process.stderr.write(`${line}
@@ -24290,20 +25847,27 @@ async function runReview(options2) {
     const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
     log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled.receipt.error === null ? "" : `: ${settled.receipt.error}`}`);
     state = checkpoint.fold(runId);
-    if (settled.receipt.outcome === "completed") {
-      const { phase } = settled.unit;
+    const { phase } = settled.unit;
+    if (settled.receipt.outcome === "completed" && !isEditingPhase(phase)) {
       const attempt = state.review.phases[phase].attempt;
-      const found = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
-      const files = found?.files ?? driftedFiles(state.scope, options2.worktree);
-      if (files.length > 0) {
-        log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from the scope: ${fileList(files)}`);
-        if (found === void 0) state = append(checkpoint, state, [{ kind: "worktree.checked", version: 1, payload: { phase, attempt, drifted: true, files } }]);
+      const recorded = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
+      if (recorded !== void 0) {
+        log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
+        return;
+      }
+      const found = findDrift(state, options2.worktree);
+      if (drifted(found)) {
+        log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
+        state = append(checkpoint, state, [{ kind: "worktree.checked", version: 2, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found) }]);
         return;
       }
     }
-    const event = contributionOf(settled.unit, settled.receipt, state, options2.worktree);
-    if (event.kind === "attempt.failed") log(`worker ${settled.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
-    state = append(checkpoint, state, [event]);
+    const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence });
+    for (const event of events) {
+      if (event.kind === "attempt.failed") log(`worker ${settled.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
+      if (event.kind === "tree.revised") log(`worker ${settled.unit.role} ${name}: revised ${String(event.payload.files.length)} files for ${event.payload.change.findings.join(", ")}`);
+    }
+    state = append(checkpoint, state, events);
   };
   try {
     if (scopeRequest !== null) {
@@ -24311,8 +25875,13 @@ async function runReview(options2) {
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files`);
     }
     if (configure !== null) {
-      state = append(checkpoint, state, [{ kind: "review.configured", version: 1, payload: configure }]);
-      log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}`);
+      state = append(checkpoint, state, [
+        { kind: "review.configured", version: 2, payload: configure.configuration },
+        ...configure.checks === null ? [] : [{ kind: "checks.planned", version: 1, payload: configure.checks }]
+      ]);
+      const { configuration: configuration2 } = configure;
+      log(`run ${runId}: configured for ${configuration2.runtime} ${configuration2.version}, models ${configuration2.models.strong} and ${configuration2.models.fast}${configuration2.fix ? ", with the fix pass" : ""}`);
+      for (const check2 of configure.checks?.checks ?? []) log(`run ${runId}: check ${check2.kind}: ${check2.command ?? `not available (${check2.reason ?? "no command"})`}`);
     }
     const configuration = state.review.configuration;
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
@@ -24320,9 +25889,29 @@ async function runReview(options2) {
     state = reenterPhase(checkpoint, state, log);
     const scope = state.scope;
     const block = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) });
+    const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
+    const scratchBase = join22(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
+    const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence });
+    const runDueCheck = async (phase, attempt, due) => {
+      if (due.skip !== null) {
+        log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
+        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const skipped = { phase, attempt, kind: due.kind, command: due.command, outcome: "skipped", exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip };
+        return [{ kind: "check.ran", version: 1, payload: skipped }];
+      }
+      log(`check ${due.kind} (${phase}): ${due.command}`);
+      const timeoutMs = configuration.checks?.timeoutMs;
+      if (timeoutMs === void 0) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
+      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, timeoutMs, ioDirectory: join22(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
+      log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? "" : `: ${result.error}`}`);
+      const ran = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
+      const revision = checkRevision(revisionContext(), phase, due.kind, due.command);
+      if (revision !== null) log(`check ${due.kind} (${phase}): rewrote ${String(revision.payload.files.length)} files the run expects; recorded as its revision`);
+      return [{ kind: "check.ran", version: 1, payload: ran }, ...revision === null ? [] : [revision]];
+    };
     for (; ; ) {
       const review2 = state.review;
-      const live2 = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter) };
+      const live2 = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference) };
       const step = nextStep(review2, live2);
       switch (step.kind) {
         case "blocked":
@@ -24332,26 +25921,60 @@ async function runReview(options2) {
           return { kind: "report", runId, reportPath: checkpoint.evidence.pathOf(review2.report.report) };
         case "start-phase":
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)})`);
-          state = append(checkpoint, state, [{ kind: "phase.started", version: 1, payload: { phase: step.phase, attempt: step.attempt } }]);
+          state = append(checkpoint, state, [{ kind: "phase.started", version: 2, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case "check-worktree": {
-          const drifted = driftedFiles(scope, options2.worktree);
-          if (drifted.length > 0) log(`phase ${step.phase}: the worktree drifted from the scope: ${fileList(drifted)}`);
-          state = append(checkpoint, state, [{ kind: "worktree.checked", version: 1, payload: { phase: step.phase, attempt: step.attempt, drifted: drifted.length > 0, files: drifted } }]);
+          const check2 = phaseCheck(state, options2.worktree, step.phase, step.attempt, step.moment);
+          if (check2.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check2)}`);
+          if (check2.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check2.strays.join(", ")}`);
+          state = append(checkpoint, state, [{ kind: "worktree.checked", version: 2, payload: check2 }]);
           break;
         }
         case "plan-verification":
           log(`phase ${step.phase}: ${String(step.groups.length)} group${step.groups.length === 1 ? "" : "s"} planned`);
           state = append(checkpoint, state, [{ kind: "verification.planned", version: 1, payload: { phase: step.phase, groups: step.groups } }]);
           break;
+        case "plan-fixes": {
+          const held = step.plan.routes.filter((route) => route.route === "held").length;
+          log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? "" : "s"} planned, ${String(held)} finding${held === 1 ? "" : "s"} held for the author`);
+          state = append(checkpoint, state, [{ kind: "fixes.planned", version: 1, payload: step.plan }]);
+          break;
+        }
+        case "run-check":
+          state = append(checkpoint, state, await runDueCheck(step.phase, step.attempt, step.check));
+          break;
         case "degrade":
-          for (const degradation of step.degradations) log(`phase ${step.phase}: ${degradation.kind === "angle.failed" ? `angle ${degradation.angle} not run` : `group ${degradation.groupId} unverified`}: ${degradation.reason}`);
-          state = append(checkpoint, state, step.degradations.map((degradation) => degradation.kind === "angle.failed" ? { kind: "angle.failed", version: 1, payload: { angle: degradation.angle, reason: degradation.reason } } : { kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }));
+          for (const degradation of step.degradations) {
+            const what = degradation.kind === "angle.failed" ? `angle ${degradation.angle} not run` : degradation.kind === "group.unverified" ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted`;
+            log(`phase ${step.phase}: ${what}: ${degradation.reason}`);
+          }
+          state = append(checkpoint, state, step.degradations.flatMap((degradation) => {
+            switch (degradation.kind) {
+              case "angle.failed":
+                return [{ kind: "angle.failed", version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
+              case "group.unverified":
+                return [{ kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }];
+              case "cluster.failed": {
+                const revision = unansweredRevision(revisionContext(), degradation.phase, degradation.key, degradation.reason);
+                return [{ kind: "cluster.failed", version: 1, payload: { phase: degradation.phase, key: degradation.key, reason: degradation.reason } }, ...revision === null ? [] : [revision]];
+              }
+            }
+          }));
           break;
         case "launch": {
-          const context = { state, worktree: options2.worktree, roles: rolesByKey, configuration, scopeBlock: block };
+          const context = {
+            state,
+            worktree: options2.worktree,
+            roles: rolesByKey,
+            configuration,
+            scopeBlock: block,
+            evidence: checkpoint.evidence,
+            newScratch: () => join22(scratchBase, randomUUID4()),
+            snapshotCommand: (into) => snapshotCommandFor(engineEntry, into)
+          };
           for (const unit of step.units) {
             const invocation = invocationFor(unit, context);
+            if (invocation.scratch !== void 0) prepareSnapshots(join22(invocation.scratch, snapshotsDirectoryName), expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
             const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
@@ -24366,16 +25989,18 @@ async function runReview(options2) {
         }
         case "finish-phase":
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? "" : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: "phase.finished", version: 1, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: "phase.finished", version: 2, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case "write-report": {
+          const revisions = state.review.fix?.revisions ?? [];
+          const patches = revisions.length === 0 ? [] : patchSeries(scope, revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree)).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics }));
           state = append(checkpoint, state, [
-            { kind: "report.written", version: 1, payload: { report, statistics } },
-            { kind: "phase.finished", version: 1, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
+            { kind: "report.written", version: 2, payload: { report, statistics, patches } },
+            { kind: "phase.finished", version: 2, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
           ]);
-          log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}`);
+          log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? "" : `, with ${String(patches.length)} patch${patches.length === 1 ? "" : "es"}`}`);
           break;
         }
       }
@@ -24441,10 +26066,15 @@ async function openRun(context) {
       await resumePinned(found.id, pinned, context);
     } else {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
+      const fix = context.fix ?? null;
+      const discovered = fix === null ? null : discoverChecks(readRootManifests(context.worktree), fix);
       const executable = typeof context.executable === "function" ? context.executable() : context.executable;
       const executableArgs = [...context.executableArgs ?? []];
       const version2 = await qualify2(context.adapter, executable, executableArgs, context, null);
-      configure = { ...resolved, roles: [...resolved.roles], executable, executableArgs, version: version2 };
+      configure = {
+        configuration: { ...resolved, roles: [...resolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : resolved.checks },
+        checks: discovered === null ? null : { checks: [...discovered.checks], manager: discovered.manager }
+      };
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
     if (found === null) {
@@ -24468,6 +26098,11 @@ async function resumePinned(runId, pinned, context) {
   if (context.flags.strongModel !== void 0 || context.flags.fastModel !== void 0) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
+  const fix = context.fix ?? null;
+  const checkFlags = fix !== null && (Object.keys(fix.commands).length > 0 || fix.dropped.length > 0);
+  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ", --check and --no-check are" : " is"} ignored`);
+  if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
+  if (pinned.fix && checkFlags) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
   await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
 }
 async function qualify2(adapter, executable, executableArgs, context, runId) {
@@ -24502,7 +26137,7 @@ function recordLostWorkers(checkpoint, state, log) {
   const events = running.map((worker) => {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    return { kind: "worker.lost", version: 1, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason: "the engine exited while the worker ran" } };
+    return { kind: "worker.lost", version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason: "the engine exited while the worker ran" } };
   });
   return append(checkpoint, state, events);
 }
@@ -24512,12 +26147,12 @@ function reenterPhase(checkpoint, state, log) {
   if (phase === null) return state;
   const attempt = review2.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}`);
-  return append(checkpoint, state, [{ kind: "phase.started", version: 1, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: "phase.started", version: 2, payload: { phase, attempt } }]);
 }
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute4, join as join16, posix as posix2, resolve as resolve10, win32 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute5, join as join23, posix as posix2, resolve as resolve10, win32 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -24536,7 +26171,7 @@ function refuseShim(executable, platform = process.platform) {
   return executable;
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
-  if (isAbsolute4(name) || name.includes("/") || name.includes("\\")) {
+  if (isAbsolute5(name) || name.includes("/") || name.includes("\\")) {
     const absolute = resolve10(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute), platform);
@@ -24546,86 +26181,11 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   const extensions = platform === "win32" ? extname(name) === "" ? spellingsOf(environment, "PATHEXT", platform)[0]?.[1]?.split(";").filter((extension) => extension.length > 0) ?? defaultPathExt : [""] : [""];
   for (const directory of directories) {
     for (const extension of extensions) {
-      const candidate = join16(directory.replaceAll('"', ""), `${name}${extension}`);
+      const candidate = join23(directory.replaceAll('"', ""), `${name}${extension}`);
       if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
-}
-
-// src/review/snapshot.ts
-import { createHash as createHash4 } from "node:crypto";
-import { existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname2, join as join18 } from "node:path";
-
-// src/review/tree.ts
-import { lstatSync as lstatSync5, readFileSync as readFileSync8, readlinkSync as readlinkSync3 } from "node:fs";
-import { join as join17 } from "node:path";
-function readTreeEntry(worktree, path) {
-  const absolute = join17(worktree, ...path.split("/"));
-  let stat;
-  try {
-    stat = lstatSync5(absolute, { throwIfNoEntry: false });
-  } catch (error62) {
-    if (error62.code === "ENOTDIR") return null;
-    throw error62;
-  }
-  if (stat === void 0) return null;
-  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync3(absolute)), symlink: true };
-  if (stat.isFile()) return { bytes: readFileSync8(absolute), symlink: false };
-  return null;
-}
-
-// src/review/snapshot.ts
-var snapshotPathsFileName = "paths.json";
-var listedFileSchema = external_exports.union([
-  external_exports.literal("absent"),
-  external_exports.strictObject({ sha256: external_exports.string().regex(/^[a-f0-9]{64}$/), size: external_exports.number().int().nonnegative(), symlink: external_exports.boolean() })
-]);
-var snapshotListingSchema = external_exports.strictObject({
-  finding: external_exports.number().int().nonnegative(),
-  paths: external_exports.record(external_exports.string(), listedFileSchema)
-});
-var sha256 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
-function safePath(path) {
-  try {
-    validateScopePath(path);
-    return !path.includes("\\") && !path.split("/").some((part) => part === "" || part === ".");
-  } catch (error62) {
-    if (error62 instanceof InvalidScopeRequestError) return false;
-    throw error62;
-  }
-}
-function listedPaths(into) {
-  const file2 = join18(into, snapshotPathsFileName);
-  if (!existsSync4(file2)) return [];
-  const parsed = external_exports.array(external_exports.string()).safeParse(JSON.parse(readFileSync9(file2, "utf8")));
-  if (!parsed.success) throw new Error(`${file2} is not a list of paths`);
-  return parsed.data;
-}
-function takeSnapshot(request) {
-  if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
-  const copies = join18(request.into, String(request.finding));
-  const listingFile = join18(request.into, `${String(request.finding)}.json`);
-  rmSync3(listingFile, { force: true });
-  rmSync3(copies, { recursive: true, force: true });
-  mkdirSync5(copies, { recursive: true });
-  const changed = status(request.worktree).map((entry) => entry.path);
-  const paths = [.../* @__PURE__ */ new Set([...changed, ...listedPaths(request.into)])].filter(safePath).sort();
-  const listed = paths.map((path) => {
-    const entry = readTreeEntry(request.worktree, path);
-    if (entry === null) return [path, "absent"];
-    const copy = join18(copies, ...path.split("/"));
-    mkdirSync5(dirname2(copy), { recursive: true });
-    writeFileSync3(copy, entry.bytes);
-    return [path, { sha256: sha256(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
-  });
-  const listing = { finding: request.finding, paths: Object.fromEntries(listed) };
-  const temporary = `${listingFile}.${String(process.pid)}.tmp`;
-  writeFileSync3(temporary, `${JSON.stringify(listing)}
-`);
-  renameSync2(temporary, listingFile);
-  return listing;
 }
 
 // src/review/status.ts
@@ -24663,6 +26223,7 @@ var usage = `usage:
                       [--strong-model <model>] [--fast-model <model>]
                       (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
+                      [--fix [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(", ")})
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
@@ -24688,12 +26249,15 @@ var options = {
   run: { type: "string" },
   json: { type: "boolean" },
   reason: { type: "string" },
+  fix: { type: "boolean" },
+  check: { type: "string", multiple: true },
+  "no-check": { type: "string", multiple: true },
   finding: { type: "string" },
   into: { type: "string" },
   help: { type: "boolean", short: "h" }
 };
 var allowed = {
-  review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "help"],
+  review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "fix", "check", "no-check", "help"],
   status: ["run", "json", "repo", "help"],
   abandon: ["reason", "run", "repo", "help"],
   snapshot: ["finding", "into", "repo", "help"]
@@ -24729,6 +26293,32 @@ function scopeRequestOf(values, worktree) {
     return { mode: "range", request: { range: { from: values.from, to: values.to, mergeBase: values["merge-base"] === true }, paths } };
   }
   return null;
+}
+function fixRequestOf(values) {
+  const checks = values.check ?? [];
+  const dropped = values["no-check"] ?? [];
+  if (values.fix !== true) {
+    if (checks.length > 0 || dropped.length > 0) throw new UsageError("--check and --no-check apply only with --fix");
+    return null;
+  }
+  const named = /* @__PURE__ */ new Set();
+  const kindOf = (flag, text2) => {
+    const kind = checkKindSchema.safeParse(text2);
+    if (!kind.success) throw new UsageError(`${flag} names a check kind, one of ${checkKinds.join(", ")}, not ${JSON.stringify(text2)}`);
+    if (named.has(kind.data)) throw new UsageError(`${flag} names the ${kind.data} check, which another --check or --no-check already names`);
+    named.add(kind.data);
+    return kind.data;
+  };
+  const commands = {};
+  for (const flag of checks) {
+    const equals = flag.indexOf("=");
+    if (equals === -1) throw new UsageError(`--check takes <kind>=<command>, not ${JSON.stringify(flag)}`);
+    const kind = kindOf("--check", flag.slice(0, equals));
+    const command = flag.slice(equals + 1);
+    if (command.trim() === "" || command.includes("\0")) throw new UsageError(`--check ${kind}= needs a command`);
+    commands[kind] = command;
+  }
+  return { commands, dropped: dropped.map((text2) => kindOf("--no-check", text2)) };
 }
 async function main(argv, io) {
   try {
@@ -24799,7 +26389,7 @@ function snapshot(values, io, worktree) {
   return 0;
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync5(join19(root, ledgerFileName))) return null;
+  if (!create && !existsSync5(join24(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 async function review(values, io, root, worktree) {
@@ -24816,6 +26406,7 @@ async function review(values, io, root, worktree) {
   };
   const problem = invocationFlagProblem(flags);
   if (problem !== null) throw new UsageError(problem);
+  const fix = fixRequestOf(values);
   const checkpoint = openCheckpoint(root, true);
   try {
     const scope = {
@@ -24838,6 +26429,9 @@ async function review(values, io, root, worktree) {
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,
       scope,
+      fix,
+      // A fixer's snapshot command runs this same entry: the bundle, or this file from the sources.
+      engineEntry: import.meta.filename,
       environment: io.environment,
       log: (line) => io.stderr(`${line}
 `)
@@ -24928,6 +26522,7 @@ if (import.meta.main) {
 }
 export {
   UsageError,
+  fixRequestOf,
   hasScopeFlags,
   main,
   scopeRequestOf,

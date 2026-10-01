@@ -10,6 +10,7 @@ import {
   candidateIdPrefix,
   deduplicationPhases,
   finderAngles,
+  fixPhases,
   phases,
   singleUnitKey,
   unitName,
@@ -27,6 +28,7 @@ import type {
   Blocker,
   CandidatesRecorded,
   DeduplicationRecorded,
+  FrozenFile,
   GroupUnverified,
   Lead,
   PhaseFinished,
@@ -35,15 +37,20 @@ import type {
   RankingRecorded,
   RecordedCandidate,
   ReportWritten,
+  ReportWrittenV1,
   ReviewConfiguration,
+  ReviewConfigurationV1,
   ReviewLimits,
   VerdictsRecorded,
   VerificationPlanned,
-  WorktreeCheck,
+  WorktreeCheckV1,
+  WorktreeCheckV2,
 } from './events.ts';
+import { emptyFixState, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 
-export type PhaseStatus = 'pending' | 'running' | 'completed' | 'degraded' | 'blocked';
+/** A phase's status; `skipped` is a fix phase of a run configured without the fix pass, set at configuration and never started (TD9 of the fix pass). */
+export type PhaseStatus = 'pending' | 'running' | 'completed' | 'degraded' | 'blocked' | 'skipped';
 
 export interface PhaseState {
   readonly status: PhaseStatus;
@@ -93,6 +100,16 @@ export function rawLocation(candidate: Pick<RecordedCandidate, 'rawFile' | 'rawL
   return `${candidate.rawFile}:${String(candidate.rawLine)}`;
 }
 
+/**
+ * One worktree check as the fold holds it, whichever version recorded it.
+ * A version 1 check reads as one at the attempt's start when it was the
+ * attempt's first, else before an answer; it recorded no head, no strays
+ * and not the expected state of a file, which its files then lack.
+ */
+export interface WorktreeCheckState extends Omit<WorktreeCheckV2, 'files'> {
+  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV2['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
+}
+
 export interface ReviewState {
   readonly configuration: ReviewConfiguration;
   /** The concurrency and the run budget in force: the configuration's, until a `limits.changed` replaces them. */
@@ -100,7 +117,7 @@ export interface ReviewState {
   readonly phases: Readonly<Record<Phase, PhaseState>>;
   /** Why the run is blocked and in which phase, or null; cleared by the next `phase.started`. */
   readonly blocker: (Blocker & { readonly phase: Phase }) | null;
-  readonly checks: readonly WorktreeCheck[];
+  readonly checks: readonly WorktreeCheckState[];
   /** The triage's one lead per finder angle, or null until the triage answers. */
   readonly leads: readonly Lead[] | null;
   /** Every candidate by id, in the order recorded. */
@@ -115,6 +132,8 @@ export interface ReviewState {
   readonly unverifiedGroups: Readonly<Record<VerificationPhase, Readonly<Record<string, string>>>>;
   readonly ranking: readonly RankedFinding[] | null;
   readonly report: ReportWritten | null;
+  /** The fix pass's state, or null for a run configured without it, including every run recorded before it existed. */
+  readonly fix: FixState | null;
 }
 
 /** The candidate phases whose candidates a deduplication or verification phase works on. */
@@ -139,30 +158,30 @@ export function unitOfLostWorker(phase: Phase | null, key: string | null): UnitR
   return phase === null || key === null ? null : { phase, key };
 }
 
-const invalid = (event: DecodedEvent, what: string): InvalidHistoryError =>
+export const invalid = (event: DecodedEvent, what: string): InvalidHistoryError =>
   new InvalidHistoryError(`Run ${event.runId} ${what}, at sequence ${String(event.sequence)} (${event.kind}@${String(event.version)})`);
 
 /** The run, which must exist and be configured for review. */
-function requireReview(state: RunState | undefined, event: DecodedEvent): { current: RunState; review: ReviewState } {
+export function requireReview(state: RunState | undefined, event: DecodedEvent): { current: RunState; review: ReviewState } {
   if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.review === null) throw invalid(event, `has ${event.kind} before review.configured`);
   return { current: state, review: state.review };
 }
 
 /** The phase, which must be running under the given attempt. */
-function requireRunning(review: ReviewState, event: DecodedEvent, phase: Phase, attempt?: number): void {
+export function requireRunning(review: ReviewState, event: DecodedEvent, phase: Phase, attempt?: number): void {
   const state = review.phases[phase];
   if (state.status !== 'running') throw invalid(event, `has ${event.kind} for phase ${phase} while it is ${state.status}`);
   if (attempt !== undefined && attempt !== state.attempt) throw invalid(event, `has ${event.kind} for phase ${phase} attempt ${String(attempt)} while it is at attempt ${String(state.attempt)}`);
 }
 
 /** The unit, which must not have contributed yet. */
-function requireUnanswered(review: ReviewState, event: DecodedEvent, { phase, key }: UnitRef): void {
+export function requireUnanswered(review: ReviewState, event: DecodedEvent, { phase, key }: UnitRef): void {
   const answeredBy = review.units[phase][key]?.answeredBy ?? null;
   if (answeredBy !== null) throw invalid(event, `has ${event.kind} for unit ${unitName(phase, key)}, which worker ${answeredBy} already answered`);
 }
 
-function withReview(current: RunState, review: ReviewState, event: DecodedEvent): RunState {
+export function withReview(current: RunState, review: ReviewState, event: DecodedEvent): RunState {
   return { ...current, review, lastSequence: event.sequence };
 }
 
@@ -175,7 +194,7 @@ function writableUnits(review: ReviewState, drafts: FoldDrafts, phase: Phase): {
 }
 
 /** The unit records with `unit` answered by `workerId`. */
-function answered(review: ReviewState, drafts: FoldDrafts, { phase, key }: UnitRef, workerId: string): ReviewState['units'] {
+export function answered(review: ReviewState, drafts: FoldDrafts, { phase, key }: UnitRef, workerId: string): ReviewState['units'] {
   const { units, ofPhase } = writableUnits(review, drafts, phase);
   ofPhase[key] = { answeredBy: workerId, failures: ofPhase[key]?.failures ?? [] };
   return units;
@@ -189,14 +208,20 @@ export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, ke
   return { ...review, units };
 }
 
+/**
+ * The run is configured for review. A run without the fix pass records its
+ * five phases skipped, so the phase list is one rule for every run (TD9 of
+ * the fix pass); a run with it starts its fix state empty.
+ */
 const configured: Reducer<ReviewConfiguration> = (state, payload, event) => {
   if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, 'is configured for review before its scope is captured');
   if (state.review !== null) throw invalid(event, 'is configured for review twice');
+  const skipped = new Set<Phase>(payload.fix ? [] : fixPhases);
   const review: ReviewState = {
     configuration: payload,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
-    phases: Object.fromEntries(phases.map((phase) => [phase, { status: 'pending', attempt: 0 }])) as Record<Phase, PhaseState>,
+    phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? 'skipped' : 'pending', attempt: 0 }])) as Record<Phase, PhaseState>,
     blocker: null,
     checks: [],
     leads: null,
@@ -208,9 +233,13 @@ const configured: Reducer<ReviewConfiguration> = (state, payload, event) => {
     unverifiedGroups: Object.fromEntries(verificationPhases.map((phase) => [phase, {}])) as Record<VerificationPhase, Record<string, string>>,
     ranking: null,
     report: null,
+    fix: payload.fix ? emptyFixState() : null,
   };
   return withReview(state, review, event);
 };
+
+/** Version 1 of the configuration, recorded before the fix pass existed: a run without it. */
+const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event, drafts) => configured(state, { ...payload, fix: false, checks: null }, event, drafts);
 
 /** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
 const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
@@ -232,10 +261,11 @@ const phaseStarted: Reducer<PhaseStarted> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   const phase = review.phases[payload.phase];
   if (phase.status === 'completed' || phase.status === 'degraded') throw invalid(event, `starts phase ${payload.phase} again after it ${phase.status}`);
+  if (phase.status === 'skipped') throw invalid(event, `starts phase ${payload.phase}, which a run without the fix pass skips`);
   if (payload.attempt !== phase.attempt + 1) throw invalid(event, `starts phase ${payload.phase} at attempt ${String(payload.attempt)} after attempt ${String(phase.attempt)}`);
   for (const earlier of phases.slice(0, phases.indexOf(payload.phase))) {
     const status = review.phases[earlier].status;
-    if (status !== 'completed' && status !== 'degraded') throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status}`);
+    if (status !== 'completed' && status !== 'degraded' && status !== 'skipped') throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status}`);
   }
   // A re-entry after a block gives the phase's units fresh attempts: the operator's action for worker-failed is to run again.
   const units = phase.status === 'blocked' ? withFreshAttempts(review, drafts, payload.phase) : review.units;
@@ -251,10 +281,16 @@ const phaseFinished: Reducer<PhaseFinished> = (state, payload, event) => {
   return withReview(current, { ...review, phases: phaseStates, blocker }, event);
 };
 
-const worktreeChecked: Reducer<WorktreeCheck> = (state, payload, event) => {
+const worktreeChecked: Reducer<WorktreeCheckState> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase, payload.attempt);
   return withReview(current, { ...review, checks: [...review.checks, payload] }, event);
+};
+
+/** Version 1 of the check: at the attempt's start when it is the attempt's first, else before an answer, with no head and no strays recorded. */
+const worktreeCheckedV1: Reducer<WorktreeCheckV1> = (state, payload, event, drafts) => {
+  const first = !(state?.review?.checks.some((check) => check.phase === payload.phase && check.attempt === payload.attempt) ?? false);
+  return worktreeChecked(state, { ...payload, moment: first ? 'start' : 'answer', head: null, strays: [] }, event, drafts);
 };
 
 /** The unit, which must be one its candidate phase has: the triage's or the sweep's one unit, or a finder angle. */
@@ -406,25 +442,37 @@ const reportWritten: Reducer<ReportWritten> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, 'report');
   if (review.report !== null) throw invalid(event, 'writes its report twice');
+  // One patch per revision, in ledger order (R13 of the fix pass); a run without the fix pass has neither.
+  const revisions = review.fix?.revisions.length ?? 0;
+  if (payload.patches.length !== revisions) throw invalid(event, `writes ${String(payload.patches.length)} patches for ${String(revisions)} revisions`);
   return withReview(current, { ...review, report: payload }, event);
 };
 
-/** The review reducers, registered by `fold.ts` beside the run's own. */
+/** Version 1 of the report, written before the fix pass existed: no patch. */
+const reportWrittenV1: Reducer<ReportWrittenV1> = (state, payload, event, drafts) => reportWritten(state, { ...payload, patches: [] }, event, drafts);
+
+/** The review reducers, registered by `fold.ts` beside the run's own. Versions of one kind whose payloads differ only in the wider phase list share a reducer. */
 export const reviewReducers = {
-  'review.configured@1': configured,
+  'review.configured@1': configuredV1,
+  'review.configured@2': configured,
   'limits.changed@1': limitsChanged,
   'phase.started@1': phaseStarted,
+  'phase.started@2': phaseStarted,
   'phase.finished@1': phaseFinished,
-  'worktree.checked@1': worktreeChecked,
+  'phase.finished@2': phaseFinished,
+  'worktree.checked@1': worktreeCheckedV1,
+  'worktree.checked@2': worktreeChecked,
   'candidates.recorded@1': candidatesRecorded,
   'attempt.failed@1': attemptFailed,
+  'attempt.failed@2': attemptFailed,
   'angle.failed@1': angleFailed,
   'deduplication.recorded@1': deduplicationRecorded,
   'verification.planned@1': verificationPlanned,
   'verdicts.recorded@1': verdictsRecorded,
   'group.unverified@1': groupUnverified,
   'ranking.recorded@1': rankingRecorded,
-  'report.written@1': reportWritten,
+  'report.written@1': reportWrittenV1,
+  'report.written@2': reportWritten,
 } as const;
 
 /** Whether the unit `key` of `phase` has contributed: a worker's answer is recorded for it. */

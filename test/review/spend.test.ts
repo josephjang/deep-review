@@ -5,7 +5,7 @@ import type { WorkerState } from '../../src/checkpoint/fold.ts';
 import { budgetSpendNote, budgetSpendOf, settledWorkers, spendOf, statisticsOf, usageOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
-import { History, configuration, configured, finish, launch, reported, scope, worker } from '../helpers/review-history.ts';
+import { History, configurationV1, configured, finish, launch, reported, scope, worker } from '../helpers/review-history.ts';
 
 type Finished = Extract<WorkerState, { status: 'finished' }>;
 const finishedOf = (workers: readonly WorkerState[]): Finished[] => workers.filter((entry): entry is Finished => entry.status === 'finished');
@@ -85,7 +85,7 @@ describe('spend', () => {
   });
 
   it('says the run budget applied from the limits in force at the end, not the pinned budget', () => {
-    const pinnedWithout = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', { ...configuration, runBudgetUsd: null });
+    const pinnedWithout = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', { ...configurationV1, runBudgetUsd: null });
     assert.equal(statisticsOf(pinnedWithout.fold(), claudeAdapter).budgetApplied, false, 'no budget pinned and none given');
     pinnedWithout.add('limits.changed', { concurrency: 4, runBudgetUsd: 50 });
     assert.equal(statisticsOf(pinnedWithout.fold(), claudeAdapter).budgetApplied, true, 'a budget given on a resume applies');

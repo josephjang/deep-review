@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, angleSchema, candidateIdPrefix, finderAngles, finderAngleSchema, isFinderRole, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, angleSchema, candidateIdPrefix, checkKinds, checkPhases, clusterIdSchema, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -27,14 +27,14 @@ describe('roleOfAngle', () => {
 });
 
 describe('the review roles', () => {
-  it('are the triage, the nine finders in launch order, then the roles of the later phases, each once', () => {
-    assert.deepEqual(reviewRoles, ['triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank']);
+  it('are the triage, the nine finders in launch order, then the roles of the later phases and the fix pass\'s fixer, each once', () => {
+    assert.deepEqual(reviewRoles, ['triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
     assert.equal(new Set(reviewRoles).size, reviewRoles.length, 'no role is listed twice');
   });
 
   it('name the nine finders, and only them, as finder roles', () => {
     assert.deepEqual(reviewRoles.filter(isFinderRole), finderAngles.map((angle) => `finder-${angle}`));
-    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['triage', 'deduplication', 'verifier', 'sweep', 'merge-rank']);
+    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
   });
 });
 
@@ -51,5 +51,24 @@ describe('candidateIdPrefix', () => {
     assert.equal(candidateIdPrefix('triage', triageUnitKey), 'SCAN');
     for (const angle of finderAngles) assert.equal(candidateIdPrefix('finders', angle), angle);
     assert.equal(candidateIdPrefix('sweep', 'sweep'), 'SWEEP');
+  });
+});
+
+describe('the phases', () => {
+  it('are the read-only phases, the five of the fix pass, then the report', () => {
+    assert.deepEqual(phases, ['triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'report']);
+    assert.deepEqual(fixPhases, phases.slice(8, 13));
+  });
+
+  it('split the fix pass into the phases that run checks and the phases that edit', () => {
+    assert.deepEqual([...checkPhases, ...editingPhases].sort(), [...fixPhases].sort());
+    assert.deepEqual(phases.filter(isCheckPhase), ['baseline-checks', 'checks', 'repair-checks']);
+    assert.deepEqual(phases.filter(isEditingPhase), ['fixes', 'repair']);
+  });
+
+  it('spell a cluster id c and a number from 1, and run the check kinds build first', () => {
+    for (const id of ['c1', 'c12']) assert.ok(clusterIdSchema.safeParse(id).success, id);
+    for (const id of ['c0', 'c', 'C1', 'g1', 'c01']) assert.ok(!clusterIdSchema.safeParse(id).success, id);
+    assert.deepEqual(checkKinds, ['build', 'typecheck', 'lint', 'test']);
   });
 });
