@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
+import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { until } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
@@ -352,6 +353,17 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(planned.manager, 'npm');
     assert.deepEqual(planned.checks.map((check) => [check.kind, check.command, check.origin]), [['build', 'npm run build', 'package'], ['typecheck', null, 'flag'], ['lint', 'npm run lint', 'package'], ['test', 'npm run test', 'package']]);
     assert.deepEqual(box.checkRuns(), ['build', 'lint', 'test', 'build', 'lint', 'test'], 'npm ran each script, and the dropped kind never ran');
+  });
+
+  it('refuses a repository whose lock files name two package managers before any run is created, naming them and --check', async () => {
+    write(box.repo, 'yarn.lock', '# yarn\n');
+    git(box.repo, 'add', 'yarn.lock');
+    git(box.repo, 'commit', '-q', '--amend', '--no-edit');
+    box.script(reviewScript);
+    await assert.rejects(box.review('claude', { fix: { commands: {}, dropped: [] } }), (error: unknown) => error instanceof ReviewRefusedError && /yarn\.lock, package-lock\.json/.test(error.message) && /--check <kind>=<command>/.test(error.message));
+    assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
+    // Naming every check that would run a script settles it.
+    report(await box.fix('claude'));
   });
 
   it('writes a series that leaves the user\'s own uncommitted change out, so it applies at HEAD in worktree mode', async () => {
