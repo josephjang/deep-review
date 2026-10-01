@@ -42,7 +42,13 @@ export function compareWorktree(scope: ScopeState, worktree: string): WorktreeCo
   return { files, outside };
 }
 
-function matchesFrozen(frozen: FrozenFile, bytes: Buffer, symlink: boolean, frozenSymlink: boolean): boolean {
+/**
+ * Whether bytes read at a path are the frozen state: the same kind of
+ * entry (a symlink's target text is never a file's bytes) and the same
+ * size and hash, for a blob and an oversized file alike. Shared with the
+ * fix pass's expected tree, which compares revised files the same way.
+ */
+export function matchesFrozen(frozen: FrozenFile, bytes: Buffer, symlink: boolean, frozenSymlink: boolean): boolean {
   if (symlink !== frozenSymlink) return false;
   if ('blob' in frozen) return frozen.blob.bytes === bytes.length && frozen.blob.sha256 === sha256Hex(bytes);
   return frozen.oversized.size === bytes.length && frozen.oversized.sha256 === sha256Hex(bytes);

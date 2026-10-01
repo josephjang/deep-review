@@ -184,7 +184,7 @@ function requirePathsMatched(paths: readonly string[], observations: readonly Ob
 }
 
 /** Store a file's bytes, or only its hash when it is over the limit. */
-export function freezeBytes(evidence: EvidenceStore, bytes: Buffer): FrozenFile {
+export function freezeBytes(evidence: Pick<EvidenceStore, 'put'>, bytes: Buffer): FrozenFile {
   if (bytes.length > freezeLimitBytes) return { oversized: { sha256: sha256Hex(bytes), size: bytes.length } };
   return { blob: evidence.put(bytes) };
 }
