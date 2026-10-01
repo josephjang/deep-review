@@ -1,6 +1,6 @@
 {
   "name": "deep-review",
-  "description": "Deep review of a change by the deep-review engine, a Node program installed with this plugin: ten finder angles, verification, a sweep and a ranked Markdown report, editing nothing.",
+  "description": "Deep review of a change by the deep-review engine, a Node program installed with this plugin: ten finder angles, verification, a sweep and a ranked Markdown report, and on request the fixes applied by its workers with the project's checks run, committing nothing.",
   "author": {
     "name": "Jeongho Jang",
     "email": "josephjang@gmail.com"

@@ -29,12 +29,25 @@ describe('the skill texts', () => {
       assert.match(text, /Exit code 2: the run is blocked or was refused/);
       assert.match(text, /Any other exit code: show stderr verbatim/);
       assert.match(text, /wait for it to exit/);
-      assert.match(text, /Do not poll the ledger/);
+      assert.match(text, /Do not poll the\s+ledger/);
       assert.match(text, /run the same\s+command again/);
       assert.match(text, /Do not\s+summarize, quote or interpret the findings/);
-      assert.match(text, /Never review the change another way under this skill's name/);
+      assert.match(text, /Never review, fix, revert or commit the change another way under this\s+skill's name, and never edit the code yourself: no `git commit`, no\s+amend, no push/);
       assert.match(text, /Node 26 or newer/);
-      assert.doesNotMatch(text, /not shipped|skeleton/);
+      assert.doesNotMatch(text, /not shipped|skeleton|editing nothing/);
+    });
+
+    it(`${name}: passes --fix only when asked, warns that the workers edit the tree, and commits only through the engine (R14 of the fix pass)`, () => {
+      const text = read(path);
+      assert.match(text, /When the user asks for the findings to be\s+fixed or applied, add `--fix`/);
+      assert.match(text, /`--check <kind>=<command>` for each\s+check command the user names/);
+      assert.match(text, /tell the user that the engine's workers\s+will edit the working tree and that the run commits nothing/);
+      assert.match(text, /Without\s+such a request, do not pass `--fix`/);
+      assert.match(text, /the fixes are in the working tree, uncommitted, one\s+patch per finding/);
+      assert.match(text, /offer\s+to commit them/);
+      assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" commit`), 'the commit subcommand of the same bundle');
+      assert.match(text, /adding `--change-message <message>` when the scope was `--worktree`/);
+      assert.match(text, /ask the user for\s+that commit's message before you run it/);
     });
   }
 
@@ -50,11 +63,12 @@ describe('the skill texts', () => {
     assert.match(read('skill/claude/skills/deep-review/SKILL.md'), /--budget-usd <usd>` only when the\s+user names a run budget; the default is 30 USD/);
   });
 
-  it('describes the plugin as carrying the engine, in the plugin and the marketplace alike', () => {
-    for (const path of ['skill/claude/.claude-plugin/plugin.json', '.claude-plugin/marketplace.json']) {
+  it('describes the plugin as carrying the engine, in the plugin and the marketplace alike, and no longer as editing nothing', () => {
+    for (const path of ['skill/claude/.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'skill/claude/skills/deep-review/SKILL.md', 'skill/codex/SKILL.md', 'skill/codex/agents/openai.yaml']) {
       const text = read(path);
-      assert.match(text, /a Node program installed with this plugin/, path);
-      assert.doesNotMatch(text, /skeleton|no engine/, path);
+      if (!path.endsWith('.yaml')) assert.match(text, /a Node program installed with this (plugin|skill)/, path);
+      assert.doesNotMatch(text, /skeleton|no engine|editing nothing/, path);
+      assert.match(text, /fixes/, `${path} says the engine can apply the fixes`);
     }
   });
 });
