@@ -1,6 +1,6 @@
 interface:
   display_name: "Deep Review"
-  short_description: "Deep review of a change by the deep-review engine: ten finder angles, verification, a sweep and a ranked report"
+  short_description: "Deep review of a change by the deep-review engine: ten finder angles, verification, a sweep, a ranked report, and the fixes on request"
   default_prompt: "Use $deep-review to review my changes."
 policy:
   allow_implicit_invocation: false
