@@ -113,6 +113,24 @@ export function pinnedRuntimeAction(runId: string, executable: string): string {
   return `make ${executable}, the executable run ${runId} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one; a configured run ignores --executable`;
 }
 
+/**
+ * The kinds of check the fix pass runs, in the order they run (R8, R9 of
+ * the fix pass): `build` first, since the other three read what it
+ * produces, then `typecheck`, `lint` and `test`.
+ */
+export const checkKinds = ['build', 'typecheck', 'lint', 'test'] as const;
+export const checkKindSchema = z.enum(checkKinds);
+export type CheckKind = z.infer<typeof checkKindSchema>;
+
+/**
+ * Where a check's command came from (R8): a `--check` or `--no-check`
+ * flag, a Taskfile task, a Makefile target, a justfile recipe, a
+ * `package.json` script, a language's default, or nothing.
+ */
+export const checkOrigins = ['flag', 'taskfile', 'makefile', 'justfile', 'package', 'language', 'none'] as const;
+export const checkOriginSchema = z.enum(checkOrigins);
+export type CheckOrigin = z.infer<typeof checkOriginSchema>;
+
 /** The verifier's three routing labels (rubrics.md). */
 export const verdicts = ['CONFIRMED', 'PLAUSIBLE', 'REFUTED'] as const;
 export const verdictSchema = z.enum(verdicts);

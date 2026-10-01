@@ -20294,6 +20294,10 @@ var blockerActions = {
 function pinnedRuntimeAction(runId, executable) {
   return `make ${executable}, the executable run ${runId} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one; a configured run ignores --executable`;
 }
+var checkKinds = ["build", "typecheck", "lint", "test"];
+var checkKindSchema = external_exports.enum(checkKinds);
+var checkOrigins = ["flag", "taskfile", "makefile", "justfile", "package", "language", "none"];
+var checkOriginSchema = external_exports.enum(checkOrigins);
 var verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
 var verdictSchema2 = external_exports.enum(verdicts);
 var severities = ["critical", "major", "minor"];
