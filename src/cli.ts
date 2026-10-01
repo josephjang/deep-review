@@ -1,8 +1,9 @@
 /**
  * The `deep-review` command (R1, R13 of the read-only review): `review` runs
  * a review to its report in the foreground and is resumable, `status` prints
- * the fold of a run, `abandon` closes one. The entry point of the bundle and
- * of `npm run review` during development.
+ * the fold of a run, `abandon` closes one, and `snapshot` is what a fix
+ * worker runs after each finding (R6 of the fix pass). The entry point of
+ * the bundle and of `npm run review` during development.
  */
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -21,6 +22,7 @@ import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import { invocationFlagProblem, maxConcurrency, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
+import { takeSnapshot } from './review/snapshot.ts';
 import { describeRun } from './review/status.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
@@ -32,6 +34,7 @@ export const usage = `usage:
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
+  deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
 
 exit codes: 0 a report (its path is the last line of stdout) or a status; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
 
@@ -55,6 +58,8 @@ const options = {
   run: { type: 'string' },
   json: { type: 'boolean' },
   reason: { type: 'string' },
+  finding: { type: 'string' },
+  into: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 
@@ -73,6 +78,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'help'],
   status: ['run', 'json', 'repo', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
+  snapshot: ['finding', 'into', 'repo', 'help'],
 };
 
 /** A command-line mistake: the usage is printed with it. */
@@ -161,9 +167,22 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
       return review(values, io, location.root, location.worktree);
     case 'status':
       return status(values, io, location.root);
+    case 'snapshot':
+      return snapshot(values, io, location.worktree);
     default:
       return abandon(values, io, location.root);
   }
+}
+
+/** Copy the worktree's changed and expected paths into a fixer's snapshot directory after one finding (R6 of the fix pass); reads no ledger, so a sandbox that keeps the git directory read-only runs it. */
+function snapshot(values: Values, io: CommandIo, worktree: string): number {
+  const finding = values.finding;
+  if (finding === undefined || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? '')}`);
+  if (values.into === undefined || values.into.trim() === '') throw new UsageError('--into <dir> is required');
+  const into = resolve(io.cwd, values.into);
+  const listing = takeSnapshot({ worktree, finding: Number(finding), into });
+  io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}\n`);
+  return 0;
 }
 
 /** Open the checkpoint with this engine's identity, or null when the repository has none and `create` is false. */

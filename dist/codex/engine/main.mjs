@@ -5,8 +5,8 @@ var __export = (target, all) => {
 };
 
 // src/cli.ts
-import { existsSync as existsSync4 } from "node:fs";
-import { join as join17, resolve as resolve11 } from "node:path";
+import { existsSync as existsSync5 } from "node:fs";
+import { join as join19, resolve as resolve11 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -24518,6 +24518,81 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
 }
 
+// src/review/snapshot.ts
+import { createHash as createHash4 } from "node:crypto";
+import { existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname2, join as join18 } from "node:path";
+
+// src/review/tree.ts
+import { lstatSync as lstatSync5, readFileSync as readFileSync8, readlinkSync as readlinkSync3 } from "node:fs";
+import { join as join17 } from "node:path";
+function readTreeEntry(worktree, path) {
+  const absolute = join17(worktree, ...path.split("/"));
+  let stat;
+  try {
+    stat = lstatSync5(absolute, { throwIfNoEntry: false });
+  } catch (error62) {
+    if (error62.code === "ENOTDIR") return null;
+    throw error62;
+  }
+  if (stat === void 0) return null;
+  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync3(absolute)), symlink: true };
+  if (stat.isFile()) return { bytes: readFileSync8(absolute), symlink: false };
+  return null;
+}
+
+// src/review/snapshot.ts
+var snapshotPathsFileName = "paths.json";
+var listedFileSchema = external_exports.union([
+  external_exports.literal("absent"),
+  external_exports.strictObject({ sha256: external_exports.string().regex(/^[a-f0-9]{64}$/), size: external_exports.number().int().nonnegative(), symlink: external_exports.boolean() })
+]);
+var snapshotListingSchema = external_exports.strictObject({
+  finding: external_exports.number().int().nonnegative(),
+  paths: external_exports.record(external_exports.string(), listedFileSchema)
+});
+var sha256 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
+function safePath(path) {
+  try {
+    validateScopePath(path);
+    return !path.includes("\\") && !path.split("/").some((part) => part === "" || part === ".");
+  } catch (error62) {
+    if (error62 instanceof InvalidScopeRequestError) return false;
+    throw error62;
+  }
+}
+function listedPaths(into) {
+  const file2 = join18(into, snapshotPathsFileName);
+  if (!existsSync4(file2)) return [];
+  const parsed = external_exports.array(external_exports.string()).safeParse(JSON.parse(readFileSync9(file2, "utf8")));
+  if (!parsed.success) throw new Error(`${file2} is not a list of paths`);
+  return parsed.data;
+}
+function takeSnapshot(request) {
+  if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
+  const copies = join18(request.into, String(request.finding));
+  const listingFile = join18(request.into, `${String(request.finding)}.json`);
+  rmSync3(listingFile, { force: true });
+  rmSync3(copies, { recursive: true, force: true });
+  mkdirSync5(copies, { recursive: true });
+  const changed = status(request.worktree).map((entry) => entry.path);
+  const paths = [.../* @__PURE__ */ new Set([...changed, ...listedPaths(request.into)])].filter(safePath).sort();
+  const listed = paths.map((path) => {
+    const entry = readTreeEntry(request.worktree, path);
+    if (entry === null) return [path, "absent"];
+    const copy = join18(copies, ...path.split("/"));
+    mkdirSync5(dirname2(copy), { recursive: true });
+    writeFileSync3(copy, entry.bytes);
+    return [path, { sha256: sha256(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
+  });
+  const listing = { finding: request.finding, paths: Object.fromEntries(listed) };
+  const temporary = `${listingFile}.${String(process.pid)}.tmp`;
+  writeFileSync3(temporary, `${JSON.stringify(listing)}
+`);
+  renameSync2(temporary, listingFile);
+  return listing;
+}
+
 // src/review/status.ts
 function describeRun(state, adapter, evidencePath) {
   const status3 = reviewStatus(state);
@@ -24555,6 +24630,7 @@ var usage = `usage:
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
+  deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
 
 exit codes: 0 a report (its path is the last line of stdout) or a status; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
 var options = {
@@ -24577,12 +24653,15 @@ var options = {
   run: { type: "string" },
   json: { type: "boolean" },
   reason: { type: "string" },
+  finding: { type: "string" },
+  into: { type: "string" },
   help: { type: "boolean", short: "h" }
 };
 var allowed = {
   review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "help"],
   status: ["run", "json", "repo", "help"],
-  abandon: ["reason", "run", "repo", "help"]
+  abandon: ["reason", "run", "repo", "help"],
+  snapshot: ["finding", "into", "repo", "help"]
 };
 var UsageError = class extends EngineError {
   name = "UsageError";
@@ -24668,12 +24747,24 @@ async function run(argv, io) {
       return review(values, io, location.root, location.worktree);
     case "status":
       return status2(values, io, location.root);
+    case "snapshot":
+      return snapshot(values, io, location.worktree);
     default:
       return abandon(values, io, location.root);
   }
 }
+function snapshot(values, io, worktree) {
+  const finding = values.finding;
+  if (finding === void 0 || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? "")}`);
+  if (values.into === void 0 || values.into.trim() === "") throw new UsageError("--into <dir> is required");
+  const into = resolve11(io.cwd, values.into);
+  const listing = takeSnapshot({ worktree, finding: Number(finding), into });
+  io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}
+`);
+  return 0;
+}
 function openCheckpoint(root, create) {
-  if (!create && !existsSync4(join17(root, ledgerFileName))) return null;
+  if (!create && !existsSync5(join19(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 async function review(values, io, root, worktree) {
