@@ -51,6 +51,17 @@ function unlocatedSpellings(candidates: readonly Groupable[]): Map<string, strin
   return joined;
 }
 
+/**
+ * The spelling an unlocated candidate of `candidates` is grouped under,
+ * as `unlocatedSpellings` folds them; the same candidates must be given
+ * as the ones whose spellings are asked for, since an absolute spelling
+ * joins a relative one only when both are among them.
+ */
+export function unlocatedSpellingIn(candidates: readonly Groupable[]): (candidate: Groupable) => string {
+  const spellings = unlocatedSpellings(candidates);
+  return (candidate) => spellings.get(spellingOf(candidate)) ?? spellingOf(candidate);
+}
+
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
@@ -84,9 +95,9 @@ export function chunk<T>(items: readonly T[], size: number = maxGroupSize): T[][
  * order.
  */
 export function planGroups(candidates: readonly Groupable[]): PlannedGroup[] {
-  const spellings = unlocatedSpellings(candidates);
+  const spelling = unlocatedSpellingIn(candidates);
   // Unlocated candidates are kept apart from located ones even on a file of the same name.
-  const groupKey = (candidate: Groupable): string => (candidate.file === null ? `unlocated:${spellings.get(spellingOf(candidate))!}` : `located:${candidate.file}`);
+  const groupKey = (candidate: Groupable): string => (candidate.file === null ? `unlocated:${spelling(candidate)}` : `located:${candidate.file}`);
   const groups = new Map<string, Groupable[]>();
   for (const candidate of candidates) {
     const key = groupKey(candidate);
