@@ -5,12 +5,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { FrozenFile, ScopeState } from '../../src/checkpoint/events.ts';
 import { EvidenceStore, sha256Hex } from '../../src/evidence/store.ts';
-import { compareExpected, expectedTree, headMoved, matchesExpected, readTreeEntry, reviseFrom, revisionsFromSnapshots, straysOf, worktreeReader, type ExpectedTree, type TreeEntry, type TreeReader } from '../../src/review/tree.ts';
+import { compareExpected, expectedAt, expectedTree, headMoved, headStates, matchesExpected, noBase, readTreeEntry, reviseFrom, revisionsFromSnapshots, straysOf, worktreeReader, type ExpectedTree, type RevisedFile, type TreeEntry, type TreeReader } from '../../src/review/tree.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { commitAll, git, link, repositoryWith, write } from '../helpers/repository.ts';
 
 const blob = (text: string): FrozenFile => ({ blob: { sha256: sha256Hex(Buffer.from(text)), bytes: Buffer.byteLength(text) } });
 const file = (text: string): TreeEntry => ({ bytes: Buffer.from(text), symlink: false });
+/** A revised file from one state to another, null where nothing is. */
+const entry = (path: string, before: FrozenFile | null, after: FrozenFile | null): RevisedFile => ({ path, status: before === null ? 'created' : after === null ? 'deleted' : 'modified', before, beforeSymlink: false, symlink: false, after });
 /** A reader over an in-memory tree; a path it does not name reads as unknown unless `complete`, which reads it as absent. */
 const reader = (entries: Record<string, string | null>, complete = true): TreeReader => (path) => (Object.hasOwn(entries, path) ? (entries[path] === null ? null : file(entries[path]!)) : complete ? null : undefined);
 
@@ -33,9 +35,9 @@ describe('expectedTree', () => {
 
   it('overlays each revision in order: a later revision of a path wins, and a path outside the scope enters', () => {
     const tree = expectedTree(scope, [
-      { files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: blob('a2') }, { path: 'test/a.test.ts', status: 'created', symlink: false, after: blob('t1') }] },
-      { files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: blob('a3') }, { path: 'src/gone.ts', status: 'created', symlink: false, after: blob('back') }] },
-      { files: [{ path: 'test/a.test.ts', status: 'deleted', symlink: false, after: null }] },
+      { files: [entry('src/a.ts', blob('a1'), blob('a2')), entry('test/a.test.ts', null, blob('t1'))] },
+      { files: [entry('src/a.ts', blob('a2'), blob('a3')), entry('src/gone.ts', null, blob('back'))] },
+      { files: [entry('test/a.test.ts', blob('t1'), null)] },
     ]);
     assert.deepEqual(tree.get('src/a.ts'), { frozen: blob('a3'), symlink: false });
     assert.deepEqual(tree.get('src/gone.ts'), { frozen: blob('back'), symlink: false });
@@ -59,7 +61,7 @@ describe('matchesExpected', () => {
 });
 
 describe('compareExpected', () => {
-  const tree: ExpectedTree = expectedTree(scope, [{ files: [{ path: 'test/new.ts', status: 'created', symlink: false, after: blob('n') }] }]);
+  const tree: ExpectedTree = expectedTree(scope, [{ files: [entry('test/new.ts', null, blob('n'))] }]);
 
   it('names each expected path that differs, in path order, with the state the run expected', () => {
     const drifted = compareExpected(tree, reader({ 'src/a.ts': 'edited', 'src/gone.ts': 'back', link: null, 'test/new.ts': 'n' }));
@@ -85,23 +87,34 @@ describe('reviseFrom', () => {
   });
   afterEach(() => rmSync(directory, { recursive: true, force: true }));
 
-  it('freezes each path that differs, as created, modified or deleted, in path order, and nothing for a path that matches', () => {
+  it('freezes each path that differs, as created, modified or deleted, with the state before it, in path order, and nothing for a path that matches', () => {
     const tree = expectedTree(scope, []);
-    const revised = reviseFrom(evidence, reader({ 'src/a.ts': 'fixed', 'src/gone.ts': 'recreated', link: null, 'test/a.test.ts': 'test', 'src/same.ts': null }), tree, ['test/a.test.ts', 'src/a.ts', 'src/gone.ts', 'link', 'src/same.ts', 'src/a.ts']);
+    const revised = reviseFrom(evidence, reader({ 'src/a.ts': 'fixed', 'src/gone.ts': 'recreated', link: null, 'test/a.test.ts': 'test', 'src/same.ts': null }), tree, noBase, ['test/a.test.ts', 'src/a.ts', 'src/gone.ts', 'link', 'src/same.ts', 'src/a.ts']);
     assert.deepEqual(revised, [
-      { path: 'link', status: 'deleted', symlink: false, after: null },
-      { path: 'src/a.ts', status: 'modified', symlink: false, after: blob('fixed') },
-      { path: 'src/gone.ts', status: 'created', symlink: false, after: blob('recreated') },
-      { path: 'test/a.test.ts', status: 'created', symlink: false, after: blob('test') },
+      { path: 'link', status: 'deleted', before: blob('target'), beforeSymlink: true, symlink: false, after: null },
+      { path: 'src/a.ts', status: 'modified', before: blob('a1'), beforeSymlink: false, symlink: false, after: blob('fixed') },
+      { path: 'src/gone.ts', status: 'created', before: null, beforeSymlink: false, symlink: false, after: blob('recreated') },
+      { path: 'test/a.test.ts', status: 'created', before: null, beforeSymlink: false, symlink: false, after: blob('test') },
     ]);
     assert.equal(evidence.read((revised[1]!.after as { blob: { sha256: string; bytes: number } }).blob).toString(), 'fixed');
-    assert.deepEqual(reviseFrom(evidence, reader({ 'src/a.ts': 'a1' }), tree, ['src/a.ts']), []);
+    assert.deepEqual(reviseFrom(evidence, reader({ 'src/a.ts': 'a1' }), tree, noBase, ['src/a.ts']), []);
+  });
+
+  it('takes a path the expected tree does not name as the base holds it: unchanged is no revision, edited is a modification of it', () => {
+    const base = (path: string) => (path === 'src/caller.ts' ? { frozen: blob('caller'), symlink: false } : null);
+    const tree = expectedTree(scope, []);
+    assert.deepEqual(reviseFrom(evidence, reader({ 'src/caller.ts': 'caller' }), tree, base, ['src/caller.ts']), []);
+    assert.deepEqual(reviseFrom(evidence, reader({ 'src/caller.ts': 'fixed caller', 'src/new.ts': 'new' }), tree, base, ['src/caller.ts', 'src/new.ts']), [
+      { path: 'src/caller.ts', status: 'modified', before: blob('caller'), beforeSymlink: false, symlink: false, after: blob('fixed caller') },
+      { path: 'src/new.ts', status: 'created', before: null, beforeSymlink: false, symlink: false, after: blob('new') },
+    ]);
+    assert.deepEqual(expectedAt(tree, base, 'src/a.ts'), { frozen: blob('a1'), symlink: false }, 'the expected tree wins over the base where it names a path');
   });
 
   it('records a file above the freeze limit by hash and size only', () => {
     const big = Buffer.alloc(freezeLimitBytes + 1, 1);
-    const revised = reviseFrom(evidence, () => ({ bytes: big, symlink: false }), expectedTree(scope, []), ['assets/big.bin']);
-    assert.deepEqual(revised, [{ path: 'assets/big.bin', status: 'created', symlink: false, after: { oversized: { sha256: sha256Hex(big), size: big.length } } }]);
+    const revised = reviseFrom(evidence, () => ({ bytes: big, symlink: false }), expectedTree(scope, []), noBase, ['assets/big.bin']);
+    assert.deepEqual(revised, [{ path: 'assets/big.bin', status: 'created', before: null, beforeSymlink: false, symlink: false, after: { oversized: { sha256: sha256Hex(big), size: big.length } } }]);
   });
 
   describe('revisionsFromSnapshots', () => {
@@ -114,7 +127,7 @@ describe('reviseFrom', () => {
     });
 
     it('gives one revision per finding when the fixer snapshotted after each, the last read from the worktree', () => {
-      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'one' }, { 'src/a.ts': 'two', 'test/a.test.ts': 't' }, { 'src/a.ts': 'stale snapshot' }], { 'src/a.ts': 'three', 'test/a.test.ts': 't' }), tree, paths, ['A-1', 'A-2', 'A-3']);
+      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'one' }, { 'src/a.ts': 'two', 'test/a.test.ts': 't' }, { 'src/a.ts': 'stale snapshot' }], { 'src/a.ts': 'three', 'test/a.test.ts': 't' }), tree, noBase, paths, ['A-1', 'A-2', 'A-3']);
       assert.deepEqual(revisions.map((revision) => [revision.findings, revision.files.map((entry) => [entry.path, entry.status, entry.after])]), [
         [['A-1'], [['src/a.ts', 'modified', blob('one')]]],
         [['A-2'], [['src/a.ts', 'modified', blob('two')], ['test/a.test.ts', 'created', blob('t')]]],
@@ -123,29 +136,29 @@ describe('reviseFrom', () => {
     });
 
     it('carries a finding with no snapshot into the next revision, which names both', () => {
-      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'one' }, null, null], { 'src/a.ts': 'three' }), tree, paths, ['A-1', 'A-2', 'A-3']);
+      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'one' }, null, null], { 'src/a.ts': 'three' }), tree, noBase, paths, ['A-1', 'A-2', 'A-3']);
       assert.deepEqual(revisions.map((revision) => revision.findings), [['A-1'], ['A-2', 'A-3']]);
     });
 
     it('gives one revision from the worktree, naming every finding, when the fixer took no snapshot', () => {
-      const revisions = revisionsFromSnapshots(evidence, sources([], { 'src/a.ts': 'all', 'test/a.test.ts': 't' }), tree, paths, ['A-1', 'A-2', 'A-3']);
+      const revisions = revisionsFromSnapshots(evidence, sources([], { 'src/a.ts': 'all', 'test/a.test.ts': 't' }), tree, noBase, paths, ['A-1', 'A-2', 'A-3']);
       assert.deepEqual(revisions.map((revision) => [revision.findings, revision.files.length]), [[['A-1', 'A-2', 'A-3'], 2]]);
     });
 
     it('folds a snapshot that changed nothing forward, and leaves findings after the last change without a revision', () => {
-      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'a1' }, { 'src/a.ts': 'two' }, null], { 'src/a.ts': 'two' }), tree, paths, ['A-1', 'A-2', 'A-3']);
+      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'a1' }, { 'src/a.ts': 'two' }, null], { 'src/a.ts': 'two' }), tree, noBase, paths, ['A-1', 'A-2', 'A-3']);
       assert.deepEqual(revisions.map((revision) => revision.findings), [['A-1', 'A-2']]);
     });
 
     it('takes a path a snapshot did not list from the next reader that has it', () => {
       // The first snapshot does not list the test file; the second lists it absent, which is no change; the worktree has it.
-      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'one' }, { 'test/a.test.ts': null }], { 'src/a.ts': 'one', 'test/a.test.ts': 'late' }), tree, paths, ['A-1', 'A-2', 'A-3']);
+      const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'one' }, { 'test/a.test.ts': null }], { 'src/a.ts': 'one', 'test/a.test.ts': 'late' }), tree, noBase, paths, ['A-1', 'A-2', 'A-3']);
       assert.deepEqual(revisions.map((revision) => [revision.findings, revision.files.map((entry) => entry.path)]), [[['A-1'], ['src/a.ts']], [['A-2', 'A-3'], ['test/a.test.ts']]]);
     });
 
     it('gives nothing for no finding, and nothing when no path changed', () => {
-      assert.deepEqual(revisionsFromSnapshots(evidence, sources([], {}), tree, paths, []), []);
-      assert.deepEqual(revisionsFromSnapshots(evidence, sources([], { 'src/a.ts': 'a1' }), tree, paths, ['A-1']), []);
+      assert.deepEqual(revisionsFromSnapshots(evidence, sources([], {}), tree, noBase, paths, []), []);
+      assert.deepEqual(revisionsFromSnapshots(evidence, sources([], { 'src/a.ts': 'a1' }), tree, noBase, paths, ['A-1']), []);
     });
   });
 });
@@ -174,6 +187,16 @@ describe('the worktree as the tree reads it', () => {
     writeFileSync(join(repo, 'build', 'out.js'), 'x');
     const tree = new Map([['test/new.test.ts', { frozen: blob('x'), symlink: false }]]);
     assert.deepEqual(straysOf(repo, tree), ['scratch.txt']);
+  });
+
+  it('reads the base of a path as the scope\'s head commit holds it, whatever the worktree holds now, and nothing where it holds none', () => {
+    const evidence = new EvidenceStore(join(directory, 'evidence'));
+    const head = git(repo, 'rev-parse', 'HEAD');
+    write(repo, 'src/a.ts', 'edited after the head\n');
+    const base = headStates(repo, head, evidence);
+    assert.deepEqual(base('src/a.ts'), { frozen: blob('a\n'), symlink: false });
+    assert.equal(base('src/missing.ts'), null);
+    assert.equal(evidence.read((base('src/a.ts')!.frozen as { blob: { sha256: string; bytes: number } }).blob).toString(), 'a\n', 'the head\'s bytes are frozen as evidence');
   });
 
   it('names HEAD when it moved from the head the scope captured, and nothing while it has not', () => {

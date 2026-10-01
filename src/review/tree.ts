@@ -25,14 +25,55 @@ export interface ExpectedFile {
 /** Every path the run vouches for, with the file it expects there, or null where it expects nothing. */
 export type ExpectedTree = ReadonlyMap<string, ExpectedFile | null>;
 
-/** One path a revision changed: what it became, null when it was deleted. */
+/**
+ * What a path holds before the run touches it when the expected tree
+ * names nothing there: what the scope's head commit holds, or null where
+ * it holds nothing. A file outside the change, such as a caller a finding
+ * points at or a test a fixer extends, starts as the head holds it.
+ */
+export type BaseReader = (path: string) => ExpectedFile | null;
+
+/** One path a revision changed: what it held before and what it became, each null when nothing was or is there. */
 export interface RevisedFile {
   readonly path: string;
   readonly status: 'created' | 'modified' | 'deleted';
+  readonly before: FrozenFile | null;
+  /** Whether the path was a symlink before; false when nothing was there. */
+  readonly beforeSymlink: boolean;
   /** Whether the path is now a symlink; false for a deleted path. */
   readonly symlink: boolean;
   readonly after: FrozenFile | null;
 }
+
+/** The state a path is expected to hold: the expected tree's, or for a path it does not name, the base's. */
+export function expectedAt(expected: ExpectedTree, base: BaseReader, path: string): ExpectedFile | null {
+  return expected.has(path) ? (expected.get(path) ?? null) : base(path);
+}
+
+/**
+ * The scope's head commit as a base reader: each path's blob read as a
+ * checkout would write it, through the checkout filters as the scope's
+ * own before states are, a symlink as its target text, frozen; null for a
+ * path the head holds no file at. Each path is read once.
+ */
+export function headStates(worktree: string, head: string, evidence: Pick<EvidenceStore, 'put'>): BaseReader {
+  const read = new Map<string, ExpectedFile | null>();
+  return (path) => {
+    const known = read.get(path);
+    if (known !== undefined) return known;
+    const entry = gitApi.treeEntries(worktree, head, [path]).get(path);
+    let state: ExpectedFile | null = null;
+    if (entry !== undefined && entry.mode !== '160000') {
+      const symlink = entry.mode === '120000';
+      state = { frozen: freezeBytes(evidence, symlink ? gitApi.blobRaw(worktree, entry.objectId) : gitApi.blobThroughFilters(worktree, head, path)), symlink };
+    }
+    read.set(path, state);
+    return state;
+  };
+}
+
+/** A base reader for a run that expects nothing beyond its expected tree, as a test or a synthetic history has. */
+export const noBase: BaseReader = () => null;
 
 /** What the tree holds at a path, as a revision reads it: a file's bytes or a symlink's target text. */
 export interface TreeEntry {
@@ -135,19 +176,22 @@ export function straysOf(worktree: string, expected: ExpectedTree): string[] {
 }
 
 /**
- * The revision entries of `paths` read through `read` against `expected`:
- * each path that differs, frozen, in path order. A path the reader cannot
- * speak for is left out, and so is one that matches.
+ * The revision entries of `paths` read through `read` against what the
+ * run expects of each, `expected`'s state or, for a path it does not
+ * name, the base's: each path that differs, frozen with the state before
+ * it, in path order. A path the reader cannot speak for is left out, and
+ * so is one that matches.
  */
-export function reviseFrom(evidence: Pick<EvidenceStore, 'put'>, read: TreeReader, expected: ExpectedTree, paths: Iterable<string>): RevisedFile[] {
+export function reviseFrom(evidence: Pick<EvidenceStore, 'put'>, read: TreeReader, expected: ExpectedTree, base: BaseReader, paths: Iterable<string>): RevisedFile[] {
   const revised: RevisedFile[] = [];
   for (const path of [...new Set(paths)].sort()) {
     const now = read(path);
     if (now === undefined) continue;
-    const before = expected.get(path) ?? null;
+    const before = expectedAt(expected, base, path);
     if (matchesExpected(before, now)) continue;
-    if (now === null) revised.push({ path, status: 'deleted', symlink: false, after: null });
-    else revised.push({ path, status: before === null ? 'created' : 'modified', symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
+    const was = { before: before?.frozen ?? null, beforeSymlink: before?.symlink ?? false };
+    if (now === null) revised.push({ path, status: 'deleted', ...was, symlink: false, after: null });
+    else revised.push({ path, status: before === null ? 'created' : 'modified', ...was, symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
   }
   return revised;
 }
@@ -174,7 +218,7 @@ export interface RevisionSources {
  * names it too; a path a snapshot does not list is taken from the next
  * reader that does.
  */
-export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, paths: readonly string[], findings: readonly string[]): FindingRevision[] {
+export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[]): FindingRevision[] {
   const state = new Map(expected);
   const revisions: FindingRevision[] = [];
   let carried: string[] = [];
@@ -182,7 +226,7 @@ export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sou
     carried.push(id);
     const read = index === findings.length - 1 ? sources.worktree : sources.snapshot(index);
     if (read === null) return;
-    const files = reviseFrom(evidence, read, state, paths);
+    const files = reviseFrom(evidence, read, state, base, paths);
     if (files.length === 0) return;
     revisions.push({ findings: carried, files });
     applyRevision(state, files);

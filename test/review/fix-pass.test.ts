@@ -354,6 +354,56 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(box.checkRuns(), ['build', 'lint', 'test', 'build', 'lint', 'test'], 'npm ran each script, and the dropped kind never ran');
   });
 
+  it('writes a series that leaves the user\'s own uncommitted change out, so it applies at HEAD in worktree mode', async () => {
+    write(box.repo, 'src/c.ts', 'export const c = 1;\n');
+    box.script({ ...reviewScript, 'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    report(await box.fix('claude'));
+    const state = box.run();
+    assert.equal(state.scope!.mode, 'worktree');
+    const clone = join(box.directory, 'clone');
+    git(box.directory, 'clone', '-q', '-c', 'core.autocrlf=false', box.repo, clone);
+    git(clone, 'config', 'user.name', 'Test');
+    git(clone, 'config', 'user.email', 'test@example.invalid');
+    const patches = state.review!.report!.patches.map((reference, index) => {
+      const file = join(box.directory, `${String(index + 1)}.patch`);
+      writeFileSync(file, box.checkpoint.evidence.read(reference));
+      return file;
+    });
+    git(clone, 'am', '--keep-cr', '-q', ...patches);
+    assert.equal(readFileSync(join(clone, 'src', 'a.ts'), 'utf8'), fixedA);
+    assert.equal(existsSync(join(clone, 'src', 'c.ts')), false, 'the user\'s uncommitted change is in no patch');
+  });
+
+  it('owns a file outside the change as HEAD holds it: a fixer that leaves it alone passes, and one that edits it is a modification', async () => {
+    // RIPPLE finds a caller of parse() in src/caller.ts, a file the change does not touch.
+    write(box.repo, 'src/caller.ts', 'import { parse } from \'./a.ts\';\nexport const n = parse(null);\n');
+    git(box.repo, 'add', 'src/caller.ts');
+    git(box.repo, 'commit', '-q', '-m', 'add a caller');
+    write(box.repo, 'src/a.ts', fixedA);
+    git(box.repo, 'commit', '-q', '-am', 'the change under review');
+    box.script({
+      triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads } },
+      'fixer:fixes:c1': [{ output: fixerAnswer([{ status: 'deferred', files: [] }]) }],
+    });
+    report(await box.fix('claude'));
+    const untouched = box.run();
+    assert.deepEqual(untouched.review!.fix!.plan!.clusters, [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/caller.ts'] }]);
+    assert.deepEqual(box.events(untouched.id).filter(([kind]) => kind === 'attempt.failed'), [], 'an untouched owned file outside the change is no unreported edit');
+    assert.equal(untouched.review!.fix!.revisions.length, 0);
+    // Edited, the same file is a modification of what HEAD held, and its patch applies there.
+    box.checkpoint.append(untouched.id, untouched.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'next case' } }]);
+    box.script({
+      triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads } },
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/caller.ts': 'import { parse } from \'./a.ts\';\nexport const n = parse(\'\');\n' } }], output: fixerAnswer([{ files: ['src/caller.ts'] }]) },
+    });
+    report(await box.fix('claude'));
+    const edited = box.checkpoint.listRuns().at(-1)!;
+    assert.deepEqual(edited.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/caller.ts modified']]);
+    const patch = box.checkpoint.evidence.read(edited.review!.report!.patches[0]!).toString('utf8');
+    assert.doesNotMatch(patch, /new file mode/);
+    assert.match(patch, /^-export const n = parse\(null\);$/m);
+  });
+
   it('keeps what a run pinned when it resumes: the fix pass and its checks, whatever the flags say now', async () => {
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.fix('claude')).kind, 'blocked');

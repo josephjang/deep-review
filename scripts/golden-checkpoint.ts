@@ -416,7 +416,7 @@ try {
   fix.phaseV2('baseline-checks', () => {
     fix.check('baseline-checks', 'build', checks.build, 'passed');
     fix.check('baseline-checks', 'lint', checks.lint, 'passed');
-    fix.add('tree.revised', { phase: 'baseline-checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 'chore: apply the lint check\'s rewrite', body: 'The lint check rewrote these files.' } }, files: [{ path: 'src/changed.ts', status: 'modified', symlink: false, after: fix.frozen('after;\n') }] });
+    fix.add('tree.revised', { phase: 'baseline-checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 'chore: apply the lint check\'s rewrite', body: 'The lint check rewrote these files.' } }, files: [{ path: 'src/changed.ts', status: 'modified', before: fix.frozen('after\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after;\n') }] });
     fix.check('baseline-checks', 'test', checks.test, 'failed');
   });
   const message = (subject: string) => ({ subject, body: `Why: ${subject}.` });
@@ -433,9 +433,10 @@ try {
     fix.finishWorker('150');
     fix.add('fix.recorded', { phase: 'fixes', key: 'c1', workerId: fix.id('150'), findings: [finding('SCAN-1', 'applied', ['src/caller.ts', 'src/changed.ts', 'test/changed.test.ts'], 'fix: Guard the null in changed()')], drift: [{ file: 'README.md', what: 'changed() no longer throws on null' }], tests: [{ file: 'test/changed.test.ts', covers: 'changed(null) returns 0' }], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: ['src/caller.ts'] });
     fix.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1', workerId: fix.id('150') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
-      { path: 'src/caller.ts', status: 'modified', symlink: false, after: fix.frozen('caller();\n') },
-      { path: 'src/changed.ts', status: 'modified', symlink: false, after: fix.frozen('after; // guarded\n') },
-      { path: 'test/changed.test.ts', status: 'created', symlink: false, after: fix.frozen('test();\n') },
+      // src/caller.ts is outside the change: its state before is what the scope's head held.
+      { path: 'src/caller.ts', status: 'modified', before: fix.frozen('caller(null);\n'), beforeSymlink: false, symlink: false, after: fix.frozen('caller();\n') },
+      { path: 'src/changed.ts', status: 'modified', before: fix.frozen('after;\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after; // guarded\n') },
+      { path: 'test/changed.test.ts', status: 'created', before: null, beforeSymlink: false, symlink: false, after: fix.frozen('test();\n') },
     ] });
     fix.launch('151', 'fixer fixes:c2');
     fix.finishWorker('151');
@@ -451,7 +452,7 @@ try {
     fix.launch('160', 'fixer repair:repair');
     fix.finishWorker('160');
     fix.add('fix.recorded', { phase: 'repair', key: 'repair', workerId: fix.id('160'), findings: [finding('lint', 'applied', ['src/changed.ts'], 'style: Format the guard as lint asks')], drift: [], tests: [], suite: { result: 'pass', command: 'npm run lint:check', failures: '' }, violations: [] });
-    fix.add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: fix.id('160') }, change: { findings: ['lint'], message: message('style: Format the guard as lint asks') }, files: [{ path: 'src/changed.ts', status: 'modified', symlink: false, after: fix.frozen('after; /* guarded */\n') }] });
+    fix.add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: fix.id('160') }, change: { findings: ['lint'], message: message('style: Format the guard as lint asks') }, files: [{ path: 'src/changed.ts', status: 'modified', before: fix.frozen('after; // guarded\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after; /* guarded */\n') }] });
   }, 'completed', { end: true });
   fix.phaseV2('repair-checks', () => {
     fix.check('repair-checks', 'build', checks.build, 'passed');
