@@ -10,11 +10,14 @@ here, what it leaves out and what was rejected. So far: the repository
 skeleton (toolchain, build, install path, continuous integration), the
 checkpoint ledger the engine records every run in, scope capture, the
 runtime adapter that runs one model worker on Claude Code or Codex, the
-role prompts those workers are given, and the read-only review: one
+role prompts those workers are given, the read-only review: one
 command that runs a change through the triage, nine more finder
 angles, deduplication, verification, a gap sweep and a merge-and-rank
-pass and writes a Markdown report, editing nothing. The engine ships as
-one bundle inside both artifacts, and the installed skill runs it.
+pass and writes a Markdown report, editing nothing; and the fix pass,
+which on request carries that review on to apply the fixes through
+its own workers and run the project's checks, committing nothing until
+a person asks. The engine ships as one bundle inside both artifacts,
+and the installed skill runs it.
 
 ## Layout
 
@@ -31,8 +34,10 @@ src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
 src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
 src/roles/               assembling each role's prompt from roles/
-src/review/              the read-only review: policy, schemas, prompts, planner, controller, report
-src/cli.ts               the deep-review command: review, status, abandon
+src/review/              the review: policy, schemas, prompts, planner, controller, report, and the fix pass's
+                         routing, expected tree, snapshots, patches and commit command
+src/review/checks/       the fix pass's checks: discovering the repository's commands, running one
+src/cli.ts               the deep-review command: review, status, abandon, commit, snapshot
 scripts/                 build, fixture and smoke entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
@@ -191,6 +196,63 @@ artifacts, with a sidecar holding its version and hash and a copy of
 See `docs/changes/2026-09-27-read-only-review.requirements.md` and its
 design.
 
+## The fix pass
+
+`deep-review review --fix` runs five more phases between merge and rank
+and the report: baseline checks, fixes, checks, repair and repair
+checks. A run without `--fix` records them as skipped and is the
+read-only review exactly. Whether a run fixes, and with which checks,
+is pinned when it is configured; a resumed run keeps both and says
+when the command asks otherwise.
+
+Every ranked finding is routed by its merged verdict and its primary's
+angle: a `CONFIRMED` finding, or a `PLAUSIBLE` one from a correctness
+angle or `CONVENTIONS`, goes to a fixer; a `PLAUSIBLE` finding from
+`DESIGN`, `DUPLICATION` or `ALTITUDE` is held for the author. The
+fixer-routed findings are clustered one per file, a merged finding kept
+whole, so no file is owned by two clusters, and each cluster goes to
+one `fixer` worker with edit access. A fixer owns its cluster's files,
+may edit any file no cluster owns when a fix or its tests need it,
+never touches another cluster's, and returns a schema the engine
+validates: per finding a status (`applied`, `already-applied`,
+`deferred`, `blocked`), a note, the files it changed and, for an
+applied finding, a commit message. After each finding it runs
+`deep-review snapshot`, which copies what it changed into its scratch
+directory, so the engine records one revision of the tree per finding.
+
+The engine never writes the reviewed tree during a run. It records the
+bytes every worker or check left in the files it changed as a revision,
+and compares the worktree with the scope overlaid by the revisions: an
+edit an answer accounted for is not drift, and one nobody accounted for
+still blocks, the blocker naming where the expected bytes are. A file
+another cluster owns that a fixer reports editing is recorded as a
+violation, a file no answer names as a stray, and neither stops the
+run.
+
+The checks are the repository's own `build`, `typecheck`, `lint` and
+`test` commands: a `--check <kind>=<command>` flag, else a Taskfile
+task, a Makefile target or a justfile recipe of that name, else a
+`package.json` script (its `<name>:check` variant beside it preferred)
+run through the package manager the lock file names, else a language
+default; `--no-check <kind>` drops one. They run one at a time through
+the platform shell, `build` first and the other three only when it
+passed, with the build-server and non-interactive pins, stdin at end of
+input and a timeout from `roles/policy.json`; a check passes by its
+exit code, and its output is frozen. A check that the baseline passed
+and the fixes broke goes to one repair worker; one that failed before
+any fix is reported as such and never repaired.
+
+The report gains Fixes, Checks and Changed files, and beside it the
+engine writes a patch series, one patch per revision, rendered from the
+frozen bytes so it holds none of the user's own uncommitted change;
+`git am --keep-cr` applies it in order to a tree at the scope. Nothing
+is committed by the run. Afterwards, on request, `deep-review commit`
+builds one commit per revision from the same bytes with git's plumbing,
+the captured change first in `--worktree` mode with
+`--change-message`, moves the branch once and resets the index, writing
+no file and running no hook. See
+`docs/changes/2026-10-01-fix-pass.requirements.md` and its design.
+
 ## Developing
 
 Node 26 or newer, npm and git. `.tool-versions` pins the Node major for
@@ -204,7 +266,7 @@ npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
 npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox elevated]   # real runtimes, by hand
 npm run roles -- --output <dir>   # write every assembled role prompt to <dir> for reading
-npm run review -- review --runtime claude --last-commit   # run the engine from the sources; also status and abandon
+npm run review -- review --runtime claude --last-commit [--fix]   # run the engine from the sources; also status, abandon and commit
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the
@@ -221,7 +283,10 @@ The suite never calls a model: fake Claude and Codex CLIs stand in for the
 real ones, and for the review they answer from a script per role and
 unit, so a whole review runs through the controller in a test, with
 failures, hangs, a killed engine and a drifted tree where a case needs
-them. `npm run smoke` is the real-runtime check, for each CLI named
+them. A scripted fixer edits the tree and runs the snapshot command its
+prompt quotes, and a stand-in check passes, fails, hangs or writes as a
+control file says, so a whole fix run runs there too, no toolchain
+needed. `npm run smoke` is the real-runtime check, for each CLI named
 on its command line, installed and signed in. Per runtime it runs three
 workers: a read-only worker asked to create a file with its shell, that
 worker's session continued and asked the same again, and an editor with
@@ -251,7 +316,10 @@ The repository is its own plugin marketplace. In a Claude Code session:
 The skill is then `/deep-review:deep-review`. It runs the bundled engine
 with `--runtime claude` on the scope the user named (the dirty worktree
 by default, else the last commit), waits for it, and shows the report's
-path. Node 26 or newer must be on the machine. The plugin carries no
+path. Asked to fix the findings, it passes `--fix`, says first that the
+engine's workers will edit the working tree, and afterwards offers to
+commit the edits with `deep-review commit`. Node 26 or newer must be on
+the machine. The plugin carries no
 version field on purpose, so `/plugin marketplace update deep-review`
 follows the latest commit. The repository is private; adding it uses the
 git credentials already on the machine.
