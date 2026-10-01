@@ -247,6 +247,9 @@ describe('rolesDigest', () => {
     const before = rolesDigest(roles);
     const edited = roles.map((role) => (role.key === 'finder-RIPPLE' ? { ...role, sha256: '0'.repeat(64) } : role));
     assert.notEqual(rolesDigest(edited), before);
+    // The fixer's prompt is one of them, so a changed fixer fragment stops a pinned fix run from resuming under other prompts.
+    const fixer = roles.map((role) => (role.key === 'fixer' ? { ...role, sha256: '0'.repeat(64) } : role));
+    assert.notEqual(rolesDigest(fixer), before);
   });
 
   it('is one digest over every role, not only the fifteen the review runs', () => {
