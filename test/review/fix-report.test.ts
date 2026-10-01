@@ -24,7 +24,7 @@ function fixRun(): History {
     .start('baseline-checks')
     .add('check.ran', checkRun('baseline-checks', 'build'))
     .add('check.ran', checkRun('baseline-checks', 'lint'))
-    .add('tree.revised', { phase: 'baseline-checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 'chore: apply the lint check\'s rewrite', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: reference('5') } }] })
+    .add('tree.revised', { phase: 'baseline-checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 'chore: apply the lint check\'s rewrite', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('5') } }] })
     .add('check.ran', checkRun('baseline-checks', 'test', 'failed'))
     .finish('baseline-checks')
     .start('fixes')
@@ -42,8 +42,8 @@ function fixRun(): History {
       tests: [{ file: 'test/a.test.ts', covers: 'parse(null) returns 0' }],
     }))
     .add('tree.revised', { ...fixRevision(worker(50)), change: { findings: ['RIPPLE-1'], message: { subject: 'fix: Guard the null in parse', body: 'Why.' } }, files: [
-      { path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: reference('f') } },
-      { path: 'test/a.test.ts', status: 'created', symlink: false, after: { blob: reference('7') } },
+      { path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('f') } },
+      { path: 'test/a.test.ts', status: 'created', before: null, beforeSymlink: false, symlink: false, after: { blob: reference('7') } },
     ] })
     .add('worktree.checked', { ...endCheck('fixes'), strays: ['notes.txt'] }, 2)
     .finish('fixes')
@@ -55,7 +55,7 @@ function fixRun(): History {
     .start('repair')
     .worker(60, 'fixer repair:repair')
     .add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'lint', status: 'applied', file: 'src/a.ts', line: 4, note: 'formatted the guard', message: { subject: 'style: Format the guard', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }] })
-    .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['lint'], message: { subject: 'style: Format the guard', body: 'Why.' } }, files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: reference('8') } }] })
+    .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['lint'], message: { subject: 'style: Format the guard', body: 'Why.' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('8') } }] })
     .add('worktree.checked', endCheck('repair'), 2)
     .finish('repair')
     .start('repair-checks')

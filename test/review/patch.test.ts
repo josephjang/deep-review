@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { EvidenceStore, sha256Hex } from '../../src/evidence/store.ts';
-import { gitBlobId, renderMail, renderPatch } from '../../src/review/patch.ts';
+import { gitBlobId, patchSeries, renderMail, renderPatch } from '../../src/review/patch.ts';
 import { applyRevision, expectedTree, type ExpectedFile, type RevisedFile } from '../../src/review/tree.ts';
 import { freezeBytes, freezeLimitBytes } from '../../src/scope/capture.ts';
 import { git, repositoryWith } from '../helpers/repository.ts';
@@ -82,28 +82,32 @@ describe('renderPatch', () => {
         'many.txt': Buffer.from(Array.from({ length: 600 }, (_, index) => `row ${String(index)}\n`).join('')),
       };
       const repo = repositoryWith(join(directory, 'repo'), initial);
-      // The scope is the committed tree; three revisions follow it.
+      // The scope is the committed tree; three revisions follow it, each recording every path's state before it.
       const scope = { files: Object.entries(initial).map(([path, bytes]) => ({ path, status: 'modified' as const, symlink: false, before: null, after: freezeBytes(evidence, bytes) })) };
-      const change = (path: string, bytes: Buffer | null): RevisedFile => (bytes === null ? { path, status: 'deleted', symlink: false, after: null } : { path, status: 'modified', symlink: false, after: freezeBytes(evidence, bytes) });
+      const state = expectedTree(scope, []);
+      const change = (path: string, bytes: Buffer | null): RevisedFile => {
+        const before = state.get(path)?.frozen ?? null;
+        const after = bytes === null ? null : freezeBytes(evidence, bytes);
+        return { path, status: before === null ? 'created' : after === null ? 'deleted' : 'modified', before, beforeSymlink: false, symlink: false, after };
+      };
+      const revise = (files: RevisedFile[]): RevisedFile[] => {
+        applyRevision(state, files);
+        return files;
+      };
       const revisions: RevisedFile[][] = [
-        [
+        revise([
           change('modified.txt', Buffer.from(initial['modified.txt']!.toString().replace('line 3\n', 'line three\n').replace('line 30\n', 'line thirty\nline thirty-one\n'))),
-          { path: 'new/created.txt', status: 'created', symlink: false, after: freezeBytes(evidence, Buffer.from('created\n')) },
+          change('new/created.txt', Buffer.from('created\n')),
           change('deleted.txt', null),
-        ],
-        [
+        ]),
+        revise([
           change('crlf.txt', Buffer.from('one\r\nTWO\r\nthree\r\n')),
           change('binary.bin', Buffer.from([0x00, 0xff, 0xfe, 0x11, 0x80, 0x81])),
           change('noeol.txt', Buffer.from('last line without a newline\nand one more')),
-        ],
-        [change('many.txt', Buffer.from(Array.from({ length: 600 }, (_, index) => (index % 7 === 0 ? `ROW ${String(index)}\n` : `row ${String(index)}\n`)).join('')))],
+        ]),
+        revise([change('many.txt', Buffer.from(Array.from({ length: 600 }, (_, index) => (index % 7 === 0 ? `ROW ${String(index)}\n` : `row ${String(index)}\n`)).join('')))]),
       ];
-      const state = expectedTree(scope, []);
-      const patches = revisions.map((files, index) => {
-        const before = new Map(state);
-        applyRevision(state, files);
-        return renderMail({ subject: `fix: revision ${String(index + 1)}`, body: index === 0 ? 'Why it changed.\n\n---\nA line that would end the message.' : '' }, index + 1, revisions.length, renderPatch(before, state, files.map((file) => file.path), read));
-      });
+      const patches = patchSeries(revisions.map((files, index) => ({ files, change: { findings: [], message: { subject: `fix: revision ${String(index + 1)}`, body: index === 0 ? 'Why it changed.\n\n---\nA line that would end the message.' : '' } } })), read, 'sha1');
       const files = patches.map((text, index) => {
         const file = join(directory, `${String(index + 1).padStart(4, '0')}.patch`);
         writeFileSync(file, text);

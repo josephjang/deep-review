@@ -283,7 +283,7 @@ export const fixRevision = (workerId: string, after = reference('f')): Record<st
   phase: 'fixes',
   source: { kind: 'fix', key: 'c1', workerId },
   change: { findings: ['RIPPLE-1'], message: { subject: 'fix: Guard the null', body: 'Why.' } },
-  files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: after } }],
+  files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: after } }],
 });
 
 /** A clean check at an editing phase's end. */

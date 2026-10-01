@@ -4195,6 +4195,13 @@
                 {
                   "path": "src/changed.ts",
                   "status": "modified",
+                  "before": {
+                    "blob": {
+                      "sha256": "7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919",
+                      "bytes": 6
+                    }
+                  },
+                  "beforeSymlink": false,
                   "symlink": false,
                   "after": {
                     "blob": {
@@ -4225,6 +4232,13 @@
                 {
                   "path": "src/caller.ts",
                   "status": "modified",
+                  "before": {
+                    "blob": {
+                      "sha256": "b70a3a10b60911a62d924ac8e988873ab694ccc2aa2dc0b32e73ddc4127080e3",
+                      "bytes": 14
+                    }
+                  },
+                  "beforeSymlink": false,
                   "symlink": false,
                   "after": {
                     "blob": {
@@ -4236,6 +4250,13 @@
                 {
                   "path": "src/changed.ts",
                   "status": "modified",
+                  "before": {
+                    "blob": {
+                      "sha256": "b60bb016d874f019e46a39ce4df8faf5347b5f823d461c407931347a087ca48e",
+                      "bytes": 7
+                    }
+                  },
+                  "beforeSymlink": false,
                   "symlink": false,
                   "after": {
                     "blob": {
@@ -4247,6 +4268,8 @@
                 {
                   "path": "test/changed.test.ts",
                   "status": "created",
+                  "before": null,
+                  "beforeSymlink": false,
                   "symlink": false,
                   "after": {
                     "blob": {
@@ -4277,6 +4300,13 @@
                 {
                   "path": "src/changed.ts",
                   "status": "modified",
+                  "before": {
+                    "blob": {
+                      "sha256": "3540356e3830370057421cacf9ade3fa145f93cfa9d91cde1cb43d3d39209ed0",
+                      "bytes": 18
+                    }
+                  },
+                  "beforeSymlink": false,
                   "symlink": false,
                   "after": {
                     "blob": {

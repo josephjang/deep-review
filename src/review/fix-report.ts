@@ -154,22 +154,21 @@ function revisedBy(revision: TreeRevised): string {
   }
 }
 
-/** The status a path ends the run with: created, modified or deleted against the tree before the fix pass, or removed again when it was created and then deleted. */
-function finalStatus(state: RunState, fix: FixState, path: string): string {
+/** The status a path ends the run with: created, modified or deleted against what it held before its first revision, or removed again when it was created and then deleted. */
+function finalStatus(fix: FixState, path: string): string {
   const touching = fix.revisions.flatMap((revision) => revision.files.filter((file) => file.path === path));
-  const scoped = state.scope?.files.find((file) => file.path === path);
-  const existedBefore = scoped === undefined ? touching[0]?.status !== 'created' : scoped.after !== null;
-  const existsAfter = touching.at(-1)?.after !== null;
+  const existedBefore = (touching[0]?.before ?? null) !== null;
+  const existsAfter = (touching.at(-1)?.after ?? null) !== null;
   if (existedBefore) return existsAfter ? 'modified' : 'deleted';
   return existsAfter ? 'created' : 'created, then deleted';
 }
 
 /** The Changed files section: every path a revision names, once, with its final status and who changed it, then the patch series. */
-function changedFilesSection(state: RunState, fix: FixState, patches: readonly string[]): string[] {
+function changedFilesSection(fix: FixState, patches: readonly string[]): string[] {
   const paths = [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file) => file.path)))].sort();
   const rows = paths.map((path) => {
     const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file) => file.path === path)).map(revisedBy))];
-    return `| ${tableCell(path)} | ${finalStatus(state, fix, path)} | ${tableCell(by.join(', '))} |`;
+    return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(', '))} |`;
   });
   const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revision.change.message.subject)} (${revisedBy(revision)}): ${patches[index] ?? 'not written'}`);
   return [
@@ -185,7 +184,7 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [fixesSection(review, fix), checksSection(fix, evidencePath), changedFilesSection(state, fix, patches)];
+  return [fixesSection(review, fix), checksSection(fix, evidencePath), changedFilesSection(fix, patches)];
 }
 
 /** The header's line for a fix run: how many findings each outcome took, and that the edits are uncommitted. */

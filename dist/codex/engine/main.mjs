@@ -20406,11 +20406,13 @@ var fixRecordedV1 = external_exports.strictObject({
 var revisedFileSchema = external_exports.strictObject({
   path: external_exports.string().min(1),
   status: external_exports.enum(["created", "modified", "deleted"]),
+  before: frozenFileSchema.nullable(),
+  beforeSymlink: external_exports.boolean(),
   symlink: external_exports.boolean(),
   after: frozenFileSchema.nullable()
-}).refine((file2) => file2.status === "deleted" === (file2.after === null), {
-  message: "a deleted file alone has no after state",
-  path: ["after"]
+}).superRefine((file2, context) => {
+  if (file2.status === "created" !== (file2.before === null)) context.addIssue({ code: "custom", message: "a created file alone has no state before", path: ["before"] });
+  if (file2.status === "deleted" !== (file2.after === null)) context.addIssue({ code: "custom", message: "a deleted file alone has no after state", path: ["after"] });
 });
 var treeRevisedV1 = external_exports.strictObject({
   phase: phaseSchemaV2,
@@ -24255,6 +24257,24 @@ function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
 }
 
 // src/review/tree.ts
+function expectedAt(expected, base, path) {
+  return expected.has(path) ? expected.get(path) ?? null : base(path);
+}
+function headStates(worktree, head2, evidence) {
+  const read = /* @__PURE__ */ new Map();
+  return (path) => {
+    const known = read.get(path);
+    if (known !== void 0) return known;
+    const entry = treeEntries(worktree, head2, [path]).get(path);
+    let state = null;
+    if (entry !== void 0 && entry.mode !== "160000") {
+      const symlink = entry.mode === "120000";
+      state = { frozen: freezeBytes(evidence, symlink ? blobRaw(worktree, entry.objectId) : blobThroughFilters(worktree, head2, path)), symlink };
+    }
+    read.set(path, state);
+    return state;
+  };
+}
 function expectedTree(scope, revisions) {
   const tree = /* @__PURE__ */ new Map();
   for (const file2 of scope.files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
@@ -24302,19 +24322,20 @@ function headMoved(worktree, expectedHead) {
 function straysOf(worktree, expected) {
   return status(worktree).filter((entry) => entry.code === "??" && !expected.has(entry.path)).map((entry) => entry.path).sort();
 }
-function reviseFrom(evidence, read, expected, paths) {
+function reviseFrom(evidence, read, expected, base, paths) {
   const revised = [];
   for (const path of [...new Set(paths)].sort()) {
     const now = read(path);
     if (now === void 0) continue;
-    const before = expected.get(path) ?? null;
+    const before = expectedAt(expected, base, path);
     if (matchesExpected(before, now)) continue;
-    if (now === null) revised.push({ path, status: "deleted", symlink: false, after: null });
-    else revised.push({ path, status: before === null ? "created" : "modified", symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
+    const was = { before: before?.frozen ?? null, beforeSymlink: before?.symlink ?? false };
+    if (now === null) revised.push({ path, status: "deleted", ...was, symlink: false, after: null });
+    else revised.push({ path, status: before === null ? "created" : "modified", ...was, symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
   }
   return revised;
 }
-function revisionsFromSnapshots(evidence, sources, expected, paths, findings) {
+function revisionsFromSnapshots(evidence, sources, expected, base, paths, findings) {
   const state = new Map(expected);
   const revisions = [];
   let carried = [];
@@ -24322,7 +24343,7 @@ function revisionsFromSnapshots(evidence, sources, expected, paths, findings) {
     carried.push(id);
     const read = index2 === findings.length - 1 ? sources.worktree : sources.snapshot(index2);
     if (read === null) return;
-    const files = reviseFrom(evidence, read, state, paths);
+    const files = reviseFrom(evidence, read, state, base, paths);
     if (files.length === 0) return;
     revisions.push({ findings: carried, files });
     applyRevision(state, files);
@@ -24631,6 +24652,11 @@ function prepareSnapshots(into, paths) {
 // src/review/fix-events.ts
 var subjectLength = 72;
 var bodyLength = 4e3;
+function baseOf(context) {
+  const head2 = context.state.scope?.head;
+  if (head2 === void 0) throw new Error(`Run ${context.state.id} has no scope`);
+  return headStates(context.worktree, head2, context.evidence);
+}
 function requireFix2(state) {
   const fix = state.review?.fix ?? null;
   if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
@@ -24682,7 +24708,8 @@ function fixAnswerEvents(unit, receipt, context) {
   const resolved = resolveFixerAnswer(output2, { worktree, lookup: worktreeLookup(worktree), owned, othersOwned: othersOwned(state, phase, unit.key) });
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
-  requireOwnedReported(owned.filter((path) => !matchesExpected(expected.get(path), read(path) ?? null)), resolved.named);
+  const base = baseOf(context);
+  requireOwnedReported(owned.filter((path) => !matchesExpected(expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
   const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
   const findings = ids.map((id, index2) => {
     const answer = byIndex.get(index2);
@@ -24702,7 +24729,7 @@ function fixAnswerEvents(unit, receipt, context) {
   const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join18(scratch, snapshotsDirectoryName);
-  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, [...owned, ...resolved.named], ids);
+  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids);
   return [
     { kind: "fix.recorded", version: 1, payload: recorded },
     ...revisions.map((revision) => ({
@@ -24714,7 +24741,7 @@ function fixAnswerEvents(unit, receipt, context) {
 }
 function unansweredRevision(context, phase, key, reason) {
   const { state, worktree, evidence } = context;
-  const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), ownedFiles(requireFix2(state), phase, key));
+  const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), baseOf(context), ownedFiles(requireFix2(state), phase, key));
   if (files.length === 0) return null;
   const who = phase === "repair" ? "the repair" : `cluster ${key}`;
   const payload = {
@@ -24736,7 +24763,7 @@ The files are recorded as those workers left them; nothing here is a fix an answ
 function checkRevision(context, phase, kind, command) {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, expected.keys());
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys());
   if (files.length === 0) return null;
   const payload = {
     phase,
@@ -25029,12 +25056,11 @@ function renderPatch(before, after, paths, read, format = "sha1") {
   };
   return [...new Set(paths)].sort().map((path) => fileDiff(path, content(before, path), content(after, path), format)).join("");
 }
-function patchSeries(scope, revisions, read, format) {
-  const state = expectedTree(scope, []);
+function patchSeries(revisions, read, format) {
   return revisions.map((revision, index2) => {
-    const before = new Map(state);
-    applyRevision(state, revision.files);
-    return renderMail(revision.change.message, index2 + 1, revisions.length, renderPatch(before, state, revision.files.map((file2) => file2.path), read, format));
+    const before = new Map(revision.files.map((file2) => [file2.path, file2.before === null ? null : { frozen: file2.before, symlink: file2.beforeSymlink }]));
+    const after = new Map(revision.files.map((file2) => [file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink }]));
+    return renderMail(revision.change.message, index2 + 1, revisions.length, renderPatch(before, after, revision.files.map((file2) => file2.path), read, format));
   });
 }
 var patchAuthor = "deep-review <deep-review@deep-review.invalid>";
@@ -25780,19 +25806,18 @@ function revisedBy(revision) {
       return `${revision.source.key}, failed`;
   }
 }
-function finalStatus(state, fix, path) {
+function finalStatus(fix, path) {
   const touching = fix.revisions.flatMap((revision) => revision.files.filter((file2) => file2.path === path));
-  const scoped = state.scope?.files.find((file2) => file2.path === path);
-  const existedBefore = scoped === void 0 ? touching[0]?.status !== "created" : scoped.after !== null;
-  const existsAfter = touching.at(-1)?.after !== null;
+  const existedBefore = (touching[0]?.before ?? null) !== null;
+  const existsAfter = (touching.at(-1)?.after ?? null) !== null;
   if (existedBefore) return existsAfter ? "modified" : "deleted";
   return existsAfter ? "created" : "created, then deleted";
 }
-function changedFilesSection(state, fix, patches) {
+function changedFilesSection(fix, patches) {
   const paths = [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
   const rows = paths.map((path) => {
     const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file2) => file2.path === path)).map(revisedBy))];
-    return `| ${tableCell(path)} | ${finalStatus(state, fix, path)} | ${tableCell(by.join(", "))} |`;
+    return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(", "))} |`;
   });
   const series = fix.revisions.map((revision, index2) => `${String(index2 + 1)}. ${inlineText(revision.change.message.subject)} (${revisedBy(revision)}): ${patches[index2] ?? "not written"}`);
   return [
@@ -25806,7 +25831,7 @@ function fixSections(state, evidencePath, patches) {
   const review2 = state.review;
   const fix = review2?.fix ?? null;
   if (review2 === null || fix === null) return [];
-  return [fixesSection(review2, fix), checksSection(fix, evidencePath), changedFilesSection(state, fix, patches)];
+  return [fixesSection(review2, fix), checksSection(fix, evidencePath), changedFilesSection(fix, patches)];
 }
 function fixHeaderLine(review2) {
   const fix = review2.fix;
@@ -26168,7 +26193,7 @@ async function runReview(options2) {
           break;
         case "write-report": {
           const revisions = state.review.fix?.revisions ?? [];
-          const patches = revisions.length === 0 ? [] : patchSeries(scope, revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree)).map((patch) => checkpoint.evidence.put(patch));
+          const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree)).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const fix = state.review.fix === null ? {} : { fix: { evidencePath: (reference) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));

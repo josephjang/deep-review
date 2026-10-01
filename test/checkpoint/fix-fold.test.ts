@@ -70,7 +70,7 @@ describe('the fix fold', () => {
       .add('attempt.failed', { phase: 'repair', key: 'repair', workerId: worker(60), reason: 'failed' }, 2)
       .add('attempt.failed', { phase: 'repair', key: 'repair', workerId: worker(61), reason: 'failed again' }, 2)
       .add('cluster.failed', { phase: 'repair', key: 'repair', reason: '2 attempts did not complete' })
-      .add('tree.revised', { phase: 'repair', source: { kind: 'unanswered', key: 'repair' }, change: { findings: [], message: { subject: 'chore: keep the partial edits of the repair', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: reference('9') } }] })
+      .add('tree.revised', { phase: 'repair', source: { kind: 'unanswered', key: 'repair' }, change: { findings: [], message: { subject: 'chore: keep the partial edits of the repair', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] })
       .add('worktree.checked', endCheck('repair'), 2)
       .finish('repair', 'degraded');
     checksPhase(history, 'repair-checks', { test: 'failed' })
@@ -118,8 +118,8 @@ describe('the fix fold', () => {
     ['a revision that names a finding its answer does not hold', () => answered().add('tree.revised', { ...fixRevision(worker(50)), change: { findings: ['SWEEP-1'], message: { subject: 's', body: '' } } }), /revises the tree for SWEEP-1, which fixes:c1 did not answer/],
     ['two revisions of one finding', () => answered().add('tree.revised', fixRevision(worker(50))).add('tree.revised', fixRevision(worker(50))), /revises the tree for RIPPLE-1 twice/],
     ['a revision with no files', () => answered().add('tree.revised', { ...fixRevision(worker(50)), files: [] }), /schema rejects/],
-    ['a revision for a check that did not run', () => fixed().start('checks').add('tree.revised', { phase: 'checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: reference('7') } }] }), /which did not run in checks/],
-    ['the partial edits of a unit that did not fail', () => answered().add('tree.revised', { phase: 'fixes', source: { kind: 'unanswered', key: 'c1' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', symlink: false, after: { blob: reference('7') } }] }), /which did not fail twice/],
+    ['a revision for a check that did not run', () => fixed().start('checks').add('tree.revised', { phase: 'checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('7') } }] }), /which did not run in checks/],
+    ['the partial edits of a unit that did not fail', () => answered().add('tree.revised', { phase: 'fixes', source: { kind: 'unanswered', key: 'c1' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('7') } }] }), /which did not fail twice/],
     ['a cluster failed after its answer', () => answered().add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }), /already answered/],
     ['a cluster failed twice', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }).add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }), /fails fixes:c1 twice/],
     ['an answer after the cluster failed', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }).add('fix.recorded', fixAnswer(worker(50))), /after it failed/],

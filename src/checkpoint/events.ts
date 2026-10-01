@@ -732,15 +732,24 @@ export const fixRecordedV1 = z.strictObject({
 });
 export type FixRecorded = z.infer<typeof fixRecordedV1>;
 
-/** One path a revision changed: what it became (null when deleted), and whether that is a symlink. */
+/**
+ * One path a revision changed: what it held before (null when nothing
+ * was there) and whether that was a symlink, and what it became (null
+ * when deleted) and whether that is one. For a path the run expected
+ * nothing of before, the state before is what the scope's head commit
+ * held there, so a revision of a file outside the change is a
+ * modification of it, not a creation.
+ */
 export const revisedFileSchema = z.strictObject({
   path: z.string().min(1),
   status: z.enum(['created', 'modified', 'deleted']),
+  before: frozenFileSchema.nullable(),
+  beforeSymlink: z.boolean(),
   symlink: z.boolean(),
   after: frozenFileSchema.nullable(),
-}).refine((file) => (file.status === 'deleted') === (file.after === null), {
-  message: 'a deleted file alone has no after state',
-  path: ['after'],
+}).superRefine((file, context) => {
+  if ((file.status === 'created') !== (file.before === null)) context.addIssue({ code: 'custom', message: 'a created file alone has no state before', path: ['before'] });
+  if ((file.status === 'deleted') !== (file.after === null)) context.addIssue({ code: 'custom', message: 'a deleted file alone has no after state', path: ['after'] });
 });
 
 /**

@@ -19,7 +19,7 @@ import { worktreeLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
 import { readSnapshot, snapshotsDirectoryName } from './snapshot.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { matchesExpected, reviseFrom, revisionsFromSnapshots, worktreeReader, type FindingRevision } from './tree.ts';
+import { expectedAt, headStates, matchesExpected, reviseFrom, revisionsFromSnapshots, worktreeReader, type BaseReader, type FindingRevision } from './tree.ts';
 import { type CheckKind, type EditingPhase } from './vocabulary.ts';
 
 /** What turning work into events needs: the fold it is recorded against, the worktree, and the evidence store revisions are frozen into. */
@@ -33,6 +33,13 @@ export interface RevisionContext {
 const subjectLength = 72;
 /** The longest commit body the ledger records. */
 const bodyLength = 4000;
+
+/** What the run expects of a path its expected tree does not name: what the scope's head commit held there. */
+function baseOf(context: RevisionContext): BaseReader {
+  const head = context.state.scope?.head;
+  if (head === undefined) throw new Error(`Run ${context.state.id} has no scope`);
+  return headStates(context.worktree, head, context.evidence);
+}
 
 function requireFix(state: RunState): FixState {
   const fix = state.review?.fix ?? null;
@@ -103,7 +110,8 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const resolved = resolveFixerAnswer(output, { worktree, lookup: worktreeLookup(worktree), owned, othersOwned: othersOwned(state, phase, unit.key) });
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
-  requireOwnedReported(owned.filter((path) => !matchesExpected(expected.get(path), read(path) ?? null)), resolved.named);
+  const base = baseOf(context);
+  requireOwnedReported(owned.filter((path) => !matchesExpected(expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
 
   const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
   const findings = ids.map((id, index): FixedFinding => {
@@ -126,7 +134,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   // The fixer's snapshots are under the scratch directory its launch recorded; a worker given none took none.
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
-  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, [...owned, ...resolved.named], ids);
+  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids);
   return [
     { kind: 'fix.recorded', version: 1, payload: recorded },
     ...revisions.map((revision): NewEvent => ({
@@ -145,7 +153,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
  */
 export function unansweredRevision(context: RevisionContext, phase: EditingPhase, key: string, reason: string): NewEvent | null {
   const { state, worktree, evidence } = context;
-  const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), ownedFiles(requireFix(state), phase, key));
+  const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), baseOf(context), ownedFiles(requireFix(state), phase, key));
   if (files.length === 0) return null;
   const who = phase === 'repair' ? 'the repair' : `cluster ${key}`;
   const payload: TreeRevised = {
@@ -172,7 +180,7 @@ export function unansweredRevision(context: RevisionContext, phase: EditingPhase
 export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string): NewEvent | null {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, expected.keys());
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys());
   if (files.length === 0) return null;
   const payload: TreeRevised = {
     phase,
