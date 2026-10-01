@@ -83,7 +83,7 @@ describe('renderReport', () => {
     const state = history.fold();
     const drifted = {
       ...state,
-      review: { ...state.review!, checks: [...state.review!.checks, { phase: 'report' as const, attempt: 1, drifted: true, files: [{ path: 'src/a.ts', outcome: 'modified' as const }] }] },
+      review: { ...state.review!, checks: [...state.review!.checks, { phase: 'report' as const, attempt: 1, moment: 'start' as const, drifted: true, head: null, files: [{ path: 'src/a.ts', outcome: 'modified' as const }], strays: [] }] },
       scope: { ...state.scope!, files: [...state.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] },
     };
     const report = renderReport(drifted, { engine: '0.0.0', statistics });

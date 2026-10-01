@@ -1,0 +1,4344 @@
+{
+  "runs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000000",
+      "worktree": "/fixture/active",
+      "createdAt": "2026-09-26T00:00:00.000Z",
+      "engine": "golden",
+      "status": "active",
+      "abandonReason": null,
+      "scope": {
+        "mode": "worktree",
+        "request": {
+          "paths": []
+        },
+        "base": "1111111111111111111111111111111111111111",
+        "head": "2222222222222222222222222222222222222222",
+        "files": [
+          {
+            "path": "src/changed.ts",
+            "status": "modified",
+            "symlink": false,
+            "before": {
+              "blob": {
+                "sha256": "9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb",
+                "bytes": 7
+              }
+            },
+            "after": {
+              "blob": {
+                "sha256": "7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919",
+                "bytes": 6
+              }
+            }
+          },
+          {
+            "path": "assets/huge.bin",
+            "status": "added",
+            "symlink": false,
+            "before": null,
+            "after": {
+              "oversized": {
+                "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+                "size": 9000000
+              }
+            }
+          },
+          {
+            "path": "src/removed.ts",
+            "status": "deleted",
+            "symlink": false,
+            "before": {
+              "blob": {
+                "sha256": "6b95743f7339e0aff16c1d1b9f453711ffcdc3fed9b6787af264f9601c4e2961",
+                "bytes": 8
+              }
+            },
+            "after": null
+          }
+        ],
+        "patch": {
+          "sha256": "c4762d638e82d9b82b6bd94b6394700dff524ca20a20ccf8fc0fb56771cf9c5a",
+          "bytes": 69
+        }
+      },
+      "workers": {
+        "00000000-0000-4000-8000-00000000f001": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-00000000f001",
+            "label": "golden claude worker",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "1.2.3",
+            "model": "fixture-model",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-555555555555",
+            "resumes": null,
+            "scratch": "/fixture/checkpoint/scratch/00000000-0000-4000-8000-00000000f001",
+            "budgetUsd": 1.5,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "3995e91a36068821a7515254e686a5d35d4ad4231c6943a5872b15e62db48c34",
+              "bytes": 29
+            },
+            "schema": {
+              "sha256": "8aa6b8e71d80a6b3ca100683098234c23e868630d5c69ef66163e67d8ecb9a7d",
+              "bytes": 110
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:03.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-00000000f001",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T00:00:00.000Z",
+            "endedAt": "2026-09-27T00:01:00.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-555555555555"
+            ],
+            "usage": "{\"input_tokens\":12,\"output_tokens\":3}",
+            "denials": [
+              {
+                "tool": "Bash",
+                "detail": "rm -rf build"
+              }
+            ],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "2b82c37965faf7db40dae134cc94675e0f6dac048a0173a1861b6ed1b8db7d5b",
+              "bytes": 15
+            }
+          }
+        },
+        "00000000-0000-4000-8000-00000000f002": {
+          "status": "running",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-00000000f002",
+            "label": "golden codex worker",
+            "runtime": "codex",
+            "executable": "/fixture/bin/codex",
+            "executableArgs": [],
+            "version": "1.2.3",
+            "model": "fixture-model",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": null,
+            "resumes": null,
+            "scratch": "/fixture/checkpoint/scratch/00000000-0000-4000-8000-00000000f002",
+            "budgetUsd": null,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "6173ab06eb4db464645d597e5b5fe147914cedc1cdf8b68ba3d9f1ee01ab03e2",
+              "bytes": 28
+            },
+            "schema": {
+              "sha256": "8aa6b8e71d80a6b3ca100683098234c23e868630d5c69ef66163e67d8ecb9a7d",
+              "bytes": 110
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:05.000Z"
+        }
+      },
+      "review": null,
+      "lastSequence": 6
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "worktree": "/fixture/abandoned",
+      "createdAt": "2026-09-26T00:00:01.000Z",
+      "engine": "golden",
+      "status": "abandoned",
+      "abandonReason": "fixture run closed on purpose",
+      "scope": null,
+      "workers": {},
+      "review": null,
+      "lastSequence": 7
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "worktree": "/fixture/reviewed",
+      "createdAt": "2026-09-26T00:00:07.000Z",
+      "engine": "golden",
+      "status": "active",
+      "abandonReason": null,
+      "scope": {
+        "mode": "worktree",
+        "request": {
+          "paths": [
+            "src"
+          ]
+        },
+        "base": "1111111111111111111111111111111111111111",
+        "head": "2222222222222222222222222222222222222222",
+        "files": [
+          {
+            "path": "src/changed.ts",
+            "status": "modified",
+            "symlink": false,
+            "before": {
+              "blob": {
+                "sha256": "9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb",
+                "bytes": 7
+              }
+            },
+            "after": {
+              "blob": {
+                "sha256": "7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919",
+                "bytes": 6
+              }
+            }
+          }
+        ],
+        "patch": {
+          "sha256": "c4762d638e82d9b82b6bd94b6394700dff524ca20a20ccf8fc0fb56771cf9c5a",
+          "bytes": 69
+        }
+      },
+      "workers": {
+        "00000000-0000-4000-8000-000000000001": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000001",
+            "label": "triage triage:SCAN",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000001",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000001",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "b0bf5958079d61902a023b3c73e1d3e2e4e7cdd3bb064be9ccb2fc313a5187b1",
+              "bytes": 28
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:12.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000001",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000001"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000002": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000002",
+            "label": "finder-RIPPLE finders:RIPPLE",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "sonnet",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000002",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000002",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "80eb206afaaf5d63e5f05dbc22f3bba475093ebdd4b8916097cc43b0bd488df9",
+              "bytes": 38
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:18.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000002",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000002"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000003": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000003",
+            "label": "finder-FOOTGUNS finders:FOOTGUNS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "sonnet",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000003",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000003",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "2f503d53c3b0224a32d8e00d389e3fd748e8e09a6b6ee21b89fc2e6800239d4f",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:21.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000003",
+            "outcome": "failed",
+            "exitCode": 1,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000003"
+            ],
+            "usage": null,
+            "denials": [],
+            "error": "The answer does not match the output schema",
+            "stdout": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": null
+          }
+        },
+        "00000000-0000-4000-8000-000000000004": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000004",
+            "label": "finder-FOOTGUNS finders:FOOTGUNS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "sonnet",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000004",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000004",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "2f503d53c3b0224a32d8e00d389e3fd748e8e09a6b6ee21b89fc2e6800239d4f",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:24.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000004",
+            "outcome": "timeout",
+            "exitCode": null,
+            "signal": "SIGKILL",
+            "termination": "killed",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000004"
+            ],
+            "usage": null,
+            "denials": [],
+            "error": "The worker ran past its timeout of 600000 ms and was killed with its process tree",
+            "stdout": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": null
+          }
+        },
+        "00000000-0000-4000-8000-000000000005": {
+          "status": "lost",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000005",
+            "label": "finder-WRAPPERS finders:WRAPPERS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000005",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000005",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "bc0b7f4bc265f8312bbed70e4ba66edd6620b8180e2b515288e7b3add9edabf6",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:28.000Z",
+          "reason": "the engine exited while the worker ran"
+        },
+        "00000000-0000-4000-8000-000000000010": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000010",
+            "label": "finder-REMOVALS finders:REMOVALS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000010",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000010",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "3e45b0cb0b501e623de7464e07cd8b5c1d9cdaa1d06a81068cceb48a58ca03ff",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:30.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000010",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000010"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000013": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000013",
+            "label": "finder-WRAPPERS finders:WRAPPERS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000013",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000013",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "bc0b7f4bc265f8312bbed70e4ba66edd6620b8180e2b515288e7b3add9edabf6",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:33.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000013",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000013"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000014": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000014",
+            "label": "finder-EFFICIENCY finders:EFFICIENCY",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000014",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000014",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "a180d172290478438277ec3ab7b46e7506077c0d828396a083437a41003895d5",
+              "bytes": 46
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:36.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000014",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000014"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000015": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000015",
+            "label": "finder-DESIGN finders:DESIGN",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000015",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000015",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "23e6c0500436155c20a99215b4505a8034d71e64c9016cb8ca259e70ff88418e",
+              "bytes": 38
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:39.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000015",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000015"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000016": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000016",
+            "label": "finder-DUPLICATION finders:DUPLICATION",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000016",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000016",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "d76e4d6ef2377c895f586823344dc6e4e0a3ff69f31d872961ba8879fb970163",
+              "bytes": 48
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:42.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000016",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000016"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000017": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000017",
+            "label": "finder-ALTITUDE finders:ALTITUDE",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000017",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000017",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "ea25cf03447b80599b6d90d54cdfb35edebc31407f5e6fcac3290260bbc4f501",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:45.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000017",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000017"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000018": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000018",
+            "label": "finder-CONVENTIONS finders:CONVENTIONS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000018",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000018",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "30002b9240af9c98204effd991e97c6343a80525e2e497d08902066bdfeeb668",
+              "bytes": 48
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:48.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000018",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000018"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000020": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000020",
+            "label": "deduplication deduplication:deduplication",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000020",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000020",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "da5c5f28b601153857b76f3df11887d0f01ce6659f2336765d3a357f9051c6a1",
+              "bytes": 51
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:54.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000020",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000020"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000021": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000021",
+            "label": "verifier verification:g1",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000021",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000021",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "a51e44690ab152a7d6ee725dba7773726d34a93f7f1ddb6ddce5396dbb61e1ec",
+              "bytes": 34
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:61.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000021",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000021"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000022": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000022",
+            "label": "verifier verification:g2",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000022",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000022",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "f6656e74b8c0a47bc0a227f00a6e568b1f32519bd5de7d01863e5b2aafb3df6d",
+              "bytes": 34
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:64.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000022",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000022"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000030": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000030",
+            "label": "sweep sweep:sweep",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000030",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000030",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "bed641f05356bcf25f5c716a2630c84269f2382060b9c033dbe1e163e477fad0",
+              "bytes": 27
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:74.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000030",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000030"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000031": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000031",
+            "label": "verifier sweep-verification:g1",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000031",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000031",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "90b7a8fb42e2d7c10d36d1152dd80cb1c37955115e2a0b1b0d32a39ee74666ad",
+              "bytes": 40
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:84.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000031",
+            "outcome": "failed",
+            "exitCode": 1,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000031"
+            ],
+            "usage": null,
+            "denials": [],
+            "error": "The answer does not match the output schema",
+            "stdout": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": null
+          }
+        },
+        "00000000-0000-4000-8000-000000000032": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000032",
+            "label": "verifier sweep-verification:g1",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000032",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000032",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "90b7a8fb42e2d7c10d36d1152dd80cb1c37955115e2a0b1b0d32a39ee74666ad",
+              "bytes": 40
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:87.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000032",
+            "outcome": "failed",
+            "exitCode": 1,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000032"
+            ],
+            "usage": null,
+            "denials": [],
+            "error": "The answer does not match the output schema",
+            "stdout": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": null
+          }
+        },
+        "00000000-0000-4000-8000-000000000040": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000040",
+            "label": "merge-rank merge-rank:merge-rank",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000040",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000040",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "e8fa7252394c0f0ed8fcbfe40664c413b3d611d93cebd67c127442d4da680572",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:94.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000040",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000040"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        }
+      },
+      "review": {
+        "configuration": {
+          "runtime": "claude",
+          "executable": "/fixture/bin/claude",
+          "executableArgs": [],
+          "version": "2.1.283",
+          "models": {
+            "strong": "opus",
+            "fast": "sonnet"
+          },
+          "roles": [
+            {
+              "role": "triage",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-REMOVALS",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-RIPPLE",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-FOOTGUNS",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-WRAPPERS",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-EFFICIENCY",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-DESIGN",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-DUPLICATION",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-ALTITUDE",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-CONVENTIONS",
+              "model": "sonnet",
+              "effort": "medium",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "deduplication",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "verifier",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "sweep",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "merge-rank",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            }
+          ],
+          "rolesDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+          "concurrency": 4,
+          "runBudgetUsd": 30,
+          "fix": false,
+          "checks": null
+        },
+        "limits": {
+          "concurrency": 4,
+          "runBudgetUsd": 60
+        },
+        "phases": {
+          "triage": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "finders": {
+            "status": "degraded",
+            "attempt": 1
+          },
+          "deduplication": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "verification": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "sweep": {
+            "status": "completed",
+            "attempt": 2
+          },
+          "sweep-deduplication": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "sweep-verification": {
+            "status": "degraded",
+            "attempt": 1
+          },
+          "merge-rank": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "baseline-checks": {
+            "status": "skipped",
+            "attempt": 0
+          },
+          "fixes": {
+            "status": "skipped",
+            "attempt": 0
+          },
+          "checks": {
+            "status": "skipped",
+            "attempt": 0
+          },
+          "repair": {
+            "status": "skipped",
+            "attempt": 0
+          },
+          "repair-checks": {
+            "status": "skipped",
+            "attempt": 0
+          },
+          "report": {
+            "status": "completed",
+            "attempt": 1
+          }
+        },
+        "blocker": null,
+        "checks": [
+          {
+            "phase": "triage",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "finders",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "deduplication",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "verification",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "sweep",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "sweep",
+            "attempt": 2,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "sweep-deduplication",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "sweep-verification",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "merge-rank",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          },
+          {
+            "phase": "report",
+            "attempt": 1,
+            "drifted": false,
+            "files": [],
+            "moment": "start",
+            "head": null,
+            "strays": []
+          }
+        ],
+        "leads": [
+          {
+            "angle": "REMOVALS",
+            "lead": null
+          },
+          {
+            "angle": "RIPPLE",
+            "lead": "callers of changed()"
+          },
+          {
+            "angle": "FOOTGUNS",
+            "lead": null
+          },
+          {
+            "angle": "WRAPPERS",
+            "lead": null
+          },
+          {
+            "angle": "EFFICIENCY",
+            "lead": null
+          },
+          {
+            "angle": "DESIGN",
+            "lead": null
+          },
+          {
+            "angle": "DUPLICATION",
+            "lead": null
+          },
+          {
+            "angle": "ALTITUDE",
+            "lead": null
+          },
+          {
+            "angle": "CONVENTIONS",
+            "lead": null
+          }
+        ],
+        "candidates": {
+          "SCAN-1": {
+            "id": "SCAN-1",
+            "angle": "SCAN",
+            "file": "src/changed.ts",
+            "line": 2,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 2,
+            "summary": "SCAN-1: what is wrong at line 2",
+            "detail": "SCAN-1: the failure or the value, as the angle asks",
+            "phase": "triage",
+            "workerId": "00000000-0000-4000-8000-000000000001",
+            "duplicateOf": "RIPPLE-1",
+            "verdict": null,
+            "unverified": false
+          },
+          "RIPPLE-1": {
+            "id": "RIPPLE-1",
+            "angle": "RIPPLE",
+            "file": "src/changed.ts",
+            "line": 2,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 2,
+            "summary": "RIPPLE-1: what is wrong at line 2",
+            "detail": "RIPPLE-1: the failure or the value, as the angle asks",
+            "phase": "finders",
+            "workerId": "00000000-0000-4000-8000-000000000002",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "CONFIRMED",
+              "evidence": "line 2 dereferences the null returned above"
+            },
+            "unverified": false
+          },
+          "RIPPLE-2": {
+            "id": "RIPPLE-2",
+            "angle": "RIPPLE",
+            "file": "src/changed.ts",
+            "line": 1,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 1,
+            "summary": "RIPPLE-2: what is wrong at line 1",
+            "detail": "RIPPLE-2: the failure or the value, as the angle asks",
+            "phase": "finders",
+            "workerId": "00000000-0000-4000-8000-000000000002",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "REFUTED",
+              "evidence": "line 1 is a comment"
+            },
+            "unverified": false
+          },
+          "RIPPLE-3": {
+            "id": "RIPPLE-3",
+            "angle": "RIPPLE",
+            "file": "src/caller.ts",
+            "line": 7,
+            "located": true,
+            "inScope": false,
+            "rawFile": "/fixture/reviewed/src/caller.ts",
+            "rawLine": 7,
+            "summary": "RIPPLE-3: what is wrong at line 7",
+            "detail": "RIPPLE-3: the failure or the value, as the angle asks",
+            "phase": "finders",
+            "workerId": "00000000-0000-4000-8000-000000000002",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "PLAUSIBLE",
+              "evidence": "line 7 passes the result of changed() on unchecked"
+            },
+            "unverified": false
+          },
+          "SWEEP-1": {
+            "id": "SWEEP-1",
+            "angle": "DESIGN",
+            "file": null,
+            "line": null,
+            "located": false,
+            "inScope": false,
+            "rawFile": "C:\\elsewhere\\changed.ts",
+            "rawLine": 1,
+            "summary": "SWEEP-1: what is wrong at line 1",
+            "detail": "SWEEP-1: the failure or the value, as the angle asks",
+            "phase": "sweep",
+            "workerId": "00000000-0000-4000-8000-000000000030",
+            "duplicateOf": null,
+            "verdict": null,
+            "unverified": true
+          }
+        },
+        "units": {
+          "triage": {
+            "SCAN": {
+              "answeredBy": "00000000-0000-4000-8000-000000000001",
+              "failures": []
+            }
+          },
+          "finders": {
+            "RIPPLE": {
+              "answeredBy": "00000000-0000-4000-8000-000000000002",
+              "failures": []
+            },
+            "FOOTGUNS": {
+              "answeredBy": null,
+              "failures": [
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000003",
+                  "reason": "failed: The answer does not match the output schema",
+                  "lost": false
+                },
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000004",
+                  "reason": "timeout: The worker ran past its timeout of 600000 ms",
+                  "lost": false
+                }
+              ]
+            },
+            "WRAPPERS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000013",
+              "failures": [
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000005",
+                  "reason": "the engine exited while the worker ran",
+                  "lost": true
+                }
+              ]
+            },
+            "REMOVALS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000010",
+              "failures": []
+            },
+            "EFFICIENCY": {
+              "answeredBy": "00000000-0000-4000-8000-000000000014",
+              "failures": []
+            },
+            "DESIGN": {
+              "answeredBy": "00000000-0000-4000-8000-000000000015",
+              "failures": []
+            },
+            "DUPLICATION": {
+              "answeredBy": "00000000-0000-4000-8000-000000000016",
+              "failures": []
+            },
+            "ALTITUDE": {
+              "answeredBy": "00000000-0000-4000-8000-000000000017",
+              "failures": []
+            },
+            "CONVENTIONS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000018",
+              "failures": []
+            }
+          },
+          "deduplication": {
+            "deduplication": {
+              "answeredBy": "00000000-0000-4000-8000-000000000020",
+              "failures": []
+            }
+          },
+          "verification": {
+            "g1": {
+              "answeredBy": "00000000-0000-4000-8000-000000000021",
+              "failures": []
+            },
+            "g2": {
+              "answeredBy": "00000000-0000-4000-8000-000000000022",
+              "failures": []
+            }
+          },
+          "sweep": {
+            "sweep": {
+              "answeredBy": "00000000-0000-4000-8000-000000000030",
+              "failures": []
+            }
+          },
+          "sweep-deduplication": {},
+          "sweep-verification": {
+            "g1": {
+              "answeredBy": null,
+              "failures": [
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000031",
+                  "reason": "failed: The answer does not match the output schema",
+                  "lost": false
+                },
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000032",
+                  "reason": "failed: Claude Code printed no result envelope",
+                  "lost": false
+                }
+              ]
+            }
+          },
+          "merge-rank": {
+            "merge-rank": {
+              "answeredBy": "00000000-0000-4000-8000-000000000040",
+              "failures": []
+            }
+          },
+          "baseline-checks": {},
+          "fixes": {},
+          "checks": {},
+          "repair": {},
+          "repair-checks": {},
+          "report": {}
+        },
+        "anglesNotRun": {
+          "FOOTGUNS": "two attempts did not complete: failed; timeout"
+        },
+        "deduplications": {
+          "deduplication": [
+            {
+              "members": [
+                "SCAN-1",
+                "RIPPLE-1"
+              ],
+              "keep": "RIPPLE-1",
+              "reason": "the same null dereference, at the same line"
+            }
+          ],
+          "sweep-deduplication": null
+        },
+        "plans": {
+          "verification": [
+            {
+              "id": "g1",
+              "candidateIds": [
+                "RIPPLE-3"
+              ]
+            },
+            {
+              "id": "g2",
+              "candidateIds": [
+                "RIPPLE-2",
+                "RIPPLE-1"
+              ]
+            }
+          ],
+          "sweep-verification": [
+            {
+              "id": "g1",
+              "candidateIds": [
+                "SWEEP-1"
+              ]
+            }
+          ]
+        },
+        "unverifiedGroups": {
+          "verification": {},
+          "sweep-verification": {
+            "g1": "two attempts did not complete"
+          }
+        },
+        "ranking": [
+          {
+            "id": "RIPPLE-1",
+            "members": [],
+            "severity": "major",
+            "summary": "changed() dereferences a null on the empty path",
+            "reason": "a crash on reachable input"
+          },
+          {
+            "id": "RIPPLE-3",
+            "members": [],
+            "severity": "minor",
+            "summary": "the caller in src/caller.ts passes the null from changed() on",
+            "reason": "the crash reaches a second site"
+          },
+          {
+            "id": "SWEEP-1",
+            "members": [],
+            "severity": "minor",
+            "summary": "the two branches of changed() duplicate their parsing",
+            "reason": "one helper reads better"
+          }
+        ],
+        "report": {
+          "report": {
+            "sha256": "edcdef64cddaa56ff61a6ac81779602213bee01c4f5c143c0a27d824beca569d",
+            "bytes": 30
+          },
+          "statistics": {
+            "phases": [
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "triage"
+              },
+              {
+                "workers": 10,
+                "seconds": 300,
+                "costUsd": 5,
+                "costUnreported": 3,
+                "inputTokens": 10000,
+                "cachedInputTokens": 2000,
+                "outputTokens": 1000,
+                "phase": "finders"
+              },
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "deduplication"
+              },
+              {
+                "workers": 2,
+                "seconds": 60,
+                "costUsd": 1,
+                "costUnreported": 0,
+                "inputTokens": 2000,
+                "cachedInputTokens": 400,
+                "outputTokens": 200,
+                "phase": "verification"
+              },
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "sweep"
+              },
+              {
+                "workers": 0,
+                "seconds": 0,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "sweep-deduplication"
+              },
+              {
+                "workers": 2,
+                "seconds": 60,
+                "costUsd": 1,
+                "costUnreported": 2,
+                "inputTokens": 2000,
+                "cachedInputTokens": 400,
+                "outputTokens": 200,
+                "phase": "sweep-verification"
+              },
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "merge-rank"
+              },
+              {
+                "workers": 0,
+                "seconds": 0,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "report"
+              }
+            ],
+            "total": {
+              "workers": 18,
+              "seconds": 540,
+              "costUsd": 9,
+              "costUnreported": 5,
+              "inputTokens": 18000,
+              "cachedInputTokens": 3600,
+              "outputTokens": 1800
+            },
+            "budgetApplied": true
+          },
+          "patches": []
+        },
+        "fix": null
+      },
+      "lastSequence": 102
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "worktree": "/fixture/fixed",
+      "createdAt": "2026-09-26T00:00:102.000Z",
+      "engine": "golden",
+      "status": "active",
+      "abandonReason": null,
+      "scope": {
+        "mode": "worktree",
+        "request": {
+          "paths": []
+        },
+        "base": "1111111111111111111111111111111111111111",
+        "head": "2222222222222222222222222222222222222222",
+        "files": [
+          {
+            "path": "src/changed.ts",
+            "status": "modified",
+            "symlink": false,
+            "before": {
+              "blob": {
+                "sha256": "9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb",
+                "bytes": 7
+              }
+            },
+            "after": {
+              "blob": {
+                "sha256": "7b9a72466d3960eb2aacccfc848939453490db0678bd4725def3f789b891c919",
+                "bytes": 6
+              }
+            }
+          }
+        ],
+        "patch": {
+          "sha256": "c4762d638e82d9b82b6bd94b6394700dff524ca20a20ccf8fc0fb56771cf9c5a",
+          "bytes": 69
+        }
+      },
+      "workers": {
+        "00000000-0000-4000-8000-000000000101": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000101",
+            "label": "triage triage:SCAN",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000101",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000101",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "b0bf5958079d61902a023b3c73e1d3e2e4e7cdd3bb064be9ccb2fc313a5187b1",
+              "bytes": 28
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:108.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000101",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000101"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000110": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000110",
+            "label": "finder-REMOVALS finders:REMOVALS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000110",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000110",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "3e45b0cb0b501e623de7464e07cd8b5c1d9cdaa1d06a81068cceb48a58ca03ff",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:114.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000110",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000110"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000111": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000111",
+            "label": "finder-RIPPLE finders:RIPPLE",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "sonnet",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000111",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000111",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "80eb206afaaf5d63e5f05dbc22f3bba475093ebdd4b8916097cc43b0bd488df9",
+              "bytes": 38
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:117.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000111",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000111"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000112": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000112",
+            "label": "finder-FOOTGUNS finders:FOOTGUNS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "sonnet",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000112",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000112",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "2f503d53c3b0224a32d8e00d389e3fd748e8e09a6b6ee21b89fc2e6800239d4f",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:120.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000112",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000112"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000113": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000113",
+            "label": "finder-WRAPPERS finders:WRAPPERS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000113",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000113",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "bc0b7f4bc265f8312bbed70e4ba66edd6620b8180e2b515288e7b3add9edabf6",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:123.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000113",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000113"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000114": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000114",
+            "label": "finder-EFFICIENCY finders:EFFICIENCY",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000114",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000114",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "a180d172290478438277ec3ab7b46e7506077c0d828396a083437a41003895d5",
+              "bytes": 46
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:126.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000114",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000114"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000115": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000115",
+            "label": "finder-DESIGN finders:DESIGN",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000115",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000115",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "23e6c0500436155c20a99215b4505a8034d71e64c9016cb8ca259e70ff88418e",
+              "bytes": 38
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:129.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000115",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000115"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000116": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000116",
+            "label": "finder-DUPLICATION finders:DUPLICATION",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000116",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000116",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "d76e4d6ef2377c895f586823344dc6e4e0a3ff69f31d872961ba8879fb970163",
+              "bytes": 48
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:132.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000116",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000116"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000117": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000117",
+            "label": "finder-ALTITUDE finders:ALTITUDE",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000117",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000117",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "ea25cf03447b80599b6d90d54cdfb35edebc31407f5e6fcac3290260bbc4f501",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:135.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000117",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000117"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000118": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000118",
+            "label": "finder-CONVENTIONS finders:CONVENTIONS",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000118",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000118",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "30002b9240af9c98204effd991e97c6343a80525e2e497d08902066bdfeeb668",
+              "bytes": 48
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:138.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000118",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000118"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000120": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000120",
+            "label": "deduplication deduplication:deduplication",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000120",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000120",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "da5c5f28b601153857b76f3df11887d0f01ce6659f2336765d3a357f9051c6a1",
+              "bytes": 51
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:144.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000120",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000120"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000121": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000121",
+            "label": "verifier verification:g1",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000121",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000121",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "a51e44690ab152a7d6ee725dba7773726d34a93f7f1ddb6ddce5396dbb61e1ec",
+              "bytes": 34
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:151.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000121",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000121"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000122": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000122",
+            "label": "verifier verification:g2",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000122",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000122",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "f6656e74b8c0a47bc0a227f00a6e568b1f32519bd5de7d01863e5b2aafb3df6d",
+              "bytes": 34
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:154.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000122",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000122"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000130": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000130",
+            "label": "sweep sweep:sweep",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000130",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000130",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "bed641f05356bcf25f5c716a2630c84269f2382060b9c033dbe1e163e477fad0",
+              "bytes": 27
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:160.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000130",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000130"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000140": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000140",
+            "label": "merge-rank merge-rank:merge-rank",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000140",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000140",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "e8fa7252394c0f0ed8fcbfe40664c413b3d611d93cebd67c127442d4da680572",
+              "bytes": 42
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:173.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000140",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000140"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000150": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000150",
+            "label": "fixer fixes:c1",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000150",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000150",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "6a4ef67113f0ec716a98ee5b23ab33b8f10d37fb5ba822f8cf97d18d6251d88e",
+              "bytes": 24
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:187.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000150",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000150"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000151": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000151",
+            "label": "fixer fixes:c2",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000151",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000151",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "c436bec2f9972c8f1d34435132e9d88b0553068cbbbbf476fc163b7b1205c2c6",
+              "bytes": 24
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:191.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000151",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000151"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000160": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000160",
+            "label": "fixer repair:repair",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000160",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000160",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "486b8770fbb6a0c957524ba0ce51256f27a4c95e1327da64d684e26df8b1253c",
+              "bytes": 29
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:204.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000160",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000160"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        }
+      },
+      "review": {
+        "configuration": {
+          "runtime": "claude",
+          "executable": "/fixture/bin/claude",
+          "executableArgs": [],
+          "version": "2.1.283",
+          "models": {
+            "strong": "opus",
+            "fast": "sonnet"
+          },
+          "roles": [
+            {
+              "role": "triage",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-REMOVALS",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-RIPPLE",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-FOOTGUNS",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-WRAPPERS",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-EFFICIENCY",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-DESIGN",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-DUPLICATION",
+              "model": "sonnet",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-ALTITUDE",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "finder-CONVENTIONS",
+              "model": "sonnet",
+              "effort": "medium",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "deduplication",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "verifier",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "sweep",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "merge-rank",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 600000
+            },
+            {
+              "role": "fixer",
+              "model": "opus",
+              "effort": "high",
+              "budgetUsd": 8,
+              "timeoutMs": 1200000
+            }
+          ],
+          "rolesDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+          "concurrency": 4,
+          "runBudgetUsd": 30,
+          "fix": true,
+          "checks": {
+            "timeoutMs": 1200000
+          }
+        },
+        "limits": {
+          "concurrency": 4,
+          "runBudgetUsd": 30
+        },
+        "phases": {
+          "triage": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "finders": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "deduplication": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "verification": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "sweep": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "sweep-deduplication": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "sweep-verification": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "merge-rank": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "baseline-checks": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "fixes": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "checks": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "repair": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "repair-checks": {
+            "status": "completed",
+            "attempt": 1
+          },
+          "report": {
+            "status": "completed",
+            "attempt": 1
+          }
+        },
+        "blocker": null,
+        "checks": [
+          {
+            "phase": "triage",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "finders",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "deduplication",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "verification",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "sweep",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "sweep-deduplication",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "sweep-verification",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "merge-rank",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "baseline-checks",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "fixes",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "fixes",
+            "attempt": 1,
+            "moment": "end",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": [
+              "notes.txt"
+            ]
+          },
+          {
+            "phase": "checks",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "repair",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "repair",
+            "attempt": 1,
+            "moment": "end",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "repair-checks",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          },
+          {
+            "phase": "report",
+            "attempt": 1,
+            "moment": "start",
+            "drifted": false,
+            "head": null,
+            "files": [],
+            "strays": []
+          }
+        ],
+        "leads": [
+          {
+            "angle": "REMOVALS",
+            "lead": null
+          },
+          {
+            "angle": "RIPPLE",
+            "lead": null
+          },
+          {
+            "angle": "FOOTGUNS",
+            "lead": null
+          },
+          {
+            "angle": "WRAPPERS",
+            "lead": null
+          },
+          {
+            "angle": "EFFICIENCY",
+            "lead": null
+          },
+          {
+            "angle": "DESIGN",
+            "lead": null
+          },
+          {
+            "angle": "DUPLICATION",
+            "lead": null
+          },
+          {
+            "angle": "ALTITUDE",
+            "lead": null
+          },
+          {
+            "angle": "CONVENTIONS",
+            "lead": null
+          }
+        ],
+        "candidates": {
+          "SCAN-1": {
+            "id": "SCAN-1",
+            "angle": "SCAN",
+            "file": "src/changed.ts",
+            "line": 1,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 1,
+            "summary": "SCAN-1: what is wrong at line 1",
+            "detail": "SCAN-1: the failure or the value, as the angle asks",
+            "phase": "triage",
+            "workerId": "00000000-0000-4000-8000-000000000101",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "CONFIRMED",
+              "evidence": "line 1 dereferences the null"
+            },
+            "unverified": false
+          },
+          "RIPPLE-1": {
+            "id": "RIPPLE-1",
+            "angle": "RIPPLE",
+            "file": "src/caller.ts",
+            "line": 3,
+            "located": true,
+            "inScope": false,
+            "rawFile": "src/caller.ts",
+            "rawLine": 3,
+            "summary": "RIPPLE-1: what is wrong at line 3",
+            "detail": "RIPPLE-1: the failure or the value, as the angle asks",
+            "phase": "finders",
+            "workerId": "00000000-0000-4000-8000-000000000111",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "CONFIRMED",
+              "evidence": "line 3 passes the null on"
+            },
+            "unverified": false
+          },
+          "DESIGN-1": {
+            "id": "DESIGN-1",
+            "angle": "DESIGN",
+            "file": "src/changed.ts",
+            "line": 1,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 1,
+            "summary": "DESIGN-1: what is wrong at line 1",
+            "detail": "DESIGN-1: the failure or the value, as the angle asks",
+            "phase": "finders",
+            "workerId": "00000000-0000-4000-8000-000000000115",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "PLAUSIBLE",
+              "evidence": "the helper would read better"
+            },
+            "unverified": false
+          }
+        },
+        "units": {
+          "triage": {
+            "SCAN": {
+              "answeredBy": "00000000-0000-4000-8000-000000000101",
+              "failures": []
+            }
+          },
+          "finders": {
+            "REMOVALS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000110",
+              "failures": []
+            },
+            "RIPPLE": {
+              "answeredBy": "00000000-0000-4000-8000-000000000111",
+              "failures": []
+            },
+            "FOOTGUNS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000112",
+              "failures": []
+            },
+            "WRAPPERS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000113",
+              "failures": []
+            },
+            "EFFICIENCY": {
+              "answeredBy": "00000000-0000-4000-8000-000000000114",
+              "failures": []
+            },
+            "DESIGN": {
+              "answeredBy": "00000000-0000-4000-8000-000000000115",
+              "failures": []
+            },
+            "DUPLICATION": {
+              "answeredBy": "00000000-0000-4000-8000-000000000116",
+              "failures": []
+            },
+            "ALTITUDE": {
+              "answeredBy": "00000000-0000-4000-8000-000000000117",
+              "failures": []
+            },
+            "CONVENTIONS": {
+              "answeredBy": "00000000-0000-4000-8000-000000000118",
+              "failures": []
+            }
+          },
+          "deduplication": {
+            "deduplication": {
+              "answeredBy": "00000000-0000-4000-8000-000000000120",
+              "failures": []
+            }
+          },
+          "verification": {
+            "g1": {
+              "answeredBy": "00000000-0000-4000-8000-000000000121",
+              "failures": []
+            },
+            "g2": {
+              "answeredBy": "00000000-0000-4000-8000-000000000122",
+              "failures": []
+            }
+          },
+          "sweep": {
+            "sweep": {
+              "answeredBy": "00000000-0000-4000-8000-000000000130",
+              "failures": []
+            }
+          },
+          "sweep-deduplication": {},
+          "sweep-verification": {},
+          "merge-rank": {
+            "merge-rank": {
+              "answeredBy": "00000000-0000-4000-8000-000000000140",
+              "failures": []
+            }
+          },
+          "baseline-checks": {},
+          "fixes": {
+            "c1": {
+              "answeredBy": "00000000-0000-4000-8000-000000000150",
+              "failures": []
+            },
+            "c2": {
+              "answeredBy": "00000000-0000-4000-8000-000000000151",
+              "failures": []
+            }
+          },
+          "checks": {},
+          "repair": {
+            "repair": {
+              "answeredBy": "00000000-0000-4000-8000-000000000160",
+              "failures": []
+            }
+          },
+          "repair-checks": {},
+          "report": {}
+        },
+        "anglesNotRun": {},
+        "deduplications": {
+          "deduplication": [],
+          "sweep-deduplication": null
+        },
+        "plans": {
+          "verification": [
+            {
+              "id": "g1",
+              "candidateIds": [
+                "RIPPLE-1"
+              ]
+            },
+            {
+              "id": "g2",
+              "candidateIds": [
+                "DESIGN-1",
+                "SCAN-1"
+              ]
+            }
+          ],
+          "sweep-verification": []
+        },
+        "unverifiedGroups": {
+          "verification": {},
+          "sweep-verification": {}
+        },
+        "ranking": [
+          {
+            "id": "SCAN-1",
+            "members": [],
+            "severity": "major",
+            "summary": "changed() dereferences a null",
+            "reason": "a crash on reachable input"
+          },
+          {
+            "id": "RIPPLE-1",
+            "members": [],
+            "severity": "minor",
+            "summary": "the caller passes the null on",
+            "reason": "the crash reaches a second site"
+          },
+          {
+            "id": "DESIGN-1",
+            "members": [],
+            "severity": "minor",
+            "summary": "extract the helper",
+            "reason": "one helper reads better"
+          }
+        ],
+        "report": {
+          "report": {
+            "sha256": "aa3e1572ac65bc1fca49e0f57194fe7105bba2c3ca6fe7b422df5496f97dffd9",
+            "bytes": 50
+          },
+          "statistics": {
+            "phases": [
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "triage"
+              },
+              {
+                "workers": 9,
+                "seconds": 270,
+                "costUsd": 4.5,
+                "costUnreported": 0,
+                "inputTokens": 9000,
+                "cachedInputTokens": 1800,
+                "outputTokens": 900,
+                "phase": "finders"
+              },
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "deduplication"
+              },
+              {
+                "workers": 2,
+                "seconds": 60,
+                "costUsd": 1,
+                "costUnreported": 0,
+                "inputTokens": 2000,
+                "cachedInputTokens": 400,
+                "outputTokens": 200,
+                "phase": "verification"
+              },
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "sweep"
+              },
+              {
+                "workers": 0,
+                "seconds": 0,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "sweep-deduplication"
+              },
+              {
+                "workers": 0,
+                "seconds": 0,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "sweep-verification"
+              },
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "merge-rank"
+              },
+              {
+                "workers": 0,
+                "seconds": 12,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "baseline-checks"
+              },
+              {
+                "workers": 2,
+                "seconds": 60,
+                "costUsd": 1,
+                "costUnreported": 0,
+                "inputTokens": 2000,
+                "cachedInputTokens": 400,
+                "outputTokens": 200,
+                "phase": "fixes"
+              },
+              {
+                "workers": 0,
+                "seconds": 12,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "checks"
+              },
+              {
+                "workers": 1,
+                "seconds": 30,
+                "costUsd": 0.5,
+                "costUnreported": 0,
+                "inputTokens": 1000,
+                "cachedInputTokens": 200,
+                "outputTokens": 100,
+                "phase": "repair"
+              },
+              {
+                "workers": 0,
+                "seconds": 12,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "repair-checks"
+              },
+              {
+                "workers": 0,
+                "seconds": 0,
+                "costUsd": 0,
+                "costUnreported": 0,
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "phase": "report"
+              }
+            ],
+            "total": {
+              "workers": 18,
+              "seconds": 540,
+              "costUsd": 9,
+              "costUnreported": 0,
+              "inputTokens": 18000,
+              "cachedInputTokens": 3600,
+              "outputTokens": 1800
+            },
+            "budgetApplied": true
+          },
+          "patches": [
+            {
+              "sha256": "c0b7e41a91715175f319e2a5a709bae3901af972c9ec8a564f322e177a4bd9fd",
+              "bytes": 106
+            },
+            {
+              "sha256": "d39aaf9d2da0090d22551a134ea58c97b08100fe4b5af43570c9e43ecb7bb9bd",
+              "bytes": 99
+            },
+            {
+              "sha256": "12707a69ca11aec7ab0126a53b94ec2ab792371e618f9ac1ccb47ac2601d8f46",
+              "bytes": 100
+            }
+          ]
+        },
+        "fix": {
+          "checks": {
+            "planned": {
+              "checks": [
+                {
+                  "kind": "build",
+                  "command": "npm run build",
+                  "origin": "package",
+                  "reason": null
+                },
+                {
+                  "kind": "typecheck",
+                  "command": null,
+                  "origin": "none",
+                  "reason": "no --check flag, Taskfile task, Makefile target, justfile recipe, package.json script or language default names it"
+                },
+                {
+                  "kind": "lint",
+                  "command": "npm run lint:check",
+                  "origin": "package",
+                  "reason": null
+                },
+                {
+                  "kind": "test",
+                  "command": "npm run test",
+                  "origin": "package",
+                  "reason": null
+                }
+              ],
+              "manager": "npm"
+            },
+            "runs": {
+              "baseline-checks": [
+                {
+                  "phase": "baseline-checks",
+                  "attempt": 1,
+                  "kind": "build",
+                  "command": "npm run build",
+                  "outcome": "passed",
+                  "exitCode": 0,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "1914ad82ebaddb8883a24c04b269b1c4ef9961f15c6148be8e1f728856fa788d",
+                    "bytes": 13
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                },
+                {
+                  "phase": "baseline-checks",
+                  "attempt": 1,
+                  "kind": "lint",
+                  "command": "npm run lint:check",
+                  "outcome": "passed",
+                  "exitCode": 0,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "6221968cb30922300afc9c778500eb598032292dae3b3794d15304d353f88d70",
+                    "bytes": 12
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                },
+                {
+                  "phase": "baseline-checks",
+                  "attempt": 1,
+                  "kind": "test",
+                  "command": "npm run test",
+                  "outcome": "failed",
+                  "exitCode": 1,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "6354acbdc1bc70c62004aae34d799cc7493bf8292a9f40edf85f5e29e011904f",
+                    "bytes": 12
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                }
+              ],
+              "checks": [
+                {
+                  "phase": "checks",
+                  "attempt": 1,
+                  "kind": "build",
+                  "command": "npm run build",
+                  "outcome": "passed",
+                  "exitCode": 0,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "1914ad82ebaddb8883a24c04b269b1c4ef9961f15c6148be8e1f728856fa788d",
+                    "bytes": 13
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                },
+                {
+                  "phase": "checks",
+                  "attempt": 1,
+                  "kind": "lint",
+                  "command": "npm run lint:check",
+                  "outcome": "failed",
+                  "exitCode": 1,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "eef04e995cd5b7b4a4a83048e71a364390d017e55ddacdc456b10e4ae7da5669",
+                    "bytes": 12
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                },
+                {
+                  "phase": "checks",
+                  "attempt": 1,
+                  "kind": "test",
+                  "command": "npm run test",
+                  "outcome": "failed",
+                  "exitCode": 1,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "6354acbdc1bc70c62004aae34d799cc7493bf8292a9f40edf85f5e29e011904f",
+                    "bytes": 12
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                }
+              ],
+              "repair-checks": [
+                {
+                  "phase": "repair-checks",
+                  "attempt": 1,
+                  "kind": "build",
+                  "command": "npm run build",
+                  "outcome": "passed",
+                  "exitCode": 0,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "1914ad82ebaddb8883a24c04b269b1c4ef9961f15c6148be8e1f728856fa788d",
+                    "bytes": 13
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                },
+                {
+                  "phase": "repair-checks",
+                  "attempt": 1,
+                  "kind": "lint",
+                  "command": "npm run lint:check",
+                  "outcome": "passed",
+                  "exitCode": 0,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "6221968cb30922300afc9c778500eb598032292dae3b3794d15304d353f88d70",
+                    "bytes": 12
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                },
+                {
+                  "phase": "repair-checks",
+                  "attempt": 1,
+                  "kind": "test",
+                  "command": "npm run test",
+                  "outcome": "failed",
+                  "exitCode": 1,
+                  "signal": null,
+                  "termination": "exited",
+                  "startedAt": "2026-10-01T02:00:00.000Z",
+                  "endedAt": "2026-10-01T02:00:04.000Z",
+                  "stdout": {
+                    "sha256": "6354acbdc1bc70c62004aae34d799cc7493bf8292a9f40edf85f5e29e011904f",
+                    "bytes": 12
+                  },
+                  "stderr": {
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "bytes": 0
+                  },
+                  "error": null
+                }
+              ]
+            }
+          },
+          "plan": {
+            "routes": [
+              {
+                "id": "SCAN-1",
+                "route": "fixer"
+              },
+              {
+                "id": "RIPPLE-1",
+                "route": "fixer"
+              },
+              {
+                "id": "DESIGN-1",
+                "route": "held"
+              }
+            ],
+            "clusters": [
+              {
+                "id": "c1",
+                "findingIds": [
+                  "SCAN-1"
+                ],
+                "files": [
+                  "src/changed.ts"
+                ]
+              },
+              {
+                "id": "c2",
+                "findingIds": [
+                  "RIPPLE-1"
+                ],
+                "files": [
+                  "src/caller.ts"
+                ]
+              }
+            ]
+          },
+          "answers": {
+            "fixes": {
+              "c1": {
+                "phase": "fixes",
+                "key": "c1",
+                "workerId": "00000000-0000-4000-8000-000000000150",
+                "findings": [
+                  {
+                    "id": "SCAN-1",
+                    "status": "applied",
+                    "file": "src/caller.ts",
+                    "line": 1,
+                    "note": "SCAN-1 applied",
+                    "message": {
+                      "subject": "fix: Guard the null in changed()",
+                      "body": "Why: fix: Guard the null in changed()."
+                    },
+                    "files": [
+                      "src/caller.ts",
+                      "src/changed.ts",
+                      "test/changed.test.ts"
+                    ],
+                    "corrections": [],
+                    "validation": [
+                      {
+                        "method": "old-code",
+                        "source": "test/changed.test.ts",
+                        "evidence": "red before the fix, green after"
+                      }
+                    ],
+                    "requiredFiles": []
+                  }
+                ],
+                "drift": [
+                  {
+                    "file": "README.md",
+                    "what": "changed() no longer throws on null"
+                  }
+                ],
+                "tests": [
+                  {
+                    "file": "test/changed.test.ts",
+                    "covers": "changed(null) returns 0"
+                  }
+                ],
+                "suite": {
+                  "result": "pass",
+                  "command": "npm test",
+                  "failures": ""
+                },
+                "violations": [
+                  "src/caller.ts"
+                ]
+              },
+              "c2": {
+                "phase": "fixes",
+                "key": "c2",
+                "workerId": "00000000-0000-4000-8000-000000000151",
+                "findings": [
+                  {
+                    "id": "RIPPLE-1",
+                    "status": "deferred",
+                    "file": "src/changed.ts",
+                    "line": 1,
+                    "note": "RIPPLE-1 deferred",
+                    "message": null,
+                    "files": [],
+                    "corrections": [],
+                    "validation": [
+                      {
+                        "method": "old-code",
+                        "source": "test/changed.test.ts",
+                        "evidence": "red before the fix, green after"
+                      }
+                    ],
+                    "requiredFiles": []
+                  }
+                ],
+                "drift": [],
+                "tests": [],
+                "suite": {
+                  "result": "not-run",
+                  "command": "",
+                  "failures": ""
+                },
+                "violations": []
+              }
+            },
+            "repair": {
+              "repair": {
+                "phase": "repair",
+                "key": "repair",
+                "workerId": "00000000-0000-4000-8000-000000000160",
+                "findings": [
+                  {
+                    "id": "lint",
+                    "status": "applied",
+                    "file": "src/changed.ts",
+                    "line": 1,
+                    "note": "lint applied",
+                    "message": {
+                      "subject": "style: Format the guard as lint asks",
+                      "body": "Why: style: Format the guard as lint asks."
+                    },
+                    "files": [
+                      "src/changed.ts"
+                    ],
+                    "corrections": [],
+                    "validation": [
+                      {
+                        "method": "old-code",
+                        "source": "test/changed.test.ts",
+                        "evidence": "red before the fix, green after"
+                      }
+                    ],
+                    "requiredFiles": []
+                  }
+                ],
+                "drift": [],
+                "tests": [],
+                "suite": {
+                  "result": "pass",
+                  "command": "npm run lint:check",
+                  "failures": ""
+                },
+                "violations": []
+              }
+            }
+          },
+          "revisions": [
+            {
+              "phase": "baseline-checks",
+              "source": {
+                "kind": "check",
+                "check": "lint"
+              },
+              "change": {
+                "findings": [],
+                "message": {
+                  "subject": "chore: apply the lint check's rewrite",
+                  "body": "The lint check rewrote these files."
+                }
+              },
+              "files": [
+                {
+                  "path": "src/changed.ts",
+                  "status": "modified",
+                  "symlink": false,
+                  "after": {
+                    "blob": {
+                      "sha256": "b60bb016d874f019e46a39ce4df8faf5347b5f823d461c407931347a087ca48e",
+                      "bytes": 7
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "phase": "fixes",
+              "source": {
+                "kind": "fix",
+                "key": "c1",
+                "workerId": "00000000-0000-4000-8000-000000000150"
+              },
+              "change": {
+                "findings": [
+                  "SCAN-1"
+                ],
+                "message": {
+                  "subject": "fix: Guard the null in changed()",
+                  "body": "Why: fix: Guard the null in changed()."
+                }
+              },
+              "files": [
+                {
+                  "path": "src/caller.ts",
+                  "status": "modified",
+                  "symlink": false,
+                  "after": {
+                    "blob": {
+                      "sha256": "f3614ed705ac0200f107f6ce269d684b4fb459705cf7d0f110cef07ae64532c1",
+                      "bytes": 10
+                    }
+                  }
+                },
+                {
+                  "path": "src/changed.ts",
+                  "status": "modified",
+                  "symlink": false,
+                  "after": {
+                    "blob": {
+                      "sha256": "3540356e3830370057421cacf9ade3fa145f93cfa9d91cde1cb43d3d39209ed0",
+                      "bytes": 18
+                    }
+                  }
+                },
+                {
+                  "path": "test/changed.test.ts",
+                  "status": "created",
+                  "symlink": false,
+                  "after": {
+                    "blob": {
+                      "sha256": "d1515f894802d76734fc8b1896ba8034c70c000ba9b9a99ce6d7ab98ebff3336",
+                      "bytes": 8
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "phase": "repair",
+              "source": {
+                "kind": "fix",
+                "key": "repair",
+                "workerId": "00000000-0000-4000-8000-000000000160"
+              },
+              "change": {
+                "findings": [
+                  "lint"
+                ],
+                "message": {
+                  "subject": "style: Format the guard as lint asks",
+                  "body": "Why: style: Format the guard as lint asks."
+                }
+              },
+              "files": [
+                {
+                  "path": "src/changed.ts",
+                  "status": "modified",
+                  "symlink": false,
+                  "after": {
+                    "blob": {
+                      "sha256": "3d969d9b9842158859246f7631ae7c30b211036eaec0167f8367635813d9ea25",
+                      "bytes": 21
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "notAttempted": {
+            "fixes": {},
+            "repair": {}
+          },
+          "commits": {
+            "commits": [
+              {
+                "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "revision": "change",
+                "subject": "feat: The change under review"
+              },
+              {
+                "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "revision": 0,
+                "subject": "chore: apply the lint check's rewrite"
+              },
+              {
+                "sha": "cccccccccccccccccccccccccccccccccccccccc",
+                "revision": 1,
+                "subject": "fix: Guard the null in changed()"
+              },
+              {
+                "sha": "dddddddddddddddddddddddddddddddddddddddd",
+                "revision": 2,
+                "subject": "style: Format the guard as lint asks"
+              }
+            ],
+            "from": "2222222222222222222222222222222222222222",
+            "to": "dddddddddddddddddddddddddddddddddddddddd"
+          }
+        }
+      },
+      "lastSequence": 221
+    }
+  ],
+  "evidence": [
+    {
+      "sha256": "f22c03b6fe6c889a7d79c996d640bdda9a3a4bad14ca298049f47b0131f89bdc",
+      "bytes": 33
+    },
+    {
+      "sha256": "c4762d638e82d9b82b6bd94b6394700dff524ca20a20ccf8fc0fb56771cf9c5a",
+      "bytes": 69
+    },
+    {
+      "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+      "bytes": 38
+    },
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  ]
+}

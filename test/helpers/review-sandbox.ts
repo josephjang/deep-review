@@ -1,14 +1,16 @@
 // A repository with a change, a checkpoint, a roles directory whose policy
 // has short timeouts, and the fake runtimes, so a whole review runs through
 // the controller in a test. The fakes are scripted per role and unit.
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { runReview, type ReviewOptions, type ReviewOutcome } from '../../src/review/controller.ts';
+import type { CheckFlags } from '../../src/review/checks/discover.ts';
 import { policyFileName, readPolicy } from '../../src/review/policy.ts';
+import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import type { Script } from './fake-runtime.ts';
@@ -18,11 +20,25 @@ import { commitAll, repositoryWith, write } from './repository.ts';
 /** The timeout a scripted worker that hangs is killed after: time for the fake to start, even on a loaded runner. */
 export const hangTimeoutMs = 4000;
 
+/** The timeout a check that hangs is killed after: a check starts a Node process of its own, which a loaded runner can take seconds to start. */
+export const checkTimeoutMs = 10_000;
+
+/** The stand-in check command, steered by FAKE_CHECKS (see fake-check.mjs). */
+export const fakeCheck = resolve(import.meta.dirname, 'fake-check.mjs');
+
+/** The engine's own entry from the sources, which a fixer's snapshot command runs. */
+export const cliEntry = resolve(import.meta.dirname, '../../src/cli.ts');
+
+/** The command line of the stand-in check of one kind, with this Node, quoted for either platform shell. */
+export const fakeCheckCommand = (kind: CheckKind): string => `"${process.execPath}" "${fakeCheck}" ${kind}`;
+
 export class ReviewSandbox {
   readonly directory: string;
   readonly repo: string;
   readonly rolesRoot: string;
   readonly scriptFile: string;
+  /** The file FAKE_CHECKS names, which steers the stand-in checks. */
+  readonly checksFile: string;
   readonly scratchRoot: string;
   readonly home: string;
   readonly logs: string[] = [];
@@ -30,11 +46,15 @@ export class ReviewSandbox {
 
   constructor() {
     this.directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-review-')));
-    // A repository with one commit, then a change: one file edited, one added, one removed.
+    // A repository with one commit, then a change: one file edited, one added, one removed. The first commit
+    // also holds a package.json whose scripts run the stand-in checks, and npm's lock file, for discovery.
+    const script = (kind: CheckKind): string => `node "${fakeCheck.replaceAll('\\', '/')}" ${kind}`;
     this.repo = repositoryWith(join(this.directory, 'repo'), {
       'src/a.ts': 'export function parse(text: string) {\n  return text.length;\n}\n',
       'src/gone.ts': 'export const gone = 1;\n',
       'AGENTS.md': '# Rules\n\nQuote every glob.\n',
+      'package.json': `${JSON.stringify({ name: 'sandbox', private: true, scripts: Object.fromEntries(checkKinds.map((kind) => [kind, script(kind)])) }, null, 2)}\n`,
+      'package-lock.json': '{ "name": "sandbox", "lockfileVersion": 3, "requires": true, "packages": {} }\n',
     });
     write(this.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n\nexport function other() {\n  return parse(null);\n}\n');
     write(this.repo, 'src/b.ts', 'export const b = parse("x");\n');
@@ -45,18 +65,42 @@ export class ReviewSandbox {
     cpSync(repositoryRolesRoot(), this.rolesRoot, { recursive: true });
     const policy = readPolicy(this.rolesRoot);
     const roles = Object.fromEntries(Object.entries(policy.roles).map(([role, entry]) => [role, { ...entry, timeoutMs: hangTimeoutMs }]));
-    writeFileSync(join(this.rolesRoot, policyFileName), JSON.stringify({ ...policy, roles }, null, 2));
+    writeFileSync(join(this.rolesRoot, policyFileName), JSON.stringify({ ...policy, roles, checks: { timeoutMs: checkTimeoutMs } }, null, 2));
     this.scriptFile = join(this.directory, 'script.json');
+    this.checksFile = join(this.directory, 'checks.json');
     this.scratchRoot = join(this.directory, 'scratch');
     this.home = join(this.directory, 'home');
     mkdirSync(this.home);
     this.script({});
+    this.checks({});
   }
 
   /** Write the script the fakes answer from; the attempt counters start over. */
   script(script: Script): void {
     rmSync(`${this.scriptFile}.counts`, { recursive: true, force: true });
     writeFileSync(this.scriptFile, JSON.stringify(script));
+  }
+
+  /** Write the rules the stand-in checks follow (see fake-check.mjs); their counters and their record of runs start over. */
+  checks(rules: Readonly<Record<string, unknown>>): void {
+    for (const name of readdirSync(this.directory).filter((entry) => entry.startsWith('checks.json.'))) rmSync(join(this.directory, name), { force: true });
+    writeFileSync(this.checksFile, JSON.stringify(rules));
+  }
+
+  /** The kinds of check that ran, in order, since the rules were last written. */
+  checkRuns(): string[] {
+    const file = `${this.checksFile}.runs`;
+    return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((line) => line.length > 0) : [];
+  }
+
+  /** The flags of a fix run whose four checks are the stand-in's, named with `--check` so no package manager starts. */
+  static checkFlags(): CheckFlags {
+    return { commands: Object.fromEntries(checkKinds.map((kind) => [kind, fakeCheckCommand(kind)])), dropped: [] };
+  }
+
+  /** Run a review with the fix pass, its checks the stand-in's unless `change` names others. */
+  fix(runtime: 'claude' | 'codex' = 'claude', change: Partial<ReviewOptions> = {}, fake: Record<string, string> = {}): Promise<ReviewOutcome> {
+    return this.review(runtime, { fix: ReviewSandbox.checkFlags(), ...change }, fake);
   }
 
   get checkpoint(): Checkpoint {
@@ -76,7 +120,8 @@ export class ReviewSandbox {
       rolesRoot: this.rolesRoot,
       flags: {},
       scope: { named: false, request: () => ({ paths: [] }) },
-      environment: { ...baseEnvironment, FAKE_SCRIPT: this.scriptFile, ...fake },
+      environment: { ...baseEnvironment, FAKE_SCRIPT: this.scriptFile, FAKE_CHECKS: this.checksFile, ...fake },
+      engineEntry: cliEntry,
       scratchRoot: this.scratchRoot,
       home: this.home,
       log: (line) => {

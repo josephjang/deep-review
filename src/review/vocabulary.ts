@@ -1,7 +1,8 @@
 /**
- * The words the read-only review is described in, declared once so the
- * ledger's event schemas, the planner, the prompts and the report all spell
- * them the same way. Nothing here reads a file or a state.
+ * The words a review is described in, read-only and fix pass alike,
+ * declared once so the ledger's event schemas, the planner, the prompts and
+ * the report all spell them the same way. Nothing here reads a file or a
+ * state.
  */
 import { z } from 'zod';
 
@@ -46,21 +47,60 @@ export function roleOfAngle(angle: Angle): 'triage' | FinderRole {
   return angle === 'SCAN' ? 'triage' : `finder-${angle}`;
 }
 
-/** The roles the read-only review runs, in phase order: every angle's role, then the later phases'. The role policy must name exactly these. */
-export const reviewRoles = [...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank'] as const;
+/**
+ * The roles a review runs, in phase order: every angle's role, the later
+ * read-only phases', and the fix pass's `fixer`, which runs the fixes and
+ * the repair. The role policy must name exactly these.
+ */
+export const reviewRoles = [...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer'] as const;
 export type ReviewRole = (typeof reviewRoles)[number];
 
 /** Whether a review role is one of the nine finders'. */
 export const isFinderRole = (role: ReviewRole): role is FinderRole => role.startsWith('finder-');
 
 /**
- * The phases of a review, in the order they run (R2). `report` is a phase
- * with no worker: it is started so the worktree check before the report
- * has a phase to block, and finished when the report is written.
+ * The phases of a review, in the order they run (R2 of the read-only
+ * review, R1 of the fix pass): the read-only phases, then the five of the
+ * fix pass, which a run without `--fix` records as skipped, then
+ * `report`, a phase with no worker that is started so the worktree check
+ * before the report has a phase to block, and finished when the report
+ * is written.
  */
-export const phases = ['triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'report'] as const;
+export const phases = [
+  'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+  'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+  'report',
+] as const;
 export const phaseSchema = z.enum(phases);
 export type Phase = z.infer<typeof phaseSchema>;
+
+/** The five phases of the fix pass, in the order they run; a run without `--fix` skips them. */
+export const fixPhases = ['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks'] as const;
+export type FixPhase = (typeof fixPhases)[number];
+
+/** The phases that run the repository's checks and no worker: before any edit, after the fixes, after the repair. */
+export const checkPhases = ['baseline-checks', 'checks', 'repair-checks'] as const;
+export const checkPhaseSchema = z.enum(checkPhases);
+export type CheckPhase = z.infer<typeof checkPhaseSchema>;
+
+/** The phases whose workers edit the tree: one fixer per cluster, then the one repair worker. */
+export const editingPhases = ['fixes', 'repair'] as const;
+export const editingPhaseSchema = z.enum(editingPhases);
+export type EditingPhase = z.infer<typeof editingPhaseSchema>;
+
+export const isCheckPhase = (phase: Phase): phase is CheckPhase => (checkPhases as readonly string[]).includes(phase);
+export const isEditingPhase = (phase: Phase): phase is EditingPhase => (editingPhases as readonly string[]).includes(phase);
+
+/** The unit key of the one repair worker. */
+export const repairUnitKey = 'repair';
+
+/** A fix cluster id as the plan assigns it: `c` and a number from 1, in the order of each cluster's best-ranked finding. */
+export const clusterIdSchema = z.string().regex(/^c[1-9][0-9]*$/, 'a cluster id is c and a number from 1');
+
+/** How one run of a check ended (R9 of the fix pass): its exit code, its timeout, a spawn that failed, or not run because `build` did not pass. */
+export const checkOutcomes = ['passed', 'failed', 'timeout', 'not-started', 'skipped'] as const;
+export const checkOutcomeSchema = z.enum(checkOutcomes);
+export type CheckOutcome = z.infer<typeof checkOutcomeSchema>;
 
 /** The phases whose workers return candidates. */
 export const candidatePhases = ['triage', 'finders', 'sweep'] as const;
@@ -98,7 +138,7 @@ export type RecordedBlockerCode = z.infer<typeof recordedBlockerCodeSchema>;
 export const blockerActions: Readonly<Record<BlockerCode, string>> = {
   'worker-failed': 'run the command again, which gives the failed worker two fresh attempts, or abandon the run',
   budget: 'run the command again with --budget-usd above the spend, or abandon the run',
-  drift: 'restore the named files to the reviewed change and run the command again, or abandon the run and start a new one',
+  drift: 'restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one',
   'lock-held': 'wait for that engine to finish; the lock clears itself when its process ends',
   'runtime-unqualified': 'fix the runtime installation or pass --executable with a qualifying binary, then run the command again',
 };

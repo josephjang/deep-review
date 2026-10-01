@@ -15,8 +15,8 @@
 //   FAKE_HUGE_STREAM `stderr` to print FAKE_HUGE there; stdout by default
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 //   FAKE_SCRIPT      a JSON file scripting the answer per review role and unit; see scriptedStep
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
@@ -24,11 +24,25 @@ import { finderAngles } from '../../src/review/vocabulary.ts';
 export const environment = process.env;
 
 /**
+ * One edit a scripted fixer makes before it answers, in order: files
+ * written and removed, relative to its working directory (the worktree),
+ * then, when `snapshot` names a finding's index, the snapshot command its
+ * prompt quotes, run for that index.
+ */
+export interface ScriptEdit {
+  readonly writes?: Readonly<Record<string, string>>;
+  readonly deletes?: readonly string[];
+  readonly snapshot?: number;
+}
+
+/**
  * One scripted answer of a review worker. A list of steps is consumed one
  * per attempt of the same unit, the last one repeating, so a test can say
  * "fail once, then answer".
  */
 export interface ScriptStep {
+  /** The edits a fixer makes before answering (or before waiting, with `waitFor`), so a test sees the tree a fixer leaves. */
+  readonly edits?: readonly ScriptEdit[];
   /** The structured answer; the role's empty answer when absent. */
   readonly output?: unknown;
   /** Answer with text that is not the schema's shape, so the launcher fails the worker. */
@@ -70,7 +84,64 @@ export function defaultOutput(role: string, prompt: string): unknown {
   if (role === 'deduplication') return { groups: [] };
   if (role === 'verifier') return { verdicts: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]` })) };
   if (role === 'merge-rank') return { findings: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ primary: index, members: [], severity: 'minor', summary: `fake finding [${String(index)}]`, reason: 'fake reason' })) };
+  if (role === 'fixer') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
   return { answer: 'ok' };
+}
+
+/** What a scripted fixer says of one finding; every field but the ones given is a plain applied finding's. */
+export interface FixedFinding {
+  readonly status?: 'applied' | 'already-applied' | 'deferred' | 'blocked';
+  readonly files?: readonly string[];
+  readonly requiredFiles?: readonly string[];
+  readonly subject?: string;
+  readonly note?: string;
+}
+
+/** A fixer's answer with one entry per finding, by index, in the shape its output schema demands. */
+export function fixerAnswer(findings: readonly FixedFinding[]): unknown {
+  return {
+    findings: findings.map((finding, index) => {
+      const status = finding.status ?? 'applied';
+      return {
+        index,
+        status,
+        file: finding.files?.[0] ?? 'src/a.ts',
+        line: 1,
+        note: finding.note ?? `fake ${status} [${String(index)}]`,
+        message: status === 'applied' ? { subject: finding.subject ?? `fix: Apply finding ${String(index)}`, body: `Why finding ${String(index)} changed.` } : null,
+        files: [...(finding.files ?? [])],
+        corrections: [],
+        validation: [{ method: 'existing', source: 'tests', evidence: 'fake evidence' }],
+        requiredFiles: [...(finding.requiredFiles ?? [])],
+      };
+    }),
+    drift: [],
+    tests: [],
+    suite: { result: 'pass', command: 'fake suite', failures: '' },
+  };
+}
+
+/** The snapshot command a fixer's prompt quotes: the engine's entry and the directory, with `<index>` for the finding's index. */
+function snapshotCommand(prompt: string): { entry: string; into: string } {
+  const match = /^ {4}node "([^"]+)" snapshot --finding <index> --into "([^"]+)"$/m.exec(prompt);
+  if (match === null) throw new Error('The prompt quotes no snapshot command');
+  return { entry: match[1]!, into: match[2]! };
+}
+
+/** Make a scripted fixer's edits in its working directory, running the snapshot command its prompt quotes where a step asks. */
+export function applyEdits(edits: readonly ScriptEdit[], prompt: string): void {
+  for (const edit of edits) {
+    for (const [path, content] of Object.entries(edit.writes ?? {})) {
+      const file = join(process.cwd(), ...path.split('/'));
+      mkdirSync(join(file, '..'), { recursive: true });
+      writeFileSync(file, content);
+    }
+    for (const path of edit.deletes ?? []) rmSync(join(process.cwd(), ...path.split('/')), { force: true });
+    if (edit.snapshot !== undefined) {
+      const { entry, into } = snapshotCommand(prompt);
+      execFileSync(process.execPath, [entry, 'snapshot', '--finding', String(edit.snapshot), '--into', into], { cwd: process.cwd(), stdio: ['ignore', 'ignore', 'inherit'], windowsHide: true });
+    }
+  }
 }
 
 /**
@@ -130,10 +201,12 @@ export async function waitForMarker(marker: string | undefined = environment.FAK
 }
 
 /**
- * Do what a scripted step asks before the answer is printed: wait, hang,
- * or print stderr. Returns the exit code the step asks for.
+ * Do what a scripted step asks before the answer is printed: edit the
+ * tree, wait, hang, or print stderr. Returns the exit code the step asks
+ * for.
  */
-export async function beginScriptedStep(step: ScriptStep): Promise<number> {
+export async function beginScriptedStep(step: ScriptStep, prompt: string): Promise<number> {
+  applyEdits(step.edits ?? [], prompt);
   await waitForMarker(step.waitFor);
   if (step.hang === true) {
     setInterval(() => {}, 1000);

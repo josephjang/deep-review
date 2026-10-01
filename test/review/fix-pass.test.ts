@@ -1,0 +1,377 @@
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+import type { RunState } from '../../src/checkpoint/fold.ts';
+import type { ReviewOutcome } from '../../src/review/controller.ts';
+import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
+import { until } from '../helpers/launcher.ts';
+import { git, write } from '../helpers/repository.ts';
+import { ReviewSandbox } from '../helpers/review-sandbox.ts';
+
+/** A candidate as a finder returns it. */
+const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
+
+/**
+ * A review whose triage finds one defect in src/a.ts and one in src/b.ts,
+ * both PLAUSIBLE from SCAN, a correctness angle, so each routes to a
+ * fixer, and whose sweep adds a PLAUSIBLE DESIGN finding in src/a.ts,
+ * which is held for the author. Ranked, the plan is c1 owning src/a.ts
+ * with SCAN-1 and c2 owning src/b.ts with SCAN-2.
+ */
+/** The nine leads with nothing in them. */
+const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null }));
+
+const reviewScript: Script = {
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+  sweep: { output: { candidates: [{ ...found('src/a.ts', 5, 'other() would read better inlined'), angle: 'DESIGN' }] } },
+};
+
+/** The fixed bytes each fixer writes. */
+const fixedA = 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n\nexport function other() {\n  return parse(null);\n}\n';
+const fixedB = 'import { parse } from \'./a.ts\';\n\nexport const b = parse("x");\n';
+const testA = 'import { parse } from \'../src/a.ts\';\nif (parse(null) !== 0) throw new Error(\'null\');\n';
+
+describe('the fix pass', { timeout: 900_000 }, () => {
+  let box: ReviewSandbox;
+  beforeEach(() => {
+    box = new ReviewSandbox();
+  });
+  afterEach(() => {
+    box.close();
+  });
+
+  const report = (outcome: ReviewOutcome): string => {
+    assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
+    return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
+  };
+  const promptOf = (state: RunState, label: string): string => box.promptOf(state, label);
+
+  it('fixes the fixer-routed findings, one cluster per file, runs the checks before and after, and records each finding\'s edits as a revision', async () => {
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': testA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      'fixer:fixes:c2': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+    });
+    const text = report(await box.fix('claude'));
+    const state = box.run();
+    const review = state.review!;
+    assert.equal(review.configuration.fix, true);
+    assert.deepEqual(Object.fromEntries(Object.entries(review.phases).map(([phase, value]) => [phase, value.status])), {
+      triage: 'completed', finders: 'completed', deduplication: 'completed', verification: 'completed', sweep: 'completed', 'sweep-deduplication': 'completed', 'sweep-verification': 'completed', 'merge-rank': 'completed',
+      'baseline-checks': 'completed', fixes: 'completed', checks: 'completed', repair: 'completed', 'repair-checks': 'completed', report: 'completed',
+    });
+    const fix = review.fix!;
+    // Routing and clustering (R2, R3).
+    assert.deepEqual(fix.plan, {
+      routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'SCAN-2', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SCAN-2'], files: ['src/b.ts'] }],
+    });
+    // The checks ran before the fixes and after them, in order, and the repair had nothing to do (R9, R10).
+    assert.deepEqual(box.checkRuns(), ['build', 'typecheck', 'lint', 'test', 'build', 'typecheck', 'lint', 'test']);
+    assert.deepEqual(fix.checks.runs['baseline-checks'].map((run) => [run.kind, run.outcome]), [['build', 'passed'], ['typecheck', 'passed'], ['lint', 'passed'], ['test', 'passed']]);
+    assert.deepEqual(fix.checks.runs.checks.map((run) => run.outcome), ['passed', 'passed', 'passed', 'passed']);
+    assert.deepEqual(fix.checks.runs['repair-checks'], []);
+    // Each fixer ran with edit access in its own scratch, and its answer and edits are recorded (R4, R5, R6).
+    const fixers = Object.values(state.workers).filter((worker) => worker.launch.label?.startsWith('fixer '));
+    assert.deepEqual(fixers.map((worker) => [worker.launch.label, worker.launch.access]).sort(), [['fixer fixes:c1', 'edit'], ['fixer fixes:c2', 'edit']]);
+    assert.ok(fixers.every((worker) => worker.launch.scratch !== null && !worker.launch.scratch.startsWith(box.repo)));
+    assert.deepEqual(Object.keys(fix.answers.fixes).sort(), ['c1', 'c2']);
+    assert.deepEqual(fix.answers.fixes.c1!.findings.map((finding) => [finding.id, finding.status, finding.files]), [['SCAN-1', 'applied', ['src/a.ts', 'test/a.test.ts']]]);
+    assert.deepEqual(fix.revisions.map((revision) => [revision.phase, revision.source.kind, revision.change.findings, revision.change.message.subject, revision.files.map((file) => `${file.path} ${file.status}`)]).sort(), [
+      ['fixes', 'fix', ['SCAN-1'], 'fix(a): Return 0 for a null text', ['src/a.ts modified', 'test/a.test.ts created']],
+      ['fixes', 'fix', ['SCAN-2'], 'fix(b): Import parse', ['src/b.ts modified']],
+    ]);
+    // The held design finding never reached a fixer (R2).
+    const c1 = promptOf(state, 'fixer fixes:c1');
+    assert.match(c1, /^Cluster c1: 1 finding, numbered \[0\] to \[0\]/m);
+    assert.match(c1, /^\[0\] SCAN-1 \[minor\] PLAUSIBLE \(SCAN\) at src\/a\.ts:2$/m);
+    assert.doesNotMatch(c1, /SWEEP-1/);
+    assert.match(c1, /- src\/b\.ts \(c2\)/, 'the other cluster\'s files are named as not to be edited');
+    assert.match(c1, /^ {4}node ".*cli\.ts" snapshot --finding <index> --into ".*snapshots"$/m);
+    assert.doesNotMatch(c1, /may already hold part of this work/);
+    // The tree holds the fixes, nothing is committed, and no check found the tree drifted.
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA);
+    assert.equal(readFileSync(join(box.repo, 'test', 'a.test.ts'), 'utf8'), testA);
+    assert.equal(git(box.repo, 'log', '--format=%s', '-1'), 'the change under review', 'the run commits nothing');
+    assert.ok(review.checks.every((check) => !check.drifted), JSON.stringify(review.checks.filter((check) => check.drifted)));
+    // One patch per revision (R13).
+    assert.equal(review.report!.patches.length, 2);
+    assert.match(text, /^# Deep review report\n/);
+    // The two clusters' fixers ran at once: both launched before either finished.
+    const events = box.events(state.id);
+    const launched = (cluster: string): number => events.findIndex(([kind, payload]) => kind === 'worker.launched' && payload.label === `fixer fixes:${cluster}`);
+    const firstFinish = events.findIndex(([kind, payload]) => kind === 'worker.finished' && fixers.some((worker) => worker.launch.workerId === payload.workerId));
+    assert.ok(launched('c1') < firstFinish && launched('c2') < firstFinish, 'both fixers were in flight together');
+  });
+
+  /** A script whose triage finds three defects in src/a.ts, so one cluster holds three findings in rank order. */
+  const threeInOneFile: Script = {
+    triage: { output: { candidates: [found('src/a.ts', 1, 'first'), found('src/a.ts', 2, 'second'), found('src/a.ts', 3, 'third')], leads: noLeads } },
+  };
+
+  it('gives each finding its own revision from the snapshot taken after it, folds a finding with none into the next, and writes a series git am applies', async () => {
+    const v1 = 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n';
+    const v3 = `${v1}\nexport function other() {\n  return parse(null);\n}\n`;
+    box.script({
+      ...threeInOneFile,
+      'fixer:fixes:c1': {
+        edits: [
+          { writes: { 'src/a.ts': v1 }, snapshot: 0 },
+          { writes: { 'src/a.ts': `${v1}// second\n` } },
+          { writes: { 'src/a.ts': v3, 'test/a.test.ts': testA } },
+        ],
+        output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix: First' }, { files: ['src/a.ts'], subject: 'fix: Second' }, { files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix: Third' }]),
+      },
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    const revisions = state.review!.fix!.revisions;
+    assert.deepEqual(revisions.map((revision) => [revision.change.findings, revision.change.message.subject, revision.files.map((file) => file.path)]), [
+      [['SCAN-1'], 'fix: First', ['src/a.ts']],
+      // The second finding took no snapshot, so its edits fold into the third's revision, which names both.
+      [['SCAN-2', 'SCAN-3'], 'Apply SCAN-2, SCAN-3', ['src/a.ts', 'test/a.test.ts']],
+    ]);
+    assert.match(revisions[1]!.change.message.body, /^fix: Second\n\nWhy finding 1 changed\.\n\nfix: Third\n\nWhy finding 2 changed\.$/);
+    // The series applies in order to a checkout at the scope's head and reconstructs the tree the fixer left.
+    const clone = join(box.directory, 'clone');
+    // A checkout that writes the bytes as committed, whatever the machine's own core.autocrlf says.
+    git(box.directory, 'clone', '-q', '-c', 'core.autocrlf=false', box.repo, clone);
+    git(clone, 'config', 'user.name', 'Test');
+    git(clone, 'config', 'user.email', 'test@example.invalid');
+    const patches = state.review!.report!.patches.map((reference, index) => {
+      const file = join(box.directory, `${String(index + 1).padStart(4, '0')}.patch`);
+      writeFileSync(file, box.checkpoint.evidence.read(reference));
+      return file;
+    });
+    git(clone, 'am', '--keep-cr', '-q', ...patches);
+    for (const path of ['src/a.ts', 'test/a.test.ts']) assert.equal(readFileSync(join(clone, ...path.split('/')), 'utf8'), readFileSync(join(box.repo, ...path.split('/')), 'utf8'), path);
+    assert.deepEqual(git(clone, 'log', '--format=%s', '-2').split('\n'), ['Apply SCAN-2, SCAN-3', 'fix: First']);
+  });
+
+  it('revises an unowned file a fixer edits and reports, without drift', async () => {
+    box.script({
+      ...reviewScript,
+      // The change deletes src/gone.ts; c1 brings it back, a file no cluster owns.
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/gone.ts': 'export const gone = 2;\n' } }], output: fixerAnswer([{ files: ['src/gone.ts'] }]) },
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/gone.ts created']]);
+    assert.ok(state.review!.checks.every((check) => !check.drifted));
+    assert.deepEqual(state.review!.fix!.answers.fixes.c1!.violations, []);
+  });
+
+  it('records a reported edit to a file another cluster owns as a violation, revises it, and completes', async () => {
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/a.ts', 'src/b.ts'] }]) },
+      'fixer:fixes:c2': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) },
+    });
+    report(await box.fix('claude', { flags: { concurrency: 1 } }));
+    const state = box.run();
+    assert.deepEqual(state.review!.fix!.answers.fixes.c1!.violations, ['src/b.ts']);
+    assert.deepEqual(state.review!.fix!.revisions[0]!.files.map((file) => file.path), ['src/a.ts', 'src/b.ts']);
+    assert.ok(state.review!.checks.every((check) => !check.drifted));
+  });
+
+  it('blocks the fixes phase\'s end check on an unreported edit to a settled sibling\'s file, naming it and its expected bytes, and completes once it is restored', async () => {
+    const marker = join(box.directory, 'c1-may-answer');
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': { waitFor: marker, output: fixerAnswer([{ files: [] , status: 'deferred' }]) },
+      'fixer:fixes:c2': { edits: [{ writes: { 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
+    });
+    const pending = box.fix('claude');
+    await until(() => box.checkpoint.listRuns().some((run) => run.review?.fix?.answers.fixes.c2 !== undefined), 'c2\'s answer on the ledger', 120_000);
+    // c1 reaches into the settled c2's file and says nothing of it.
+    write(box.repo, 'src/b.ts', 'export const b = "clobbered";\n');
+    writeFileSync(marker, '');
+    const blocked = await pending;
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'drift' && blocked.blocker.phase === 'fixes', JSON.stringify(blocked));
+    const named = /src\/b\.ts \(modified; expected at (.+)\)$/.exec(blocked.kind === 'blocked' ? blocked.blocker.detail : '');
+    assert.ok(named !== null, JSON.stringify(blocked));
+    assert.equal(readFileSync(named[1]!, 'utf8'), fixedB, 'the bytes c2 left, not the scope\'s');
+    const end = box.run().review!.checks.at(-1)!;
+    assert.equal(end.moment, 'end');
+    // Restored from the path the blocker named, the run completes.
+    writeFileSync(join(box.repo, 'src', 'b.ts'), readFileSync(named[1]!));
+    report(await box.fix('claude'));
+    assert.equal(box.run().review!.phases.fixes.status, 'completed');
+  });
+
+  it('lists a file no answer names as a stray, and does not block on it', async () => {
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA, 'notes.txt': 'scratch left in the tree\n' } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    assert.ok(state.review!.checks.some((check) => check.phase === 'fixes' && check.moment === 'end' && check.strays.includes('notes.txt')), JSON.stringify(state.review!.checks));
+    assert.ok(state.review!.checks.every((check) => !check.drifted));
+    assert.equal(existsSync(join(box.repo, 'notes.txt')), true, 'the engine removes nothing from the tree');
+  });
+
+  it('reports a check that failed before any edit, runs it again after the fixes, and never repairs it', async () => {
+    box.checks({ lint: 'fail' });
+    box.script({ ...reviewScript, 'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    report(await box.fix('claude'));
+    const fix = box.run().review!.fix!;
+    assert.equal(fix.checks.runs['baseline-checks'].find((run) => run.kind === 'lint')?.outcome, 'failed');
+    assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'lint')?.outcome, 'failed');
+    assert.deepEqual(fix.answers.repair, {}, 'no repair worker ran');
+    assert.ok(!Object.values(box.run().workers).some((worker) => worker.launch.label === 'fixer repair:repair'));
+  });
+
+  it('sends a check the fixers broke to one repair worker, which owns their files, and runs the checks once more', async () => {
+    box.checks({ test: { failIfContains: { 'src/a.ts': 'BROKEN' } } });
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// BROKEN\n` } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+      'fixer:repair:repair': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Drop the line that broke the test' }]) },
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'test')?.outcome, 'failed');
+    assert.deepEqual(fix.answers.repair.repair!.findings.map((finding) => [finding.id, finding.status]), [['test', 'applied']]);
+    assert.deepEqual(fix.checks.runs['repair-checks'].map((run) => [run.kind, run.outcome]), [['build', 'passed'], ['typecheck', 'passed'], ['lint', 'passed'], ['test', 'passed']]);
+    assert.deepEqual(fix.revisions.map((revision) => [revision.phase, revision.change.findings]), [['fixes', ['SCAN-1']], ['repair', ['test']]]);
+    const repair = promptOf(state, 'fixer repair:repair');
+    assert.match(repair, /^Repair: 1 check, numbered \[0\] to \[0\], passed before any fixer edited the tree and fails now\./m);
+    assert.match(repair, /^\[0\] test: .*fake-check\.mjs" test\n {4}exited with code 1\n {4}stdout, its last \d+ bytes \(the whole is at .+\):\n```text\ntest: src\/a\.ts is broken\n```/m);
+    assert.match(repair, /Files you own: every file the fixers changed\.\n- src\/a\.ts\n/);
+    assert.match(repair, /^- c1 SCAN-1 applied: fake applied \[0\]$/m);
+  });
+
+  it('leaves a check the repair did not fix failing in the report, and completes', async () => {
+    box.checks({ test: { failIfContains: { 'src/a.ts': 'BROKEN' } } });
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// BROKEN\n` } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+      'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [] }]) },
+    });
+    report(await box.fix('claude'));
+    const fix = box.run().review!.fix!;
+    assert.equal(fix.checks.runs['repair-checks'].find((run) => run.kind === 'test')?.outcome, 'failed');
+    assert.equal(box.run().review!.phases['repair-checks'].status, 'completed');
+  });
+
+  it('blocks with drift naming HEAD when a commit lands during the fixes, whatever the files say', async () => {
+    const marker = join(box.directory, 'c1-may-answer');
+    box.script({ ...reviewScript, 'fixer:fixes:c1': { waitFor: marker, output: fixerAnswer([{ status: 'deferred', files: [] }]) } });
+    const pending = box.fix('claude');
+    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'fixer fixes:c1' && worker.status === 'running')), 'the c1 fixer on the ledger', 120_000);
+    const head = git(box.repo, 'rev-parse', 'HEAD');
+    git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit during the run');
+    const moved = git(box.repo, 'rev-parse', 'HEAD');
+    writeFileSync(marker, '');
+    const blocked = await pending;
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'drift', JSON.stringify(blocked));
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.detail.includes(`HEAD is ${moved}, the run expects ${head}`), JSON.stringify(blocked));
+    assert.match(blocked.kind === 'blocked' ? blocked.blocker.action : '', /reset a moved HEAD to the recorded head/);
+  });
+
+  it('marks a cluster whose fixer fails twice not attempted, records the edits it left, degrades the phase and completes', async () => {
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// half done\n` } }], exit: 3 },
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.match(fix.notAttempted.fixes.c1 ?? '', /^2 attempts did not complete/);
+    assert.equal(state.review!.phases.fixes.status, 'degraded');
+    const partial = fix.revisions.find((revision) => revision.source.kind === 'unanswered');
+    assert.deepEqual(partial?.files.map((file) => file.path), ['src/a.ts']);
+    assert.match(partial?.change.message.subject ?? '', /^chore: keep the partial edits of cluster c1$/);
+    assert.ok(state.review!.checks.every((check) => !check.drifted), 'the edits the failed fixers left are expected, not drift');
+    // The retry was told the tree may hold its predecessor's work.
+    const prompts = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1').map((worker) => box.checkpoint.evidence.read(worker.launch.prompt).toString('utf8'));
+    assert.equal(prompts.length, 2);
+    assert.doesNotMatch(prompts[0]!, /may already hold part of this work/);
+    assert.match(prompts[1]!, /The tree may already hold part of this work/);
+  });
+
+  it('fails an answer that leaves out a changed owned file, and tells the retry the tree may hold earlier work', async () => {
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1': [
+        { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: [] }]) },
+        { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'] }]) },
+      ],
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    const failed = box.events(state.id).filter(([kind, payload]) => kind === 'attempt.failed' && payload.key === 'c1');
+    assert.equal(failed.length, 1);
+    assert.match(String(failed[0]![1].reason), /^structural check: The answer names no finding for the owned file src\/a\.ts, whose bytes changed/);
+    assert.deepEqual(state.review!.fix!.answers.fixes.c1!.findings.map((finding) => [finding.status, finding.files]), [['already-applied', ['src/a.ts']]]);
+    assert.deepEqual(state.review!.fix!.revisions.map((revision) => [revision.change.findings, revision.files.map((file) => file.path)]), [[['SCAN-1'], ['src/a.ts']]]);
+  });
+
+  it('records a check that rewrites a file the run expects as a revision attributed to the check, not drift', async () => {
+    box.checks({ lint: [{ write: { 'src/a.ts': 'export const formatted = true;\n' } }, 'pass'] });
+    box.script({ ...reviewScript, 'fixer:fixes:c1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
+    report(await box.fix('claude'));
+    const state = box.run();
+    const revision = state.review!.fix!.revisions.find((candidate) => candidate.source.kind === 'check');
+    assert.deepEqual(revision === undefined ? null : [revision.phase, revision.source, revision.files.map((file) => file.path), revision.change.message.subject], ['baseline-checks', { kind: 'check', check: 'lint' }, ['src/a.ts'], 'chore: apply the lint check\'s rewrite']);
+    assert.ok(state.review!.checks.every((check) => !check.drifted));
+  });
+
+  it('skips the three later checks when build fails, and runs all three when build passes', async () => {
+    box.checks({ build: ['fail', 'pass'] });
+    box.script({ ...reviewScript, 'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    report(await box.fix('claude'));
+    const fix = box.run().review!.fix!;
+    assert.deepEqual(fix.checks.runs['baseline-checks'].map((run) => [run.kind, run.outcome, run.error]), [['build', 'failed', null], ['typecheck', 'skipped', 'build failed'], ['lint', 'skipped', 'build failed'], ['test', 'skipped', 'build failed']]);
+    assert.deepEqual(fix.checks.runs.checks.map((run) => run.outcome), ['passed', 'passed', 'passed', 'passed']);
+    assert.deepEqual(box.checkRuns(), ['build', 'build', 'typecheck', 'lint', 'test']);
+  });
+
+  it('runs a fix pass on the fake Codex to its report, with no budget', async () => {
+    box.script({ ...reviewScript, 'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    report(await box.fix('codex'));
+    const state = box.run();
+    assert.equal(state.review!.configuration.runBudgetUsd, null);
+    assert.equal(state.review!.fix!.revisions.length, 1);
+    assert.equal(state.review!.report!.patches.length, 1);
+  });
+
+  it('discovers the checks from package.json and npm\'s lock file when no --check names them, and pins them on the run', async () => {
+    box.script({ ...reviewScript, 'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    report(await box.review('claude', { fix: { commands: {}, dropped: ['typecheck'] } }));
+    const planned = box.run().review!.fix!.checks.planned!;
+    assert.equal(planned.manager, 'npm');
+    assert.deepEqual(planned.checks.map((check) => [check.kind, check.command, check.origin]), [['build', 'npm run build', 'package'], ['typecheck', null, 'flag'], ['lint', 'npm run lint', 'package'], ['test', 'npm run test', 'package']]);
+    assert.deepEqual(box.checkRuns(), ['build', 'lint', 'test', 'build', 'lint', 'test'], 'npm ran each script, and the dropped kind never ran');
+  });
+
+  it('keeps what a run pinned when it resumes: the fix pass and its checks, whatever the flags say now', async () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.fix('claude')).kind, 'blocked');
+    box.script(reviewScript);
+    report(await box.review('claude', { fix: { commands: { test: 'echo other' }, dropped: [] } }));
+    assert.ok(box.logs.some((line) => /keeps the checks it pinned; --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
+    assert.ok(box.run().review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag' && check.command !== 'echo other'));
+  });
+
+  it('logs --fix and its check flags as ignored on a run pinned without the fix pass, and keeps it read-only', async () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.review('claude')).kind, 'blocked');
+    box.script(reviewScript);
+    report(await box.fix('claude'));
+    assert.equal(box.run().review!.fix, null, 'the read-only run stays read-only');
+    assert.ok(box.logs.some((line) => /is pinned without the fix pass; --fix, --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
+  });
+
+  it('logs the absence of --fix on a run pinned with it, and continues the fix pass', async () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.fix('claude')).kind, 'blocked');
+    box.script(reviewScript);
+    report(await box.review('claude'));
+    assert.notEqual(box.run().review!.fix, null);
+    assert.ok(box.logs.some((line) => /is pinned to the fix pass and continues it; the absence of --fix is ignored$/.test(line)), box.logs.join('\n'));
+  });
+});

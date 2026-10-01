@@ -283,7 +283,7 @@ export const reviewConfiguredV1 = z.strictObject({
   /** The run budget in US dollars, or null when there is none or the runtime reports no cost. */
   runBudgetUsd: z.number().positive().nullable(),
 });
-export type ReviewConfiguration = z.infer<typeof reviewConfiguredV1>;
+export type ReviewConfigurationV1 = z.infer<typeof reviewConfiguredV1>;
 
 /**
  * The concurrency and the run budget in force from here on (R6), written
@@ -336,7 +336,7 @@ export const worktreeCheckedV1 = z.strictObject({
   message: 'drifted exactly when some file differs',
   path: ['drifted'],
 });
-export type WorktreeCheck = z.infer<typeof worktreeCheckedV1>;
+export type WorktreeCheckV1 = z.infer<typeof worktreeCheckedV1>;
 
 /**
  * One candidate as the engine recorded it (R8): its engine-assigned id, the
@@ -502,7 +502,290 @@ export const reportWrittenV1 = z.strictObject({
     budgetApplied: z.boolean(),
   }),
 });
-export type ReportWritten = z.infer<typeof reportWrittenV1>;
+export type ReportWrittenV1 = z.infer<typeof reportWrittenV1>;
+
+/**
+ * The vocabulary version 2 of the review events records, and version 1 of
+ * the fix pass's events (R1, R5, R9 of the fix pass): the fourteen phases,
+ * with the five of the fix pass before the report, and the words the fix
+ * pass's events carry. Frozen here for the reason `reviewVocabularyV1`
+ * is: a test holds it equal to today's vocabulary, so a later change to
+ * these words needs new versions of the events that carry them.
+ */
+export const reviewVocabularyV2 = {
+  phases: [
+    'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+    'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+    'report',
+  ],
+  checkPhases: ['baseline-checks', 'checks', 'repair-checks'],
+  editingPhases: ['fixes', 'repair'],
+  phaseOutcomes: ['completed', 'degraded', 'blocked'],
+  recordedBlockerCodes: ['worker-failed', 'budget', 'drift'],
+  checkKinds: ['build', 'typecheck', 'lint', 'test'],
+  checkOrigins: ['flag', 'taskfile', 'makefile', 'justfile', 'package', 'language', 'none'],
+  checkOutcomes: ['passed', 'failed', 'timeout', 'not-started', 'skipped'],
+  fixStatuses: ['applied', 'already-applied', 'deferred', 'blocked'],
+  validationMethods: ['old-code', 'mutation', 'static', 'existing', 'limited'],
+  suiteResults: ['pass', 'fail', 'not-run'],
+} as const;
+
+/** The identifier spellings the fix pass's events record, frozen for the same reason. */
+export const reviewIdentifiersV2 = {
+  clusterId: z.string().regex(/^c[1-9][0-9]*$/, 'a cluster id is c and a number from 1'),
+  repairKey: z.literal('repair'),
+} as const;
+
+const vocabularyV2 = reviewVocabularyV2;
+const phaseSchemaV2 = z.enum(vocabularyV2.phases);
+const checkPhaseSchemaV2 = z.enum(vocabularyV2.checkPhases);
+const editingPhaseSchemaV2 = z.enum(vocabularyV2.editingPhases);
+const checkKindSchemaV2 = z.enum(vocabularyV2.checkKinds);
+const clusterIdSchemaV2 = reviewIdentifiersV2.clusterId;
+
+/** The blocker of version 2 of `phase.finished`: the recorded codes, which the wider phase list did not change. */
+const blockerSchemaV2 = z.strictObject({
+  code: z.enum(vocabularyV2.recordedBlockerCodes),
+  detail: recordedTextSchema,
+  action: z.string().min(1).max(1000),
+});
+
+/** `review.configured` with the fix pass: whether the run fixes, and the per-check timeout it pinned, present exactly when it fixes (R1, R12 of the fix pass). */
+export const reviewConfiguredV2 = z.strictObject({
+  ...reviewConfiguredV1.shape,
+  fix: z.boolean(),
+  checks: z.strictObject({ timeoutMs: z.number().int().positive() }).nullable(),
+}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
+  message: 'the checks are pinned exactly when the run fixes',
+  path: ['checks'],
+});
+export type ReviewConfigurationV2 = z.infer<typeof reviewConfiguredV2>;
+/** The configuration as the fold holds it, whichever version recorded it: version 1 reads as a run without the fix pass. */
+export type ReviewConfiguration = ReviewConfigurationV2;
+
+/** `phase.started` over the fourteen phases. */
+export const phaseStartedV2 = z.strictObject({
+  phase: phaseSchemaV2,
+  attempt: z.number().int().min(1),
+});
+
+/** `phase.finished` over the fourteen phases. */
+export const phaseFinishedV2 = z.strictObject({
+  phase: phaseSchemaV2,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV2.phaseOutcomes),
+  blocker: blockerSchemaV2.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+
+/**
+ * The worktree compared with what the run expects (R7 of the fix pass):
+ * when in the attempt, each expected file that differs with the state the
+ * run expected there (null where it expected nothing), `HEAD` when it
+ * moved from the scope's head, and the untracked files the run does not
+ * expect, listed and never counted as drift.
+ */
+export const worktreeCheckedV2 = z.strictObject({
+  phase: phaseSchemaV2,
+  attempt: z.number().int().min(1),
+  /** At the attempt's start, before an answer is recorded, or once an editing phase's last unit settled. */
+  moment: z.enum(['start', 'answer', 'end']),
+  drifted: z.boolean(),
+  head: z.strictObject({ expected: commitId, actual: commitId }).nullable(),
+  files: z.array(z.strictObject({ path: z.string().min(1), outcome: z.enum(['modified', 'deleted', 'restored']), expected: frozenFileSchema.nullable() })).max(2000),
+  strays: z.array(z.string().min(1)).max(2000),
+}).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
+  message: 'drifted exactly when some file differs or HEAD moved',
+  path: ['drifted'],
+});
+export type WorktreeCheckV2 = z.infer<typeof worktreeCheckedV2>;
+
+/** `attempt.failed` over the fourteen phases. */
+export const attemptFailedV2 = z.strictObject({
+  phase: phaseSchemaV2,
+  key: unitKeySchema,
+  workerId: z.uuid(),
+  reason: recordedTextSchema,
+});
+
+/** `worker.lost` over the fourteen phases. */
+export const workerLostV2 = z.strictObject({
+  workerId: z.uuid(),
+  phase: phaseSchemaV2.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: z.string().min(1).max(1000),
+}).refine((lost) => (lost.phase === null) === (lost.key === null), {
+  message: 'a lost worker names both its phase and its unit key, or neither',
+  path: ['key'],
+});
+
+/** `report.written` over the fourteen phases, with the patch series: one patch per revision in ledger order, empty for a run that changed nothing (R13 of the fix pass). */
+export const reportWrittenV2 = z.strictObject({
+  report: artifactReferenceSchema,
+  statistics: z.strictObject({
+    phases: z.array(spendSchema.extend({ phase: phaseSchemaV2 })),
+    total: spendSchema,
+    budgetApplied: z.boolean(),
+  }),
+  patches: z.array(artifactReferenceSchema).max(2000),
+});
+export type ReportWrittenV2 = z.infer<typeof reportWrittenV2>;
+/** The report as the fold holds it: version 1 reads as a report with no patch. */
+export type ReportWritten = ReportWrittenV2;
+
+/** The routes of every ranked finding and the clusters of the fixer-routed ones, planned once at the fixes phase's first attempt (R2, R3 of the fix pass). */
+export const fixesPlannedV1 = z.strictObject({
+  routes: z.array(z.strictObject({ id: candidateIdSchema, route: z.enum(['fixer', 'held']) })),
+  clusters: z.array(z.strictObject({
+    id: clusterIdSchemaV2,
+    findingIds: z.array(candidateIdSchema).min(1),
+    files: z.array(z.string().min(1)),
+  })),
+});
+export type FixesPlanned = z.infer<typeof fixesPlannedV1>;
+
+/** One kind's check as the run pinned it: its command, or null with the reason none runs. */
+export const plannedCheckSchema = z.strictObject({
+  kind: checkKindSchemaV2,
+  command: z.string().min(1).nullable(),
+  origin: z.enum(vocabularyV2.checkOrigins),
+  reason: z.string().min(1).max(1000).nullable(),
+}).refine((check) => (check.command === null) === (check.reason !== null), {
+  message: 'a reason is given exactly when the kind has no command',
+  path: ['reason'],
+});
+
+/** The checks the run pinned, one per kind in the order they run, with the package manager a script runs through (R8 of the fix pass). */
+export const checksPlannedV1 = z.strictObject({
+  checks: z.array(plannedCheckSchema).length(vocabularyV2.checkKinds.length),
+  manager: z.string().min(1).nullable(),
+}).refine((planned) => planned.checks.every((check, index) => check.kind === vocabularyV2.checkKinds[index]), {
+  message: 'one check per kind, in the order the kinds run',
+  path: ['checks'],
+});
+export type ChecksPlanned = z.infer<typeof checksPlannedV1>;
+
+/**
+ * One check as it ran, or as it was skipped because `build` did not pass
+ * (R9, R10 of the fix pass). A skipped check never had a process: it
+ * records no termination, exit or output, and its reason as `error`.
+ */
+export const checkRanV1 = z.strictObject({
+  phase: checkPhaseSchemaV2,
+  attempt: z.number().int().min(1),
+  kind: checkKindSchemaV2,
+  command: z.string().min(1),
+  outcome: z.enum(vocabularyV2.checkOutcomes),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().min(1).nullable(),
+  termination: z.enum(['exited', 'killed', 'not-started']).nullable(),
+  startedAt: z.iso.datetime(),
+  endedAt: z.iso.datetime(),
+  stdout: artifactReferenceSchema.nullable(),
+  stderr: artifactReferenceSchema.nullable(),
+  error: z.string().min(1).max(recordedTextLengthV1).nullable(),
+}).superRefine((check, context) => {
+  const skipped = check.outcome === 'skipped';
+  if (skipped !== (check.termination === null) || skipped !== (check.stdout === null) || skipped !== (check.stderr === null)) {
+    context.addIssue({ code: 'custom', message: 'a skipped check alone has no termination and no output', path: ['outcome'] });
+  }
+  if (skipped && check.error === null) context.addIssue({ code: 'custom', message: 'a skipped check records why', path: ['error'] });
+  if (check.outcome === 'passed' && (check.termination !== 'exited' || check.exitCode !== 0)) context.addIssue({ code: 'custom', message: 'a passed check exited with code 0', path: ['outcome'] });
+  if (check.outcome === 'timeout' && check.termination !== 'killed') context.addIssue({ code: 'custom', message: 'a check that timed out was killed', path: ['outcome'] });
+  if (check.outcome === 'not-started' && check.termination !== 'not-started') context.addIssue({ code: 'custom', message: 'a check that did not start has the termination to say so', path: ['outcome'] });
+});
+export type CheckRan = z.infer<typeof checkRanV1>;
+
+const commitMessageSchema = z.strictObject({ subject: z.string().min(1).max(200), body: z.string().max(4000) });
+
+/** One finding (or, for the repair, one failing check) as a fixer answered it, its paths resolved to the worktree's spelling. */
+export const fixedFindingSchema = z.strictObject({
+  /** The finding's candidate id, or the check kind a repair answered. */
+  id: z.string().min(1).max(40),
+  status: z.enum(vocabularyV2.fixStatuses),
+  file: z.string().min(1).max(1000),
+  line: z.number().int().min(1).nullable(),
+  note: z.string().min(1).max(400),
+  message: commitMessageSchema.nullable(),
+  files: z.array(z.string().min(1)).max(200),
+  corrections: z.array(z.strictObject({ file: z.string().min(1), anchor: z.string().min(1), claim: z.string().min(1), fact: z.string().min(1), evidence: z.string().min(1) })).max(20),
+  validation: z.array(z.strictObject({ method: z.enum(vocabularyV2.validationMethods), source: z.string().min(1), evidence: z.string().min(1) })).max(20),
+  requiredFiles: z.array(z.string().min(1)).max(50),
+});
+export type FixedFinding = z.infer<typeof fixedFindingSchema>;
+
+/** A fixer's or the repair worker's answer, as the engine recorded it, with the files another cluster owns that it reported (R5, PD4 of the fix pass). */
+export const fixRecordedV1 = z.strictObject({
+  phase: editingPhaseSchemaV2,
+  key: unitKeySchema,
+  workerId: z.uuid(),
+  findings: z.array(fixedFindingSchema),
+  drift: z.array(z.strictObject({ file: z.string().min(1), what: z.string().min(1) })).max(50),
+  tests: z.array(z.strictObject({ file: z.string().min(1), covers: z.string().min(1) })).max(50),
+  suite: z.strictObject({ result: z.enum(vocabularyV2.suiteResults), command: z.string(), failures: z.string() }),
+  violations: z.array(z.string().min(1)),
+}).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+  message: 'each finding is answered once',
+  path: ['findings'],
+});
+export type FixRecorded = z.infer<typeof fixRecordedV1>;
+
+/** One path a revision changed: what it became (null when deleted), and whether that is a symlink. */
+export const revisedFileSchema = z.strictObject({
+  path: z.string().min(1),
+  status: z.enum(['created', 'modified', 'deleted']),
+  symlink: z.boolean(),
+  after: frozenFileSchema.nullable(),
+}).refine((file) => (file.status === 'deleted') === (file.after === null), {
+  message: 'a deleted file alone has no after state',
+  path: ['after'],
+});
+
+/**
+ * One revision of the tree (R6, TD1, TD6 of the fix pass): the bytes one
+ * finding's fix, one check's writes, or a failed cluster's partial edits
+ * left in the paths it changed, with the message a commit of it carries.
+ */
+export const treeRevisedV1 = z.strictObject({
+  phase: phaseSchemaV2,
+  source: z.discriminatedUnion('kind', [
+    /** A recorded answer's edits, for the findings `change` names. */
+    z.strictObject({ kind: z.literal('fix'), key: unitKeySchema, workerId: z.uuid() }),
+    /** A check's writes to files the run expected. */
+    z.strictObject({ kind: z.literal('check'), check: checkKindSchemaV2 }),
+    /** The edits the failed workers of a unit that degraded left in its owned files. */
+    z.strictObject({ kind: z.literal('unanswered'), key: unitKeySchema }),
+  ]),
+  change: z.strictObject({ findings: z.array(z.string().min(1)), message: commitMessageSchema }),
+  files: z.array(revisedFileSchema).min(1).max(2000),
+}).superRefine((revision, context) => {
+  if (new Set(revision.files.map((file) => file.path)).size !== revision.files.length) context.addIssue({ code: 'custom', message: 'each path is revised once', path: ['files'] });
+  if ((revision.source.kind === 'fix') !== (revision.change.findings.length > 0)) context.addIssue({ code: 'custom', message: 'a fix revision alone names findings', path: ['change'] });
+});
+export type TreeRevised = z.infer<typeof treeRevisedV1>;
+
+/** A unit of an editing phase failed twice: its findings are not attempted, and the phase degraded (R12 of the fix pass). */
+export const clusterFailedV1 = z.strictObject({
+  phase: editingPhaseSchemaV2,
+  key: unitKeySchema,
+  reason: recordedTextSchema,
+});
+export type ClusterFailed = z.infer<typeof clusterFailedV1>;
+
+/** The commits `deep-review commit` built from a completed fix run, in order, and the head they were built on and moved to (R17 of the fix pass). */
+export const commitsCreatedV1 = z.strictObject({
+  commits: z.array(z.strictObject({
+    sha: commitId,
+    /** The index of the revision it commits in the run's revisions, or `change` for the captured change in worktree mode. */
+    revision: z.union([z.number().int().nonnegative(), z.literal('change')]),
+    subject: z.string().min(1).max(200),
+  })).min(1),
+  from: commitId,
+  to: commitId,
+});
+export type CommitsCreated = z.infer<typeof commitsCreatedV1>;
 
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
@@ -511,21 +794,28 @@ export const eventRegistry = defineRegistry({
   'scope.captured': { 1: { schema: scopeCapturedV1 } },
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
-  'worker.lost': { 1: { schema: workerLostV1 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 } },
+  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
-  'phase.started': { 1: { schema: phaseStartedV1 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 } },
-  'worktree.checked': { 1: { schema: worktreeCheckedV1 } },
+  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 } },
+  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 } },
-  'attempt.failed': { 1: { schema: attemptFailedV1 } },
+  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
   'verdicts.recorded': { 1: { schema: verdictsRecordedV1 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
-  'report.written': { 1: { schema: reportWrittenV1 } },
+  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 } },
+  'fixes.planned': { 1: { schema: fixesPlannedV1 } },
+  'checks.planned': { 1: { schema: checksPlannedV1 } },
+  'check.ran': { 1: { schema: checkRanV1 } },
+  'fix.recorded': { 1: { schema: fixRecordedV1 } },
+  'tree.revised': { 1: { schema: treeRevisedV1 } },
+  'cluster.failed': { 1: { schema: clusterFailedV1 } },
+  'commits.created': { 1: { schema: commitsCreatedV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

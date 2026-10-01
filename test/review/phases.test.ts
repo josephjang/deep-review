@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { attemptFailedV1, eventRegistry } from '../../src/checkpoint/events.ts';
+import { attemptFailedV2, eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { contributionOf, groupCandidates, invocationFor, taskFor, type PhaseContext } from '../../src/review/phases.ts';
@@ -12,6 +12,7 @@ import { outputSchemaOf } from '../../src/review/schemas.ts';
 import type { Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
 import { configuration, configured, found, ranked, swept, triaged, verified } from '../helpers/review-history.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -27,6 +28,13 @@ const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerRe
   ...change,
 });
 const unit = (phase: Unit['phase'], key: string, role: ReviewRole): Unit => ({ phase, key, role });
+
+/** The one event a reading unit's receipt becomes; a reading unit freezes nothing, so the evidence store refuses every write. */
+const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string): NewEvent => {
+  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } } });
+  assert.equal(events.length, 1, JSON.stringify(events));
+  return events[0]!;
+};
 const leads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: angle === 'DESIGN' ? 'the new helper' : null }));
 
 describe('taskFor', () => {
@@ -47,7 +55,16 @@ describe('taskFor', () => {
 
 describe('invocationFor', () => {
   const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
-  const context = (state = triaged().fold()): PhaseContext => ({ state, worktree: '/w', roles, configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: role === 'finder-RIPPLE' ? 'sonnet' : 'opus', effort: 'high' as const, budgetUsd: role === 'triage' ? null : 8, timeoutMs: 600_000 })) }, scopeBlock: '## Scope\n\nRepository: /w' });
+  const context = (state = triaged().fold()): PhaseContext => ({
+    state,
+    worktree: '/w',
+    roles,
+    configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: role === 'finder-RIPPLE' ? 'sonnet' : 'opus', effort: 'high' as const, budgetUsd: role === 'triage' ? null : 8, timeoutMs: 600_000 })) },
+    scopeBlock: '## Scope\n\nRepository: /w',
+    evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' },
+    newScratch: () => '/scratch/new',
+    snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
+  });
 
   it('builds a read-only invocation with a shell from the pinned role, labelled with its unit, prompt composed from the role and task', () => {
     const invocation = invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), context());
@@ -81,13 +98,13 @@ describe('contributionOf', () => {
   afterEach(() => rmSync(worktree, { recursive: true, force: true }));
 
   it('records a failed attempt for a receipt that did not complete, with the outcome and error', () => {
-    const event = contributionOf(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'timeout', error: 'The worker ran past its timeout' }), triaged().fold(), worktree);
-    assert.deepEqual(event, { kind: 'attempt.failed', version: 1, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
+    const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'timeout', error: 'The worker ran past its timeout' }), triaged().fold(), worktree);
+    assert.deepEqual(event, { kind: 'attempt.failed', version: 2, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
   });
 
   it('cuts a failed attempt\'s reason to what the ledger records, marking the cut', () => {
-    const event = contributionOf(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'failed', error: 'e'.repeat(4000) }), triaged().fold(), worktree);
-    const payload = attemptFailedV1.parse(event.payload);
+    const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'failed', error: 'e'.repeat(4000) }), triaged().fold(), worktree);
+    const payload = attemptFailedV2.parse(event.payload);
     assert.equal(payload.reason.length, 4000);
     assert.match(payload.reason, /^failed: e+ \[truncated\]$/);
   });
@@ -102,7 +119,7 @@ describe('contributionOf', () => {
       ],
       leads: [...leads].reverse(),
     };
-    const event = contributionOf(unit('triage', 'SCAN', 'triage'), receipt(output), configured().fold(), worktree);
+    const event = contribution(unit('triage', 'SCAN', 'triage'), receipt(output), configured().fold(), worktree);
     assert.equal(event.kind, 'candidates.recorded');
     const payload = event.payload as { candidates: Record<string, unknown>[]; leads: { angle: string }[]; key: string; phase: string };
     assert.equal(payload.phase, 'triage');
@@ -115,43 +132,43 @@ describe('contributionOf', () => {
 
   it('turns a structural failure into a failed attempt naming the check', () => {
     const output = { candidates: [], leads: [...leads.slice(1), leads[1]] };
-    const event = contributionOf(unit('triage', 'SCAN', 'triage'), receipt(output), configured().fold(), worktree);
+    const event = contribution(unit('triage', 'SCAN', 'triage'), receipt(output), configured().fold(), worktree);
     assert.equal(event.kind, 'attempt.failed');
     assert.match((event.payload as { reason: string }).reason, /^structural check: The triage returned two leads for angle RIPPLE/);
   });
 
   it('records a finder, a sweep with each candidate\'s angle, and ids numbered from 1 per unit', () => {
-    const finder = contributionOf(unit('finders', 'DESIGN', 'finder-DESIGN'), receipt({ candidates: [{ file: 'src/a.ts', line: 1, summary: 's', detail: 'd' }] }), triaged().fold(), worktree);
+    const finder = contribution(unit('finders', 'DESIGN', 'finder-DESIGN'), receipt({ candidates: [{ file: 'src/a.ts', line: 1, summary: 's', detail: 'd' }] }), triaged().fold(), worktree);
     assert.deepEqual((finder.payload as { candidates: { id: string; angle: string }[] }).candidates.map((candidate) => [candidate.id, candidate.angle]), [['DESIGN-1', 'DESIGN']]);
-    const sweep = contributionOf(unit('sweep', 'sweep', 'sweep'), receipt({ candidates: [{ file: 'src/a.ts', line: 1, summary: 's', detail: 'd', angle: 'CONVENTIONS' }, { file: 'x', line: 1, summary: 's', detail: 'd', angle: 'SCAN' }] }), verified().fold(), worktree);
+    const sweep = contribution(unit('sweep', 'sweep', 'sweep'), receipt({ candidates: [{ file: 'src/a.ts', line: 1, summary: 's', detail: 'd', angle: 'CONVENTIONS' }, { file: 'x', line: 1, summary: 's', detail: 'd', angle: 'SCAN' }] }), verified().fold(), worktree);
     assert.deepEqual((sweep.payload as { candidates: { id: string; angle: string; located: boolean }[] }).candidates.map((candidate) => [candidate.id, candidate.angle, candidate.located]), [['SWEEP-1', 'CONVENTIONS', true], ['SWEEP-2', 'SCAN', false]]);
   });
 
   it('records every contribution under the kind whose schema its payload satisfies', () => {
     const decodes = (event: NewEvent): boolean => lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success === true;
     const contributions = [
-      contributionOf(unit('triage', 'SCAN', 'triage'), receipt({ candidates: [], leads }), configured().fold(), worktree),
-      contributionOf(unit('finders', 'DESIGN', 'finder-DESIGN'), receipt({ candidates: [] }), triaged().fold(), worktree),
-      contributionOf(unit('sweep', 'sweep', 'sweep'), receipt({ candidates: [] }), verified().fold(), worktree),
-      contributionOf(unit('deduplication', 'deduplication', 'deduplication'), receipt({ groups: [] }), found().fold(), worktree),
-      contributionOf(unit('sweep-deduplication', 'sweep-deduplication', 'deduplication'), receipt({ groups: [{ members: [0, 1], keep: 1, reason: 'same' }] }), swept().fold(), worktree),
-      contributionOf(unit('verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'REFUTED', evidence: 'e' }] }), verified().fold(), worktree),
-      contributionOf(unit('sweep-verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'PLAUSIBLE', evidence: 'e' }, { index: 1, verdict: 'CONFIRMED', evidence: 'e' }] }), swept().fold(), worktree),
-      contributionOf(unit('merge-rank', 'merge-rank', 'merge-rank'), receipt({ findings: [{ primary: 0, members: [1, 2], severity: 'major', summary: 's', reason: 'r' }] }), swept().fold(), worktree),
+      contribution(unit('triage', 'SCAN', 'triage'), receipt({ candidates: [], leads }), configured().fold(), worktree),
+      contribution(unit('finders', 'DESIGN', 'finder-DESIGN'), receipt({ candidates: [] }), triaged().fold(), worktree),
+      contribution(unit('sweep', 'sweep', 'sweep'), receipt({ candidates: [] }), verified().fold(), worktree),
+      contribution(unit('deduplication', 'deduplication', 'deduplication'), receipt({ groups: [] }), found().fold(), worktree),
+      contribution(unit('sweep-deduplication', 'sweep-deduplication', 'deduplication'), receipt({ groups: [{ members: [0, 1], keep: 1, reason: 'same' }] }), swept().fold(), worktree),
+      contribution(unit('verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'REFUTED', evidence: 'e' }] }), verified().fold(), worktree),
+      contribution(unit('sweep-verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'PLAUSIBLE', evidence: 'e' }, { index: 1, verdict: 'CONFIRMED', evidence: 'e' }] }), swept().fold(), worktree),
+      contribution(unit('merge-rank', 'merge-rank', 'merge-rank'), receipt({ findings: [{ primary: 0, members: [1, 2], severity: 'major', summary: 's', reason: 'r' }] }), swept().fold(), worktree),
     ];
     assert.deepEqual(contributions.map((event) => event.kind), ['candidates.recorded', 'candidates.recorded', 'candidates.recorded', 'deduplication.recorded', 'deduplication.recorded', 'verdicts.recorded', 'verdicts.recorded', 'ranking.recorded']);
     for (const event of contributions) assert.ok(decodes(event), `${event.kind} decodes under its own schema: ${JSON.stringify(event.payload)}`);
   });
 
   it('resolves dedup, verifier and merge-rank indexes against the same fold the task numbered them from', () => {
-    const dedup = contributionOf(unit('deduplication', 'deduplication', 'deduplication'), receipt({ groups: [{ members: [1, 0], keep: 1, reason: 'same' }] }), found().fold(), worktree);
+    const dedup = contribution(unit('deduplication', 'deduplication', 'deduplication'), receipt({ groups: [{ members: [1, 0], keep: 1, reason: 'same' }] }), found().fold(), worktree);
     assert.deepEqual(dedup.payload, { phase: 'deduplication', workerId: '00000000-0000-4000-8000-0000000000aa', groups: [{ members: ['RIPPLE-1', 'SCAN-1'], keep: 'RIPPLE-1', reason: 'same' }] });
-    const verdicts = contributionOf(unit('verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'REFUTED', evidence: 'e' }] }), verified().fold(), worktree);
+    const verdicts = contribution(unit('verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'REFUTED', evidence: 'e' }] }), verified().fold(), worktree);
     assert.deepEqual(verdicts.payload, { phase: 'verification', groupId: 'g1', workerId: '00000000-0000-4000-8000-0000000000aa', verdicts: [{ id: 'RIPPLE-1', verdict: 'REFUTED', evidence: 'e' }] });
-    const outOfRange = contributionOf(unit('verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 3, verdict: 'REFUTED', evidence: 'e' }] }), verified().fold(), worktree);
+    const outOfRange = contribution(unit('verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 3, verdict: 'REFUTED', evidence: 'e' }] }), verified().fold(), worktree);
     assert.match((outOfRange.payload as { reason: string }).reason, /^structural check: A verdict names index 3/);
     // The working list of the swept run is [RIPPLE-1, SWEEP-1, SWEEP-2]; the worker's order is advisory and the engine's order puts the major CONFIRMED finding first.
-    const ranking = contributionOf(unit('merge-rank', 'merge-rank', 'merge-rank'), receipt({ findings: [
+    const ranking = contribution(unit('merge-rank', 'merge-rank', 'merge-rank'), receipt({ findings: [
       { primary: 1, members: [], severity: 'minor', summary: 'design', reason: 'r' },
       { primary: 0, members: [2], severity: 'major', summary: 'null', reason: 'r' },
     ] }), swept().fold(), worktree);

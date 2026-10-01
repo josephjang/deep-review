@@ -9,9 +9,10 @@ import { parsePolicy, pinnedRole, policyFileName, readPolicy, resolvePolicy, rol
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
-import { limitsChangedV1, reviewConfiguredV1 } from '../../src/checkpoint/events.ts';
+import { limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2 } from '../../src/checkpoint/events.ts';
+import { maxTimeoutMs } from '../../src/runtime/contract.ts';
 import { invocationFlagProblem, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
-import { configuration } from '../helpers/review-history.ts';
+import { configuration, configurationV1 } from '../helpers/review-history.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
 const committed = readPolicy(repositoryRolesRoot());
@@ -24,24 +25,35 @@ const changed = (change: (policy: { roles: Record<string, Record<string, unknown
 };
 
 describe('the committed roles/policy.json', () => {
-  it('names exactly the fourteen roles the review runs, and only the two runtimes', () => {
+  it('names exactly the fifteen roles the review runs, the checks block, and only the two runtimes', () => {
     assert.deepEqual(Object.keys(committed.roles).sort(), [...reviewRoles].sort());
-    assert.equal(reviewRoles.length, 14);
-    assert.deepEqual(reviewRoles, ['triage', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS', 'deduplication', 'verifier', 'sweep', 'merge-rank'], 'the role of every angle in launch order, then the roles of the later phases');
+    assert.equal(reviewRoles.length, 15);
+    assert.deepEqual(reviewRoles, ['triage', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer'], 'the role of every angle in launch order, then the roles of the later phases and the fix pass');
+    assert.deepEqual(committed.checks, { timeoutMs: 1_200_000 });
     assert.deepEqual(Object.keys(committed.runtimes).sort(), ['claude', 'codex']);
     assert.equal(committed.concurrency, 4);
   });
 
-  it('carries the proof of concept\'s values: strong analyst and lead roles, fast scouts, medium CONVENTIONS, 8 USD and 600 s each', () => {
+  it('carries the proof of concept\'s values: strong analyst and lead roles, fast scouts, medium CONVENTIONS, 8 USD each, 600 s for a reader and twice that for the fixer', () => {
     for (const [role, entry] of Object.entries(committed.roles)) {
       assert.equal(entry.budgetUsd, 8, role);
-      assert.equal(entry.timeoutMs, 600_000, role);
+      // A fixer runs the suite against the unfixed code, the fixed code and a mutation, so it has twice a reader's time (R12 of the fix pass).
+      assert.equal(entry.timeoutMs, role === 'fixer' ? 1_200_000 : 600_000, role);
       const scout = ['finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DUPLICATION', 'finder-CONVENTIONS'].includes(role);
       assert.equal(entry.tier, scout ? 'fast' : 'strong', role);
       assert.equal(entry.effort, role === 'finder-CONVENTIONS' ? 'medium' : 'high', role);
     }
     assert.deepEqual(committed.runtimes.claude, { strong: 'opus', fast: 'sonnet', runBudgetUsd: 30 });
     assert.equal(committed.runtimes.codex?.runBudgetUsd, null);
+  });
+
+  it('refuses a policy without the fixer or without the checks block, and a checks timeout outside a worker\'s bounds', () => {
+    assert.throws(() => resolvePolicy(changed((copy) => { delete copy.roles.fixer; }), roles, claudeAdapter), /must name exactly the roles the review runs: it does not name fixer$/);
+    assert.throws(() => parsePolicy(changed((copy) => { delete (copy as { checks?: unknown }).checks; })), (error: unknown) => error instanceof InvalidPolicyError && /checks/.test(error.message));
+    for (const timeoutMs of [999, maxTimeoutMs + 1, 1.5]) {
+      assert.throws(() => parsePolicy(changed((copy) => { (copy as { checks?: unknown }).checks = { timeoutMs }; })), InvalidPolicyError, String(timeoutMs));
+    }
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter).checks, { timeoutMs: 1_200_000 }, 'the resolved policy carries the checks block a fixing run pins');
   });
 
   it('resolves for Claude with per-worker budgets and the run budget', () => {
@@ -127,11 +139,13 @@ describe('the per-invocation flags', () => {
 
   it('is the bound the frozen v1 events accept, so every concurrency a run may be given can be recorded', () => {
     for (let concurrency = 1; concurrency <= maxConcurrency; concurrency += 1) {
-      assert.ok(reviewConfiguredV1.safeParse({ ...configuration, concurrency }).success, `review.configured@1 with concurrency ${String(concurrency)}`);
+      assert.ok(reviewConfiguredV1.safeParse({ ...configurationV1, concurrency }).success, `review.configured@1 with concurrency ${String(concurrency)}`);
+      assert.ok(reviewConfiguredV2.safeParse({ ...configuration, concurrency }).success, `review.configured@2 with concurrency ${String(concurrency)}`);
       assert.ok(limitsChangedV1.safeParse({ concurrency, runBudgetUsd: null }).success, `limits.changed@1 with concurrency ${String(concurrency)}`);
     }
     for (const concurrency of [0, maxConcurrency + 1]) {
-      assert.ok(!reviewConfiguredV1.safeParse({ ...configuration, concurrency }).success, String(concurrency));
+      assert.ok(!reviewConfiguredV1.safeParse({ ...configurationV1, concurrency }).success, String(concurrency));
+      assert.ok(!reviewConfiguredV2.safeParse({ ...configuration, concurrency }).success, String(concurrency));
       assert.ok(!limitsChangedV1.safeParse({ concurrency, runBudgetUsd: null }).success, String(concurrency));
     }
   });
@@ -144,8 +158,8 @@ describe('resolvePolicy against the manifest and the runtime', () => {
   });
 
   it('refuses a policy that names a role the review does not run, even one the manifest declares', () => {
-    const policy = changed((copy) => { copy.roles.fixer = { tier: 'strong', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 }; });
-    assert.throws(() => resolvePolicy(policy, roles, claudeAdapter), /names fixer, which the review does not run/);
+    const policy = changed((copy) => { copy.roles.documentation = { tier: 'strong', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 }; });
+    assert.throws(() => resolvePolicy(policy, roles, claudeAdapter), /names documentation, which the review does not run/);
     const both = changed((copy) => {
       delete copy.roles.sweep;
       copy.roles.auditor = { tier: 'strong', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 };
@@ -235,15 +249,15 @@ describe('rolesDigest', () => {
     assert.notEqual(rolesDigest(edited), before);
   });
 
-  it('is one digest over every role, not only the fourteen the review runs', () => {
+  it('is one digest over every role, not only the fifteen the review runs', () => {
     assert.notEqual(rolesDigest(roles), rolesDigest(roles.filter((role) => (reviewRoles as readonly string[]).includes(role.key))));
-    assert.equal(finderAngles.length + 5, reviewRoles.length);
+    assert.equal(finderAngles.length + 6, reviewRoles.length);
   });
 });
 
 describe('pinnedRole', () => {
   it('names the role it cannot find and the roles it has', () => {
     const resolved = resolvePolicy(committed, roles, claudeAdapter);
-    assert.throws(() => pinnedRole(resolved.roles, 'fixer'), /pins no role fixer; it pins triage, finder-REMOVALS/);
+    assert.throws(() => pinnedRole(resolved.roles, 'auditor'), /pins no role auditor; it pins triage, finder-REMOVALS/);
   });
 });

@@ -7,9 +7,11 @@ import { Checkpoint } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { maxConcurrency } from '../src/review/policy.ts';
-import { finderAngles } from '../src/review/vocabulary.ts';
+import { checkKinds, finderAngles } from '../src/review/vocabulary.ts';
+import { fixerAnswer } from './helpers/fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex, isAlive, until } from './helpers/launcher.ts';
-import { ReviewSandbox } from './helpers/review-sandbox.ts';
+import { write } from './helpers/repository.ts';
+import { fakeCheckCommand, ReviewSandbox } from './helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../src/cli.ts');
 
@@ -22,7 +24,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     box.close();
   });
 
-  const environment = (): NodeJS.ProcessEnv => ({ ...baseEnvironment, FAKE_SCRIPT: box.scriptFile, HOME: box.home, USERPROFILE: box.home });
+  const environment = (): NodeJS.ProcessEnv => ({ ...baseEnvironment, FAKE_SCRIPT: box.scriptFile, FAKE_CHECKS: box.checksFile, HOME: box.home, USERPROFILE: box.home });
   const run = (...args: string[]): SpawnSyncReturns<string> => spawnSync(process.execPath, [cli, ...args], { cwd: box.repo, env: environment(), encoding: 'utf8' });
   const claudeFlags = (...more: string[]): string[] => ['review', '--runtime', 'claude', '--executable', process.execPath, '--executable-arg', fakeClaude, '--roles', box.rolesRoot, ...more];
 
@@ -53,6 +55,14 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
       [['review', '--runtime', 'gemini', '--last-commit'], /--runtime must be one of claude, codex/],
       [claudeFlags('--worktree'), /--worktree reviews uncommitted changes, and this tree has none/],
       [['abandon'], /--reason <text> is required/],
+      [claudeFlags('--last-commit', '--check', 'lint=x'), /--check and --no-check apply only with --fix/],
+      [claudeFlags('--last-commit', '--no-check', 'lint'), /--check and --no-check apply only with --fix/],
+      [claudeFlags('--last-commit', '--fix', '--check', 'lint=x', '--check', 'lint=y'), /--check names the lint check, which another --check or --no-check already names/],
+      [claudeFlags('--last-commit', '--fix', '--check', 'lint=x', '--no-check', 'lint'), /--no-check names the lint check, which another/],
+      [claudeFlags('--last-commit', '--fix', '--check', 'format=x'), /--check names a check kind, one of build, typecheck, lint, test, not "format"/],
+      [claudeFlags('--last-commit', '--fix', '--check', 'lint'), /--check takes <kind>=<command>, not "lint"/],
+      [claudeFlags('--last-commit', '--fix', '--check', 'lint= '), /--check lint= needs a command/],
+      [['status', '--fix'], /--fix does not apply to status/],
     ] as const) {
       const result = run(...args);
       assert.equal(result.status, 1, `${args.join(' ')}: ${result.stderr}`);
@@ -318,5 +328,48 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(after.review!.report !== null, true);
     assert.equal(box.checkpoint.listRuns().length, 1, 'the same run continued');
     assert.ok(!isAlive(child.pid!));
+  });
+
+  it('resumes a fix run whose engine was killed while a fixer ran: the fixer\'s half-applied edit is no drift, and its replacement is told so', async () => {
+    const marker = join(box.directory, 'fixer-may-answer');
+    const fixed = 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n';
+    box.script({
+      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'other() passes null' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      // The first fixer edits its file and then waits; it is killed with the engine. Its replacement answers.
+      'fixer:fixes:c1': [{ edits: [{ writes: { 'src/a.ts': `${fixed}// half done\n` } }], waitFor: marker }, { edits: [{ writes: { 'src/a.ts': fixed } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) }],
+    });
+    const checks = checkKinds.flatMap((kind) => ['--check', `${kind}=${fakeCheckCommand(kind)}`]);
+    const child = spawn(process.execPath, [cli, ...claudeFlags('--last-commit', '--fix', ...checks)], { cwd: box.repo, env: environment(), stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    await until(() => /worker fixer fixes:c1: started/.test(stderr) && readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8').includes('half done'), 'the fixer\'s half-applied edit', 180_000);
+    child.kill();
+    await new Promise<void>((done) => child.once('close', () => done()));
+    // The orphaned fixer, if any, waits for the marker; let it go so nothing outlives the test.
+    writeFileSync(marker, '');
+    const resumed = run(...claudeFlags('--fix'));
+    assert.equal(resumed.status, 0, resumed.stderr);
+    assert.match(resumed.stderr, /lost with the previous engine/);
+    assert.match(resumed.stderr, /phase fixes: re-entered \(attempt 2\)/);
+    const state = box.run();
+    assert.ok(state.review!.checks.every((check) => !check.drifted), 'the lost fixer\'s owned file is left out of the start check');
+    const prompts = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1');
+    assert.equal(prompts.length, 2);
+    assert.match(box.checkpoint.evidence.read(prompts[1]!.launch.prompt).toString('utf8'), /The tree may already hold part of this work/);
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixed);
+    assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.change.findings), [['SCAN-1']]);
+  });
+
+  it('runs snapshot from a fixer\'s shell and refuses it outside a worktree', () => {
+    const into = join(box.directory, 'snapshots');
+    write(box.repo, 'src/a.ts', 'changed\n');
+    const taken = run('snapshot', '--finding', '0', '--into', into);
+    assert.equal(taken.status, 0, taken.stderr);
+    assert.match(taken.stdout, /^snapshot 0: \d+ paths into /);
+    const outside = spawnSync(process.execPath, [cli, 'snapshot', '--finding', '0', '--into', into], { cwd: box.directory, env: environment(), encoding: 'utf8' });
+    assert.equal(outside.status, 1);
+    assert.match(outside.stderr, /is not inside a git worktree/);
   });
 });

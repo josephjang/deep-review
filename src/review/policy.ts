@@ -1,9 +1,10 @@
 /**
- * The role policy (R3 of the read-only review): one file, `roles/policy.json`,
- * names for every role the review runs its tier, effort, per-worker budget
- * and timeout, and for every runtime the model behind each tier and the
- * default run budget. `resolvePolicy` turns it, the assembled roles, one
- * runtime and the command's flags into the values a run pins on its ledger.
+ * The role policy (R3 of the read-only review, R12 of the fix pass): one
+ * file, `roles/policy.json`, names for every role the review runs its tier,
+ * effort, per-worker budget and timeout, the fix pass's per-check timeout,
+ * and for every runtime the model behind each tier and the default run
+ * budget. `resolvePolicy` turns it, the assembled roles, one runtime and
+ * the command's flags into the values a run pins on its ledger.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -51,9 +52,16 @@ export type RuntimePolicy = z.infer<typeof runtimePolicySchema>;
  */
 export const maxConcurrency = 16;
 
+/** The fix pass's checks (R9, R12 of the fix pass): how long one check may run before its tree is killed, bounded as a worker's timeout is. */
+export const checksPolicySchema = z.strictObject({
+  timeoutMs: z.number().int().min(1000).max(maxTimeoutMs),
+});
+export type ChecksPolicy = z.infer<typeof checksPolicySchema>;
+
 export const policyFileSchema = z.strictObject({
   schemaVersion: z.literal(1),
   roles: z.record(roleKeySchema, rolePolicySchema),
+  checks: checksPolicySchema,
   runtimes: z.record(z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
   concurrency: z.number().int().min(1).max(maxConcurrency),
 });
@@ -67,7 +75,7 @@ export interface PolicyFlags {
   readonly budgetUsd?: number;
 }
 
-/** The policy as resolved for one runtime: what `review.configured` records, less the executable and version the command adds. */
+/** The policy as resolved for one runtime: what `review.configured` records, less the executable and version the command adds and whether the run fixes. */
 export interface ResolvedPolicy {
   readonly runtime: string;
   readonly models: { readonly strong: string; readonly fast: string };
@@ -75,6 +83,8 @@ export interface ResolvedPolicy {
   readonly rolesDigest: string;
   readonly concurrency: number;
   readonly runBudgetUsd: number | null;
+  /** The checks' policy, which a run that fixes pins. */
+  readonly checks: ChecksPolicy;
 }
 
 /**
@@ -190,6 +200,7 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     rolesDigest: rolesDigest(roles),
     concurrency: flags.concurrency ?? policy.concurrency,
     runBudgetUsd: capabilities.costInUsd ? (flags.budgetUsd ?? runtime.runBudgetUsd) : null,
+    checks: policy.checks,
   };
 }
 

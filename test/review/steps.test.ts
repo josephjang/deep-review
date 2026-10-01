@@ -9,7 +9,7 @@ import { candidate, configured, type History, finding, found, leads, ranked, ran
 
 /** What the budget check counted: `usd`, with `charged` workers at their caps and `lost` ones named. */
 const counted = (usd: number, charged = 0, lost = 0): { usd: number; charged: number; lost: number } => ({ usd, charged, lost });
-const idle: Live = { running: new Set(), spend: counted(0) };
+const idle: Live = { running: new Set(), spend: counted(0), evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}` };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
 /** The part of `Live` the budget check reads: `usd` counted, or null on a runtime that reports no cost. */
 const spent = (usd: number | null, charged = 0, lost = 0): Partial<Live> => ({ spend: { usd, charged, lost } });
@@ -50,24 +50,24 @@ describe('nextStep', () => {
 
   it('checks the worktree once per attempt before anything else in a running phase', () => {
     const started = configured().add('phase.started', { phase: 'triage', attempt: 1 });
-    assert.deepEqual(nextStep(started.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 1 });
+    assert.deepEqual(nextStep(started.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 1, moment: 'start' });
     const checked = started.add('worktree.checked', { phase: 'triage', attempt: 1, drifted: false, files: [] });
     assert.deepEqual(nextStep(checked.review(), idle), { kind: 'launch', units: [{ phase: 'triage', key: 'SCAN', role: 'triage' }] });
     const reentered = checked.add('phase.started', { phase: 'triage', attempt: 2 });
-    assert.deepEqual(nextStep(reentered.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 2 });
+    assert.deepEqual(nextStep(reentered.review(), idle), { kind: 'check-worktree', phase: 'triage', attempt: 2, moment: 'start' });
   });
 
   it('awaits the workers in flight once a drift is found while the phase runs, then blocks with it, launching nothing more', () => {
-    const files = [{ path: 'src/a.ts', outcome: 'modified' }];
+    const files = [{ path: 'src/a.ts', outcome: 'modified' as const }];
     // The check at the attempt's start was clean; a later one, made before recording an answer, found the drift.
     const drifted = triaged().start('finders').add('worktree.checked', { phase: 'finders', attempt: 1, drifted: true, files }).review();
     assert.deepEqual(nextStep(limited(drifted, { concurrency: 16 }), live({ running: new Set(['finders:REMOVALS']) })), { kind: 'await' }, 'nothing more is launched while one runs');
-    assert.deepEqual(nextStep(drifted, idle), { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: driftBlocker(files) });
+    assert.deepEqual(nextStep(drifted, idle), { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: driftBlocker({ files, head: null }, idle.evidencePath) });
     // The check at the start of an attempt that finds a drift blocks the same way, before any launch.
     const atStart = configured().add('phase.started', { phase: 'triage', attempt: 1 }).add('worktree.checked', { phase: 'triage', attempt: 1, drifted: true, files }).review();
-    assert.deepEqual(nextStep(atStart, idle), { kind: 'finish-phase', phase: 'triage', attempt: 1, outcome: 'blocked', blocker: driftBlocker(files) });
+    assert.deepEqual(nextStep(atStart, idle), { kind: 'finish-phase', phase: 'triage', attempt: 1, outcome: 'blocked', blocker: driftBlocker({ files, head: null }, idle.evidencePath) });
     // A drift found in an earlier attempt does not block the re-entered one, whose own check was clean.
-    const reentered = triaged().start('finders').add('worktree.checked', { phase: 'finders', attempt: 1, drifted: true, files }).finish('finders', 'blocked', 1, driftBlocker(files)).start('finders', 2).review();
+    const reentered = triaged().start('finders').add('worktree.checked', { phase: 'finders', attempt: 1, drifted: true, files }).finish('finders', 'blocked', 1, driftBlocker({ files, head: null }, idle.evidencePath)).start('finders', 2).review();
     assert.equal(nextStep(reentered, idle).kind, 'launch');
   });
 
@@ -358,7 +358,7 @@ describe('nextStep', () => {
     }
     assert.ok(!kinds.has('blocked') && !kinds.has('await'), [...kinds].join(', '));
     assert.deepEqual([...kinds].sort(), ['check-worktree', 'complete', 'degrade', 'finish-phase', 'launch', 'plan-verification', 'start-phase', 'write-report']);
-    assert.equal(phases.length, 9);
+    assert.equal(phases.length, 14, 'the walk covers a run without the fix pass; the fix phases are walked by the fix planner tests');
   });
 });
 
@@ -368,9 +368,9 @@ describe('the blockers', () => {
     const blocker = workerFailedBlocker(unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false }, { workerId: worker(2), reason: 'y', lost: false }] });
     assert.equal(blocker.code, 'worker-failed');
     assert.match(blocker.action, /two fresh attempts/);
-    const drift = driftBlocker([{ path: 'a.ts', outcome: 'modified' }, { path: 'b.ts', outcome: 'deleted' }]);
+    const drift = driftBlocker({ files: [{ path: 'a.ts', outcome: 'modified' }, { path: 'b.ts', outcome: 'deleted' }], head: null }, idle.evidencePath);
     assert.equal(drift.code, 'drift');
-    assert.equal(drift.detail, 'the worktree differs from the reviewed change: a.ts (modified), b.ts (deleted)');
+    assert.equal(drift.detail, 'the worktree differs from what the run expects: a.ts (modified), b.ts (deleted)');
     assert.match(drift.action, /restore the named files/);
   });
 });
@@ -449,11 +449,11 @@ describe('the recorded reasons and details', () => {
   });
 
   it('fit a drift blocker over thousands of files, naming as many as fit and counting the rest', () => {
-    const files = Array.from({ length: 2000 }, (_, index) => ({ path: `src/generated/module-${String(index).padStart(4, '0')}.ts`, outcome: 'modified' }));
-    const drift = driftBlocker(files);
+    const files = Array.from({ length: 2000 }, (_, index) => ({ path: `src/generated/module-${String(index).padStart(4, '0')}.ts`, outcome: 'modified' as const }));
+    const drift = driftBlocker({ files, head: null }, idle.evidencePath);
     blockerSchema.parse(drift);
     assert.ok(drift.detail.length <= 4000, String(drift.detail.length));
-    const match = /^the worktree differs from the reviewed change: (.+), and (\d+) more$/.exec(drift.detail);
+    const match = /^the worktree differs from what the run expects: (.+), and (\d+) more$/.exec(drift.detail);
     assert.ok(match !== null, drift.detail.slice(-200));
     const named = match[1]!.split(', ');
     assert.deepEqual(named, files.slice(0, named.length).map((file) => `${file.path} (modified)`), 'the first files, in order');
@@ -461,10 +461,10 @@ describe('the recorded reasons and details', () => {
   });
 
   it('fit a drift blocker whose one path is longer than the detail', () => {
-    const one = driftBlocker([{ path: `src/${'d/'.repeat(3000)}a.ts`, outcome: 'deleted' }]);
+    const one = driftBlocker({ files: [{ path: `src/${'d/'.repeat(3000)}a.ts`, outcome: 'deleted' }], head: null }, idle.evidencePath);
     blockerSchema.parse(one);
-    assert.match(one.detail, /^the worktree differs from the reviewed change: src\/d\/.* \[truncated\]$/);
-    const two = driftBlocker([{ path: `src/${'d/'.repeat(3000)}a.ts`, outcome: 'deleted' }, { path: 'b.ts', outcome: 'modified' }]);
+    assert.match(one.detail, /^the worktree differs from what the run expects: src\/d\/.* \[truncated\]$/);
+    const two = driftBlocker({ files: [{ path: `src/${'d/'.repeat(3000)}a.ts`, outcome: 'deleted' }, { path: 'b.ts', outcome: 'modified' }], head: null }, idle.evidencePath);
     blockerSchema.parse(two);
     assert.match(two.detail, / \[truncated\], and 1 more$/);
   });

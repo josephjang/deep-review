@@ -14,8 +14,10 @@
     "deduplication": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
     "verifier": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
     "sweep": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
-    "merge-rank": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 }
+    "merge-rank": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
+    "fixer": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 1200000 }
   },
+  "checks": { "timeoutMs": 1200000 },
   "runtimes": {
     "claude": { "strong": "opus", "fast": "sonnet", "runBudgetUsd": 30 },
     "codex": { "strong": "gpt-6-astra", "fast": "gpt-5.6-terra", "runBudgetUsd": null }

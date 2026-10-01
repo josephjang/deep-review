@@ -22,6 +22,8 @@ import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import { invocationFlagProblem, maxConcurrency, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
+import { checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
+import type { CheckFlags } from './review/checks/discover.ts';
 import { takeSnapshot } from './review/snapshot.ts';
 import { describeRun } from './review/status.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
@@ -32,6 +34,7 @@ export const usage = `usage:
                       [--strong-model <model>] [--fast-model <model>]
                       (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
+                      [--fix [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
@@ -58,6 +61,9 @@ const options = {
   run: { type: 'string' },
   json: { type: 'boolean' },
   reason: { type: 'string' },
+  fix: { type: 'boolean' },
+  check: { type: 'string', multiple: true },
+  'no-check': { type: 'string', multiple: true },
   finding: { type: 'string' },
   into: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -75,7 +81,7 @@ export interface CommandIo {
 
 /** The flags each command takes; any other given flag is refused by name. */
 const allowed: Record<string, readonly (keyof Values)[]> = {
-  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'help'],
+  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'check', 'no-check', 'help'],
   status: ['run', 'json', 'repo', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
@@ -118,6 +124,39 @@ export function scopeRequestOf(values: Values, worktree: string): { mode: 'last-
     return { mode: 'range', request: { range: { from: values.from, to: values.to, mergeBase: values['merge-base'] === true }, paths } };
   }
   return null;
+}
+
+/**
+ * The fix pass the flags ask for (R1, R8 of the fix pass): null without
+ * `--fix`, else the command each `--check <kind>=<command>` names and the
+ * kinds each `--no-check <kind>` drops. A kind named twice, an unknown
+ * kind, an empty command, or a check flag without `--fix` is refused.
+ */
+export function fixRequestOf(values: Values): CheckFlags | null {
+  const checks = values.check ?? [];
+  const dropped = values['no-check'] ?? [];
+  if (values.fix !== true) {
+    if (checks.length > 0 || dropped.length > 0) throw new UsageError('--check and --no-check apply only with --fix');
+    return null;
+  }
+  const named = new Set<CheckKind>();
+  const kindOf = (flag: string, text: string): CheckKind => {
+    const kind = checkKindSchema.safeParse(text);
+    if (!kind.success) throw new UsageError(`${flag} names a check kind, one of ${checkKinds.join(', ')}, not ${JSON.stringify(text)}`);
+    if (named.has(kind.data)) throw new UsageError(`${flag} names the ${kind.data} check, which another --check or --no-check already names`);
+    named.add(kind.data);
+    return kind.data;
+  };
+  const commands: Partial<Record<CheckKind, string>> = {};
+  for (const flag of checks) {
+    const equals = flag.indexOf('=');
+    if (equals === -1) throw new UsageError(`--check takes <kind>=<command>, not ${JSON.stringify(flag)}`);
+    const kind = kindOf('--check', flag.slice(0, equals));
+    const command = flag.slice(equals + 1);
+    if (command.trim() === '' || command.includes('\0')) throw new UsageError(`--check ${kind}= needs a command`);
+    commands[kind] = command;
+  }
+  return { commands, dropped: dropped.map((text) => kindOf('--no-check', text)) };
 }
 
 /** Run the command line and return the exit code. */
@@ -206,6 +245,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   // A malformed value is a command-line mistake, refused with the usage before the checkpoint is opened; the policy refuses it with the same message for a caller that does not come through here.
   const problem = invocationFlagProblem(flags);
   if (problem !== null) throw new UsageError(problem);
+  const fix = fixRequestOf(values);
   const checkpoint = openCheckpoint(root, true)!;
   try {
     // The controller resolves the scope only for a run that has none yet: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on.
@@ -229,6 +269,9 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,
       scope,
+      fix,
+      // A fixer's snapshot command runs this same entry: the bundle, or this file from the sources.
+      engineEntry: import.meta.filename,
       environment: io.environment,
       log: (line) => io.stderr(`${line}\n`),
     });

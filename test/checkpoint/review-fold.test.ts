@@ -2,17 +2,20 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
-import { finderAngles, phases } from '../../src/review/vocabulary.ts';
-import { History, candidate, configuration, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
+import { History, candidate, configuration, configurationV1, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
     const before = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).fold();
     assert.equal(before.review, null);
     const review = configured().review();
+    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped.
     assert.deepEqual(review.configuration, configuration);
+    assert.equal(review.configuration.fix, false);
+    assert.equal(review.fix, null);
     assert.deepEqual(review.limits, { concurrency: 4, runBudgetUsd: 30 }, 'the limits in force start as the pinned ones');
-    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: 'pending', attempt: 0 }])));
+    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: (fixPhases as readonly string[]).includes(phase) ? 'skipped' : 'pending', attempt: 0 }])));
     assert.equal(review.blocker, null);
     assert.deepEqual(review.candidates, {});
     assert.deepEqual(review.deduplications, { deduplication: null, 'sweep-deduplication': null });
@@ -28,7 +31,7 @@ describe('the review fold', () => {
     assert.deepEqual(Object.keys(review.candidates), ['SCAN-1']);
     assert.deepEqual(review.candidates['SCAN-1'], { ...candidate('SCAN-1', 'SCAN'), phase: 'triage', workerId: worker(1), duplicateOf: null, verdict: null, unverified: false });
     assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(1), failures: [] } });
-    assert.deepEqual(review.checks, [{ phase: 'triage', attempt: 1, drifted: false, files: [] }]);
+    assert.deepEqual(review.checks, [{ phase: 'triage', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }]);
   });
 
   it('counts failed attempts and a lost worker against their unit, marking which failure was a loss, and marks the angle that failed twice not run', () => {
@@ -125,8 +128,8 @@ describe('the review fold', () => {
   it('folds the ranking and the report, with every phase completed or degraded', () => {
     const review = reported().review();
     assert.deepEqual(review.ranking, ranking);
-    assert.deepEqual(review.report, { report: reference('e', 2048), statistics });
-    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'completed']);
+    assert.deepEqual(review.report, { report: reference('e', 2048), statistics, patches: [] }, 'version 1 of the report reads as one with no patch');
+    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
   });
 
   it('records a blocker on a blocked finish and clears it, with the phase\'s failures, on the next start', () => {
@@ -179,7 +182,7 @@ describe('the review fold', () => {
       .add('worktree.checked', { phase: 'triage', attempt: 1, drifted: true, files: [{ path: 'src/a.ts', outcome: 'modified' }] })
       .finish('triage', 'blocked', 1, { code: 'drift', detail: 'src/a.ts modified', action: 'restore it' })
       .review();
-    assert.deepEqual(review.checks, [{ phase: 'triage', attempt: 1, drifted: true, files: [{ path: 'src/a.ts', outcome: 'modified' }] }]);
+    assert.deepEqual(review.checks, [{ phase: 'triage', attempt: 1, moment: 'start', drifted: true, head: null, files: [{ path: 'src/a.ts', outcome: 'modified' }], strays: [] }], 'version 1 of the check reads as one at the start, with no head and no strays');
     assert.equal(review.blocker?.code, 'drift');
   });
 
@@ -212,8 +215,8 @@ describe('the review fold', () => {
   });
 
   const invalid: [name: string, build: () => History, message: RegExp][] = [
-    ['configuring before the scope', () => new History().add('run.created', { worktree: '/w' }).add('review.configured', configuration), /before its scope is captured/],
-    ['configuring twice', () => configured().add('review.configured', configuration), /configured for review twice/],
+    ['configuring before the scope', () => new History().add('run.created', { worktree: '/w' }).add('review.configured', configurationV1), /before its scope is captured/],
+    ['configuring twice', () => configured().add('review.configured', configurationV1), /configured for review twice/],
     ['a phase event before configuration', () => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('phase.started', { phase: 'triage', attempt: 1 }), /before review.configured/],
     ['starting a phase at the wrong attempt', () => configured().add('phase.started', { phase: 'triage', attempt: 2 }), /at attempt 2 after attempt 0/],
     ['starting a later phase before the earlier one completed', () => configured().add('phase.started', { phase: 'finders', attempt: 1 }), /while phase triage is pending/],

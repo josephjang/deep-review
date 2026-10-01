@@ -16,6 +16,7 @@ import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabul
 export interface ReportInput {
   /** The identity of the engine writing the report. */
   readonly engine: string;
+  /** One row per phase the run did not skip, and the total. */
   readonly statistics: { readonly phases: readonly (Spend & { readonly phase: Phase })[]; readonly total: Spend; readonly budgetApplied: boolean };
 }
 
@@ -65,13 +66,14 @@ function findingBlock(position: number, entry: ReportFinding): string {
   return lines.join('\n');
 }
 
-function statisticsTable(input: ReportInput): string {
+function statisticsTable(review: ReviewState, input: ReportInput): string {
   const row = (name: string, spend: Spend): string =>
     `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${costCell(spend)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
   return [
     '| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |',
     '|---|---|---|---|---|---|---|',
-    ...phases.map((phase) => row(phase, input.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
+    // Every phase the run did not skip, in phase order; a phase the statistics have no row for ran no worker.
+    ...phases.filter((phase) => review.phases[phase].status !== 'skipped').map((phase) => row(phase, input.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
     row('Total', input.statistics.total),
   ].join('\n');
 }
@@ -190,7 +192,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     '',
     ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
   ];
-  const statisticsSection = ['## Statistics', '', statisticsTable(input)];
+  const statisticsSection = ['## Statistics', '', statisticsTable(review, input)];
   const limitationsSection = ['## Limitations', '', ...limitations(scope, review, input)];
   return [header, anglesSection, findingsSection, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
 }

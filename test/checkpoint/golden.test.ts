@@ -10,6 +10,7 @@ import { checkpointIdentity, type CheckpointIdentity } from '../../src/checkpoin
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ArtifactReference } from '../../src/evidence/store.ts';
+import { fixPhases } from '../../src/review/vocabulary.ts';
 
 const fixturesRoot = resolve(import.meta.dirname, '../fixtures/checkpoints');
 /** Fixture directories are schema-<schema>-<serial>; the serial advances when the registry changes. */
@@ -25,6 +26,27 @@ const fixtures = readdirSync(fixturesRoot)
 interface Expected {
   readonly runs: RunState[];
   readonly evidence: ArtifactReference[];
+}
+
+/**
+ * Hold `actual` to every fact `recorded` holds: each key of a recorded
+ * object, at any depth, with the value recorded there, and each array
+ * element by element and of the recorded length; a key `actual` has and
+ * `recorded` lacks is a field a newer engine added, and is allowed.
+ */
+function assertHolds(actual: unknown, recorded: unknown, path: string): void {
+  if (Array.isArray(recorded)) {
+    assert.ok(Array.isArray(actual), `${path} is a list`);
+    assert.equal(actual.length, recorded.length, `${path} length`);
+    recorded.forEach((value: unknown, index) => assertHolds((actual as unknown[])[index], value, `${path}[${String(index)}]`));
+    return;
+  }
+  if (recorded !== null && typeof recorded === 'object') {
+    assert.ok(actual !== null && typeof actual === 'object' && !Array.isArray(actual), `${path} is an object`);
+    for (const [key, value] of Object.entries(recorded)) assertHolds((actual as Record<string, unknown>)[key], value, `${path}.${key}`);
+    return;
+  }
+  assert.deepEqual(actual, recorded, path);
 }
 
 describe('golden checkpoints', () => {
@@ -53,15 +75,23 @@ describe('golden checkpoints', () => {
       if (name === fixtures.at(-1)) assert.deepEqual(runs, expected.runs);
       else {
         // An older fixture was recorded by an engine whose state had fewer
-        // fields. Every fact it recorded must still hold; new fields may exist.
+        // fields. Every fact it recorded must still hold, at any depth; new
+        // fields may exist beside them.
         assert.equal(runs.length, expected.runs.length);
         for (const [index, recorded] of expected.runs.entries()) {
           const actual: Record<string, unknown> = { ...runs[index] };
-          for (const [key, value] of Object.entries(recorded)) assert.deepEqual(actual[key], value, `${name} run ${String(index)} ${key}`);
+          assertHolds(actual, recorded, `${name} run ${String(index)}`);
           // A run recorded before workers existed has none (R11 of the runtime adapter).
           if (!('workers' in recorded)) assert.deepEqual(actual.workers, {}, `${name} run ${String(index)} workers`);
           // A run recorded before reviews existed has no review (R10 of the read-only review).
           if (!('review' in recorded)) assert.equal(actual.review, null, `${name} run ${String(index)} review`);
+          // A review recorded before the fix pass existed reads as one without it: no fix state, and its five phases skipped (TD9 of the fix pass).
+          const review = runs[index]!.review;
+          if (review !== null && !('fix' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.equal(review.fix, null, `${name} run ${String(index)} fix`);
+            assert.equal(review.configuration.fix, false, `${name} run ${String(index)} configuration.fix`);
+            for (const phase of fixPhases) assert.equal(review.phases[phase].status, 'skipped', `${name} run ${String(index)} ${phase}`);
+          }
         }
       }
       for (const reference of expected.evidence) {

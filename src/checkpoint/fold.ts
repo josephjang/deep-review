@@ -14,6 +14,7 @@ import {
   type workerLostV1,
 } from './events.ts';
 import { lookupEvent, registryKeys, type Registry, type RegistryKey } from './registry.ts';
+import { fixReducers } from './fix-fold.ts';
 import { reviewReducers, unitOfLostWorker, withFailure, type ReviewState } from './review-fold.ts';
 import { unitName } from '../review/vocabulary.ts';
 
@@ -178,7 +179,9 @@ export const reducers = {
   'worker.launched@1': workerLaunched,
   'worker.finished@1': workerFinished,
   'worker.lost@1': workerLost,
+  'worker.lost@2': workerLost,
   ...reviewReducers,
+  ...fixReducers,
 } satisfies Record<RegistryKey<EventRegistry>, Reducer<never>>;
 
 /** The engine's own model: its registry with its reducers. */

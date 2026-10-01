@@ -145,6 +145,8 @@ export function outputSchemaOf(role: ReviewRole): z.ZodType {
       return sweepOutputSchema;
     case 'merge-rank':
       return mergeRankOutputSchema;
+    case 'fixer':
+      return fixerOutputSchema;
   }
 }
 
