@@ -25670,6 +25670,172 @@ function contributionEvent(unit, receipt, review2, state, worktree) {
   }
 }
 
+// src/review/fix-report.ts
+var statusWords = {
+  applied: "applied",
+  "already-applied": "already applied",
+  deferred: "deferred",
+  blocked: "blocked"
+};
+function fateOf(fix, id) {
+  const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? "fixer";
+  if (route === "held") return { id, outcome: "held for the author", cluster: null, answer: null, reason: null };
+  const cluster = fix.plan?.clusters.find((candidate) => candidate.findingIds.includes(id))?.id ?? null;
+  const answer = cluster === null ? null : fix.answers.fixes[cluster]?.findings.find((finding) => finding.id === id) ?? null;
+  if (answer !== null) return { id, outcome: statusWords[answer.status], cluster, answer, reason: null };
+  const reason = cluster !== null && isNotAttempted(fix, "fixes", cluster) ? fix.notAttempted.fixes[cluster] : "no fixer answered for it";
+  return { id, outcome: "not attempted", cluster, answer: null, reason };
+}
+function patchesOf(fix, id, phase) {
+  return fix.revisions.flatMap((revision, index2) => revision.phase === phase && revision.change.findings.includes(id) ? [index2 + 1] : []);
+}
+var patchNote = (numbers) => numbers.length === 0 ? "no patch" : `patch ${numbers.join(", ")}`;
+function fateLines(fix, fate) {
+  if (fate.outcome === "held for the author") return ["A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it."];
+  const lines = [];
+  if (fate.answer !== null) {
+    lines.push(`Note: ${inlineText(fate.answer.note)}`);
+    if (fate.answer.message !== null) lines.push(`Commit message: ${inlineText(fate.answer.message.subject)}`);
+  } else if (fate.reason !== null) {
+    lines.push(`Not attempted: ${inlineText(fate.reason)}`);
+  }
+  if (fate.cluster !== null) {
+    const files = fix.plan?.clusters.find((cluster) => cluster.id === fate.cluster)?.files ?? [];
+    lines.push(`Cluster: ${fate.cluster}${files.length === 0 ? ", owning no file" : ` (${files.map(inlineText).join(", ")})`}; ${patchNote(patchesOf(fix, fate.id, "fixes"))}`);
+  }
+  for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
+  if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(", ")}`);
+  return lines;
+}
+function answerLines(fix) {
+  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair)];
+  const drift = answers.flatMap((answer) => answer.drift.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.what)} (${answer.key})`));
+  const tests = answers.flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
+  return [
+    ...drift.length === 0 ? [] : ["", "Documentation the fixers say their edits made stale, which nothing in this run updated:", "", ...drift],
+    ...tests.length === 0 ? [] : ["", "Tests the fixers say they added or tightened:", "", ...tests]
+  ];
+}
+function fixesSection(review2, fix) {
+  const findings = rankedFindings(review2);
+  const blocks = findings.flatMap((entry, index2) => {
+    const fate = fateOf(fix, entry.finding.id);
+    return [`### ${String(index2 + 1)}. ${entry.finding.id} ${fate.outcome}`, "", ...fateLines(fix, fate), ""];
+  });
+  const repair = fix.answers.repair[repairUnitKey];
+  const repairLines = repair === void 0 ? isNotAttempted(fix, "repair", repairUnitKey) ? ["### Repair", "", `Not attempted: ${inlineText(fix.notAttempted.repair[repairUnitKey])}`, ""] : [] : ["### Repair", "", ...repair.findings.map((finding) => `- ${finding.id} check ${statusWords[finding.status]}: ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`), ""];
+  const lines = [
+    "## Fixes",
+    "",
+    "What the fix pass did with each finding, in rank order. Every edit is in the working tree, uncommitted; a patch number is one of the series under Changed files.",
+    "",
+    ...findings.length === 0 ? ["No finding to fix.", ""] : blocks,
+    ...repairLines,
+    ...answerLines(fix)
+  ];
+  return lines.filter((line, index2) => line !== "" || lines[index2 - 1] !== "");
+}
+var phaseTitles = { "baseline-checks": "Before the fixes", checks: "After the fixes", "repair-checks": "After the repair" };
+var runSeconds = (run2) => `${((Date.parse(run2.endedAt) - Date.parse(run2.startedAt)) / 1e3).toFixed(1)} s`;
+function checkCell(run2, evidencePath, failedBefore) {
+  if (run2 === null) return "-";
+  if (run2.outcome === "skipped") return tableCell(`skipped: ${run2.error ?? "build did not pass"}`);
+  const output2 = run2.stdout === null || run2.stderr === null ? "" : `; output ${evidencePath(run2.stdout)}, ${evidencePath(run2.stderr)}`;
+  const text2 = `${run2.outcome}, ${runSeconds(run2)}${run2.outcome === "passed" ? "" : output2}${failedBefore ? " (failing before the fix pass)" : ""}`;
+  return tableCell(text2);
+}
+function checksSection(fix, evidencePath) {
+  const planned = fix.checks.planned?.checks ?? [];
+  const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
+  const failedAtBaseline = (kind) => ["failed", "timeout", "not-started"].includes(fix.checks.runs["baseline-checks"].find((run2) => run2.kind === kind)?.outcome ?? "");
+  const rows = planned.map((check2) => {
+    if (check2.command === null) return `| ${check2.kind} | not available (${tableCell(check2.origin)}: ${tableCell(check2.reason ?? "no command")}) | ${ran.map(() => "-").join(" | ")} |`;
+    const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check2.kind), evidencePath, phase !== "baseline-checks" && failedAtBaseline(check2.kind)));
+    return `| ${check2.kind} | ${tableCell(check2.command)} | ${cells.join(" | ")} |`;
+  });
+  const notRun = [
+    ...fix.checks.runs.checks.length === 0 ? ["- After the fixes: not run, since no fix changed a file."] : [],
+    ...fix.checks.runs["repair-checks"].length === 0 ? ["- After the repair: not run, since no check the baseline passed failed after the fixes."] : []
+  ];
+  return [
+    "## Checks",
+    "",
+    `| Check | Command | ${ran.map((phase) => phaseTitles[phase]).join(" | ")} |`,
+    `|---|---|${ran.map(() => "---").join("|")}|`,
+    ...rows,
+    ...notRun.length === 0 ? [] : ["", ...notRun]
+  ];
+}
+function revisedBy(revision) {
+  switch (revision.source.kind) {
+    case "fix":
+      return revision.source.key;
+    case "check":
+      return `${revision.source.check} check`;
+    case "unanswered":
+      return `${revision.source.key}, failed`;
+  }
+}
+function finalStatus(state, fix, path) {
+  const touching = fix.revisions.flatMap((revision) => revision.files.filter((file2) => file2.path === path));
+  const scoped = state.scope?.files.find((file2) => file2.path === path);
+  const existedBefore = scoped === void 0 ? touching[0]?.status !== "created" : scoped.after !== null;
+  const existsAfter = touching.at(-1)?.after !== null;
+  if (existedBefore) return existsAfter ? "modified" : "deleted";
+  return existsAfter ? "created" : "created, then deleted";
+}
+function changedFilesSection(state, fix, patches) {
+  const paths = [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
+  const rows = paths.map((path) => {
+    const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file2) => file2.path === path)).map(revisedBy))];
+    return `| ${tableCell(path)} | ${finalStatus(state, fix, path)} | ${tableCell(by.join(", "))} |`;
+  });
+  const series = fix.revisions.map((revision, index2) => `${String(index2 + 1)}. ${inlineText(revision.change.message.subject)} (${revisedBy(revision)}): ${patches[index2] ?? "not written"}`);
+  return [
+    "## Changed files",
+    "",
+    ...paths.length === 0 ? ["No file was changed."] : ["| Path | Status | Changed by |", "|---|---|---|", ...rows],
+    ...series.length === 0 ? [] : ["", "The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:", "", ...series]
+  ];
+}
+function fixSections(state, evidencePath, patches) {
+  const review2 = state.review;
+  const fix = review2?.fix ?? null;
+  if (review2 === null || fix === null) return [];
+  return [fixesSection(review2, fix), checksSection(fix, evidencePath), changedFilesSection(state, fix, patches)];
+}
+function fixHeaderLine(review2) {
+  const fix = review2.fix;
+  if (fix === null) return null;
+  const outcomes = rankedFindings(review2).map((entry) => fateOf(fix, entry.finding.id).outcome);
+  const counts = ["applied", "already applied", "deferred", "blocked", "not attempted", "held for the author"].map((outcome) => `${String(outcomes.filter((candidate) => candidate === outcome).length)} ${outcome}`);
+  return `Fix pass: ${counts.join(", ")}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? "" : "es"}; the edits are in the working tree, uncommitted`;
+}
+function fixLimitations(review2) {
+  const fix = review2.fix;
+  if (fix === null) return [];
+  const lines = [];
+  const owner = (path) => fix.plan?.clusters.find((cluster) => cluster.files.includes(path))?.id ?? "no cluster";
+  for (const answer of Object.values(fix.answers.fixes)) {
+    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, owned by ${owner(path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
+  }
+  const strays = [...new Set(review2.checks.flatMap((check2) => check2.strays))].sort();
+  if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(", ")}.`);
+  const unavailable = (fix.checks.planned?.checks ?? []).filter((check2) => check2.command === null);
+  if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check2) => `${check2.kind} (${inlineText(check2.reason ?? "no command")})`).join("; ")}.`);
+  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair)];
+  for (const answer of answers) {
+    for (const finding of answer.findings) {
+      for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);
+    }
+    const failures = answer.suite.failures.trim() === "" ? "" : `: ${inlineText(answer.suite.failures)}`;
+    lines.push(`- ${answer.key === repairUnitKey ? "The repair" : `Fixer ${answer.key}`} ran its own suite: ${answer.suite.result}${answer.suite.command.trim() === "" ? "" : ` (${inlineText(answer.suite.command)})`}${failures}.`);
+  }
+  const oversized = fix.revisions.flatMap((revision) => revision.files.filter((file2) => file2.after !== null && "oversized" in file2.after).map((file2) => file2.path));
+  if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(", ")}.`);
+  return lines;
+}
+
 // src/review/report.ts
 var usd2 = (value) => value === null ? "-" : value.toFixed(2);
 var count = (value) => value === null ? "-" : String(value);
@@ -25747,7 +25913,9 @@ function limitations(scope, review2, input2) {
     lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(", ")}) carry PLAUSIBLE with the unverified mark.`);
   }
   const drifted2 = review2.checks.filter((check2) => check2.drifted);
-  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted2.length === 0 ? "none found a difference from the reviewed change" : `${String(drifted2.length)} found a difference in ${drifted2.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`).join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
+  const against = review2.fix === null ? "the reviewed change" : "what the run expected";
+  const headMoved2 = (check2) => check2.head === null ? [] : [`HEAD moved to ${check2.head.actual}`];
+  lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted2.length === 0 ? `none found a difference from ${against}` : `${String(drifted2.length)} found a difference in ${drifted2.map((check2) => `${check2.phase} (attempt ${String(check2.attempt)}: ${[...headMoved2(check2), ...check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`)].join(", ")})`).join("; ")}; each blocked the run until the tree was restored`}.`);
   lines.push(budgetLine(review2, input2.statistics));
   const unreported = input2.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
@@ -25765,6 +25933,7 @@ function limitations(scope, review2, input2) {
     const matching = unlocated2.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(", ")}.`);
   }
+  lines.push(...fixLimitations(review2));
   return lines;
 }
 function renderReport(state, input2) {
@@ -25787,7 +25956,8 @@ function renderReport(state, input2) {
     `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
-    `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`
+    `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
+    ...[fixHeaderLine(review2)].filter((line) => line !== null)
   ];
   const anglesSection = ["## Angles", "", "| Angle | Ran | Lead from SCAN |", "|---|---|---|", ...angles.map((angle) => angleRow(review2, angle))];
   const findingsSection = [
@@ -25803,7 +25973,8 @@ function renderReport(state, input2) {
   ];
   const statisticsSection = ["## Statistics", "", statisticsTable(review2, input2)];
   const limitationsSection = ["## Limitations", "", ...limitations(scope, review2, input2)];
-  return [header, anglesSection, findingsSection, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
+  const fixed = input2.fix === void 0 ? [] : fixSections(state, input2.fix.evidencePath, input2.fix.patches);
+  return [header, anglesSection, findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
 }
 
 // src/review/controller.ts
@@ -25995,7 +26166,8 @@ async function runReview(options2) {
           const revisions = state.review.fix?.revisions ?? [];
           const patches = revisions.length === 0 ? [] : patchSeries(scope, revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree)).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
-          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics }));
+          const fix = state.review.fix === null ? {} : { fix: { evidencePath: (reference) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
+          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
           state = append(checkpoint, state, [
             { kind: "report.written", version: 2, payload: { report, statistics, patches } },
             { kind: "phase.finished", version: 2, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
@@ -26202,6 +26374,8 @@ function describeRun(state, adapter, evidencePath) {
   const checkedUsd = budgetSpend?.usd ?? null;
   const budgetCheckLine = budgetUsd === null || checkedUsd === null || budgetNote === null ? null : `Budget check: ${checkedUsd.toFixed(2)} USD of ${budgetUsd.toFixed(2)} USD, ${budgetNote}`;
   const reportPath = review2?.report === null || review2?.report === void 0 ? null : evidencePath(review2.report.report);
+  const patches = (review2?.report?.patches ?? []).map(evidencePath);
+  const fix = review2 === null ? null : fixStatus(state, review2);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
@@ -26211,10 +26385,34 @@ function describeRun(state, adapter, evidencePath) {
     statistics === null ? "Spend: none" : `Spend: ${statistics.total.costUsd === null ? "no cost reported" : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null || budgetCheckLine !== null ? "" : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? "no tokens reported" : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
     ...budgetCheckLine === null ? [] : [budgetCheckLine],
     ...review2?.blocker === null || review2?.blocker === void 0 ? [] : [`Blocker: ${review2.blocker.code}: ${review2.blocker.detail}`, `Action: ${review2.blocker.action}`],
-    ...reportPath === null ? [] : [`Report: ${reportPath}`]
+    ...reportPath === null ? [] : [`Report: ${reportPath}`],
+    ...fix === null ? [] : fix.lines,
+    ...patches.map((path, index2) => `Patch ${String(index2 + 1)}: ${path}`),
+    ...review2?.fix?.commits === null || review2?.fix?.commits === void 0 ? [] : [`Commits: ${String(review2.fix.commits.commits.length)} created, ${review2.fix.commits.from} to ${review2.fix.commits.to}`]
   ];
-  const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review2?.blocker ?? null, report: reportPath, review: review2 };
+  const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review2?.blocker ?? null, report: reportPath, fix: fix?.json ?? null, patches, commits: review2?.fix?.commits ?? null, review: review2 };
   return { lines, json: json2 };
+}
+function fixStatus(state, review2) {
+  const fix = review2.fix;
+  if (fix === null) return null;
+  const running = new Set(Object.values(state.workers).filter((worker) => worker.status === "running").map((worker) => worker.launch.label));
+  const clusters = (fix.plan?.clusters ?? []).map((cluster) => {
+    const label = unitLabel("fixer", "fixes", cluster.id);
+    const clusterState = isAnswered(review2, "fixes", cluster.id) ? "answered" : isNotAttempted(fix, "fixes", cluster.id) ? "not attempted" : running.has(label) ? "running" : "pending";
+    return { id: cluster.id, state: clusterState, findings: cluster.findingIds, files: cluster.files };
+  });
+  const held = (fix.plan?.routes ?? []).filter((route) => route.route === "held").map((route) => route.id);
+  const checks = (fix.checks.planned?.checks ?? []).map((check2) => ({
+    kind: check2.kind,
+    command: check2.command,
+    outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check2.kind)?.outcome ?? null]))
+  }));
+  const lines = [
+    fix.plan === null ? "Fix pass: not planned yet" : `Fix pass: ${clusters.length === 0 ? "no cluster" : clusters.map((cluster) => `${cluster.id} ${cluster.state}`).join(", ")}; ${String(held.length)} held for the author`,
+    ...checks.map((check2) => `Check ${check2.kind}: ${check2.command === null ? "not available" : checkPhases.map((phase) => `${phase} ${check2.outcomes[phase] ?? "-"}`).join(", ")}`)
+  ];
+  return { lines, json: { clusters, held, checks, revisions: fix.revisions.length } };
 }
 
 // src/cli.ts

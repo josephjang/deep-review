@@ -3,12 +3,18 @@
  * review): its status, worktree, runtime and models, the phase it is in,
  * its workers, its spend against the run budget in force, what the budget
  * check counts when that differs from the reported spend, its blocker with
- * the operator's action, and its report, as text lines and as JSON.
+ * the operator's action, its report, and for a fix run (R13 of the fix
+ * pass) its clusters, its checks, its patches and its commits, as text
+ * lines and as JSON.
  */
+import { isNotAttempted, lastRun } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
+import { unitLabel } from './labels.ts';
 import { currentPhase, reviewStatus } from './state.ts';
+import { checkPhases } from './vocabulary.ts';
 
 /** What `status` prints about a run, as text lines and as a JSON value. */
 export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string): { lines: string[]; json: Record<string, unknown> } {
@@ -25,6 +31,8 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const checkedUsd = budgetSpend?.usd ?? null;
   const budgetCheckLine = budgetUsd === null || checkedUsd === null || budgetNote === null ? null : `Budget check: ${checkedUsd.toFixed(2)} USD of ${budgetUsd.toFixed(2)} USD, ${budgetNote}`;
   const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
+  const patches = (review?.report?.patches ?? []).map(evidencePath);
+  const fix = review === null ? null : fixStatus(state, review);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
@@ -37,7 +45,36 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(budgetCheckLine === null ? [] : [budgetCheckLine]),
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
     ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
+    ...(fix === null ? [] : fix.lines),
+    ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
+    ...(review?.fix?.commits === null || review?.fix?.commits === undefined ? [] : [`Commits: ${String(review.fix.commits.commits.length)} created, ${review.fix.commits.from} to ${review.fix.commits.to}`]),
   ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, review };
+  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? null, review };
   return { lines, json };
+}
+
+/** A cluster's state as `status` names it: no worker yet, one running, its answer recorded, or not attempted after two failures. */
+type ClusterState = 'pending' | 'running' | 'answered' | 'not attempted';
+
+/** What `status` says of a fix run: each cluster's state, the findings held, and each check's last outcome in each checks phase. */
+function fixStatus(state: RunState, review: ReviewState): { lines: string[]; json: Record<string, unknown> } | null {
+  const fix = review.fix;
+  if (fix === null) return null;
+  const running = new Set(Object.values(state.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label));
+  const clusters = (fix.plan?.clusters ?? []).map((cluster) => {
+    const label = unitLabel('fixer', 'fixes', cluster.id);
+    const clusterState: ClusterState = isAnswered(review, 'fixes', cluster.id) ? 'answered' : isNotAttempted(fix, 'fixes', cluster.id) ? 'not attempted' : running.has(label) ? 'running' : 'pending';
+    return { id: cluster.id, state: clusterState, findings: cluster.findingIds, files: cluster.files };
+  });
+  const held = (fix.plan?.routes ?? []).filter((route) => route.route === 'held').map((route) => route.id);
+  const checks = (fix.checks.planned?.checks ?? []).map((check) => ({
+    kind: check.kind,
+    command: check.command,
+    outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check.kind)?.outcome ?? null])),
+  }));
+  const lines = [
+    fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${clusters.length === 0 ? 'no cluster' : clusters.map((cluster) => `${cluster.id} ${cluster.state}`).join(', ')}; ${String(held.length)} held for the author`,
+    ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : checkPhases.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}`).join(', ')}`),
+  ];
+  return { lines, json: { clusters, held, checks, revisions: fix.revisions.length } };
 }
