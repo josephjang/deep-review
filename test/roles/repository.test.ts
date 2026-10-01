@@ -157,6 +157,16 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  it('tells every fixer role to apply in the task\'s order, snapshot after each finding, and keep its logs in its scratch directory (R6, R15 of the fix pass)', () => {
+    for (const key of fixerRoles) {
+      const prompt = roles.find((role) => role.key === key)!.prompt;
+      assert.match(prompt, /Fix each assigned finding in the order your task numbers them/, key);
+      assert.match(prompt, /When you have finished a finding, whatever its status, and before you\s+start the next, run that command with the finding's index/, key);
+      assert.match(prompt, /Redirect to a log in your scratch directory, never in the\s+repository/, key);
+      assert.doesNotMatch(prompt, /> test\.log/, `${key} names no log beside the run`);
+    }
+  });
+
   it('tells no worker that returns to the engine to dispatch other workers', () => {
     // The auditor and the fixer roles each return one report; starting workers is the engine's job.
     const returning = roles.filter((role) => ['auditor-brief.md', 'fixer-role.md'].includes(role.fragments[0]!.name));

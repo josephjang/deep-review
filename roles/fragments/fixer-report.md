@@ -7,9 +7,11 @@ rather than dropping it silently.
 ## Keep command output out of your report
 
 Build and test runs are verbose and their output is worthless once you
-have read it. Redirect to a log and read back only what failed, for
-example `dotnet test ... > test.log 2>&1` followed by a search of the log
-for the error lines, rather than letting the full transcript through.
+have read it. Redirect to a log in your scratch directory, never in the
+repository, and read back only what failed, for example
+`dotnet test ... > <scratch>/test.log 2>&1` followed by a search of the
+log for the error lines, rather than letting the full transcript
+through. A file you leave in the repository is a stray the run reports.
 Delete any log you create before finishing.
 
 ## Return format
