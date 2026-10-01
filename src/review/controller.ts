@@ -8,7 +8,7 @@
  * event, so a resumed run continues from the last step the ledger holds.
  */
 import { randomUUID } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, ChecksPlanned, ReviewConfiguration, ReviewLimits, ScopeRequest } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -25,6 +25,7 @@ import { discoverChecks, readRootManifests, type CheckFlags } from './checks/dis
 import { runCheck } from './checks/run.ts';
 import { conventionFiles } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, worktreeChecked, type DriftFound } from './drift.ts';
+import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { checkRevision, unansweredRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
@@ -531,12 +532,6 @@ async function qualify(adapter: RuntimeAdapter, executable: string, executableAr
   } catch (error) {
     throw refusalOf(error, runId === null ? null : { runId, executable });
   }
-}
-
-/** Whether two worktree paths name one directory: the same resolved path, compared without case on Windows, whose paths are case-insensitive. */
-function sameDirectory(a: string, b: string): boolean {
-  const [left, right] = [resolve(a), resolve(b)];
-  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 /**

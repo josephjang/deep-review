@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync5 } from "node:fs";
-import { join as join24, resolve as resolve11 } from "node:path";
+import { join as join25, resolve as resolve10 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -5056,7 +5056,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve12) {
+function isRecursive(inst, stack, resolve11) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5066,7 +5066,7 @@ function isRecursive(inst, stack, resolve12) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve12);
+      const answer = isRecursive(child, stack, resolve11);
       if (answer > result)
         result = answer;
     }
@@ -5077,7 +5077,7 @@ function isRecursive(inst, stack, resolve12) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve12) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve11) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -5141,7 +5141,7 @@ function isRecursive(inst, stack, resolve12) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve12 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve11 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -21021,7 +21021,7 @@ var commitsCreated = (state, payload, event) => {
   if (fix.commits !== null) throw invalid(event, "creates its commits twice");
   if (current.scope === null || payload.from !== current.scope.head) throw invalid(event, `creates commits on ${payload.from}, not the scope's head`);
   const expected = [...current.scope.mode === "worktree" ? ["change"] : [], ...fix.revisions.map((_, index2) => index2)];
-  const given = payload.commits.map((commit) => commit.revision);
+  const given = payload.commits.map((commit2) => commit2.revision);
   if (given.length !== expected.length || given.some((revision, index2) => revision !== expected[index2])) throw invalid(event, `creates commits for [${given.join(", ")}], not [${expected.join(", ")}]`);
   if (payload.commits.at(-1).sha !== payload.to) throw invalid(event, "moves the branch to a commit that is not its last");
   return withFix(current, review2, { ...fix, commits: payload }, event);
@@ -21669,7 +21669,7 @@ function engineRolesRoot(directory = import.meta.dirname) {
 
 // src/review/controller.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { join as join22, resolve as resolve9 } from "node:path";
+import { join as join22 } from "node:path";
 
 // src/runtime/errors.ts
 var InvalidInvocationError = class extends EngineError {
@@ -21915,7 +21915,7 @@ async function runProcess(request) {
       return notStarted(error62.message, startedAt);
     }
     superviseChild(child);
-    return await new Promise((resolve12) => {
+    return await new Promise((resolve11) => {
       let started = false;
       let kill;
       const timer = setTimeout(() => {
@@ -21927,14 +21927,14 @@ async function runProcess(request) {
       child.on("error", (error62) => {
         if (started) return;
         clearTimeout(timer);
-        resolve12(notStarted(error62.message, startedAt));
+        resolve11(notStarted(error62.message, startedAt));
       });
       child.once("close", (code, signal) => {
         if (!started) return;
         clearTimeout(timer);
         const endedAt = (/* @__PURE__ */ new Date()).toISOString();
-        if (kill === void 0 || kill.status === "not-running") resolve12({ termination: "exited", exitCode: code, signal, startedAt, endedAt });
-        else resolve12({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
+        if (kill === void 0 || kill.status === "not-running") resolve11({ termination: "exited", exitCode: code, signal, startedAt, endedAt });
+        else resolve11({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
       });
     });
   } finally {
@@ -22028,7 +22028,7 @@ function positiveLimit(name, value) {
   return value;
 }
 function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
-  return new Promise((resolve12, reject) => {
+  return new Promise((resolve11, reject) => {
     let child;
     try {
       child = spawn2(executable, [...args], {
@@ -22082,7 +22082,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
       settled = true;
       clearTimeout(timer);
       if (code === 0) {
-        resolve12(Buffer.concat(stdout).toString("utf8"));
+        resolve11(Buffer.concat(stdout).toString("utf8"));
         return;
       }
       const printedError = Buffer.concat(stderr).toString("utf8").trim();
@@ -22157,26 +22157,26 @@ var reservedSettingsVariables = [
   ...launcherPins
 ];
 function checkedSettings(settings) {
-  const refuse = (reason) => {
+  const refuse2 = (reason) => {
     throw new Error(`Claude settings ${reason}`);
   };
-  if (!isObject2(settings)) return refuse("must be an object");
+  if (!isObject2(settings)) return refuse2("must be an object");
   const known = [...claudeCredentialSettings, "env"];
   const unknown2 = Object.keys(settings).find((key) => !known.includes(key));
-  if (unknown2 !== void 0) refuse(`have unknown key ${JSON.stringify(unknown2)}; a Claude adapter takes only ${known.join(", ")}`);
+  if (unknown2 !== void 0) refuse2(`have unknown key ${JSON.stringify(unknown2)}; a Claude adapter takes only ${known.join(", ")}`);
   const checked = {};
   for (const key of claudeCredentialSettings) {
     const value = settings[key];
     if (value === void 0) continue;
-    if (typeof value !== "string" || value.trim() === "" || !value.isWellFormed()) refuse(`${key} must be a non-empty string`);
+    if (typeof value !== "string" || value.trim() === "" || !value.isWellFormed()) refuse2(`${key} must be a non-empty string`);
     checked[key] = value;
   }
   if (settings.env !== void 0) {
-    if (!isObject2(settings.env)) refuse("env must be an object of strings");
+    if (!isObject2(settings.env)) refuse2("env must be an object of strings");
     const env = Object.entries(isObject2(settings.env) ? settings.env : {});
     for (const [name, value] of env) {
-      if (!/^[^=\0]+$/.test(name) || !name.isWellFormed()) refuse(`env has a name ${JSON.stringify(name)} no environment can hold`);
-      if (typeof value !== "string" || value.includes("\0") || !value.isWellFormed()) refuse(`env value of ${name} is not a string an environment can hold`);
+      if (!/^[^=\0]+$/.test(name) || !name.isWellFormed()) refuse2(`env has a name ${JSON.stringify(name)} no environment can hold`);
+      if (typeof value !== "string" || value.includes("\0") || !value.isWellFormed()) refuse2(`env value of ${name} is not a string an environment can hold`);
     }
     checked.env = Object.freeze(Object.fromEntries(env));
   }
@@ -22417,25 +22417,25 @@ function unknownKeys(value, known) {
   return Object.keys(value).filter((key) => !known.includes(key));
 }
 function checkedProvider(provider) {
-  const refuse = (reason) => {
+  const refuse2 = (reason) => {
     throw new Error(`Codex provider ${reason}`);
   };
-  if (!isObject2(provider)) return refuse("must be an object with an id and a baseUrl");
+  if (!isObject2(provider)) return refuse2("must be an object with an id and a baseUrl");
   const unknown2 = unknownKeys(provider, codexProviderKeys);
-  if (unknown2.length > 0) refuse(`has unknown key ${JSON.stringify(unknown2[0])}; it takes ${codexProviderKeys.join(", ")}`);
+  if (unknown2.length > 0) refuse2(`has unknown key ${JSON.stringify(unknown2[0])}; it takes ${codexProviderKeys.join(", ")}`);
   const { id, baseUrl, envKey, queryParams } = provider;
-  if (typeof id !== "string" || !/^[a-z0-9_-]+$/.test(id)) return refuse(`id ${JSON.stringify(id)} is not lowercase letters, digits, _ and -`);
-  if (typeof baseUrl !== "string" || !baseUrl.isWellFormed()) return refuse(`baseUrl ${JSON.stringify(baseUrl)} is not a string`);
+  if (typeof id !== "string" || !/^[a-z0-9_-]+$/.test(id)) return refuse2(`id ${JSON.stringify(id)} is not lowercase letters, digits, _ and -`);
+  if (typeof baseUrl !== "string" || !baseUrl.isWellFormed()) return refuse2(`baseUrl ${JSON.stringify(baseUrl)} is not a string`);
   const url2 = URL.parse(baseUrl);
-  if (url2 === null) return refuse(`baseUrl ${JSON.stringify(baseUrl)} is not a URL`);
-  if (url2.protocol !== "http:" && url2.protocol !== "https:") refuse(`baseUrl ${JSON.stringify(baseUrl)} is not http or https`);
-  if (url2.username !== "" || url2.password !== "") refuse("baseUrl carries a user name or password; name the variable holding the key as envKey instead");
-  if (envKey !== void 0 && (typeof envKey !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envKey))) refuse(`envKey ${JSON.stringify(envKey)} is not an environment variable name`);
-  if (queryParams !== void 0 && !isObject2(queryParams)) refuse("queryParams must be an object of strings");
+  if (url2 === null) return refuse2(`baseUrl ${JSON.stringify(baseUrl)} is not a URL`);
+  if (url2.protocol !== "http:" && url2.protocol !== "https:") refuse2(`baseUrl ${JSON.stringify(baseUrl)} is not http or https`);
+  if (url2.username !== "" || url2.password !== "") refuse2("baseUrl carries a user name or password; name the variable holding the key as envKey instead");
+  if (envKey !== void 0 && (typeof envKey !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(envKey))) refuse2(`envKey ${JSON.stringify(envKey)} is not an environment variable name`);
+  if (queryParams !== void 0 && !isObject2(queryParams)) refuse2("queryParams must be an object of strings");
   const params = Object.entries(isObject2(queryParams) ? queryParams : {});
   for (const [name, value] of params) {
-    if (name === "" || !name.isWellFormed()) refuse(`queryParams has a name ${JSON.stringify(name)} that is empty or not valid Unicode`);
-    if (typeof value !== "string" || !value.isWellFormed()) refuse(`queryParams value of ${JSON.stringify(name)} is not a string`);
+    if (name === "" || !name.isWellFormed()) refuse2(`queryParams has a name ${JSON.stringify(name)} that is empty or not valid Unicode`);
+    if (typeof value !== "string" || !value.isWellFormed()) refuse2(`queryParams value of ${JSON.stringify(name)} is not a string`);
   }
   return {
     id,
@@ -22720,6 +22720,10 @@ function canonicalPath(path) {
 function isInside(parent, child) {
   const path = relative(canonicalPath(parent), canonicalPath(child));
   return path === "" || !(path === ".." || path.startsWith(`..${sep}`) || isAbsolute2(path));
+}
+function sameDirectory(a, b) {
+  const [left, right] = [resolve6(a), resolve6(b)];
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 function isFile(path) {
   try {
@@ -23133,8 +23137,8 @@ function resolveCommit(repo, revision) {
 function head(repo) {
   return resolveCommit(repo, "HEAD");
 }
-function firstParent(repo, commit) {
-  const [, parent] = gitText(repo, ["rev-list", "--parents", "-n", "1", commit]).trim().split(" ");
+function firstParent(repo, commit2) {
+  const [, parent] = gitText(repo, ["rev-list", "--parents", "-n", "1", commit2]).trim().split(" ");
   return parent ?? null;
 }
 function emptyTree(repo) {
@@ -23181,17 +23185,17 @@ function untrackedPatch(repo, path) {
 function untrackedEntries(repo, paths) {
   return records(gitText(repo, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...paths.map(literal2)]));
 }
-function treeEntries(repo, commit, paths) {
+function treeEntries(repo, commit2, paths) {
   const entries = /* @__PURE__ */ new Map();
-  for (const record2 of records(gitText(repo, ["ls-tree", "-r", "-z", commit, "--", ...paths.map(literal2)]))) {
+  for (const record2 of records(gitText(repo, ["ls-tree", "-r", "-z", commit2, "--", ...paths.map(literal2)]))) {
     const match = /^([0-7]+) (\w+) ([0-9a-f]+)\t([\s\S]+)$/.exec(record2);
     if (match === null) throw new Error(`Unexpected ls-tree record: ${record2}`);
     entries.set(match[4], { mode: match[1], objectId: match[3], path: match[4] });
   }
   return entries;
 }
-function blobThroughFilters(repo, commit, path) {
-  return git(repo, ["cat-file", "--filters", `${commit}:${path}`]);
+function blobThroughFilters(repo, commit2, path) {
+  return git(repo, ["cat-file", "--filters", `${commit2}:${path}`]);
 }
 function blobRaw(repo, objectId) {
   return git(repo, ["cat-file", "blob", objectId]);
@@ -24183,10 +24187,10 @@ function dueCheck(review2, phase) {
   if (fix === null || planned === null) return null;
   if (phase === "checks" && !fix.revisions.some((revision) => revision.phase === "fixes")) return null;
   if (phase === "repair-checks" && repairTargets(fix).length === 0) return null;
-  const build = lastRun(fix, phase, "build");
+  const build2 = lastRun(fix, phase, "build");
   for (const check2 of planned.checks) {
     if (check2.command === null || lastRun(fix, phase, check2.kind) !== null) continue;
-    const skip = check2.kind !== "build" && build !== null && build.outcome !== "passed" ? `build ${build.outcome === "failed" ? "failed" : build.outcome === "timeout" ? "timed out" : "did not start"}` : null;
+    const skip = check2.kind !== "build" && build2 !== null && build2.outcome !== "passed" ? `build ${build2.outcome === "failed" ? "failed" : build2.outcome === "timeout" ? "timed out" : "did not start"}` : null;
     return { kind: check2.kind, command: check2.command, skip };
   }
   return null;
@@ -24381,11 +24385,11 @@ function resolveReportedPath(worktree, lookup, raw) {
   return held.length === 1 ? held[0] : name;
 }
 function resolveFixerAnswer(output2, context) {
-  const resolve12 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
+  const resolve11 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
   const owned = new Set(context.owned);
   const findings = output2.findings.map((finding) => {
-    const files = [...new Set(finding.files.map(resolve12))];
-    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve12))];
+    const files = [...new Set(finding.files.map(resolve11))];
+    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve11))];
     const own2 = requiredFiles.filter((path) => owned.has(path));
     if (own2.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${own2.join(", ")}, which its own cluster owns`);
     return { ...finding, files, requiredFiles };
@@ -26284,10 +26288,6 @@ async function qualify2(adapter, executable, executableArgs, context, runId) {
     throw refusalOf(error62, runId === null ? null : { runId, executable });
   }
 }
-function sameDirectory(a, b) {
-  const [left, right] = [resolve9(a), resolve9(b)];
-  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-}
 function append(checkpoint, state, events) {
   return checkpoint.append(state.id, state.lastSequence, events);
 }
@@ -26324,7 +26324,7 @@ function reenterPhase(checkpoint, state, log) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute5, join as join23, posix as posix2, resolve as resolve10, win32 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute5, join as join23, posix as posix2, resolve as resolve9, win32 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -26344,7 +26344,7 @@ function refuseShim(executable, platform = process.platform) {
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
   if (isAbsolute5(name) || name.includes("/") || name.includes("\\")) {
-    const absolute = resolve10(cwd, name);
+    const absolute = resolve9(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute), platform);
   }
@@ -26358,6 +26358,189 @@ function resolveExecutable(name, environment = process.env, platform = process.p
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
+}
+
+// src/review/commit.ts
+import { execFileSync as execFileSync3 } from "node:child_process";
+import { mkdtempSync, rmSync as rmSync5 } from "node:fs";
+import { tmpdir as tmpdir2 } from "node:os";
+import { join as join24 } from "node:path";
+function git2(worktree, args, options2 = {}) {
+  try {
+    return execFileSync3("git", ["--no-optional-locks", ...args], {
+      cwd: worktree,
+      env: { ...process.env, ...options2.env },
+      input: options2.input ?? "",
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+  } catch (error62) {
+    const failure2 = error62;
+    throw new Error(`git ${args.join(" ")} failed: ${failure2.stderr?.trim() || failure2.message}`, { cause: error62 });
+  }
+}
+function whyNotCommittable(run2) {
+  const fix = run2.review?.fix ?? null;
+  if (run2.status !== "active") return `run ${run2.id} is ${run2.status}; only a completed fix run is committed`;
+  if (run2.review === null || fix === null) return `run ${run2.id} ran without --fix, so it has no fixes to commit`;
+  if (run2.review.report === null) return `run ${run2.id} has no report yet; run the review to its report first`;
+  if (fix.commits !== null) return `run ${run2.id}'s commits were already created: ${fix.commits.commits.map((commit2) => commit2.sha.slice(0, 12)).join(", ")}`;
+  if (fix.revisions.length === 0) return `run ${run2.id} changed no file, so there is nothing to commit`;
+  return null;
+}
+function requireCommittable(run2) {
+  const reason = whyNotCommittable(run2);
+  if (reason !== null) throw new ReviewRefusedError(reason);
+  return run2;
+}
+function chooseRun(checkpoint, runId) {
+  if (runId !== void 0) return requireCommittable(checkpoint.fold(runId));
+  const found = checkpoint.listRuns().filter((run2) => whyNotCommittable(run2) === null).at(-1);
+  if (found === void 0) throw new ReviewRefusedError("no completed fix run has changes left to commit; name one with --run <id>");
+  return found;
+}
+function bytesOf(checkpoint, path, frozen) {
+  if ("oversized" in frozen) throw new ReviewRefusedError(`${path} is larger than the run freezes (${String(frozen.oversized.size)} bytes), so its bytes were never kept and no commit can be built for it; commit it by hand`);
+  return checkpoint.evidence.read(frozen.blob);
+}
+function trailer(run2, revision) {
+  switch (revision.source.kind) {
+    case "fix": {
+      if (revision.phase === "repair") return `Deep-review: run ${run2.id}, repair of the ${revision.change.findings.join(", ")} check`;
+      const findings = new Map(rankedFindings(run2.review).map((entry) => [entry.finding.id, entry]));
+      const named = revision.change.findings.map((id) => {
+        const entry = findings.get(id);
+        return entry === void 0 ? id : `${id} (${entry.primary.angle}, ${entry.resolution.verdict})`;
+      });
+      return `Deep-review: run ${run2.id}, ${named.join(", ")}`;
+    }
+    case "check":
+      return `Deep-review: run ${run2.id}, ${revision.source.check} check`;
+    case "unanswered":
+      return `Deep-review: run ${run2.id}, partial edits of ${revision.source.key === "repair" ? "the repair" : `cluster ${revision.source.key}`}`;
+  }
+}
+var messageOf = (subject, body, end) => [subject.trim(), body.trim(), end].filter((part) => part !== null && part !== "").join("\n\n") + "\n";
+var subjectOf = (message) => message.split(/\r?\n/)[0].trim();
+var TreeBuilder = class {
+  #worktree;
+  #checkpoint;
+  #env;
+  constructor(worktree, checkpoint, indexFile, base) {
+    this.#worktree = worktree;
+    this.#checkpoint = checkpoint;
+    this.#env = { GIT_INDEX_FILE: indexFile };
+    git2(worktree, ["read-tree", `${base}^{tree}`], { env: this.#env });
+  }
+  /** The mode the temporary index gives a path, or null when it holds none. */
+  #mode(path) {
+    const listed = git2(this.#worktree, ["ls-files", "--stage", "-z", "--", `:(literal)${path}`], { env: this.#env }).split("\0").find((record2) => record2.length > 0);
+    return listed === void 0 ? null : listed.split(" ")[0];
+  }
+  /** Set a path to a frozen state, as `git add` would store it, or remove it. */
+  set(path, file2) {
+    if (file2 === null) {
+      git2(this.#worktree, ["update-index", "--force-remove", "--", path], { env: this.#env });
+      return;
+    }
+    const bytes = bytesOf(this.#checkpoint, path, file2.frozen);
+    const blob = git2(this.#worktree, ["hash-object", "-w", "--stdin", ...file2.symlink ? ["--no-filters"] : ["--path", path]], { input: bytes }).trim();
+    const existing = this.#mode(path);
+    const mode = file2.symlink ? "120000" : existing === "100755" ? "100755" : "100644";
+    git2(this.#worktree, ["update-index", "--add", "--cacheinfo", `${mode},${blob},${path}`], { env: this.#env });
+  }
+  /** The tree the temporary index holds now. */
+  write() {
+    return git2(this.#worktree, ["write-tree"], { env: this.#env }).trim();
+  }
+};
+function currentBranch(worktree) {
+  try {
+    return execFileSync3("git", ["--no-optional-locks", "symbolic-ref", "-q", "HEAD"], { cwd: worktree, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (error62) {
+    if (error62.status === 1) return "";
+    throw error62;
+  }
+}
+function refuse(run2, worktree, changeMessage) {
+  const scope = run2.scope;
+  const fix = run2.review.fix;
+  const head2 = git2(worktree, ["rev-parse", "HEAD"]).trim();
+  if (head2 !== scope.head) throw new ReviewRefusedError(`HEAD is ${head2}, not ${scope.head}, the head run ${run2.id} reviewed; check that commit out, or commit the patch series by hand`);
+  if (scope.mode === "worktree" && (changeMessage === void 0 || changeMessage.trim() === "")) {
+    throw new ReviewRefusedError(`run ${run2.id} reviewed uncommitted changes, which are committed first as the change under review; give that commit's message with --change-message <text>`);
+  }
+  if (scope.mode !== "worktree" && changeMessage !== void 0) throw new ReviewRefusedError(`run ${run2.id} reviewed a committed change (${scope.mode}), so there is no change to commit first; leave out --change-message`);
+  const expected = expectedTree(scope, fix.revisions);
+  const committed = /* @__PURE__ */ new Set([...fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path)), ...scope.mode === "worktree" ? scope.files.map((file2) => file2.path) : []]);
+  const differs = compareExpected(new Map([...expected].filter(([path]) => committed.has(path))), worktreeReader(worktree));
+  if (differs.length > 0) {
+    throw new ReviewRefusedError(`the worktree no longer holds what run ${run2.id} recorded at ${differs.map((file2) => `${file2.path} (${file2.outcome})`).join(", ")}; undo those edits, or commit the patch series by hand`);
+  }
+}
+function commitRun(options2) {
+  const { checkpoint, worktree } = options2;
+  const releaseStart = acquireStartLock(checkpoint.root);
+  try {
+    const chosen = chooseRun(checkpoint, options2.runId);
+    const release = acquireRunLock(checkpoint.root, chosen.id);
+    try {
+      const run2 = requireCommittable(checkpoint.fold(chosen.id));
+      if (!sameDirectory(run2.worktree, worktree)) throw new ReviewRefusedError(`run ${run2.id} was reviewed in worktree ${run2.worktree}, not ${worktree}; run the command there`);
+      refuse(run2, worktree, options2.changeMessage);
+      return build(run2, options2);
+    } finally {
+      release();
+    }
+  } finally {
+    releaseStart();
+  }
+}
+function build(run2, options2) {
+  const { checkpoint, worktree } = options2;
+  const scope = run2.scope;
+  const fix = run2.review.fix;
+  for (const [path, file2] of expectedTree(scope, fix.revisions)) if (file2 !== null) bytesOf(checkpoint, path, file2.frozen);
+  const temporary = mkdtempSync(join24(tmpdir2(), "deep-review-commit-"));
+  try {
+    const trees = new TreeBuilder(worktree, checkpoint, join24(temporary, "index"), scope.head);
+    const made = [];
+    let parent = scope.head;
+    const commit2 = (message, revision) => {
+      const tree = trees.write();
+      const sha = git2(worktree, ["commit-tree", tree, "-p", parent, "-F", "-"], { input: message }).trim();
+      made.push({ sha, revision, subject: subjectOf(message) });
+      parent = sha;
+    };
+    if (scope.mode === "worktree") {
+      for (const file2 of scope.files) trees.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
+      commit2(messageOf(options2.changeMessage, "", null), "change");
+    }
+    fix.revisions.forEach((revision, index2) => {
+      for (const file2 of revision.files) trees.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
+      commit2(messageOf(revision.change.message.subject, revision.change.message.body, trailer(run2, revision)), index2);
+    });
+    const committed = /* @__PURE__ */ new Set([...scope.mode === "worktree" ? scope.files.map((file2) => file2.path) : [], ...fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path))]);
+    const staged = git2(worktree, ["diff", "--cached", "--name-only", "-z", "HEAD"]).split("\0").filter((path) => path.length > 0 && !committed.has(path));
+    options2.beforeMove?.();
+    const last = parent;
+    const branch = currentBranch(worktree);
+    try {
+      if (branch === "") git2(worktree, ["update-ref", "--no-deref", "-m", `deep-review commit: run ${run2.id}`, "HEAD", last, scope.head]);
+      else git2(worktree, ["update-ref", "-m", `deep-review commit: run ${run2.id}`, branch, last, scope.head]);
+    } catch (error62) {
+      throw new ReviewRefusedError(`${branch === "" ? "HEAD" : branch} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${error62.message}`);
+    }
+    git2(worktree, ["reset", "-q"]);
+    const payload = { commits: made, from: scope.head, to: last };
+    const state = checkpoint.fold(run2.id);
+    checkpoint.append(run2.id, state.lastSequence, [{ kind: "commits.created", version: 1, payload }]);
+    return { runId: run2.id, commits: made.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: staged };
+  } finally {
+    rmSync5(temporary, { recursive: true, force: true });
+  }
 }
 
 // src/review/status.ts
@@ -26424,9 +26607,10 @@ var usage = `usage:
                       [--fix [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(", ")})
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
+  deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
 
-exit codes: 0 a report (its path is the last line of stdout) or a status; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made or a snapshot taken; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
 var options = {
   runtime: { type: "string" },
   executable: { type: "string" },
@@ -26450,6 +26634,7 @@ var options = {
   fix: { type: "boolean" },
   check: { type: "string", multiple: true },
   "no-check": { type: "string", multiple: true },
+  "change-message": { type: "string" },
   finding: { type: "string" },
   into: { type: "string" },
   help: { type: "boolean", short: "h" }
@@ -26458,6 +26643,7 @@ var allowed = {
   review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "fix", "check", "no-check", "help"],
   status: ["run", "json", "repo", "help"],
   abandon: ["reason", "run", "repo", "help"],
+  commit: ["run", "change-message", "repo", "help"],
   snapshot: ["finding", "into", "repo", "help"]
 };
 var UsageError = class extends EngineError {
@@ -26564,7 +26750,7 @@ async function run(argv, io) {
   for (const flag of Object.keys(values)) {
     if (values[flag] !== void 0 && !allowed[command].includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve11(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve10(io.cwd, values.repo));
   switch (command) {
     case "review":
       return review(values, io, location.root, location.worktree);
@@ -26572,22 +26758,48 @@ async function run(argv, io) {
       return status2(values, io, location.root);
     case "snapshot":
       return snapshot(values, io, location.worktree);
+    case "commit":
+      return commit(values, io, location.root, location.worktree);
     default:
       return abandon(values, io, location.root);
+  }
+}
+function commit(values, io, root, worktree) {
+  const checkpoint = openCheckpoint(root, false);
+  if (checkpoint === null) throw new UsageError("this repository has no checkpoint, so there is no run to commit");
+  try {
+    const outcome = commitRun({
+      checkpoint,
+      worktree,
+      ...values.run === void 0 ? {} : { runId: values.run },
+      ...values["change-message"] === void 0 ? {} : { changeMessage: values["change-message"] }
+    });
+    for (const made of outcome.commits) io.stdout(`${made.sha.slice(0, 12)} ${made.subject}
+`);
+    io.stderr(`run ${outcome.runId}: ${String(outcome.commits.length)} commit${outcome.commits.length === 1 ? "" : "s"} created; no commit hook ran, since they were built from the run's frozen bytes, not by git commit
+`);
+    if (outcome.unstaged.length > 0) io.stderr(`staged paths no commit holds were unstaged and are unchanged in the tree: ${outcome.unstaged.join(", ")}
+`);
+    return 0;
+  } catch (error62) {
+    if (error62 instanceof UnknownRunError) throw new UsageError(error62.message);
+    throw error62;
+  } finally {
+    checkpoint.close();
   }
 }
 function snapshot(values, io, worktree) {
   const finding = values.finding;
   if (finding === void 0 || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? "")}`);
   if (values.into === void 0 || values.into.trim() === "") throw new UsageError("--into <dir> is required");
-  const into = resolve11(io.cwd, values.into);
+  const into = resolve10(io.cwd, values.into);
   const listing = takeSnapshot({ worktree, finding: Number(finding), into });
   io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}
 `);
   return 0;
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync5(join24(root, ledgerFileName))) return null;
+  if (!create && !existsSync5(join25(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 async function review(values, io, root, worktree) {

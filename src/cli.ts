@@ -1,9 +1,10 @@
 /**
  * The `deep-review` command (R1, R13 of the read-only review): `review` runs
  * a review to its report in the foreground and is resumable, `status` prints
- * the fold of a run, `abandon` closes one, and `snapshot` is what a fix
- * worker runs after each finding (R6 of the fix pass). The entry point of
- * the bundle and of `npm run review` during development.
+ * the fold of a run, `abandon` closes one, `commit` turns a completed fix
+ * run's revisions into commits (R17 of the fix pass), and `snapshot` is
+ * what a fix worker runs after each finding (R6). The entry point of the
+ * bundle and of `npm run review` during development.
  */
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -24,6 +25,7 @@ import { invocationFlagProblem, maxConcurrency, type PolicyFlags } from './revie
 import { reviewStatus } from './review/state.ts';
 import { checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import type { CheckFlags } from './review/checks/discover.ts';
+import { commitRun } from './review/commit.ts';
 import { takeSnapshot } from './review/snapshot.ts';
 import { describeRun } from './review/status.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
@@ -37,9 +39,10 @@ export const usage = `usage:
                       [--fix [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
+  deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
 
-exit codes: 0 a report (its path is the last line of stdout) or a status; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made or a snapshot taken; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -64,6 +67,7 @@ const options = {
   fix: { type: 'boolean' },
   check: { type: 'string', multiple: true },
   'no-check': { type: 'string', multiple: true },
+  'change-message': { type: 'string' },
   finding: { type: 'string' },
   into: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -84,6 +88,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'check', 'no-check', 'help'],
   status: ['run', 'json', 'repo', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
+  commit: ['run', 'change-message', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
 };
 
@@ -208,8 +213,38 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
       return status(values, io, location.root);
     case 'snapshot':
       return snapshot(values, io, location.worktree);
+    case 'commit':
+      return commit(values, io, location.root, location.worktree);
     default:
       return abandon(values, io, location.root);
+  }
+}
+
+/**
+ * Commit a completed fix run's revisions, one commit per revision built
+ * from the frozen bytes (R17 of the fix pass): print each commit's short
+ * hash and subject, and say on stderr that no hook ran and which staged
+ * paths the index reset left unstaged.
+ */
+function commit(values: Values, io: CommandIo, root: string, worktree: string): number {
+  const checkpoint = openCheckpoint(root, false);
+  if (checkpoint === null) throw new UsageError('this repository has no checkpoint, so there is no run to commit');
+  try {
+    const outcome = commitRun({
+      checkpoint,
+      worktree,
+      ...(values.run === undefined ? {} : { runId: values.run }),
+      ...(values['change-message'] === undefined ? {} : { changeMessage: values['change-message'] }),
+    });
+    for (const made of outcome.commits) io.stdout(`${made.sha.slice(0, 12)} ${made.subject}\n`);
+    io.stderr(`run ${outcome.runId}: ${String(outcome.commits.length)} commit${outcome.commits.length === 1 ? '' : 's'} created; no commit hook ran, since they were built from the run's frozen bytes, not by git commit\n`);
+    if (outcome.unstaged.length > 0) io.stderr(`staged paths no commit holds were unstaged and are unchanged in the tree: ${outcome.unstaged.join(', ')}\n`);
+    return 0;
+  } catch (error) {
+    if (error instanceof UnknownRunError) throw new UsageError(error.message);
+    throw error;
+  } finally {
+    checkpoint.close();
   }
 }
 

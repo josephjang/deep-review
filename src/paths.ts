@@ -10,6 +10,11 @@
  * Whether a path names a regular file, for every lookup that must skip what
  * is not one: the runtime executable on PATH (`src/review/executable.ts`)
  * and the rules files that govern a change (`src/review/conventions.ts`).
+ *
+ * Whether two worktree paths name one directory, for every command that
+ * acts on a run recorded in another invocation: a review resuming it
+ * (`src/review/controller.ts`) and the commit command
+ * (`src/review/commit.ts`).
  */
 import { realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -46,6 +51,16 @@ export function canonicalPath(path: string): string {
 export function isInside(parent: string, child: string): boolean {
   const path = relative(canonicalPath(parent), canonicalPath(child));
   return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
+}
+
+/**
+ * Whether two worktree paths name one directory, as a run's recorded
+ * worktree is compared with the one a command runs in: the same resolved
+ * path, compared without case on Windows, whose paths are case-insensitive.
+ */
+export function sameDirectory(a: string, b: string): boolean {
+  const [left, right] = [resolve(a), resolve(b)];
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 /**
