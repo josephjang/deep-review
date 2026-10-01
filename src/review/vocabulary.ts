@@ -131,6 +131,23 @@ export const checkOrigins = ['flag', 'taskfile', 'makefile', 'justfile', 'packag
 export const checkOriginSchema = z.enum(checkOrigins);
 export type CheckOrigin = z.infer<typeof checkOriginSchema>;
 
+/**
+ * What a fixer did with one finding (R5 of the fix pass): applied it,
+ * found it already applied, deferred it with a reason, or was blocked.
+ */
+export const fixStatuses = ['applied', 'already-applied', 'deferred', 'blocked'] as const;
+export const fixStatusSchema = z.enum(fixStatuses);
+export type FixStatus = z.infer<typeof fixStatusSchema>;
+
+/** How a fixer validated a fix (fixer-validation.md): a red run on the old code, a mutation, a static check, existing tests, or a stated limit. */
+export const validationMethods = ['old-code', 'mutation', 'static', 'existing', 'limited'] as const;
+export const validationMethodSchema = z.enum(validationMethods);
+export type ValidationMethod = z.infer<typeof validationMethodSchema>;
+
+/** The result of the suite a fixer ran itself. */
+export const suiteResults = ['pass', 'fail', 'not-run'] as const;
+export const suiteResultSchema = z.enum(suiteResults);
+
 /** The verifier's three routing labels (rubrics.md). */
 export const verdicts = ['CONFIRMED', 'PLAUSIBLE', 'REFUTED'] as const;
 export const verdictSchema = z.enum(verdicts);

@@ -20298,6 +20298,12 @@ var checkKinds = ["build", "typecheck", "lint", "test"];
 var checkKindSchema = external_exports.enum(checkKinds);
 var checkOrigins = ["flag", "taskfile", "makefile", "justfile", "package", "language", "none"];
 var checkOriginSchema = external_exports.enum(checkOrigins);
+var fixStatuses = ["applied", "already-applied", "deferred", "blocked"];
+var fixStatusSchema = external_exports.enum(fixStatuses);
+var validationMethods = ["old-code", "mutation", "static", "existing", "limited"];
+var validationMethodSchema = external_exports.enum(validationMethods);
+var suiteResults = ["pass", "fail", "not-run"];
+var suiteResultSchema = external_exports.enum(suiteResults);
 var verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
 var verdictSchema2 = external_exports.enum(verdicts);
 var severities = ["critical", "major", "minor"];
@@ -23437,6 +23443,34 @@ var verifierOutputSchema = external_exports.strictObject({
 var mergeRankOutputSchema = external_exports.strictObject({
   findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema2, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
 });
+var reportedPath = external_exports.string().min(1).max(1e3);
+var fixerOutputSchema = external_exports.strictObject({
+  findings: external_exports.array(external_exports.strictObject({
+    index,
+    status: fixStatusSchema,
+    /** Where the fix is, or where the finding was judged when nothing was edited. */
+    file: reportedPath,
+    line: external_exports.number().int().min(1).nullable(),
+    note: external_exports.string().min(1).max(400),
+    /** The commit message of an applied finding, in the repository's own style; null for every other status. */
+    message: external_exports.strictObject({ subject: external_exports.string().min(1).max(72), body: external_exports.string().max(2e3) }).nullable(),
+    /** Every file edited or created for this finding. */
+    files: external_exports.array(reportedPath).max(200),
+    corrections: external_exports.array(external_exports.strictObject({
+      file: external_exports.string().min(1).max(400),
+      anchor: external_exports.string().min(1).max(400),
+      claim: external_exports.string().min(1).max(400),
+      fact: external_exports.string().min(1).max(400),
+      evidence: external_exports.string().min(1).max(400)
+    })).max(20),
+    validation: external_exports.array(external_exports.strictObject({ method: validationMethodSchema, source: external_exports.string().min(1).max(400), evidence: external_exports.string().min(1).max(1e3) })).max(20),
+    /** The files another cluster owns that a blocked finding needs; empty for every other status. */
+    requiredFiles: external_exports.array(reportedPath).max(50)
+  })),
+  drift: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1).max(1e3), what: external_exports.string().min(1).max(400) })).max(50),
+  tests: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1).max(1e3), covers: external_exports.string().min(1).max(400) })).max(50),
+  suite: external_exports.strictObject({ result: suiteResultSchema, command: external_exports.string().max(400), failures: external_exports.string().max(2e3) })
+});
 function outputSchemaOf(role) {
   if (isFinderRole(role)) return finderOutputSchema;
   switch (role) {
@@ -23915,6 +23949,7 @@ function sweepTask(inputs) {
     "Return your gap candidates, up to 12, each naming in `angle` the angle whose territory it sits in; its `detail` is that angle's fourth field. An empty list is the correct answer when there is nothing new."
   ].join("\n");
 }
+var repairTailBytes = 16 * 1024;
 function mergeRankTask(inputs) {
   const list = inputs.map(
     ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdict}${unverified ? " (unverified)" : ""}`, `evidence: ${evidence ?? "none; the group's verifier failed twice"}`])

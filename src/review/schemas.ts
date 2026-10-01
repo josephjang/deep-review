@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, finderAngles, finderAngleSchema, isFinderRole, severitySchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -65,6 +65,71 @@ export const mergeRankOutputSchema = z.strictObject({
   findings: z.array(z.strictObject({ primary: index, members: z.array(index), severity: severitySchema, summary: z.string().min(1).max(400), reason: z.string().min(1).max(2000) })),
 });
 export type MergeRankOutput = z.infer<typeof mergeRankOutputSchema>;
+
+/** A repository path as a fixer reports it; the engine resolves it against the worktree. */
+const reportedPath = z.string().min(1).max(1000);
+
+/**
+ * What a fixer returns (R5 of the fix pass), per finding by the index the
+ * task gave it and once for the whole answer. The prose return format of
+ * the proof of concept is gone: every field is named, so nothing is parsed
+ * by convention. A repair worker returns the same shape with the failing
+ * checks as its findings.
+ */
+export const fixerOutputSchema = z.strictObject({
+  findings: z.array(z.strictObject({
+    index,
+    status: fixStatusSchema,
+    /** Where the fix is, or where the finding was judged when nothing was edited. */
+    file: reportedPath,
+    line: z.number().int().min(1).nullable(),
+    note: z.string().min(1).max(400),
+    /** The commit message of an applied finding, in the repository's own style; null for every other status. */
+    message: z.strictObject({ subject: z.string().min(1).max(72), body: z.string().max(2000) }).nullable(),
+    /** Every file edited or created for this finding. */
+    files: z.array(reportedPath).max(200),
+    corrections: z.array(z.strictObject({
+      file: z.string().min(1).max(400),
+      anchor: z.string().min(1).max(400),
+      claim: z.string().min(1).max(400),
+      fact: z.string().min(1).max(400),
+      evidence: z.string().min(1).max(400),
+    })).max(20),
+    validation: z.array(z.strictObject({ method: validationMethodSchema, source: z.string().min(1).max(400), evidence: z.string().min(1).max(1000) })).max(20),
+    /** The files another cluster owns that a blocked finding needs; empty for every other status. */
+    requiredFiles: z.array(reportedPath).max(50),
+  })),
+  drift: z.array(z.strictObject({ file: z.string().min(1).max(1000), what: z.string().min(1).max(400) })).max(50),
+  tests: z.array(z.strictObject({ file: z.string().min(1).max(1000), covers: z.string().min(1).max(400) })).max(50),
+  suite: z.strictObject({ result: suiteResultSchema, command: z.string().max(400), failures: z.string().max(2000) }),
+});
+export type FixerOutput = z.infer<typeof fixerOutputSchema>;
+
+/**
+ * Refuse a fixer's answer whose findings do not name each index of the
+ * task once, whose message does not go with an applied finding alone, or
+ * whose subject is not one line without a trailing period, or that names
+ * required files on a finding that is not blocked. The checks that read
+ * the paths against the worktree come after these (`fix-answer.ts`).
+ */
+export function checkFixerAnswer(output: FixerOutput, count: number): void {
+  const seen = new Set<number>();
+  for (const finding of output.findings) {
+    const what = `Finding [${String(finding.index)}]`;
+    if (finding.index >= count) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count - 1)}]`);
+    if (seen.has(finding.index)) throw new StructuralCheckError(`${what} is answered twice`);
+    seen.add(finding.index);
+    if ((finding.status === 'applied') !== (finding.message !== null)) {
+      throw new StructuralCheckError(finding.status === 'applied' ? `${what} is applied and has no commit message` : `${what} is ${finding.status} and has a commit message, which only an applied finding carries`);
+    }
+    if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith('.'))) {
+      throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(finding.message.subject)}`);
+    }
+    if (finding.requiredFiles.length > 0 && finding.status !== 'blocked') throw new StructuralCheckError(`${what} is ${finding.status} and names required files, which only a blocked finding does`);
+  }
+  const missing = missingIndexes(seen, count);
+  if (missing.length > 0) throw new StructuralCheckError(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(', ')} of the ${String(count)} the task gave`);
+}
 
 /** The output schema of each role the review runs; every finder shares one. A role the review does not run does not compile. */
 export function outputSchemaOf(role: ReviewRole): z.ZodType {
