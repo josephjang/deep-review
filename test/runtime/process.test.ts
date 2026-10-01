@@ -32,7 +32,8 @@ describe('runProcess', () => {
     writeFileSync(join(directory, 'stdin'), 'the prompt');
   });
   afterEach(() => {
-    rmSync(directory, { recursive: true, force: true });
+    // A process killed by a test may hold the directory's files a moment after it is gone, which Windows refuses to remove until it lets go.
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   const request = (args: string[], overrides: Partial<ProcessRequest> = {}): ProcessRequest => ({
@@ -157,7 +158,8 @@ describe('an engine that ends while a worker runs', () => {
     directory = mkdtempSync(join(tmpdir(), 'deep-review-engine-'));
   });
   afterEach(() => {
-    rmSync(directory, { recursive: true, force: true });
+    // A process killed by a test may hold the directory's files a moment after it is gone, which Windows refuses to remove until it lets go.
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   /** Start the stand-in engine and wait until its worker and grandchild run. */
@@ -215,7 +217,8 @@ describe('an engine that ends while a preflight probe runs', () => {
     directory = mkdtempSync(join(tmpdir(), 'deep-review-probe-engine-'));
   });
   afterEach(() => {
-    rmSync(directory, { recursive: true, force: true });
+    // A process killed by a test may hold the directory's files a moment after it is gone, which Windows refuses to remove until it lets go.
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   /** Start the stand-in engine and wait until its hanging probe has started a grandchild. */
