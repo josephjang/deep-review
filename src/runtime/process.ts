@@ -15,6 +15,13 @@ export interface ProcessRequest {
   /** Created for stderr; must not exist yet. */
   readonly stderrFile: string;
   readonly timeoutMs: number;
+  /**
+   * On Windows, pass `args` to the process exactly as given, joined with
+   * spaces and without Node's quoting, for an executable that parses its
+   * own command line the way `cmd.exe /s /c` does. Ignored elsewhere,
+   * where arguments are never joined into one line.
+   */
+  readonly verbatimArguments?: boolean;
 }
 
 /** How the process ended: on its own, killed at the timeout (with its tree, unless `treeKillError` says why not), or never started. */
@@ -79,6 +86,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         shell: false,
         windowsHide: true,
         detached: process.platform !== 'win32',
+        windowsVerbatimArguments: request.verbatimArguments === true,
       });
     } catch (error) {
       // A synchronous refusal, such as an argument Node will not pass: the process never existed.
