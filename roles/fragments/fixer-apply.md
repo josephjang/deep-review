@@ -15,14 +15,14 @@ asks while leaving its reason standing is the classic incomplete fix — a
 finding that asks for a shared helper BECAUSE the copies have diverged
 is not fixed by a helper that preserves the divergence. If a cited fact
 still stands and resolving it is beyond what you can safely do here,
-report the finding DEFERRED with that fact named, never APPLIED.
+report the finding `deferred` with that fact named, never `applied`.
 
 **A finding may already be resolved in the code you receive** — an
 interrupted earlier pass may have applied it before dying. Treat that as
 a success to verify, not an anomaly: check the resolution against the
 finding's stated reason exactly as if you had just made the change, and
-report it `APPLIED (already applied)` — never DEFERRED, and never
-re-apply it on top of itself.
+report it `already-applied` — never `deferred`, and never re-apply it
+on top of itself.
 
 **Pre-existing bugs in the files you own are in scope** even when they
 predate the diff. A real bug in code under your edit window is a real

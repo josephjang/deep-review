@@ -4,6 +4,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { fixerOutputSchema } from '../../src/review/schemas.ts';
+import { fixStatuses, validationMethods } from '../../src/review/vocabulary.ts';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
 /** Every role the engine knows, in manifest order: the ten finder angles and the phase roles around them. */
@@ -142,6 +144,16 @@ describe('the repository\'s roles/', () => {
       assert.match(prompt, /the files other clusters own, and the project's checks/, key);
       // The proof of concept's rule, owned files only, is gone wherever it was said.
       assert.doesNotMatch(prompt, /must not edit anything outside them|required edits outside ownership|requires another file/, key);
+    }
+  });
+
+  it('describes the fixer\'s answer as the fields of its output schema, and no longer as prose lines (R5 of the fix pass)', () => {
+    const perFinding = Object.keys(fixerOutputSchema.shape.findings.element.shape).filter((field) => field !== 'index');
+    const perAnswer = Object.keys(fixerOutputSchema.shape).filter((field) => field !== 'findings');
+    for (const key of fixerRoles) {
+      const prompt = roles.find((role) => role.key === key)!.prompt;
+      for (const field of [...perFinding, ...perAnswer, ...fixStatuses, ...validationMethods, 'subject', 'body']) assert.ok(prompt.includes(`\`${field}\``), `${key} names \`${field}\``);
+      assert.doesNotMatch(prompt, /<ID> (APPLIED|DEFERRED|BLOCKED|CORRECTION|VALIDATION)|^(DRIFT|FILES|TESTS|SUITE) {2,}|APPLIED \(already applied\)/m, key);
     }
   });
 

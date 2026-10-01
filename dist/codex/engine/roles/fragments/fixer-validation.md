@@ -26,14 +26,13 @@ required test cannot run or no meaningful mutation is possible, state
 the concrete limitation and retain the existing defer/steering bar.
 Never invent an executed failure or silently substitute a weaker check.
 
-Report the evidence per finding and test, using one or more lines:
-
-```
-<ID> VALIDATION <OLD-CODE|MUTATION|STATIC|EXISTING|LIMITED> <test/source> — <evidence>
-```
+Report the evidence per finding and test as one or more entries of the
+finding's `validation`: the `method` (`old-code`, `mutation`, `static`,
+`existing` or `limited`), the test or source it ran as `source`, and the
+`evidence`.
 
 Name the actual command and observed outcome, or the source evidence or
-reason it was not run. For MUTATION include the reversed semantic piece,
-the intended assertion failure and both passing controls. Label proposed
-runs as not run; this field supplements APPLIED/DEFERRED/BLOCKED and does
-not replace the final suite result.
+reason it was not run. For `mutation` include the reversed semantic
+piece, the intended assertion failure and both passing controls. Label
+proposed runs as not run; this field supplements the finding's `status`
+and does not replace `suite`.
