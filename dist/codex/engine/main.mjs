@@ -23578,6 +23578,10 @@ function unlocatedSpellings(candidates) {
   }
   return joined;
 }
+function unlocatedSpellingIn(candidates) {
+  const spellings = unlocatedSpellings(candidates);
+  return (candidate) => spellings.get(spellingOf(candidate)) ?? spellingOf(candidate);
+}
 var byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 function chunk(items, size = maxGroupSize) {
   if (!Number.isInteger(size) || size < 1) throw new RangeError(`A chunk size must be a positive integer, not ${String(size)}`);
@@ -23592,8 +23596,8 @@ function chunk(items, size = maxGroupSize) {
   return chunks;
 }
 function planGroups(candidates) {
-  const spellings = unlocatedSpellings(candidates);
-  const groupKey = (candidate) => candidate.file === null ? `unlocated:${spellings.get(spellingOf(candidate))}` : `located:${candidate.file}`;
+  const spelling = unlocatedSpellingIn(candidates);
+  const groupKey = (candidate) => candidate.file === null ? `unlocated:${spelling(candidate)}` : `located:${candidate.file}`;
   const groups = /* @__PURE__ */ new Map();
   for (const candidate of candidates) {
     const key = groupKey(candidate);
