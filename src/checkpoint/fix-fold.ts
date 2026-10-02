@@ -157,9 +157,21 @@ const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {
       if (run === null || run.outcome === 'skipped') throw invalid(event, `revises the tree for the ${source.check} check, which did not run in ${payload.phase}`);
       break;
     }
-    case 'unanswered':
-      if (!isEditingPhase(payload.phase) || !isNotAttempted(fix, payload.phase, source.key)) throw invalid(event, `revises the tree for ${payload.phase}:${source.key}, which did not fail twice`);
+    case 'attempt': {
+      if (!isEditingPhase(payload.phase)) throw invalid(event, `revises the tree for an attempt in ${payload.phase}, which no fixer runs in`);
+      const ids = unitIds(fix, payload.phase, source.key);
+      if (ids === null) throw invalid(event, `revises the tree for an attempt of ${payload.phase}:${source.key}, which the phase does not have`);
+      // The attempt's failure, or its loss, is folded first, in the same append.
+      if (!(review.units[payload.phase][source.key]?.failures ?? []).some((failure) => failure.workerId === source.workerId)) {
+        throw invalid(event, `revises the tree for an attempt of ${payload.phase}:${source.key} by worker ${source.workerId}, which did not fail`);
+      }
+      const revisedBefore = new Set(fix.revisions.filter((revision) => revision.source.kind === 'attempt' && revision.source.workerId === source.workerId).flatMap((revision) => revision.change.findings));
+      for (const id of payload.change.findings) {
+        if (!ids.includes(id)) throw invalid(event, `revises the tree for ${id}, which ${payload.phase}:${source.key} does not hold`);
+        if (revisedBefore.has(id)) throw invalid(event, `revises the tree for ${id} twice for one attempt`);
+      }
       break;
+    }
   }
   return withFix(current, review, { ...fix, revisions: [...fix.revisions, payload] }, event);
 };

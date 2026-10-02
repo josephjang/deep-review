@@ -108,7 +108,8 @@ export function fixerAnswer(findings: readonly FixedFinding[]): unknown {
         file: finding.files?.[0] ?? 'src/a.ts',
         line: 1,
         note: finding.note ?? `fake ${status} [${String(index)}]`,
-        message: status === 'applied' ? { subject: finding.subject ?? `fix: Apply finding ${String(index)}`, body: `Why finding ${String(index)} changed.` } : null,
+        // An applied finding always carries a message; an already-applied one only when the script gives its subject, as a retry verifying an earlier attempt's edits does.
+        message: status === 'applied' || (status === 'already-applied' && finding.subject !== undefined) ? { subject: finding.subject ?? `fix: Apply finding ${String(index)}`, body: `Why finding ${String(index)} changed.` } : null,
         files: [...(finding.files ?? [])],
         corrections: [],
         validation: [{ method: 'existing', source: 'tests', evidence: 'fake evidence' }],

@@ -7,7 +7,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, TreeRevised } from '../checkpoint/events.ts';
-import { clusterOf, isNotAttempted, lastRun, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { clusterOf, isNotAttempted, lastRun, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { inlineText, tableCell } from './markdown.ts';
@@ -150,8 +150,8 @@ function revisedBy(revision: TreeRevised): string {
       return revision.source.key;
     case 'check':
       return `${revision.source.check} check`;
-    case 'unanswered':
-      return `${revision.source.key}, failed`;
+    case 'attempt':
+      return `${revision.source.key}, unfinished attempt`;
   }
 }
 
@@ -171,7 +171,7 @@ function changedFilesSection(fix: FixState, patches: readonly string[]): string[
     const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file) => file.path === path)).map(revisedBy))];
     return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(', '))} |`;
   });
-  const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revision.change.message.subject)} (${revisedBy(revision)}): ${patches[index] ?? 'not written'}`);
+  const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}): ${patches[index] ?? 'not written'}`);
   return [
     '## Changed files',
     '',

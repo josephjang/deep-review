@@ -325,9 +325,10 @@ try {
   // A fourth run through the fix pass, every event recorded at the version
   // the engine now writes: a review whose plan holds one held finding and
   // two clusters, one of three findings run as three batches of one, its
-  // later batches answering already applied and deferred; a lint check
-  // that rewrites a file at baseline and a test
-  // that fails there; a fixer that reports an edit to the other cluster's
+  // second batch timing out after one snapshot, whose edits are recorded
+  // with the failure and verified by the retry, its third deferred; a lint
+  // check that rewrites a file at baseline and a test that fails there; a
+  // fixer that reports an edit to the other cluster's
   // file (a violation) and leaves a stray; the lint the fixers broke,
   // repaired, and the test still failing; the report with one patch per
   // revision; and the commits built from it afterwards.
@@ -454,9 +455,17 @@ try {
     fix.finishWorker('151');
     fix.add('fix.recorded', { phase: 'fixes', key: 'c2-1', workerId: fix.id('151'), findings: [finding('RIPPLE-1', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
     // c1's later batches run once c1-1 settled, on the tree it left.
+    // c1-2's first attempt times out after snapshotting SCAN-2; its edits are recorded with the failure, and the retry
+    // verifies them as already applied and gives the message their commit carries.
     fix.launch('152', 'fixer fixes:c1-2');
-    fix.finishWorker('152');
-    fix.add('fix.recorded', { phase: 'fixes', key: 'c1-2', workerId: fix.id('152'), findings: [finding('SCAN-2', 'already-applied', ['src/changed.ts'], null)], drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [] });
+    fix.finishWorker('152', 'timeout');
+    fix.add('attempt.failed', { phase: 'fixes', key: 'c1-2', workerId: fix.id('152'), reason: 'timeout: The worker ran past its timeout of 1200000 ms' }, 2);
+    fix.add('tree.revised', { phase: 'fixes', source: { kind: 'attempt', key: 'c1-2', workerId: fix.id('152') }, change: { findings: ['SCAN-2'], message: { subject: 'chore: keep the edits an unfinished attempt made for SCAN-2', body: 'An attempt of batch c1-2 ended without an answer after snapshotting SCAN-2.' } }, files: [
+      { path: 'src/changed.ts', status: 'modified', before: fix.frozen('after; // guarded\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after; // guarded, checked\n') },
+    ] });
+    fix.launch('154', 'fixer fixes:c1-2');
+    fix.finishWorker('154');
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c1-2', workerId: fix.id('154'), findings: [finding('SCAN-2', 'already-applied', ['src/changed.ts'], 'fix: Check the guard in changed()')], drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [] });
     fix.launch('153', 'fixer fixes:c1-3');
     fix.finishWorker('153');
     fix.add('fix.recorded', { phase: 'fixes', key: 'c1-3', workerId: fix.id('153'), findings: [finding('SCAN-3', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
@@ -471,7 +480,7 @@ try {
     fix.launch('160', 'fixer repair:repair');
     fix.finishWorker('160');
     fix.add('fix.recorded', { phase: 'repair', key: 'repair', workerId: fix.id('160'), findings: [finding('lint', 'applied', ['src/changed.ts'], 'style: Format the guard as lint asks')], drift: [], tests: [], suite: { result: 'pass', command: 'npm run lint:check', failures: '' }, violations: [] });
-    fix.add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: fix.id('160') }, change: { findings: ['lint'], message: message('style: Format the guard as lint asks') }, files: [{ path: 'src/changed.ts', status: 'modified', before: fix.frozen('after; // guarded\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after; /* guarded */\n') }] });
+    fix.add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: fix.id('160') }, change: { findings: ['lint'], message: message('style: Format the guard as lint asks') }, files: [{ path: 'src/changed.ts', status: 'modified', before: fix.frozen('after; // guarded, checked\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after; /* guarded */\n') }] });
   }, 'completed', { end: true });
   fix.phaseV2('repair-checks', () => {
     fix.check('repair-checks', 'build', checks.build, 'passed');
@@ -480,11 +489,11 @@ try {
   });
   fix.phaseV2('report', () => {
     const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 4, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
+    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 5, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
     fix.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(20), budgetApplied: true },
-      patches: ['lint rewrite', 'guard', 'format'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(21), budgetApplied: true },
+      patches: ['lint rewrite', 'guard', 'check the guard', 'format'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
     }, 2);
   });
   fix.add('commits.created', {
@@ -492,10 +501,11 @@ try {
       { sha: 'a'.repeat(40), revision: 'change', subject: 'feat: The change under review' },
       { sha: 'b'.repeat(40), revision: 0, subject: 'chore: apply the lint check\'s rewrite' },
       { sha: 'c'.repeat(40), revision: 1, subject: 'fix: Guard the null in changed()' },
-      { sha: 'd'.repeat(40), revision: 2, subject: 'style: Format the guard as lint asks' },
+      { sha: 'd'.repeat(40), revision: 2, subject: 'fix: Check the guard in changed()' },
+      { sha: 'e'.repeat(40), revision: 3, subject: 'style: Format the guard as lint asks' },
     ],
     from: fixScope.head,
-    to: 'd'.repeat(40),
+    to: 'e'.repeat(40),
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };

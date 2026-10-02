@@ -121,6 +121,7 @@ describe('the fixer\'s task', () => {
     ],
     snapshotCommand: snapshot,
     mayHoldWork: false,
+    unfinished: [],
   };
 
   it('numbers the batch\'s findings with everything the fixer judges by', () => {
@@ -167,6 +168,9 @@ describe('the fixer\'s task', () => {
     assert.match(task, /Write logs and every other temporary file under your scratch directory, never in the repository\.$/);
     assert.doesNotMatch(task, /may already hold part of this work/);
     assert.match(fixerTask({ ...input, mayHoldWork: true }), /The tree may already hold part of this work: an earlier worker on it did not finish\. Verify each finding against the code before applying it/);
+    assert.doesNotMatch(fixerTask({ ...input, mayHoldWork: true }), /An earlier attempt left edits/, 'no finding has an attempt\'s recorded edits');
+    assert.match(fixerTask({ ...input, mayHoldWork: true, unfinished: ['RIPPLE-1', 'SWEEP-1'] }), /never apply a change on top of itself\. An earlier attempt left edits for RIPPLE-1, SWEEP-1, recorded as that attempt's work; for each of these you report `already-applied`, give the `message` its commit will carry, as for an applied finding\.$/m);
+    assert.match(fixerTask(input), /null for a deferred or blocked one, and null for an already-applied one unless this task asks for its message;/);
   });
 });
 
@@ -188,6 +192,7 @@ describe('the repair task', () => {
       allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null }],
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: true,
+      unfinished: ['test'],
     });
     assert.match(task, /^Repair: 2 checks, numbered \[0\] to \[1\], passed before any fixer edited the tree and fail now\./);
     assert.match(task, /^\[0\] test: npm run test\n {4}exited with code 1\n {4}stdout, its last 14 bytes \(the whole is at \/evidence\/out\):\n````text\n```\n1 failing\n````\n {4}stderr: empty \(frozen at \/evidence\/err\)$/m);
@@ -197,5 +202,6 @@ describe('the repair task', () => {
     assert.match(task, /with that check's index in place of <index>/);
     assert.match(task, /Verify each check against the code/);
     assert.match(task, /The `message` of an applied check describes what the repair changed\./);
+    assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied`, give the `message` its commit will carry, as for an applied check\./);
   });
 });

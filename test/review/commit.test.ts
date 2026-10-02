@@ -74,6 +74,23 @@ describe('deep-review commit', { timeout: 900_000 }, () => {
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo }), refused(/no completed fix run has changes left to commit/));
   });
 
+  it('commits an unfinished attempt\'s edits with the message the retry gave on verifying them, its trailer saying so, and its leftovers under the engine\'s', async () => {
+    await fixRun({
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads } },
+      'fixer:fixes:c1-1': [
+        // The first attempt snapshots its finding, writes a test after the snapshot, and dies.
+        { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }, { writes: { 'test/a.test.ts': 'test a\n' } }], exit: 3 },
+        { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      ],
+    });
+    const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
+    assert.deepEqual(outcome.commits.map((commit) => commit.subject), ['fix(a): Return 0 for a null text', 'chore: keep the partial edits of batch c1-1']);
+    assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[0]!.sha), /^fix\(a\): Return 0 for a null text\n\nWhy finding 0 changed\.\n\nDeep-review: run [0-9a-f-]+, SCAN-1 \(SCAN, PLAUSIBLE\), from an unfinished attempt of batch c1-1$/);
+    assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[1]!.sha), /\n\nDeep-review: run [0-9a-f-]+, partial edits of an unfinished attempt of batch c1-1$/);
+    assert.deepEqual(git(box.repo, 'diff-tree', '--no-commit-id', '--name-only', '-r', outcome.commits[1]!.sha).split('\n'), ['test/a.test.ts']);
+    assert.equal(git(box.repo, 'status', '--porcelain'), '');
+  });
+
   it('commits the captured change first in worktree mode, from its frozen bytes, with the message given, and refuses without one', async () => {
     // An uncommitted change makes the review's scope the worktree.
     write(box.repo, 'src/c.ts', 'export const c = 1;\n');

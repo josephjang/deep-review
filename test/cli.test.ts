@@ -359,7 +359,12 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(prompts.length, 2);
     assert.match(box.checkpoint.evidence.read(prompts[1]!.launch.prompt).toString('utf8'), /The tree may already hold part of this work/);
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixed);
-    assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.change.findings), [['SCAN-1']]);
+    // The lost fixer's half-applied edit was recorded with its loss, as its own; the replacement's edit after it is the finding's (R20).
+    assert.match(resumed.stderr, /worker fixer fixes:c1-1: its edits recorded in 1 revision/);
+    assert.deepEqual(state.review!.fix!.revisions.map((revision) => [revision.source.kind === 'attempt' ? revision.source.workerId : revision.source.kind, revision.change.findings]), [[prompts[0]!.launch.workerId, []], ['fix', ['SCAN-1']]]);
+    const events = box.events(state.id);
+    const lostAt = events.findIndex(([kind]) => kind === 'worker.lost');
+    assert.equal(events[lostAt + 1]?.[0], 'tree.revised', 'the revision follows the loss in its append');
   });
 
   it('runs snapshot from a fixer\'s shell and refuses it outside a worktree', () => {

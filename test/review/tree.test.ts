@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { FrozenFile, ScopeState } from '../../src/checkpoint/events.ts';
 import { EvidenceStore, sha256Hex } from '../../src/evidence/store.ts';
-import { compareExpected, expectedAt, expectedTree, headMoved, headStates, matchesExpected, noBase, readTreeEntry, reviseFrom, revisionsFromSnapshots, straysOf, worktreeReader, type ExpectedTree, type RevisedFile, type TreeEntry, type TreeReader } from '../../src/review/tree.ts';
+import { compareExpected, expectedAt, expectedTree, headMoved, headStates, matchesExpected, noBase, readTreeEntry, reviseFrom, revisionsFromSnapshots, straysOf, unfinishedRevisions, worktreeReader, type ExpectedTree, type RevisedFile, type TreeEntry, type TreeReader } from '../../src/review/tree.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { commitAll, git, link, repositoryWith, write } from '../helpers/repository.ts';
 
@@ -148,6 +148,29 @@ describe('reviseFrom', () => {
     it('folds a snapshot that changed nothing forward, and leaves findings after the last change without a revision', () => {
       const revisions = revisionsFromSnapshots(evidence, sources([{ 'src/a.ts': 'a1' }, { 'src/a.ts': 'two' }, null], { 'src/a.ts': 'two' }), tree, noBase, paths, ['A-1', 'A-2', 'A-3']);
       assert.deepEqual(revisions.map((revision) => revision.findings), [['A-1', 'A-2']]);
+    });
+
+    describe('of an attempt that did not finish', () => {
+      it('gives each snapshotted finding its own revision, carries none forward, and closes with what the worktree adds, naming no finding', () => {
+        const revisions = unfinishedRevisions(evidence, sources([{ 'src/a.ts': 'one' }, null, { 'src/a.ts': 'three' }], { 'src/a.ts': 'three', 'test/a.test.ts': 't' }), tree, noBase, paths, ['A-1', 'A-2', 'A-3']);
+        assert.deepEqual(revisions.map((revision) => [revision.findings, revision.files.map((entry) => [entry.path, entry.status, entry.after])]), [
+          [['A-1'], [['src/a.ts', 'modified', blob('one')]]],
+          // A-2 has no snapshot, so nothing says the attempt finished it: its edits, if any, are the next snapshot's.
+          [['A-3'], [['src/a.ts', 'modified', blob('three')]]],
+          [[], [['test/a.test.ts', 'created', blob('t')]]],
+        ]);
+      });
+
+      it('gives only the closing revision when it took no snapshot, or its scratch is gone', () => {
+        const revisions = unfinishedRevisions(evidence, sources([], { 'src/a.ts': 'half done' }), tree, noBase, paths, ['A-1', 'A-2']);
+        assert.deepEqual(revisions.map((revision) => [revision.findings, revision.files.map((entry) => entry.path)]), [[[], ['src/a.ts']]]);
+      });
+
+      it('gives no revision for a snapshot that changed nothing, and none at all when the attempt left the tree as it was', () => {
+        assert.deepEqual(unfinishedRevisions(evidence, sources([{ 'src/a.ts': 'a1' }, { 'src/a.ts': 'two' }], { 'src/a.ts': 'two' }), tree, noBase, paths, ['A-1', 'A-2']).map((revision) => revision.findings), [['A-2']]);
+        assert.deepEqual(unfinishedRevisions(evidence, sources([], { 'src/a.ts': 'a1' }), tree, noBase, paths, ['A-1']), []);
+        assert.deepEqual(unfinishedRevisions(evidence, sources([], {}), tree, noBase, [], []), []);
+      });
     });
 
     it('takes a path a snapshot did not list from the next reader that has it', () => {

@@ -20433,14 +20433,21 @@ var treeRevisedV1 = external_exports.strictObject({
     external_exports.strictObject({ kind: external_exports.literal("fix"), key: unitKeySchema, workerId: external_exports.uuid() }),
     /** A check's writes to files the run expected. */
     external_exports.strictObject({ kind: external_exports.literal("check"), check: checkKindSchemaV2 }),
-    /** The edits the failed workers of a unit that degraded left in its owned files. */
-    external_exports.strictObject({ kind: external_exports.literal("unanswered"), key: unitKeySchema })
+    /**
+     * What an attempt of an editing unit that ended without an answer left
+     * (R20 of the fix pass): one revision per finding it snapshotted, naming
+     * that finding, and one naming none for what it left after its last
+     * snapshot, all recorded with its failure.
+     */
+    external_exports.strictObject({ kind: external_exports.literal("attempt"), key: unitKeySchema, workerId: external_exports.uuid() })
   ]),
   change: external_exports.strictObject({ findings: external_exports.array(external_exports.string().min(1)), message: commitMessageSchema }),
   files: external_exports.array(revisedFileSchema).min(1).max(2e3)
 }).superRefine((revision, context) => {
   if (new Set(revision.files.map((file2) => file2.path)).size !== revision.files.length) context.addIssue({ code: "custom", message: "each path is revised once", path: ["files"] });
-  if (revision.source.kind === "fix" !== revision.change.findings.length > 0) context.addIssue({ code: "custom", message: "a fix revision alone names findings", path: ["change"] });
+  const named = revision.change.findings.length;
+  const allowed2 = revision.source.kind === "fix" ? named > 0 : revision.source.kind === "check" ? named === 0 : named <= 1;
+  if (!allowed2) context.addIssue({ code: "custom", message: "a fix revision names a finding or more, a check's none, and an attempt's one or none", path: ["change"] });
 });
 var clusterFailedV1 = external_exports.strictObject({
   phase: editingPhaseSchemaV2,
@@ -20625,6 +20632,13 @@ function fixesRevisedPaths(fix) {
 }
 function ownedFiles(fix, phase, key) {
   return phase === "repair" ? fixesRevisedPaths(fix) : clusterOfBatch(fix, key)?.files ?? [];
+}
+function revisionMessageOf(fix, revision) {
+  const { source } = revision;
+  if (source.kind !== "attempt" || revision.change.findings.length !== 1 || !editingPhases.includes(revision.phase)) return revision.change.message;
+  const id = revision.change.findings[0];
+  const answer = fix.answers[revision.phase][source.key];
+  return answer?.findings.find((finding) => finding.id === id)?.message ?? revision.change.message;
 }
 function isNotAttempted(fix, phase, key) {
   return Object.hasOwn(fix.notAttempted[phase], key);
@@ -21052,9 +21066,20 @@ var treeRevised = (state, payload, event) => {
       if (run2 === null || run2.outcome === "skipped") throw invalid(event, `revises the tree for the ${source.check} check, which did not run in ${payload.phase}`);
       break;
     }
-    case "unanswered":
-      if (!isEditingPhase(payload.phase) || !isNotAttempted(fix, payload.phase, source.key)) throw invalid(event, `revises the tree for ${payload.phase}:${source.key}, which did not fail twice`);
+    case "attempt": {
+      if (!isEditingPhase(payload.phase)) throw invalid(event, `revises the tree for an attempt in ${payload.phase}, which no fixer runs in`);
+      const ids = unitIds(fix, payload.phase, source.key);
+      if (ids === null) throw invalid(event, `revises the tree for an attempt of ${payload.phase}:${source.key}, which the phase does not have`);
+      if (!(review2.units[payload.phase][source.key]?.failures ?? []).some((failure2) => failure2.workerId === source.workerId)) {
+        throw invalid(event, `revises the tree for an attempt of ${payload.phase}:${source.key} by worker ${source.workerId}, which did not fail`);
+      }
+      const revisedBefore = new Set(fix.revisions.filter((revision) => revision.source.kind === "attempt" && revision.source.workerId === source.workerId).flatMap((revision) => revision.change.findings));
+      for (const id of payload.change.findings) {
+        if (!ids.includes(id)) throw invalid(event, `revises the tree for ${id}, which ${payload.phase}:${source.key} does not hold`);
+        if (revisedBefore.has(id)) throw invalid(event, `revises the tree for ${id} twice for one attempt`);
+      }
       break;
+    }
   }
   return withFix(current, review2, { ...fix, revisions: [...fix.revisions, payload] }, event);
 };
@@ -23691,21 +23716,21 @@ import { homedir } from "node:os";
 import { join as join14, posix } from "node:path";
 var conventionFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
 var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
-function ancestorDirectories(changedPaths) {
+function ancestorDirectories(changedPaths2) {
   const directories = /* @__PURE__ */ new Set([""]);
-  for (const path of changedPaths) {
+  for (const path of changedPaths2) {
     const parts = path.split("/").slice(0, -1);
     for (let depth = 1; depth <= parts.length; depth += 1) directories.add(parts.slice(0, depth).join("/"));
   }
   return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
 }
-function conventionFiles(worktree, changedPaths, home = homedir()) {
+function conventionFiles(worktree, changedPaths2, home = homedir()) {
   const found = [];
   for (const relative3 of userConventionFiles) {
     const absolute = join14(home, ...relative3.split("/"));
     if (isFile(absolute)) found.push({ level: "user", path: absolute });
   }
-  for (const directory of ancestorDirectories(changedPaths)) {
+  for (const directory of ancestorDirectories(changedPaths2)) {
     for (const name of conventionFileNames) {
       const relative3 = directory === "" ? name : posix.join(directory, name);
       if (isFile(join14(worktree, ...relative3.split("/")))) found.push({ level: "repository", path: relative3 });
@@ -24392,6 +24417,9 @@ function headMoved(worktree, expectedHead) {
   const actual = head(worktree);
   return actual === expectedHead ? null : { expected: expectedHead, actual };
 }
+function changedPaths(worktree) {
+  return [...new Set(status(worktree).map((entry) => entry.path))].sort();
+}
 function straysOf(worktree, expected) {
   return status(worktree).filter((entry) => entry.code === "??" && !expected.has(entry.path)).map((entry) => entry.path).sort();
 }
@@ -24422,6 +24450,21 @@ function revisionsFromSnapshots(evidence, sources, expected, base, paths, findin
     applyRevision(state, files);
     carried = [];
   });
+  return revisions;
+}
+function unfinishedRevisions(evidence, sources, expected, base, paths, findings) {
+  const state = new Map(expected);
+  const revisions = [];
+  findings.forEach((id, index2) => {
+    const read = sources.snapshot(index2);
+    if (read === null) return;
+    const files = reviseFrom(evidence, read, state, base, paths);
+    if (files.length === 0) return;
+    revisions.push({ findings: [id], files });
+    applyRevision(state, files);
+  });
+  const rest = reviseFrom(evidence, sources.worktree, state, base, paths);
+  if (rest.length > 0) revisions.push({ findings: [], files: rest });
   return revisions;
 }
 
@@ -24536,7 +24579,7 @@ var fixerOutputSchema = external_exports.strictObject({
     file: reportedPath,
     line: external_exports.number().int().min(1).nullable(),
     note: external_exports.string().min(1).max(400),
-    /** The commit message of an applied finding, in the repository's own style; null for every other status. */
+    /** The commit message of an applied finding, in the repository's own style; also allowed on an already-applied one whose edits an earlier attempt left (R20 of the fix pass); null for the rest. */
     message: external_exports.strictObject({ subject: external_exports.string().min(1).max(72), body: external_exports.string().max(2e3) }).nullable(),
     /** Every file edited or created for this finding. */
     files: external_exports.array(reportedPath).max(200),
@@ -24562,8 +24605,9 @@ function checkFixerAnswer(output2, count2) {
     if (finding.index >= count2) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count2 - 1)}]`);
     if (seen.has(finding.index)) throw new StructuralCheckError(`${what} is answered twice`);
     seen.add(finding.index);
-    if (finding.status === "applied" !== (finding.message !== null)) {
-      throw new StructuralCheckError(finding.status === "applied" ? `${what} is applied and has no commit message` : `${what} is ${finding.status} and has a commit message, which only an applied finding carries`);
+    if (finding.status === "applied" && finding.message === null) throw new StructuralCheckError(`${what} is applied and has no commit message`);
+    if ((finding.status === "deferred" || finding.status === "blocked") && finding.message !== null) {
+      throw new StructuralCheckError(`${what} is ${finding.status} and has a commit message, which only an applied or already-applied finding carries`);
     }
     if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith("."))) {
       throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(finding.message.subject)}`);
@@ -24693,16 +24737,8 @@ function takeSnapshot(request) {
   return listing;
 }
 function readSnapshot(into, finding) {
-  const listingFile = join17(into, `${String(finding)}.json`);
-  if (!existsSync4(listingFile)) return null;
-  let listing;
-  try {
-    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync9(listingFile, "utf8")));
-    if (!parsed.success || parsed.data.finding !== finding) return null;
-    listing = parsed.data;
-  } catch {
-    return null;
-  }
+  const listing = readListing(into, finding);
+  if (listing === null) return null;
   return (path) => {
     if (!Object.hasOwn(listing.paths, path) || !safePath(path)) return void 0;
     const listed = listing.paths[path];
@@ -24715,6 +24751,23 @@ function readSnapshot(into, finding) {
     }
     return bytes.length === listed.size && sha256(bytes) === listed.sha256 ? { bytes, symlink: listed.symlink } : void 0;
   };
+}
+function readListing(into, finding) {
+  const listingFile = join17(into, `${String(finding)}.json`);
+  if (!existsSync4(listingFile)) return null;
+  try {
+    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync9(listingFile, "utf8")));
+    return parsed.success && parsed.data.finding === finding ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+function snapshotPaths(into, count2) {
+  const paths = /* @__PURE__ */ new Set();
+  for (let finding = 0; finding < count2; finding += 1) {
+    for (const path of Object.keys(readListing(into, finding)?.paths ?? {})) if (safePath(path)) paths.add(path);
+  }
+  return [...paths].sort();
 }
 function prepareSnapshots(into, paths) {
   mkdirSync5(into, { recursive: true });
@@ -24816,26 +24869,29 @@ function fixAnswerEvents(unit, receipt, context) {
     }))
   ];
 }
-function unansweredRevision(context, phase, key, reason) {
+function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const { state, worktree, evidence } = context;
-  const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), baseOf(context), ownedFiles(requireFix2(state), phase, key));
-  if (files.length === 0) return null;
+  const fix = requireFix2(state);
+  const ids = unitIds2(state, phase, key);
+  const scratch = state.workers[workerId]?.launch.scratch ?? null;
+  const into = scratch === null ? null : join18(scratch, snapshotsDirectoryName);
+  const others = othersOwned(state, phase, key);
+  const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
+  const listed = [...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)].filter((path) => !others.has(path) && !strays.has(path));
+  const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
+  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids);
   const who = phase === "repair" ? "the repair" : `batch ${key}`;
-  const payload = {
-    phase,
-    source: { kind: "unanswered", key },
-    change: {
-      findings: [],
-      message: {
-        subject: `chore: keep the partial edits of ${who}`,
-        body: truncated(`The workers of ${who} failed twice and its findings were not attempted: ${reason}
+  const why = truncated(reason, 1e3);
+  return revisions.map((revision) => {
+    const id = revision.findings[0];
+    const message = id === void 0 ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}
 
-The files are recorded as those workers left them; nothing here is a fix an answer accounted for.`, bodyLength)
-      }
-    },
-    files
-  };
-  return { kind: "tree.revised", version: 1, payload };
+The files are recorded as it left them after its last snapshot; no finding accounts for them.`, bodyLength) } : { subject: truncated(`chore: keep the edits an unfinished attempt made for ${id}`, subjectLength), body: truncated(`An attempt of ${who} ended without an answer after snapshotting ${id}: ${why}
+
+The files are recorded as its snapshot of ${id} held them.`, bodyLength) };
+    const payload = { phase, source: { kind: "attempt", key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
+    return { kind: "tree.revised", version: 1, payload };
+  });
 }
 function checkRevision(context, phase, kind, command) {
   const { state, worktree, evidence } = context;
@@ -25469,9 +25525,13 @@ function snapshotBlock(command, unit) {
     `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
   ].join("\n");
 }
-var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, and null for any other status; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, null for a deferred or blocked one, and null for an already-applied one unless this task asks for its message; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 var scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
-var earlierWork = (unit) => `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
+function earlierWork(unit, unfinished) {
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
+  if (unfinished.length === 0) return warning;
+  return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\`, give the \`message\` its commit will carry, as for an applied ${unit}.`;
+}
 var fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
 function fixerTask(input2) {
   const count2 = input2.findings.length;
@@ -25506,7 +25566,7 @@ function fixerTask(input2) {
     "",
     snapshotBlock(input2.snapshotCommand, "finding"),
     "",
-    ...input2.mayHoldWork ? [earlierWork("finding"), ""] : [],
+    ...input2.mayHoldWork ? [earlierWork("finding", input2.unfinished), ""] : [],
     answerFields("finding"),
     "",
     scratchRule
@@ -25544,7 +25604,7 @@ function repairTask(input2) {
     "",
     snapshotBlock(input2.snapshotCommand, "check"),
     "",
-    ...input2.mayHoldWork ? [earlierWork("check"), ""] : [],
+    ...input2.mayHoldWork ? [earlierWork("check", input2.unfinished), ""] : [],
     `${answerFields("check")} The \`message\` of an applied check describes what the repair changed.`,
     "",
     scratchRule
@@ -25579,6 +25639,10 @@ function mayHoldWork(review2, phase, key, owned, ownCluster = []) {
   if (review2.phases[phase].attempt > 1 || (review2.units[phase][key]?.failures.length ?? 0) > 0) return true;
   const sourceKey = (revision) => revision.source.kind === "check" ? null : revision.source.key;
   return (review2.fix?.revisions ?? []).some((revision) => revision.phase === phase && !ownCluster.includes(sourceKey(revision) ?? "") && revision.files.some((file2) => owned.includes(file2.path)));
+}
+function unfinishedIds(review2, phase, key) {
+  const ids = (review2.fix?.revisions ?? []).filter((revision) => revision.phase === phase && revision.source.kind === "attempt" && revision.source.key === key).flatMap((revision) => revision.change.findings);
+  return [...new Set(ids)];
 }
 function batchOutcomes(review2, batch) {
   const answer = review2.fix?.answers.fixes[batch.key];
@@ -25622,7 +25686,8 @@ function fixerTaskOf(unit, review2, editing) {
     othersOwned: plan.clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
     checks: review2.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
-    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, earlier.map((sibling) => sibling.key))
+    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, earlier.map((sibling) => sibling.key)),
+    unfinished: unfinishedIds(review2, "fixes", unit.key)
   });
 }
 function tailOf(evidence, reference) {
@@ -25639,7 +25704,7 @@ function repairTaskOf(review2, editing, evidence) {
   });
   const owned = fixesRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
-  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned) });
+  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
 }
 function taskFor(unit, review2, editing = null, evidence = null) {
   const requireEditing = () => {
@@ -25741,14 +25806,18 @@ function orderedRanking(review2, output2, input2) {
   return rankedFindings(review2, findings).map((entry) => entry.finding);
 }
 function contributionOf(unit, receipt, context) {
-  if (receipt.outcome !== "completed") return [failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`)];
+  if (receipt.outcome !== "completed") return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`, context);
   const review2 = requireReview2(context.state);
   try {
     return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review2, context.state, context.worktree)];
   } catch (error62) {
-    if (error62 instanceof StructuralCheckError) return [failed(unit, receipt, `structural check: ${error62.message}`)];
+    if (error62 instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error62.message}`, context);
     throw error62;
   }
+}
+function failedWithEdits(unit, receipt, reason, context) {
+  const failure2 = failed(unit, receipt, reason);
+  return isEditingPhase(unit.phase) ? [failure2, ...attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason)] : [failure2];
 }
 function contributionEvent(unit, receipt, review2, state, worktree) {
   switch (unit.phase) {
@@ -25904,8 +25973,8 @@ function revisedBy(revision) {
       return revision.source.key;
     case "check":
       return `${revision.source.check} check`;
-    case "unanswered":
-      return `${revision.source.key}, failed`;
+    case "attempt":
+      return `${revision.source.key}, unfinished attempt`;
   }
 }
 function finalStatus(fix, path) {
@@ -25921,7 +25990,7 @@ function changedFilesSection(fix, patches) {
     const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file2) => file2.path === path)).map(revisedBy))];
     return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(", "))} |`;
   });
-  const series = fix.revisions.map((revision, index2) => `${String(index2 + 1)}. ${inlineText(revision.change.message.subject)} (${revisedBy(revision)}): ${patches[index2] ?? "not written"}`);
+  const series = fix.revisions.map((revision, index2) => `${String(index2 + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}): ${patches[index2] ?? "not written"}`);
   return [
     "## Changed files",
     "",
@@ -26187,7 +26256,7 @@ async function runReview(options2) {
     }
     const configuration = state.review.configuration;
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
-    state = recordLostWorkers(checkpoint, state, log);
+    state = recordLostWorkers(checkpoint, state, options2.worktree, log);
     state = reenterPhase(checkpoint, state, log);
     const scope = state.scope;
     const block = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) });
@@ -26256,10 +26325,8 @@ async function runReview(options2) {
                 return [{ kind: "angle.failed", version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
               case "group.unverified":
                 return [{ kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }];
-              case "cluster.failed": {
-                const revision = unansweredRevision(revisionContext(), degradation.phase, degradation.key, degradation.reason);
-                return [{ kind: "cluster.failed", version: 1, payload: { phase: degradation.phase, key: degradation.key, reason: degradation.reason } }, ...revision === null ? [] : [revision]];
-              }
+              case "cluster.failed":
+                return [{ kind: "cluster.failed", version: 1, payload: { phase: degradation.phase, key: degradation.key, reason: degradation.reason } }];
             }
           }));
           break;
@@ -26294,7 +26361,8 @@ async function runReview(options2) {
           state = append(checkpoint, state, [{ kind: "phase.finished", version: 2, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case "write-report": {
-          const revisions = state.review.fix?.revisions ?? [];
+          const fixState = state.review.fix;
+          const revisions = fixState === null ? [] : fixState.revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fixState, revision) } }));
           const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree)).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const fix = state.review.fix === null ? {} : { fix: { evidencePath: (reference) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
@@ -26430,15 +26498,17 @@ function recordLimits(checkpoint, state, limits, log) {
   log(`run ${state.id}: limits in force: concurrency ${String(limits.concurrency)}, ${limits.runBudgetUsd === null ? "no run budget" : `run budget ${limits.runBudgetUsd.toFixed(2)} USD`}`);
   return append(checkpoint, state, [{ kind: "limits.changed", version: 1, payload: limits }]);
 }
-function recordLostWorkers(checkpoint, state, log) {
-  const running = Object.values(state.workers).filter((worker) => worker.status === "running");
-  if (running.length === 0) return state;
-  const events = running.map((worker) => {
+function recordLostWorkers(checkpoint, state, worktree, log) {
+  const reason = "the engine exited while the worker ran";
+  for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === "running")) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    return { kind: "worker.lost", version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason: "the engine exited while the worker ran" } };
-  });
-  return append(checkpoint, state, events);
+    const lost = { kind: "worker.lost", version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
+    if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? "" : "s"}`);
+    state = append(checkpoint, state, [lost, ...edits]);
+  }
+  return state;
 }
 function reenterPhase(checkpoint, state, log) {
   const review2 = state.review;
@@ -26532,21 +26602,24 @@ function bytesOf(checkpoint, path, frozen) {
   if ("oversized" in frozen) throw new ReviewRefusedError(`${path} is larger than the run freezes (${String(frozen.oversized.size)} bytes), so its bytes were never kept and no commit can be built for it; commit it by hand`);
   return checkpoint.evidence.read(frozen.blob);
 }
+function namedFindings(run2, revision) {
+  if (revision.phase === "repair") return `repair of the ${revision.change.findings.join(", ")} check`;
+  const findings = new Map(rankedFindings(run2.review).map((entry) => [entry.finding.id, entry]));
+  return revision.change.findings.map((id) => {
+    const entry = findings.get(id);
+    return entry === void 0 ? id : `${id} (${entry.primary.angle}, ${entry.resolution.verdict})`;
+  }).join(", ");
+}
 function trailer(run2, revision) {
   switch (revision.source.kind) {
-    case "fix": {
-      if (revision.phase === "repair") return `Deep-review: run ${run2.id}, repair of the ${revision.change.findings.join(", ")} check`;
-      const findings = new Map(rankedFindings(run2.review).map((entry) => [entry.finding.id, entry]));
-      const named = revision.change.findings.map((id) => {
-        const entry = findings.get(id);
-        return entry === void 0 ? id : `${id} (${entry.primary.angle}, ${entry.resolution.verdict})`;
-      });
-      return `Deep-review: run ${run2.id}, ${named.join(", ")}`;
-    }
+    case "fix":
+      return `Deep-review: run ${run2.id}, ${namedFindings(run2, revision)}`;
     case "check":
       return `Deep-review: run ${run2.id}, ${revision.source.check} check`;
-    case "unanswered":
-      return `Deep-review: run ${run2.id}, partial edits of ${revision.source.key === "repair" ? "the repair" : `batch ${revision.source.key}`}`;
+    case "attempt": {
+      const who = revision.source.key === "repair" ? "the repair" : `batch ${revision.source.key}`;
+      return revision.change.findings.length === 0 ? `Deep-review: run ${run2.id}, partial edits of an unfinished attempt of ${who}` : `Deep-review: run ${run2.id}, ${namedFindings(run2, revision)}, from an unfinished attempt of ${who}`;
+    }
   }
 }
 var messageOf = (subject, body, end) => [subject.trim(), body.trim(), end].filter((part) => part !== null && part !== "").join("\n\n") + "\n";
@@ -26647,7 +26720,8 @@ function build(run2, options2) {
     }
     fix.revisions.forEach((revision, index2) => {
       for (const file2 of revision.files) trees.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
-      commit2(messageOf(revision.change.message.subject, revision.change.message.body, trailer(run2, revision)), index2);
+      const message = revisionMessageOf(fix, revision);
+      commit2(messageOf(message.subject, message.body, trailer(run2, revision)), index2);
     });
     const committed = /* @__PURE__ */ new Set([...scope.mode === "worktree" ? scope.files.map((file2) => file2.path) : [], ...fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path))]);
     const staged = git2(worktree, ["diff", "--cached", "--name-only", "-z", "HEAD"]).split("\0").filter((path) => path.length > 0 && !committed.has(path));

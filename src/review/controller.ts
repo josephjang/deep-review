@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, ChecksPlanned, ReviewConfiguration, ReviewLimits, ScopeRequest } from '../checkpoint/events.ts';
+import { revisionMessageOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -27,7 +28,7 @@ import { conventionFiles } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, worktreeChecked, type DriftFound } from './drift.ts';
 import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
-import { checkRevision, unansweredRevision, type RevisionContext } from './fix-events.ts';
+import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { patchSeries } from './patch.ts';
@@ -215,7 +216,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     const configuration = state.review!.configuration;
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
-    state = recordLostWorkers(checkpoint, state, log);
+    state = recordLostWorkers(checkpoint, state, options.worktree, log);
     state = reenterPhase(checkpoint, state, log);
 
     const scope = state.scope!;
@@ -293,11 +294,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
                 return [{ kind: 'angle.failed', version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
               case 'group.unverified':
                 return [{ kind: 'group.unverified', version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }];
-              case 'cluster.failed': {
-                // What the failed workers left in the unit's files is recorded with it, in the same append, so the tree the run expects follows the tree (PD3 of the fix pass).
-                const revision = unansweredRevision(revisionContext(), degradation.phase, degradation.key, degradation.reason);
-                return [{ kind: 'cluster.failed', version: 1, payload: { phase: degradation.phase, key: degradation.key, reason: degradation.reason } }, ...(revision === null ? [] : [revision])];
-              }
+              case 'cluster.failed':
+                // What the failed workers left is already recorded, with each failure (R20 of the fix pass).
+                return [{ kind: 'cluster.failed', version: 1, payload: { phase: degradation.phase, key: degradation.key, reason: degradation.reason } }];
             }
           }));
           break;
@@ -334,8 +333,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           state = append(checkpoint, state, [{ kind: 'phase.finished', version: 2, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case 'write-report': {
-          // One patch per revision, rendered from the frozen bytes in ledger order (R13, TD12 of the fix pass).
-          const revisions = state.review!.fix?.revisions ?? [];
+          // One patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass).
+          const fixState = state.review!.fix;
+          const revisions = fixState === null ? [] : fixState.revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fixState, revision) } }));
           const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree)).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
@@ -570,16 +570,24 @@ function recordLimits(checkpoint: Checkpoint, state: RunState, limits: ReviewLim
   return append(checkpoint, state, [{ kind: 'limits.changed', version: 1, payload: limits }]);
 }
 
-/** Every worker still running on the ledger died with the engine that launched it, or was orphaned by a hard kill: record each lost (TD5). */
-function recordLostWorkers(checkpoint: Checkpoint, state: RunState, log: (line: string) => void): RunState {
-  const running = Object.values(state.workers).filter((worker) => worker.status === 'running');
-  if (running.length === 0) return state;
-  const events = running.map((worker): NewEvent => {
+/**
+ * Every worker still running on the ledger died with the engine that
+ * launched it, or was orphaned by a hard kill: record each lost (TD5).
+ * A lost fixer's work is recorded with its loss, from its snapshots and
+ * the files it left (R20 of the fix pass), one worker per append so each
+ * is read against the tree the one before it left.
+ */
+function recordLostWorkers(checkpoint: Checkpoint, state: RunState, worktree: string, log: (line: string) => void): RunState {
+  const reason = 'the engine exited while the worker ran';
+  for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === 'running')) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    return { kind: 'worker.lost', version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason: 'the engine exited while the worker ran' } };
-  });
-  return append(checkpoint, state, events);
+    const lost: NewEvent = { kind: 'worker.lost', version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
+    if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? '' : 's'}`);
+    state = append(checkpoint, state, [lost, ...edits]);
+  }
+  return state;
 }
 
 /** A phase left running or blocked by a previous engine is re-entered at the next attempt, which checks the worktree again and clears a blocker. */
