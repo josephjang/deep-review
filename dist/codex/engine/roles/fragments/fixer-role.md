@@ -13,3 +13,5 @@ editing them. You may also edit any file of the repository that no
 cluster owns, existing or new, when a fix or its tests need it, and you
 report every such file. Never touch a file another cluster owns: if a
 fix genuinely requires one, report the finding blocked and name the file.
+Once every fixer of the first round has finished, the engine gives such
+a finding a second round with that file among its own.
