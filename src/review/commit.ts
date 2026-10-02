@@ -20,7 +20,8 @@ import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
 import { rankedFindings } from './state.ts';
-import { compareExpected, expectedTree, worktreeReader, type ExpectedFile } from './tree.ts';
+import { gitContent } from './content.ts';
+import { compareExpected, expectedTree, worktreeReader, type ExpectedFile, type ExpectedMatch } from './tree.ts';
 
 export interface CommitOptions {
   readonly checkpoint: Checkpoint;
@@ -185,10 +186,11 @@ function currentBranch(worktree: string): string {
 /**
  * Refuse, naming the reason, before any object is written: a HEAD that is
  * not the scope's head; a revised path, or in worktree mode any path the
- * run expects, whose bytes differ from what the run recorded last; a
- * change message missing in worktree mode or given in any other.
+ * run expects, whose content differs from what the run recorded last, as
+ * git would store each (R22 of the fix pass); a change message missing in
+ * worktree mode or given in any other.
  */
-function refuse(run: RunState, worktree: string, changeMessage: string | undefined): void {
+function refuse(run: RunState, worktree: string, changeMessage: string | undefined, match: ExpectedMatch): void {
   const scope = run.scope!;
   const fix = run.review!.fix!;
   const head = git(worktree, ['rev-parse', 'HEAD']).trim();
@@ -200,7 +202,7 @@ function refuse(run: RunState, worktree: string, changeMessage: string | undefin
   const expected = expectedTree(scope, fix.revisions);
   // The revised paths always; in worktree mode the change's own paths too, since its commit is built from their frozen bytes.
   const committed = new Set([...fix.revisions.flatMap((revision) => revision.files.map((file) => file.path)), ...(scope.mode === 'worktree' ? scope.files.map((file) => file.path) : [])]);
-  const differs = compareExpected(new Map([...expected].filter(([path]) => committed.has(path))), worktreeReader(worktree));
+  const differs = compareExpected(new Map([...expected].filter(([path]) => committed.has(path))), worktreeReader(worktree), new Set(), match);
   if (differs.length > 0) {
     throw new ReviewRefusedError(`the worktree no longer holds what run ${run.id} recorded at ${differs.map((file) => `${file.path} (${file.outcome})`).join(', ')}; undo those edits, or commit the patch series by hand`);
   }
@@ -222,7 +224,7 @@ export function commitRun(options: CommitOptions): CommitOutcome {
       // Read again under the run's lock, as every writer does: another command may have committed it since it was chosen.
       const run = requireCommittable(checkpoint.fold(chosen.id));
       if (!sameDirectory(run.worktree, worktree)) throw new ReviewRefusedError(`run ${run.id} was reviewed in worktree ${run.worktree}, not ${worktree}; run the command there`);
-      refuse(run, worktree, options.changeMessage);
+      refuse(run, worktree, options.changeMessage, gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match);
       return build(run, options);
     } finally {
       release();

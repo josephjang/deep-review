@@ -24,6 +24,7 @@ import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
 import { discoverChecks, readRootManifests, type CheckFlags } from './checks/discover.ts';
 import { runCheck } from './checks/run.ts';
+import { gitContent } from './content.ts';
 import { conventionFiles } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, worktreeChecked, type DriftFound } from './drift.ts';
 import { sameDirectory } from '../paths.ts';
@@ -41,6 +42,7 @@ import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { snapshotIndexPlaceholder } from './tasks.ts';
+import type { ExpectedMatch } from './tree.ts';
 import { blockerActions, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckPhase, type Phase } from './vocabulary.ts';
 
 /**
@@ -163,6 +165,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
 
   const { checkpoint } = options;
+  // Every comparison with what the run expects, and every patch, sees a file as git would store it (R22 of the fix pass).
+  const content = gitContent(options.worktree, (reference) => checkpoint.evidence.read(reference));
   const opened = await openRun({ ...options, log, environment, adapter, roles });
   let state = opened.state;
   const runId = state.id;
@@ -185,14 +189,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
         return;
       }
-      const found = findDrift(state, options.worktree);
+      const found = findDrift(state, options.worktree, content.match);
       if (drifted(found)) {
         log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
         state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 2, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found) }]);
         return;
       }
     }
-    const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options.worktree, evidence: checkpoint.evidence });
+    const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match });
     for (const event of events) {
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
       if (event.kind === 'tree.revised') log(`worker ${settled.unit.role} ${name}: revised ${String((event.payload as { files: unknown[] }).files.length)} files for ${(event.payload as { change: { findings: string[] } }).change.findings.join(', ')}`);
@@ -216,14 +220,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     const configuration = state.review!.configuration;
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
-    state = recordLostWorkers(checkpoint, state, options.worktree, log);
+    state = recordLostWorkers(checkpoint, state, options.worktree, content.match, log);
     state = reenterPhase(checkpoint, state, log);
 
     const scope = state.scope!;
     const block = scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options.worktree, scope.files.map((file) => file.path), options.home) });
     const engineEntry = options.engineEntry ?? process.argv[1] ?? 'deep-review';
     const scratchBase = join(options.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
-    const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence });
+    const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match });
     /**
      * Run one due check, or record it skipped, as the events to append: its
      * `check.ran`, and a revision when it wrote to files the run expects
@@ -264,7 +268,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         case 'check-worktree': {
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
-          const check = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment);
+          const check = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check)}`);
           if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}`);
           state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 2, payload: check }]);
@@ -342,7 +346,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           // One patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass).
           const fixState = state.review!.fix;
           const revisions = fixState === null ? [] : fixState.revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fixState, revision) } }));
-          const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree)).map((patch) => checkpoint.evidence.put(patch));
+          const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
@@ -583,13 +587,13 @@ function recordLimits(checkpoint: Checkpoint, state: RunState, limits: ReviewLim
  * the files it left (R20 of the fix pass), one worker per append so each
  * is read against the tree the one before it left.
  */
-function recordLostWorkers(checkpoint: Checkpoint, state: RunState, worktree: string, log: (line: string) => void): RunState {
+function recordLostWorkers(checkpoint: Checkpoint, state: RunState, worktree: string, match: ExpectedMatch, log: (line: string) => void): RunState {
   const reason = 'the engine exited while the worker ran';
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === 'running')) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
     const lost: NewEvent = { kind: 'worker.lost', version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
-    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
+    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence, match }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
     if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? '' : 's'}`);
     state = append(checkpoint, state, [lost, ...edits]);
   }

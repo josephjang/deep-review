@@ -29,9 +29,9 @@ const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerRe
 });
 const unit = (phase: Unit['phase'], key: string, role: ReviewRole): Unit => ({ phase, key, role });
 
-/** The one event a reading unit's receipt becomes; a reading unit freezes nothing, so the evidence store refuses every write. */
+/** The one event a reading unit's receipt becomes; a reading unit freezes and compares nothing, so the evidence store refuses every write and the comparison every call. */
 const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string): NewEvent => {
-  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } } });
+  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); } });
   assert.equal(events.length, 1, JSON.stringify(events));
   return events[0]!;
 };

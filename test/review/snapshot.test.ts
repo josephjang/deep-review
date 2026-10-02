@@ -8,7 +8,7 @@ import { sha256Hex } from '../../src/evidence/store.ts';
 import { prepareSnapshots, readSnapshot, snapshotListingSchema, takeSnapshot } from '../../src/review/snapshot.ts';
 import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
-import { link, remove, repositoryWith, write } from '../helpers/repository.ts';
+import { git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
 
 const cli = resolve(import.meta.dirname, '../../src/cli.ts');
 
@@ -40,6 +40,21 @@ describe('snapshots', () => {
     assert.deepEqual(read('src/a.ts'), { bytes: Buffer.from('fixed\n'), symlink: false });
     assert.equal(read('src/b.ts'), null, 'listed absent');
     assert.equal(read('src/back.ts'), undefined, 'not listed, so unknown');
+  });
+
+  it('copies what git sees changed, not every file a line-ending rewrite touched under core.autocrlf (R22)', () => {
+    // A clone with core.autocrlf checks out CRLF, as on the first gate run's Windows machine.
+    const origin = repositoryWith(join(directory, 'origin'), { 'src/a.ts': 'a\n', 'src/b.ts': 'b\n' });
+    const crlfRepo = join(directory, 'crlf');
+    git(directory, '-c', 'core.autocrlf=true', 'clone', '-q', origin, crlfRepo);
+    git(crlfRepo, 'config', 'core.autocrlf', 'true');
+    assert.equal(readFileSync(join(crlfRepo, 'src', 'a.ts'), 'utf8'), 'a\r\n');
+    // A formatter rewrites the checkout to LF: git status lists the file, git diff does not.
+    write(crlfRepo, 'src/a.ts', 'a\n');
+    write(crlfRepo, 'src/b.ts', 'b changed\n');
+    assert.match(git(crlfRepo, 'status', '--porcelain'), /^ ?M src\/a\.ts$/m, 'the case git status gets wrong');
+    takeSnapshot({ worktree: crlfRepo, finding: 0, into });
+    assert.deepEqual(Object.keys(listingOf(0).paths), ['src/b.ts'], 'only the file whose content changed');
   });
 
   it('copies every path the engine listed, so a path changed and changed back is still compared', () => {

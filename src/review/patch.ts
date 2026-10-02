@@ -1,8 +1,10 @@
 /**
- * A revision as a patch (R13, TD12 of the fix pass): the unified diff
+ * A revision as a patch (R13, R22, TD12 of the fix pass): the unified diff
  * between the expected tree before a revision and after it, rendered from
- * the frozen bytes alone, never from git, so each patch holds one change's
- * work and none of the user's own uncommitted change. Its headers are
+ * the frozen bytes, never from git's diff of the tree, so each patch holds
+ * one change's work and none of the user's own uncommitted change; git is
+ * asked only what bytes it would store for each, so a line-ending
+ * conversion is no line of the patch. Its headers are
  * git's, so `git apply` and `git am` read it: a text file as hunks, a file
  * that is not UTF-8 text as a literal binary patch with full object ids,
  * and a file frozen by hash and size only, whose bytes were never kept,
@@ -230,15 +232,23 @@ function fileDiff(path: string, before: Content | null, after: Content | null, f
   return `${header.join('')}--- ${before === null ? '/dev/null' : `a/${path}`}\n+++ ${after === null ? '/dev/null' : `b/${path}`}\n${body}`;
 }
 
+/** The bytes git would store for a file's bytes at a path (R22 of the fix pass, `gitContent`); by default the bytes as they are. */
+export type StoredBytes = (path: string, bytes: Buffer) => Buffer;
+
+const asTheyAre: StoredBytes = (_path, bytes) => bytes;
+
 /**
  * The unified diff of `paths` between two expected trees, in path order,
- * with git's headers. A path neither tree names, or one both hold the same
- * way, gives nothing.
+ * with git's headers, between the bytes `stored` says git would store, as
+ * `git diff` shows them. A path neither tree names, or one both hold the
+ * same way, gives nothing. A symlink's target text is diffed as it is.
  */
-export function renderPatch(before: ExpectedTree, after: ExpectedTree, paths: Iterable<string>, read: BlobReader, format: ObjectFormat = 'sha1'): string {
+export function renderPatch(before: ExpectedTree, after: ExpectedTree, paths: Iterable<string>, read: BlobReader, format: ObjectFormat = 'sha1', stored: StoredBytes = asTheyAre): string {
   const content = (tree: ExpectedTree, path: string): Content | null => {
     const file = tree.get(path) ?? null;
-    return file === null ? null : contentOf(file, read);
+    if (file === null) return null;
+    const raw = contentOf(file, read);
+    return raw.bytes === null || raw.symlink ? raw : { ...raw, bytes: stored(path, raw.bytes) };
   };
   return [...new Set(paths)]
     .sort()
@@ -253,11 +263,11 @@ export function renderPatch(before: ExpectedTree, after: ExpectedTree, paths: It
  * its message, so the series applies in order on a tree at the scope's
  * state and reconstructs the last revision's tree.
  */
-export function patchSeries(revisions: readonly Pick<TreeRevised, 'files' | 'change'>[], read: BlobReader, format: ObjectFormat): string[] {
+export function patchSeries(revisions: readonly Pick<TreeRevised, 'files' | 'change'>[], read: BlobReader, format: ObjectFormat, stored: StoredBytes = asTheyAre): string[] {
   return revisions.map((revision, index) => {
     const before = new Map(revision.files.map((file): [string, ExpectedFile | null] => [file.path, file.before === null ? null : { frozen: file.before, symlink: file.beforeSymlink }]));
     const after = new Map(revision.files.map((file): [string, ExpectedFile | null] => [file.path, file.after === null ? null : { frozen: file.after, symlink: file.symlink }]));
-    return renderMail(revision.change.message, index + 1, revisions.length, renderPatch(before, after, revision.files.map((file) => file.path), read, format));
+    return renderMail(revision.change.message, index + 1, revisions.length, renderPatch(before, after, revision.files.map((file) => file.path), read, format, stored));
   });
 }
 

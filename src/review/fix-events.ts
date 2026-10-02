@@ -20,14 +20,15 @@ import { worktreeLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
 import { readSnapshot, snapshotPaths, snapshotsDirectoryName } from './snapshot.ts';
 import { truncated, type Unit } from './steps.ts';
-import { changedPaths, expectedAt, headStates, matchesExpected, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type FindingRevision } from './tree.ts';
+import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
 import { type CheckKind, type EditingPhase } from './vocabulary.ts';
 
-/** What turning work into events needs: the fold it is recorded against, the worktree, and the evidence store revisions are frozen into. */
+/** What turning work into events needs: the fold it is recorded against, the worktree, the evidence store revisions are frozen into, and how a file is compared with what the run expects (R22). */
 export interface RevisionContext {
   readonly state: RunState;
   readonly worktree: string;
   readonly evidence: Pick<EvidenceStore, 'put'>;
+  readonly match: ExpectedMatch;
 }
 
 /** The longest commit subject the engine composes, as a person would keep one. */
@@ -118,7 +119,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
   const base = baseOf(context);
-  requireOwnedReported(owned.filter((path) => !matchesExpected(expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
+  requireOwnedReported(owned.filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
 
   const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
   const findings = ids.map((id, index): FixedFinding => {
@@ -141,7 +142,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   // The fixer's snapshots are under the scratch directory its launch recorded; a worker given none took none.
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
-  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids);
+  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     { kind: 'fix.recorded', version: 1, payload: recorded },
     ...revisions.map((revision): NewEvent => ({
@@ -175,7 +176,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   const strays = new Set(state.review!.checks.flatMap((check) => check.strays));
   const listed = [...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)].filter((path) => !others.has(path) && !strays.has(path));
   const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids);
+  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids, context.match);
   const who = phase === 'repair' ? 'the repair' : `batch ${key}`;
   const why = truncated(reason, 1000);
   return revisions.map((revision): NewEvent => {
@@ -197,7 +198,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
 export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string): NewEvent | null {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys());
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys(), context.match);
   if (files.length === 0) return null;
   const payload: TreeRevised = {
     phase,
