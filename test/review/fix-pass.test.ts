@@ -195,6 +195,29 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(describeRun(state, claudeAdapter, (reference) => reference.sha256).lines.includes('Fix pass: c1-1 answered, c1-2 answered; 0 held for the author'));
   });
 
+  it('stops launching fixers once the run budget is reached, reports what it did not attempt, and completes instead of blocking (R19)', async () => {
+    setPolicyBatchSize(1);
+    box.script({
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
+      // The first batch alone spends past the budget, so its cluster's second batch is never launched.
+      'fixer:fixes:c1-1': { costUsd: 5, edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+    });
+    const text = report(await box.fix('claude', { flags: { budgetUsd: 1 } }));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(Object.keys(fix.answers.fixes), ['c1-1']);
+    assert.equal(fix.notAttempted.fixes['c1-2']?.cause, 'budget');
+    assert.match(fix.notAttempted.fixes['c1-2']?.reason ?? '', /^spent 5\.\d\d USD of the 1\.00 USD run budget/);
+    assert.equal(Object.values(state.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-2'), false, 'no worker for the batch past the budget');
+    assert.equal(state.review!.phases.fixes.status, 'degraded');
+    assert.equal(state.review!.blocker, null);
+    assert.ok(box.logs.some((line) => /^phase fixes: c1-2 not attempted \(budget\): spent/.test(line)), box.logs.join('\n'));
+    // The report says what the budget left undone; the checks still ran on the fixed tree.
+    assert.match(text, /^### 2\. SCAN-2 not attempted\n\nNot attempted: the run budget was reached first: spent 5\.\d\d USD of the 1\.00 USD run budget/m);
+    assert.match(text, /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 1 not attempted, 0 held for the author;/m);
+    assert.equal(fix.checks.runs.checks.length > 0, true);
+  });
+
   it('revises an unowned file a fixer edits and reports, without drift', async () => {
     box.script({
       ...reviewScript,
@@ -326,7 +349,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     report(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
-    assert.match(fix.notAttempted.fixes['c1-1'] ?? '', /^2 attempts did not complete/);
+    assert.equal(fix.notAttempted.fixes['c1-1']?.cause, 'failures');
+    assert.match(fix.notAttempted.fixes['c1-1']?.reason ?? '', /^2 attempts did not complete/);
     assert.equal(state.review!.phases.fixes.status, 'degraded');
     // The first attempt's edits were recorded with its failure; the second left the same bytes, so it recorded nothing (R20).
     const workers = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1-1');

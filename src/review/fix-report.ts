@@ -7,7 +7,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, TreeRevised } from '../checkpoint/events.ts';
-import { clusterOf, isNotAttempted, lastRun, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { clusterOf, isNotAttempted, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { inlineText, tableCell } from './markdown.ts';
@@ -31,7 +31,7 @@ interface FindingFate {
   /** The batch that held it, whose key names its cluster, or null for a held finding. */
   readonly batch: PlannedBatch | null;
   readonly answer: FixedFinding | null;
-  /** Why the finding was not attempted, for one whose batch failed twice. */
+  /** Why the finding was not attempted, for one whose batch failed twice or met the run budget. */
   readonly reason: string | null;
 }
 
@@ -41,7 +41,7 @@ function fateOf(fix: FixState, id: string): FindingFate {
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const answer = batch === null ? null : (fix.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id) ?? null);
   if (answer !== null) return { id, outcome: statusWords[answer.status], batch, answer, reason: null };
-  const reason = batch !== null && isNotAttempted(fix, 'fixes', batch.key) ? fix.notAttempted.fixes[batch.key]! : 'no fixer answered for it';
+  const reason = (batch === null ? null : notAttemptedNote(fix, 'fixes', batch.key)) ?? 'no fixer answered for it';
   return { id, outcome: 'not attempted', batch, answer: null, reason };
 }
 
@@ -91,7 +91,7 @@ function fixesSection(review: ReviewState, fix: FixState): string[] {
   });
   const repair = fix.answers.repair[repairUnitKey];
   const repairLines = repair === undefined
-    ? isNotAttempted(fix, 'repair', repairUnitKey) ? ['### Repair', '', `Not attempted: ${inlineText(fix.notAttempted.repair[repairUnitKey]!)}`, ''] : []
+    ? isNotAttempted(fix, 'repair', repairUnitKey) ? ['### Repair', '', `Not attempted: ${inlineText(notAttemptedNote(fix, 'repair', repairUnitKey)!)}`, ''] : []
     : ['### Repair', '', ...repair.findings.map((finding) => `- ${finding.id} check ${statusWords[finding.status]}: ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`), ''];
   const lines = [
     '## Fixes',

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "ddl": "a551960a9c6792b3e1abeab1abed8361f0b4af510504339b32f11010859d6b82",
-  "registry": "070f64e2ce07c27601819cba8645b1e46eebaa556810b662c21fd01960b84d1d",
+  "registry": "d272e0e7d1a249b2e923000506ff7d9cf045038c81630f32186513edcd5d92e0",
   "kinds": [
     "angle.failed@1",
     "attempt.failed@1",
@@ -9,7 +9,6 @@
     "candidates.recorded@1",
     "check.ran@1",
     "checks.planned@1",
-    "cluster.failed@1",
     "commits.created@1",
     "deduplication.recorded@1",
     "fix.recorded@1",
@@ -29,6 +28,7 @@
     "run.created@1",
     "scope.captured@1",
     "tree.revised@1",
+    "unit.unattempted@1",
     "verdicts.recorded@1",
     "verification.planned@1",
     "worker.finished@1",

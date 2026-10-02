@@ -3081,63 +3081,6 @@
             }
           }
         },
-        "00000000-0000-4000-8000-000000000153": {
-          "status": "finished",
-          "launch": {
-            "workerId": "00000000-0000-4000-8000-000000000153",
-            "label": "fixer fixes:c1-3",
-            "runtime": "claude",
-            "executable": "/fixture/bin/claude",
-            "executableArgs": [],
-            "version": "2.1.283",
-            "model": "opus",
-            "effort": "high",
-            "access": "read-only",
-            "shell": true,
-            "sessionId": "11111111-2222-4333-8444-000000000153",
-            "resumes": null,
-            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000153",
-            "budgetUsd": 8,
-            "timeoutMs": 600000,
-            "prompt": {
-              "sha256": "a0230191c13da77e668fabf7940a6b4fe6fffe1d1368e84d720667022a56e82e",
-              "bytes": 26
-            },
-            "schema": {
-              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
-              "bytes": 76
-            }
-          },
-          "launchedAt": "2026-09-26T00:00:201.000Z",
-          "finish": {
-            "workerId": "00000000-0000-4000-8000-000000000153",
-            "outcome": "completed",
-            "exitCode": 0,
-            "signal": null,
-            "termination": "exited",
-            "startedAt": "2026-09-27T01:00:00.000Z",
-            "endedAt": "2026-09-27T01:00:30.000Z",
-            "sessionIds": [
-              "11111111-2222-4333-8444-000000000153"
-            ],
-            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
-            "denials": [],
-            "error": null,
-            "stdout": {
-              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
-              "bytes": 38
-            },
-            "stderr": {
-              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-              "bytes": 0
-            },
-            "finalMessage": null,
-            "output": {
-              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-              "bytes": 2
-            }
-          }
-        },
         "00000000-0000-4000-8000-000000000160": {
           "status": "finished",
           "launch": {
@@ -3165,7 +3108,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:214.000Z",
+          "launchedAt": "2026-09-26T00:00:212.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000160",
             "outcome": "completed",
@@ -3366,7 +3309,7 @@
             "attempt": 1
           },
           "fixes": {
-            "status": "completed",
+            "status": "degraded",
             "attempt": 1
           },
           "checks": {
@@ -3769,10 +3712,6 @@
                   "lost": false
                 }
               ]
-            },
-            "c1-3": {
-              "answeredBy": "00000000-0000-4000-8000-000000000153",
-              "failures": []
             }
           },
           "checks": {},
@@ -3949,13 +3888,13 @@
                 "phase": "baseline-checks"
               },
               {
-                "workers": 5,
-                "seconds": 150,
-                "costUsd": 2.5,
+                "workers": 4,
+                "seconds": 120,
+                "costUsd": 2,
                 "costUnreported": 0,
-                "inputTokens": 5000,
-                "cachedInputTokens": 1000,
-                "outputTokens": 500,
+                "inputTokens": 4000,
+                "cachedInputTokens": 800,
+                "outputTokens": 400,
                 "phase": "fixes"
               },
               {
@@ -4000,13 +3939,13 @@
               }
             ],
             "total": {
-              "workers": 21,
-              "seconds": 630,
-              "costUsd": 10.5,
+              "workers": 20,
+              "seconds": 600,
+              "costUsd": 10,
               "costUnreported": 0,
-              "inputTokens": 21000,
-              "cachedInputTokens": 4200,
-              "outputTokens": 2100
+              "inputTokens": 20000,
+              "cachedInputTokens": 4000,
+              "outputTokens": 2000
             },
             "budgetApplied": true
           },
@@ -4458,39 +4397,6 @@
                   "failures": ""
                 },
                 "violations": []
-              },
-              "c1-3": {
-                "phase": "fixes",
-                "key": "c1-3",
-                "workerId": "00000000-0000-4000-8000-000000000153",
-                "findings": [
-                  {
-                    "id": "SCAN-3",
-                    "status": "deferred",
-                    "file": "src/changed.ts",
-                    "line": 1,
-                    "note": "SCAN-3 deferred",
-                    "message": null,
-                    "files": [],
-                    "corrections": [],
-                    "validation": [
-                      {
-                        "method": "old-code",
-                        "source": "test/changed.test.ts",
-                        "evidence": "red before the fix, green after"
-                      }
-                    ],
-                    "requiredFiles": []
-                  }
-                ],
-                "drift": [],
-                "tests": [],
-                "suite": {
-                  "result": "not-run",
-                  "command": "",
-                  "failures": ""
-                },
-                "violations": []
               }
             },
             "repair": {
@@ -4713,7 +4619,12 @@
             }
           ],
           "notAttempted": {
-            "fixes": {},
+            "fixes": {
+              "c1-3": {
+                "cause": "budget",
+                "reason": "spent 30.10 USD of the 30.00 USD run budget"
+              }
+            },
             "repair": {}
           },
           "commits": {
@@ -4749,7 +4660,7 @@
           }
         }
       },
-      "lastSequence": 231
+      "lastSequence": 229
     }
   ],
   "evidence": [

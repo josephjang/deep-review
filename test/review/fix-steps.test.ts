@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
-import { baselined, checkRun, checksPhase, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, reference, withFixPass, worker } from '../helpers/review-history.ts';
+import { baselined, checkRun, checksPhase, configured, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}` };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -65,8 +65,53 @@ describe('nextStep in the fix pass', () => {
     assert.deepEqual(nextStep(once.review(), idle), first, 'a batch that failed once is retried before its cluster moves on');
     const answered = fixes().worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50)));
     assert.deepEqual(nextStep(answered.review(), idle), second);
-    const failed = fixes().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: '2 attempts did not complete' });
+    const failed = fixes().add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: '2 attempts did not complete' });
     assert.deepEqual(nextStep(failed.review(), idle), second, 'a batch not attempted settles, and its cluster goes on');
+  });
+
+  it('stops an editing phase\'s launches at the run budget: every unit not settled and not running is not attempted, with the budget as the cause (R19)', () => {
+    const plan = {
+      routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
+      clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }],
+    };
+    const fixes = baselined().start('fixes').add('fixes.planned', plan);
+    const spent = live({ spend: { usd: 30.5, charged: 0, lost: 0 } });
+    const reason = 'spent 30.50 USD of the 30.00 USD run budget';
+    assert.deepEqual(nextStep(fixes.review(), spent), { kind: 'degrade', phase: 'fixes', degradations: [
+      { kind: 'unit.unattempted', phase: 'fixes', key: 'c1-1', cause: 'budget', reason },
+      { kind: 'unit.unattempted', phase: 'fixes', key: 'c2-1', cause: 'budget', reason },
+    ] });
+    // A batch already running finishes; only the one with no worker is given up.
+    assert.deepEqual(nextStep(fixes.review(), { ...spent, running: new Set(['fixes:c1-1']) }), { kind: 'degrade', phase: 'fixes', degradations: [{ kind: 'unit.unattempted', phase: 'fixes', key: 'c2-1', cause: 'budget', reason }] });
+    // Once every unit settled, the phase is checked and finishes degraded, and the run goes on.
+    fixes.worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50))).add('unit.unattempted', { phase: 'fixes', key: 'c2-1', cause: 'budget', reason });
+    assert.deepEqual(nextStep(fixes.review(), spent), { kind: 'check-worktree', phase: 'fixes', attempt: 1, moment: 'end' });
+    fixes.add('worktree.checked', endCheck('fixes'), 2);
+    assert.deepEqual(nextStep(fixes.review(), spent), { kind: 'finish-phase', phase: 'fixes', attempt: 1, outcome: 'degraded', blocker: null });
+  });
+
+  it('gives up a batch that failed once, and one waiting for its cluster, at the budget, and still blocks a reading phase there', () => {
+    const plan = {
+      routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
+      clusters: [{ id: 'c1', findingIds: ['RIPPLE-1', 'SWEEP-1'], files: ['src/a.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c1-2', cluster: 'c1', findingIds: ['SWEEP-1'] }],
+    };
+    const once = checksPhase(withFixPass(mergeRanked(), 1), 'baseline-checks').start('fixes').add('fixes.planned', plan).worker(50, 'fixer fixes:c1-1').add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(50), reason: 'timeout' }, 2);
+    const spent = live({ spend: { usd: 31, charged: 0, lost: 0 } });
+    const step = nextStep(once.review(), spent);
+    assert.ok(step.kind === 'degrade', JSON.stringify(step));
+    assert.deepEqual(step.degradations.map((degradation) => [degradation.kind === 'unit.unattempted' ? degradation.key : null, degradation.kind === 'unit.unattempted' ? degradation.cause : null]), [['c1-1', 'budget'], ['c1-2', 'budget']]);
+    // A reading phase blocks at the budget as before.
+    const reading = withFixPass(configured()).start('triage');
+    assert.equal(nextStep(reading.review(), spent).kind, 'finish-phase');
+    assert.equal((nextStep(reading.review(), spent) as { blocker: { code: string } }).blocker.code, 'budget');
+  });
+
+  it('gives the repair up at the budget too', () => {
+    const repair = checksPhase(fixed(), 'checks', { test: 'failed' }).start('repair');
+    const step = nextStep(repair.review(), live({ spend: { usd: 30, charged: 0, lost: 0 } }));
+    assert.deepEqual(step, { kind: 'degrade', phase: 'repair', degradations: [{ kind: 'unit.unattempted', phase: 'repair', key: 'repair', cause: 'budget', reason: 'spent 30.00 USD of the 30.00 USD run budget' }] });
   });
 
   it('launches the batches of different clusters together, in the order the plan ranks them', () => {
@@ -100,8 +145,8 @@ describe('nextStep in the fix pass', () => {
     const failing = baselined().start('fixes').add('fixes.planned', fixPlan)
       .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(50), reason: 'failed' }, 2)
       .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(51), reason: 'failed again' }, 2);
-    assert.deepEqual(nextStep(failing.review(), idle), { kind: 'degrade', phase: 'fixes', degradations: [{ kind: 'cluster.failed', phase: 'fixes', key: 'c1-1', reason: '2 attempts did not complete: failed; failed again' }] });
-    failing.add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: '2 attempts did not complete' });
+    assert.deepEqual(nextStep(failing.review(), idle), { kind: 'degrade', phase: 'fixes', degradations: [{ kind: 'unit.unattempted', phase: 'fixes', key: 'c1-1', cause: 'failures', reason: '2 attempts did not complete: failed; failed again' }] });
+    failing.add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: '2 attempts did not complete' });
     assert.deepEqual(nextStep(failing.review(), idle), { kind: 'check-worktree', phase: 'fixes', attempt: 1, moment: 'end' });
     failing.add('worktree.checked', endCheck('fixes'), 2);
     assert.deepEqual(nextStep(failing.review(), idle), { kind: 'finish-phase', phase: 'fixes', attempt: 1, outcome: 'degraded', blocker: null });

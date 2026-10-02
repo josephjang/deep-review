@@ -8,7 +8,7 @@
  * accounts for, commits on a run without a report.
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlanned, ClusterFailed, CommitsCreated, FixesPlanned, FixRecorded, TreeRevised } from './events.ts';
+import type { CheckRan, ChecksPlanned, CommitsCreated, FixesPlanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
 import { batchOf, clusterOfBatch, isNotAttempted, lastRun, repairTargets, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
@@ -176,13 +176,13 @@ const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {
   return withFix(current, review, { ...fix, revisions: [...fix.revisions, payload] }, event);
 };
 
-const clusterFailed: Reducer<ClusterFailed> = (state, payload, event) => {
+const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   requireRunning(review, event, payload.phase);
-  if (unitIds(fix, payload.phase, payload.key) === null) throw invalid(event, `fails ${payload.phase}:${payload.key}, which the phase does not have`);
+  if (unitIds(fix, payload.phase, payload.key) === null) throw invalid(event, `settles ${payload.phase}:${payload.key}, which the phase does not have`);
   requireUnanswered(review, event, { phase: payload.phase, key: payload.key });
-  if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `fails ${payload.phase}:${payload.key} twice`);
-  const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: payload.reason } };
+  if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `settles ${payload.phase}:${payload.key} as not attempted twice`);
+  const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: { cause: payload.cause, reason: payload.reason } } };
   return withFix(current, review, { ...fix, notAttempted }, event);
 };
 
@@ -206,6 +206,6 @@ export const fixReducers = {
   'check.ran@1': checkRan,
   'fix.recorded@1': fixRecorded,
   'tree.revised@1': treeRevised,
-  'cluster.failed@1': clusterFailed,
+  'unit.unattempted@1': unitUnattempted,
   'commits.created@1': commitsCreated,
 } as const;

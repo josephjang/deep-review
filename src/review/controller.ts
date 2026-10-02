@@ -285,7 +285,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         case 'degrade':
           for (const degradation of step.degradations) {
-            const what = degradation.kind === 'angle.failed' ? `angle ${degradation.angle} not run` : degradation.kind === 'group.unverified' ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted`;
+            const what = degradation.kind === 'angle.failed' ? `angle ${degradation.angle} not run` : degradation.kind === 'group.unverified' ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`;
             log(`phase ${step.phase}: ${what}: ${degradation.reason}`);
           }
           state = append(checkpoint, state, step.degradations.flatMap((degradation): NewEvent[] => {
@@ -294,9 +294,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
                 return [{ kind: 'angle.failed', version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
               case 'group.unverified':
                 return [{ kind: 'group.unverified', version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }];
-              case 'cluster.failed':
-                // What the failed workers left is already recorded, with each failure (R20 of the fix pass).
-                return [{ kind: 'cluster.failed', version: 1, payload: { phase: degradation.phase, key: degradation.key, reason: degradation.reason } }];
+              case 'unit.unattempted':
+                // What failed workers left is already recorded, with each failure (R20 of the fix pass).
+                return [{ kind: 'unit.unattempted', version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } }];
             }
           }));
           break;

@@ -7,7 +7,13 @@
  * next from them. The questions below are answered from this state alone.
  */
 import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlanned, CommitsCreated, FixesPlanned, FixRecorded, TreeRevised } from './events.ts';
+import type { CheckRan, ChecksPlanned, CommitsCreated, FixesPlanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
+
+/** Why a unit of an editing phase was not attempted (R12, R19 of the fix pass). */
+export interface NotAttempted {
+  readonly cause: UnitUnattempted['cause'];
+  readonly reason: string;
+}
 
 export interface FixState {
   readonly checks: {
@@ -22,8 +28,8 @@ export interface FixState {
   readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecorded>>>>;
   /** Every revision of the tree, in ledger order. */
   readonly revisions: readonly TreeRevised[];
-  /** The units that failed twice, by editing phase and then by unit key, with the reason; their findings are not attempted. */
-  readonly notAttempted: Readonly<Record<EditingPhase, Readonly<Record<string, string>>>>;
+  /** The units settled without an answer, by editing phase and then by unit key: two failures or the run budget, with the reason; their findings are not attempted. */
+  readonly notAttempted: Readonly<Record<EditingPhase, Readonly<Record<string, NotAttempted>>>>;
   /** The commits built from the run after its report, or null until they are. */
   readonly commits: CommitsCreated | null;
 }
@@ -35,7 +41,7 @@ export function emptyFixState(): FixState {
     plan: null,
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecorded>>,
     revisions: [],
-    notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, string>>,
+    notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, NotAttempted>>,
     commits: null,
   };
 }
@@ -109,7 +115,14 @@ export function revisionMessageOf(fix: FixState, revision: TreeRevised): TreeRev
   return answer?.findings.find((finding) => finding.id === id)?.message ?? revision.change.message;
 }
 
-/** Whether a unit of an editing phase failed twice and is settled as not attempted. */
+/** Why a unit was not attempted, in the words the report and the tasks use, or null for a unit that was. */
+export function notAttemptedNote(fix: FixState, phase: EditingPhase, key: string): string | null {
+  const settled = fix.notAttempted[phase][key];
+  if (settled === undefined) return null;
+  return settled.cause === 'budget' ? `the run budget was reached first: ${settled.reason}` : settled.reason;
+}
+
+/** Whether a unit of an editing phase is settled as not attempted, after two failures or at the run budget. */
 export function isNotAttempted(fix: FixState, phase: EditingPhase, key: string): boolean {
   return Object.hasOwn(fix.notAttempted[phase], key);
 }
