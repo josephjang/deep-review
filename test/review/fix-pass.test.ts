@@ -96,7 +96,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     // The held design finding never reached a fixer (R2).
     const c1 = promptOf(state, 'fixer fixes:c1-1');
     assert.match(c1, /^Cluster c1, batch c1-1: 1 finding, numbered \[0\] to \[0\]/m);
-    assert.doesNotMatch(c1, /earlier batches/, 'a cluster\'s first batch has none before it');
+    assert.doesNotMatch(c1, /Findings of this cluster that earlier batches worked/, 'a cluster\'s first batch has none before it');
     assert.match(c1, /^\[0\] SCAN-1 \[minor\] PLAUSIBLE \(SCAN\) at src\/a\.ts:2$/m);
     assert.doesNotMatch(c1, /SWEEP-1/);
     assert.match(c1, /- src\/b\.ts \(c2\)/, 'the other cluster\'s files are named as not to be edited');

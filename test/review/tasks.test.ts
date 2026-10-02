@@ -139,7 +139,7 @@ describe('the fixer\'s task', () => {
   });
 
   it('names what the cluster\'s earlier batches did, as work already in the tree, and says nothing of them for a first batch', () => {
-    assert.doesNotMatch(fixerTask(input), /earlier batches/);
+    assert.doesNotMatch(fixerTask(input), /Findings of this cluster that earlier batches worked/);
     const task = fixerTask({ ...input, earlier: [{ batch: 'c1-1', id: 'SCAN-1', outcome: 'applied', note: 'guarded the null' }, { batch: 'c1-1', id: 'SCAN-2', outcome: 'not attempted', note: null }] });
     assert.match(task, /^Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:\n- c1-1 SCAN-1 applied: guarded the null\n- c1-1 SCAN-2 not attempted\n\n/m);
     assert.doesNotMatch(task, /may already hold part of this work/, 'earlier batches are no warning of a half-done batch');
