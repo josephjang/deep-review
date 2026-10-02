@@ -210,21 +210,30 @@ angle: a `CONFIRMED` finding, or a `PLAUSIBLE` one from a correctness
 angle or `CONVENTIONS`, goes to a fixer; a `PLAUSIBLE` finding from
 `DESIGN`, `DUPLICATION` or `ALTITUDE` is held for the author. The
 fixer-routed findings are clustered one per file, a merged finding kept
-whole, so no file is owned by two clusters, and each cluster goes to
-one `fixer` worker with edit access. A fixer owns its cluster's files,
-may edit any file no cluster owns when a fix or its tests need it,
-never touches another cluster's, and returns a schema the engine
-validates: per finding a status (`applied`, `already-applied`,
-`deferred`, `blocked`), a note, the files it changed and, for an
-applied finding, a commit message. After each finding it runs
-`deep-review snapshot`, which copies what it changed into its scratch
-directory, so the engine records one revision of the tree per finding.
+whole, so no file is owned by two clusters. Each cluster's findings go
+in batches of the policy's `fixes.batchSize`, four by default, to
+`fixer` workers with edit access, one batch after another, and the
+batches of the whole run launch best-ranked first. A fixer owns its
+cluster's files while its batch runs, may edit any file no cluster owns
+when a fix or its tests need it, never touches another cluster's, and
+returns a schema the engine validates: per finding a status
+(`applied`, `already-applied`, `deferred`, `blocked`), a note, the
+files it changed and, for an applied finding, a commit message. After
+each finding it runs `deep-review snapshot`, which copies what it
+changed into its scratch directory, so the engine records one revision
+of the tree per finding. Once every batch of this first round has
+settled, a finding a fixer reported blocked only on files another
+cluster owned gets one second round, owning those files too.
 
 The engine never writes the reviewed tree during a run. It records the
 bytes every worker or check left in the files it changed as a revision,
 and compares the worktree with the scope overlaid by the revisions: an
 edit an answer accounted for is not drift, and one nobody accounted for
-still blocks, the blocker naming where the expected bytes are. A file
+still blocks, the blocker naming where the expected bytes are. A fixer
+that fails, or is lost with its engine, has what it left recorded when
+it fails, a revision per finding its snapshots tell apart, so its
+retry's revisions are its own. Files are compared as git would store
+them, so a formatter turning a CRLF checkout to LF changes nothing. A file
 another cluster owns that a fixer reports editing is recorded as a
 violation, a file no answer names as a stray, and neither stops the
 run.
@@ -240,11 +249,15 @@ passed, with the build-server and non-interactive pins, stdin at end of
 input and a timeout from `roles/policy.json`; a check passes by its
 exit code, and its output is frozen. A check that the baseline passed
 and the fixes broke goes to one repair worker; one that failed before
-any fix is reported as such and never repaired.
+any fix is reported as such and never repaired. In the fixes and repair
+phases the run budget stops new launches instead of blocking the run:
+what was not launched is reported not attempted, and the run still
+reaches its report.
 
 The report gains Fixes, Checks and Changed files, and beside it the
 engine writes a patch series, one patch per revision, rendered from the
-frozen bytes so it holds none of the user's own uncommitted change;
+frozen bytes, as git would store them, so it holds none of the user's
+own uncommitted change;
 `git am --keep-cr` applies it in order to a tree at the scope. Nothing
 is committed by the run. Afterwards, on request, `deep-review commit`
 builds one commit per revision from the same bytes with git's plumbing,
