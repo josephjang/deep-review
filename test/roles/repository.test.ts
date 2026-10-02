@@ -171,6 +171,13 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  it('asks every fixer role for the message of an already-applied finding whose edits an earlier attempt left (R20 of the fix pass)', () => {
+    for (const key of fixerRoles) {
+      const prompt = roles.find((role) => role.key === key)!.prompt;
+      assert.match(prompt, /Give one for an\s+already-applied finding too when your task says an earlier attempt\s+left its edits, since their commit carries it; null otherwise\./, key);
+    }
+  });
+
   it('tells no worker that returns to the engine to dispatch other workers', () => {
     // The auditor and the fixer roles each return one report; starting workers is the engine's job.
     const returning = roles.filter((role) => ['auditor-brief.md', 'fixer-role.md'].includes(role.fragments[0]!.name));
