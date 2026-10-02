@@ -280,6 +280,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           state = append(checkpoint, state, [{ kind: 'fixes.planned', version: 1, payload: step.plan }]);
           break;
         }
+        case 'plan-second-round': {
+          const { blocked, clusters, batches } = step.plan;
+          log(blocked.length === 0 ? 'phase fixes: no finding for a second round' : `phase fixes: second round for ${blocked.map((finding) => finding.id).join(', ')}, in ${String(clusters.length)} cluster${clusters.length === 1 ? '' : 's'} and ${String(batches.length)} batch${batches.length === 1 ? '' : 'es'}`);
+          state = append(checkpoint, state, [{ kind: 'fixes.replanned', version: 1, payload: step.plan }]);
+          break;
+        }
         case 'run-check':
           state = append(checkpoint, state, await runDueCheck(step.phase, step.attempt, step.check));
           break;

@@ -8,8 +8,8 @@
  * accounts for, commits on a run without a report.
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlanned, CommitsCreated, FixesPlanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, clusterOfBatch, isNotAttempted, lastRun, repairTargets, type FixState } from './fix-state.ts';
+import type { CheckRan, ChecksPlanned, CommitsCreated, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
+import { batchOf, clusterOfBatch, firstRoundSettled, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundClusters, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 
@@ -67,8 +67,65 @@ const fixesPlanned: Reducer<FixesPlanned> = (state, payload, event) => {
   });
   const unclustered = [...toFixer].filter((id) => !clustered.has(id));
   if (unclustered.length > 0) throw invalid(event, `routes ${unclustered.join(', ')} to a fixer but clusters none of them`);
-  requireBatches(event, payload, review.configuration.fixes?.batchSize ?? null);
+  requireBatches(event, payload.routes, payload.clusters, payload.batches, review.configuration.fixes?.batchSize ?? null);
   return withFix(current, review, { ...fix, plan: payload }, event);
+};
+
+/**
+ * The second round's plan (R21): once, after the first round settled;
+ * each finding it takes was answered blocked in the first round on the
+ * files it names, all owned by other first-round clusters; its clusters
+ * are numbered on from the first round's, hold those findings once each,
+ * and own each finding's first cluster's files and the files it needed,
+ * no file twice; and its batches are held to its clusters as the first
+ * round's are. Which findings qualify is checked, not recomputed, so a
+ * later engine with another rule reads this plan as it was made.
+ */
+const fixesReplanned: Reducer<FixesReplanned> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requireRunning(review, event, 'fixes');
+  const plan = fix.plan;
+  if (plan === null) throw invalid(event, 'plans a second round before the first');
+  if (fix.secondRound !== null) throw invalid(event, 'plans its second round twice');
+  if (!firstRoundSettled(fix)) throw invalid(event, 'plans its second round before every batch of the first settled');
+  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path): [string, string] => [path, cluster.id])));
+  const filesOf = new Map<string, readonly string[]>();
+  for (const entry of payload.blocked) {
+    if (filesOf.has(entry.id)) throw invalid(event, `takes finding ${entry.id} into its second round twice`);
+    const own = plan.clusters.find((cluster) => cluster.findingIds.includes(entry.id));
+    const answer = lastAnswerOf(fix, entry.id)?.finding;
+    if (own === undefined || answer?.status !== 'blocked') throw invalid(event, `takes finding ${entry.id} into its second round, which the first round did not answer blocked`);
+    if (new Set(entry.requiredFiles).size !== entry.requiredFiles.length || !entry.requiredFiles.every((path) => answer.requiredFiles.includes(path)) || !answer.requiredFiles.every((path) => entry.requiredFiles.includes(path))) {
+      throw invalid(event, `gives finding ${entry.id} the files [${entry.requiredFiles.join(', ')}], not the ones it was blocked on [${answer.requiredFiles.join(', ')}]`);
+    }
+    const foreign = entry.requiredFiles.filter((path) => !ownerOf.has(path) || ownerOf.get(path) === own.id);
+    if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(', ')}, which no other first-round cluster owned`);
+    filesOf.set(entry.id, [...new Set([...own.files, ...entry.requiredFiles])]);
+  }
+  const owner = new Map<string, string>();
+  const taken = new Set<string>();
+  payload.clusters.forEach((cluster, index) => {
+    const number = plan.clusters.length + index + 1;
+    if (cluster.id !== `c${String(number)}`) throw invalid(event, `numbers second-round cluster ${String(index + 1)} ${cluster.id}, not c${String(number)}`);
+    for (const id of cluster.findingIds) {
+      if (!filesOf.has(id)) throw invalid(event, `clusters finding ${id} in its second round, which it does not take`);
+      if (taken.has(id)) throw invalid(event, `clusters finding ${id} twice in its second round`);
+      taken.add(id);
+    }
+    const expected = [...new Set(cluster.findingIds.flatMap((id) => filesOf.get(id)!))].sort();
+    if (expected.length !== cluster.files.length || expected.some((path, position) => [...cluster.files].sort()[position] !== path)) {
+      throw invalid(event, `gives second-round cluster ${cluster.id} the files [${cluster.files.join(', ')}], not its findings' [${expected.join(', ')}]`);
+    }
+    for (const path of cluster.files) {
+      const first = owner.get(path);
+      if (first !== undefined) throw invalid(event, `gives file ${path} to second-round clusters ${first} and ${cluster.id}`);
+      owner.set(path, cluster.id);
+    }
+  });
+  const untaken = [...filesOf.keys()].filter((id) => !taken.has(id));
+  if (untaken.length > 0) throw invalid(event, `takes ${untaken.join(', ')} into its second round but clusters none of them`);
+  requireBatches(event, plan.routes, payload.clusters, payload.batches, review.configuration.fixes?.batchSize ?? null);
+  return withFix(current, review, { ...fix, secondRound: payload }, event);
 };
 
 /**
@@ -78,26 +135,26 @@ const fixesPlanned: Reducer<FixesPlanned> = (state, payload, event) => {
  * and the batches appear in the rank of their first finding, the order
  * they are launched in.
  */
-function requireBatches(event: DecodedEvent, payload: FixesPlanned, batchSize: number | null): void {
+function requireBatches(event: DecodedEvent, routes: FixesPlanned['routes'], clusters: FixesPlanned['clusters'], batches: FixesPlanned['batches'], batchSize: number | null): void {
   if (batchSize === null) throw invalid(event, 'plans batches on a run that pinned no batch size');
-  const rank = new Map(payload.routes.map((route, index) => [route.id, index]));
+  const rank = new Map(routes.map((route, index) => [route.id, index]));
   // Per cluster, the batches seen so far and the findings they hold.
   const seen = new Map<string, { batches: number; findings: string[] }>();
   let previous = -1;
-  for (const batch of payload.batches) {
-    const { batches, findings: done } = seen.get(batch.cluster) ?? { batches: 0, findings: [] };
-    const cluster = payload.clusters.find((candidate) => candidate.id === batch.cluster);
+  for (const batch of batches) {
+    const { batches: numbered, findings: done } = seen.get(batch.cluster) ?? { batches: 0, findings: [] };
+    const cluster = clusters.find((candidate) => candidate.id === batch.cluster);
     if (cluster === undefined) throw invalid(event, `plans batch ${batch.key} for cluster ${batch.cluster}, which it does not plan`);
-    if (batch.key !== `${batch.cluster}-${String(batches + 1)}` || !batchKeySchema.safeParse(batch.key).success) throw invalid(event, `numbers batch ${String(batches + 1)} of cluster ${batch.cluster} ${batch.key}`);
+    if (batch.key !== `${batch.cluster}-${String(numbered + 1)}` || !batchKeySchema.safeParse(batch.key).success) throw invalid(event, `numbers batch ${String(numbered + 1)} of cluster ${batch.cluster} ${batch.key}`);
     if (batch.findingIds.length > batchSize) throw invalid(event, `puts ${String(batch.findingIds.length)} findings in batch ${batch.key}, more than the pinned size ${String(batchSize)}`);
     const expected = cluster.findingIds.slice(done.length, done.length + batch.findingIds.length);
     if (batch.findingIds.some((id, index) => id !== expected[index])) throw invalid(event, `gives batch ${batch.key} [${batch.findingIds.join(', ')}], not the next of cluster ${cluster.id}'s findings in order`);
     const first = rank.get(batch.findingIds[0]!)!;
     if (first < previous) throw invalid(event, `plans batch ${batch.key} after a batch whose first finding ranks below its own`);
     previous = first;
-    seen.set(batch.cluster, { batches: batches + 1, findings: [...done, ...batch.findingIds] });
+    seen.set(batch.cluster, { batches: numbered + 1, findings: [...done, ...batch.findingIds] });
   }
-  for (const cluster of payload.clusters) {
+  for (const cluster of clusters) {
     if ((seen.get(cluster.id)?.findings.length ?? 0) !== cluster.findingIds.length) throw invalid(event, `leaves findings of cluster ${cluster.id} in no batch`);
   }
 }
@@ -123,9 +180,9 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `records an answer for ${payload.phase}:${payload.key} after it failed`);
   const given = payload.findings.map((finding) => finding.id);
   if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(', ')}] for ${payload.phase}:${payload.key}, which holds [${ids.join(', ')}]`);
-  // A violation is a reported file another cluster of the phase owns; the repair, the only unit of its phase, has none.
+  // A violation is a reported file another cluster of the unit's round owns; the repair, the only unit of its phase, has none.
   const own = payload.phase === 'fixes' ? clusterOfBatch(fix, payload.key)?.id : undefined;
-  const others = new Set((fix.plan?.clusters ?? []).filter((cluster) => payload.phase === 'fixes' && cluster.id !== own).flatMap((cluster) => cluster.files));
+  const others = new Set((payload.phase === 'fixes' ? roundClusters(fix, payload.key) : []).filter((cluster) => cluster.id !== own).flatMap((cluster) => cluster.files));
   const named = new Set(payload.findings.flatMap((finding) => finding.files));
   for (const path of payload.violations) {
     if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster owns`);
@@ -203,6 +260,7 @@ const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {
 export const fixReducers = {
   'checks.planned@1': checksPlanned,
   'fixes.planned@1': fixesPlanned,
+  'fixes.replanned@1': fixesReplanned,
   'check.ran@1': checkRan,
   'fix.recorded@1': fixRecorded,
   'tree.revised@1': treeRevised,

@@ -7,7 +7,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, TreeRevised } from '../checkpoint/events.ts';
-import { clusterOf, isNotAttempted, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { inlineText, tableCell } from './markdown.ts';
@@ -33,16 +33,27 @@ interface FindingFate {
   readonly answer: FixedFinding | null;
   /** Why the finding was not attempted, for one whose batch failed twice or met the run budget. */
   readonly reason: string | null;
+  /** For a finding the second round took, the files it was first blocked on (R21 of the fix pass); null otherwise. */
+  readonly firstBlockedOn: readonly string[] | null;
+  /** Why the second round's batch of a finding was not attempted, when its last answer is the first round's. */
+  readonly secondRoundSkipped: string | null;
 }
 
 function fateOf(fix: FixState, id: string): FindingFate {
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? 'fixer';
-  if (route === 'held') return { id, outcome: 'held for the author', batch: null, answer: null, reason: null };
+  if (route === 'held') return { id, outcome: 'held for the author', batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null };
+  const second = fix.secondRound?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
+  const firstBlockedOn = fix.secondRound?.blocked.find((entry) => entry.id === id)?.requiredFiles ?? null;
+  const last = lastAnswerOf(fix, id);
+  if (last !== null) {
+    const batch = allBatches(fix).find((candidate) => candidate.key === last.batch) ?? null;
+    const answeredInSecond = second !== null && last.batch === second.key;
+    const secondRoundSkipped = second !== null && !answeredInSecond ? notAttemptedNote(fix, 'fixes', second.key) : null;
+    return { id, outcome: statusWords[last.finding.status], batch, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped };
+  }
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
-  const answer = batch === null ? null : (fix.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id) ?? null);
-  if (answer !== null) return { id, outcome: statusWords[answer.status], batch, answer, reason: null };
   const reason = (batch === null ? null : notAttemptedNote(fix, 'fixes', batch.key)) ?? 'no fixer answered for it';
-  return { id, outcome: 'not attempted', batch, answer: null, reason };
+  return { id, outcome: 'not attempted', batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null };
 }
 
 /** The 1-based numbers of the patches whose revisions hold a finding (or, for the repair, a check kind). */
@@ -68,6 +79,8 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
   }
   for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(', ')}`);
+  if (fate.firstBlockedOn !== null) lines.push(`First blocked on: ${fate.firstBlockedOn.map(inlineText).join(', ')}, which the second round gave it`);
+  if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
   return lines;
 }
 
@@ -202,9 +215,10 @@ export function fixLimitations(review: ReviewState): string[] {
   const fix = review.fix;
   if (fix === null) return [];
   const lines: string[] = [];
-  const owner = (path: string): string => fix.plan?.clusters.find((cluster) => cluster.files.includes(path))?.id ?? 'no cluster';
+  // A violation is against the reporting batch's round, so the owner named is that round's cluster of the file.
+  const owner = (key: string, path: string): string => (fix.secondRound?.batches.some((batch) => batch.key === key) === true ? fix.secondRound.clusters : (fix.plan?.clusters ?? [])).find((cluster) => cluster.files.includes(path))?.id ?? 'no cluster';
   for (const answer of Object.values(fix.answers.fixes)) {
-    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, owned by ${owner(path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
+    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, owned by ${owner(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
   }
   const strays = [...new Set(review.checks.flatMap((check) => check.strays))].sort();
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);

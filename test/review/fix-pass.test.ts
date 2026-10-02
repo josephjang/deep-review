@@ -218,6 +218,45 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(fix.checks.runs.checks.length > 0, true);
   });
 
+  it('gives a finding blocked on another cluster\'s file a second round that owns both, once the first round settled, and reports what it was first blocked on (R21)', async () => {
+    const guardedB = `${fixedB}// keeps the guard\n`;
+    box.script({
+      ...reviewScript,
+      // As on the gate: SCAN-1's fix needs src/b.ts, which c2 owns for its one finding.
+      'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'blocked', files: [], requiredFiles: ['src/b.ts'], note: 'the fix needs src/b.ts, which c2 owns' }]) },
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+      'fixer:fixes:c3-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/b.ts': guardedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts', 'src/b.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+    });
+    const text = report(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(fix.secondRound, {
+      blocked: [{ id: 'SCAN-1', requiredFiles: ['src/b.ts'] }],
+      clusters: [{ id: 'c3', findingIds: ['SCAN-1'], files: ['src/a.ts', 'src/b.ts'] }],
+      batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['SCAN-1'] }],
+    });
+    // The round was planned once both first-round batches had answered, and its batch launched after.
+    const events = box.events(state.id);
+    const at = (predicate: (event: [string, Record<string, unknown>]) => boolean): number => events.findIndex(predicate);
+    const replannedAt = at(([kind]) => kind === 'fixes.replanned');
+    assert.ok(at(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c1-1') < replannedAt && at(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c2-1') < replannedAt);
+    assert.ok(replannedAt < at(([kind, payload]) => kind === 'worker.launched' && payload.label === 'fixer fixes:c3-1'));
+    const prompt = promptOf(state, 'fixer fixes:c3-1');
+    assert.match(prompt, /^Cluster c3, batch c3-1, in the second round: 1 finding/m);
+    assert.match(prompt, /^ {4}first round: blocked, needing src\/b\.ts: the fix needs src\/b\.ts, which c2 owns$/m);
+    assert.match(prompt, /Files you own while this batch runs, which no other worker edits:\n- src\/a\.ts\n- src\/b\.ts\n/);
+    assert.match(prompt, /^- c2-1 SCAN-2 applied: fake applied \[0\]$/m);
+    // The edit to src/b.ts, c2's in the first round, is no violation in the second.
+    assert.deepEqual(fix.answers.fixes['c3-1']!.violations, []);
+    assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind === 'fix' ? revision.source.key : null, revision.change.findings, revision.files.map((file) => file.path)]), [
+      ['c2-1', ['SCAN-2'], ['src/b.ts']],
+      ['c3-1', ['SCAN-1'], ['src/a.ts', 'src/b.ts']],
+    ]);
+    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nCluster: c3, batch c3-1 \(src\/a\.ts, src\/b\.ts\); patch \d\nFirst blocked on: src\/b\.ts, which the second round gave it$/m);
+    assert.ok(state.review!.checks.every((check) => !check.drifted));
+    assert.ok(box.logs.includes('phase fixes: second round for SCAN-1, in 1 cluster and 1 batch'), box.logs.join('\n'));
+  });
+
   it('revises an unowned file a fixer edits and reports, without drift', async () => {
     box.script({
       ...reviewScript,

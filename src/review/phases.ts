@@ -100,6 +100,13 @@ function unfinishedIds(review: ReviewState, phase: EditingPhase, key: string): s
   return [...new Set(ids)];
 }
 
+/** What the first round said of a finding the second round takes: its blocked note and the files it needed. */
+function firstRoundBlock(review: ReviewState, firstBatches: readonly PlannedBatch[], id: string, requiredFiles: readonly string[]): FixerTaskFinding['firstRound'] {
+  const batch = firstBatches.find((candidate) => candidate.findingIds.includes(id));
+  const note = (batch === undefined ? undefined : review.fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? 'blocked';
+  return { note, requiredFiles };
+}
+
 /** What became of each finding of a fixes-phase batch, as a later batch of its cluster is told: the answer's status and note, or not attempted. */
 function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'findingIds'>): FixerTaskEarlier[] {
   const answer = review.fix?.answers.fixes[batch.key];
@@ -112,12 +119,20 @@ function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'f
 /** A fixer's task over its batch, from the plan, the ranked findings and the pinned checks. */
 function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput): string {
   const plan = fixPlanOf(review);
-  const batch = plan.batches.find((candidate) => candidate.key === unit.key);
+  const second = review.fix?.secondRound ?? null;
+  const all = [...plan.batches, ...(second?.batches ?? [])];
+  const batch = all.find((candidate) => candidate.key === unit.key);
   if (batch === undefined) throw new Error(`The fix plan has no batch ${unit.key}`);
-  const cluster = plan.clusters.find((candidate) => candidate.id === batch.cluster);
+  const inSecondRound = second?.batches.some((candidate) => candidate.key === batch.key) ?? false;
+  // Within a round no file has two owners; the first round's ownership ends with it (R21 of the fix pass).
+  const clusters = inSecondRound ? second!.clusters : plan.clusters;
+  const cluster = clusters.find((candidate) => candidate.id === batch.cluster);
   if (cluster === undefined) throw new Error(`Batch ${batch.key} names cluster ${batch.cluster}, which the fix plan does not have`);
-  const siblings = plan.batches.filter((candidate) => candidate.cluster === cluster.id);
+  const siblings = all.filter((candidate) => candidate.cluster === cluster.id);
   const earlier = siblings.slice(0, siblings.indexOf(batch));
+  // A second-round batch is also told what the first round did in the files it now owns.
+  const firstRoundInFiles = inSecondRound ? plan.batches.filter((candidate) => plan.clusters.find((owner) => owner.id === candidate.cluster)?.files.some((path) => cluster.files.includes(path)) ?? false) : [];
+  const blockedOn = new Map((second?.blocked ?? []).map((entry) => [entry.id, entry.requiredFiles]));
   const ranked = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
   const findings = batch.findingIds.map((id): FixerTaskFinding => {
     const entry = ranked.get(id);
@@ -134,18 +149,20 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput)
       evidence: entry.resolution.evidence,
       reason: entry.finding.reason,
       also: entry.members.map((member) => `${member.id} at ${describeLocation(member)}`),
+      firstRound: inSecondRound ? firstRoundBlock(review, plan.batches, id, blockedOn.get(id) ?? []) : null,
     };
   });
   return fixerTask({
     cluster: cluster.id,
     batch: batch.key,
+    secondRound: inSecondRound,
     findings,
-    earlier: earlier.flatMap((sibling) => batchOutcomes(review, sibling)),
+    earlier: [...firstRoundInFiles, ...earlier].flatMap((sibling) => batchOutcomes(review, sibling)),
     owned: cluster.files,
-    othersOwned: plan.clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
+    othersOwned: clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
     checks: review.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
-    mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, earlier.map((sibling) => sibling.key)),
+    mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, [...earlier, ...(inSecondRound ? plan.batches : [])].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review, 'fixes', unit.key),
   });
 }

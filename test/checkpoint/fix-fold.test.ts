@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { fixesRevisedPaths, lastRun, ownedFiles, repairTargets, revisionMessageOf } from '../../src/checkpoint/fix-state.ts';
+import { fixesRevisedPaths, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
@@ -100,6 +100,54 @@ describe('the fix fold', () => {
     const unverified = verified(null).review().fix!;
     assert.deepEqual(revisionMessageOf(unverified, unverified.revisions[0]!), { subject: 's', body: '' }, 'the attempt\'s own message when the retry gave none');
     assert.deepEqual(ownedFiles(fix, 'fixes', 'c1-1'), ['src/a.ts']);
+  });
+
+  // Both ranked findings to fixers, one cluster each: c1-1 answers RIPPLE-1 blocked on c2's src/b.ts, c2-1 applies SWEEP-1.
+  const twoClusterPlan = {
+    routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
+    clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }],
+    batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }],
+  };
+  const answerOf = (key: string, id: string, status: string, requiredFiles: string[] = [], files: string[] = []): Record<string, unknown> => ({
+    key, findings: [{ id, status, file: 'src/a.ts', line: 1, note: `${id} ${status}`, message: status === 'applied' ? { subject: 'fix: x', body: '' } : null, files, corrections: [], validation: [], requiredFiles }],
+  });
+  const firstRoundDone = (): History => baselined().start('fixes').add('fixes.planned', twoClusterPlan)
+    .worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'blocked', ['src/b.ts'])))
+    .worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), answerOf('c2-1', 'SWEEP-1', 'applied', [], ['src/b.ts'])));
+  const secondRound = { blocked: [{ id: 'RIPPLE-1', requiredFiles: ['src/b.ts'] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['src/a.ts', 'src/b.ts'] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] };
+
+  it('folds a second round, whose batch owns both files and whose answer is the finding\'s last (R21)', () => {
+    const history = firstRoundDone().add('fixes.replanned', secondRound)
+      .worker(52, 'fixer fixes:c3-1').add('fix.recorded', fixAnswer(worker(52), answerOf('c3-1', 'RIPPLE-1', 'applied', [], ['src/a.ts', 'src/b.ts'])));
+    const fix = history.review().fix!;
+    assert.deepEqual(fix.secondRound, secondRound);
+    assert.deepEqual(ownedFiles(fix, 'fixes', 'c3-1'), ['src/a.ts', 'src/b.ts']);
+    assert.equal(lastAnswerOf(fix, 'RIPPLE-1')?.batch, 'c3-1');
+    assert.equal(lastAnswerOf(fix, 'RIPPLE-1')?.finding.status, 'applied');
+    assert.equal(lastAnswerOf(fix, 'SWEEP-1')?.batch, 'c2-1');
+    assert.deepEqual(firstRoundDone().add('fixes.replanned', { blocked: [], clusters: [], batches: [] }).review().fix!.secondRound, { blocked: [], clusters: [], batches: [] }, 'an empty round folds too');
+  });
+
+  const secondRoundPlans: [name: string, build: () => History, message: RegExp][] = [
+    ['a second round before the first settled', () => baselined().start('fixes').add('fixes.planned', twoClusterPlan).add('fixes.replanned', secondRound), /before every batch of the first settled/],
+    ['a second round twice', () => firstRoundDone().add('fixes.replanned', secondRound).add('fixes.replanned', secondRound), /plans its second round twice/],
+    ['a second round for a finding the first round did not block', () => firstRoundDone().add('fixes.replanned', { ...secondRound, blocked: [{ id: 'SWEEP-1', requiredFiles: ['src/a.ts'] }] }), /takes finding SWEEP-1 into its second round, which the first round did not answer blocked/],
+    ['a second round naming other files than the finding was blocked on', () => firstRoundDone().add('fixes.replanned', { ...secondRound, blocked: [{ id: 'RIPPLE-1', requiredFiles: ['src/c.ts'] }] }), /gives finding RIPPLE-1 the files \[src\/c\.ts\], not the ones it was blocked on \[src\/b\.ts\]/],
+    ['a second-round cluster numbered from 1', () => firstRoundDone().add('fixes.replanned', { ...secondRound, clusters: [{ ...secondRound.clusters[0], id: 'c1' }], batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }] }), /numbers second-round cluster 1 c1, not c3/],
+    ['a second-round cluster missing a needed file', () => firstRoundDone().add('fixes.replanned', { ...secondRound, clusters: [{ ...secondRound.clusters[0], files: ['src/a.ts'] }] }), /gives second-round cluster c3 the files \[src\/a\.ts\], not its findings' \[src\/a\.ts, src\/b\.ts\]/],
+    ['a second-round finding in no cluster', () => firstRoundDone().add('fixes.replanned', { ...secondRound, clusters: [], batches: [] }), /takes RIPPLE-1 into its second round but clusters none of them/],
+    ['a second-round cluster\'s first batch numbered 2',() => firstRoundDone().add('fixes.replanned', { ...secondRound, batches: [{ key: 'c3-2', cluster: 'c3', findingIds: ['RIPPLE-1'] }] }), /numbers batch 1 of cluster c3 c3-2/],
+  ];
+  for (const [name, build, message] of secondRoundPlans) {
+    it(`refuses ${name}`, () => {
+      assert.throws(() => build().fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), name);
+    });
+  }
+
+  it('counts a second-round violation against the second round\'s clusters, so an edit to a first-round cluster\'s file is none', () => {
+    const second = firstRoundDone().add('fixes.replanned', secondRound).worker(52, 'fixer fixes:c3-1');
+    // src/b.ts was c2's in the first round; in the second it is c3's own, so naming it a violation is refused.
+    assert.throws(() => second.add('fix.recorded', fixAnswer(worker(52), { ...answerOf('c3-1', 'RIPPLE-1', 'applied', [], ['src/b.ts']), violations: ['src/b.ts'] })).fold(), /records a violation on src\/b\.ts/);
   });
 
   const ranked = (): History => withFixPass(mergeRanked());

@@ -172,6 +172,8 @@ export interface FixerTaskFinding {
   readonly reason: string;
   /** The candidates merged into it, each as `<id> at <location>`. */
   readonly also: readonly string[];
+  /** For a second-round finding, what the first round said: its blocked note and the files it needed (R21 of the fix pass); null in the first round. */
+  readonly firstRound: { readonly note: string; readonly requiredFiles: readonly string[] } | null;
 }
 
 /** A finding an earlier batch of the same cluster worked, as a later batch is told it. */
@@ -187,6 +189,8 @@ export interface FixerTaskInput {
   readonly cluster: string;
   /** The batch of the cluster this fixer works (R18 of the fix pass). */
   readonly batch: string;
+  /** Whether the batch belongs to the second round, whose findings were blocked in the first on files they now own (R21). */
+  readonly secondRound: boolean;
   readonly findings: readonly FixerTaskFinding[];
   /** The findings the cluster's earlier batches worked, whose edits are in the tree. */
   readonly earlier: readonly FixerTaskEarlier[];
@@ -214,17 +218,21 @@ export function fixerTask(input: FixerTaskInput): string {
     `    evidence: ${finding.evidence ?? 'none; the verifier of its group failed twice'}`,
     `    reason: ${finding.reason}`,
     ...(finding.also.length === 0 ? [] : [`    also at: ${finding.also.join('; ')}`]),
+    ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(', ')}: ${finding.firstRound.note}`]),
   ].join('\n'));
   const others = input.othersOwned.filter((cluster) => cluster.files.length > 0);
   return [
-    `Cluster ${input.cluster}, batch ${input.batch}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
+    `Cluster ${input.cluster}, batch ${input.batch}${input.secondRound ? ', in the second round' : ''}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
     '',
     ...findings,
     '',
+    ...(input.secondRound ? ['Each of these was blocked in the first round on files another cluster owned. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.', ''] : []),
     ...(input.earlier.length === 0
       ? []
       : [
-          'Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:',
+          input.secondRound
+            ? 'Findings the first round worked in your files, and this cluster\'s earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:'
+            : 'Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:',
           input.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? '' : `: ${entry.note}`}`).join('\n'),
           '',
         ]),

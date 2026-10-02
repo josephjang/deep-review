@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { ownedFiles, repairTargets, type FixState } from '../checkpoint/fix-state.ts';
+import { batchOf, ownedFiles, repairTargets, roundClusters, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
@@ -19,8 +19,7 @@ import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
 import { readSnapshot, snapshotPaths, snapshotsDirectoryName } from './snapshot.ts';
-import type { FixPlan } from './fixes.ts';
-import { fixPlanOf, truncated, type Unit } from './steps.ts';
+import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, matchesExpected, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type FindingRevision } from './tree.ts';
 import { type CheckKind, type EditingPhase } from './vocabulary.ts';
 
@@ -49,10 +48,10 @@ function requireFix(state: RunState): FixState {
   return fix;
 }
 
-/** The planned batch a fixes-phase unit key names. */
-function batchOfUnit(state: RunState, key: string): FixPlan['batches'][number] {
-  const batch = fixPlanOf(state.review!).batches.find((candidate) => candidate.key === key);
-  if (batch === undefined) throw new Error(`The fix plan has no batch ${key}`);
+/** The planned batch a fixes-phase unit key names, of either round; the plan is recorded before any batch launches. */
+function batchOfUnit(state: RunState, key: string): PlannedBatch {
+  const batch = batchOf(requireFix(state), key);
+  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
   return batch;
 }
 
@@ -63,11 +62,11 @@ export function unitIds(state: RunState, phase: EditingPhase, key: string): read
   return batchOfUnit(state, key).findingIds;
 }
 
-/** The files every other cluster of the phase owns, each with its cluster's id; the repair, its phase's only unit, has none. */
+/** The files every other cluster of the unit's round owns, each with its cluster's id; the repair, its phase's only unit, has none. */
 function othersOwned(state: RunState, phase: EditingPhase, key: string): Map<string, string> {
   if (phase === 'repair') return new Map();
   const own = batchOfUnit(state, key).cluster;
-  return new Map(fixPlanOf(state.review!).clusters.filter((cluster) => cluster.id !== own).flatMap((cluster) => cluster.files.map((file): [string, string] => [file, cluster.id])));
+  return new Map(roundClusters(requireFix(state), key).filter((cluster) => cluster.id !== own).flatMap((cluster) => cluster.files.map((file): [string, string] => [file, cluster.id])));
 }
 
 /**

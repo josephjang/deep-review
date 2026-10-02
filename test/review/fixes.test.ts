@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { batchesOf, planFixes, routeOf, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
+import { batchesOf, planFixes, planSecondRound, routeOf, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
 import type { ReportFinding } from '../../src/review/state.ts';
 import { angles, type Angle, type Verdict } from '../../src/review/vocabulary.ts';
 
@@ -185,5 +185,48 @@ describe('batches', () => {
     ]);
     const batched = plan.batches.flatMap((batch) => batch.findingIds).sort();
     assert.deepEqual(batched, plan.routes.filter((route) => route.route === 'fixer').map((route) => route.id).sort());
+  });
+});
+
+describe('planSecondRound', () => {
+  // The first round: c1 owns a.ts (A-1, A-2), c2 owns t.ts (T-1), c3 owns b.ts (B-1); ranked A-1, T-1, A-2, B-1.
+  const plan = {
+    routes: [{ id: 'A-1', route: 'fixer' }, { id: 'T-1', route: 'fixer' }, { id: 'A-2', route: 'fixer' }, { id: 'B-1', route: 'fixer' }, { id: 'D-1', route: 'held' }] as const,
+    clusters: [
+      { id: 'c1', findingIds: ['A-1', 'A-2'], files: ['a.ts'] },
+      { id: 'c2', findingIds: ['T-1'], files: ['t.ts'] },
+      { id: 'c3', findingIds: ['B-1'], files: ['b.ts'] },
+    ],
+  };
+  type Answer = { readonly status: 'applied' | 'already-applied' | 'deferred' | 'blocked'; readonly requiredFiles: readonly string[] };
+  const answers = (given: Record<string, Answer>) => (id: string): Answer | null => given[id] ?? null;
+  const blocked = (...requiredFiles: string[]): Answer => ({ status: 'blocked', requiredFiles });
+
+  it('takes a finding blocked on another first-round cluster\'s file, owning its own files and the ones it needed, numbered on from the first round', () => {
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'T-1': { status: 'applied', requiredFiles: [] } }), 4);
+    assert.deepEqual(second, {
+      blocked: [{ id: 'A-1', requiredFiles: ['t.ts'] }],
+      clusters: [{ id: 'c4', findingIds: ['A-1'], files: ['a.ts', 't.ts'] }],
+      batches: [{ key: 'c4-1', cluster: 'c4', findingIds: ['A-1'] }],
+    });
+  });
+
+  it('clusters blocked findings that share a file, in rank order, and batches them at the size given', () => {
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'A-2': blocked('b.ts'), 'B-1': blocked('t.ts') }), 1);
+    assert.deepEqual(second.clusters, [{ id: 'c4', findingIds: ['A-1', 'A-2', 'B-1'], files: ['a.ts', 'b.ts', 't.ts'] }]);
+    assert.deepEqual(second.batches.map((batch) => [batch.key, batch.findingIds]), [['c4-1', ['A-1']], ['c4-2', ['A-2']], ['c4-3', ['B-1']]]);
+    const apart = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'B-1': blocked('t.ts') }), 4);
+    assert.deepEqual(apart.clusters.map((cluster) => cluster.findingIds), [['A-1', 'B-1']], 'one needed file joins them');
+  });
+
+  it('leaves out a finding blocked on a file no cluster owned or on its own cluster\'s, a deferred or applied one, and one with no answer', () => {
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('elsewhere.ts'), 'A-2': blocked('a.ts'), 'T-1': { status: 'deferred', requiredFiles: [] }, 'B-1': blocked('t.ts', 'nowhere.ts') }), 4);
+    assert.deepEqual(second, { blocked: [], clusters: [], batches: [] });
+    assert.deepEqual(planSecondRound(plan, answers({}), 4), { blocked: [], clusters: [], batches: [] });
+    assert.deepEqual(planSecondRound(plan, answers({ 'A-1': blocked() }), 4).blocked, [], 'blocked on no file names nothing to own');
+  });
+
+  it('never takes a held finding, which no fixer saw', () => {
+    assert.deepEqual(planSecondRound(plan, answers({ 'D-1': blocked('a.ts') }), 4).blocked, []);
   });
 });

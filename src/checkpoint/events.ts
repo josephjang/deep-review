@@ -667,6 +667,29 @@ export const fixesPlannedV1 = z.strictObject({
 });
 export type FixesPlanned = z.infer<typeof fixesPlannedV1>;
 
+/**
+ * The second round of the fixes phase (R21 of the fix pass), planned once
+ * when every unit of the first round has settled, also when it is empty:
+ * the findings a fixer reported blocked only on files other first-round
+ * clusters owned, each with those files, clustered over their cluster's
+ * files and the files they needed, numbered on from the first round's
+ * clusters, and batched as the first round is.
+ */
+export const fixesReplannedV1 = z.strictObject({
+  blocked: z.array(z.strictObject({ id: candidateIdSchema, requiredFiles: z.array(z.string().min(1)).min(1) })),
+  clusters: z.array(z.strictObject({
+    id: clusterIdSchemaV2,
+    findingIds: z.array(candidateIdSchema).min(1),
+    files: z.array(z.string().min(1)),
+  })),
+  batches: z.array(z.strictObject({
+    key: batchKeySchemaV2,
+    cluster: clusterIdSchemaV2,
+    findingIds: z.array(candidateIdSchema).min(1),
+  })),
+});
+export type FixesReplanned = z.infer<typeof fixesReplannedV1>;
+
 /** One kind's check as the run pinned it: its command, or null with the reason none runs. */
 export const plannedCheckSchema = z.strictObject({
   kind: checkKindSchemaV2,
@@ -854,6 +877,7 @@ export const eventRegistry = defineRegistry({
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
   'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
+  'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
   'checks.planned': { 1: { schema: checksPlannedV1 } },
   'check.ran': { 1: { schema: checkRanV1 } },
   'fix.recorded': { 1: { schema: fixRecordedV1 } },

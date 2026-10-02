@@ -8,9 +8,9 @@
  */
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile } from '../checkpoint/events.ts';
-import { earlierBatches, isNotAttempted, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
+import { earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
-import { planFixes, type FixPlan } from './fixes.ts';
+import { planFixes, planSecondRound, type FixPlan, type SecondRoundPlan } from './fixes.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, rankedFindings, workingList } from './state.ts';
@@ -75,6 +75,7 @@ export type Step =
   | { readonly kind: 'check-worktree'; readonly phase: Phase; readonly attempt: number; readonly moment: 'start' | 'end' }
   | { readonly kind: 'plan-verification'; readonly phase: VerificationPhase; readonly groups: readonly PlannedGroup[] }
   | { readonly kind: 'plan-fixes'; readonly plan: FixPlan }
+  | { readonly kind: 'plan-second-round'; readonly plan: SecondRoundPlan }
   | { readonly kind: 'run-check'; readonly phase: CheckPhase; readonly attempt: number; readonly check: DueCheck }
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
@@ -95,7 +96,15 @@ export function fixPlanOf(review: ReviewState): FixPlan {
   return planFixes(rankedFindings(review), batchSize);
 }
 
-/** The units of a phase (R2; R1, R11 of the fix pass): what its workers are asked, in the order they are launched. */
+/** The second round's plan (R21 of the fix pass): the one the first round's answers give, in batches of the pinned size; the first round must be planned. */
+export function secondRoundOf(review: ReviewState): SecondRoundPlan {
+  const fix = review.fix;
+  const batchSize = review.configuration.fixes?.batchSize;
+  if (fix === null || fix.plan === null || batchSize === undefined) throw new Error('A second round needs the first round\'s plan and the pinned batch size');
+  return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize);
+}
+
+/** The units of a phase (R2; R1, R11, R18, R21 of the fix pass): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
   const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
@@ -114,7 +123,7 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
     case 'merge-rank':
       return mergeRankInput(review).length > 0 ? single('merge-rank') : [];
     case 'fixes':
-      return fixPlanOf(review).batches.map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
+      return [...fixPlanOf(review).batches, ...(review.fix?.secondRound?.batches ?? [])].map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
     case 'repair':
       return review.fix !== null && repairTargets(review.fix).length > 0 ? [{ phase, key: repairUnitKey, role: 'fixer' }] : [];
     case 'baseline-checks':
@@ -401,6 +410,8 @@ export function nextStep(review: ReviewState, live: Live): Step {
     return capacity > 0 ? { kind: 'launch', units: launchable.slice(0, capacity) } : { kind: 'await' };
   }
   if (running.length > 0) return { kind: 'await' };
+  // Once the first round of the fixes has settled, the findings blocked only on other clusters' files get their second round (R21 of the fix pass).
+  if (phase === 'fixes' && review.fix !== null && review.fix.plan !== null && review.fix.secondRound === null) return { kind: 'plan-second-round', plan: secondRoundOf(review) };
   // An editing phase's tree is checked whole once its last unit settled, so a change no answer accounted for blocks it (TD2 of the fix pass).
   if (isEditingPhase(phase) && units.length > 0 && !checks.some((check) => check.moment === 'end')) return { kind: 'check-worktree', phase, attempt, moment: 'end' };
   const outcome = units.some((unit) => degraded(review, unit)) ? 'degraded' : 'completed';
