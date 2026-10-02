@@ -1,7 +1,8 @@
 /**
  * A fixer's snapshot of the tree after one finding (R6, PD14, TD14 of the
  * fix pass): `deep-review snapshot --finding <n> --into <dir>`, run by the
- * fixer from the worktree, copies every path git reports changed, and
+ * fixer from the worktree, copies every path whose content git sees
+ * changed against `HEAD` and every untracked one, and
  * every path the engine listed in `<dir>/paths.json` (the paths the run
  * expects), into `<dir>/<n>/`, and writes `<dir>/<n>.json`, the listing
  * with each path's hash and size or `absent`. The engine reads it when it
@@ -78,7 +79,8 @@ export function takeSnapshot(request: SnapshotRequest): SnapshotListing {
   rmSync(listingFile, { force: true });
   rmSync(copies, { recursive: true, force: true });
   mkdirSync(copies, { recursive: true });
-  const changed = gitApi.status(request.worktree).map((entry) => entry.path);
+  // What git sees changed, after its clean conversion, so a file only a line-ending rewrite touched is not copied (R22).
+  const changed = gitApi.changedAgainstHead(request.worktree);
   const paths = [...new Set([...changed, ...listedPaths(request.into)])].filter(safePath).sort();
   const listed = paths.map((path): [string, SnapshotListing['paths'][string]] => {
     const entry = readTreeEntry(request.worktree, path);

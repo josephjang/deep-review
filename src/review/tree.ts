@@ -132,6 +132,17 @@ export function matchesExpected(expected: ExpectedFile | null | undefined, now: 
   return now !== null && matchesFrozen(expected.frozen, now.bytes, now.symlink, expected.symlink);
 }
 
+/**
+ * Whether what a path holds counts as what the run expects there. The
+ * raw comparison is `matchesExpected`; the run compares as git would store
+ * each file (R22 of the fix pass, `gitContent`), so a line-ending
+ * conversion is no change.
+ */
+export type ExpectedMatch = (path: string, expected: ExpectedFile | null | undefined, now: TreeEntry | null) => boolean;
+
+/** The raw comparison: kind, size and hash. */
+export const rawMatch: ExpectedMatch = (_path, expected, now) => matchesExpected(expected, now);
+
 /** How a path differs from what the run expects: changed, gone, or there when it is expected absent. */
 export type DriftOutcome = 'modified' | 'deleted' | 'restored';
 
@@ -144,16 +155,17 @@ export interface DriftedFile {
 
 /**
  * Every expected path not in `excluded` whose content differs from what
- * the run expects, in path order. Reads only the expected paths and runs
- * no git command, so it is cheap enough to run before every answer.
+ * the run expects, by `match`, in path order. Reads only the expected
+ * paths; git's comparison asks git only about a path whose bytes differ,
+ * so it stays cheap enough to run before every answer.
  */
-export function compareExpected(expected: ExpectedTree, read: TreeReader, excluded: ReadonlySet<string> = new Set()): DriftedFile[] {
+export function compareExpected(expected: ExpectedTree, read: TreeReader, excluded: ReadonlySet<string> = new Set(), match: ExpectedMatch = rawMatch): DriftedFile[] {
   const drifted: DriftedFile[] = [];
   for (const path of [...expected.keys()].sort()) {
     if (excluded.has(path)) continue;
     const want = expected.get(path) ?? null;
     const now = read(path);
-    if (now === undefined || matchesExpected(want, now)) continue;
+    if (now === undefined || match(path, want, now)) continue;
     const outcome: DriftOutcome = want === null ? 'restored' : now === null ? 'deleted' : 'modified';
     drifted.push({ path, outcome, expected: want?.frozen ?? null });
   }
@@ -166,9 +178,9 @@ export function headMoved(worktree: string, expectedHead: string): { readonly ex
   return actual === expectedHead ? null : { expected: expectedHead, actual };
 }
 
-/** The paths git reports changed in the worktree, untracked ones included and ignored ones excepted, sorted. */
+/** The paths whose content git sees changed against `HEAD`, untracked ones included and ignored ones excepted, sorted (R22 of the fix pass). */
 export function changedPaths(worktree: string): string[] {
-  return [...new Set(gitApi.status(worktree).map((entry) => entry.path))].sort();
+  return gitApi.changedAgainstHead(worktree);
 }
 
 /** The paths git reports as untracked, ignored ones excepted, that the run does not expect: files nobody accounts for, listed and never drift. */
@@ -187,13 +199,13 @@ export function straysOf(worktree: string, expected: ExpectedTree): string[] {
  * it, in path order. A path the reader cannot speak for is left out, and
  * so is one that matches.
  */
-export function reviseFrom(evidence: Pick<EvidenceStore, 'put'>, read: TreeReader, expected: ExpectedTree, base: BaseReader, paths: Iterable<string>): RevisedFile[] {
+export function reviseFrom(evidence: Pick<EvidenceStore, 'put'>, read: TreeReader, expected: ExpectedTree, base: BaseReader, paths: Iterable<string>, match: ExpectedMatch = rawMatch): RevisedFile[] {
   const revised: RevisedFile[] = [];
   for (const path of [...new Set(paths)].sort()) {
     const now = read(path);
     if (now === undefined) continue;
     const before = expectedAt(expected, base, path);
-    if (matchesExpected(before, now)) continue;
+    if (match(path, before, now)) continue;
     const was = { before: before?.frozen ?? null, beforeSymlink: before?.symlink ?? false };
     if (now === null) revised.push({ path, status: 'deleted', ...was, symlink: false, after: null });
     else revised.push({ path, status: before === null ? 'created' : 'modified', ...was, symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
@@ -223,7 +235,7 @@ export interface RevisionSources {
  * names it too; a path a snapshot does not list is taken from the next
  * reader that does.
  */
-export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[]): FindingRevision[] {
+export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[], match: ExpectedMatch = rawMatch): FindingRevision[] {
   const state = new Map(expected);
   const revisions: FindingRevision[] = [];
   let carried: string[] = [];
@@ -231,7 +243,7 @@ export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sou
     carried.push(id);
     const read = index === findings.length - 1 ? sources.worktree : sources.snapshot(index);
     if (read === null) return;
-    const files = reviseFrom(evidence, read, state, base, paths);
+    const files = reviseFrom(evidence, read, state, base, paths, match);
     if (files.length === 0) return;
     revisions.push({ findings: carried, files });
     applyRevision(state, files);
@@ -249,18 +261,18 @@ export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sou
  * holds beyond the last snapshot. A snapshot that changed nothing gives no
  * revision.
  */
-export function unfinishedRevisions(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[]): FindingRevision[] {
+export function unfinishedRevisions(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[], match: ExpectedMatch = rawMatch): FindingRevision[] {
   const state = new Map(expected);
   const revisions: FindingRevision[] = [];
   findings.forEach((id, index) => {
     const read = sources.snapshot(index);
     if (read === null) return;
-    const files = reviseFrom(evidence, read, state, base, paths);
+    const files = reviseFrom(evidence, read, state, base, paths, match);
     if (files.length === 0) return;
     revisions.push({ findings: [id], files });
     applyRevision(state, files);
   });
-  const rest = reviseFrom(evidence, sources.worktree, state, base, paths);
+  const rest = reviseFrom(evidence, sources.worktree, state, base, paths, match);
   if (rest.length > 0) revisions.push({ findings: [], files: rest });
   return revisions;
 }

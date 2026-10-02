@@ -257,6 +257,30 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(box.logs.includes('phase fixes: second round for SCAN-1, in 1 cluster and 1 batch'), box.logs.join('\n'));
   });
 
+  it('sees a CRLF checkout rewritten to LF as no change: no revision for the check, no drift, and a fix\'s patch of its own lines only (R22)', async () => {
+    // Check the reviewed tree out again with core.autocrlf, as Git for Windows does: every text file CRLF in the worktree, LF in the index.
+    git(box.repo, 'config', 'core.autocrlf', 'true');
+    git(box.repo, 'rm', '--cached', '-r', '-q', '.');
+    git(box.repo, 'reset', '--hard', '-q');
+    assert.ok(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8').includes('\r\n'));
+    const lfA = readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8').replaceAll('\r\n', '\n');
+    const lfB = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8').replaceAll('\r\n', '\n');
+    // The build reformats both changed files to LF, as zod's postbuild did; the fixer then edits one line of src/a.ts.
+    box.checks({ build: [{ write: { 'src/a.ts': lfA, 'src/b.ts': lfB } }, 'pass'] });
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      'fixer:fixes:c2-1': { output: fixerAnswer([{ status: 'deferred', files: [] }]) },
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(fix.revisions.map((revision) => [revision.source.kind, revision.files.map((file) => file.path)]), [['fix', ['src/a.ts']]], 'the build\'s rewrite is no revision');
+    assert.ok(state.review!.checks.every((check) => !check.drifted), 'nor drift');
+    const patch = box.checkpoint.evidence.read(state.review!.report!.patches[0]!).toString('utf8');
+    assert.deepEqual(patch.split('\n').filter((line) => /^[-+][^-+]/.test(line)), ['-  return text!.length;', '+  return text?.length ?? 0;'], patch);
+  });
+
   it('revises an unowned file a fixer edits and reports, without drift', async () => {
     box.script({
       ...reviewScript,

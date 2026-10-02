@@ -23280,7 +23280,8 @@ function git(cwd, args, options2 = {}) {
       cwd,
       maxBuffer: maxOutputBytes,
       windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: [options2.input === void 0 ? "ignore" : "pipe", "pipe", "pipe"],
+      ...options2.input === void 0 ? {} : { input: options2.input }
     });
   } catch (error62) {
     const failure2 = error62;
@@ -23365,6 +23366,17 @@ function blobThroughFilters(repo, commit2, path) {
 }
 function blobRaw(repo, objectId) {
   return git(repo, ["cat-file", "blob", objectId]);
+}
+function storedBlobId(repo, path, bytes) {
+  return gitText(repo, ["hash-object", `--path=${path}`, "--stdin"], { input: bytes }).trim();
+}
+function writeStoredBlob(repo, path, bytes) {
+  return gitText(repo, ["hash-object", "-w", `--path=${path}`, "--stdin"], { input: bytes }).trim();
+}
+function changedAgainstHead(repo) {
+  const changed = records(gitText(repo, ["diff", "--name-only", "--no-renames", "-z", "HEAD"]));
+  const untracked = records(gitText(repo, ["ls-files", "--others", "--exclude-standard", "-z"]));
+  return [.../* @__PURE__ */ new Set([...changed, ...untracked])].sort();
 }
 function objectFormat(repo) {
   const format = gitText(repo, ["rev-parse", "--show-object-format"]).trim();
@@ -23800,9 +23812,382 @@ function readOutput(file2) {
   }
 }
 
+// src/review/patch.ts
+import { createHash as createHash3 } from "node:crypto";
+import { deflateSync } from "node:zlib";
+var contextLines = 3;
+var maxDifferences = 2e3;
+var contentOf = (file2, read) => ({ bytes: "blob" in file2.frozen ? read(file2.frozen.blob) : null, symlink: file2.symlink, frozen: file2.frozen });
+function gitBlobId(bytes, format) {
+  return createHash3(format).update(`blob ${String(bytes.length)}\0`).update(bytes).digest("hex");
+}
+var nullId = (format) => "0".repeat(format === "sha1" ? 40 : 64);
+function isText(bytes) {
+  if (bytes.includes(0)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var linesOf2 = (text2) => text2 === "" ? [] : text2.split(/(?<=\n)/);
+function editScript(a, b) {
+  let head2 = 0;
+  while (head2 < a.length && head2 < b.length && a[head2] === b[head2]) head2 += 1;
+  let tail = 0;
+  while (tail < a.length - head2 && tail < b.length - head2 && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1;
+  const x0 = a.slice(head2, a.length - tail);
+  const y0 = b.slice(head2, b.length - tail);
+  const middle = myers(x0, y0);
+  if (middle === null) return null;
+  return [...Array(head2).fill("="), ...middle, ...Array(tail).fill("=")];
+}
+function myers(a, b) {
+  const n = a.length;
+  const m = b.length;
+  const limit = Math.min(n + m, maxDifferences);
+  const offset = limit + 1;
+  const v = new Int32Array(2 * limit + 3);
+  const trace = [];
+  for (let d = 0; d <= limit; d += 1) {
+    trace.push(v.slice());
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || k !== d && v[offset + k - 1] < v[offset + k + 1] ? v[offset + k + 1] : v[offset + k - 1] + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) {
+        x += 1;
+        y += 1;
+      }
+      v[offset + k] = x;
+      if (x >= n && y >= m) return backtrack(trace, offset, n, m);
+    }
+  }
+  return null;
+}
+function backtrack(trace, offset, n, m) {
+  const operations = [];
+  let x = n;
+  let y = m;
+  for (let d = trace.length - 1; d >= 0; d -= 1) {
+    const v = trace[d];
+    const k = x - y;
+    const previousK = k === -d || k !== d && v[offset + k - 1] < v[offset + k + 1] ? k + 1 : k - 1;
+    const previousX = v[offset + previousK];
+    const previousY = previousX - previousK;
+    while (x > previousX && y > previousY) {
+      operations.push("=");
+      x -= 1;
+      y -= 1;
+    }
+    if (d > 0) operations.push(x === previousX ? "+" : "-");
+    x = previousX;
+    y = previousY;
+  }
+  return operations.reverse();
+}
+var diffLine = (prefix, line) => line.endsWith("\n") ? `${prefix}${line}` : `${prefix}${line}
+\\ No newline at end of file
+`;
+function hunks(before, after) {
+  const a = linesOf2(before);
+  const b = linesOf2(after);
+  const script = editScript(a, b) ?? [...Array(a.length).fill("-"), ...Array(b.length).fill("+")];
+  const steps = [];
+  let i = 0;
+  let j = 0;
+  for (const operation of script) {
+    steps.push({ operation, oldIndex: i, newIndex: j });
+    if (operation !== "+") i += 1;
+    if (operation !== "-") j += 1;
+  }
+  const changes = steps.flatMap((step, index2) => step.operation === "=" ? [] : [index2]);
+  if (changes.length === 0) return "";
+  const ranges = [];
+  for (const index2 of changes) {
+    const start = Math.max(0, index2 - contextLines);
+    const end = Math.min(steps.length, index2 + contextLines + 1);
+    const last = ranges.at(-1);
+    if (last !== void 0 && start <= last[1]) last[1] = Math.max(last[1], end);
+    else ranges.push([start, end]);
+  }
+  const out = [];
+  for (const [start, end] of ranges) {
+    const part = steps.slice(start, end);
+    const oldCount = part.filter((step) => step.operation !== "+").length;
+    const newCount = part.filter((step) => step.operation !== "-").length;
+    const first = part[0];
+    const oldStart = oldCount === 0 ? first.oldIndex : first.oldIndex + 1;
+    const newStart = newCount === 0 ? first.newIndex : first.newIndex + 1;
+    out.push(`@@ -${String(oldStart)},${String(oldCount)} +${String(newStart)},${String(newCount)} @@
+`);
+    for (const step of part) {
+      if (step.operation === "=") out.push(diffLine(" ", a[step.oldIndex]));
+      else if (step.operation === "-") out.push(diffLine("-", a[step.oldIndex]));
+      else out.push(diffLine("+", b[step.newIndex]));
+    }
+  }
+  return out.join("");
+}
+var base85Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
+function base85Lines(bytes) {
+  const lines = [];
+  for (let start = 0; start < bytes.length; start += 52) {
+    const chunk2 = bytes.subarray(start, Math.min(bytes.length, start + 52));
+    const length = chunk2.length <= 26 ? String.fromCharCode(64 + chunk2.length) : String.fromCharCode(96 + chunk2.length - 26);
+    let encoded = "";
+    for (let at = 0; at < chunk2.length; at += 4) {
+      let value = 0;
+      for (let byte = 0; byte < 4; byte += 1) value = value * 256 + (chunk2[at + byte] ?? 0);
+      let group = "";
+      for (let digit = 0; digit < 5; digit += 1) {
+        group = base85Alphabet[value % 85] + group;
+        value = Math.floor(value / 85);
+      }
+      encoded += group;
+    }
+    lines.push(`${length}${encoded}
+`);
+  }
+  return lines.join("");
+}
+function binaryPatch(before, after) {
+  return `GIT binary patch
+literal ${String(after.length)}
+${base85Lines(deflateSync(after))}
+literal ${String(before.length)}
+${base85Lines(deflateSync(before))}
+`;
+}
+var modeOf = (content) => content.symlink ? "120000" : "100644";
+function fileDiff(path, before, after, format) {
+  if (before !== null && after !== null && before.symlink !== after.symlink) return fileDiff(path, before, null, format) + fileDiff(path, null, after, format);
+  if (before === null && after === null) return "";
+  const header = [`diff --git a/${path} b/${path}
+`];
+  if (before === null) header.push(`new file mode ${modeOf(after)}
+`);
+  if (after === null) header.push(`deleted file mode ${modeOf(before)}
+`);
+  if (before !== null && before.bytes === null || after !== null && after.bytes === null) {
+    return `${header.join("")}Binary files ${before === null ? "/dev/null" : `a/${path}`} and ${after === null ? "/dev/null" : `b/${path}`} differ
+`;
+  }
+  const oldBytes = before?.bytes ?? Buffer.alloc(0);
+  const newBytes = after?.bytes ?? Buffer.alloc(0);
+  if (before !== null && after !== null && oldBytes.equals(newBytes)) return "";
+  const oldId = before === null ? nullId(format) : gitBlobId(oldBytes, format);
+  const newId = after === null ? nullId(format) : gitBlobId(newBytes, format);
+  header.push(`index ${oldId}..${newId}${before !== null && after !== null ? ` ${modeOf(after)}` : ""}
+`);
+  if (!isText(oldBytes) || !isText(newBytes)) return `${header.join("")}${binaryPatch(oldBytes, newBytes)}`;
+  const body = hunks(oldBytes.toString("utf8"), newBytes.toString("utf8"));
+  return `${header.join("")}--- ${before === null ? "/dev/null" : `a/${path}`}
++++ ${after === null ? "/dev/null" : `b/${path}`}
+${body}`;
+}
+var asTheyAre = (_path, bytes) => bytes;
+function renderPatch(before, after, paths, read, format = "sha1", stored = asTheyAre) {
+  const content = (tree, path) => {
+    const file2 = tree.get(path) ?? null;
+    if (file2 === null) return null;
+    const raw = contentOf(file2, read);
+    return raw.bytes === null || raw.symlink ? raw : { ...raw, bytes: stored(path, raw.bytes) };
+  };
+  return [...new Set(paths)].sort().map((path) => fileDiff(path, content(before, path), content(after, path), format)).join("");
+}
+function patchSeries(revisions, read, format, stored = asTheyAre) {
+  return revisions.map((revision, index2) => {
+    const before = new Map(revision.files.map((file2) => [file2.path, file2.before === null ? null : { frozen: file2.before, symlink: file2.beforeSymlink }]));
+    const after = new Map(revision.files.map((file2) => [file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink }]));
+    return renderMail(revision.change.message, index2 + 1, revisions.length, renderPatch(before, after, revision.files.map((file2) => file2.path), read, format, stored));
+  });
+}
+var patchAuthor = "deep-review <deep-review@deep-review.invalid>";
+function headerText(text2) {
+  if (/^[\x20-\x7e]*$/.test(text2)) return text2;
+  const encoded = [...Buffer.from(text2, "utf8")].map((byte) => byte === 32 ? "_" : /[A-Za-z0-9!*+\-/]/.test(String.fromCharCode(byte)) ? String.fromCharCode(byte) : `=${byte.toString(16).toUpperCase().padStart(2, "0")}`).join("");
+  return `=?UTF-8?q?${encoded}?=`;
+}
+var bodyLine = (line) => /^(---|diff -|Index: )/.test(line) ? ` ${line}` : line;
+function renderMail(message, number5, total, diff) {
+  const body = message.body.trim() === "" ? "" : `${message.body.replace(/\r\n/g, "\n").split("\n").map(bodyLine).join("\n").replace(/\n*$/, "\n")}`;
+  return [
+    "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n",
+    `From: ${patchAuthor}
+`,
+    `Subject: [PATCH ${String(number5)}/${String(total)}] ${headerText(message.subject)}
+`,
+    "MIME-Version: 1.0\n",
+    "Content-Type: text/plain; charset=UTF-8\n",
+    "Content-Transfer-Encoding: 8bit\n",
+    "\n",
+    body,
+    "---\n",
+    diff,
+    "-- \n",
+    "deep-review\n",
+    "\n"
+  ].join("");
+}
+
+// src/review/tree.ts
+import { lstatSync as lstatSync4, readFileSync as readFileSync8, readlinkSync as readlinkSync2 } from "node:fs";
+import { join as join14 } from "node:path";
+
+// src/scope/compare.ts
+function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
+  if (symlink !== frozenSymlink) return false;
+  if ("blob" in frozen) return frozen.blob.bytes === bytes.length && frozen.blob.sha256 === sha256Hex(bytes);
+  return frozen.oversized.size === bytes.length && frozen.oversized.sha256 === sha256Hex(bytes);
+}
+
+// src/review/tree.ts
+function expectedAt(expected, base, path) {
+  return expected.has(path) ? expected.get(path) ?? null : base(path);
+}
+function headStates(worktree, head2, evidence) {
+  const read = /* @__PURE__ */ new Map();
+  return (path) => {
+    const known = read.get(path);
+    if (known !== void 0) return known;
+    const entry = treeEntries(worktree, head2, [path]).get(path);
+    let state = null;
+    if (entry !== void 0 && entry.mode !== "160000") {
+      const symlink = entry.mode === "120000";
+      state = { frozen: freezeBytes(evidence, symlink ? blobRaw(worktree, entry.objectId) : blobThroughFilters(worktree, head2, path)), symlink };
+    }
+    read.set(path, state);
+    return state;
+  };
+}
+function expectedTree(scope, revisions) {
+  const tree = /* @__PURE__ */ new Map();
+  for (const file2 of scope.files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
+  for (const revision of revisions) applyRevision(tree, revision.files);
+  return tree;
+}
+function applyRevision(tree, files) {
+  for (const file2 of files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
+}
+function readTreeEntry(worktree, path) {
+  const absolute = join14(worktree, ...path.split("/"));
+  let stat;
+  try {
+    stat = lstatSync4(absolute, { throwIfNoEntry: false });
+  } catch (error62) {
+    if (error62.code === "ENOTDIR") return null;
+    throw error62;
+  }
+  if (stat === void 0) return null;
+  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync2(absolute)), symlink: true };
+  if (stat.isFile()) return { bytes: readFileSync8(absolute), symlink: false };
+  return null;
+}
+var worktreeReader = (worktree) => (path) => readTreeEntry(worktree, path);
+function matchesExpected(expected, now) {
+  if (expected === void 0 || expected === null) return now === null;
+  return now !== null && matchesFrozen(expected.frozen, now.bytes, now.symlink, expected.symlink);
+}
+var rawMatch = (_path, expected, now) => matchesExpected(expected, now);
+function compareExpected(expected, read, excluded = /* @__PURE__ */ new Set(), match = rawMatch) {
+  const drifted2 = [];
+  for (const path of [...expected.keys()].sort()) {
+    if (excluded.has(path)) continue;
+    const want = expected.get(path) ?? null;
+    const now = read(path);
+    if (now === void 0 || match(path, want, now)) continue;
+    const outcome = want === null ? "restored" : now === null ? "deleted" : "modified";
+    drifted2.push({ path, outcome, expected: want?.frozen ?? null });
+  }
+  return drifted2;
+}
+function headMoved(worktree, expectedHead) {
+  const actual = head(worktree);
+  return actual === expectedHead ? null : { expected: expectedHead, actual };
+}
+function changedPaths(worktree) {
+  return changedAgainstHead(worktree);
+}
+function straysOf(worktree, expected) {
+  return status(worktree).filter((entry) => entry.code === "??" && !expected.has(entry.path)).map((entry) => entry.path).sort();
+}
+function reviseFrom(evidence, read, expected, base, paths, match = rawMatch) {
+  const revised = [];
+  for (const path of [...new Set(paths)].sort()) {
+    const now = read(path);
+    if (now === void 0) continue;
+    const before = expectedAt(expected, base, path);
+    if (match(path, before, now)) continue;
+    const was = { before: before?.frozen ?? null, beforeSymlink: before?.symlink ?? false };
+    if (now === null) revised.push({ path, status: "deleted", ...was, symlink: false, after: null });
+    else revised.push({ path, status: before === null ? "created" : "modified", ...was, symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
+  }
+  return revised;
+}
+function revisionsFromSnapshots(evidence, sources, expected, base, paths, findings, match = rawMatch) {
+  const state = new Map(expected);
+  const revisions = [];
+  let carried = [];
+  findings.forEach((id, index2) => {
+    carried.push(id);
+    const read = index2 === findings.length - 1 ? sources.worktree : sources.snapshot(index2);
+    if (read === null) return;
+    const files = reviseFrom(evidence, read, state, base, paths, match);
+    if (files.length === 0) return;
+    revisions.push({ findings: carried, files });
+    applyRevision(state, files);
+    carried = [];
+  });
+  return revisions;
+}
+function unfinishedRevisions(evidence, sources, expected, base, paths, findings, match = rawMatch) {
+  const state = new Map(expected);
+  const revisions = [];
+  findings.forEach((id, index2) => {
+    const read = sources.snapshot(index2);
+    if (read === null) return;
+    const files = reviseFrom(evidence, read, state, base, paths, match);
+    if (files.length === 0) return;
+    revisions.push({ findings: [id], files });
+    applyRevision(state, files);
+  });
+  const rest = reviseFrom(evidence, sources.worktree, state, base, paths, match);
+  if (rest.length > 0) revisions.push({ findings: [], files: rest });
+  return revisions;
+}
+
+// src/review/content.ts
+function gitContent(worktree, read) {
+  const ids = /* @__PURE__ */ new Map();
+  const storedIdOf = (path, bytes) => {
+    const key = `${path}\0${sha256Hex(bytes)}`;
+    let id = ids.get(key);
+    if (id === void 0) {
+      id = storedBlobId(worktree, path, bytes);
+      ids.set(key, id);
+    }
+    return id;
+  };
+  let format;
+  const match = (path, expected, now) => {
+    if (matchesExpected(expected, now)) return true;
+    if (expected === void 0 || expected === null || now === null) return false;
+    if (expected.symlink || now.symlink || !("blob" in expected.frozen)) return false;
+    return storedIdOf(path, read(expected.frozen.blob)) === storedIdOf(path, now.bytes);
+  };
+  const stored = (path, bytes) => {
+    format ??= objectFormat(worktree);
+    const id = storedIdOf(path, bytes);
+    if (id === gitBlobId(bytes, format)) return bytes;
+    return blobRaw(worktree, writeStoredBlob(worktree, path, bytes));
+  };
+  return { match, stored };
+}
+
 // src/review/conventions.ts
 import { homedir } from "node:os";
-import { join as join14, posix } from "node:path";
+import { join as join15, posix } from "node:path";
 var conventionFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
 var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
 function ancestorDirectories(changedPaths2) {
@@ -23816,21 +24201,21 @@ function ancestorDirectories(changedPaths2) {
 function conventionFiles(worktree, changedPaths2, home = homedir()) {
   const found = [];
   for (const relative3 of userConventionFiles) {
-    const absolute = join14(home, ...relative3.split("/"));
+    const absolute = join15(home, ...relative3.split("/"));
     if (isFile(absolute)) found.push({ level: "user", path: absolute });
   }
   for (const directory of ancestorDirectories(changedPaths2)) {
     for (const name of conventionFileNames) {
       const relative3 = directory === "" ? name : posix.join(directory, name);
-      if (isFile(join14(worktree, ...relative3.split("/")))) found.push({ level: "repository", path: relative3 });
+      if (isFile(join15(worktree, ...relative3.split("/")))) found.push({ level: "repository", path: relative3 });
     }
   }
   return found;
 }
 
 // src/review/locations.ts
-import { closeSync as closeSync3, lstatSync as lstatSync4, openSync as openSync3, readdirSync as readdirSync3, readlinkSync as readlinkSync2, readSync } from "node:fs";
-import { join as join15 } from "node:path";
+import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync3, readlinkSync as readlinkSync3, readSync } from "node:fs";
+import { join as join16 } from "node:path";
 var unlocated = { file: null, line: null, located: false, inScope: false };
 function normalizeFileName(file2) {
   return file2.replaceAll("\\", "/").replaceAll(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
@@ -23842,7 +24227,7 @@ function worktreeLookup(worktree) {
     let names = listings.get(key);
     if (names === void 0) {
       try {
-        names = readdirSync3(join15(worktree, ...segments));
+        names = readdirSync3(join16(worktree, ...segments));
       } catch (error62) {
         const code = error62.code;
         if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
@@ -23918,10 +24303,10 @@ function* fileChunks(path) {
   }
 }
 function worktreeLines(worktree, path) {
-  const absolute = join15(worktree, ...path.split("/"));
-  const stat = lstatSync4(absolute, { throwIfNoEntry: false });
+  const absolute = join16(worktree, ...path.split("/"));
+  const stat = lstatSync5(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
-  if (stat.isSymbolicLink()) return countLines(Buffer.from(readlinkSync2(absolute)));
+  if (stat.isSymbolicLink()) return countLines(Buffer.from(readlinkSync3(absolute)));
   if (stat.isFile()) return countLinesOf(fileChunks(absolute));
   return null;
 }
@@ -24470,131 +24855,6 @@ function nextStep(review2, live2) {
   return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
 }
 
-// src/review/tree.ts
-import { lstatSync as lstatSync5, readFileSync as readFileSync8, readlinkSync as readlinkSync3 } from "node:fs";
-import { join as join16 } from "node:path";
-
-// src/scope/compare.ts
-function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
-  if (symlink !== frozenSymlink) return false;
-  if ("blob" in frozen) return frozen.blob.bytes === bytes.length && frozen.blob.sha256 === sha256Hex(bytes);
-  return frozen.oversized.size === bytes.length && frozen.oversized.sha256 === sha256Hex(bytes);
-}
-
-// src/review/tree.ts
-function expectedAt(expected, base, path) {
-  return expected.has(path) ? expected.get(path) ?? null : base(path);
-}
-function headStates(worktree, head2, evidence) {
-  const read = /* @__PURE__ */ new Map();
-  return (path) => {
-    const known = read.get(path);
-    if (known !== void 0) return known;
-    const entry = treeEntries(worktree, head2, [path]).get(path);
-    let state = null;
-    if (entry !== void 0 && entry.mode !== "160000") {
-      const symlink = entry.mode === "120000";
-      state = { frozen: freezeBytes(evidence, symlink ? blobRaw(worktree, entry.objectId) : blobThroughFilters(worktree, head2, path)), symlink };
-    }
-    read.set(path, state);
-    return state;
-  };
-}
-function expectedTree(scope, revisions) {
-  const tree = /* @__PURE__ */ new Map();
-  for (const file2 of scope.files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
-  for (const revision of revisions) applyRevision(tree, revision.files);
-  return tree;
-}
-function applyRevision(tree, files) {
-  for (const file2 of files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
-}
-function readTreeEntry(worktree, path) {
-  const absolute = join16(worktree, ...path.split("/"));
-  let stat;
-  try {
-    stat = lstatSync5(absolute, { throwIfNoEntry: false });
-  } catch (error62) {
-    if (error62.code === "ENOTDIR") return null;
-    throw error62;
-  }
-  if (stat === void 0) return null;
-  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync3(absolute)), symlink: true };
-  if (stat.isFile()) return { bytes: readFileSync8(absolute), symlink: false };
-  return null;
-}
-var worktreeReader = (worktree) => (path) => readTreeEntry(worktree, path);
-function matchesExpected(expected, now) {
-  if (expected === void 0 || expected === null) return now === null;
-  return now !== null && matchesFrozen(expected.frozen, now.bytes, now.symlink, expected.symlink);
-}
-function compareExpected(expected, read, excluded = /* @__PURE__ */ new Set()) {
-  const drifted2 = [];
-  for (const path of [...expected.keys()].sort()) {
-    if (excluded.has(path)) continue;
-    const want = expected.get(path) ?? null;
-    const now = read(path);
-    if (now === void 0 || matchesExpected(want, now)) continue;
-    const outcome = want === null ? "restored" : now === null ? "deleted" : "modified";
-    drifted2.push({ path, outcome, expected: want?.frozen ?? null });
-  }
-  return drifted2;
-}
-function headMoved(worktree, expectedHead) {
-  const actual = head(worktree);
-  return actual === expectedHead ? null : { expected: expectedHead, actual };
-}
-function changedPaths(worktree) {
-  return [...new Set(status(worktree).map((entry) => entry.path))].sort();
-}
-function straysOf(worktree, expected) {
-  return status(worktree).filter((entry) => entry.code === "??" && !expected.has(entry.path)).map((entry) => entry.path).sort();
-}
-function reviseFrom(evidence, read, expected, base, paths) {
-  const revised = [];
-  for (const path of [...new Set(paths)].sort()) {
-    const now = read(path);
-    if (now === void 0) continue;
-    const before = expectedAt(expected, base, path);
-    if (matchesExpected(before, now)) continue;
-    const was = { before: before?.frozen ?? null, beforeSymlink: before?.symlink ?? false };
-    if (now === null) revised.push({ path, status: "deleted", ...was, symlink: false, after: null });
-    else revised.push({ path, status: before === null ? "created" : "modified", ...was, symlink: now.symlink, after: freezeBytes(evidence, now.bytes) });
-  }
-  return revised;
-}
-function revisionsFromSnapshots(evidence, sources, expected, base, paths, findings) {
-  const state = new Map(expected);
-  const revisions = [];
-  let carried = [];
-  findings.forEach((id, index2) => {
-    carried.push(id);
-    const read = index2 === findings.length - 1 ? sources.worktree : sources.snapshot(index2);
-    if (read === null) return;
-    const files = reviseFrom(evidence, read, state, base, paths);
-    if (files.length === 0) return;
-    revisions.push({ findings: carried, files });
-    applyRevision(state, files);
-    carried = [];
-  });
-  return revisions;
-}
-function unfinishedRevisions(evidence, sources, expected, base, paths, findings) {
-  const state = new Map(expected);
-  const revisions = [];
-  findings.forEach((id, index2) => {
-    const read = sources.snapshot(index2);
-    if (read === null) return;
-    const files = reviseFrom(evidence, read, state, base, paths);
-    if (files.length === 0) return;
-    revisions.push({ findings: [id], files });
-    applyRevision(state, files);
-  });
-  const rest = reviseFrom(evidence, sources.worktree, state, base, paths);
-  if (rest.length > 0) revisions.push({ findings: [], files: rest });
-  return revisions;
-}
-
 // src/review/drift.ts
 function expectedTreeOf(state) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -24608,9 +24868,9 @@ function unsettledFiles(state, phase) {
     unitsOf(review2, phase).filter((unit) => !isAnswered(review2, phase, unit.key) && !isNotAttempted(fix, phase, unit.key)).flatMap((unit) => ownedFiles(fix, phase, unit.key))
   );
 }
-function findDrift(state, worktree, excluded = /* @__PURE__ */ new Set()) {
+function findDrift(state, worktree, match, excluded = /* @__PURE__ */ new Set()) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  return { files: compareExpected(expectedTreeOf(state), worktreeReader(worktree), excluded), head: headMoved(worktree, state.scope.head) };
+  return { files: compareExpected(expectedTreeOf(state), worktreeReader(worktree), excluded, match), head: headMoved(worktree, state.scope.head) };
 }
 var drifted = (found) => found.files.length > 0 || found.head !== null;
 function worktreeChecked2(state, worktree, phase, attempt, moment, found) {
@@ -24624,9 +24884,9 @@ function worktreeChecked2(state, worktree, phase, attempt, moment, found) {
     strays: straysOf(worktree, expectedTreeOf(state))
   };
 }
-function phaseCheck(state, worktree, phase, attempt, moment) {
+function phaseCheck(state, worktree, phase, attempt, moment, match) {
   const excluded = moment === "start" ? unsettledFiles(state, phase) : /* @__PURE__ */ new Set();
-  return worktreeChecked2(state, worktree, phase, attempt, moment, findDrift(state, worktree, excluded));
+  return worktreeChecked2(state, worktree, phase, attempt, moment, findDrift(state, worktree, match, excluded));
 }
 
 // src/review/fix-events.ts
@@ -24809,7 +25069,7 @@ function checkMergeRank(output2, count2) {
 }
 
 // src/review/snapshot.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 import { existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname2, join as join17 } from "node:path";
 var snapshotPathsFileName = "paths.json";
@@ -24822,7 +25082,7 @@ var snapshotListingSchema = external_exports.strictObject({
   finding: external_exports.number().int().nonnegative(),
   paths: external_exports.record(external_exports.string(), listedFileSchema)
 });
-var sha256 = (bytes) => createHash3("sha256").update(bytes).digest("hex");
+var sha256 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
 function safePath(path) {
   try {
     validateScopePath(path);
@@ -24846,7 +25106,7 @@ function takeSnapshot(request) {
   rmSync3(listingFile, { force: true });
   rmSync3(copies, { recursive: true, force: true });
   mkdirSync5(copies, { recursive: true });
-  const changed = status(request.worktree).map((entry) => entry.path);
+  const changed = changedAgainstHead(request.worktree);
   const paths = [.../* @__PURE__ */ new Set([...changed, ...listedPaths(request.into)])].filter(safePath).sort();
   const listed = paths.map((path) => {
     const entry = readTreeEntry(request.worktree, path);
@@ -24966,7 +25226,7 @@ function fixAnswerEvents(unit, receipt, context) {
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
   const base = baseOf(context);
-  requireOwnedReported(owned.filter((path) => !matchesExpected(expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
+  requireOwnedReported(owned.filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
   const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
   const findings = ids.map((id, index2) => {
     const answer = byIndex.get(index2);
@@ -24986,7 +25246,7 @@ function fixAnswerEvents(unit, receipt, context) {
   const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join18(scratch, snapshotsDirectoryName);
-  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids);
+  const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     { kind: "fix.recorded", version: 1, payload: recorded },
     ...revisions.map((revision) => ({
@@ -25006,7 +25266,7 @@ function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
   const listed = [...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)].filter((path) => !others.has(path) && !strays.has(path));
   const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids);
+  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids, context.match);
   const who = phase === "repair" ? "the repair" : `batch ${key}`;
   const why = truncated(reason, 1e3);
   return revisions.map((revision) => {
@@ -25023,7 +25283,7 @@ The files are recorded as its snapshot of ${id} held them.`, bodyLength) };
 function checkRevision(context, phase, kind, command) {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys());
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys(), context.match);
   if (files.length === 0) return null;
   const payload = {
     phase,
@@ -25133,222 +25393,6 @@ function releaseOnExit(release, end = exitBySignal) {
   process.on("exit", dispose);
   for (const signal of endingSignals) process.on(signal, onSignal);
   return dispose;
-}
-
-// src/review/patch.ts
-import { createHash as createHash4 } from "node:crypto";
-import { deflateSync } from "node:zlib";
-var contextLines = 3;
-var maxDifferences = 2e3;
-var contentOf = (file2, read) => ({ bytes: "blob" in file2.frozen ? read(file2.frozen.blob) : null, symlink: file2.symlink, frozen: file2.frozen });
-function gitBlobId(bytes, format) {
-  return createHash4(format).update(`blob ${String(bytes.length)}\0`).update(bytes).digest("hex");
-}
-var nullId = (format) => "0".repeat(format === "sha1" ? 40 : 64);
-function isText(bytes) {
-  if (bytes.includes(0)) return false;
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return true;
-  } catch {
-    return false;
-  }
-}
-var linesOf2 = (text2) => text2 === "" ? [] : text2.split(/(?<=\n)/);
-function editScript(a, b) {
-  let head2 = 0;
-  while (head2 < a.length && head2 < b.length && a[head2] === b[head2]) head2 += 1;
-  let tail = 0;
-  while (tail < a.length - head2 && tail < b.length - head2 && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1;
-  const x0 = a.slice(head2, a.length - tail);
-  const y0 = b.slice(head2, b.length - tail);
-  const middle = myers(x0, y0);
-  if (middle === null) return null;
-  return [...Array(head2).fill("="), ...middle, ...Array(tail).fill("=")];
-}
-function myers(a, b) {
-  const n = a.length;
-  const m = b.length;
-  const limit = Math.min(n + m, maxDifferences);
-  const offset = limit + 1;
-  const v = new Int32Array(2 * limit + 3);
-  const trace = [];
-  for (let d = 0; d <= limit; d += 1) {
-    trace.push(v.slice());
-    for (let k = -d; k <= d; k += 2) {
-      let x = k === -d || k !== d && v[offset + k - 1] < v[offset + k + 1] ? v[offset + k + 1] : v[offset + k - 1] + 1;
-      let y = x - k;
-      while (x < n && y < m && a[x] === b[y]) {
-        x += 1;
-        y += 1;
-      }
-      v[offset + k] = x;
-      if (x >= n && y >= m) return backtrack(trace, offset, n, m);
-    }
-  }
-  return null;
-}
-function backtrack(trace, offset, n, m) {
-  const operations = [];
-  let x = n;
-  let y = m;
-  for (let d = trace.length - 1; d >= 0; d -= 1) {
-    const v = trace[d];
-    const k = x - y;
-    const previousK = k === -d || k !== d && v[offset + k - 1] < v[offset + k + 1] ? k + 1 : k - 1;
-    const previousX = v[offset + previousK];
-    const previousY = previousX - previousK;
-    while (x > previousX && y > previousY) {
-      operations.push("=");
-      x -= 1;
-      y -= 1;
-    }
-    if (d > 0) operations.push(x === previousX ? "+" : "-");
-    x = previousX;
-    y = previousY;
-  }
-  return operations.reverse();
-}
-var diffLine = (prefix, line) => line.endsWith("\n") ? `${prefix}${line}` : `${prefix}${line}
-\\ No newline at end of file
-`;
-function hunks(before, after) {
-  const a = linesOf2(before);
-  const b = linesOf2(after);
-  const script = editScript(a, b) ?? [...Array(a.length).fill("-"), ...Array(b.length).fill("+")];
-  const steps = [];
-  let i = 0;
-  let j = 0;
-  for (const operation of script) {
-    steps.push({ operation, oldIndex: i, newIndex: j });
-    if (operation !== "+") i += 1;
-    if (operation !== "-") j += 1;
-  }
-  const changes = steps.flatMap((step, index2) => step.operation === "=" ? [] : [index2]);
-  if (changes.length === 0) return "";
-  const ranges = [];
-  for (const index2 of changes) {
-    const start = Math.max(0, index2 - contextLines);
-    const end = Math.min(steps.length, index2 + contextLines + 1);
-    const last = ranges.at(-1);
-    if (last !== void 0 && start <= last[1]) last[1] = Math.max(last[1], end);
-    else ranges.push([start, end]);
-  }
-  const out = [];
-  for (const [start, end] of ranges) {
-    const part = steps.slice(start, end);
-    const oldCount = part.filter((step) => step.operation !== "+").length;
-    const newCount = part.filter((step) => step.operation !== "-").length;
-    const first = part[0];
-    const oldStart = oldCount === 0 ? first.oldIndex : first.oldIndex + 1;
-    const newStart = newCount === 0 ? first.newIndex : first.newIndex + 1;
-    out.push(`@@ -${String(oldStart)},${String(oldCount)} +${String(newStart)},${String(newCount)} @@
-`);
-    for (const step of part) {
-      if (step.operation === "=") out.push(diffLine(" ", a[step.oldIndex]));
-      else if (step.operation === "-") out.push(diffLine("-", a[step.oldIndex]));
-      else out.push(diffLine("+", b[step.newIndex]));
-    }
-  }
-  return out.join("");
-}
-var base85Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
-function base85Lines(bytes) {
-  const lines = [];
-  for (let start = 0; start < bytes.length; start += 52) {
-    const chunk2 = bytes.subarray(start, Math.min(bytes.length, start + 52));
-    const length = chunk2.length <= 26 ? String.fromCharCode(64 + chunk2.length) : String.fromCharCode(96 + chunk2.length - 26);
-    let encoded = "";
-    for (let at = 0; at < chunk2.length; at += 4) {
-      let value = 0;
-      for (let byte = 0; byte < 4; byte += 1) value = value * 256 + (chunk2[at + byte] ?? 0);
-      let group = "";
-      for (let digit = 0; digit < 5; digit += 1) {
-        group = base85Alphabet[value % 85] + group;
-        value = Math.floor(value / 85);
-      }
-      encoded += group;
-    }
-    lines.push(`${length}${encoded}
-`);
-  }
-  return lines.join("");
-}
-function binaryPatch(before, after) {
-  return `GIT binary patch
-literal ${String(after.length)}
-${base85Lines(deflateSync(after))}
-literal ${String(before.length)}
-${base85Lines(deflateSync(before))}
-`;
-}
-var modeOf = (content) => content.symlink ? "120000" : "100644";
-function fileDiff(path, before, after, format) {
-  if (before !== null && after !== null && before.symlink !== after.symlink) return fileDiff(path, before, null, format) + fileDiff(path, null, after, format);
-  if (before === null && after === null) return "";
-  const header = [`diff --git a/${path} b/${path}
-`];
-  if (before === null) header.push(`new file mode ${modeOf(after)}
-`);
-  if (after === null) header.push(`deleted file mode ${modeOf(before)}
-`);
-  if (before !== null && before.bytes === null || after !== null && after.bytes === null) {
-    return `${header.join("")}Binary files ${before === null ? "/dev/null" : `a/${path}`} and ${after === null ? "/dev/null" : `b/${path}`} differ
-`;
-  }
-  const oldBytes = before?.bytes ?? Buffer.alloc(0);
-  const newBytes = after?.bytes ?? Buffer.alloc(0);
-  if (before !== null && after !== null && oldBytes.equals(newBytes)) return "";
-  const oldId = before === null ? nullId(format) : gitBlobId(oldBytes, format);
-  const newId = after === null ? nullId(format) : gitBlobId(newBytes, format);
-  header.push(`index ${oldId}..${newId}${before !== null && after !== null ? ` ${modeOf(after)}` : ""}
-`);
-  if (!isText(oldBytes) || !isText(newBytes)) return `${header.join("")}${binaryPatch(oldBytes, newBytes)}`;
-  const body = hunks(oldBytes.toString("utf8"), newBytes.toString("utf8"));
-  return `${header.join("")}--- ${before === null ? "/dev/null" : `a/${path}`}
-+++ ${after === null ? "/dev/null" : `b/${path}`}
-${body}`;
-}
-function renderPatch(before, after, paths, read, format = "sha1") {
-  const content = (tree, path) => {
-    const file2 = tree.get(path) ?? null;
-    return file2 === null ? null : contentOf(file2, read);
-  };
-  return [...new Set(paths)].sort().map((path) => fileDiff(path, content(before, path), content(after, path), format)).join("");
-}
-function patchSeries(revisions, read, format) {
-  return revisions.map((revision, index2) => {
-    const before = new Map(revision.files.map((file2) => [file2.path, file2.before === null ? null : { frozen: file2.before, symlink: file2.beforeSymlink }]));
-    const after = new Map(revision.files.map((file2) => [file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink }]));
-    return renderMail(revision.change.message, index2 + 1, revisions.length, renderPatch(before, after, revision.files.map((file2) => file2.path), read, format));
-  });
-}
-var patchAuthor = "deep-review <deep-review@deep-review.invalid>";
-function headerText(text2) {
-  if (/^[\x20-\x7e]*$/.test(text2)) return text2;
-  const encoded = [...Buffer.from(text2, "utf8")].map((byte) => byte === 32 ? "_" : /[A-Za-z0-9!*+\-/]/.test(String.fromCharCode(byte)) ? String.fromCharCode(byte) : `=${byte.toString(16).toUpperCase().padStart(2, "0")}`).join("");
-  return `=?UTF-8?q?${encoded}?=`;
-}
-var bodyLine = (line) => /^(---|diff -|Index: )/.test(line) ? ` ${line}` : line;
-function renderMail(message, number5, total, diff) {
-  const body = message.body.trim() === "" ? "" : `${message.body.replace(/\r\n/g, "\n").split("\n").map(bodyLine).join("\n").replace(/\n*$/, "\n")}`;
-  return [
-    "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n",
-    `From: ${patchAuthor}
-`,
-    `Subject: [PATCH ${String(number5)}/${String(total)}] ${headerText(message.subject)}
-`,
-    "MIME-Version: 1.0\n",
-    "Content-Type: text/plain; charset=UTF-8\n",
-    "Content-Transfer-Encoding: 8bit\n",
-    "\n",
-    body,
-    "---\n",
-    diff,
-    "-- \n",
-    "deep-review\n",
-    "\n"
-  ].join("");
 }
 
 // src/review/phases.ts
@@ -26358,6 +26402,7 @@ async function runReview(options2) {
   const roles = assembleRoles(options2.rolesRoot);
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
   const { checkpoint } = options2;
+  const content = gitContent(options2.worktree, (reference) => checkpoint.evidence.read(reference));
   const opened = await openRun({ ...options2, log, environment, adapter, roles });
   let state = opened.state;
   const runId = state.id;
@@ -26377,14 +26422,14 @@ async function runReview(options2) {
         log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
         return;
       }
-      const found = findDrift(state, options2.worktree);
+      const found = findDrift(state, options2.worktree, content.match);
       if (drifted(found)) {
         log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
         state = append(checkpoint, state, [{ kind: "worktree.checked", version: 2, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found) }]);
         return;
       }
     }
-    const events = contributionOf(settled2.unit, settled2.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence });
+    const events = contributionOf(settled2.unit, settled2.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match });
     for (const event of events) {
       if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
       if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: revised ${String(event.payload.files.length)} files for ${event.payload.change.findings.join(", ")}`);
@@ -26407,13 +26452,13 @@ async function runReview(options2) {
     }
     const configuration = state.review.configuration;
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
-    state = recordLostWorkers(checkpoint, state, options2.worktree, log);
+    state = recordLostWorkers(checkpoint, state, options2.worktree, content.match, log);
     state = reenterPhase(checkpoint, state, log);
     const scope = state.scope;
     const block = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) });
     const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
     const scratchBase = join22(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
-    const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence });
+    const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match });
     const runDueCheck = async (phase, attempt, due) => {
       if (due.skip !== null) {
         log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
@@ -26446,7 +26491,7 @@ async function runReview(options2) {
           state = append(checkpoint, state, [{ kind: "phase.started", version: 2, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case "check-worktree": {
-          const check2 = phaseCheck(state, options2.worktree, step.phase, step.attempt, step.moment);
+          const check2 = phaseCheck(state, options2.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check2.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check2)}`);
           if (check2.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check2.strays.join(", ")}`);
           state = append(checkpoint, state, [{ kind: "worktree.checked", version: 2, payload: check2 }]);
@@ -26520,7 +26565,7 @@ async function runReview(options2) {
         case "write-report": {
           const fixState = state.review.fix;
           const revisions = fixState === null ? [] : fixState.revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fixState, revision) } }));
-          const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree)).map((patch) => checkpoint.evidence.put(patch));
+          const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const fix = state.review.fix === null ? {} : { fix: { evidencePath: (reference) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
@@ -26655,13 +26700,13 @@ function recordLimits(checkpoint, state, limits, log) {
   log(`run ${state.id}: limits in force: concurrency ${String(limits.concurrency)}, ${limits.runBudgetUsd === null ? "no run budget" : `run budget ${limits.runBudgetUsd.toFixed(2)} USD`}`);
   return append(checkpoint, state, [{ kind: "limits.changed", version: 1, payload: limits }]);
 }
-function recordLostWorkers(checkpoint, state, worktree, log) {
+function recordLostWorkers(checkpoint, state, worktree, match, log) {
   const reason = "the engine exited while the worker ran";
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === "running")) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
     const lost = { kind: "worker.lost", version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
-    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
+    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence, match }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
     if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? "" : "s"}`);
     state = append(checkpoint, state, [lost, ...edits]);
   }
@@ -26821,7 +26866,7 @@ function currentBranch(worktree) {
     throw error62;
   }
 }
-function refuse(run2, worktree, changeMessage) {
+function refuse(run2, worktree, changeMessage, match) {
   const scope = run2.scope;
   const fix = run2.review.fix;
   const head2 = git2(worktree, ["rev-parse", "HEAD"]).trim();
@@ -26832,7 +26877,7 @@ function refuse(run2, worktree, changeMessage) {
   if (scope.mode !== "worktree" && changeMessage !== void 0) throw new ReviewRefusedError(`run ${run2.id} reviewed a committed change (${scope.mode}), so there is no change to commit first; leave out --change-message`);
   const expected = expectedTree(scope, fix.revisions);
   const committed = /* @__PURE__ */ new Set([...fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path)), ...scope.mode === "worktree" ? scope.files.map((file2) => file2.path) : []]);
-  const differs = compareExpected(new Map([...expected].filter(([path]) => committed.has(path))), worktreeReader(worktree));
+  const differs = compareExpected(new Map([...expected].filter(([path]) => committed.has(path))), worktreeReader(worktree), /* @__PURE__ */ new Set(), match);
   if (differs.length > 0) {
     throw new ReviewRefusedError(`the worktree no longer holds what run ${run2.id} recorded at ${differs.map((file2) => `${file2.path} (${file2.outcome})`).join(", ")}; undo those edits, or commit the patch series by hand`);
   }
@@ -26846,7 +26891,7 @@ function commitRun(options2) {
     try {
       const run2 = requireCommittable(checkpoint.fold(chosen.id));
       if (!sameDirectory(run2.worktree, worktree)) throw new ReviewRefusedError(`run ${run2.id} was reviewed in worktree ${run2.worktree}, not ${worktree}; run the command there`);
-      refuse(run2, worktree, options2.changeMessage);
+      refuse(run2, worktree, options2.changeMessage, gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match);
       return build(run2, options2);
     } finally {
       release();

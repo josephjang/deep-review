@@ -14,7 +14,7 @@ import { isNotAttempted, ownedFiles } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered } from '../checkpoint/review-fold.ts';
 import { unitsOf } from './steps.ts';
-import { compareExpected, expectedTree, headMoved, straysOf, worktreeReader, type DriftedFile, type ExpectedTree } from './tree.ts';
+import { compareExpected, expectedTree, headMoved, straysOf, worktreeReader, type DriftedFile, type ExpectedMatch, type ExpectedTree } from './tree.ts';
 import { isEditingPhase, type Phase } from './vocabulary.ts';
 
 /** The tree the run expects of a configured run: its scope overlaid by its revisions. */
@@ -41,10 +41,10 @@ export interface DriftFound {
   readonly head: WorktreeCheckV2['head'];
 }
 
-/** Compare the worktree with what the run expects, leaving out `excluded`; reads only the expected files and `HEAD`. */
-export function findDrift(state: RunState, worktree: string, excluded: ReadonlySet<string> = new Set()): DriftFound {
+/** Compare the worktree with what the run expects by `match`, as git would store each file (R22), leaving out `excluded`; reads only the expected files and `HEAD`. */
+export function findDrift(state: RunState, worktree: string, match: ExpectedMatch, excluded: ReadonlySet<string> = new Set()): DriftFound {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  return { files: compareExpected(expectedTreeOf(state), worktreeReader(worktree), excluded), head: headMoved(worktree, state.scope.head) };
+  return { files: compareExpected(expectedTreeOf(state), worktreeReader(worktree), excluded, match), head: headMoved(worktree, state.scope.head) };
 }
 
 export const drifted = (found: DriftFound): boolean => found.files.length > 0 || found.head !== null;
@@ -63,7 +63,7 @@ export function worktreeChecked(state: RunState, worktree: string, phase: Phase,
 }
 
 /** The check a phase's attempt makes at its start or end: an editing phase's start leaves its unsettled units' files out (TD3). */
-export function phaseCheck(state: RunState, worktree: string, phase: Phase, attempt: number, moment: 'start' | 'end'): WorktreeCheckV2 {
+export function phaseCheck(state: RunState, worktree: string, phase: Phase, attempt: number, moment: 'start' | 'end', match: ExpectedMatch): WorktreeCheckV2 {
   const excluded = moment === 'start' ? unsettledFiles(state, phase) : new Set<string>();
-  return worktreeChecked(state, worktree, phase, attempt, moment, findDrift(state, worktree, excluded));
+  return worktreeChecked(state, worktree, phase, attempt, moment, findDrift(state, worktree, match, excluded));
 }

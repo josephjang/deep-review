@@ -7,6 +7,8 @@ const maxOutputBytes = 512 * 1024 * 1024;
 export interface GitOptions {
   /** Exit codes other than 0 that mean success; `git diff --no-index` exits 1 when files differ. */
   readonly okExitCodes?: readonly number[];
+  /** Bytes for git's stdin; without them stdin is closed. */
+  readonly input?: Buffer;
 }
 
 /** Run git in `cwd` and return its stdout as bytes. Every call passes `--no-optional-locks` so a capture never writes the index. */
@@ -16,7 +18,8 @@ export function git(cwd: string, args: readonly string[], options: GitOptions = 
       cwd,
       maxBuffer: maxOutputBytes,
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      ...(options.input === undefined ? {} : { input: options.input }),
     });
   } catch (error) {
     const failure = error as { status?: number | null; stdout?: Buffer; stderr?: Buffer; message: string };
@@ -159,6 +162,32 @@ export function blobThroughFilters(repo: string, commit: string, path: string): 
 /** A blob's raw bytes, for a symlink's target text. */
 export function blobRaw(repo: string, objectId: string): Buffer {
   return git(repo, ['cat-file', 'blob', objectId]);
+}
+
+/**
+ * The object id git would store these bytes under at `path`, through the
+ * clean conversion the path's configuration and attributes ask for (line
+ * endings under `core.autocrlf`, `text`, `eol`), writing nothing.
+ */
+export function storedBlobId(repo: string, path: string, bytes: Buffer): string {
+  return gitText(repo, ['hash-object', `--path=${path}`, '--stdin'], { input: bytes }).trim();
+}
+
+/** Store these bytes as git would at `path`, through the same conversion, and return the object id; the blob is unreferenced until something names it. */
+export function writeStoredBlob(repo: string, path: string, bytes: Buffer): string {
+  return gitText(repo, ['hash-object', '-w', `--path=${path}`, '--stdin'], { input: bytes }).trim();
+}
+
+/**
+ * The paths whose content differs from `HEAD` as git compares it, after
+ * its clean conversion, and the untracked ones, ignored ones excepted,
+ * sorted. Unlike `git status`, a file that differs from its checkout only
+ * in what the conversion undoes is not listed.
+ */
+export function changedAgainstHead(repo: string): string[] {
+  const changed = records(gitText(repo, ['diff', '--name-only', '--no-renames', '-z', 'HEAD']));
+  const untracked = records(gitText(repo, ['ls-files', '--others', '--exclude-standard', '-z']));
+  return [...new Set([...changed, ...untracked])].sort();
 }
 
 /** The hash the repository names its objects with: `sha1`, or `sha256` for a repository created with that format. */

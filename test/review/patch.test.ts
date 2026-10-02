@@ -8,6 +8,7 @@ import { EvidenceStore, sha256Hex } from '../../src/evidence/store.ts';
 import { gitBlobId, patchSeries, renderMail, renderPatch } from '../../src/review/patch.ts';
 import { applyRevision, expectedTree, type ExpectedFile, type RevisedFile } from '../../src/review/tree.ts';
 import { freezeBytes, freezeLimitBytes } from '../../src/scope/capture.ts';
+import { gitContent } from '../../src/review/content.ts';
 import { git, repositoryWith } from '../helpers/repository.ts';
 
 describe('renderPatch', () => {
@@ -123,6 +124,48 @@ describe('renderPatch', () => {
       assert.deepEqual(git(repo, 'log', '--format=%s', '-3').split('\n'), ['fix: revision 3', 'fix: revision 2', 'fix: revision 1']);
       assert.match(git(repo, 'log', '--format=%B', '-1', 'HEAD~2'), /Why it changed\.\n\n ---\nA line that would end the message\./);
     });
+  });
+});
+
+describe('a patch of a CRLF checkout rewritten to LF (R22)', () => {
+  let directory: string;
+  let evidence: EvidenceStore;
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'deep-review-patch-eol-'));
+    evidence = new EvidenceStore(join(directory, 'evidence'));
+  });
+  afterEach(() => rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+
+  it('holds only the edited line, diffing what git would store, and applies with git am to an LF and to a CRLF checkout', () => {
+    const lines = Array.from({ length: 10 }, (_, index) => `line ${String(index)}`);
+    const origin = repositoryWith(join(directory, 'origin'), { 'a.txt': `${lines.join('\n')}\n` });
+    const clone = (name: string, autocrlf: boolean): string => {
+      const path = join(directory, name);
+      execFileSync('git', ['-c', `core.autocrlf=${String(autocrlf)}`, 'clone', '-q', origin, path], { stdio: ['ignore', 'pipe', 'pipe'] });
+      for (const [key, value] of [['core.autocrlf', String(autocrlf)], ['user.name', 'Test'], ['user.email', 'test@example.invalid']]) git(path, 'config', key!, value!);
+      return path;
+    };
+    const crlfCheckout = clone('crlf', true);
+    // The run froze the CRLF checkout; a formatter and a fixer left LF with one line changed.
+    const before = readFileSync(join(crlfCheckout, 'a.txt'));
+    assert.ok(before.includes('\r\n'));
+    const after = Buffer.from(`${lines.map((line) => (line === 'line 5' ? 'line five' : line)).join('\n')}\n`);
+    const tree = (bytes: Buffer): Map<string, ExpectedFile | null> => new Map([['a.txt', { frozen: freezeBytes(evidence, bytes), symlink: false }]]);
+    const read = (reference: { sha256: string; bytes: number }): Buffer => evidence.read(reference);
+    const raw = renderPatch(tree(before), tree(after), ['a.txt'], read);
+    assert.match(raw, /@@ -1,10 \+1,10 @@/, 'compared raw, every line differs');
+    const { stored } = gitContent(crlfCheckout, read);
+    const patch = renderPatch(tree(before), tree(after), ['a.txt'], read, 'sha1', stored);
+    assert.deepEqual(patch.split('\n').filter((line) => /^[-+][^-+]/.test(line)), ['-line 5', '+line five'], patch);
+    const mail = renderMail({ subject: 'fix: Name line five', body: '' }, 1, 1, patch);
+    const file = join(directory, '0001.patch');
+    writeFileSync(file, mail);
+    for (const [name, autocrlf] of [['apply-lf', false], ['apply-crlf', true]] as const) {
+      const target = clone(name, autocrlf);
+      execFileSync('git', ['am', '--keep-cr', '--whitespace=nowarn', file], { cwd: target, stdio: ['ignore', 'pipe', 'pipe'] });
+      assert.equal(git(target, 'show', 'HEAD:a.txt'), after.toString('utf8').trimEnd(), name);
+      assert.equal(git(target, 'status', '--porcelain'), '', name);
+    }
   });
 });
 
