@@ -239,7 +239,7 @@ const configured: Reducer<ReviewConfiguration> = (state, payload, event) => {
 };
 
 /** Version 1 of the configuration, recorded before the fix pass existed: a run without it. */
-const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event, drafts) => configured(state, { ...payload, fix: false, checks: null }, event, drafts);
+const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event, drafts) => configured(state, { ...payload, fix: false, checks: null, fixes: null }, event, drafts);
 
 /** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
 const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {

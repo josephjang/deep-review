@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { policyFileName } from '../../src/review/policy.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { until } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
@@ -13,6 +14,9 @@ import { ReviewSandbox } from '../helpers/review-sandbox.ts';
 /** A candidate as a finder returns it. */
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
 
+/** The nine leads with nothing in them. */
+const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null }));
+
 /**
  * A review whose triage finds one defect in src/a.ts and one in src/b.ts,
  * both PLAUSIBLE from SCAN, a correctness angle, so each routes to a
@@ -20,9 +24,6 @@ const found = (file: string, line: number, summary: string): Record<string, unkn
  * which is held for the author. Ranked, the plan is c1 owning src/a.ts
  * with SCAN-1 and c2 owning src/b.ts with SCAN-2.
  */
-/** The nine leads with nothing in them. */
-const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null }));
-
 const reviewScript: Script = {
   triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
   sweep: { output: { candidates: [{ ...found('src/a.ts', 5, 'other() would read better inlined'), angle: 'DESIGN' }] } },
@@ -416,13 +417,19 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.match(patch, /^-export const n = parse\(null\);$/m);
   });
 
-  it('keeps what a run pinned when it resumes: the fix pass and its checks, whatever the flags say now', async () => {
+  it('keeps what a run pinned when it resumes: the fix pass, its checks and its batch size, whatever the flags and the policy say now', async () => {
+    const policyFile = join(box.rolesRoot, policyFileName);
+    const setBatchSize = (batchSize: number): void => writeFileSync(policyFile, JSON.stringify({ ...JSON.parse(readFileSync(policyFile, 'utf8')), fixes: { batchSize } }, null, 2));
+    setBatchSize(2);
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.fix('claude')).kind, 'blocked');
+    assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the run pinned the policy\'s batch size');
+    setBatchSize(4);
     box.script(reviewScript);
     report(await box.review('claude', { fix: { commands: { test: 'echo other' }, dropped: [] } }));
     assert.ok(box.logs.some((line) => /keeps the checks it pinned; --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
     assert.ok(box.run().review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag' && check.command !== 'echo other'));
+    assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the resumed run kept the size it started with');
   });
 
   it('logs --fix and its check flags as ignored on a run pinned without the fix pass, and keeps it read-only', async () => {

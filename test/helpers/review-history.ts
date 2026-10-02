@@ -33,7 +33,7 @@ export const configurationV1: ReviewConfigurationV1 = {
 };
 
 /** The configuration as the fold holds it: version 1's, read as a run without the fix pass. */
-export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null };
+export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null, fixes: null };
 
 /** A launch under a review label, capped at the 8 USD per-worker budget the configuration's roles pin, as Claude Code's launches are. */
 export const launch = (workerId: string, label: string): Record<string, unknown> => ({
@@ -237,7 +237,7 @@ export function withFixPass(history: History): History {
       fixed.add(event.kind, event.payload, event.version);
       continue;
     }
-    fixed.add('review.configured', { ...(event.payload as object), fix: true, checks: { timeoutMs: 600_000 } }, 2);
+    fixed.add('review.configured', { ...(event.payload as object), fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 } }, 2);
     fixed.add('checks.planned', plannedChecks);
   }
   return fixed;

@@ -20273,10 +20273,14 @@ var blockerSchemaV2 = external_exports.strictObject({
 var reviewConfiguredV2 = external_exports.strictObject({
   ...reviewConfiguredV1.shape,
   fix: external_exports.boolean(),
-  checks: external_exports.strictObject({ timeoutMs: external_exports.number().int().positive() }).nullable()
+  checks: external_exports.strictObject({ timeoutMs: external_exports.number().int().positive() }).nullable(),
+  fixes: external_exports.strictObject({ batchSize: external_exports.number().int().min(1).max(20) }).nullable()
 }).refine((configuration) => configuration.fix === (configuration.checks !== null), {
   message: "the checks are pinned exactly when the run fixes",
   path: ["checks"]
+}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
+  message: "the batch size is pinned exactly when the run fixes",
+  path: ["fixes"]
 });
 var phaseStartedV2 = external_exports.strictObject({
   phase: phaseSchemaV2,
@@ -20680,7 +20684,7 @@ var configured = (state, payload, event) => {
   };
   return withReview(state, review2, event);
 };
-var configuredV1 = (state, payload, event, drafts) => configured(state, { ...payload, fix: false, checks: null }, event, drafts);
+var configuredV1 = (state, payload, event, drafts) => configured(state, { ...payload, fix: false, checks: null, fixes: null }, event, drafts);
 var limitsChanged = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   if (review2.report !== null) throw invalid(event, "changes its limits after its report");
@@ -25118,10 +25122,15 @@ var maxConcurrency = 16;
 var checksPolicySchema = external_exports.strictObject({
   timeoutMs: external_exports.number().int().min(1e3).max(maxTimeoutMs)
 });
+var maxBatchSize = 20;
+var fixesPolicySchema = external_exports.strictObject({
+  batchSize: external_exports.number().int().min(1).max(maxBatchSize)
+});
 var policyFileSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
   roles: external_exports.record(roleKeySchema, rolePolicySchema),
   checks: checksPolicySchema,
+  fixes: fixesPolicySchema,
   runtimes: external_exports.record(external_exports.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
   concurrency: external_exports.number().int().min(1).max(maxConcurrency)
 });
@@ -25204,7 +25213,8 @@ function resolvePolicy(policy, roles, adapter, flags = {}) {
     rolesDigest: rolesDigest(roles),
     concurrency: flags.concurrency ?? policy.concurrency,
     runBudgetUsd: capabilities.costInUsd ? flags.budgetUsd ?? runtime.runBudgetUsd : null,
-    checks: policy.checks
+    checks: policy.checks,
+    fixes: policy.fixes
   };
 }
 function pinnedRole(roles, role) {
@@ -26273,7 +26283,7 @@ async function openRun(context) {
       const executableArgs = [...context.executableArgs ?? []];
       const version2 = await qualify2(context.adapter, executable, executableArgs, context, null);
       configure = {
-        configuration: { ...resolved, roles: [...resolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : resolved.checks },
+        configuration: { ...resolved, roles: [...resolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : resolved.checks, fixes: fix === null ? null : resolved.fixes },
         checks: discovered === null ? null : { checks: [...discovered.checks], manager: discovered.manager }
       };
     }
