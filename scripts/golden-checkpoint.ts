@@ -326,12 +326,12 @@ try {
   // the engine now writes: a review whose plan holds one held finding and
   // two clusters, one of three findings run as three batches of one, its
   // second batch timing out after one snapshot, whose edits are recorded
-  // with the failure and verified by the retry, its third deferred; a lint
-  // check that rewrites a file at baseline and a test that fails there; a
-  // fixer that reports an edit to the other cluster's
-  // file (a violation) and leaves a stray; the lint the fixers broke,
-  // repaired, and the test still failing; the report with one patch per
-  // revision; and the commits built from it afterwards.
+  // with the failure and verified by the retry, its third not attempted
+  // once the run budget was reached; a lint check that rewrites a file at
+  // baseline and a test that fails there; a fixer that reports an edit to
+  // the other cluster's file (a violation) and leaves a stray; the lint the
+  // fixers broke, repaired, and the test still failing; the report with one
+  // patch per revision; and the commits built from it afterwards.
   const fixedRun = checkpoint.createRun({ worktree: '/fixture/fixed' });
   const fixScope: ScopeState = { ...scope, files: [scope.files[0]!], request: { paths: [] } };
   const fix = new ReviewHistory(checkpoint, fixedRun.id, checkpoint.append(fixedRun.id, fixedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
@@ -466,10 +466,9 @@ try {
     fix.launch('154', 'fixer fixes:c1-2');
     fix.finishWorker('154');
     fix.add('fix.recorded', { phase: 'fixes', key: 'c1-2', workerId: fix.id('154'), findings: [finding('SCAN-2', 'already-applied', ['src/changed.ts'], 'fix: Check the guard in changed()')], drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [] });
-    fix.launch('153', 'fixer fixes:c1-3');
-    fix.finishWorker('153');
-    fix.add('fix.recorded', { phase: 'fixes', key: 'c1-3', workerId: fix.id('153'), findings: [finding('SCAN-3', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
-  }, 'completed', { end: true, strays: ['notes.txt'] });
+    // The run budget is reached before c1-3 launches: it is not attempted, and the pass goes on to its checks and report.
+    fix.add('unit.unattempted', { phase: 'fixes', key: 'c1-3', cause: 'budget', reason: 'spent 30.10 USD of the 30.00 USD run budget' });
+  }, 'degraded', { end: true, strays: ['notes.txt'] });
   // The fixers broke lint, which the repair takes; test failed before any fix, so no repair is owed it.
   fix.phaseV2('checks', () => {
     fix.check('checks', 'build', checks.build, 'passed');
@@ -489,10 +488,10 @@ try {
   });
   fix.phaseV2('report', () => {
     const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 5, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
+    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 4, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
     fix.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(21), budgetApplied: true },
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(20), budgetApplied: true },
       patches: ['lint rewrite', 'guard', 'check the guard', 'format'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
     }, 2);
   });

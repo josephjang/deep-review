@@ -45,7 +45,7 @@ describe('unsettledFiles', () => {
     assert.deepEqual([...unsettledFiles(running.fold(), 'baseline-checks')], []);
     const answered = baselined().start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50)));
     assert.deepEqual([...unsettledFiles(answered.fold(), 'fixes')], [], 'an answered unit\'s files are revised and compared');
-    const failed = baselined().start('fixes').add('fixes.planned', fixPlan).add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' });
+    const failed = baselined().start('fixes').add('fixes.planned', fixPlan).add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: 'r' });
     assert.deepEqual([...unsettledFiles(failed.fold(), 'fixes')], [], 'a failed unit\'s edits are revised with its failure and compared');
   });
 });

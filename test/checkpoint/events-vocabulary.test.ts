@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
-import { angleFailedV1, attemptFailedV1, attemptFailedV2, blockerSchema, candidatesRecordedV1, clusterFailedV1, groupUnverifiedV1, phaseStartedV1, phaseStartedV2, recordedTextLengthV1, reviewIdentifiersV1, reviewIdentifiersV2, reviewVocabularyV1, reviewVocabularyV2, workerLostV1, workerLostV2 } from '../../src/checkpoint/events.ts';
+import { angleFailedV1, attemptFailedV1, attemptFailedV2, blockerSchema, candidatesRecordedV1, unitUnattemptedV1, groupUnverifiedV1, phaseStartedV1, phaseStartedV2, recordedTextLengthV1, reviewIdentifiersV1, reviewIdentifiersV2, reviewVocabularyV1, reviewVocabularyV2, workerLostV1, workerLostV2 } from '../../src/checkpoint/events.ts';
 import {
   angles,
   candidateIdSchema,
@@ -116,7 +116,7 @@ describe('the review vocabulary frozen by the v2 events', () => {
     const text = (length: number): string => 'x'.repeat(length);
     const cases: [string, (value: string) => unknown][] = [
       ['attempt.failed@2 reason', (reason) => attemptFailedV2.safeParse({ phase: 'fixes', key: 'c1', workerId: '00000000-0000-4000-8000-000000000001', reason }).success],
-      ['cluster.failed@1 reason', (reason) => clusterFailedV1.safeParse({ phase: 'fixes', key: 'c1', reason }).success],
+      ['unit.unattempted@1 reason', (reason) => unitUnattemptedV1.safeParse({ phase: 'fixes', key: 'c1-1', cause: 'failures', reason }).success],
     ];
     for (const [name, accepts] of cases) {
       assert.equal(accepts(text(recordedTextLengthV1)), true, `${name} holds the cap`);

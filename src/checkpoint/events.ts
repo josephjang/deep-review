@@ -804,13 +804,19 @@ export const treeRevisedV1 = z.strictObject({
 });
 export type TreeRevised = z.infer<typeof treeRevisedV1>;
 
-/** A unit of an editing phase failed twice: its findings are not attempted, and the phase degraded (R12 of the fix pass). */
-export const clusterFailedV1 = z.strictObject({
+/**
+ * A unit of an editing phase is settled without an answer: it failed
+ * twice, or the run budget was reached before it could be launched again
+ * (R12, R19 of the fix pass). Its findings are not attempted, and the
+ * phase degraded.
+ */
+export const unitUnattemptedV1 = z.strictObject({
   phase: editingPhaseSchemaV2,
   key: unitKeySchema,
+  cause: z.enum(['failures', 'budget']),
   reason: recordedTextSchema,
 });
-export type ClusterFailed = z.infer<typeof clusterFailedV1>;
+export type UnitUnattempted = z.infer<typeof unitUnattemptedV1>;
 
 /** The commits `deep-review commit` built from a completed fix run, in order, and the head they were built on and moved to (R17 of the fix pass). */
 export const commitsCreatedV1 = z.strictObject({
@@ -852,7 +858,7 @@ export const eventRegistry = defineRegistry({
   'check.ran': { 1: { schema: checkRanV1 } },
   'fix.recorded': { 1: { schema: fixRecordedV1 } },
   'tree.revised': { 1: { schema: treeRevisedV1 } },
-  'cluster.failed': { 1: { schema: clusterFailedV1 } },
+  'unit.unattempted': { 1: { schema: unitUnattemptedV1 } },
   'commits.created': { 1: { schema: commitsCreatedV1 } },
 });
 

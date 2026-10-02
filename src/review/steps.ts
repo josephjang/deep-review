@@ -56,7 +56,7 @@ export interface Live {
 type DegradationTarget =
   | { readonly kind: 'angle.failed'; readonly angle: string }
   | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string }
-  | { readonly kind: 'cluster.failed'; readonly phase: EditingPhase; readonly key: string };
+  | { readonly kind: 'unit.unattempted'; readonly phase: EditingPhase; readonly key: string; readonly cause: 'failures' | 'budget' };
 
 /** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. */
 export type Degradation = DegradationTarget & { readonly reason: string };
@@ -199,7 +199,7 @@ function degradationOf(unit: Unit): DegradationTarget | null {
       return { kind: 'group.unverified', phase: unit.phase, groupId: unit.key };
     case 'fixes':
     case 'repair':
-      return { kind: 'cluster.failed', phase: unit.phase, key: unit.key };
+      return { kind: 'unit.unattempted', phase: unit.phase, key: unit.key, cause: 'failures' };
     case 'triage':
     case 'deduplication':
     case 'sweep':
@@ -228,7 +228,7 @@ function degraded(review: ReviewState, unit: Unit): boolean {
       return Object.hasOwn(review.anglesNotRun, target.angle);
     case 'group.unverified':
       return isUnverified(review, target.phase, target.groupId);
-    case 'cluster.failed':
+    case 'unit.unattempted':
       return review.fix !== null && isNotAttempted(review.fix, target.phase, target.key);
   }
 }
@@ -270,6 +270,18 @@ const usd = (value: number): string => value.toFixed(2);
 export function workerFailedBlocker(unit: Unit, state: UnitState | undefined): Blocker {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ', a worker lost with its engine among the failures' : ''}: `;
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions['worker-failed'] };
+}
+
+/**
+ * What an editing phase records once the run budget is reached (R19 of
+ * the fix pass): every unit with no worker in flight that has not settled
+ * is not attempted, with the budget as the cause, whether it was waiting
+ * for a launch, for a retry, or for its cluster's earlier batch.
+ */
+function budgetDegradations(review: ReviewState, units: readonly Unit[], live: Live, spent: string): Degradation[] {
+  return units
+    .filter((unit) => !settled(review, unit) && !live.running.has(unitName(unit.phase, unit.key)))
+    .map((unit): Degradation => ({ kind: 'unit.unattempted', phase: unit.phase as EditingPhase, key: unit.key, cause: 'budget', reason: spent }));
 }
 
 /** The blocker a phase finishes with when the spend the budget check counts reached the run budget, naming the workers it counted at their caps and the lost ones it left out. */
@@ -380,7 +392,10 @@ export function nextStep(review: ReviewState, live: Live): Step {
     const { concurrency, runBudgetUsd } = review.limits;
     const countedUsd = live.spend.usd;
     if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
-      return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker({ ...live.spend, usd: countedUsd }, runBudgetUsd) };
+      const spend = { ...live.spend, usd: countedUsd };
+      // An editing phase stops launching instead and goes on to its report, so its edits are never left unreported (R19, PD16 of the fix pass).
+      if (isEditingPhase(phase)) return { kind: 'degrade', phase, degradations: budgetDegradations(review, units, live, budgetBlocker(spend, runBudgetUsd).detail) };
+      return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(spend, runBudgetUsd) };
     }
     const capacity = concurrency - live.running.size;
     return capacity > 0 ? { kind: 'launch', units: launchable.slice(0, capacity) } : { kind: 'await' };

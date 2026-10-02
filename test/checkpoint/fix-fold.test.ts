@@ -71,7 +71,7 @@ describe('the fix fold', () => {
       // What the first attempt left is recorded with its failure (R20 of the fix pass).
       .add('tree.revised', { phase: 'repair', source: { kind: 'attempt', key: 'repair', workerId: worker(60) }, change: { findings: [], message: { subject: 'chore: keep the partial edits of the repair', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] })
       .add('attempt.failed', { phase: 'repair', key: 'repair', workerId: worker(61), reason: 'failed again' }, 2)
-      .add('cluster.failed', { phase: 'repair', key: 'repair', reason: '2 attempts did not complete' })
+      .add('unit.unattempted', { phase: 'repair', key: 'repair', cause: 'failures', reason: '2 attempts did not complete' })
       .add('worktree.checked', endCheck('repair'), 2)
       .finish('repair', 'degraded');
     checksPhase(history, 'repair-checks', { test: 'failed' })
@@ -81,7 +81,7 @@ describe('the fix fold', () => {
       .add('commits.created', { commits: [{ sha: commit('a'), revision: 'change', subject: 'the change' }, { sha: commit('b'), revision: 0, subject: 'fix: Guard the null' }, { sha: commit('c'), revision: 1, subject: 'chore: keep the partial edits of the repair' }], from: '2'.repeat(40), to: commit('c') });
     const review = history.review();
     const fix = review.fix!;
-    assert.equal(fix.notAttempted.repair.repair, '2 attempts did not complete');
+    assert.deepEqual(fix.notAttempted.repair.repair, { cause: 'failures', reason: '2 attempts did not complete' });
     assert.equal(fix.revisions.length, 2);
     assert.deepEqual(review.report?.patches, [reference('1'), reference('2')]);
     assert.equal(fix.commits?.to, commit('c'));
@@ -166,9 +166,9 @@ describe('the fix fold', () => {
     ['an attempt\'s revision naming two findings', () => failedOnce().add('tree.revised', attemptRevision(worker(51), ['RIPPLE-1', 'SWEEP-1'])), /schema rejects/],
     ['an attempt\'s edits for a unit the plan does not have', () => failedOnce().add('tree.revised', { ...attemptRevision(worker(51), []), source: { kind: 'attempt', key: 'c9-1', workerId: worker(51) } }), /an attempt of fixes:c9-1, which the phase does not have/],
     ['an attempt\'s edits in a checks phase', () => fixed().start('checks').add('tree.revised', { ...attemptRevision(worker(51), []), phase: 'checks' }), /an attempt in checks, which no fixer runs in/],
-    ['a cluster failed after its answer', () => answered().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }), /already answered/],
-    ['a cluster failed twice', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }).add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }), /fails fixes:c1-1 twice/],
-    ['an answer after the cluster failed', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }).add('fix.recorded', fixAnswer(worker(50))), /after it failed/],
+    ['a batch not attempted after its answer', () => answered().add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: 'r' }), /already answered/],
+    ['a batch not attempted twice', () => planned().add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: 'r' }).add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: 'r' }), /settles fixes:c1-1 as not attempted twice/],
+    ['an answer after the batch was not attempted', () => planned().add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: 'r' }).add('fix.recorded', fixAnswer(worker(50))), /after it failed/],
     ['a report with a patch per revision missing', () => fixed().start('checks').finish('checks').start('repair').finish('repair').start('repair-checks').finish('repair-checks').start('report').add('report.written', { report: reference('e'), statistics, patches: [] }, 2), /writes 0 patches for 1 revisions/],
     ['commits before the report', () => fixed().add('commits.created', { commits: [{ sha: commit('a'), revision: 'change', subject: 's' }, { sha: commit('b'), revision: 0, subject: 's' }], from: '2'.repeat(40), to: commit('b') }), /before its report/],
     ['commits on a read-only run', () => reported().add('commits.created', { commits: [{ sha: commit('a'), revision: 0, subject: 's' }], from: '2'.repeat(40), to: commit('a') }), /configured without the fix pass/],

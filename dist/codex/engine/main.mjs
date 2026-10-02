@@ -20449,9 +20449,10 @@ var treeRevisedV1 = external_exports.strictObject({
   const allowed2 = revision.source.kind === "fix" ? named > 0 : revision.source.kind === "check" ? named === 0 : named <= 1;
   if (!allowed2) context.addIssue({ code: "custom", message: "a fix revision names a finding or more, a check's none, and an attempt's one or none", path: ["change"] });
 });
-var clusterFailedV1 = external_exports.strictObject({
+var unitUnattemptedV1 = external_exports.strictObject({
   phase: editingPhaseSchemaV2,
   key: unitKeySchema,
+  cause: external_exports.enum(["failures", "budget"]),
   reason: recordedTextSchema
 });
 var commitsCreatedV1 = external_exports.strictObject({
@@ -20490,7 +20491,7 @@ var eventRegistry = defineRegistry({
   "check.ran": { 1: { schema: checkRanV1 } },
   "fix.recorded": { 1: { schema: fixRecordedV1 } },
   "tree.revised": { 1: { schema: treeRevisedV1 } },
-  "cluster.failed": { 1: { schema: clusterFailedV1 } },
+  "unit.unattempted": { 1: { schema: unitUnattemptedV1 } },
   "commits.created": { 1: { schema: commitsCreatedV1 } }
 });
 
@@ -20639,6 +20640,11 @@ function revisionMessageOf(fix, revision) {
   const id = revision.change.findings[0];
   const answer = fix.answers[revision.phase][source.key];
   return answer?.findings.find((finding) => finding.id === id)?.message ?? revision.change.message;
+}
+function notAttemptedNote(fix, phase, key) {
+  const settled2 = fix.notAttempted[phase][key];
+  if (settled2 === void 0) return null;
+  return settled2.cause === "budget" ? `the run budget was reached first: ${settled2.reason}` : settled2.reason;
 }
 function isNotAttempted(fix, phase, key) {
   return Object.hasOwn(fix.notAttempted[phase], key);
@@ -21083,13 +21089,13 @@ var treeRevised = (state, payload, event) => {
   }
   return withFix(current, review2, { ...fix, revisions: [...fix.revisions, payload] }, event);
 };
-var clusterFailed = (state, payload, event) => {
+var unitUnattempted = (state, payload, event) => {
   const { current, review: review2, fix } = requireFix(state, event);
   requireRunning(review2, event, payload.phase);
-  if (unitIds(fix, payload.phase, payload.key) === null) throw invalid(event, `fails ${payload.phase}:${payload.key}, which the phase does not have`);
+  if (unitIds(fix, payload.phase, payload.key) === null) throw invalid(event, `settles ${payload.phase}:${payload.key}, which the phase does not have`);
   requireUnanswered(review2, event, { phase: payload.phase, key: payload.key });
-  if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `fails ${payload.phase}:${payload.key} twice`);
-  const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: payload.reason } };
+  if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `settles ${payload.phase}:${payload.key} as not attempted twice`);
+  const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: { cause: payload.cause, reason: payload.reason } } };
   return withFix(current, review2, { ...fix, notAttempted }, event);
 };
 var commitsCreated = (state, payload, event) => {
@@ -21109,7 +21115,7 @@ var fixReducers = {
   "check.ran@1": checkRan,
   "fix.recorded@1": fixRecorded,
   "tree.revised@1": treeRevised,
-  "cluster.failed@1": clusterFailed,
+  "unit.unattempted@1": unitUnattempted,
   "commits.created@1": commitsCreated
 };
 
@@ -24219,7 +24225,7 @@ function degradationOf(unit) {
       return { kind: "group.unverified", phase: unit.phase, groupId: unit.key };
     case "fixes":
     case "repair":
-      return { kind: "cluster.failed", phase: unit.phase, key: unit.key };
+      return { kind: "unit.unattempted", phase: unit.phase, key: unit.key, cause: "failures" };
     case "triage":
     case "deduplication":
     case "sweep":
@@ -24240,7 +24246,7 @@ function degraded(review2, unit) {
       return Object.hasOwn(review2.anglesNotRun, target.angle);
     case "group.unverified":
       return isUnverified(review2, target.phase, target.groupId);
-    case "cluster.failed":
+    case "unit.unattempted":
       return review2.fix !== null && isNotAttempted(review2.fix, target.phase, target.key);
   }
 }
@@ -24258,6 +24264,9 @@ var usd = (value) => value.toFixed(2);
 function workerFailedBlocker(unit, state) {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions["worker-failed"] };
+}
+function budgetDegradations(review2, units, live2, spent) {
+  return units.filter((unit) => !settled(review2, unit) && !live2.running.has(unitName(unit.phase, unit.key))).map((unit) => ({ kind: "unit.unattempted", phase: unit.phase, key: unit.key, cause: "budget", reason: spent }));
 }
 function budgetBlocker(spend, budgetUsd) {
   const note = budgetSpendNote(spend);
@@ -24332,7 +24341,9 @@ function nextStep(review2, live2) {
     const { concurrency, runBudgetUsd } = review2.limits;
     const countedUsd = live2.spend.usd;
     if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
-      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker({ ...live2.spend, usd: countedUsd }, runBudgetUsd) };
+      const spend = { ...live2.spend, usd: countedUsd };
+      if (isEditingPhase(phase)) return { kind: "degrade", phase, degradations: budgetDegradations(review2, units, live2, budgetBlocker(spend, runBudgetUsd).detail) };
+      return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(spend, runBudgetUsd) };
     }
     const capacity = concurrency - live2.running.size;
     return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
@@ -25884,7 +25895,7 @@ function fateOf(fix, id) {
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const answer = batch === null ? null : fix.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id) ?? null;
   if (answer !== null) return { id, outcome: statusWords[answer.status], batch, answer, reason: null };
-  const reason = batch !== null && isNotAttempted(fix, "fixes", batch.key) ? fix.notAttempted.fixes[batch.key] : "no fixer answered for it";
+  const reason = (batch === null ? null : notAttemptedNote(fix, "fixes", batch.key)) ?? "no fixer answered for it";
   return { id, outcome: "not attempted", batch, answer: null, reason };
 }
 function patchesOf(fix, id, phase) {
@@ -25924,7 +25935,7 @@ function fixesSection(review2, fix) {
     return [`### ${String(index2 + 1)}. ${entry.finding.id} ${fate.outcome}`, "", ...fateLines(fix, fate), ""];
   });
   const repair = fix.answers.repair[repairUnitKey];
-  const repairLines = repair === void 0 ? isNotAttempted(fix, "repair", repairUnitKey) ? ["### Repair", "", `Not attempted: ${inlineText(fix.notAttempted.repair[repairUnitKey])}`, ""] : [] : ["### Repair", "", ...repair.findings.map((finding) => `- ${finding.id} check ${statusWords[finding.status]}: ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`), ""];
+  const repairLines = repair === void 0 ? isNotAttempted(fix, "repair", repairUnitKey) ? ["### Repair", "", `Not attempted: ${inlineText(notAttemptedNote(fix, "repair", repairUnitKey))}`, ""] : [] : ["### Repair", "", ...repair.findings.map((finding) => `- ${finding.id} check ${statusWords[finding.status]}: ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`), ""];
   const lines = [
     "## Fixes",
     "",
@@ -26316,7 +26327,7 @@ async function runReview(options2) {
           break;
         case "degrade":
           for (const degradation of step.degradations) {
-            const what = degradation.kind === "angle.failed" ? `angle ${degradation.angle} not run` : degradation.kind === "group.unverified" ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted`;
+            const what = degradation.kind === "angle.failed" ? `angle ${degradation.angle} not run` : degradation.kind === "group.unverified" ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`;
             log(`phase ${step.phase}: ${what}: ${degradation.reason}`);
           }
           state = append(checkpoint, state, step.degradations.flatMap((degradation) => {
@@ -26325,8 +26336,8 @@ async function runReview(options2) {
                 return [{ kind: "angle.failed", version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
               case "group.unverified":
                 return [{ kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }];
-              case "cluster.failed":
-                return [{ kind: "cluster.failed", version: 1, payload: { phase: degradation.phase, key: degradation.key, reason: degradation.reason } }];
+              case "unit.unattempted":
+                return [{ kind: "unit.unattempted", version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } }];
             }
           }));
           break;
