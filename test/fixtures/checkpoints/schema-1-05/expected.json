@@ -1370,7 +1370,8 @@
           "concurrency": 4,
           "runBudgetUsd": 30,
           "fix": false,
-          "checks": null
+          "checks": null,
+          "fixes": null
         },
         "limits": {
           "concurrency": 4,
@@ -3150,6 +3151,9 @@
           "fix": true,
           "checks": {
             "timeoutMs": 1200000
+          },
+          "fixes": {
+            "batchSize": 4
           }
         },
         "limits": {

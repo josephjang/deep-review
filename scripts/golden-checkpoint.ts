@@ -353,6 +353,7 @@ try {
     runBudgetUsd: 30,
     fix: true,
     checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 4 },
   }, 2);
   const checks = { build: 'npm run build', lint: 'npm run lint:check', test: 'npm run test' };
   fix.add('checks.planned', {

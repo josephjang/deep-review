@@ -481,7 +481,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       const executableArgs = [...(context.executableArgs ?? [])];
       const version = await qualify(context.adapter, executable, executableArgs, context, null);
       configure = {
-        configuration: { ...resolved, roles: [...resolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : resolved.checks },
+        configuration: { ...resolved, roles: [...resolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : resolved.checks, fixes: fix === null ? null : resolved.fixes },
         checks: discovered === null ? null : { checks: [...discovered.checks], manager: discovered.manager },
       };
     }

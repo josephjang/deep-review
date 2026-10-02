@@ -158,7 +158,7 @@ describe('the versions of the events that carry a phase', () => {
       const payload = event.payload as Record<string, unknown>;
       switch (event.kind) {
         case 'review.configured':
-          rewritten.add(event.kind, { ...payload, fix: false, checks: null }, 2);
+          rewritten.add(event.kind, { ...payload, fix: false, checks: null, fixes: null }, 2);
           break;
         case 'worktree.checked': {
           const key = `${String(payload.phase)}:${String(payload.attempt)}`;

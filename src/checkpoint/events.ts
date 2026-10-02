@@ -550,14 +550,22 @@ const blockerSchemaV2 = z.strictObject({
   action: z.string().min(1).max(1000),
 });
 
-/** `review.configured` with the fix pass: whether the run fixes, and the per-check timeout it pinned, present exactly when it fixes (R1, R12 of the fix pass). */
+/**
+ * `review.configured` with the fix pass: whether the run fixes, and the
+ * per-check timeout and fixer batch size it pinned, each present exactly
+ * when it fixes (R1, R12, R18 of the fix pass).
+ */
 export const reviewConfiguredV2 = z.strictObject({
   ...reviewConfiguredV1.shape,
   fix: z.boolean(),
   checks: z.strictObject({ timeoutMs: z.number().int().positive() }).nullable(),
+  fixes: z.strictObject({ batchSize: z.number().int().min(1).max(20) }).nullable(),
 }).refine((configuration) => configuration.fix === (configuration.checks !== null), {
   message: 'the checks are pinned exactly when the run fixes',
   path: ['checks'],
+}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
+  message: 'the batch size is pinned exactly when the run fixes',
+  path: ['fixes'],
 });
 export type ReviewConfigurationV2 = z.infer<typeof reviewConfiguredV2>;
 /** The configuration as the fold holds it, whichever version recorded it: version 1 reads as a run without the fix pass. */

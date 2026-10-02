@@ -1,9 +1,9 @@
 /**
- * The role policy (R3 of the read-only review, R12 of the fix pass): one
- * file, `roles/policy.json`, names for every role the review runs its tier,
- * effort, per-worker budget and timeout, the fix pass's per-check timeout,
- * and for every runtime the model behind each tier and the default run
- * budget. `resolvePolicy` turns it, the assembled roles, one runtime and
+ * The role policy (R3 of the read-only review, R12 and R18 of the fix
+ * pass): one file, `roles/policy.json`, names for every role the review
+ * runs its tier, effort, per-worker budget and timeout, the fix pass's
+ * per-check timeout and fixer batch size, and for every runtime the model
+ * behind each tier and the default run budget. `resolvePolicy` turns it, the assembled roles, one runtime and
  * the command's flags into the values a run pins on its ledger.
  */
 import { createHash } from 'node:crypto';
@@ -58,10 +58,20 @@ export const checksPolicySchema = z.strictObject({
 });
 export type ChecksPolicy = z.infer<typeof checksPolicySchema>;
 
+/** The most findings one fixer batch may hold, whether the policy file or a recorded configuration sets it. */
+export const maxBatchSize = 20;
+
+/** The fix pass's batches (R18 of the fix pass): how many findings of a cluster one fixer takes at a time. */
+export const fixesPolicySchema = z.strictObject({
+  batchSize: z.number().int().min(1).max(maxBatchSize),
+});
+export type FixesPolicy = z.infer<typeof fixesPolicySchema>;
+
 export const policyFileSchema = z.strictObject({
   schemaVersion: z.literal(1),
   roles: z.record(roleKeySchema, rolePolicySchema),
   checks: checksPolicySchema,
+  fixes: fixesPolicySchema,
   runtimes: z.record(z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
   concurrency: z.number().int().min(1).max(maxConcurrency),
 });
@@ -85,6 +95,8 @@ export interface ResolvedPolicy {
   readonly runBudgetUsd: number | null;
   /** The checks' policy, which a run that fixes pins. */
   readonly checks: ChecksPolicy;
+  /** The fixer batches' policy, which a run that fixes pins. */
+  readonly fixes: FixesPolicy;
 }
 
 /**
@@ -201,6 +213,7 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     concurrency: flags.concurrency ?? policy.concurrency,
     runBudgetUsd: capabilities.costInUsd ? (flags.budgetUsd ?? runtime.runBudgetUsd) : null,
     checks: policy.checks,
+    fixes: policy.fixes,
   };
 }
 

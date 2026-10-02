@@ -11,7 +11,7 @@ import { codexAdapter } from '../../src/runtime/codex.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
 import { limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2 } from '../../src/checkpoint/events.ts';
 import { maxTimeoutMs } from '../../src/runtime/contract.ts';
-import { invocationFlagProblem, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
+import { invocationFlagProblem, maxBatchSize, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
 import { configuration, configurationV1 } from '../helpers/review-history.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
@@ -54,6 +54,17 @@ describe('the committed roles/policy.json', () => {
       assert.throws(() => parsePolicy(changed((copy) => { (copy as { checks?: unknown }).checks = { timeoutMs }; })), InvalidPolicyError, String(timeoutMs));
     }
     assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter).checks, { timeoutMs: 1_200_000 }, 'the resolved policy carries the checks block a fixing run pins');
+  });
+
+  it('gives a fixer batch four findings, and refuses a policy without the fixes block or with a batch size outside 1 to 20', () => {
+    assert.deepEqual(committed.fixes, { batchSize: 4 });
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter).fixes, { batchSize: 4 }, 'the resolved policy carries the batch size a fixing run pins');
+    assert.throws(() => parsePolicy(changed((copy) => { delete (copy as { fixes?: unknown }).fixes; })), (error: unknown) => error instanceof InvalidPolicyError && /fixes/.test(error.message));
+    for (const batchSize of [0, maxBatchSize + 1, 1.5, -4]) {
+      assert.throws(() => parsePolicy(changed((copy) => { (copy as { fixes?: unknown }).fixes = { batchSize }; })), InvalidPolicyError, String(batchSize));
+    }
+    for (const batchSize of [1, maxBatchSize]) assert.equal(parsePolicy(changed((copy) => { (copy as { fixes?: unknown }).fixes = { batchSize }; })).fixes.batchSize, batchSize);
+    assert.throws(() => parsePolicy(changed((copy) => { (copy as { fixes?: unknown }).fixes = { batchSize: 4, extra: 1 }; })), InvalidPolicyError, 'the block is closed');
   });
 
   it('resolves for Claude with per-worker budgets and the run budget', () => {
@@ -148,6 +159,17 @@ describe('the per-invocation flags', () => {
       assert.ok(!reviewConfiguredV2.safeParse({ ...configuration, concurrency }).success, String(concurrency));
       assert.ok(!limitsChangedV1.safeParse({ concurrency, runBudgetUsd: null }).success, String(concurrency));
     }
+  });
+
+  it('records every batch size the policy accepts, and pins one exactly when the run fixes', () => {
+    const fixing = { ...configuration, fix: true, checks: { timeoutMs: 1_200_000 } };
+    for (let batchSize = 1; batchSize <= maxBatchSize; batchSize += 1) {
+      assert.ok(reviewConfiguredV2.safeParse({ ...fixing, fixes: { batchSize } }).success, `review.configured@2 with batch size ${String(batchSize)}`);
+    }
+    for (const batchSize of [0, maxBatchSize + 1, 2.5]) assert.ok(!reviewConfiguredV2.safeParse({ ...fixing, fixes: { batchSize } }).success, String(batchSize));
+    assert.ok(!reviewConfiguredV2.safeParse({ ...fixing, fixes: null }).success, 'a fixing run without a batch size');
+    assert.ok(!reviewConfiguredV2.safeParse({ ...configuration, fixes: { batchSize: 4 } }).success, 'a read-only run with a batch size');
+    assert.ok(reviewConfiguredV2.safeParse(configuration).success, 'a read-only run pins none');
   });
 });
 
