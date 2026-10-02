@@ -146,6 +146,8 @@ describe('the repository\'s roles/', () => {
       assert.match(prompt, /gives each cluster's findings, in batches, to fix workers that\s+run one after another, so a cluster has one fix worker at a time/, key);
       assert.match(prompt, /what\s+earlier batches of your cluster did/, key);
       assert.doesNotMatch(prompt, /gives each cluster to one fix worker|exclusively for this pass/, key);
+      // A finding blocked on another cluster's file is not lost: it gets a second round (R21 of the fix pass).
+      assert.match(prompt, /Once every fixer of the first round has finished, the engine gives such\s+a finding a second round with that file among its own\./, key);
       // The proof of concept's rule, owned files only, is gone wherever it was said.
       assert.doesNotMatch(prompt, /must not edit anything outside them|required edits outside ownership|requires another file/, key);
     }
