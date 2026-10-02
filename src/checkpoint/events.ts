@@ -774,9 +774,10 @@ export const revisedFileSchema = z.strictObject({
 });
 
 /**
- * One revision of the tree (R6, TD1, TD6 of the fix pass): the bytes one
- * finding's fix, one check's writes, or a failed cluster's partial edits
- * left in the paths it changed, with the message a commit of it carries.
+ * One revision of the tree (R6, R20, TD1, TD6 of the fix pass): the bytes
+ * one finding's fix, one check's writes, or an unfinished attempt's edits
+ * left in the paths it changed, with the message a commit of it carries
+ * (for an attempt's finding, unless a later answer of the unit gives one).
  */
 export const treeRevisedV1 = z.strictObject({
   phase: phaseSchemaV2,
@@ -785,14 +786,21 @@ export const treeRevisedV1 = z.strictObject({
     z.strictObject({ kind: z.literal('fix'), key: unitKeySchema, workerId: z.uuid() }),
     /** A check's writes to files the run expected. */
     z.strictObject({ kind: z.literal('check'), check: checkKindSchemaV2 }),
-    /** The edits the failed workers of a unit that degraded left in its owned files. */
-    z.strictObject({ kind: z.literal('unanswered'), key: unitKeySchema }),
+    /**
+     * What an attempt of an editing unit that ended without an answer left
+     * (R20 of the fix pass): one revision per finding it snapshotted, naming
+     * that finding, and one naming none for what it left after its last
+     * snapshot, all recorded with its failure.
+     */
+    z.strictObject({ kind: z.literal('attempt'), key: unitKeySchema, workerId: z.uuid() }),
   ]),
   change: z.strictObject({ findings: z.array(z.string().min(1)), message: commitMessageSchema }),
   files: z.array(revisedFileSchema).min(1).max(2000),
 }).superRefine((revision, context) => {
   if (new Set(revision.files.map((file) => file.path)).size !== revision.files.length) context.addIssue({ code: 'custom', message: 'each path is revised once', path: ['files'] });
-  if ((revision.source.kind === 'fix') !== (revision.change.findings.length > 0)) context.addIssue({ code: 'custom', message: 'a fix revision alone names findings', path: ['change'] });
+  const named = revision.change.findings.length;
+  const allowed = revision.source.kind === 'fix' ? named > 0 : revision.source.kind === 'check' ? named === 0 : named <= 1;
+  if (!allowed) context.addIssue({ code: 'custom', message: 'a fix revision names a finding or more, a check\'s none, and an attempt\'s one or none', path: ['change'] });
 });
 export type TreeRevised = z.infer<typeof treeRevisedV1>;
 

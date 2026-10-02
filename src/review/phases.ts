@@ -18,7 +18,7 @@ import type { AssembledRole } from '../roles/assemble.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { StructuralCheckError } from './errors.ts';
-import { fixAnswerEvents, type RevisionContext } from './fix-events.ts';
+import { attemptRevisionEvents, fixAnswerEvents, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations } from './locations.ts';
 import { pinnedRole } from './policy.ts';
@@ -94,6 +94,12 @@ function mayHoldWork(review: ReviewState, phase: EditingPhase, key: string, owne
   return (review.fix?.revisions ?? []).some((revision) => revision.phase === phase && !ownCluster.includes(sourceKey(revision) ?? '') && revision.files.some((file) => owned.includes(file.path)));
 }
 
+/** The ids an earlier attempt of an editing unit left recorded edits for, in the order of their first revision (R20 of the fix pass). */
+function unfinishedIds(review: ReviewState, phase: EditingPhase, key: string): string[] {
+  const ids = (review.fix?.revisions ?? []).filter((revision) => revision.phase === phase && revision.source.kind === 'attempt' && revision.source.key === key).flatMap((revision) => revision.change.findings);
+  return [...new Set(ids)];
+}
+
 /** What became of each finding of a fixes-phase batch, as a later batch of its cluster is told: the answer's status and note, or not attempted. */
 function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'findingIds'>): FixerTaskEarlier[] {
   const answer = review.fix?.answers.fixes[batch.key];
@@ -140,6 +146,7 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput)
     checks: review.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
     mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, earlier.map((sibling) => sibling.key)),
+    unfinished: unfinishedIds(review, 'fixes', unit.key),
   });
 }
 
@@ -160,7 +167,7 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   });
   const owned = fixesRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
-  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned) });
+  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
 
 /** The task text of a unit, from the fold at launch time; an editing unit's names its snapshot command too. */
@@ -289,14 +296,20 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
  * tree it made.
  */
 export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: RevisionContext): NewEvent[] {
-  if (receipt.outcome !== 'completed') return [failed(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`)];
+  if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context);
   const review = requireReview(context.state);
   try {
     return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review, context.state, context.worktree)];
   } catch (error) {
-    if (error instanceof StructuralCheckError) return [failed(unit, receipt, `structural check: ${error.message}`)];
+    if (error instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error.message}`, context);
     throw error;
   }
+}
+
+/** A failed attempt, followed for an editing unit by the revisions of what the attempt left (R20 of the fix pass), which the fold takes after the failure. */
+function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, context: RevisionContext): NewEvent[] {
+  const failure = failed(unit, receipt, reason);
+  return isEditingPhase(unit.phase) ? [failure, ...attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason)] : [failure];
 }
 
 /** The events a unit's contribution is recorded as, each kind with its own payload. */

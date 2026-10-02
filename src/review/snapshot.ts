@@ -106,16 +106,8 @@ export function takeSnapshot(request: SnapshotRequest): SnapshotListing {
  * to answer.
  */
 export function readSnapshot(into: string, finding: number): TreeReader | null {
-  const listingFile = join(into, `${String(finding)}.json`);
-  if (!existsSync(listingFile)) return null;
-  let listing: SnapshotListing;
-  try {
-    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync(listingFile, 'utf8')));
-    if (!parsed.success || parsed.data.finding !== finding) return null;
-    listing = parsed.data;
-  } catch {
-    return null;
-  }
+  const listing = readListing(into, finding);
+  if (listing === null) return null;
   return (path): TreeEntry | null | undefined => {
     if (!Object.hasOwn(listing.paths, path) || !safePath(path)) return undefined;
     const listed = listing.paths[path]!;
@@ -128,6 +120,27 @@ export function readSnapshot(into: string, finding: number): TreeReader | null {
     }
     return bytes.length === listed.size && sha256(bytes) === listed.sha256 ? { bytes, symlink: listed.symlink } : undefined;
   };
+}
+
+/** One finding's snapshot listing, or null when the fixer took none or left one that is not a listing of that finding. */
+function readListing(into: string, finding: number): SnapshotListing | null {
+  const listingFile = join(into, `${String(finding)}.json`);
+  if (!existsSync(listingFile)) return null;
+  try {
+    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync(listingFile, 'utf8')));
+    return parsed.success && parsed.data.finding === finding ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Every path the snapshots of findings 0 to `count - 1` under `into` listed, sorted, each a path a snapshot may name; none when the directory holds no listing. */
+export function snapshotPaths(into: string, count: number): string[] {
+  const paths = new Set<string>();
+  for (let finding = 0; finding < count; finding += 1) {
+    for (const path of Object.keys(readListing(into, finding)?.paths ?? {})) if (safePath(path)) paths.add(path);
+  }
+  return [...paths].sort();
 }
 
 /** Write the paths every snapshot under `into` copies besides git's changes: the paths the run expects, so one changed and changed back is still compared. */

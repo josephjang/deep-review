@@ -1,9 +1,10 @@
 /**
  * The events the fix pass's work becomes (R4, R5, R6, TD6 of the fix
  * pass): a fixer's or the repair worker's answer as `fix.recorded` and one
- * `tree.revised` per finding its snapshots tell apart; a unit that failed
- * twice as the revision of the edits its workers left in its files; a
- * check that wrote to expected files as a revision attributed to it. Each
+ * `tree.revised` per finding its snapshots tell apart; an attempt that
+ * ended without an answer as the revisions its snapshots and the files it
+ * left give; a check that wrote to expected files as a revision attributed
+ * to it. Each
  * reads the worktree and freezes what changed, and appends nothing itself.
  */
 import { join } from 'node:path';
@@ -17,10 +18,10 @@ import { expectedTreeOf } from './drift.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
-import { readSnapshot, snapshotsDirectoryName } from './snapshot.ts';
+import { readSnapshot, snapshotPaths, snapshotsDirectoryName } from './snapshot.ts';
 import type { FixPlan } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { expectedAt, headStates, matchesExpected, reviseFrom, revisionsFromSnapshots, worktreeReader, type BaseReader, type FindingRevision } from './tree.ts';
+import { changedPaths, expectedAt, headStates, matchesExpected, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type FindingRevision } from './tree.ts';
 import { type CheckKind, type EditingPhase } from './vocabulary.ts';
 
 /** What turning work into events needs: the fold it is recorded against, the worktree, and the evidence store revisions are frozen into. */
@@ -153,29 +154,39 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
 }
 
 /**
- * The revision of the edits a unit's failed workers left in its owned
- * files, recorded with its `cluster.failed`, or null when they left none:
- * the expected tree follows what the workers did, so the end check and
- * every later check do not block on it, and the report names the files.
+ * The revisions of what an attempt of an editing unit left when it ended
+ * without an answer (R20, TD19 of the fix pass), to append with its
+ * `attempt.failed` or `worker.lost`: one per finding its snapshots tell
+ * apart, attributed to that finding, and one naming none for what it left
+ * after its last snapshot. The paths are the unit's owned files, and every
+ * path its snapshots listed or git reports changed now that no other unit
+ * of the phase owns, less the strays the run had already listed, which the
+ * attempt did not make. A
+ * worker with no scratch, or one the operating system cleaned, gives only
+ * the last. The expected tree then holds the attempt's work, so the retry's
+ * snapshots attribute only its own.
  */
-export function unansweredRevision(context: RevisionContext, phase: EditingPhase, key: string, reason: string): NewEvent | null {
+export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): NewEvent[] {
   const { state, worktree, evidence } = context;
-  const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), baseOf(context), ownedFiles(requireFix(state), phase, key));
-  if (files.length === 0) return null;
+  const fix = requireFix(state);
+  const ids = unitIds(state, phase, key);
+  const scratch = state.workers[workerId]?.launch.scratch ?? null;
+  const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
+  const others = othersOwned(state, phase, key);
+  const strays = new Set(state.review!.checks.flatMap((check) => check.strays));
+  const listed = [...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)].filter((path) => !others.has(path) && !strays.has(path));
+  const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
+  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids);
   const who = phase === 'repair' ? 'the repair' : `batch ${key}`;
-  const payload: TreeRevised = {
-    phase,
-    source: { kind: 'unanswered', key },
-    change: {
-      findings: [],
-      message: {
-        subject: `chore: keep the partial edits of ${who}`,
-        body: truncated(`The workers of ${who} failed twice and its findings were not attempted: ${reason}\n\nThe files are recorded as those workers left them; nothing here is a fix an answer accounted for.`, bodyLength),
-      },
-    },
-    files,
-  };
-  return { kind: 'tree.revised', version: 1, payload };
+  const why = truncated(reason, 1000);
+  return revisions.map((revision): NewEvent => {
+    const id = revision.findings[0];
+    const message = id === undefined
+      ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}\n\nThe files are recorded as it left them after its last snapshot; no finding accounts for them.`, bodyLength) }
+      : { subject: truncated(`chore: keep the edits an unfinished attempt made for ${id}`, subjectLength), body: truncated(`An attempt of ${who} ended without an answer after snapshotting ${id}: ${why}\n\nThe files are recorded as its snapshot of ${id} held them.`, bodyLength) };
+    const payload: TreeRevised = { phase, source: { kind: 'attempt', key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
+    return { kind: 'tree.revised', version: 1, payload };
+  });
 }
 
 /**

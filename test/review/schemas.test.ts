@@ -147,11 +147,17 @@ describe('the fixer\'s output schema', () => {
     assert.throws(() => checkFixerAnswer(parsed([finding(2)]), 2), /Finding \[2\] is outside the task, whose findings are numbered \[0\] to \[1\]/);
   });
 
-  it('refuses an applied finding without a message, and a message on any other', () => {
+  it('refuses an applied finding without a message, and a message on a deferred or blocked one', () => {
     assert.throws(() => checkFixerAnswer(parsed([finding(0, { message: null })]), 1), /Finding \[0\] is applied and has no commit message/);
-    for (const status of ['already-applied', 'deferred', 'blocked']) {
-      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status })]), 1), new RegExp(`Finding \\[0\\] is ${status} and has a commit message`), status);
+    for (const status of ['deferred', 'blocked']) {
+      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status })]), 1), new RegExp(`Finding \\[0\\] is ${status} and has a commit message, which only an applied or already-applied finding carries`), status);
     }
+  });
+
+  it('lets an already-applied finding carry a message or not, as a retry verifying an earlier attempt\'s edits gives one (R20 of the fix pass)', () => {
+    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied' })]), 1));
+    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied', message: null })]), 1));
+    assert.throws(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied', message: { subject: 'fix: Ends here.', body: '' } })]), 1), /one line with no trailing period/, 'its subject is held to the same rule');
   });
 
   it('refuses a subject with a line break or a trailing period', () => {

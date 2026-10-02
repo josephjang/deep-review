@@ -328,15 +328,20 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const fix = state.review!.fix!;
     assert.match(fix.notAttempted.fixes['c1-1'] ?? '', /^2 attempts did not complete/);
     assert.equal(state.review!.phases.fixes.status, 'degraded');
-    const partial = fix.revisions.find((revision) => revision.source.kind === 'unanswered');
-    assert.deepEqual(partial?.files.map((file) => file.path), ['src/a.ts']);
-    assert.match(partial?.change.message.subject ?? '', /^chore: keep the partial edits of batch c1-1$/);
+    // The first attempt's edits were recorded with its failure; the second left the same bytes, so it recorded nothing (R20).
+    const workers = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1-1');
+    assert.equal(workers.length, 2);
+    const partial = fix.revisions.filter((revision) => revision.source.kind === 'attempt');
+    assert.deepEqual(partial.map((revision) => [revision.source.kind === 'attempt' ? revision.source.workerId : null, revision.change.findings, revision.files.map((file) => file.path)]), [[workers[0]!.launch.workerId, [], ['src/a.ts']]]);
+    assert.match(partial[0]!.change.message.subject, /^chore: keep the partial edits of batch c1-1$/);
+    const events = box.events(state.id);
+    assert.equal(events.findIndex(([kind, payload]) => kind === 'tree.revised' && (payload.source as { kind: string }).kind === 'attempt'), events.findIndex(([kind]) => kind === 'attempt.failed') + 1, 'recorded right after the failure, in its append');
     assert.ok(state.review!.checks.every((check) => !check.drifted), 'the edits the failed fixers left are expected, not drift');
     // The retry was told the tree may hold its predecessor's work.
-    const prompts = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1-1').map((worker) => box.checkpoint.evidence.read(worker.launch.prompt).toString('utf8'));
-    assert.equal(prompts.length, 2);
+    const prompts = workers.map((worker) => box.checkpoint.evidence.read(worker.launch.prompt).toString('utf8'));
     assert.doesNotMatch(prompts[0]!, /may already hold part of this work/);
     assert.match(prompts[1]!, /The tree may already hold part of this work/);
+    assert.doesNotMatch(prompts[1]!, /An earlier attempt left edits for/, 'the first attempt snapshotted no finding');
   });
 
   it('fails an answer that leaves out a changed owned file, and tells the retry the tree may hold earlier work', async () => {
@@ -353,7 +358,66 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(failed.length, 1);
     assert.match(String(failed[0]![1].reason), /^structural check: The answer names no finding for the owned file src\/a\.ts, whose bytes changed/);
     assert.deepEqual(state.review!.fix!.answers.fixes['c1-1']!.findings.map((finding) => [finding.status, finding.files]), [['already-applied', ['src/a.ts']]]);
-    assert.deepEqual(state.review!.fix!.revisions.map((revision) => [revision.change.findings, revision.files.map((file) => file.path)]), [[['SCAN-1'], ['src/a.ts']]]);
+    // The refused attempt's edit is recorded as its own, naming no finding since it snapshotted none, and the retry, which verified it, revised nothing (R20).
+    assert.deepEqual(state.review!.fix!.revisions.map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [['attempt', [], ['src/a.ts']]]);
+  });
+
+  it('leaves out of a failed attempt\'s revisions a file another cluster is editing and a stray listed before it ran', async () => {
+    // The baseline build leaves an untracked file the run does not expect, which the fixes phase's start check lists as a stray.
+    box.checks({ build: [{ write: { 'notes.txt': 'build notes\n' } }, 'pass'] });
+    const c1MayDie = join(box.directory, 'c1-may-die');
+    const c2MayAnswer = join(box.directory, 'c2-may-answer');
+    box.script({
+      ...reviewScript,
+      // c1-1 snapshots its finding, waits until c2-1's edit of src/b.ts is in the tree, then dies; the engine reads what it left with that edit and the stray in place.
+      'fixer:fixes:c1-1': [
+        { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], waitFor: c1MayDie, exit: 3 },
+        { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      ],
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB } }], waitFor: c2MayAnswer, output: fixerAnswer([{ files: ['src/b.ts'] }]) },
+    });
+    const pending = box.fix('claude');
+    await until(() => existsSync(join(box.repo, 'src', 'b.ts')) && readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8') === fixedB, 'c2-1\'s edit in the tree', 120_000);
+    writeFileSync(c1MayDie, '');
+    await until(() => box.checkpoint.listRuns().some((run) => (run.review?.units.fixes['c1-1']?.failures.length ?? 0) > 0), 'c1-1\'s failed attempt on the ledger', 120_000);
+    writeFileSync(c2MayAnswer, '');
+    report(await pending);
+    const fix = box.run().review!.fix!;
+    assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [
+      ['attempt', ['SCAN-1'], ['src/a.ts']],
+      ['fix', ['SCAN-2'], ['src/b.ts']],
+    ]);
+    assert.ok(box.run().review!.checks.some((check) => check.strays.includes('notes.txt')), 'the notes are a stray, in no revision');
+  });
+
+  it('records each finding an unfinished attempt snapshotted as its own revision, and commits it with the message the retry gives on verifying it', async () => {
+    const second = `${fixedA}// the second finding\n`;
+    box.script({
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
+      'fixer:fixes:c1-1': [
+        // The first attempt snapshots both findings, writes a test after its last snapshot, and dies.
+        { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }, { writes: { 'src/a.ts': second }, snapshot: 1 }, { writes: { 'test/a.test.ts': testA } }], exit: 3 },
+        { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }, { status: 'already-applied', files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Stop other() passing null' }]) },
+      ],
+    });
+    report(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    const [first, retry] = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1-1');
+    assert.ok(first !== undefined && retry !== undefined);
+    assert.deepEqual(fix.revisions.map((revision) => [revision.source.kind === 'attempt' ? revision.source.workerId : revision.source.kind, revision.change.findings, revision.files.map((file) => `${file.path} ${file.status}`)]), [
+      [first.launch.workerId, ['SCAN-1'], ['src/a.ts modified']],
+      [first.launch.workerId, ['SCAN-2'], ['src/a.ts modified']],
+      // The test came after the last snapshot: git reported it, and no finding accounts for it.
+      [first.launch.workerId, [], ['test/a.test.ts created']],
+    ]);
+    const prompt = box.checkpoint.evidence.read(retry.launch.prompt).toString('utf8');
+    assert.match(prompt, /An earlier attempt left edits for SCAN-1, SCAN-2, recorded as that attempt's work/);
+    assert.deepEqual(fix.answers.fixes['c1-1']!.findings.map((finding) => [finding.status, finding.message?.subject ?? null]), [['already-applied', 'fix(a): Return 0 for a null text'], ['already-applied', 'fix(a): Stop other() passing null']]);
+    // The patches carry the retry's messages for the findings it verified, and the engine's for the rest.
+    const patches = state.review!.report!.patches.map((patch) => box.checkpoint.evidence.read(patch).toString('utf8'));
+    assert.deepEqual(patches.map((patch) => /^Subject: \[PATCH \d+\/\d+\] (.*)$/m.exec(patch)?.[1]), ['fix(a): Return 0 for a null text', 'fix(a): Stop other() passing null', 'chore: keep the partial edits of batch c1-1']);
+    assert.ok(state.review!.checks.every((check) => !check.drifted));
   });
 
   it('records a check that rewrites a file the run expects as a revision attributed to the check, not drift', async () => {

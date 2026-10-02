@@ -3000,6 +3000,60 @@
           "launchedAt": "2026-09-26T00:00:194.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000152",
+            "outcome": "timeout",
+            "exitCode": null,
+            "signal": "SIGKILL",
+            "termination": "killed",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000152"
+            ],
+            "usage": null,
+            "denials": [],
+            "error": "The worker ran past its timeout of 600000 ms and was killed with its process tree",
+            "stdout": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": null
+          }
+        },
+        "00000000-0000-4000-8000-000000000154": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000154",
+            "label": "fixer fixes:c1-2",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000154",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000154",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "e14538cea8a98f9db7ce6ff7e0ad06c028e4993108fddf5b122ef49b88559ebb",
+              "bytes": 26
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:198.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000154",
             "outcome": "completed",
             "exitCode": 0,
             "signal": null,
@@ -3007,7 +3061,7 @@
             "startedAt": "2026-09-27T01:00:00.000Z",
             "endedAt": "2026-09-27T01:00:30.000Z",
             "sessionIds": [
-              "11111111-2222-4333-8444-000000000152"
+              "11111111-2222-4333-8444-000000000154"
             ],
             "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
             "denials": [],
@@ -3054,7 +3108,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:197.000Z",
+          "launchedAt": "2026-09-26T00:00:201.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000153",
             "outcome": "completed",
@@ -3111,7 +3165,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:210.000Z",
+          "launchedAt": "2026-09-26T00:00:214.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000160",
             "outcome": "completed",
@@ -3707,8 +3761,14 @@
               "failures": []
             },
             "c1-2": {
-              "answeredBy": "00000000-0000-4000-8000-000000000152",
-              "failures": []
+              "answeredBy": "00000000-0000-4000-8000-000000000154",
+              "failures": [
+                {
+                  "workerId": "00000000-0000-4000-8000-000000000152",
+                  "reason": "timeout: The worker ran past its timeout of 1200000 ms",
+                  "lost": false
+                }
+              ]
             },
             "c1-3": {
               "answeredBy": "00000000-0000-4000-8000-000000000153",
@@ -3889,13 +3949,13 @@
                 "phase": "baseline-checks"
               },
               {
-                "workers": 4,
-                "seconds": 120,
-                "costUsd": 2,
+                "workers": 5,
+                "seconds": 150,
+                "costUsd": 2.5,
                 "costUnreported": 0,
-                "inputTokens": 4000,
-                "cachedInputTokens": 800,
-                "outputTokens": 400,
+                "inputTokens": 5000,
+                "cachedInputTokens": 1000,
+                "outputTokens": 500,
                 "phase": "fixes"
               },
               {
@@ -3940,13 +4000,13 @@
               }
             ],
             "total": {
-              "workers": 20,
-              "seconds": 600,
-              "costUsd": 10,
+              "workers": 21,
+              "seconds": 630,
+              "costUsd": 10.5,
               "costUnreported": 0,
-              "inputTokens": 20000,
-              "cachedInputTokens": 4000,
-              "outputTokens": 2000
+              "inputTokens": 21000,
+              "cachedInputTokens": 4200,
+              "outputTokens": 2100
             },
             "budgetApplied": true
           },
@@ -3958,6 +4018,10 @@
             {
               "sha256": "d39aaf9d2da0090d22551a134ea58c97b08100fe4b5af43570c9e43ecb7bb9bd",
               "bytes": 99
+            },
+            {
+              "sha256": "72b7dd880eecd349b1ec865da2fba2d66843ac8fb87642b24e7394fce2b9dde6",
+              "bytes": 109
             },
             {
               "sha256": "12707a69ca11aec7ab0126a53b94ec2ab792371e618f9ac1ccb47ac2601d8f46",
@@ -4360,7 +4424,7 @@
               "c1-2": {
                 "phase": "fixes",
                 "key": "c1-2",
-                "workerId": "00000000-0000-4000-8000-000000000152",
+                "workerId": "00000000-0000-4000-8000-000000000154",
                 "findings": [
                   {
                     "id": "SCAN-2",
@@ -4368,7 +4432,10 @@
                     "file": "src/changed.ts",
                     "line": 1,
                     "note": "SCAN-2 already-applied",
-                    "message": null,
+                    "message": {
+                      "subject": "fix: Check the guard in changed()",
+                      "body": "Why: fix: Check the guard in changed()."
+                    },
                     "files": [
                       "src/changed.ts"
                     ],
@@ -4571,6 +4638,43 @@
               ]
             },
             {
+              "phase": "fixes",
+              "source": {
+                "kind": "attempt",
+                "key": "c1-2",
+                "workerId": "00000000-0000-4000-8000-000000000152"
+              },
+              "change": {
+                "findings": [
+                  "SCAN-2"
+                ],
+                "message": {
+                  "subject": "chore: keep the edits an unfinished attempt made for SCAN-2",
+                  "body": "An attempt of batch c1-2 ended without an answer after snapshotting SCAN-2."
+                }
+              },
+              "files": [
+                {
+                  "path": "src/changed.ts",
+                  "status": "modified",
+                  "before": {
+                    "blob": {
+                      "sha256": "3540356e3830370057421cacf9ade3fa145f93cfa9d91cde1cb43d3d39209ed0",
+                      "bytes": 18
+                    }
+                  },
+                  "beforeSymlink": false,
+                  "symlink": false,
+                  "after": {
+                    "blob": {
+                      "sha256": "076f515c37ebcf08fc5861be3f4ff4cf6903173c3e21184cccfe214729ea3f40",
+                      "bytes": 27
+                    }
+                  }
+                }
+              ]
+            },
+            {
               "phase": "repair",
               "source": {
                 "kind": "fix",
@@ -4592,8 +4696,8 @@
                   "status": "modified",
                   "before": {
                     "blob": {
-                      "sha256": "3540356e3830370057421cacf9ade3fa145f93cfa9d91cde1cb43d3d39209ed0",
-                      "bytes": 18
+                      "sha256": "076f515c37ebcf08fc5861be3f4ff4cf6903173c3e21184cccfe214729ea3f40",
+                      "bytes": 27
                     }
                   },
                   "beforeSymlink": false,
@@ -4632,15 +4736,20 @@
               {
                 "sha": "dddddddddddddddddddddddddddddddddddddddd",
                 "revision": 2,
+                "subject": "fix: Check the guard in changed()"
+              },
+              {
+                "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "revision": 3,
                 "subject": "style: Format the guard as lint asks"
               }
             ],
             "from": "2222222222222222222222222222222222222222",
-            "to": "dddddddddddddddddddddddddddddddddddddddd"
+            "to": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
           }
         }
       },
-      "lastSequence": 227
+      "lastSequence": 231
     }
   ],
   "evidence": [

@@ -139,13 +139,21 @@ function snapshotBlock(command: string, unit: 'finding' | 'check'): string {
 
 /** The answer's fields, as both fixer tasks describe them. */
 const answerFields = (unit: 'finding' | 'check'): string =>
-  `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, and null for any other status; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+  `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, null for a deferred or blocked one, and null for an already-applied one unless this task asks for its message; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 
 const scratchRule = 'Write logs and every other temporary file under your scratch directory, never in the repository.';
 
-/** The warning a fixer gets when the tree may already hold part of its work. */
-const earlierWork = (unit: 'finding' | 'check'): string =>
-  `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
+/**
+ * The warning a fixer gets when the tree may already hold part of its
+ * work, naming the ids an earlier attempt of the unit left recorded edits
+ * for (R20 of the fix pass), whose commits take the message the fixer
+ * gives when it verifies them.
+ */
+function earlierWork(unit: 'finding' | 'check', unfinished: readonly string[]): string {
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
+  if (unfinished.length === 0) return warning;
+  return `${warning} An earlier attempt left edits for ${unfinished.join(', ')}, recorded as that attempt's work; for each of these you report \`already-applied\`, give the \`message\` its commit will carry, as for an applied ${unit}.`;
+}
 
 /** A finding as a fixer's task gives it. */
 export interface FixerTaskFinding {
@@ -190,6 +198,8 @@ export interface FixerTaskInput {
   readonly snapshotCommand: string;
   /** Whether an earlier worker on this cluster may have left part of its work in the tree. */
   readonly mayHoldWork: boolean;
+  /** The findings an earlier attempt of this batch left recorded edits for, whose message a verifying fixer gives. */
+  readonly unfinished: readonly string[];
 }
 
 const fileList = (files: readonly string[]): string => (files.length === 0 ? '(none)' : files.map((file) => `- ${file}`).join('\n'));
@@ -230,7 +240,7 @@ export function fixerTask(input: FixerTaskInput): string {
     '',
     snapshotBlock(input.snapshotCommand, 'finding'),
     '',
-    ...(input.mayHoldWork ? [earlierWork('finding'), ''] : []),
+    ...(input.mayHoldWork ? [earlierWork('finding', input.unfinished), ''] : []),
     answerFields('finding'),
     '',
     scratchRule,
@@ -260,6 +270,8 @@ export interface RepairTaskInput {
   readonly allChecks: readonly PlannedCheck[];
   readonly snapshotCommand: string;
   readonly mayHoldWork: boolean;
+  /** The checks an earlier attempt of the repair left recorded edits for. */
+  readonly unfinished: readonly string[];
 }
 
 /** One stream's tail, fenced so the output cannot close the fence. */
@@ -296,7 +308,7 @@ export function repairTask(input: RepairTaskInput): string {
     '',
     snapshotBlock(input.snapshotCommand, 'check'),
     '',
-    ...(input.mayHoldWork ? [earlierWork('check'), ''] : []),
+    ...(input.mayHoldWork ? [earlierWork('check', input.unfinished), ''] : []),
     `${answerFields('check')} The \`message\` of an applied check describes what the repair changed.`,
     '',
     scratchRule,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { fixesRevisedPaths, lastRun, ownedFiles, repairTargets } from '../../src/checkpoint/fix-state.ts';
+import { fixesRevisedPaths, lastRun, ownedFiles, repairTargets, revisionMessageOf } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
@@ -68,9 +68,10 @@ describe('the fix fold', () => {
       .start('repair')
       .worker(60, 'fixer repair:repair')
       .add('attempt.failed', { phase: 'repair', key: 'repair', workerId: worker(60), reason: 'failed' }, 2)
+      // What the first attempt left is recorded with its failure (R20 of the fix pass).
+      .add('tree.revised', { phase: 'repair', source: { kind: 'attempt', key: 'repair', workerId: worker(60) }, change: { findings: [], message: { subject: 'chore: keep the partial edits of the repair', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] })
       .add('attempt.failed', { phase: 'repair', key: 'repair', workerId: worker(61), reason: 'failed again' }, 2)
       .add('cluster.failed', { phase: 'repair', key: 'repair', reason: '2 attempts did not complete' })
-      .add('tree.revised', { phase: 'repair', source: { kind: 'unanswered', key: 'repair' }, change: { findings: [], message: { subject: 'chore: keep the partial edits of the repair', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] })
       .add('worktree.checked', endCheck('repair'), 2)
       .finish('repair', 'degraded');
     checksPhase(history, 'repair-checks', { test: 'failed' })
@@ -87,10 +88,32 @@ describe('the fix fold', () => {
     assert.equal(review.phases.repair.status, 'degraded');
   });
 
+  it('folds an unfinished attempt\'s edits with its failure, and commits them with the message the retry gives on verifying them (R20)', () => {
+    const verified = (message: Record<string, unknown> | null): History => failedOnce()
+      .add('tree.revised', attemptRevision(worker(51), ['RIPPLE-1']))
+      .worker(52, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(52), { findings: [{ id: 'RIPPLE-1', status: 'already-applied', file: 'src/a.ts', line: 4, note: 'the guard the first attempt added holds', message, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }] }));
+    const fix = verified({ subject: 'fix: Guard the null', body: 'Why.' }).review().fix!;
+    assert.equal(fix.revisions.length, 1);
+    assert.deepEqual(fix.revisions[0]!.source, { kind: 'attempt', key: 'c1-1', workerId: worker(51) });
+    assert.deepEqual(revisionMessageOf(fix, fix.revisions[0]!), { subject: 'fix: Guard the null', body: 'Why.' }, 'the retry\'s message');
+    const unverified = verified(null).review().fix!;
+    assert.deepEqual(revisionMessageOf(unverified, unverified.revisions[0]!), { subject: 's', body: '' }, 'the attempt\'s own message when the retry gave none');
+    assert.deepEqual(ownedFiles(fix, 'fixes', 'c1-1'), ['src/a.ts']);
+  });
+
   const ranked = (): History => withFixPass(mergeRanked());
   const fixesRunning = (): History => baselined().start('fixes');
   const planned = (): History => fixesRunning().add('fixes.planned', fixPlan);
   const answered = (): History => planned().worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50)));
+  // c1-1's first worker failed: its failure, which an attempt revision of its edits follows.
+  const failedOnce = (): History => planned().worker(51, 'fixer fixes:c1-1').add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(51), reason: 'timeout' }, 2);
+  const attemptRevision = (workerId: string, findings: string[], after = '7'): Record<string, unknown> => ({
+    phase: 'fixes',
+    source: { kind: 'attempt', key: 'c1-1', workerId },
+    change: { findings, message: { subject: 's', body: '' } },
+    files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference(after) } }],
+  });
   // Both ranked findings routed to a fixer, RIPPLE-1 ranked first: in one cluster of src/a.ts, or in one cluster each.
   const bothRoutes = [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }];
   const bothClustered = [{ id: 'c1', findingIds: ['RIPPLE-1', 'SWEEP-1'], files: ['src/a.ts'] }];
@@ -136,7 +159,13 @@ describe('the fix fold', () => {
     ['two revisions of one finding', () => answered().add('tree.revised', fixRevision(worker(50))).add('tree.revised', fixRevision(worker(50))), /revises the tree for RIPPLE-1 twice/],
     ['a revision with no files', () => answered().add('tree.revised', { ...fixRevision(worker(50)), files: [] }), /schema rejects/],
     ['a revision for a check that did not run', () => fixed().start('checks').add('tree.revised', { phase: 'checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('7') } }] }), /which did not run in checks/],
-    ['the partial edits of a unit that did not fail', () => answered().add('tree.revised', { phase: 'fixes', source: { kind: 'unanswered', key: 'c1-1' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('7') } }] }), /which did not fail twice/],
+    ['an attempt\'s edits by a worker that did not fail', () => answered().add('tree.revised', attemptRevision(worker(50), [])), /by worker 00000000-0000-4000-8000-000000000050, which did not fail/],
+    ['an attempt\'s edits before its failure is folded', () => planned().worker(51, 'fixer fixes:c1-1').add('tree.revised', attemptRevision(worker(51), ['RIPPLE-1'])), /which did not fail/],
+    ['an attempt\'s edits for a finding its unit does not hold', () => failedOnce().add('tree.revised', attemptRevision(worker(51), ['SWEEP-1'])), /revises the tree for SWEEP-1, which fixes:c1-1 does not hold/],
+    ['an attempt\'s edits for one finding twice', () => failedOnce().add('tree.revised', attemptRevision(worker(51), ['RIPPLE-1'])).add('tree.revised', attemptRevision(worker(51), ['RIPPLE-1'], '8')), /revises the tree for RIPPLE-1 twice for one attempt/],
+    ['an attempt\'s revision naming two findings', () => failedOnce().add('tree.revised', attemptRevision(worker(51), ['RIPPLE-1', 'SWEEP-1'])), /schema rejects/],
+    ['an attempt\'s edits for a unit the plan does not have', () => failedOnce().add('tree.revised', { ...attemptRevision(worker(51), []), source: { kind: 'attempt', key: 'c9-1', workerId: worker(51) } }), /an attempt of fixes:c9-1, which the phase does not have/],
+    ['an attempt\'s edits in a checks phase', () => fixed().start('checks').add('tree.revised', { ...attemptRevision(worker(51), []), phase: 'checks' }), /an attempt in checks, which no fixer runs in/],
     ['a cluster failed after its answer', () => answered().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }), /already answered/],
     ['a cluster failed twice', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }).add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }), /fails fixes:c1-1 twice/],
     ['an answer after the cluster failed', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }).add('fix.recorded', fixAnswer(worker(50))), /after it failed/],

@@ -166,6 +166,11 @@ export function headMoved(worktree: string, expectedHead: string): { readonly ex
   return actual === expectedHead ? null : { expected: expectedHead, actual };
 }
 
+/** The paths git reports changed in the worktree, untracked ones included and ignored ones excepted, sorted. */
+export function changedPaths(worktree: string): string[] {
+  return [...new Set(gitApi.status(worktree).map((entry) => entry.path))].sort();
+}
+
 /** The paths git reports as untracked, ignored ones excepted, that the run does not expect: files nobody accounts for, listed and never drift. */
 export function straysOf(worktree: string, expected: ExpectedTree): string[] {
   return gitApi
@@ -232,5 +237,30 @@ export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sou
     applyRevision(state, files);
     carried = [];
   });
+  return revisions;
+}
+
+/**
+ * What an attempt that ended without an answer left, as revisions (R20 of
+ * the fix pass): for each finding in task order that has a snapshot, the
+ * paths that differ in it from the state before, attributed to that
+ * finding alone, since nothing says the attempt finished the ones it did
+ * not snapshot; then one revision naming no finding for what the worktree
+ * holds beyond the last snapshot. A snapshot that changed nothing gives no
+ * revision.
+ */
+export function unfinishedRevisions(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[]): FindingRevision[] {
+  const state = new Map(expected);
+  const revisions: FindingRevision[] = [];
+  findings.forEach((id, index) => {
+    const read = sources.snapshot(index);
+    if (read === null) return;
+    const files = reviseFrom(evidence, read, state, base, paths);
+    if (files.length === 0) return;
+    revisions.push({ findings: [id], files });
+    applyRevision(state, files);
+  });
+  const rest = reviseFrom(evidence, sources.worktree, state, base, paths);
+  if (rest.length > 0) revisions.push({ findings: [], files: rest });
   return revisions;
 }

@@ -94,6 +94,21 @@ export function ownedFiles(fix: FixState, phase: EditingPhase, key: string): rea
   return phase === 'repair' ? fixesRevisedPaths(fix) : (clusterOfBatch(fix, key)?.files ?? []);
 }
 
+/**
+ * The message a revision is committed and patched with (R20 of the fix
+ * pass): its own, except for a finding's revision from an attempt that
+ * did not finish, which takes the message of that finding's recorded
+ * answer when a later worker of the unit gave one, having verified the
+ * attempt's edits as already applied.
+ */
+export function revisionMessageOf(fix: FixState, revision: TreeRevised): TreeRevised['change']['message'] {
+  const { source } = revision;
+  if (source.kind !== 'attempt' || revision.change.findings.length !== 1 || !(editingPhases as readonly string[]).includes(revision.phase)) return revision.change.message;
+  const id = revision.change.findings[0]!;
+  const answer = fix.answers[revision.phase as EditingPhase][source.key];
+  return answer?.findings.find((finding) => finding.id === id)?.message ?? revision.change.message;
+}
+
 /** Whether a unit of an editing phase failed twice and is settled as not attempted. */
 export function isNotAttempted(fix: FixState, phase: EditingPhase, key: string): boolean {
   return Object.hasOwn(fix.notAttempted[phase], key);

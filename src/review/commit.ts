@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { CommitsCreated, FrozenFile, TreeRevised } from '../checkpoint/events.ts';
+import { revisionMessageOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
@@ -96,22 +97,29 @@ function bytesOf(checkpoint: Checkpoint, path: string, frozen: FrozenFile): Buff
   return checkpoint.evidence.read(frozen.blob);
 }
 
+/** What a revision of an editing phase's answer or attempt holds, as its trailer names it: the findings with their angle and verdict, or the checks the repair worked. */
+function namedFindings(run: RunState, revision: TreeRevised): string {
+  if (revision.phase === 'repair') return `repair of the ${revision.change.findings.join(', ')} check`;
+  const findings = new Map(rankedFindings(run.review!).map((entry) => [entry.finding.id, entry]));
+  return revision.change.findings.map((id) => {
+    const entry = findings.get(id);
+    return entry === undefined ? id : `${id} (${entry.primary.angle}, ${entry.resolution.verdict})`;
+  }).join(', ');
+}
+
 /** The trailer a revision's commit carries, naming the run and what the revision holds. */
 function trailer(run: RunState, revision: TreeRevised): string {
   switch (revision.source.kind) {
-    case 'fix': {
-      if (revision.phase === 'repair') return `Deep-review: run ${run.id}, repair of the ${revision.change.findings.join(', ')} check`;
-      const findings = new Map(rankedFindings(run.review!).map((entry) => [entry.finding.id, entry]));
-      const named = revision.change.findings.map((id) => {
-        const entry = findings.get(id);
-        return entry === undefined ? id : `${id} (${entry.primary.angle}, ${entry.resolution.verdict})`;
-      });
-      return `Deep-review: run ${run.id}, ${named.join(', ')}`;
-    }
+    case 'fix':
+      return `Deep-review: run ${run.id}, ${namedFindings(run, revision)}`;
     case 'check':
       return `Deep-review: run ${run.id}, ${revision.source.check} check`;
-    case 'unanswered':
-      return `Deep-review: run ${run.id}, partial edits of ${revision.source.key === 'repair' ? 'the repair' : `batch ${revision.source.key}`}`;
+    case 'attempt': {
+      const who = revision.source.key === 'repair' ? 'the repair' : `batch ${revision.source.key}`;
+      return revision.change.findings.length === 0
+        ? `Deep-review: run ${run.id}, partial edits of an unfinished attempt of ${who}`
+        : `Deep-review: run ${run.id}, ${namedFindings(run, revision)}, from an unfinished attempt of ${who}`;
+    }
   }
 }
 
@@ -249,7 +257,8 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
     }
     fix.revisions.forEach((revision, index) => {
       for (const file of revision.files) trees.set(file.path, file.after === null ? null : { frozen: file.after, symlink: file.symlink });
-      commit(messageOf(revision.change.message.subject, revision.change.message.body, trailer(run, revision)), index);
+      const message = revisionMessageOf(fix, revision);
+      commit(messageOf(message.subject, message.body, trailer(run, revision)), index);
     });
 
     // What the user had staged that no commit holds is unstaged by the reset below, and named; nothing is lost from the tree.
