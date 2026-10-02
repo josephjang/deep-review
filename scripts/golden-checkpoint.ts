@@ -327,11 +327,13 @@ try {
   // two clusters, one of three findings run as three batches of one, its
   // second batch timing out after one snapshot, whose edits are recorded
   // with the failure and verified by the retry, its third not attempted
-  // once the run budget was reached; a lint check that rewrites a file at
-  // baseline and a test that fails there; a fixer that reports an edit to
-  // the other cluster's file (a violation) and leaves a stray; the lint the
-  // fixers broke, repaired, and the test still failing; the report with one
-  // patch per revision; and the commits built from it afterwards.
+  // once the run budget was reached; a finding blocked on the other
+  // cluster's file, taken by a second round that the budget leaves
+  // unattempted too; a lint check that rewrites a file at baseline and a
+  // test that fails there; a fixer that reports an edit to the other
+  // cluster's file (a violation) and leaves a stray; the lint the fixers
+  // broke, repaired, and the test still failing; the report with one patch
+  // per revision; and the commits built from it afterwards.
   const fixedRun = checkpoint.createRun({ worktree: '/fixture/fixed' });
   const fixScope: ScopeState = { ...scope, files: [scope.files[0]!], request: { paths: [] } };
   const fix = new ReviewHistory(checkpoint, fixedRun.id, checkpoint.append(fixedRun.id, fixedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
@@ -427,9 +429,9 @@ try {
     fix.check('baseline-checks', 'test', checks.test, 'failed');
   });
   const message = (subject: string) => ({ subject, body: `Why: ${subject}.` });
-  const finding = (id: string, status: 'applied' | 'already-applied' | 'deferred', files: string[], subject: string | null) => ({
+  const finding = (id: string, status: 'applied' | 'already-applied' | 'deferred' | 'blocked', files: string[], subject: string | null, requiredFiles: string[] = []) => ({
     id, status, file: files[0] ?? 'src/changed.ts', line: 1, note: `${id} ${status}`, message: subject === null ? null : message(subject), files,
-    corrections: [], validation: [{ method: 'old-code', source: 'test/changed.test.ts', evidence: 'red before the fix, green after' }], requiredFiles: [],
+    corrections: [], validation: [{ method: 'old-code', source: 'test/changed.test.ts', evidence: 'red before the fix, green after' }], requiredFiles,
   });
   fix.phaseV2('fixes', () => {
     fix.add('fixes.planned', {
@@ -453,7 +455,7 @@ try {
     ] });
     fix.launch('151', 'fixer fixes:c2-1');
     fix.finishWorker('151');
-    fix.add('fix.recorded', { phase: 'fixes', key: 'c2-1', workerId: fix.id('151'), findings: [finding('RIPPLE-1', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c2-1', workerId: fix.id('151'), findings: [finding('RIPPLE-1', 'blocked', [], null, ['src/changed.ts'])], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
     // c1's later batches run once c1-1 settled, on the tree it left.
     // c1-2's first attempt times out after snapshotting SCAN-2; its edits are recorded with the failure, and the retry
     // verifies them as already applied and gives the message their commit carries.
@@ -468,6 +470,9 @@ try {
     fix.add('fix.recorded', { phase: 'fixes', key: 'c1-2', workerId: fix.id('154'), findings: [finding('SCAN-2', 'already-applied', ['src/changed.ts'], 'fix: Check the guard in changed()')], drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [] });
     // The run budget is reached before c1-3 launches: it is not attempted, and the pass goes on to its checks and report.
     fix.add('unit.unattempted', { phase: 'fixes', key: 'c1-3', cause: 'budget', reason: 'spent 30.10 USD of the 30.00 USD run budget' });
+    // RIPPLE-1 was blocked on c1's file, so the second round takes it into c3, owning both files; the budget is spent, so c3-1 is not attempted either.
+    fix.add('fixes.replanned', { blocked: [{ id: 'RIPPLE-1', requiredFiles: ['src/changed.ts'] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['src/caller.ts', 'src/changed.ts'] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] });
+    fix.add('unit.unattempted', { phase: 'fixes', key: 'c3-1', cause: 'budget', reason: 'spent 30.10 USD of the 30.00 USD run budget' });
   }, 'degraded', { end: true, strays: ['notes.txt'] });
   // The fixers broke lint, which the repair takes; test failed before any fix, so no repair is owed it.
   fix.phaseV2('checks', () => {

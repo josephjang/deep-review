@@ -274,6 +274,9 @@ export const fixPlan = {
   batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }],
 };
 
+/** The second round of these histories: none, since no finding was blocked. */
+export const noSecondRound = { blocked: [], clusters: [], batches: [] };
+
 /** The answer c1-1's fixer recorded, applying RIPPLE-1. */
 export const fixAnswer = (workerId: string, change: Record<string, unknown> = {}): Record<string, unknown> => ({
   phase: 'fixes', key: 'c1-1', workerId,
@@ -296,7 +299,7 @@ export const endCheck = (phase: string, attempt = 1): Record<string, unknown> =>
 /** A fix run through its baseline checks, each passing unless `outcomes` says otherwise. */
 export const baselined = (outcomes: Readonly<Record<string, string>> = {}): History => checksPhase(withFixPass(mergeRanked()), 'baseline-checks', outcomes);
 
-/** A fix run through its fixes: c1-1 answered and revised src/a.ts, and the end check was clean. */
+/** A fix run through its fixes: c1-1 answered and revised src/a.ts, no second round, and the end check was clean. */
 export const fixed = (baseline: Readonly<Record<string, string>> = {}): History =>
   baselined(baseline)
     .start('fixes')
@@ -304,5 +307,6 @@ export const fixed = (baseline: Readonly<Record<string, string>> = {}): History 
     .worker(50, 'fixer fixes:c1-1')
     .add('fix.recorded', fixAnswer(worker(50)))
     .add('tree.revised', fixRevision(worker(50)))
+    .add('fixes.replanned', noSecondRound)
     .add('worktree.checked', endCheck('fixes'), 2)
     .finish('fixes');

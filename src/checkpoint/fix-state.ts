@@ -1,13 +1,13 @@
 /**
- * What the fix pass's events say about a run (R6, R10 of the fix pass):
- * the checks it pinned and every run of them, the plan of routes,
- * clusters and batches, each fixer's recorded answer, every revision of the tree in
- * ledger order, the units that failed twice, and the commits built from
- * the run afterwards. Facts as recorded; the planner reads what to do
+ * What the fix pass's events say about a run (R6, R10, R18, R21 of the fix
+ * pass): the checks it pinned and every run of them, the plan of routes,
+ * clusters and batches and the second round's, each fixer's recorded
+ * answer, every revision of the tree in ledger order, the units settled
+ * without an answer, and the commits built from the run afterwards. Facts as recorded; the planner reads what to do
  * next from them. The questions below are answered from this state alone.
  */
 import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlanned, CommitsCreated, FixesPlanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, ChecksPlanned, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
 
 /** Why a unit of an editing phase was not attempted (R12, R19 of the fix pass). */
 export interface NotAttempted {
@@ -24,6 +24,8 @@ export interface FixState {
   };
   /** The routes, clusters and batches, or null until the fixes phase plans them. */
   readonly plan: FixesPlanned | null;
+  /** The second round of the fixes phase, or null until its first round has settled and it is planned (R21). */
+  readonly secondRound: FixesReplanned | null;
   /** Each recorded answer, by editing phase and then by unit key. */
   readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecorded>>>>;
   /** Every revision of the tree, in ledger order. */
@@ -39,6 +41,7 @@ export function emptyFixState(): FixState {
   return {
     checks: { planned: null, runs: Object.fromEntries(checkPhases.map((phase) => [phase, []])) as unknown as Record<CheckPhase, CheckRan[]> },
     plan: null,
+    secondRound: null,
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecorded>>,
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, NotAttempted>>,
@@ -66,14 +69,45 @@ export function repairTargets(fix: FixState): CheckKind[] {
 export type PlannedCluster = FixesPlanned['clusters'][number];
 export type PlannedBatch = FixesPlanned['batches'][number];
 
-/** The planned cluster with this id, or null. */
-export function clusterOf(fix: FixState, id: string): PlannedCluster | null {
-  return fix.plan?.clusters.find((cluster) => cluster.id === id) ?? null;
+/** Every planned cluster of both rounds, the first round's first. */
+export function allClusters(fix: FixState): PlannedCluster[] {
+  return [...(fix.plan?.clusters ?? []), ...(fix.secondRound?.clusters ?? [])];
 }
 
-/** The planned batch with this key, a fixes-phase unit key, or null. */
+/** Every planned batch of both rounds, in launch order within each, the first round's first. */
+export function allBatches(fix: FixState): PlannedBatch[] {
+  return [...(fix.plan?.batches ?? []), ...(fix.secondRound?.batches ?? [])];
+}
+
+/** The planned cluster with this id, of either round, or null. */
+export function clusterOf(fix: FixState, id: string): PlannedCluster | null {
+  return allClusters(fix).find((cluster) => cluster.id === id) ?? null;
+}
+
+/** The planned batch with this key, a fixes-phase unit key, of either round, or null. */
 export function batchOf(fix: FixState, key: string): PlannedBatch | null {
-  return fix.plan?.batches.find((batch) => batch.key === key) ?? null;
+  return allBatches(fix).find((batch) => batch.key === key) ?? null;
+}
+
+/** The clusters of the round a fixes-phase batch belongs to: within a round no file has two owners, and a round's ownership ends with it (R21). */
+export function roundClusters(fix: FixState, key: string): PlannedCluster[] {
+  const second = fix.secondRound?.batches.some((batch) => batch.key === key) ?? false;
+  return [...((second ? fix.secondRound?.clusters : fix.plan?.clusters) ?? [])];
+}
+
+/** Whether every batch of the first round has settled: answered, or not attempted. */
+export function firstRoundSettled(fix: FixState): boolean {
+  return (fix.plan?.batches ?? []).every((batch) => Object.hasOwn(fix.answers.fixes, batch.key) || isNotAttempted(fix, 'fixes', batch.key));
+}
+
+/** A finding's last recorded answer in the fixes phase, the second round's over the first's, with the batch that gave it; null when none answered it. */
+export function lastAnswerOf(fix: FixState, id: string): { readonly batch: string; readonly finding: FixedFinding } | null {
+  for (const batch of [...allBatches(fix)].reverse()) {
+    if (!batch.findingIds.includes(id)) continue;
+    const finding = fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id);
+    if (finding !== undefined) return { batch: batch.key, finding };
+  }
+  return null;
 }
 
 /** The cluster a fixes-phase unit works, by its batch key, or null. */
@@ -86,7 +120,7 @@ export function clusterOfBatch(fix: FixState, key: string): PlannedCluster | nul
 export function earlierBatches(fix: FixState, key: string): PlannedBatch[] {
   const batch = batchOf(fix, key);
   if (batch === null) return [];
-  const siblings = (fix.plan?.batches ?? []).filter((candidate) => candidate.cluster === batch.cluster);
+  const siblings = allBatches(fix).filter((candidate) => candidate.cluster === batch.cluster);
   return siblings.slice(0, siblings.indexOf(batch));
 }
 

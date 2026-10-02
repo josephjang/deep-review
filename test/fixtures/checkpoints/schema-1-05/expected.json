@@ -3108,7 +3108,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:212.000Z",
+          "launchedAt": "2026-09-26T00:00:214.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000160",
             "outcome": "completed",
@@ -4273,6 +4273,37 @@
               }
             ]
           },
+          "secondRound": {
+            "blocked": [
+              {
+                "id": "RIPPLE-1",
+                "requiredFiles": [
+                  "src/changed.ts"
+                ]
+              }
+            ],
+            "clusters": [
+              {
+                "id": "c3",
+                "findingIds": [
+                  "RIPPLE-1"
+                ],
+                "files": [
+                  "src/caller.ts",
+                  "src/changed.ts"
+                ]
+              }
+            ],
+            "batches": [
+              {
+                "key": "c3-1",
+                "cluster": "c3",
+                "findingIds": [
+                  "RIPPLE-1"
+                ]
+              }
+            ]
+          },
           "answers": {
             "fixes": {
               "c1-1": {
@@ -4334,10 +4365,10 @@
                 "findings": [
                   {
                     "id": "RIPPLE-1",
-                    "status": "deferred",
+                    "status": "blocked",
                     "file": "src/changed.ts",
                     "line": 1,
-                    "note": "RIPPLE-1 deferred",
+                    "note": "RIPPLE-1 blocked",
                     "message": null,
                     "files": [],
                     "corrections": [],
@@ -4348,7 +4379,9 @@
                         "evidence": "red before the fix, green after"
                       }
                     ],
-                    "requiredFiles": []
+                    "requiredFiles": [
+                      "src/changed.ts"
+                    ]
                   }
                 ],
                 "drift": [],
@@ -4623,6 +4656,10 @@
               "c1-3": {
                 "cause": "budget",
                 "reason": "spent 30.10 USD of the 30.00 USD run budget"
+              },
+              "c3-1": {
+                "cause": "budget",
+                "reason": "spent 30.10 USD of the 30.00 USD run budget"
               }
             },
             "repair": {}
@@ -4660,7 +4697,7 @@
           }
         }
       },
-      "lastSequence": 229
+      "lastSequence": 231
     }
   ],
   "evidence": [

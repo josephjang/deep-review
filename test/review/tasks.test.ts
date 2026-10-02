@@ -106,9 +106,10 @@ describe('the fixer\'s task', () => {
   const input: FixerTaskInput = {
     cluster: 'c1',
     batch: 'c1-2',
+    secondRound: false,
     findings: [
-      { id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'parse dereferences null', detail: 'other() passes null', evidence: 'line 4 uses text!', reason: 'one root cause', also: ['SWEEP-2 at src/a.ts:7'] },
-      { id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 's', detail: 'd', evidence: null, reason: 'r', also: [] },
+      { id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'parse dereferences null', detail: 'other() passes null', evidence: 'line 4 uses text!', reason: 'one root cause', also: ['SWEEP-2 at src/a.ts:7'], firstRound: null },
+      { id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 's', detail: 'd', evidence: null, reason: 'r', also: [], firstRound: null },
     ],
     earlier: [],
     owned: ['src/a.ts'],
@@ -144,6 +145,23 @@ describe('the fixer\'s task', () => {
     const task = fixerTask({ ...input, earlier: [{ batch: 'c1-1', id: 'SCAN-1', outcome: 'applied', note: 'guarded the null' }, { batch: 'c1-1', id: 'SCAN-2', outcome: 'not attempted', note: null }] });
     assert.match(task, /^Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:\n- c1-1 SCAN-1 applied: guarded the null\n- c1-1 SCAN-2 not attempted\n\n/m);
     assert.doesNotMatch(task, /may already hold part of this work/, 'earlier batches are no warning of a half-done batch');
+  });
+
+  it('tells a second-round batch what each finding was first blocked on, that the files are now its own, and what the first round did in them (R21)', () => {
+    const task = fixerTask({
+      ...input,
+      cluster: 'c4',
+      batch: 'c4-1',
+      secondRound: true,
+      findings: [{ ...input.findings[0]!, firstRound: { note: 'the fix flips an assertion in t.ts, which c2 owns', requiredFiles: ['t.ts'] } }],
+      earlier: [{ batch: 'c2-1', id: 'T-1', outcome: 'applied', note: 'tightened the builder test' }],
+      owned: ['src/a.ts', 't.ts'],
+    });
+    assert.match(task, /^Cluster c4, batch c4-1, in the second round: 1 finding, numbered \[0\] to \[0\]/m);
+    assert.match(task, /^ {4}first round: blocked, needing t\.ts: the fix flips an assertion in t\.ts, which c2 owns$/m);
+    assert.match(task, /^Each of these was blocked in the first round on files another cluster owned\. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included\.$/m);
+    assert.match(task, /^Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:\n- c2-1 T-1 applied: tightened the builder test$/m);
+    assert.doesNotMatch(fixerTask(input), /first round|second round/, 'a first-round batch says nothing of rounds');
   });
 
   it('names each check\'s command or why it has none, or that none is available', () => {

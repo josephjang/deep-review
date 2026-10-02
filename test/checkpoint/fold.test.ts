@@ -22,7 +22,7 @@ describe('registry', () => {
   /** Every kind the engine declares, sorted as `registryKeys` sorts: the run, scope and worker kinds, the review's, with version 2 of the seven that carry a phase, and the fix pass's. */
   const declaredKinds = [
     'angle.failed@1', 'attempt.failed@1', 'attempt.failed@2', 'candidates.recorded@1', 'check.ran@1', 'checks.planned@1', 'commits.created@1',
-    'deduplication.recorded@1', 'fix.recorded@1', 'fixes.planned@1', 'group.unverified@1', 'limits.changed@1',
+    'deduplication.recorded@1', 'fix.recorded@1', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
     'phase.finished@1', 'phase.finished@2', 'phase.started@1', 'phase.started@2', 'ranking.recorded@1', 'report.written@1', 'report.written@2',
     'review.configured@1', 'review.configured@2', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'tree.revised@1', 'unit.unattempted@1', 'verdicts.recorded@1', 'verification.planned@1',
     'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worker.lost@2', 'worktree.checked@1', 'worktree.checked@2',

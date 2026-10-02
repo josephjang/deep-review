@@ -20348,6 +20348,19 @@ var fixesPlannedV1 = external_exports.strictObject({
     findingIds: external_exports.array(candidateIdSchema).min(1)
   }))
 });
+var fixesReplannedV1 = external_exports.strictObject({
+  blocked: external_exports.array(external_exports.strictObject({ id: candidateIdSchema, requiredFiles: external_exports.array(external_exports.string().min(1)).min(1) })),
+  clusters: external_exports.array(external_exports.strictObject({
+    id: clusterIdSchemaV2,
+    findingIds: external_exports.array(candidateIdSchema).min(1),
+    files: external_exports.array(external_exports.string().min(1))
+  })),
+  batches: external_exports.array(external_exports.strictObject({
+    key: batchKeySchemaV2,
+    cluster: clusterIdSchemaV2,
+    findingIds: external_exports.array(candidateIdSchema).min(1)
+  }))
+});
 var plannedCheckSchema = external_exports.strictObject({
   kind: checkKindSchemaV2,
   command: external_exports.string().min(1).nullable(),
@@ -20487,6 +20500,7 @@ var eventRegistry = defineRegistry({
   "ranking.recorded": { 1: { schema: rankingRecordedV1 } },
   "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 } },
   "fixes.planned": { 1: { schema: fixesPlannedV1 } },
+  "fixes.replanned": { 1: { schema: fixesReplannedV1 } },
   "checks.planned": { 1: { schema: checksPlannedV1 } },
   "check.ran": { 1: { schema: checkRanV1 } },
   "fix.recorded": { 1: { schema: fixRecordedV1 } },
@@ -20599,6 +20613,7 @@ function emptyFixState() {
   return {
     checks: { planned: null, runs: Object.fromEntries(checkPhases.map((phase) => [phase, []])) },
     plan: null,
+    secondRound: null,
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
@@ -20612,11 +20627,32 @@ function repairTargets(fix) {
   const planned = fix.checks.planned?.checks ?? [];
   return planned.map((check2) => check2.kind).filter((kind) => lastRun(fix, "baseline-checks", kind)?.outcome === "passed" && ["failed", "timeout"].includes(lastRun(fix, "checks", kind)?.outcome ?? ""));
 }
+function allClusters(fix) {
+  return [...fix.plan?.clusters ?? [], ...fix.secondRound?.clusters ?? []];
+}
+function allBatches(fix) {
+  return [...fix.plan?.batches ?? [], ...fix.secondRound?.batches ?? []];
+}
 function clusterOf(fix, id) {
-  return fix.plan?.clusters.find((cluster) => cluster.id === id) ?? null;
+  return allClusters(fix).find((cluster) => cluster.id === id) ?? null;
 }
 function batchOf(fix, key) {
-  return fix.plan?.batches.find((batch) => batch.key === key) ?? null;
+  return allBatches(fix).find((batch) => batch.key === key) ?? null;
+}
+function roundClusters(fix, key) {
+  const second = fix.secondRound?.batches.some((batch) => batch.key === key) ?? false;
+  return [...(second ? fix.secondRound?.clusters : fix.plan?.clusters) ?? []];
+}
+function firstRoundSettled(fix) {
+  return (fix.plan?.batches ?? []).every((batch) => Object.hasOwn(fix.answers.fixes, batch.key) || isNotAttempted(fix, "fixes", batch.key));
+}
+function lastAnswerOf(fix, id) {
+  for (const batch of [...allBatches(fix)].reverse()) {
+    if (!batch.findingIds.includes(id)) continue;
+    const finding = fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id);
+    if (finding !== void 0) return { batch: batch.key, finding };
+  }
+  return null;
 }
 function clusterOfBatch(fix, key) {
   const batch = batchOf(fix, key);
@@ -20625,7 +20661,7 @@ function clusterOfBatch(fix, key) {
 function earlierBatches(fix, key) {
   const batch = batchOf(fix, key);
   if (batch === null) return [];
-  const siblings = (fix.plan?.batches ?? []).filter((candidate) => candidate.cluster === batch.cluster);
+  const siblings = allBatches(fix).filter((candidate) => candidate.cluster === batch.cluster);
   return siblings.slice(0, siblings.indexOf(batch));
 }
 function fixesRevisedPaths(fix) {
@@ -20995,28 +21031,74 @@ var fixesPlanned = (state, payload, event) => {
   });
   const unclustered = [...toFixer].filter((id) => !clustered.has(id));
   if (unclustered.length > 0) throw invalid(event, `routes ${unclustered.join(", ")} to a fixer but clusters none of them`);
-  requireBatches(event, payload, review2.configuration.fixes?.batchSize ?? null);
+  requireBatches(event, payload.routes, payload.clusters, payload.batches, review2.configuration.fixes?.batchSize ?? null);
   return withFix(current, review2, { ...fix, plan: payload }, event);
 };
-function requireBatches(event, payload, batchSize) {
+var fixesReplanned = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, "fixes");
+  const plan = fix.plan;
+  if (plan === null) throw invalid(event, "plans a second round before the first");
+  if (fix.secondRound !== null) throw invalid(event, "plans its second round twice");
+  if (!firstRoundSettled(fix)) throw invalid(event, "plans its second round before every batch of the first settled");
+  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path) => [path, cluster.id])));
+  const filesOf = /* @__PURE__ */ new Map();
+  for (const entry of payload.blocked) {
+    if (filesOf.has(entry.id)) throw invalid(event, `takes finding ${entry.id} into its second round twice`);
+    const own2 = plan.clusters.find((cluster) => cluster.findingIds.includes(entry.id));
+    const answer = lastAnswerOf(fix, entry.id)?.finding;
+    if (own2 === void 0 || answer?.status !== "blocked") throw invalid(event, `takes finding ${entry.id} into its second round, which the first round did not answer blocked`);
+    if (new Set(entry.requiredFiles).size !== entry.requiredFiles.length || !entry.requiredFiles.every((path) => answer.requiredFiles.includes(path)) || !answer.requiredFiles.every((path) => entry.requiredFiles.includes(path))) {
+      throw invalid(event, `gives finding ${entry.id} the files [${entry.requiredFiles.join(", ")}], not the ones it was blocked on [${answer.requiredFiles.join(", ")}]`);
+    }
+    const foreign = entry.requiredFiles.filter((path) => !ownerOf.has(path) || ownerOf.get(path) === own2.id);
+    if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(", ")}, which no other first-round cluster owned`);
+    filesOf.set(entry.id, [.../* @__PURE__ */ new Set([...own2.files, ...entry.requiredFiles])]);
+  }
+  const owner = /* @__PURE__ */ new Map();
+  const taken = /* @__PURE__ */ new Set();
+  payload.clusters.forEach((cluster, index2) => {
+    const number5 = plan.clusters.length + index2 + 1;
+    if (cluster.id !== `c${String(number5)}`) throw invalid(event, `numbers second-round cluster ${String(index2 + 1)} ${cluster.id}, not c${String(number5)}`);
+    for (const id of cluster.findingIds) {
+      if (!filesOf.has(id)) throw invalid(event, `clusters finding ${id} in its second round, which it does not take`);
+      if (taken.has(id)) throw invalid(event, `clusters finding ${id} twice in its second round`);
+      taken.add(id);
+    }
+    const expected = [...new Set(cluster.findingIds.flatMap((id) => filesOf.get(id)))].sort();
+    if (expected.length !== cluster.files.length || expected.some((path, position) => [...cluster.files].sort()[position] !== path)) {
+      throw invalid(event, `gives second-round cluster ${cluster.id} the files [${cluster.files.join(", ")}], not its findings' [${expected.join(", ")}]`);
+    }
+    for (const path of cluster.files) {
+      const first = owner.get(path);
+      if (first !== void 0) throw invalid(event, `gives file ${path} to second-round clusters ${first} and ${cluster.id}`);
+      owner.set(path, cluster.id);
+    }
+  });
+  const untaken = [...filesOf.keys()].filter((id) => !taken.has(id));
+  if (untaken.length > 0) throw invalid(event, `takes ${untaken.join(", ")} into its second round but clusters none of them`);
+  requireBatches(event, plan.routes, payload.clusters, payload.batches, review2.configuration.fixes?.batchSize ?? null);
+  return withFix(current, review2, { ...fix, secondRound: payload }, event);
+};
+function requireBatches(event, routes, clusters, batches, batchSize) {
   if (batchSize === null) throw invalid(event, "plans batches on a run that pinned no batch size");
-  const rank = new Map(payload.routes.map((route, index2) => [route.id, index2]));
+  const rank = new Map(routes.map((route, index2) => [route.id, index2]));
   const seen = /* @__PURE__ */ new Map();
   let previous = -1;
-  for (const batch of payload.batches) {
-    const { batches, findings: done } = seen.get(batch.cluster) ?? { batches: 0, findings: [] };
-    const cluster = payload.clusters.find((candidate) => candidate.id === batch.cluster);
+  for (const batch of batches) {
+    const { batches: numbered, findings: done } = seen.get(batch.cluster) ?? { batches: 0, findings: [] };
+    const cluster = clusters.find((candidate) => candidate.id === batch.cluster);
     if (cluster === void 0) throw invalid(event, `plans batch ${batch.key} for cluster ${batch.cluster}, which it does not plan`);
-    if (batch.key !== `${batch.cluster}-${String(batches + 1)}` || !batchKeySchema.safeParse(batch.key).success) throw invalid(event, `numbers batch ${String(batches + 1)} of cluster ${batch.cluster} ${batch.key}`);
+    if (batch.key !== `${batch.cluster}-${String(numbered + 1)}` || !batchKeySchema.safeParse(batch.key).success) throw invalid(event, `numbers batch ${String(numbered + 1)} of cluster ${batch.cluster} ${batch.key}`);
     if (batch.findingIds.length > batchSize) throw invalid(event, `puts ${String(batch.findingIds.length)} findings in batch ${batch.key}, more than the pinned size ${String(batchSize)}`);
     const expected = cluster.findingIds.slice(done.length, done.length + batch.findingIds.length);
     if (batch.findingIds.some((id, index2) => id !== expected[index2])) throw invalid(event, `gives batch ${batch.key} [${batch.findingIds.join(", ")}], not the next of cluster ${cluster.id}'s findings in order`);
     const first = rank.get(batch.findingIds[0]);
     if (first < previous) throw invalid(event, `plans batch ${batch.key} after a batch whose first finding ranks below its own`);
     previous = first;
-    seen.set(batch.cluster, { batches: batches + 1, findings: [...done, ...batch.findingIds] });
+    seen.set(batch.cluster, { batches: numbered + 1, findings: [...done, ...batch.findingIds] });
   }
-  for (const cluster of payload.clusters) {
+  for (const cluster of clusters) {
     if ((seen.get(cluster.id)?.findings.length ?? 0) !== cluster.findingIds.length) throw invalid(event, `leaves findings of cluster ${cluster.id} in no batch`);
   }
 }
@@ -21041,7 +21123,7 @@ var fixRecorded = (state, payload, event, drafts) => {
   const given = payload.findings.map((finding) => finding.id);
   if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(", ")}] for ${payload.phase}:${payload.key}, which holds [${ids.join(", ")}]`);
   const own2 = payload.phase === "fixes" ? clusterOfBatch(fix, payload.key)?.id : void 0;
-  const others = new Set((fix.plan?.clusters ?? []).filter((cluster) => payload.phase === "fixes" && cluster.id !== own2).flatMap((cluster) => cluster.files));
+  const others = new Set((payload.phase === "fixes" ? roundClusters(fix, payload.key) : []).filter((cluster) => cluster.id !== own2).flatMap((cluster) => cluster.files));
   const named = new Set(payload.findings.flatMap((finding) => finding.files));
   for (const path of payload.violations) {
     if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster owns`);
@@ -21112,6 +21194,7 @@ var commitsCreated = (state, payload, event) => {
 var fixReducers = {
   "checks.planned@1": checksPlanned,
   "fixes.planned@1": fixesPlanned,
+  "fixes.replanned@1": fixesReplanned,
   "check.ran@1": checkRan,
   "fix.recorded@1": fixRecorded,
   "tree.revised@1": treeRevised,
@@ -23930,16 +24013,24 @@ function planFixes(findings, batchSize) {
   const candidatesOf = (entry) => [entry.primary, ...entry.members];
   const spelling = unlocatedSpellingIn(routed.flatMap(candidatesOf));
   const keysOf = (entry) => [...new Set(candidatesOf(entry).map((candidate) => candidate.located && candidate.file !== null ? locatedKey(candidate.file) : unlocatedKey(spelling(candidate))))];
-  const parent = routed.map((_, index2) => index2);
+  const keys = routed.map(keysOf);
+  const clusters = componentsOf(keys).map((indexes, position) => ({
+    id: `c${String(position + 1)}`,
+    findingIds: indexes.map((index2) => routed[index2].finding.id),
+    files: [...new Set(indexes.flatMap((index2) => keys[index2].map(ownedPath).filter((path) => path !== null)))].sort()
+  }));
+  return { routes, clusters, batches: batchesOf(clusters, routes.map((route) => route.id), batchSize) };
+}
+function componentsOf(keys) {
+  const parent = keys.map((_, index2) => index2);
   const find = (index2) => {
     let root = index2;
     while (parent[root] !== root) root = parent[root];
     return root;
   };
   const owner = /* @__PURE__ */ new Map();
-  const keys = routed.map(keysOf);
-  keys.forEach((findingKeys, index2) => {
-    for (const key of findingKeys) {
+  keys.forEach((itemKeys, index2) => {
+    for (const key of itemKeys) {
       const first = owner.get(key);
       if (first === void 0) owner.set(key, index2);
       else {
@@ -23949,18 +24040,36 @@ function planFixes(findings, batchSize) {
     }
   });
   const members2 = /* @__PURE__ */ new Map();
-  routed.forEach((_, index2) => {
+  keys.forEach((_, index2) => {
     const root = find(index2);
     const list = members2.get(root);
     if (list === void 0) members2.set(root, [index2]);
     else list.push(index2);
   });
-  const clusters = [...members2.entries()].sort(([a], [b]) => a - b).map(([, indexes], position) => ({
-    id: `c${String(position + 1)}`,
-    findingIds: indexes.map((index2) => routed[index2].finding.id),
-    files: [...new Set(indexes.flatMap((index2) => keys[index2].map(ownedPath).filter((path) => path !== null)))].sort()
+  return [...members2.entries()].sort(([a], [b]) => a - b).map(([, indexes]) => indexes);
+}
+function planSecondRound(plan, answerOf, batchSize) {
+  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path) => [path, cluster.id])));
+  const clusterOfFinding = new Map(plan.clusters.flatMap((cluster) => cluster.findingIds.map((id) => [id, cluster])));
+  const blocked = plan.routes.flatMap((route) => {
+    const own2 = clusterOfFinding.get(route.id);
+    const answer = own2 === void 0 ? null : answerOf(route.id);
+    if (own2 === void 0 || answer === null || answer.status !== "blocked" || answer.requiredFiles.length === 0) return [];
+    const needed = [...new Set(answer.requiredFiles)];
+    if (!needed.every((path) => ownerOf.has(path) && ownerOf.get(path) !== own2.id)) return [];
+    return [{ id: route.id, requiredFiles: needed, files: [.../* @__PURE__ */ new Set([...own2.files, ...needed])].sort() }];
+  });
+  const first = plan.clusters.length;
+  const clusters = componentsOf(blocked.map((finding) => finding.files)).map((indexes, position) => ({
+    id: `c${String(first + position + 1)}`,
+    findingIds: indexes.map((index2) => blocked[index2].id),
+    files: [...new Set(indexes.flatMap((index2) => blocked[index2].files))].sort()
   }));
-  return { routes, clusters, batches: batchesOf(clusters, routes.map((route) => route.id), batchSize) };
+  return {
+    blocked: blocked.map(({ id, requiredFiles }) => ({ id, requiredFiles })),
+    clusters,
+    batches: batchesOf(clusters, plan.routes.map((route) => route.id), batchSize)
+  };
 }
 function batchesOf(clusters, ranked, batchSize) {
   if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error(`A batch holds at least one finding, not ${String(batchSize)}`);
@@ -24154,6 +24263,12 @@ function fixPlanOf(review2) {
   if (batchSize === void 0) throw new Error("A fix plan needs the batch size a fixing run pins");
   return planFixes(rankedFindings(review2), batchSize);
 }
+function secondRoundOf(review2) {
+  const fix = review2.fix;
+  const batchSize = review2.configuration.fixes?.batchSize;
+  if (fix === null || fix.plan === null || batchSize === void 0) throw new Error("A second round needs the first round's plan and the pinned batch size");
+  return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize);
+}
 function unitsOf(review2, phase) {
   const single = (role) => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
@@ -24172,7 +24287,7 @@ function unitsOf(review2, phase) {
     case "merge-rank":
       return mergeRankInput(review2).length > 0 ? single("merge-rank") : [];
     case "fixes":
-      return fixPlanOf(review2).batches.map((batch) => ({ phase, key: batch.key, role: "fixer" }));
+      return [...fixPlanOf(review2).batches, ...review2.fix?.secondRound?.batches ?? []].map((batch) => ({ phase, key: batch.key, role: "fixer" }));
     case "repair":
       return review2.fix !== null && repairTargets(review2.fix).length > 0 ? [{ phase, key: repairUnitKey, role: "fixer" }] : [];
     case "baseline-checks":
@@ -24349,6 +24464,7 @@ function nextStep(review2, live2) {
     return capacity > 0 ? { kind: "launch", units: launchable.slice(0, capacity) } : { kind: "await" };
   }
   if (running.length > 0) return { kind: "await" };
+  if (phase === "fixes" && review2.fix !== null && review2.fix.plan !== null && review2.fix.secondRound === null) return { kind: "plan-second-round", plan: secondRoundOf(review2) };
   if (isEditingPhase(phase) && units.length > 0 && !checks.some((check2) => check2.moment === "end")) return { kind: "check-worktree", phase, attempt, moment: "end" };
   const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
   return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
@@ -24800,8 +24916,8 @@ function requireFix2(state) {
   return fix;
 }
 function batchOfUnit(state, key) {
-  const batch = fixPlanOf(state.review).batches.find((candidate) => candidate.key === key);
-  if (batch === void 0) throw new Error(`The fix plan has no batch ${key}`);
+  const batch = batchOf(requireFix2(state), key);
+  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
   return batch;
 }
 function unitIds2(state, phase, key) {
@@ -24812,7 +24928,7 @@ function unitIds2(state, phase, key) {
 function othersOwned(state, phase, key) {
   if (phase === "repair") return /* @__PURE__ */ new Map();
   const own2 = batchOfUnit(state, key).cluster;
-  return new Map(fixPlanOf(state.review).clusters.filter((cluster) => cluster.id !== own2).flatMap((cluster) => cluster.files.map((file2) => [file2, cluster.id])));
+  return new Map(roundClusters(requireFix2(state), key).filter((cluster) => cluster.id !== own2).flatMap((cluster) => cluster.files.map((file2) => [file2, cluster.id])));
 }
 function revisionMessage(revision, findings) {
   const held = findings.filter((finding) => revision.findings.includes(finding.id));
@@ -25552,16 +25668,18 @@ function fixerTask(input2) {
     `    detail: ${finding.detail}`,
     `    evidence: ${finding.evidence ?? "none; the verifier of its group failed twice"}`,
     `    reason: ${finding.reason}`,
-    ...finding.also.length === 0 ? [] : [`    also at: ${finding.also.join("; ")}`]
+    ...finding.also.length === 0 ? [] : [`    also at: ${finding.also.join("; ")}`],
+    ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(", ")}: ${finding.firstRound.note}`]
   ].join("\n"));
   const others = input2.othersOwned.filter((cluster) => cluster.files.length > 0);
   return [
-    `Cluster ${input2.cluster}, batch ${input2.batch}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
+    `Cluster ${input2.cluster}, batch ${input2.batch}${input2.secondRound ? ", in the second round" : ""}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
     "",
     ...findings,
     "",
+    ...input2.secondRound ? ["Each of these was blocked in the first round on files another cluster owned. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.", ""] : [],
     ...input2.earlier.length === 0 ? [] : [
-      "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
+      input2.secondRound ? "Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:" : "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
       input2.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? "" : `: ${entry.note}`}`).join("\n"),
       ""
     ],
@@ -25655,6 +25773,11 @@ function unfinishedIds(review2, phase, key) {
   const ids = (review2.fix?.revisions ?? []).filter((revision) => revision.phase === phase && revision.source.kind === "attempt" && revision.source.key === key).flatMap((revision) => revision.change.findings);
   return [...new Set(ids)];
 }
+function firstRoundBlock(review2, firstBatches, id, requiredFiles) {
+  const batch = firstBatches.find((candidate) => candidate.findingIds.includes(id));
+  const note = (batch === void 0 ? void 0 : review2.fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? "blocked";
+  return { note, requiredFiles };
+}
 function batchOutcomes(review2, batch) {
   const answer = review2.fix?.answers.fixes[batch.key];
   return batch.findingIds.map((id) => {
@@ -25664,12 +25787,18 @@ function batchOutcomes(review2, batch) {
 }
 function fixerTaskOf(unit, review2, editing) {
   const plan = fixPlanOf(review2);
-  const batch = plan.batches.find((candidate) => candidate.key === unit.key);
+  const second = review2.fix?.secondRound ?? null;
+  const all = [...plan.batches, ...second?.batches ?? []];
+  const batch = all.find((candidate) => candidate.key === unit.key);
   if (batch === void 0) throw new Error(`The fix plan has no batch ${unit.key}`);
-  const cluster = plan.clusters.find((candidate) => candidate.id === batch.cluster);
+  const inSecondRound = second?.batches.some((candidate) => candidate.key === batch.key) ?? false;
+  const clusters = inSecondRound ? second.clusters : plan.clusters;
+  const cluster = clusters.find((candidate) => candidate.id === batch.cluster);
   if (cluster === void 0) throw new Error(`Batch ${batch.key} names cluster ${batch.cluster}, which the fix plan does not have`);
-  const siblings = plan.batches.filter((candidate) => candidate.cluster === cluster.id);
+  const siblings = all.filter((candidate) => candidate.cluster === cluster.id);
   const earlier = siblings.slice(0, siblings.indexOf(batch));
+  const firstRoundInFiles = inSecondRound ? plan.batches.filter((candidate) => plan.clusters.find((owner) => owner.id === candidate.cluster)?.files.some((path) => cluster.files.includes(path)) ?? false) : [];
+  const blockedOn = new Map((second?.blocked ?? []).map((entry) => [entry.id, entry.requiredFiles]));
   const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
   const findings = batch.findingIds.map((id) => {
     const entry = ranked.get(id);
@@ -25685,19 +25814,21 @@ function fixerTaskOf(unit, review2, editing) {
       detail: entry.primary.detail,
       evidence: entry.resolution.evidence,
       reason: entry.finding.reason,
-      also: entry.members.map((member) => `${member.id} at ${describeLocation(member)}`)
+      also: entry.members.map((member) => `${member.id} at ${describeLocation(member)}`),
+      firstRound: inSecondRound ? firstRoundBlock(review2, plan.batches, id, blockedOn.get(id) ?? []) : null
     };
   });
   return fixerTask({
     cluster: cluster.id,
     batch: batch.key,
+    secondRound: inSecondRound,
     findings,
-    earlier: earlier.flatMap((sibling) => batchOutcomes(review2, sibling)),
+    earlier: [...firstRoundInFiles, ...earlier].flatMap((sibling) => batchOutcomes(review2, sibling)),
     owned: cluster.files,
-    othersOwned: plan.clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
+    othersOwned: clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
     checks: review2.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
-    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, earlier.map((sibling) => sibling.key)),
+    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, [...earlier, ...inSecondRound ? plan.batches : []].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review2, "fixes", unit.key)
   });
 }
@@ -25891,12 +26022,19 @@ var statusWords = {
 };
 function fateOf(fix, id) {
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? "fixer";
-  if (route === "held") return { id, outcome: "held for the author", batch: null, answer: null, reason: null };
+  if (route === "held") return { id, outcome: "held for the author", batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null };
+  const second = fix.secondRound?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
+  const firstBlockedOn = fix.secondRound?.blocked.find((entry) => entry.id === id)?.requiredFiles ?? null;
+  const last = lastAnswerOf(fix, id);
+  if (last !== null) {
+    const batch2 = allBatches(fix).find((candidate) => candidate.key === last.batch) ?? null;
+    const answeredInSecond = second !== null && last.batch === second.key;
+    const secondRoundSkipped = second !== null && !answeredInSecond ? notAttemptedNote(fix, "fixes", second.key) : null;
+    return { id, outcome: statusWords[last.finding.status], batch: batch2, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped };
+  }
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
-  const answer = batch === null ? null : fix.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id) ?? null;
-  if (answer !== null) return { id, outcome: statusWords[answer.status], batch, answer, reason: null };
   const reason = (batch === null ? null : notAttemptedNote(fix, "fixes", batch.key)) ?? "no fixer answered for it";
-  return { id, outcome: "not attempted", batch, answer: null, reason };
+  return { id, outcome: "not attempted", batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null };
 }
 function patchesOf(fix, id, phase) {
   return fix.revisions.flatMap((revision, index2) => revision.phase === phase && revision.change.findings.includes(id) ? [index2 + 1] : []);
@@ -25917,6 +26055,8 @@ function fateLines(fix, fate) {
   }
   for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(", ")}`);
+  if (fate.firstBlockedOn !== null) lines.push(`First blocked on: ${fate.firstBlockedOn.map(inlineText).join(", ")}, which the second round gave it`);
+  if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
   return lines;
 }
 function answerLines(fix) {
@@ -26026,9 +26166,9 @@ function fixLimitations(review2) {
   const fix = review2.fix;
   if (fix === null) return [];
   const lines = [];
-  const owner = (path) => fix.plan?.clusters.find((cluster) => cluster.files.includes(path))?.id ?? "no cluster";
+  const owner = (key, path) => (fix.secondRound?.batches.some((batch) => batch.key === key) === true ? fix.secondRound.clusters : fix.plan?.clusters ?? []).find((cluster) => cluster.files.includes(path))?.id ?? "no cluster";
   for (const answer of Object.values(fix.answers.fixes)) {
-    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, owned by ${owner(path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
+    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, owned by ${owner(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
   }
   const strays = [...new Set(review2.checks.flatMap((check2) => check2.strays))].sort();
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(", ")}.`);
@@ -26320,6 +26460,12 @@ async function runReview(options2) {
           const held = step.plan.routes.filter((route) => route.route === "held").length;
           log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? "" : "s"} in ${String(step.plan.batches.length)} batch${step.plan.batches.length === 1 ? "" : "es"} planned, ${String(held)} finding${held === 1 ? "" : "s"} held for the author`);
           state = append(checkpoint, state, [{ kind: "fixes.planned", version: 1, payload: step.plan }]);
+          break;
+        }
+        case "plan-second-round": {
+          const { blocked, clusters, batches } = step.plan;
+          log(blocked.length === 0 ? "phase fixes: no finding for a second round" : `phase fixes: second round for ${blocked.map((finding) => finding.id).join(", ")}, in ${String(clusters.length)} cluster${clusters.length === 1 ? "" : "s"} and ${String(batches.length)} batch${batches.length === 1 ? "" : "es"}`);
+          state = append(checkpoint, state, [{ kind: "fixes.replanned", version: 1, payload: step.plan }]);
           break;
         }
         case "run-check":
@@ -26792,8 +26938,8 @@ function fixStatus(state, review2) {
   const fix = review2.fix;
   if (fix === null) return null;
   const running = new Set(Object.values(state.workers).filter((worker) => worker.status === "running").map((worker) => worker.launch.label));
-  const clusters = (fix.plan?.clusters ?? []).map((cluster) => ({ id: cluster.id, findings: cluster.findingIds, files: cluster.files }));
-  const batches = (fix.plan?.batches ?? []).map((batch) => {
+  const clusters = allClusters(fix).map((cluster) => ({ id: cluster.id, findings: cluster.findingIds, files: cluster.files }));
+  const batches = allBatches(fix).map((batch) => {
     const label = unitLabel("fixer", "fixes", batch.key);
     const batchState = isAnswered(review2, "fixes", batch.key) ? "answered" : isNotAttempted(fix, "fixes", batch.key) ? "not attempted" : running.has(label) ? "running" : "pending";
     return { key: batch.key, cluster: batch.cluster, state: batchState, findings: batch.findingIds };

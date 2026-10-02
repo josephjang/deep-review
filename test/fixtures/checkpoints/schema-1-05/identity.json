@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "ddl": "a551960a9c6792b3e1abeab1abed8361f0b4af510504339b32f11010859d6b82",
-  "registry": "d272e0e7d1a249b2e923000506ff7d9cf045038c81630f32186513edcd5d92e0",
+  "registry": "0b330b02a36ffcfd7cd09ae7f5136960c1e7b1c5acfb74e3796742c64a0202c8",
   "kinds": [
     "angle.failed@1",
     "attempt.failed@1",
@@ -13,6 +13,7 @@
     "deduplication.recorded@1",
     "fix.recorded@1",
     "fixes.planned@1",
+    "fixes.replanned@1",
     "group.unverified@1",
     "limits.changed@1",
     "phase.finished@1",

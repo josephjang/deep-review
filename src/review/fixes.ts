@@ -1,12 +1,15 @@
 /**
  * Which ranked findings go to a fixer, and how they are split among fixers
- * (R2, R3, R18 of the fix pass): a finding is routed by its merged verdict
- * and its primary's angle, as the rubric says; the fixer-routed ones are
- * clustered one per file, a merged finding kept whole, so that no file is
- * owned by two clusters; and each cluster's findings are cut into batches,
- * one fixer each, run one after another. Pure over the ranked list; the
- * plan it gives is recorded once and resumed from the ledger.
+ * (R2, R3, R18, R21 of the fix pass): a finding is routed by its merged
+ * verdict and its primary's angle, as the rubric says; the fixer-routed
+ * ones are clustered one per file, a merged finding kept whole, so that no
+ * file is owned by two clusters; each cluster's findings are cut into
+ * batches, one fixer each, run one after another; and once that round has
+ * settled, the findings blocked only on other clusters' files are planned
+ * again as a second round. Pure over the ranked list and the answers; each
+ * plan is recorded once and resumed from the ledger.
  */
+import type { FixedFinding } from '../checkpoint/events.ts';
 import type { CandidateState } from '../checkpoint/review-fold.ts';
 import { unlocatedSpellingIn } from './grouping.ts';
 import type { ReportFinding } from './state.ts';
@@ -85,42 +88,95 @@ export function planFixes(findings: readonly ReportFinding[], batchSize: number)
   const spelling = unlocatedSpellingIn(routed.flatMap(candidatesOf));
   const keysOf = (entry: ReportFinding): string[] => [...new Set(candidatesOf(entry).map((candidate) => (candidate.located && candidate.file !== null ? locatedKey(candidate.file) : unlocatedKey(spelling(candidate)))))];
 
-  // Union-find over finding positions: two findings sharing a key are one cluster. A review has at most a few dozen findings, so no path compression is needed.
-  const parent = routed.map((_, index) => index);
+  const keys = routed.map(keysOf);
+  const clusters = componentsOf(keys).map((indexes, position): PlannedCluster => ({
+    id: `c${String(position + 1)}`,
+    findingIds: indexes.map((index) => routed[index]!.finding.id),
+    files: [...new Set(indexes.flatMap((index) => keys[index]!.map(ownedPath).filter((path) => path !== null)))].sort(),
+  }));
+  return { routes, clusters, batches: batchesOf(clusters, routes.map((route) => route.id), batchSize) };
+}
+
+/**
+ * The connected components of items over the keys they share, each a list
+ * of item positions in order, the components ordered by their first item:
+ * so items given in rank order give clusters in the order of their
+ * best-ranked item. A review has at most a few dozen findings, so the
+ * union-find needs no path compression.
+ */
+function componentsOf(keys: readonly (readonly string[])[]): number[][] {
+  const parent = keys.map((_, index) => index);
   const find = (index: number): number => {
     let root = index;
     while (parent[root] !== root) root = parent[root]!;
     return root;
   };
   const owner = new Map<string, number>();
-  const keys = routed.map(keysOf);
-  keys.forEach((findingKeys, index) => {
-    for (const key of findingKeys) {
+  keys.forEach((itemKeys, index) => {
+    for (const key of itemKeys) {
       const first = owner.get(key);
       if (first === undefined) owner.set(key, index);
       else {
-        // The cluster keeps its earliest finding as its root, so cluster order follows the best rank in it.
+        // A component keeps its earliest item as its root, so component order follows the first item in it.
         const [a, b] = [find(first), find(index)];
         if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
       }
     }
   });
-
   const members = new Map<number, number[]>();
-  routed.forEach((_, index) => {
+  keys.forEach((_, index) => {
     const root = find(index);
     const list = members.get(root);
     if (list === undefined) members.set(root, [index]);
     else list.push(index);
   });
-  const clusters = [...members.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([, indexes], position): PlannedCluster => ({
-      id: `c${String(position + 1)}`,
-      findingIds: indexes.map((index) => routed[index]!.finding.id),
-      files: [...new Set(indexes.flatMap((index) => keys[index]!.map(ownedPath).filter((path) => path !== null)))].sort(),
-    }));
-  return { routes, clusters, batches: batchesOf(clusters, routes.map((route) => route.id), batchSize) };
+  return [...members.entries()].sort(([a], [b]) => a - b).map(([, indexes]) => indexes);
+}
+
+/** A finding the second round takes: its id and the files it was blocked on. */
+export interface BlockedFinding {
+  readonly id: string;
+  readonly requiredFiles: readonly string[];
+}
+
+/** The second round of the fixes phase: the findings it takes, and their clusters and batches. */
+export interface SecondRoundPlan {
+  readonly blocked: readonly BlockedFinding[];
+  readonly clusters: readonly PlannedCluster[];
+  readonly batches: readonly PlannedBatch[];
+}
+
+/**
+ * The second round (R21, PD18 of the fix pass), once every batch of the
+ * first has settled: each fixer-routed finding, in rank order, whose first
+ * answer `answerOf` gives is `blocked` on files that are all owned by
+ * other first-round clusters. A finding's files are its first cluster's
+ * and the files it needed; the findings are clustered over them as the
+ * first round clusters, numbered on from its last cluster, and batched at
+ * `batchSize`. Empty when no finding qualifies.
+ */
+export function planSecondRound(plan: Pick<FixPlan, 'routes' | 'clusters'>, answerOf: (id: string) => { readonly status: FixedFinding['status']; readonly requiredFiles: readonly string[] } | null, batchSize: number): SecondRoundPlan {
+  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path): [string, string] => [path, cluster.id])));
+  const clusterOfFinding = new Map(plan.clusters.flatMap((cluster) => cluster.findingIds.map((id): [string, PlannedCluster] => [id, cluster])));
+  const blocked = plan.routes.flatMap((route): (BlockedFinding & { readonly files: readonly string[] })[] => {
+    const own = clusterOfFinding.get(route.id);
+    const answer = own === undefined ? null : answerOf(route.id);
+    if (own === undefined || answer === null || answer.status !== 'blocked' || answer.requiredFiles.length === 0) return [];
+    const needed = [...new Set(answer.requiredFiles)];
+    if (!needed.every((path) => ownerOf.has(path) && ownerOf.get(path) !== own.id)) return [];
+    return [{ id: route.id, requiredFiles: needed, files: [...new Set([...own.files, ...needed])].sort() }];
+  });
+  const first = plan.clusters.length;
+  const clusters = componentsOf(blocked.map((finding) => finding.files)).map((indexes, position): PlannedCluster => ({
+    id: `c${String(first + position + 1)}`,
+    findingIds: indexes.map((index) => blocked[index]!.id),
+    files: [...new Set(indexes.flatMap((index) => blocked[index]!.files))].sort(),
+  }));
+  return {
+    blocked: blocked.map(({ id, requiredFiles }) => ({ id, requiredFiles })),
+    clusters,
+    batches: batchesOf(clusters, plan.routes.map((route) => route.id), batchSize),
+  };
 }
 
 /**

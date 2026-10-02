@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
-import { baselined, checkRun, checksPhase, configured, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, reference, withFixPass, worker } from '../helpers/review-history.ts';
+import { baselined, checkRun, checksPhase, configured, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}` };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -86,6 +86,8 @@ describe('nextStep in the fix pass', () => {
     assert.deepEqual(nextStep(fixes.review(), { ...spent, running: new Set(['fixes:c1-1']) }), { kind: 'degrade', phase: 'fixes', degradations: [{ kind: 'unit.unattempted', phase: 'fixes', key: 'c2-1', cause: 'budget', reason }] });
     // Once every unit settled, the phase is checked and finishes degraded, and the run goes on.
     fixes.worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50))).add('unit.unattempted', { phase: 'fixes', key: 'c2-1', cause: 'budget', reason });
+    assert.deepEqual(nextStep(fixes.review(), spent), { kind: 'plan-second-round', plan: noSecondRound });
+    fixes.add('fixes.replanned', noSecondRound);
     assert.deepEqual(nextStep(fixes.review(), spent), { kind: 'check-worktree', phase: 'fixes', attempt: 1, moment: 'end' });
     fixes.add('worktree.checked', endCheck('fixes'), 2);
     assert.deepEqual(nextStep(fixes.review(), spent), { kind: 'finish-phase', phase: 'fixes', attempt: 1, outcome: 'degraded', blocker: null });
@@ -114,6 +116,25 @@ describe('nextStep in the fix pass', () => {
     assert.deepEqual(step, { kind: 'degrade', phase: 'repair', degradations: [{ kind: 'unit.unattempted', phase: 'repair', key: 'repair', cause: 'budget', reason: 'spent 30.00 USD of the 30.00 USD run budget' }] });
   });
 
+  it('plans the second round once the first settled, launches its batch, and plans no third round for a finding blocked again (R21)', () => {
+    const plan = {
+      routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
+      clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }],
+    };
+    const blocked = (key: string, workerId: string): Record<string, unknown> => fixAnswer(workerId, { key, findings: [{ id: 'RIPPLE-1', status: 'blocked', file: 'src/a.ts', line: 1, note: 'needs src/b.ts', message: null, files: [], corrections: [], validation: [], requiredFiles: ['src/b.ts'] }] });
+    const fixes = baselined().start('fixes').add('fixes.planned', plan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', blocked('c1-1', worker(50)));
+    assert.deepEqual(nextStep(fixes.review(), live({ running: new Set(['fixes:c2-1']) })), { kind: 'await' }, 'not while a first-round batch runs');
+    fixes.worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), { key: 'c2-1', findings: [{ id: 'SWEEP-1', status: 'applied', file: 'src/b.ts', line: 1, note: 'n', message: { subject: 'fix: b', body: '' }, files: ['src/b.ts'], corrections: [], validation: [], requiredFiles: [] }] }));
+    const second = { blocked: [{ id: 'RIPPLE-1', requiredFiles: ['src/b.ts'] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['src/a.ts', 'src/b.ts'] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] };
+    assert.deepEqual(nextStep(fixes.review(), idle), { kind: 'plan-second-round', plan: second });
+    fixes.add('fixes.replanned', second);
+    assert.deepEqual(unitsOf(fixes.review(), 'fixes').map((unit) => unit.key), ['c1-1', 'c2-1', 'c3-1']);
+    assert.deepEqual(nextStep(fixes.review(), idle), { kind: 'launch', units: [{ phase: 'fixes', key: 'c3-1', role: 'fixer' }] });
+    fixes.worker(52, 'fixer fixes:c3-1').add('fix.recorded', blocked('c3-1', worker(52)));
+    assert.deepEqual(nextStep(fixes.review(), idle), { kind: 'check-worktree', phase: 'fixes', attempt: 1, moment: 'end' }, 'blocked again, it stays blocked');
+  });
+
   it('launches the batches of different clusters together, in the order the plan ranks them', () => {
     const plan = {
       routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
@@ -127,6 +148,8 @@ describe('nextStep in the fix pass', () => {
 
   it('checks the whole tree once the last unit of an editing phase settled, then finishes it', () => {
     const answered = baselined().start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50))).add('tree.revised', fixRevision(worker(50)));
+    assert.deepEqual(nextStep(answered.review(), idle), { kind: 'plan-second-round', plan: noSecondRound }, 'no finding was blocked, and the empty round is still recorded');
+    answered.add('fixes.replanned', noSecondRound);
     assert.deepEqual(nextStep(answered.review(), idle), { kind: 'check-worktree', phase: 'fixes', attempt: 1, moment: 'end' });
     answered.add('worktree.checked', endCheck('fixes'), 2);
     assert.deepEqual(nextStep(answered.review(), idle), { kind: 'finish-phase', phase: 'fixes', attempt: 1, outcome: 'completed', blocker: null });
@@ -147,6 +170,7 @@ describe('nextStep in the fix pass', () => {
       .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(51), reason: 'failed again' }, 2);
     assert.deepEqual(nextStep(failing.review(), idle), { kind: 'degrade', phase: 'fixes', degradations: [{ kind: 'unit.unattempted', phase: 'fixes', key: 'c1-1', cause: 'failures', reason: '2 attempts did not complete: failed; failed again' }] });
     failing.add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'failures', reason: '2 attempts did not complete' });
+    failing.add('fixes.replanned', noSecondRound);
     assert.deepEqual(nextStep(failing.review(), idle), { kind: 'check-worktree', phase: 'fixes', attempt: 1, moment: 'end' });
     failing.add('worktree.checked', endCheck('fixes'), 2);
     assert.deepEqual(nextStep(failing.review(), idle), { kind: 'finish-phase', phase: 'fixes', attempt: 1, outcome: 'degraded', blocker: null });

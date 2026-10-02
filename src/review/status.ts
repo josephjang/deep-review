@@ -7,7 +7,7 @@
  * pass) its batches, its checks, its patches and its commits, as text
  * lines and as JSON.
  */
-import { isNotAttempted, lastRun } from '../checkpoint/fix-state.ts';
+import { allBatches, allClusters, isNotAttempted, lastRun } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -61,8 +61,8 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
   const fix = review.fix;
   if (fix === null) return null;
   const running = new Set(Object.values(state.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label));
-  const clusters = (fix.plan?.clusters ?? []).map((cluster) => ({ id: cluster.id, findings: cluster.findingIds, files: cluster.files }));
-  const batches = (fix.plan?.batches ?? []).map((batch) => {
+  const clusters = allClusters(fix).map((cluster) => ({ id: cluster.id, findings: cluster.findingIds, files: cluster.files }));
+  const batches = allBatches(fix).map((batch) => {
     const label = unitLabel('fixer', 'fixes', batch.key);
     const batchState: BatchState = isAnswered(review, 'fixes', batch.key) ? 'answered' : isNotAttempted(fix, 'fixes', batch.key) ? 'not attempted' : running.has(label) ? 'running' : 'pending';
     return { key: batch.key, cluster: batch.cluster, state: batchState, findings: batch.findingIds };
