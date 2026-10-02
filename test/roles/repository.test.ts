@@ -135,13 +135,17 @@ describe('the repository\'s roles/', () => {
     assert.doesNotMatch(answer.prompt, /\bdispatch/i);
   });
 
-  it('gives every fixer role the fix pass\'s ownership rule: its own files, any file no cluster owns, never another cluster\'s (R4 of the fix pass)', () => {
+  it('gives every fixer role the fix pass\'s ownership rule: its own files while its batch runs, any file no cluster owns, never another cluster\'s (R4, R18 of the fix pass)', () => {
     for (const key of fixerRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
-      assert.match(prompt, /You own your files exclusively for this pass/, key);
-      assert.match(prompt, /You may also edit any file of the repository that no cluster owns,\s+existing or new, when a fix or its tests need it, and you report every\s+such file/, key);
-      assert.match(prompt, /Never touch a file another cluster owns: if a fix genuinely\s+requires one, report the finding blocked and name the file/, key);
-      assert.match(prompt, /the files other clusters own, and the project's checks/, key);
+      assert.match(prompt, /You own your files exclusively while your batch runs/, key);
+      assert.match(prompt, /You may also edit any file of the repository that no\s+cluster owns, existing or new, when a fix or its tests need it, and you\s+report every such file/, key);
+      assert.match(prompt, /Never touch a file another cluster owns: if a\s+fix genuinely requires one, report the finding blocked and name the file/, key);
+      assert.match(prompt, /the files other\s+clusters own, and the project's checks/, key);
+      // A cluster's findings go to fix workers in batches, one after another, and a later batch is told what the earlier ones did.
+      assert.match(prompt, /gives each cluster's findings, in batches, to fix workers that\s+run one after another, so a cluster has one fix worker at a time/, key);
+      assert.match(prompt, /what\s+earlier batches of your cluster did/, key);
+      assert.doesNotMatch(prompt, /gives each cluster to one fix worker|exclusively for this pass/, key);
       // The proof of concept's rule, owned files only, is gone wherever it was said.
       assert.doesNotMatch(prompt, /must not edit anything outside them|required edits outside ownership|requires another file/, key);
     }
