@@ -7,7 +7,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, TreeRevised } from '../checkpoint/events.ts';
-import { isNotAttempted, lastRun, type FixState } from '../checkpoint/fix-state.ts';
+import { clusterOf, isNotAttempted, lastRun, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { inlineText, tableCell } from './markdown.ts';
@@ -24,24 +24,25 @@ const statusWords: Readonly<Record<FixedFinding['status'], FindingOutcome>> = {
   blocked: 'blocked',
 };
 
-/** One ranked finding's fate: its route, its cluster and recorded answer, or why it has none. */
+/** One ranked finding's fate: its route, its batch and recorded answer, or why it has none. */
 interface FindingFate {
   readonly id: string;
   readonly outcome: FindingOutcome;
-  readonly cluster: string | null;
+  /** The batch that held it, whose key names its cluster, or null for a held finding. */
+  readonly batch: PlannedBatch | null;
   readonly answer: FixedFinding | null;
-  /** Why the finding was not attempted, for one whose cluster failed twice. */
+  /** Why the finding was not attempted, for one whose batch failed twice. */
   readonly reason: string | null;
 }
 
 function fateOf(fix: FixState, id: string): FindingFate {
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? 'fixer';
-  if (route === 'held') return { id, outcome: 'held for the author', cluster: null, answer: null, reason: null };
-  const cluster = fix.plan?.clusters.find((candidate) => candidate.findingIds.includes(id))?.id ?? null;
-  const answer = cluster === null ? null : (fix.answers.fixes[cluster]?.findings.find((finding) => finding.id === id) ?? null);
-  if (answer !== null) return { id, outcome: statusWords[answer.status], cluster, answer, reason: null };
-  const reason = cluster !== null && isNotAttempted(fix, 'fixes', cluster) ? fix.notAttempted.fixes[cluster]! : 'no fixer answered for it';
-  return { id, outcome: 'not attempted', cluster, answer: null, reason };
+  if (route === 'held') return { id, outcome: 'held for the author', batch: null, answer: null, reason: null };
+  const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
+  const answer = batch === null ? null : (fix.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id) ?? null);
+  if (answer !== null) return { id, outcome: statusWords[answer.status], batch, answer, reason: null };
+  const reason = batch !== null && isNotAttempted(fix, 'fixes', batch.key) ? fix.notAttempted.fixes[batch.key]! : 'no fixer answered for it';
+  return { id, outcome: 'not attempted', batch, answer: null, reason };
 }
 
 /** The 1-based numbers of the patches whose revisions hold a finding (or, for the repair, a check kind). */
@@ -61,9 +62,9 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
   } else if (fate.reason !== null) {
     lines.push(`Not attempted: ${inlineText(fate.reason)}`);
   }
-  if (fate.cluster !== null) {
-    const files = fix.plan?.clusters.find((cluster) => cluster.id === fate.cluster)?.files ?? [];
-    lines.push(`Cluster: ${fate.cluster}${files.length === 0 ? ', owning no file' : ` (${files.map(inlineText).join(', ')})`}; ${patchNote(patchesOf(fix, fate.id, 'fixes'))}`);
+  if (fate.batch !== null) {
+    const files = clusterOf(fix, fate.batch.cluster)?.files ?? [];
+    lines.push(`Cluster: ${fate.batch.cluster}, batch ${fate.batch.key}${files.length === 0 ? ', owning no file' : ` (${files.map(inlineText).join(', ')})`}; ${patchNote(patchesOf(fix, fate.id, 'fixes'))}`);
   }
   for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(', ')}`);

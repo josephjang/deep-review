@@ -336,7 +336,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     box.script({
       triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'other() passes null' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
       // The first fixer edits its file and then waits; it is killed with the engine. Its replacement answers.
-      'fixer:fixes:c1': [{ edits: [{ writes: { 'src/a.ts': `${fixed}// half done\n` } }], waitFor: marker }, { edits: [{ writes: { 'src/a.ts': fixed } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) }],
+      'fixer:fixes:c1-1': [{ edits: [{ writes: { 'src/a.ts': `${fixed}// half done\n` } }], waitFor: marker }, { edits: [{ writes: { 'src/a.ts': fixed } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) }],
     });
     const checks = checkKinds.flatMap((kind) => ['--check', `${kind}=${fakeCheckCommand(kind)}`]);
     const child = spawn(process.execPath, [cli, ...claudeFlags('--last-commit', '--fix', ...checks)], { cwd: box.repo, env: environment(), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -344,7 +344,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
-    await until(() => /worker fixer fixes:c1: started/.test(stderr) && readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8').includes('half done'), 'the fixer\'s half-applied edit', 180_000);
+    await until(() => /worker fixer fixes:c1-1: started/.test(stderr) && readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8').includes('half done'), 'the fixer\'s half-applied edit', 180_000);
     child.kill();
     await new Promise<void>((done) => child.once('close', () => done()));
     // The orphaned fixer, if any, waits for the marker; let it go so nothing outlives the test.
@@ -355,7 +355,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.match(resumed.stderr, /phase fixes: re-entered \(attempt 2\)/);
     const state = box.run();
     assert.ok(state.review!.checks.every((check) => !check.drifted), 'the lost fixer\'s owned file is left out of the start check');
-    const prompts = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1');
+    const prompts = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1-1');
     assert.equal(prompts.length, 2);
     assert.match(box.checkpoint.evidence.read(prompts[1]!.launch.prompt).toString('utf8'), /The tree may already hold part of this work/);
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixed);

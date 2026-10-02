@@ -2860,7 +2860,7 @@
           "status": "finished",
           "launch": {
             "workerId": "00000000-0000-4000-8000-000000000150",
-            "label": "fixer fixes:c1",
+            "label": "fixer fixes:c1-1",
             "runtime": "claude",
             "executable": "/fixture/bin/claude",
             "executableArgs": [],
@@ -2875,8 +2875,8 @@
             "budgetUsd": 8,
             "timeoutMs": 600000,
             "prompt": {
-              "sha256": "6a4ef67113f0ec716a98ee5b23ab33b8f10d37fb5ba822f8cf97d18d6251d88e",
-              "bytes": 24
+              "sha256": "035f9bb9c4e841e4164965c2c22a4fbc44b2f3959b185397924bd73dc28b86c0",
+              "bytes": 26
             },
             "schema": {
               "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
@@ -2917,7 +2917,7 @@
           "status": "finished",
           "launch": {
             "workerId": "00000000-0000-4000-8000-000000000151",
-            "label": "fixer fixes:c2",
+            "label": "fixer fixes:c2-1",
             "runtime": "claude",
             "executable": "/fixture/bin/claude",
             "executableArgs": [],
@@ -2932,8 +2932,8 @@
             "budgetUsd": 8,
             "timeoutMs": 600000,
             "prompt": {
-              "sha256": "c436bec2f9972c8f1d34435132e9d88b0553068cbbbbf476fc163b7b1205c2c6",
-              "bytes": 24
+              "sha256": "5c2baff9f49573ad95cbd6cc9ae6950747ba3b4e3a9c31f195182663ac9fe3ea",
+              "bytes": 26
             },
             "schema": {
               "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
@@ -2951,6 +2951,120 @@
             "endedAt": "2026-09-27T01:00:30.000Z",
             "sessionIds": [
               "11111111-2222-4333-8444-000000000151"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000152": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000152",
+            "label": "fixer fixes:c1-2",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000152",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000152",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "e14538cea8a98f9db7ce6ff7e0ad06c028e4993108fddf5b122ef49b88559ebb",
+              "bytes": 26
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:194.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000152",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000152"
+            ],
+            "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
+            "denials": [],
+            "error": null,
+            "stdout": {
+              "sha256": "19de46b3581e55364b8283575abfc63eb77dd0a183a4d0cbcb26e8637684d767",
+              "bytes": 38
+            },
+            "stderr": {
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bytes": 0
+            },
+            "finalMessage": null,
+            "output": {
+              "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+              "bytes": 2
+            }
+          }
+        },
+        "00000000-0000-4000-8000-000000000153": {
+          "status": "finished",
+          "launch": {
+            "workerId": "00000000-0000-4000-8000-000000000153",
+            "label": "fixer fixes:c1-3",
+            "runtime": "claude",
+            "executable": "/fixture/bin/claude",
+            "executableArgs": [],
+            "version": "2.1.283",
+            "model": "opus",
+            "effort": "high",
+            "access": "read-only",
+            "shell": true,
+            "sessionId": "11111111-2222-4333-8444-000000000153",
+            "resumes": null,
+            "scratch": "/fixture/scratch/00000000-0000-4000-8000-000000000153",
+            "budgetUsd": 8,
+            "timeoutMs": 600000,
+            "prompt": {
+              "sha256": "a0230191c13da77e668fabf7940a6b4fe6fffe1d1368e84d720667022a56e82e",
+              "bytes": 26
+            },
+            "schema": {
+              "sha256": "ff1b2d8857c8e4a2cd87b566a798c5d1cd937fe8a13363e59a51231b4b328939",
+              "bytes": 76
+            }
+          },
+          "launchedAt": "2026-09-26T00:00:197.000Z",
+          "finish": {
+            "workerId": "00000000-0000-4000-8000-000000000153",
+            "outcome": "completed",
+            "exitCode": 0,
+            "signal": null,
+            "termination": "exited",
+            "startedAt": "2026-09-27T01:00:00.000Z",
+            "endedAt": "2026-09-27T01:00:30.000Z",
+            "sessionIds": [
+              "11111111-2222-4333-8444-000000000153"
             ],
             "usage": "{\"usage\":{\"input_tokens\":800,\"cache_read_input_tokens\":200,\"cache_creation_input_tokens\":0,\"output_tokens\":100},\"modelUsage\":null,\"total_cost_usd\":0.5}",
             "denials": [],
@@ -2997,7 +3111,7 @@
               "bytes": 76
             }
           },
-          "launchedAt": "2026-09-26T00:00:204.000Z",
+          "launchedAt": "2026-09-26T00:00:210.000Z",
           "finish": {
             "workerId": "00000000-0000-4000-8000-000000000160",
             "outcome": "completed",
@@ -3153,7 +3267,7 @@
             "timeoutMs": 1200000
           },
           "fixes": {
-            "batchSize": 4
+            "batchSize": 1
           }
         },
         "limits": {
@@ -3426,6 +3540,46 @@
             },
             "unverified": false
           },
+          "SCAN-2": {
+            "id": "SCAN-2",
+            "angle": "SCAN",
+            "file": "src/changed.ts",
+            "line": 1,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 1,
+            "summary": "SCAN-2: what is wrong at line 1",
+            "detail": "SCAN-2: the failure or the value, as the angle asks",
+            "phase": "triage",
+            "workerId": "00000000-0000-4000-8000-000000000101",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "CONFIRMED",
+              "evidence": "line 1 also skips the guard"
+            },
+            "unverified": false
+          },
+          "SCAN-3": {
+            "id": "SCAN-3",
+            "angle": "SCAN",
+            "file": "src/changed.ts",
+            "line": 1,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 1,
+            "summary": "SCAN-3: what is wrong at line 1",
+            "detail": "SCAN-3: the failure or the value, as the angle asks",
+            "phase": "triage",
+            "workerId": "00000000-0000-4000-8000-000000000101",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "CONFIRMED",
+              "evidence": "line 1 logs the raw value"
+            },
+            "unverified": false
+          },
           "RIPPLE-1": {
             "id": "RIPPLE-1",
             "angle": "RIPPLE",
@@ -3544,12 +3698,20 @@
           },
           "baseline-checks": {},
           "fixes": {
-            "c1": {
+            "c1-1": {
               "answeredBy": "00000000-0000-4000-8000-000000000150",
               "failures": []
             },
-            "c2": {
+            "c2-1": {
               "answeredBy": "00000000-0000-4000-8000-000000000151",
+              "failures": []
+            },
+            "c1-2": {
+              "answeredBy": "00000000-0000-4000-8000-000000000152",
+              "failures": []
+            },
+            "c1-3": {
+              "answeredBy": "00000000-0000-4000-8000-000000000153",
               "failures": []
             }
           },
@@ -3580,7 +3742,9 @@
               "id": "g2",
               "candidateIds": [
                 "DESIGN-1",
-                "SCAN-1"
+                "SCAN-1",
+                "SCAN-2",
+                "SCAN-3"
               ]
             }
           ],
@@ -3604,6 +3768,20 @@
             "severity": "minor",
             "summary": "the caller passes the null on",
             "reason": "the crash reaches a second site"
+          },
+          {
+            "id": "SCAN-2",
+            "members": [],
+            "severity": "minor",
+            "summary": "changed() skips its guard",
+            "reason": "the guard is part of the fix"
+          },
+          {
+            "id": "SCAN-3",
+            "members": [],
+            "severity": "minor",
+            "summary": "changed() logs the raw value",
+            "reason": "the log leaks the input"
           },
           {
             "id": "DESIGN-1",
@@ -3711,13 +3889,13 @@
                 "phase": "baseline-checks"
               },
               {
-                "workers": 2,
-                "seconds": 60,
-                "costUsd": 1,
+                "workers": 4,
+                "seconds": 120,
+                "costUsd": 2,
                 "costUnreported": 0,
-                "inputTokens": 2000,
-                "cachedInputTokens": 400,
-                "outputTokens": 200,
+                "inputTokens": 4000,
+                "cachedInputTokens": 800,
+                "outputTokens": 400,
                 "phase": "fixes"
               },
               {
@@ -3762,13 +3940,13 @@
               }
             ],
             "total": {
-              "workers": 18,
-              "seconds": 540,
-              "costUsd": 9,
+              "workers": 20,
+              "seconds": 600,
+              "costUsd": 10,
               "costUnreported": 0,
-              "inputTokens": 18000,
-              "cachedInputTokens": 3600,
-              "outputTokens": 1800
+              "inputTokens": 20000,
+              "cachedInputTokens": 4000,
+              "outputTokens": 2000
             },
             "budgetApplied": true
           },
@@ -4027,6 +4205,14 @@
                 "route": "fixer"
               },
               {
+                "id": "SCAN-2",
+                "route": "fixer"
+              },
+              {
+                "id": "SCAN-3",
+                "route": "fixer"
+              },
+              {
                 "id": "DESIGN-1",
                 "route": "held"
               }
@@ -4035,7 +4221,9 @@
               {
                 "id": "c1",
                 "findingIds": [
-                  "SCAN-1"
+                  "SCAN-1",
+                  "SCAN-2",
+                  "SCAN-3"
                 ],
                 "files": [
                   "src/changed.ts"
@@ -4050,13 +4238,43 @@
                   "src/caller.ts"
                 ]
               }
+            ],
+            "batches": [
+              {
+                "key": "c1-1",
+                "cluster": "c1",
+                "findingIds": [
+                  "SCAN-1"
+                ]
+              },
+              {
+                "key": "c2-1",
+                "cluster": "c2",
+                "findingIds": [
+                  "RIPPLE-1"
+                ]
+              },
+              {
+                "key": "c1-2",
+                "cluster": "c1",
+                "findingIds": [
+                  "SCAN-2"
+                ]
+              },
+              {
+                "key": "c1-3",
+                "cluster": "c1",
+                "findingIds": [
+                  "SCAN-3"
+                ]
+              }
             ]
           },
           "answers": {
             "fixes": {
-              "c1": {
+              "c1-1": {
                 "phase": "fixes",
-                "key": "c1",
+                "key": "c1-1",
                 "workerId": "00000000-0000-4000-8000-000000000150",
                 "findings": [
                   {
@@ -4106,9 +4324,9 @@
                   "src/caller.ts"
                 ]
               },
-              "c2": {
+              "c2-1": {
                 "phase": "fixes",
-                "key": "c2",
+                "key": "c2-1",
                 "workerId": "00000000-0000-4000-8000-000000000151",
                 "findings": [
                   {
@@ -4117,6 +4335,74 @@
                     "file": "src/changed.ts",
                     "line": 1,
                     "note": "RIPPLE-1 deferred",
+                    "message": null,
+                    "files": [],
+                    "corrections": [],
+                    "validation": [
+                      {
+                        "method": "old-code",
+                        "source": "test/changed.test.ts",
+                        "evidence": "red before the fix, green after"
+                      }
+                    ],
+                    "requiredFiles": []
+                  }
+                ],
+                "drift": [],
+                "tests": [],
+                "suite": {
+                  "result": "not-run",
+                  "command": "",
+                  "failures": ""
+                },
+                "violations": []
+              },
+              "c1-2": {
+                "phase": "fixes",
+                "key": "c1-2",
+                "workerId": "00000000-0000-4000-8000-000000000152",
+                "findings": [
+                  {
+                    "id": "SCAN-2",
+                    "status": "already-applied",
+                    "file": "src/changed.ts",
+                    "line": 1,
+                    "note": "SCAN-2 already-applied",
+                    "message": null,
+                    "files": [
+                      "src/changed.ts"
+                    ],
+                    "corrections": [],
+                    "validation": [
+                      {
+                        "method": "old-code",
+                        "source": "test/changed.test.ts",
+                        "evidence": "red before the fix, green after"
+                      }
+                    ],
+                    "requiredFiles": []
+                  }
+                ],
+                "drift": [],
+                "tests": [],
+                "suite": {
+                  "result": "pass",
+                  "command": "npm test",
+                  "failures": ""
+                },
+                "violations": []
+              },
+              "c1-3": {
+                "phase": "fixes",
+                "key": "c1-3",
+                "workerId": "00000000-0000-4000-8000-000000000153",
+                "findings": [
+                  {
+                    "id": "SCAN-3",
+                    "status": "deferred",
+                    "file": "src/changed.ts",
+                    "line": 1,
+                    "note": "SCAN-3 deferred",
                     "message": null,
                     "files": [],
                     "corrections": [],
@@ -4220,7 +4506,7 @@
               "phase": "fixes",
               "source": {
                 "kind": "fix",
-                "key": "c1",
+                "key": "c1-1",
                 "workerId": "00000000-0000-4000-8000-000000000150"
               },
               "change": {
@@ -4354,7 +4640,7 @@
           }
         }
       },
-      "lastSequence": 221
+      "lastSequence": 227
     }
   ],
   "evidence": [

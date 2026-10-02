@@ -54,7 +54,7 @@ What the fix pass did with each finding, in rank order. Every edit is in the wor
 
 Note: guarded the null before its use
 Commit message: fix: Guard the null in parse
-Cluster: c1 (src/a.ts); patch 2
+Cluster: c1, batch c1-1 (src/a.ts); patch 2
 Correction: src/a.ts parse: parse is at line 4 -> it moved to line 6 (git blame)
 
 ### 2. SWEEP-1 held for the author
@@ -67,11 +67,11 @@ A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw i
 
 Documentation the fixers say their edits made stale, which nothing in this run updated:
 
-- README.md: parse no longer throws on null (c1)
+- README.md: parse no longer throws on null (c1-1)
 
 Tests the fixers say they added or tightened:
 
-- test/a.test.ts: parse(null) returns 0 (c1)
+- test/a.test.ts: parse(null) returns 0 (c1-1)
 
 ## Checks
 
@@ -86,13 +86,13 @@ Tests the fixers say they added or tightened:
 
 | Path | Status | Changed by |
 |---|---|---|
-| src/a.ts | modified | lint check, c1, repair |
-| test/a.test.ts | created | c1 |
+| src/a.ts | modified | lint check, c1-1, repair |
+| test/a.test.ts | created | c1-1 |
 
 The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:
 
 1. chore: apply the lint check's rewrite (lint check): /evidence/patch-1
-2. fix: Guard the null in parse (c1): /evidence/patch-2
+2. fix: Guard the null in parse (c1-1): /evidence/patch-2
 3. style: Format the guard (repair): /evidence/patch-3
 
 ## Refuted at verification
@@ -129,6 +129,6 @@ None.
 - Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
 - Files no answer names, left in the tree and in no patch: notes.txt.
 - Checks not available: typecheck (nothing names it).
-- Validation of RIPPLE-1 (c1), old-code, test/a.test.ts: failed on the old code for the null, passed on the fix
-- Fixer c1 ran its own suite: pass (npm test).
+- Validation of RIPPLE-1 (c1-1), old-code, test/a.test.ts: failed on the old code for the null, passed on the fix
+- Fixer c1-1 ran its own suite: pass (npm test).
 - The repair ran its own suite: pass (npm test).

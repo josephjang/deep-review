@@ -324,7 +324,9 @@ try {
   });
   // A fourth run through the fix pass, every event recorded at the version
   // the engine now writes: a review whose plan holds one held finding and
-  // two clusters; a lint check that rewrites a file at baseline and a test
+  // two clusters, one of three findings run as three batches of one, its
+  // later batches answering already applied and deferred; a lint check
+  // that rewrites a file at baseline and a test
   // that fails there; a fixer that reports an edit to the other cluster's
   // file (a violation) and leaves a stray; the lint the fixers broke,
   // repaired, and the test still failing; the report with one patch per
@@ -353,7 +355,8 @@ try {
     runBudgetUsd: 30,
     fix: true,
     checks: { timeoutMs: 1_200_000 },
-    fixes: { batchSize: 4 },
+    // One finding per batch, so the cluster of three findings runs as three batches, one after another.
+    fixes: { batchSize: 1 },
   }, 2);
   const checks = { build: 'npm run build', lint: 'npm run lint:check', test: 'npm run test' };
   fix.add('checks.planned', {
@@ -368,7 +371,7 @@ try {
   fix.phaseV2('triage', () => {
     fix.launch('101', 'triage triage:SCAN');
     fix.finishWorker('101');
-    fix.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: fix.id('101'), candidates: [fix.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+    fix.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: fix.id('101'), candidates: [fix.candidate('SCAN-1', 'SCAN', 1), fix.candidate('SCAN-2', 'SCAN', 1), fix.candidate('SCAN-3', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
   });
   fix.phaseV2('finders', () => {
     for (const angle of finderAngles) {
@@ -387,13 +390,13 @@ try {
     fix.add('deduplication.recorded', { phase: 'deduplication', workerId: fix.id('120'), groups: [] });
   });
   fix.phaseV2('verification', () => {
-    fix.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }, { id: 'g2', candidateIds: ['DESIGN-1', 'SCAN-1'] }] });
+    fix.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }, { id: 'g2', candidateIds: ['DESIGN-1', 'SCAN-1', 'SCAN-2', 'SCAN-3'] }] });
     fix.launch('121', 'verifier verification:g1');
     fix.finishWorker('121');
     fix.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: fix.id('121'), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'line 3 passes the null on' }] });
     fix.launch('122', 'verifier verification:g2');
     fix.finishWorker('122');
-    fix.add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: fix.id('122'), verdicts: [{ id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'the helper would read better' }, { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null' }] });
+    fix.add('verdicts.recorded', { phase: 'verification', groupId: 'g2', workerId: fix.id('122'), verdicts: [{ id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'the helper would read better' }, { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null' }, { id: 'SCAN-2', verdict: 'CONFIRMED', evidence: 'line 1 also skips the guard' }, { id: 'SCAN-3', verdict: 'CONFIRMED', evidence: 'line 1 logs the raw value' }] });
   });
   fix.phaseV2('sweep', () => {
     fix.launch('130', 'sweep sweep:sweep');
@@ -410,6 +413,8 @@ try {
     fix.add('ranking.recorded', { workerId: fix.id('140'), findings: [
       { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
       { id: 'RIPPLE-1', members: [], severity: 'minor', summary: 'the caller passes the null on', reason: 'the crash reaches a second site' },
+      { id: 'SCAN-2', members: [], severity: 'minor', summary: 'changed() skips its guard', reason: 'the guard is part of the fix' },
+      { id: 'SCAN-3', members: [], severity: 'minor', summary: 'changed() logs the raw value', reason: 'the log leaks the input' },
       { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one helper reads better' },
     ] });
   });
@@ -421,27 +426,40 @@ try {
     fix.check('baseline-checks', 'test', checks.test, 'failed');
   });
   const message = (subject: string) => ({ subject, body: `Why: ${subject}.` });
-  const finding = (id: string, status: 'applied' | 'deferred', files: string[], subject: string | null) => ({
+  const finding = (id: string, status: 'applied' | 'already-applied' | 'deferred', files: string[], subject: string | null) => ({
     id, status, file: files[0] ?? 'src/changed.ts', line: 1, note: `${id} ${status}`, message: subject === null ? null : message(subject), files,
     corrections: [], validation: [{ method: 'old-code', source: 'test/changed.test.ts', evidence: 'red before the fix, green after' }], requiredFiles: [],
   });
   fix.phaseV2('fixes', () => {
     fix.add('fixes.planned', {
-      routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'RIPPLE-1', route: 'fixer' }, { id: 'DESIGN-1', route: 'held' }],
-      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }, { id: 'c2', findingIds: ['RIPPLE-1'], files: ['src/caller.ts'] }],
+      routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'RIPPLE-1', route: 'fixer' }, { id: 'SCAN-2', route: 'fixer' }, { id: 'SCAN-3', route: 'fixer' }, { id: 'DESIGN-1', route: 'held' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1', 'SCAN-2', 'SCAN-3'], files: ['src/changed.ts'] }, { id: 'c2', findingIds: ['RIPPLE-1'], files: ['src/caller.ts'] }],
+      batches: [
+        { key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] },
+        { key: 'c2-1', cluster: 'c2', findingIds: ['RIPPLE-1'] },
+        { key: 'c1-2', cluster: 'c1', findingIds: ['SCAN-2'] },
+        { key: 'c1-3', cluster: 'c1', findingIds: ['SCAN-3'] },
+      ],
     });
-    fix.launch('150', 'fixer fixes:c1');
+    fix.launch('150', 'fixer fixes:c1-1');
     fix.finishWorker('150');
-    fix.add('fix.recorded', { phase: 'fixes', key: 'c1', workerId: fix.id('150'), findings: [finding('SCAN-1', 'applied', ['src/caller.ts', 'src/changed.ts', 'test/changed.test.ts'], 'fix: Guard the null in changed()')], drift: [{ file: 'README.md', what: 'changed() no longer throws on null' }], tests: [{ file: 'test/changed.test.ts', covers: 'changed(null) returns 0' }], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: ['src/caller.ts'] });
-    fix.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1', workerId: fix.id('150') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c1-1', workerId: fix.id('150'), findings: [finding('SCAN-1', 'applied', ['src/caller.ts', 'src/changed.ts', 'test/changed.test.ts'], 'fix: Guard the null in changed()')], drift: [{ file: 'README.md', what: 'changed() no longer throws on null' }], tests: [{ file: 'test/changed.test.ts', covers: 'changed(null) returns 0' }], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: ['src/caller.ts'] });
+    fix.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1-1', workerId: fix.id('150') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
       // src/caller.ts is outside the change: its state before is what the scope's head held.
       { path: 'src/caller.ts', status: 'modified', before: fix.frozen('caller(null);\n'), beforeSymlink: false, symlink: false, after: fix.frozen('caller();\n') },
       { path: 'src/changed.ts', status: 'modified', before: fix.frozen('after;\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after; // guarded\n') },
       { path: 'test/changed.test.ts', status: 'created', before: null, beforeSymlink: false, symlink: false, after: fix.frozen('test();\n') },
     ] });
-    fix.launch('151', 'fixer fixes:c2');
+    fix.launch('151', 'fixer fixes:c2-1');
     fix.finishWorker('151');
-    fix.add('fix.recorded', { phase: 'fixes', key: 'c2', workerId: fix.id('151'), findings: [finding('RIPPLE-1', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c2-1', workerId: fix.id('151'), findings: [finding('RIPPLE-1', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
+    // c1's later batches run once c1-1 settled, on the tree it left.
+    fix.launch('152', 'fixer fixes:c1-2');
+    fix.finishWorker('152');
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c1-2', workerId: fix.id('152'), findings: [finding('SCAN-2', 'already-applied', ['src/changed.ts'], null)], drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [] });
+    fix.launch('153', 'fixer fixes:c1-3');
+    fix.finishWorker('153');
+    fix.add('fix.recorded', { phase: 'fixes', key: 'c1-3', workerId: fix.id('153'), findings: [finding('SCAN-3', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
   }, 'completed', { end: true, strays: ['notes.txt'] });
   // The fixers broke lint, which the repair takes; test failed before any fix, so no repair is owed it.
   fix.phaseV2('checks', () => {
@@ -462,10 +480,10 @@ try {
   });
   fix.phaseV2('report', () => {
     const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 2, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
+    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 4, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
     fix.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(18), budgetApplied: true },
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(20), budgetApplied: true },
       patches: ['lint rewrite', 'guard', 'format'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
     }, 2);
   });

@@ -105,10 +105,12 @@ describe('the fixer\'s task', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
   const input: FixerTaskInput = {
     cluster: 'c1',
+    batch: 'c1-2',
     findings: [
       { id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'parse dereferences null', detail: 'other() passes null', evidence: 'line 4 uses text!', reason: 'one root cause', also: ['SWEEP-2 at src/a.ts:7'] },
       { id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 's', detail: 'd', evidence: null, reason: 'r', also: [] },
     ],
+    earlier: [],
     owned: ['src/a.ts'],
     othersOwned: [{ cluster: 'c2', files: ['src/b.ts'] }, { cluster: 'c3', files: [] }],
     checks: [
@@ -121,19 +123,26 @@ describe('the fixer\'s task', () => {
     mayHoldWork: false,
   };
 
-  it('numbers the cluster\'s findings with everything the fixer judges by', () => {
+  it('numbers the batch\'s findings with everything the fixer judges by', () => {
     const task = fixerTask(input);
-    assert.match(task, /^Cluster c1: 2 findings, numbered \[0\] to \[1\], in the order to apply them\.$/m);
+    assert.match(task, /^Cluster c1, batch c1-2: 2 findings, numbered \[0\] to \[1\], in the order to apply them\.$/m);
     assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED \(RIPPLE\) at src\/a\.ts:4\n {4}summary: parse dereferences null\n {4}detail: other\(\) passes null\n {4}evidence: line 4 uses text!\n {4}reason: one root cause\n {4}also at: SWEEP-2 at src\/a\.ts:7$/m);
     assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE \(unverified\) \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*\n {4}summary: s\n {4}detail: d\n {4}evidence: none; the verifier of its group failed twice\n {4}reason: r$/m);
   });
 
   it('states the ownership rule with both file lists', () => {
     const task = fixerTask(input);
-    assert.match(task, /Files you own for this pass, which no other worker edits:\n- src\/a\.ts\n/);
+    assert.match(task, /Files you own while this batch runs, which no other worker edits:\n- src\/a\.ts\n/);
     assert.match(task, /Files other clusters own, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:\n- src\/b\.ts \(c2\)\n\n/);
     assert.match(task, /You may edit any other file of the repository, existing or new, when a fix or its tests need it; report every file you edit or create under the finding it served\./);
     assert.match(fixerTask({ ...input, owned: [], othersOwned: [] }), /no other worker edits:\n\(none\)\n[\s\S]*`requiredFiles`:\n\(none\)\n/);
+  });
+
+  it('names what the cluster\'s earlier batches did, as work already in the tree, and says nothing of them for a first batch', () => {
+    assert.doesNotMatch(fixerTask(input), /earlier batches/);
+    const task = fixerTask({ ...input, earlier: [{ batch: 'c1-1', id: 'SCAN-1', outcome: 'applied', note: 'guarded the null' }, { batch: 'c1-1', id: 'SCAN-2', outcome: 'not attempted', note: null }] });
+    assert.match(task, /^Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:\n- c1-1 SCAN-1 applied: guarded the null\n- c1-1 SCAN-2 not attempted\n\n/m);
+    assert.doesNotMatch(task, /may already hold part of this work/, 'earlier batches are no warning of a half-done batch');
   });
 
   it('names each check\'s command or why it has none, or that none is available', () => {
@@ -175,7 +184,7 @@ describe('the repair task', () => {
     const task = repairTask({
       checks: [failing, { ...failing, kind: 'lint', command: 'npm run lint', outcome: 'timeout', exitCode: null }],
       owned: ['src/a.ts', 'test/a.test.ts'],
-      answers: [{ cluster: 'c1', id: 'RIPPLE-1', status: 'applied', note: 'guarded the null' }],
+      answers: [{ batch: 'c1-1', id: 'RIPPLE-1', status: 'applied', note: 'guarded the null' }],
       allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null }],
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: true,
@@ -184,7 +193,7 @@ describe('the repair task', () => {
     assert.match(task, /^\[0\] test: npm run test\n {4}exited with code 1\n {4}stdout, its last 14 bytes \(the whole is at \/evidence\/out\):\n````text\n```\n1 failing\n````\n {4}stderr: empty \(frozen at \/evidence\/err\)$/m);
     assert.match(task, /^\[1\] lint: npm run lint\n {4}ran past its timeout and was killed$/m);
     assert.match(task, /Files you own: every file the fixers changed\.\n- src\/a\.ts\n- test\/a\.test\.ts/);
-    assert.match(task, /^- c1 RIPPLE-1 applied: guarded the null$/m);
+    assert.match(task, /^- c1-1 RIPPLE-1 applied: guarded the null$/m);
     assert.match(task, /with that check's index in place of <index>/);
     assert.match(task, /Verify each check against the code/);
     assert.match(task, /The `message` of an applied check describes what the repair changed\./);

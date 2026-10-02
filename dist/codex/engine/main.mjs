@@ -20257,6 +20257,7 @@ var reviewVocabularyV2 = {
 };
 var reviewIdentifiersV2 = {
   clusterId: external_exports.string().regex(/^c[1-9][0-9]*$/, "a cluster id is c and a number from 1"),
+  batchKey: external_exports.string().regex(/^c[1-9][0-9]*-[1-9][0-9]*$/, "a batch key is a cluster id, a dash and a number from 1"),
   repairKey: external_exports.literal("repair")
 };
 var vocabularyV2 = reviewVocabularyV2;
@@ -20265,6 +20266,7 @@ var checkPhaseSchemaV2 = external_exports.enum(vocabularyV2.checkPhases);
 var editingPhaseSchemaV2 = external_exports.enum(vocabularyV2.editingPhases);
 var checkKindSchemaV2 = external_exports.enum(vocabularyV2.checkKinds);
 var clusterIdSchemaV2 = reviewIdentifiersV2.clusterId;
+var batchKeySchemaV2 = reviewIdentifiersV2.batchKey;
 var blockerSchemaV2 = external_exports.strictObject({
   code: external_exports.enum(vocabularyV2.recordedBlockerCodes),
   detail: recordedTextSchema,
@@ -20338,6 +20340,12 @@ var fixesPlannedV1 = external_exports.strictObject({
     id: clusterIdSchemaV2,
     findingIds: external_exports.array(candidateIdSchema).min(1),
     files: external_exports.array(external_exports.string().min(1))
+  })),
+  /** In launch order: by the rank of each batch's first finding. */
+  batches: external_exports.array(external_exports.strictObject({
+    key: batchKeySchemaV2,
+    cluster: clusterIdSchemaV2,
+    findingIds: external_exports.array(candidateIdSchema).min(1)
   }))
 });
 var plannedCheckSchema = external_exports.strictObject({
@@ -20527,6 +20535,7 @@ var isCheckPhase = (phase) => checkPhases.includes(phase);
 var isEditingPhase = (phase) => editingPhases.includes(phase);
 var repairUnitKey = "repair";
 var clusterIdSchema = external_exports.string().regex(/^c[1-9][0-9]*$/, "a cluster id is c and a number from 1");
+var batchKeySchema = external_exports.string().regex(/^c[1-9][0-9]*-[1-9][0-9]*$/, "a batch key is a cluster id, a dash and a number from 1");
 var checkOutcomes = ["passed", "failed", "timeout", "not-started", "skipped"];
 var checkOutcomeSchema = external_exports.enum(checkOutcomes);
 var candidatePhases = ["triage", "finders", "sweep"];
@@ -20595,14 +20604,27 @@ function repairTargets(fix) {
   const planned = fix.checks.planned?.checks ?? [];
   return planned.map((check2) => check2.kind).filter((kind) => lastRun(fix, "baseline-checks", kind)?.outcome === "passed" && ["failed", "timeout"].includes(lastRun(fix, "checks", kind)?.outcome ?? ""));
 }
-function clusterOf(fix, key) {
-  return fix.plan?.clusters.find((cluster) => cluster.id === key) ?? null;
+function clusterOf(fix, id) {
+  return fix.plan?.clusters.find((cluster) => cluster.id === id) ?? null;
+}
+function batchOf(fix, key) {
+  return fix.plan?.batches.find((batch) => batch.key === key) ?? null;
+}
+function clusterOfBatch(fix, key) {
+  const batch = batchOf(fix, key);
+  return batch === null ? null : clusterOf(fix, batch.cluster);
+}
+function earlierBatches(fix, key) {
+  const batch = batchOf(fix, key);
+  if (batch === null) return [];
+  const siblings = (fix.plan?.batches ?? []).filter((candidate) => candidate.cluster === batch.cluster);
+  return siblings.slice(0, siblings.indexOf(batch));
 }
 function fixesRevisedPaths(fix) {
   return [...new Set(fix.revisions.filter((revision) => revision.phase === "fixes").flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
 }
 function ownedFiles(fix, phase, key) {
-  return phase === "repair" ? fixesRevisedPaths(fix) : clusterOf(fix, key)?.files ?? [];
+  return phase === "repair" ? fixesRevisedPaths(fix) : clusterOfBatch(fix, key)?.files ?? [];
 }
 function isNotAttempted(fix, phase, key) {
   return Object.hasOwn(fix.notAttempted[phase], key);
@@ -20917,7 +20939,7 @@ function unitIds(fix, phase, key) {
     const targets = repairTargets(fix);
     return key === repairUnitKey && targets.length > 0 ? targets : null;
   }
-  return clusterOf(fix, key)?.findingIds ?? null;
+  return batchOf(fix, key)?.findingIds ?? null;
 }
 var checksPlanned = (state, payload, event) => {
   const { current, review: review2, fix } = requireFix(state, event);
@@ -20953,8 +20975,31 @@ var fixesPlanned = (state, payload, event) => {
   });
   const unclustered = [...toFixer].filter((id) => !clustered.has(id));
   if (unclustered.length > 0) throw invalid(event, `routes ${unclustered.join(", ")} to a fixer but clusters none of them`);
+  requireBatches(event, payload, review2.configuration.fixes?.batchSize ?? null);
   return withFix(current, review2, { ...fix, plan: payload }, event);
 };
+function requireBatches(event, payload, batchSize) {
+  if (batchSize === null) throw invalid(event, "plans batches on a run that pinned no batch size");
+  const rank = new Map(payload.routes.map((route, index2) => [route.id, index2]));
+  const seen = /* @__PURE__ */ new Map();
+  let previous = -1;
+  for (const batch of payload.batches) {
+    const { batches, findings: done } = seen.get(batch.cluster) ?? { batches: 0, findings: [] };
+    const cluster = payload.clusters.find((candidate) => candidate.id === batch.cluster);
+    if (cluster === void 0) throw invalid(event, `plans batch ${batch.key} for cluster ${batch.cluster}, which it does not plan`);
+    if (batch.key !== `${batch.cluster}-${String(batches + 1)}` || !batchKeySchema.safeParse(batch.key).success) throw invalid(event, `numbers batch ${String(batches + 1)} of cluster ${batch.cluster} ${batch.key}`);
+    if (batch.findingIds.length > batchSize) throw invalid(event, `puts ${String(batch.findingIds.length)} findings in batch ${batch.key}, more than the pinned size ${String(batchSize)}`);
+    const expected = cluster.findingIds.slice(done.length, done.length + batch.findingIds.length);
+    if (batch.findingIds.some((id, index2) => id !== expected[index2])) throw invalid(event, `gives batch ${batch.key} [${batch.findingIds.join(", ")}], not the next of cluster ${cluster.id}'s findings in order`);
+    const first = rank.get(batch.findingIds[0]);
+    if (first < previous) throw invalid(event, `plans batch ${batch.key} after a batch whose first finding ranks below its own`);
+    previous = first;
+    seen.set(batch.cluster, { batches: batches + 1, findings: [...done, ...batch.findingIds] });
+  }
+  for (const cluster of payload.clusters) {
+    if ((seen.get(cluster.id)?.findings.length ?? 0) !== cluster.findingIds.length) throw invalid(event, `leaves findings of cluster ${cluster.id} in no batch`);
+  }
+}
 var checkRan = (state, payload, event) => {
   const { current, review: review2, fix } = requireFix(state, event);
   requireRunning(review2, event, payload.phase, payload.attempt);
@@ -20975,7 +21020,8 @@ var fixRecorded = (state, payload, event, drafts) => {
   if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `records an answer for ${payload.phase}:${payload.key} after it failed`);
   const given = payload.findings.map((finding) => finding.id);
   if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(", ")}] for ${payload.phase}:${payload.key}, which holds [${ids.join(", ")}]`);
-  const others = new Set((fix.plan?.clusters ?? []).filter((cluster) => payload.phase === "fixes" && cluster.id !== payload.key).flatMap((cluster) => cluster.files));
+  const own2 = payload.phase === "fixes" ? clusterOfBatch(fix, payload.key)?.id : void 0;
+  const others = new Set((fix.plan?.clusters ?? []).filter((cluster) => payload.phase === "fixes" && cluster.id !== own2).flatMap((cluster) => cluster.files));
   const named = new Set(payload.findings.flatMap((finding) => finding.files));
   for (const path of payload.violations) {
     if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster owns`);
@@ -22052,10 +22098,10 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
     const stdout = [];
     const stderr = [];
     let printed = 0;
-    let settled = false;
+    let settled2 = false;
     const stop = (reason) => {
-      if (settled) return;
-      settled = true;
+      if (settled2) return;
+      settled2 = true;
       clearTimeout(timer);
       child.stdout?.destroy();
       child.stderr?.destroy();
@@ -22064,7 +22110,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
       });
     };
     const collect = (into) => (chunk2) => {
-      if (settled) return;
+      if (settled2) return;
       printed += chunk2.length;
       if (printed > maxOutputBytes2) {
         stop(`it printed more than ${String(maxOutputBytes2)} bytes`);
@@ -22078,14 +22124,14 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
     child.stdout?.on("data", collect(stdout));
     child.stderr?.on("data", collect(stderr));
     child.on("error", (error62) => {
-      if (settled || child.pid !== void 0) return;
-      settled = true;
+      if (settled2 || child.pid !== void 0) return;
+      settled2 = true;
       clearTimeout(timer);
       reject(error62);
     });
     child.once("close", (code, signal) => {
-      if (settled) return;
-      settled = true;
+      if (settled2) return;
+      settled2 = true;
       clearTimeout(timer);
       if (code === 0) {
         resolve11(Buffer.concat(stdout).toString("utf8"));
@@ -22844,21 +22890,21 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     result = notStarted(`the launcher could not start it: ${describeError(error62)}`, now, now);
   }
-  const settled = settle2(checkpoint, adapter, invocation, plan, result, io, emptyReference);
-  const finish = { workerId, ...settled.finish, sessionIds: withPinnedSession(plan.sessionId, settled.observedSessionIds) };
+  const settled2 = settle2(checkpoint, adapter, invocation, plan, result, io, emptyReference);
+  const finish = { workerId, ...settled2.finish, sessionIds: withPinnedSession(plan.sessionId, settled2.observedSessionIds) };
   try {
     appendFresh(checkpoint, runId, { kind: "worker.finished", version: 1, payload: finish });
   } finally {
-    if (!settled.keepProcessFiles) rmSync(io, { recursive: true, force: true });
+    if (!settled2.keepProcessFiles) rmSync(io, { recursive: true, force: true });
   }
   return {
     workerId,
     outcome: finish.outcome,
     error: finish.error,
     process: { exitCode: finish.exitCode, signal: finish.signal, termination: finish.termination, startedAt: finish.startedAt, endedAt: finish.endedAt },
-    runtime: { name: adapter.name, version: version2, sessionIds: finish.sessionIds, usage: settled.usage },
+    runtime: { name: adapter.name, version: version2, sessionIds: finish.sessionIds, usage: settled2.usage },
     denials: finish.denials,
-    output: settled.output,
+    output: settled2.output,
     evidence: { prompt: promptReference, schema: schemaReference, stdout: finish.stdout, stderr: finish.stderr, finalMessage: finish.finalMessage, output: finish.output }
   };
 }
@@ -23847,7 +23893,7 @@ function routeOf(entry) {
 var locatedKey = (path) => `located\0${path}`;
 var unlocatedKey = (spelling) => `unlocated\0${spelling}`;
 var ownedPath = (key) => key.startsWith("located\0") ? key.slice("located\0".length) : null;
-function planFixes(findings) {
+function planFixes(findings, batchSize) {
   const routes = findings.map((entry) => ({ id: entry.finding.id, route: routeOf(entry) }));
   const routed = findings.filter((entry) => routeOf(entry) === "fixer");
   const candidatesOf = (entry) => [entry.primary, ...entry.members];
@@ -23883,7 +23929,22 @@ function planFixes(findings) {
     findingIds: indexes.map((index2) => routed[index2].finding.id),
     files: [...new Set(indexes.flatMap((index2) => keys[index2].map(ownedPath).filter((path) => path !== null)))].sort()
   }));
-  return { routes, clusters };
+  return { routes, clusters, batches: batchesOf(clusters, routes.map((route) => route.id), batchSize) };
+}
+function batchesOf(clusters, ranked, batchSize) {
+  if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error(`A batch holds at least one finding, not ${String(batchSize)}`);
+  const rank = new Map(ranked.map((id, index2) => [id, index2]));
+  const rankOf = (id) => {
+    const found = rank.get(id);
+    if (found === void 0) throw new Error(`Finding ${id} is not in the ranking`);
+    return found;
+  };
+  const batches = clusters.flatMap((cluster) => Array.from({ length: Math.ceil(cluster.findingIds.length / batchSize) }, (_, index2) => ({
+    key: `${cluster.id}-${String(index2 + 1)}`,
+    cluster: cluster.id,
+    findingIds: cluster.findingIds.slice(index2 * batchSize, (index2 + 1) * batchSize)
+  })));
+  return batches.map((batch) => ({ batch, rank: rankOf(batch.findingIds[0]) })).sort((a, b) => a.rank - b.rank).map(({ batch }) => batch);
 }
 
 // src/review/labels.ts
@@ -23948,8 +24009,8 @@ function spendOf(workers, adapter) {
 }
 function budgetSpendOf(state, adapter) {
   if (!adapter.capabilities.costInUsd) return { usd: null, charged: 0, lost: 0 };
-  const settled = settledWorkers(state);
-  const finished = settled.filter(isFinished);
+  const settled2 = settledWorkers(state);
+  const finished = settled2.filter(isFinished);
   let usd4 = 0;
   let charged = 0;
   for (const worker of finished) {
@@ -23961,7 +24022,7 @@ function budgetSpendOf(state, adapter) {
       charged += 1;
     }
   }
-  return { usd: cents(usd4), charged, lost: settled.length - finished.length };
+  return { usd: cents(usd4), charged, lost: settled2.length - finished.length };
 }
 var counted = (count2, one, many) => `${String(count2)} ${count2 === 1 ? one : many}`;
 function budgetSpendNote({ charged, lost }) {
@@ -23977,13 +24038,13 @@ function checkSeconds(state, phase) {
   return Math.round(total / 100) / 10;
 }
 function statisticsOf(state, adapter) {
-  const settled = settledWorkers(state);
+  const settled2 = settledWorkers(state);
   const listed = phases.filter((phase) => state.review?.phases[phase].status !== "skipped");
   const byPhase = listed.map((phase) => {
-    const spend = spendOf(settled.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter);
+    const spend = spendOf(settled2.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter);
     return { phase, ...spend, ...isCheckPhase(phase) ? { seconds: checkSeconds(state, phase) } : {} };
   });
-  return { phases: byPhase, total: spendOf(settled, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
+  return { phases: byPhase, total: spendOf(settled2, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
 }
 
 // src/review/state.ts
@@ -24057,7 +24118,10 @@ function groupsOf(review2, phase) {
   return review2.plans[phase] ?? planGroups(workingList(review2, phase));
 }
 function fixPlanOf(review2) {
-  return review2.fix?.plan ?? planFixes(rankedFindings(review2));
+  if (review2.fix?.plan !== null && review2.fix?.plan !== void 0) return review2.fix.plan;
+  const batchSize = review2.configuration.fixes?.batchSize;
+  if (batchSize === void 0) throw new Error("A fix plan needs the batch size a fixing run pins");
+  return planFixes(rankedFindings(review2), batchSize);
 }
 function unitsOf(review2, phase) {
   const single = (role) => [{ phase, key: singleUnitKey(phase), role }];
@@ -24077,7 +24141,7 @@ function unitsOf(review2, phase) {
     case "merge-rank":
       return mergeRankInput(review2).length > 0 ? single("merge-rank") : [];
     case "fixes":
-      return fixPlanOf(review2).clusters.map((cluster) => ({ phase, key: cluster.id, role: "fixer" }));
+      return fixPlanOf(review2).batches.map((batch) => ({ phase, key: batch.key, role: "fixer" }));
     case "repair":
       return review2.fix !== null && repairTargets(review2.fix).length > 0 ? [{ phase, key: repairUnitKey, role: "fixer" }] : [];
     case "baseline-checks":
@@ -24159,7 +24223,12 @@ var interrupted = (state) => state?.failures.some((failure2) => failure2.lost) ?
 function exhaustedOutcome(unit, state) {
   return interrupted(state) ? null : degradationOf(unit);
 }
-var launchableUnit = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && !degraded(review2, unit) && !exhausted(review2, unit, state);
+var settled = (review2, unit) => isAnswered(review2, unit.phase, unit.key) || degraded(review2, unit);
+function waitsForItsCluster(review2, unit) {
+  if (unit.phase !== "fixes" || review2.fix === null) return false;
+  return earlierBatches(review2.fix, unit.key).some((batch) => !settled(review2, { phase: "fixes", key: batch.key, role: "fixer" }));
+}
+var launchableUnit = (review2, unit, state) => !settled(review2, unit) && !exhausted(review2, unit, state) && !waitsForItsCluster(review2, unit);
 var usd = (value) => value.toFixed(2);
 function workerFailedBlocker(unit, state) {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
@@ -24666,16 +24735,20 @@ function requireFix2(state) {
   if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
   return fix;
 }
+function batchOfUnit(state, key) {
+  const batch = fixPlanOf(state.review).batches.find((candidate) => candidate.key === key);
+  if (batch === void 0) throw new Error(`The fix plan has no batch ${key}`);
+  return batch;
+}
 function unitIds2(state, phase, key) {
   const fix = requireFix2(state);
   if (phase === "repair") return repairTargets(fix);
-  const cluster = fixPlanOf(state.review).clusters.find((candidate) => candidate.id === key);
-  if (cluster === void 0) throw new Error(`The fix plan has no cluster ${key}`);
-  return cluster.findingIds;
+  return batchOfUnit(state, key).findingIds;
 }
 function othersOwned(state, phase, key) {
   if (phase === "repair") return /* @__PURE__ */ new Map();
-  return new Map(fixPlanOf(state.review).clusters.filter((cluster) => cluster.id !== key).flatMap((cluster) => cluster.files.map((file2) => [file2, cluster.id])));
+  const own2 = batchOfUnit(state, key).cluster;
+  return new Map(fixPlanOf(state.review).clusters.filter((cluster) => cluster.id !== own2).flatMap((cluster) => cluster.files.map((file2) => [file2, cluster.id])));
 }
 function revisionMessage(revision, findings) {
   const held = findings.filter((finding) => revision.findings.includes(finding.id));
@@ -24747,7 +24820,7 @@ function unansweredRevision(context, phase, key, reason) {
   const { state, worktree, evidence } = context;
   const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), baseOf(context), ownedFiles(requireFix2(state), phase, key));
   if (files.length === 0) return null;
-  const who = phase === "repair" ? "the repair" : `cluster ${key}`;
+  const who = phase === "repair" ? "the repair" : `batch ${key}`;
   const payload = {
     phase,
     source: { kind: "unanswered", key },
@@ -25412,11 +25485,16 @@ function fixerTask(input2) {
   ].join("\n"));
   const others = input2.othersOwned.filter((cluster) => cluster.files.length > 0);
   return [
-    `Cluster ${input2.cluster}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
+    `Cluster ${input2.cluster}, batch ${input2.batch}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
     "",
     ...findings,
     "",
-    "Files you own for this pass, which no other worker edits:",
+    ...input2.earlier.length === 0 ? [] : [
+      "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
+      input2.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? "" : `: ${entry.note}`}`).join("\n"),
+      ""
+    ],
+    "Files you own while this batch runs, which no other worker edits:",
     fileList(input2.owned),
     "",
     "Files other clusters own, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:",
@@ -25460,7 +25538,7 @@ function repairTask(input2) {
     "You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.",
     "",
     "What each fixer did:",
-    input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer) => `- ${answer.cluster} ${answer.id} ${answer.status}: ${answer.note}`).join("\n"),
+    input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer) => `- ${answer.batch} ${answer.id} ${answer.status}: ${answer.note}`).join("\n"),
     "",
     checksBlock(input2.allChecks),
     "",
@@ -25497,18 +25575,30 @@ function groupCandidates(review2, phase, groupId) {
     return candidate;
   });
 }
-function mayHoldWork(review2, phase, key, owned) {
+function mayHoldWork(review2, phase, key, owned, ownCluster = []) {
   if (review2.phases[phase].attempt > 1 || (review2.units[phase][key]?.failures.length ?? 0) > 0) return true;
-  return (review2.fix?.revisions ?? []).some((revision) => revision.phase === phase && revision.files.some((file2) => owned.includes(file2.path)));
+  const sourceKey = (revision) => revision.source.kind === "check" ? null : revision.source.key;
+  return (review2.fix?.revisions ?? []).some((revision) => revision.phase === phase && !ownCluster.includes(sourceKey(revision) ?? "") && revision.files.some((file2) => owned.includes(file2.path)));
+}
+function batchOutcomes(review2, batch) {
+  const answer = review2.fix?.answers.fixes[batch.key];
+  return batch.findingIds.map((id) => {
+    const finding = answer?.findings.find((candidate) => candidate.id === id);
+    return { batch: batch.key, id, outcome: finding?.status ?? "not attempted", note: finding?.note ?? null };
+  });
 }
 function fixerTaskOf(unit, review2, editing) {
   const plan = fixPlanOf(review2);
-  const cluster = plan.clusters.find((candidate) => candidate.id === unit.key);
-  if (cluster === void 0) throw new Error(`The fix plan has no cluster ${unit.key}`);
+  const batch = plan.batches.find((candidate) => candidate.key === unit.key);
+  if (batch === void 0) throw new Error(`The fix plan has no batch ${unit.key}`);
+  const cluster = plan.clusters.find((candidate) => candidate.id === batch.cluster);
+  if (cluster === void 0) throw new Error(`Batch ${batch.key} names cluster ${batch.cluster}, which the fix plan does not have`);
+  const siblings = plan.batches.filter((candidate) => candidate.cluster === cluster.id);
+  const earlier = siblings.slice(0, siblings.indexOf(batch));
   const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
-  const findings = cluster.findingIds.map((id) => {
+  const findings = batch.findingIds.map((id) => {
     const entry = ranked.get(id);
-    if (entry === void 0) throw new Error(`Cluster ${cluster.id} names finding ${id}, which the ranking does not hold`);
+    if (entry === void 0) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
     return {
       id,
       severity: entry.finding.severity,
@@ -25525,12 +25615,14 @@ function fixerTaskOf(unit, review2, editing) {
   });
   return fixerTask({
     cluster: cluster.id,
+    batch: batch.key,
     findings,
+    earlier: earlier.flatMap((sibling) => batchOutcomes(review2, sibling)),
     owned: cluster.files,
     othersOwned: plan.clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
     checks: review2.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
-    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files)
+    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, earlier.map((sibling) => sibling.key))
   });
 }
 function tailOf(evidence, reference) {
@@ -25546,7 +25638,7 @@ function repairTaskOf(review2, editing, evidence) {
     return { kind, command: run2.command, outcome: run2.outcome === "timeout" ? "timeout" : "failed", exitCode: run2.exitCode, stdout: tailOf(evidence, run2.stdout), stderr: tailOf(evidence, run2.stderr) };
   });
   const owned = fixesRevisedPaths(fix);
-  const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ cluster: answer.key, id: finding.id, status: finding.status, note: finding.note })));
+  const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned) });
 }
 function taskFor(unit, review2, editing = null, evidence = null) {
@@ -25719,12 +25811,12 @@ var statusWords = {
 };
 function fateOf(fix, id) {
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? "fixer";
-  if (route === "held") return { id, outcome: "held for the author", cluster: null, answer: null, reason: null };
-  const cluster = fix.plan?.clusters.find((candidate) => candidate.findingIds.includes(id))?.id ?? null;
-  const answer = cluster === null ? null : fix.answers.fixes[cluster]?.findings.find((finding) => finding.id === id) ?? null;
-  if (answer !== null) return { id, outcome: statusWords[answer.status], cluster, answer, reason: null };
-  const reason = cluster !== null && isNotAttempted(fix, "fixes", cluster) ? fix.notAttempted.fixes[cluster] : "no fixer answered for it";
-  return { id, outcome: "not attempted", cluster, answer: null, reason };
+  if (route === "held") return { id, outcome: "held for the author", batch: null, answer: null, reason: null };
+  const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
+  const answer = batch === null ? null : fix.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id) ?? null;
+  if (answer !== null) return { id, outcome: statusWords[answer.status], batch, answer, reason: null };
+  const reason = batch !== null && isNotAttempted(fix, "fixes", batch.key) ? fix.notAttempted.fixes[batch.key] : "no fixer answered for it";
+  return { id, outcome: "not attempted", batch, answer: null, reason };
 }
 function patchesOf(fix, id, phase) {
   return fix.revisions.flatMap((revision, index2) => revision.phase === phase && revision.change.findings.includes(id) ? [index2 + 1] : []);
@@ -25739,9 +25831,9 @@ function fateLines(fix, fate) {
   } else if (fate.reason !== null) {
     lines.push(`Not attempted: ${inlineText(fate.reason)}`);
   }
-  if (fate.cluster !== null) {
-    const files = fix.plan?.clusters.find((cluster) => cluster.id === fate.cluster)?.files ?? [];
-    lines.push(`Cluster: ${fate.cluster}${files.length === 0 ? ", owning no file" : ` (${files.map(inlineText).join(", ")})`}; ${patchNote(patchesOf(fix, fate.id, "fixes"))}`);
+  if (fate.batch !== null) {
+    const files = clusterOf(fix, fate.batch.cluster)?.files ?? [];
+    lines.push(`Cluster: ${fate.batch.cluster}, batch ${fate.batch.key}${files.length === 0 ? ", owning no file" : ` (${files.map(inlineText).join(", ")})`}; ${patchNote(patchesOf(fix, fate.id, "fixes"))}`);
   }
   for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(", ")}`);
@@ -26051,31 +26143,31 @@ async function runReview(options2) {
   const runId = state.id;
   const { release, scopeRequest, configure } = opened;
   const inFlight = /* @__PURE__ */ new Map();
-  const record2 = (settled, startedAt) => {
-    const name = unitName(settled.unit.phase, settled.unit.key);
-    if ("error" in settled) throw settled.error;
-    const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
-    log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled.receipt.error === null ? "" : `: ${settled.receipt.error}`}`);
+  const record2 = (settled2, startedAt) => {
+    const name = unitName(settled2.unit.phase, settled2.unit.key);
+    if ("error" in settled2) throw settled2.error;
+    const summary = adapter.summarizeUsage(settled2.receipt.runtime.usage);
+    log(`worker ${settled2.unit.role} ${name}: ${settled2.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled2.receipt.error === null ? "" : `: ${settled2.receipt.error}`}`);
     state = checkpoint.fold(runId);
-    const { phase } = settled.unit;
-    if (settled.receipt.outcome === "completed" && !isEditingPhase(phase)) {
+    const { phase } = settled2.unit;
+    if (settled2.receipt.outcome === "completed" && !isEditingPhase(phase)) {
       const attempt = state.review.phases[phase].attempt;
       const recorded = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
       if (recorded !== void 0) {
-        log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
+        log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
         return;
       }
       const found = findDrift(state, options2.worktree);
       if (drifted(found)) {
-        log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
+        log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
         state = append(checkpoint, state, [{ kind: "worktree.checked", version: 2, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found) }]);
         return;
       }
     }
-    const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence });
+    const events = contributionOf(settled2.unit, settled2.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence });
     for (const event of events) {
-      if (event.kind === "attempt.failed") log(`worker ${settled.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
-      if (event.kind === "tree.revised") log(`worker ${settled.unit.role} ${name}: revised ${String(event.payload.files.length)} files for ${event.payload.change.findings.join(", ")}`);
+      if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
+      if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: revised ${String(event.payload.files.length)} files for ${event.payload.change.findings.join(", ")}`);
     }
     state = append(checkpoint, state, events);
   };
@@ -26146,7 +26238,7 @@ async function runReview(options2) {
           break;
         case "plan-fixes": {
           const held = step.plan.routes.filter((route) => route.route === "held").length;
-          log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? "" : "s"} planned, ${String(held)} finding${held === 1 ? "" : "s"} held for the author`);
+          log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? "" : "s"} in ${String(step.plan.batches.length)} batch${step.plan.batches.length === 1 ? "" : "es"} planned, ${String(held)} finding${held === 1 ? "" : "s"} held for the author`);
           state = append(checkpoint, state, [{ kind: "fixes.planned", version: 1, payload: step.plan }]);
           break;
         }
@@ -26193,8 +26285,8 @@ async function runReview(options2) {
           break;
         }
         case "await": {
-          const { settled, startedAt } = await nextSettled(inFlight);
-          record2(settled, startedAt);
+          const { settled: settled2, startedAt } = await nextSettled(inFlight);
+          record2(settled2, startedAt);
           break;
         }
         case "finish-phase":
@@ -26222,11 +26314,11 @@ async function runReview(options2) {
   } finally {
     if (inFlight.size > 0) log(`run ${runId}: waiting for ${String(inFlight.size)} worker${inFlight.size === 1 ? "" : "s"} in flight`);
     while (inFlight.size > 0) {
-      const { settled, startedAt } = await nextSettled(inFlight);
+      const { settled: settled2, startedAt } = await nextSettled(inFlight);
       try {
-        record2(settled, startedAt);
+        record2(settled2, startedAt);
       } catch (error62) {
-        log(`worker ${settled.unit.role} ${unitName(settled.unit.phase, settled.unit.key)}: not recorded: ${error62 instanceof Error ? error62.message : String(error62)}`);
+        log(`worker ${settled2.unit.role} ${unitName(settled2.unit.phase, settled2.unit.key)}: not recorded: ${error62 instanceof Error ? error62.message : String(error62)}`);
       }
     }
     release();
@@ -26238,11 +26330,11 @@ function refusalOf(error62, pinned) {
   return new ReviewRefusedError(`${error62.message}; ${action}`, "runtime-unqualified");
 }
 async function nextSettled(inFlight) {
-  const settled = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
-  const name = unitName(settled.unit.phase, settled.unit.key);
+  const settled2 = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
+  const name = unitName(settled2.unit.phase, settled2.unit.key);
   const entry = inFlight.get(name);
   inFlight.delete(name);
-  return { settled, startedAt: entry.startedAt };
+  return { settled: settled2, startedAt: entry.startedAt };
 }
 async function openRun(context) {
   const { checkpoint, log } = context;
@@ -26454,7 +26546,7 @@ function trailer(run2, revision) {
     case "check":
       return `Deep-review: run ${run2.id}, ${revision.source.check} check`;
     case "unanswered":
-      return `Deep-review: run ${run2.id}, partial edits of ${revision.source.key === "repair" ? "the repair" : `cluster ${revision.source.key}`}`;
+      return `Deep-review: run ${run2.id}, partial edits of ${revision.source.key === "repair" ? "the repair" : `batch ${revision.source.key}`}`;
   }
 }
 var messageOf = (subject, body, end) => [subject.trim(), body.trim(), end].filter((part) => part !== null && part !== "").join("\n\n") + "\n";
@@ -26615,10 +26707,11 @@ function fixStatus(state, review2) {
   const fix = review2.fix;
   if (fix === null) return null;
   const running = new Set(Object.values(state.workers).filter((worker) => worker.status === "running").map((worker) => worker.launch.label));
-  const clusters = (fix.plan?.clusters ?? []).map((cluster) => {
-    const label = unitLabel("fixer", "fixes", cluster.id);
-    const clusterState = isAnswered(review2, "fixes", cluster.id) ? "answered" : isNotAttempted(fix, "fixes", cluster.id) ? "not attempted" : running.has(label) ? "running" : "pending";
-    return { id: cluster.id, state: clusterState, findings: cluster.findingIds, files: cluster.files };
+  const clusters = (fix.plan?.clusters ?? []).map((cluster) => ({ id: cluster.id, findings: cluster.findingIds, files: cluster.files }));
+  const batches = (fix.plan?.batches ?? []).map((batch) => {
+    const label = unitLabel("fixer", "fixes", batch.key);
+    const batchState = isAnswered(review2, "fixes", batch.key) ? "answered" : isNotAttempted(fix, "fixes", batch.key) ? "not attempted" : running.has(label) ? "running" : "pending";
+    return { key: batch.key, cluster: batch.cluster, state: batchState, findings: batch.findingIds };
   });
   const held = (fix.plan?.routes ?? []).filter((route) => route.route === "held").map((route) => route.id);
   const checks = (fix.checks.planned?.checks ?? []).map((check2) => ({
@@ -26627,10 +26720,10 @@ function fixStatus(state, review2) {
     outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check2.kind)?.outcome ?? null]))
   }));
   const lines = [
-    fix.plan === null ? "Fix pass: not planned yet" : `Fix pass: ${clusters.length === 0 ? "no cluster" : clusters.map((cluster) => `${cluster.id} ${cluster.state}`).join(", ")}; ${String(held.length)} held for the author`,
+    fix.plan === null ? "Fix pass: not planned yet" : `Fix pass: ${batches.length === 0 ? "no batch" : batches.map((batch) => `${batch.key} ${batch.state}`).join(", ")}; ${String(held.length)} held for the author`,
     ...checks.map((check2) => `Check ${check2.kind}: ${check2.command === null ? "not available" : checkPhases.map((phase) => `${phase} ${check2.outcomes[phase] ?? "-"}`).join(", ")}`)
   ];
-  return { lines, json: { clusters, held, checks, revisions: fix.revisions.length } };
+  return { lines, json: { clusters, batches, held, checks, revisions: fix.revisions.length } };
 }
 
 // src/cli.ts

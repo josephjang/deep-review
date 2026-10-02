@@ -83,7 +83,7 @@ export const checkPhases = ['baseline-checks', 'checks', 'repair-checks'] as con
 export const checkPhaseSchema = z.enum(checkPhases);
 export type CheckPhase = z.infer<typeof checkPhaseSchema>;
 
-/** The phases whose workers edit the tree: one fixer per cluster, then the one repair worker. */
+/** The phases whose workers edit the tree: one fixer per batch of a cluster's findings, then the one repair worker. */
 export const editingPhases = ['fixes', 'repair'] as const;
 export const editingPhaseSchema = z.enum(editingPhases);
 export type EditingPhase = z.infer<typeof editingPhaseSchema>;
@@ -96,6 +96,9 @@ export const repairUnitKey = 'repair';
 
 /** A fix cluster id as the plan assigns it: `c` and a number from 1, in the order of each cluster's best-ranked finding. */
 export const clusterIdSchema = z.string().regex(/^c[1-9][0-9]*$/, 'a cluster id is c and a number from 1');
+
+/** A fixer batch's key, the unit key of a fixes-phase worker (R18 of the fix pass): its cluster's id, a dash, and its number in the cluster from 1. */
+export const batchKeySchema = z.string().regex(/^c[1-9][0-9]*-[1-9][0-9]*$/, 'a batch key is a cluster id, a dash and a number from 1');
 
 /** How one run of a check ended (R9 of the fix pass): its exit code, its timeout, a spawn that failed, or not run because `build` did not pass. */
 export const checkOutcomes = ['passed', 'failed', 'timeout', 'not-started', 'skipped'] as const;

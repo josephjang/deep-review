@@ -275,7 +275,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         case 'plan-fixes': {
           const held = step.plan.routes.filter((route) => route.route === 'held').length;
-          log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? '' : 's'} planned, ${String(held)} finding${held === 1 ? '' : 's'} held for the author`);
+          log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? '' : 's'} in ${String(step.plan.batches.length)} batch${step.plan.batches.length === 1 ? '' : 'es'} planned, ${String(held)} finding${held === 1 ? '' : 's'} held for the author`);
           state = append(checkpoint, state, [{ kind: 'fixes.planned', version: 1, payload: step.plan }]);
           break;
         }

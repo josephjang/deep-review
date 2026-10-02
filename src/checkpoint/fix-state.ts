@@ -1,7 +1,7 @@
 /**
  * What the fix pass's events say about a run (R6, R10 of the fix pass):
- * the checks it pinned and every run of them, the plan of routes and
- * clusters, each fixer's recorded answer, every revision of the tree in
+ * the checks it pinned and every run of them, the plan of routes,
+ * clusters and batches, each fixer's recorded answer, every revision of the tree in
  * ledger order, the units that failed twice, and the commits built from
  * the run afterwards. Facts as recorded; the planner reads what to do
  * next from them. The questions below are answered from this state alone.
@@ -16,7 +16,7 @@ export interface FixState {
     /** Every run or skip of a check, by checks phase, in ledger order. */
     readonly runs: Readonly<Record<CheckPhase, readonly CheckRan[]>>;
   };
-  /** The routes and clusters, or null until the fixes phase plans them. */
+  /** The routes, clusters and batches, or null until the fixes phase plans them. */
   readonly plan: FixesPlanned | null;
   /** Each recorded answer, by editing phase and then by unit key. */
   readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecorded>>>>;
@@ -57,9 +57,31 @@ export function repairTargets(fix: FixState): CheckKind[] {
     .filter((kind) => lastRun(fix, 'baseline-checks', kind)?.outcome === 'passed' && ['failed', 'timeout'].includes(lastRun(fix, 'checks', kind)?.outcome ?? ''));
 }
 
+export type PlannedCluster = FixesPlanned['clusters'][number];
+export type PlannedBatch = FixesPlanned['batches'][number];
+
 /** The planned cluster with this id, or null. */
-export function clusterOf(fix: FixState, key: string): FixesPlanned['clusters'][number] | null {
-  return fix.plan?.clusters.find((cluster) => cluster.id === key) ?? null;
+export function clusterOf(fix: FixState, id: string): PlannedCluster | null {
+  return fix.plan?.clusters.find((cluster) => cluster.id === id) ?? null;
+}
+
+/** The planned batch with this key, a fixes-phase unit key, or null. */
+export function batchOf(fix: FixState, key: string): PlannedBatch | null {
+  return fix.plan?.batches.find((batch) => batch.key === key) ?? null;
+}
+
+/** The cluster a fixes-phase unit works, by its batch key, or null. */
+export function clusterOfBatch(fix: FixState, key: string): PlannedCluster | null {
+  const batch = batchOf(fix, key);
+  return batch === null ? null : clusterOf(fix, batch.cluster);
+}
+
+/** The batches of the same cluster planned before this one, in their order; none for a key the plan does not have. */
+export function earlierBatches(fix: FixState, key: string): PlannedBatch[] {
+  const batch = batchOf(fix, key);
+  if (batch === null) return [];
+  const siblings = (fix.plan?.batches ?? []).filter((candidate) => candidate.cluster === batch.cluster);
+  return siblings.slice(0, siblings.indexOf(batch));
 }
 
 /** Every path the fixes phase revised, sorted: what the repair owns (TD8 of the fix pass). */
@@ -67,9 +89,9 @@ export function fixesRevisedPaths(fix: FixState): string[] {
   return [...new Set(fix.revisions.filter((revision) => revision.phase === 'fixes').flatMap((revision) => revision.files.map((file) => file.path)))].sort();
 }
 
-/** The files a unit of an editing phase owns: its cluster's files, or for the repair everything the fixes phase revised. */
+/** The files a unit of an editing phase owns: its batch's cluster's files, or for the repair everything the fixes phase revised. */
 export function ownedFiles(fix: FixState, phase: EditingPhase, key: string): readonly string[] {
-  return phase === 'repair' ? fixesRevisedPaths(fix) : (clusterOf(fix, key)?.files ?? []);
+  return phase === 'repair' ? fixesRevisedPaths(fix) : (clusterOfBatch(fix, key)?.files ?? []);
 }
 
 /** Whether a unit of an editing phase failed twice and is settled as not attempted. */

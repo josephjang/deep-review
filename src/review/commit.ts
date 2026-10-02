@@ -111,7 +111,7 @@ function trailer(run: RunState, revision: TreeRevised): string {
     case 'check':
       return `Deep-review: run ${run.id}, ${revision.source.check} check`;
     case 'unanswered':
-      return `Deep-review: run ${run.id}, partial edits of ${revision.source.key === 'repair' ? 'the repair' : `cluster ${revision.source.key}`}`;
+      return `Deep-review: run ${run.id}, partial edits of ${revision.source.key === 'repair' ? 'the repair' : `batch ${revision.source.key}`}`;
   }
 }
 
