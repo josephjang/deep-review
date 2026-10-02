@@ -229,15 +229,15 @@ export const plannedChecks = {
   manager: 'npm',
 };
 
-/** The same history, configured with the fix pass: its configuration recorded at version 2 with `fix`, the checks pinned beside it. */
-export function withFixPass(history: History): History {
+/** The same history, configured with the fix pass: its configuration recorded at version 2 with `fix` and the batch size, the checks pinned beside it. */
+export function withFixPass(history: History, batchSize = 4): History {
   const fixed = new History();
   for (const event of history.events) {
     if (event.kind !== 'review.configured') {
       fixed.add(event.kind, event.payload, event.version);
       continue;
     }
-    fixed.add('review.configured', { ...(event.payload as object), fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 } }, 2);
+    fixed.add('review.configured', { ...(event.payload as object), fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize } }, 2);
     fixed.add('checks.planned', plannedChecks);
   }
   return fixed;
@@ -267,21 +267,25 @@ export function checksPhase(history: History, phase: string, outcomes: Readonly<
   return history.finish(phase);
 }
 
-/** The fix plan of these histories: RIPPLE-1, CONFIRMED with SWEEP-2 merged in, to a fixer that owns src/a.ts; SWEEP-1, a PLAUSIBLE design finding, held. */
-export const fixPlan = { routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }], clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }] };
+/** The fix plan of these histories: RIPPLE-1, CONFIRMED with SWEEP-2 merged in, to a fixer that owns src/a.ts, in one batch; SWEEP-1, a PLAUSIBLE design finding, held. */
+export const fixPlan = {
+  routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }],
+  clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }],
+  batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }],
+};
 
-/** The answer c1's fixer recorded, applying RIPPLE-1. */
+/** The answer c1-1's fixer recorded, applying RIPPLE-1. */
 export const fixAnswer = (workerId: string, change: Record<string, unknown> = {}): Record<string, unknown> => ({
-  phase: 'fixes', key: 'c1', workerId,
+  phase: 'fixes', key: 'c1-1', workerId,
   findings: [{ id: 'RIPPLE-1', status: 'applied', file: 'src/a.ts', line: 4, note: 'guarded the null', message: { subject: 'fix: Guard the null', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }],
   drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [],
   ...change,
 });
 
-/** The revision c1's answer made of src/a.ts. */
+/** The revision c1-1's answer made of src/a.ts. */
 export const fixRevision = (workerId: string, after = reference('f')): Record<string, unknown> => ({
   phase: 'fixes',
-  source: { kind: 'fix', key: 'c1', workerId },
+  source: { kind: 'fix', key: 'c1-1', workerId },
   change: { findings: ['RIPPLE-1'], message: { subject: 'fix: Guard the null', body: 'Why.' } },
   files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: after } }],
 });
@@ -292,12 +296,12 @@ export const endCheck = (phase: string, attempt = 1): Record<string, unknown> =>
 /** A fix run through its baseline checks, each passing unless `outcomes` says otherwise. */
 export const baselined = (outcomes: Readonly<Record<string, string>> = {}): History => checksPhase(withFixPass(mergeRanked()), 'baseline-checks', outcomes);
 
-/** A fix run through its fixes: c1 answered and revised src/a.ts, and the end check was clean. */
+/** A fix run through its fixes: c1-1 answered and revised src/a.ts, and the end check was clean. */
 export const fixed = (baseline: Readonly<Record<string, string>> = {}): History =>
   baselined(baseline)
     .start('fixes')
     .add('fixes.planned', fixPlan)
-    .worker(50, 'fixer fixes:c1')
+    .worker(50, 'fixer fixes:c1-1')
     .add('fix.recorded', fixAnswer(worker(50)))
     .add('tree.revised', fixRevision(worker(50)))
     .add('worktree.checked', endCheck('fixes'), 2)

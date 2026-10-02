@@ -27,7 +27,7 @@ import {
 } from '../helpers/review-history.ts';
 
 const commit = (fill: string): string => fill.repeat(40);
-const launchOf = (workerId: string): Record<string, unknown> => launch(workerId, 'fixer fixes:c1');
+const launchOf = (workerId: string): Record<string, unknown> => launch(workerId, 'fixer fixes:c1-1');
 
 describe('the fix fold', () => {
   it('starts a run configured with the fix pass with an empty fix state, its five phases pending, and its checks pinned', () => {
@@ -49,11 +49,11 @@ describe('the fix fold', () => {
     assert.equal(lastRun(fix, 'checks', 'test')?.outcome, 'failed');
     assert.equal(lastRun(fix, 'checks', 'typecheck'), null, 'a kind with no command never runs');
     assert.deepEqual(repairTargets(fix), ['test'], 'passed before the fixes, failed after');
-    assert.equal(isAnswered(review, 'fixes', 'c1'), true);
-    assert.deepEqual(fix.answers.fixes.c1, fixAnswer(worker(50)));
+    assert.equal(isAnswered(review, 'fixes', 'c1-1'), true);
+    assert.deepEqual(fix.answers.fixes['c1-1'], fixAnswer(worker(50)));
     assert.deepEqual(fix.revisions, [fixRevision(worker(50))]);
     assert.deepEqual(fixesRevisedPaths(fix), ['src/a.ts']);
-    assert.deepEqual(ownedFiles(fix, 'fixes', 'c1'), ['src/a.ts']);
+    assert.deepEqual(ownedFiles(fix, 'fixes', 'c1-1'), ['src/a.ts']);
     assert.deepEqual(ownedFiles(fix, 'repair', 'repair'), ['src/a.ts'], 'the repair owns everything the fixes revised');
     assert.deepEqual(review.phases.checks, { status: 'completed', attempt: 1 });
   });
@@ -90,19 +90,36 @@ describe('the fix fold', () => {
   const ranked = (): History => withFixPass(mergeRanked());
   const fixesRunning = (): History => baselined().start('fixes');
   const planned = (): History => fixesRunning().add('fixes.planned', fixPlan);
-  const answered = (): History => planned().worker(50, 'fixer fixes:c1').add('fix.recorded', fixAnswer(worker(50)));
+  const answered = (): History => planned().worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50)));
+  // Both ranked findings routed to a fixer, RIPPLE-1 ranked first: in one cluster of src/a.ts, or in one cluster each.
+  const bothRoutes = [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }];
+  const bothClustered = [{ id: 'c1', findingIds: ['RIPPLE-1', 'SWEEP-1'], files: ['src/a.ts'] }];
+  const twoClusters = [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }];
+  const batch = (key: string, cluster: string, findingIds: string[]): Record<string, unknown> => ({ key, cluster, findingIds });
+  const batchPlans: [name: string, build: () => History, message: RegExp][] = [
+    ['a batch of a cluster the plan does not have', () => fixesRunning().add('fixes.planned', { ...fixPlan, batches: [batch('c1-1', 'c1', ['RIPPLE-1']), batch('c2-1', 'c2', ['SWEEP-1'])] }), /plans batch c2-1 for cluster c2, which it does not plan/],
+    ['a cluster\'s first batch numbered 2', () => fixesRunning().add('fixes.planned', { ...fixPlan, batches: [batch('c1-2', 'c1', ['RIPPLE-1'])] }), /numbers batch 1 of cluster c1 c1-2/],
+    ['a batch keyed for another cluster', () => fixesRunning().add('fixes.planned', { ...fixPlan, batches: [batch('c2-1', 'c1', ['RIPPLE-1'])] }), /numbers batch 1 of cluster c1 c2-1/],
+    ['a batch over the pinned size', () => checksPhase(withFixPass(mergeRanked(), 1), 'baseline-checks').start('fixes').add('fixes.planned', { routes: bothRoutes, clusters: bothClustered, batches: [batch('c1-1', 'c1', ['RIPPLE-1', 'SWEEP-1'])] }), /puts 2 findings in batch c1-1, more than the pinned size 1/],
+    ['a batch that skips its cluster\'s order', () => fixesRunning().add('fixes.planned', { routes: bothRoutes, clusters: bothClustered, batches: [batch('c1-1', 'c1', ['SWEEP-1']), batch('c1-2', 'c1', ['RIPPLE-1'])] }), /gives batch c1-1 \[SWEEP-1\], not the next of cluster c1's findings in order/],
+    ['a batch that holds a finding twice', () => fixesRunning().add('fixes.planned', { routes: bothRoutes, clusters: bothClustered, batches: [batch('c1-1', 'c1', ['RIPPLE-1', 'RIPPLE-1'])] }), /gives batch c1-1 \[RIPPLE-1, RIPPLE-1\]/],
+    ['batches out of the rank of their first findings', () => fixesRunning().add('fixes.planned', { routes: bothRoutes, clusters: twoClusters, batches: [batch('c2-1', 'c2', ['SWEEP-1']), batch('c1-1', 'c1', ['RIPPLE-1'])] }), /plans batch c1-1 after a batch whose first finding ranks below its own/],
+    ['a cluster\'s findings left out of every batch', () => fixesRunning().add('fixes.planned', { routes: bothRoutes, clusters: bothClustered, batches: [batch('c1-1', 'c1', ['RIPPLE-1'])] }), /leaves findings of cluster c1 in no batch/],
+    ['a plan with no batch at all', () => fixesRunning().add('fixes.planned', { ...fixPlan, batches: [] }), /leaves findings of cluster c1 in no batch/],
+  ];
   const invalid: [name: string, build: () => History, message: RegExp][] = [
     ['checks planned on a run without the fix pass', () => configured().add('checks.planned', plannedChecks), /configured without the fix pass/],
     ['checks planned twice', () => ranked().add('checks.planned', plannedChecks), /plans its checks twice/],
     ['a fix plan on a run without the fix pass', () => mergeRanked().add('fixes.planned', fixPlan), /configured without the fix pass/],
     ['a fix plan before the fixes phase runs', () => baselined().add('fixes.planned', fixPlan), /while it is pending/],
     ['a second fix plan', () => planned().add('fixes.planned', fixPlan), /plans its fixes twice/],
-    ['a plan that leaves a ranked finding unrouted', () => fixesRunning().add('fixes.planned', { routes: [fixPlan.routes[0]], clusters: fixPlan.clusters }), /not every ranked finding/],
-    ['a plan that routes a finding twice', () => fixesRunning().add('fixes.planned', { routes: [...fixPlan.routes, fixPlan.routes[0]], clusters: fixPlan.clusters }), /not every ranked finding/],
-    ['a plan that clusters a held finding', () => fixesRunning().add('fixes.planned', { routes: fixPlan.routes, clusters: [{ id: 'c1', findingIds: ['RIPPLE-1', 'SWEEP-1'], files: ['src/a.ts'] }] }), /clusters finding SWEEP-1, which is not routed to a fixer/],
-    ['a plan that gives one file to two clusters', () => fixesRunning().add('fixes.planned', { routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }], clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/a.ts'] }] }), /gives file src\/a\.ts to clusters c1 and c2/],
-    ['a plan that leaves a fixer-routed finding out of every cluster', () => fixesRunning().add('fixes.planned', { routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }], clusters: fixPlan.clusters }), /routes SWEEP-1 to a fixer but clusters none of them/],
-    ['clusters numbered out of order', () => fixesRunning().add('fixes.planned', { routes: fixPlan.routes, clusters: [{ id: 'c2', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }] }), /numbers cluster 1 c2/],
+    ['a plan that leaves a ranked finding unrouted', () => fixesRunning().add('fixes.planned', { ...fixPlan, routes: [fixPlan.routes[0]] }), /not every ranked finding/],
+    ['a plan that routes a finding twice', () => fixesRunning().add('fixes.planned', { ...fixPlan, routes: [...fixPlan.routes, fixPlan.routes[0]] }), /not every ranked finding/],
+    ['a plan that clusters a held finding', () => fixesRunning().add('fixes.planned', { routes: fixPlan.routes, clusters: [{ id: 'c1', findingIds: ['RIPPLE-1', 'SWEEP-1'], files: ['src/a.ts'] }], batches: [] }), /clusters finding SWEEP-1, which is not routed to a fixer/],
+    ['a plan that gives one file to two clusters', () => fixesRunning().add('fixes.planned', { routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }], clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/a.ts'] }], batches: [] }), /gives file src\/a\.ts to clusters c1 and c2/],
+    ['a plan that leaves a fixer-routed finding out of every cluster', () => fixesRunning().add('fixes.planned', { ...fixPlan, routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }] }), /routes SWEEP-1 to a fixer but clusters none of them/],
+    ['clusters numbered out of order', () => fixesRunning().add('fixes.planned', { routes: fixPlan.routes, clusters: [{ id: 'c2', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }], batches: [] }), /numbers cluster 1 c2/],
+    ...batchPlans,
     ['a check run for a phase that is not running', () => ranked().add('check.ran', checkRun('baseline-checks', 'build')), /while it is pending/],
     ['two runs of one kind in a phase', () => ranked().start('baseline-checks').add('check.ran', checkRun('baseline-checks', 'build')).add('check.ran', checkRun('baseline-checks', 'build')), /runs the build check twice in baseline-checks/],
     ['a run of a kind with no command', () => ranked().start('baseline-checks').add('check.ran', { ...checkRun('baseline-checks', 'typecheck'), command: 'tsc' }), /runs the typecheck check, which has no command/],
@@ -111,18 +128,18 @@ describe('the fix fold', () => {
     ['a skipped check with output', () => ranked().start('baseline-checks').add('check.ran', { ...checkRun('baseline-checks', 'lint', 'skipped'), stdout: reference('c') }), /skipped check alone has no termination and no output/],
     ['an answer for a cluster the plan does not have', () => planned().add('fix.recorded', fixAnswer(worker(50), { key: 'c9' })), /which the phase does not have/],
     ['an answer for the repair when no check needs one', () => fixed().start('checks').finish('checks').start('repair').add('fix.recorded', fixAnswer(worker(60), { phase: 'repair', key: 'repair' })), /which the phase does not have/],
-    ['an answer that leaves a finding out', () => planned().add('fix.recorded', fixAnswer(worker(50), { findings: [] })), /answers \[\] for fixes:c1, which holds \[RIPPLE-1\]/],
+    ['an answer that leaves a finding out', () => planned().add('fix.recorded', fixAnswer(worker(50), { findings: [] })), /answers \[\] for fixes:c1-1, which holds \[RIPPLE-1\]/],
     ['an answer recorded twice', () => answered().add('fix.recorded', fixAnswer(worker(51))), /already answered/],
     ['a violation on a file no other cluster owns', () => planned().add('fix.recorded', fixAnswer(worker(50), { violations: ['src/a.ts'] })), /records a violation on src\/a\.ts/],
     ['a revision for an answer never recorded', () => planned().add('tree.revised', fixRevision(worker(50))), /whose answer is not recorded/],
-    ['a revision that names a finding its answer does not hold', () => answered().add('tree.revised', { ...fixRevision(worker(50)), change: { findings: ['SWEEP-1'], message: { subject: 's', body: '' } } }), /revises the tree for SWEEP-1, which fixes:c1 did not answer/],
+    ['a revision that names a finding its answer does not hold', () => answered().add('tree.revised', { ...fixRevision(worker(50)), change: { findings: ['SWEEP-1'], message: { subject: 's', body: '' } } }), /revises the tree for SWEEP-1, which fixes:c1-1 did not answer/],
     ['two revisions of one finding', () => answered().add('tree.revised', fixRevision(worker(50))).add('tree.revised', fixRevision(worker(50))), /revises the tree for RIPPLE-1 twice/],
     ['a revision with no files', () => answered().add('tree.revised', { ...fixRevision(worker(50)), files: [] }), /schema rejects/],
     ['a revision for a check that did not run', () => fixed().start('checks').add('tree.revised', { phase: 'checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('7') } }] }), /which did not run in checks/],
-    ['the partial edits of a unit that did not fail', () => answered().add('tree.revised', { phase: 'fixes', source: { kind: 'unanswered', key: 'c1' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('7') } }] }), /which did not fail twice/],
-    ['a cluster failed after its answer', () => answered().add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }), /already answered/],
-    ['a cluster failed twice', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }).add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }), /fails fixes:c1 twice/],
-    ['an answer after the cluster failed', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1', reason: 'r' }).add('fix.recorded', fixAnswer(worker(50))), /after it failed/],
+    ['the partial edits of a unit that did not fail', () => answered().add('tree.revised', { phase: 'fixes', source: { kind: 'unanswered', key: 'c1-1' }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('7') } }] }), /which did not fail twice/],
+    ['a cluster failed after its answer', () => answered().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }), /already answered/],
+    ['a cluster failed twice', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }).add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }), /fails fixes:c1-1 twice/],
+    ['an answer after the cluster failed', () => planned().add('cluster.failed', { phase: 'fixes', key: 'c1-1', reason: 'r' }).add('fix.recorded', fixAnswer(worker(50))), /after it failed/],
     ['a report with a patch per revision missing', () => fixed().start('checks').finish('checks').start('repair').finish('repair').start('repair-checks').finish('repair-checks').start('report').add('report.written', { report: reference('e'), statistics, patches: [] }, 2), /writes 0 patches for 1 revisions/],
     ['commits before the report', () => fixed().add('commits.created', { commits: [{ sha: commit('a'), revision: 'change', subject: 's' }, { sha: commit('b'), revision: 0, subject: 's' }], from: '2'.repeat(40), to: commit('b') }), /before its report/],
     ['commits on a read-only run', () => reported().add('commits.created', { commits: [{ sha: commit('a'), revision: 0, subject: 's' }], from: '2'.repeat(40), to: commit('a') }), /configured without the fix pass/],
@@ -190,10 +207,10 @@ describe('the versions of the events that carry a phase', () => {
   });
 
   it('fold a lost worker and a failed attempt of a fix phase only at version 2', () => {
-    const lost = { workerId: worker(70), phase: 'fixes', key: 'c1', reason: 'the engine exited while the worker ran' };
+    const lost = { workerId: worker(70), phase: 'fixes', key: 'c1-1', reason: 'the engine exited while the worker ran' };
     const running = baselined().start('fixes').add('fixes.planned', fixPlan).add('worker.launched', { ...launchOf(worker(70)) });
     assert.throws(() => foldRun(running.add('worker.lost', lost).events), /schema rejects/);
     const review = baselined().start('fixes').add('fixes.planned', fixPlan).add('worker.launched', { ...launchOf(worker(70)) }).add('worker.lost', lost, 2).review();
-    assert.deepEqual(review.units.fixes.c1?.failures, [{ workerId: worker(70), reason: lost.reason, lost: true }]);
+    assert.deepEqual(review.units.fixes['c1-1']?.failures, [{ workerId: worker(70), reason: lost.reason, lost: true }]);
   });
 });

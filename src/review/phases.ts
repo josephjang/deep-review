@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, VerdictsRecorded } from '../checkpoint/events.ts';
+import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, TreeRevised, VerdictsRecorded } from '../checkpoint/events.ts';
 import { fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
@@ -39,8 +39,9 @@ import {
   type VerifierOutput,
 } from './schemas.ts';
 import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
+import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, sweepTask, triageTask, verifierTask, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
+import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, sweepTask, triageTask, verifierTask, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
 import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, and for an editing unit its scratch and snapshot command. */
@@ -80,21 +81,41 @@ export interface EditingTaskInput {
   readonly snapshotCommand: string;
 }
 
-/** Whether an earlier worker on an editing unit may have left part of its work in the tree: a re-entered phase, an earlier failure or loss, or a revision that reached its files (an earlier answer's violation). */
-function mayHoldWork(review: ReviewState, phase: EditingPhase, key: string, owned: readonly string[]): boolean {
+/**
+ * Whether an earlier worker on an editing unit may have left part of its
+ * work in the tree: a re-entered phase, an earlier failure or loss, or a
+ * revision that reached its files (an earlier answer's violation). The
+ * revisions of the earlier batches of its own cluster do not count: their
+ * work is in the tree by design, and the task names it (R18).
+ */
+function mayHoldWork(review: ReviewState, phase: EditingPhase, key: string, owned: readonly string[], ownCluster: readonly string[] = []): boolean {
   if (review.phases[phase].attempt > 1 || (review.units[phase][key]?.failures.length ?? 0) > 0) return true;
-  return (review.fix?.revisions ?? []).some((revision) => revision.phase === phase && revision.files.some((file) => owned.includes(file.path)));
+  const sourceKey = (revision: TreeRevised): string | null => (revision.source.kind === 'check' ? null : revision.source.key);
+  return (review.fix?.revisions ?? []).some((revision) => revision.phase === phase && !ownCluster.includes(sourceKey(revision) ?? '') && revision.files.some((file) => owned.includes(file.path)));
 }
 
-/** A fixer's task over its cluster, from the plan, the ranked findings and the pinned checks. */
+/** What became of each finding of a fixes-phase batch, as a later batch of its cluster is told: the answer's status and note, or not attempted. */
+function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'findingIds'>): FixerTaskEarlier[] {
+  const answer = review.fix?.answers.fixes[batch.key];
+  return batch.findingIds.map((id) => {
+    const finding = answer?.findings.find((candidate) => candidate.id === id);
+    return { batch: batch.key, id, outcome: finding?.status ?? 'not attempted', note: finding?.note ?? null };
+  });
+}
+
+/** A fixer's task over its batch, from the plan, the ranked findings and the pinned checks. */
 function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput): string {
   const plan = fixPlanOf(review);
-  const cluster = plan.clusters.find((candidate) => candidate.id === unit.key);
-  if (cluster === undefined) throw new Error(`The fix plan has no cluster ${unit.key}`);
+  const batch = plan.batches.find((candidate) => candidate.key === unit.key);
+  if (batch === undefined) throw new Error(`The fix plan has no batch ${unit.key}`);
+  const cluster = plan.clusters.find((candidate) => candidate.id === batch.cluster);
+  if (cluster === undefined) throw new Error(`Batch ${batch.key} names cluster ${batch.cluster}, which the fix plan does not have`);
+  const siblings = plan.batches.filter((candidate) => candidate.cluster === cluster.id);
+  const earlier = siblings.slice(0, siblings.indexOf(batch));
   const ranked = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
-  const findings = cluster.findingIds.map((id): FixerTaskFinding => {
+  const findings = batch.findingIds.map((id): FixerTaskFinding => {
     const entry = ranked.get(id);
-    if (entry === undefined) throw new Error(`Cluster ${cluster.id} names finding ${id}, which the ranking does not hold`);
+    if (entry === undefined) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
     return {
       id,
       severity: entry.finding.severity,
@@ -111,12 +132,14 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput)
   });
   return fixerTask({
     cluster: cluster.id,
+    batch: batch.key,
     findings,
+    earlier: earlier.flatMap((sibling) => batchOutcomes(review, sibling)),
     owned: cluster.files,
     othersOwned: plan.clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
     checks: review.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
-    mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files),
+    mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, earlier.map((sibling) => sibling.key)),
   });
 }
 
@@ -136,7 +159,7 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
     return { kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr) };
   });
   const owned = fixesRevisedPaths(fix);
-  const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ cluster: answer.key, id: finding.id, status: finding.status, note: finding.note })));
+  const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned) });
 }
 

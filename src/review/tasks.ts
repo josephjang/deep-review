@@ -166,9 +166,22 @@ export interface FixerTaskFinding {
   readonly also: readonly string[];
 }
 
+/** A finding an earlier batch of the same cluster worked, as a later batch is told it. */
+export interface FixerTaskEarlier {
+  readonly batch: string;
+  readonly id: string;
+  /** The answer's status, or `not attempted` when the batch failed twice. */
+  readonly outcome: string;
+  readonly note: string | null;
+}
+
 export interface FixerTaskInput {
   readonly cluster: string;
+  /** The batch of the cluster this fixer works (R18 of the fix pass). */
+  readonly batch: string;
   readonly findings: readonly FixerTaskFinding[];
+  /** The findings the cluster's earlier batches worked, whose edits are in the tree. */
+  readonly earlier: readonly FixerTaskEarlier[];
   readonly owned: readonly string[];
   /** The files every other cluster of the pass owns, cluster by cluster. */
   readonly othersOwned: readonly { readonly cluster: string; readonly files: readonly string[] }[];
@@ -181,7 +194,7 @@ export interface FixerTaskInput {
 
 const fileList = (files: readonly string[]): string => (files.length === 0 ? '(none)' : files.map((file) => `- ${file}`).join('\n'));
 
-/** A fixer's task (R4 of the fix pass): its cluster's findings numbered in rank order, the ownership rule with both file lists, the checks, the snapshot command and the answer it returns. */
+/** A fixer's task (R4, R18 of the fix pass): its batch's findings numbered in rank order, what the cluster's earlier batches did, the ownership rule with both file lists, the checks, the snapshot command and the answer it returns. */
 export function fixerTask(input: FixerTaskInput): string {
   const count = input.findings.length;
   const findings = input.findings.map((finding, index) => [
@@ -194,11 +207,18 @@ export function fixerTask(input: FixerTaskInput): string {
   ].join('\n'));
   const others = input.othersOwned.filter((cluster) => cluster.files.length > 0);
   return [
-    `Cluster ${input.cluster}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
+    `Cluster ${input.cluster}, batch ${input.batch}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
     '',
     ...findings,
     '',
-    'Files you own for this pass, which no other worker edits:',
+    ...(input.earlier.length === 0
+      ? []
+      : [
+          'Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:',
+          input.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? '' : `: ${entry.note}`}`).join('\n'),
+          '',
+        ]),
+    'Files you own while this batch runs, which no other worker edits:',
     fileList(input.owned),
     '',
     'Files other clusters own, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:',
@@ -235,8 +255,8 @@ export interface RepairTaskInput {
   readonly checks: readonly RepairTaskCheck[];
   /** Every file the fixers changed, which the repair owns. */
   readonly owned: readonly string[];
-  /** What each fixer did, one line per finding. */
-  readonly answers: readonly { readonly cluster: string; readonly id: string; readonly status: string; readonly note: string }[];
+  /** What each fixer did, one line per finding, under the batch that answered it. */
+  readonly answers: readonly { readonly batch: string; readonly id: string; readonly status: string; readonly note: string }[];
   readonly allChecks: readonly PlannedCheck[];
   readonly snapshotCommand: string;
   readonly mayHoldWork: boolean;
@@ -270,7 +290,7 @@ export function repairTask(input: RepairTaskInput): string {
     'You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.',
     '',
     'What each fixer did:',
-    input.answers.length === 0 ? '(nothing recorded)' : input.answers.map((answer) => `- ${answer.cluster} ${answer.id} ${answer.status}: ${answer.note}`).join('\n'),
+    input.answers.length === 0 ? '(nothing recorded)' : input.answers.map((answer) => `- ${answer.batch} ${answer.id} ${answer.status}: ${answer.note}`).join('\n'),
     '',
     checksBlock(input.allChecks),
     '',

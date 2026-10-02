@@ -8,7 +8,7 @@
  */
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile } from '../checkpoint/events.ts';
-import { isNotAttempted, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
+import { earlierBatches, isNotAttempted, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { planFixes, type FixPlan } from './fixes.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
@@ -52,7 +52,7 @@ export interface Live {
   readonly evidencePath: (reference: ArtifactReference) => string;
 }
 
-/** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, or its cluster's findings not attempted. */
+/** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, or its batch's findings not attempted. */
 type DegradationTarget =
   | { readonly kind: 'angle.failed'; readonly angle: string }
   | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string }
@@ -87,9 +87,12 @@ export function groupsOf(review: ReviewState, phase: VerificationPhase): readonl
   return review.plans[phase] ?? planGroups(workingList(review, phase));
 }
 
-/** The fix plan: the recorded one, or the one the ranked findings give. */
+/** The fix plan: the recorded one, or the one the ranked findings give in batches of the pinned size. */
 export function fixPlanOf(review: ReviewState): FixPlan {
-  return review.fix?.plan ?? planFixes(rankedFindings(review));
+  if (review.fix?.plan !== null && review.fix?.plan !== undefined) return review.fix.plan;
+  const batchSize = review.configuration.fixes?.batchSize;
+  if (batchSize === undefined) throw new Error('A fix plan needs the batch size a fixing run pins');
+  return planFixes(rankedFindings(review), batchSize);
 }
 
 /** The units of a phase (R2; R1, R11 of the fix pass): what its workers are asked, in the order they are launched. */
@@ -111,7 +114,7 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
     case 'merge-rank':
       return mergeRankInput(review).length > 0 ? single('merge-rank') : [];
     case 'fixes':
-      return fixPlanOf(review).clusters.map((cluster) => ({ phase, key: cluster.id, role: 'fixer' }));
+      return fixPlanOf(review).batches.map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
     case 'repair':
       return review.fix !== null && repairTargets(review.fix).length > 0 ? [{ phase, key: repairUnitKey, role: 'fixer' }] : [];
     case 'baseline-checks':
@@ -181,7 +184,7 @@ function listWithin(items: readonly string[], limit: number): string {
 /**
  * What a unit's role records once the unit has failed twice (R5, PD6; R12
  * of the fix pass): a finder's angle is not run, a verifier's group is
- * unverified, a fixer's cluster is not attempted. Null for every other
+ * unverified, a fixer's batch is not attempted. Null for every other
  * role, whose second failure blocks the run instead. The one place the
  * role's rule lives: a unit degrades exactly when this names what it
  * records and no worker of it was lost (`exhaustedOutcome`), and a phase
@@ -212,7 +215,7 @@ function degradationOf(unit: Unit): DegradationTarget | null {
 
 /**
  * Whether a unit's degradation is already on the ledger: an angle recorded
- * as not run, a group marked unverified, a cluster not attempted. A
+ * as not run, a group marked unverified, a fixer batch not attempted. A
  * degraded unit is settled for the rest of the run; the fold refuses any
  * later contribution from it, so it is never launched again, even when a
  * re-entered phase gives its units fresh attempts.
@@ -245,8 +248,21 @@ function exhaustedOutcome(unit: Unit, state: UnitState | undefined): Degradation
   return interrupted(state) ? null : degradationOf(unit);
 }
 
-/** Whether a unit may be given a worker: not answered, not degraded, and with an attempt left. */
-const launchableUnit = (review: ReviewState, unit: Unit, state: UnitState | undefined): boolean => !isAnswered(review, unit.phase, unit.key) && !degraded(review, unit) && !exhausted(review, unit, state);
+/** Whether a unit is settled for the rest of the run: answered, or degraded. */
+const settled = (review: ReviewState, unit: Unit): boolean => isAnswered(review, unit.phase, unit.key) || degraded(review, unit);
+
+/**
+ * Whether a fixer batch must wait for its cluster (R18 of the fix pass):
+ * an earlier batch of the same cluster has not settled, so its files may
+ * still have an editor.
+ */
+function waitsForItsCluster(review: ReviewState, unit: Unit): boolean {
+  if (unit.phase !== 'fixes' || review.fix === null) return false;
+  return earlierBatches(review.fix, unit.key).some((batch) => !settled(review, { phase: 'fixes', key: batch.key, role: 'fixer' }));
+}
+
+/** Whether a unit may be given a worker: not settled, with an attempt left, and not waiting on an earlier batch of its cluster. */
+const launchableUnit = (review: ReviewState, unit: Unit, state: UnitState | undefined): boolean => !settled(review, unit) && !exhausted(review, unit, state) && !waitsForItsCluster(review, unit);
 
 const usd = (value: number): string => value.toFixed(2);
 

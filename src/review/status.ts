@@ -4,7 +4,7 @@
  * its workers, its spend against the run budget in force, what the budget
  * check counts when that differs from the reported spend, its blocker with
  * the operator's action, its report, and for a fix run (R13 of the fix
- * pass) its clusters, its checks, its patches and its commits, as text
+ * pass) its batches, its checks, its patches and its commits, as text
  * lines and as JSON.
  */
 import { isNotAttempted, lastRun } from '../checkpoint/fix-state.ts';
@@ -53,18 +53,19 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   return { lines, json };
 }
 
-/** A cluster's state as `status` names it: no worker yet, one running, its answer recorded, or not attempted after two failures. */
-type ClusterState = 'pending' | 'running' | 'answered' | 'not attempted';
+/** A fixer batch's state as `status` names it: no worker yet, one running, its answer recorded, or not attempted after two failures. */
+type BatchState = 'pending' | 'running' | 'answered' | 'not attempted';
 
-/** What `status` says of a fix run: each cluster's state, the findings held, and each check's last outcome in each checks phase. */
+/** What `status` says of a fix run: each batch's state, the clusters, the findings held, and each check's last outcome in each checks phase. */
 function fixStatus(state: RunState, review: ReviewState): { lines: string[]; json: Record<string, unknown> } | null {
   const fix = review.fix;
   if (fix === null) return null;
   const running = new Set(Object.values(state.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label));
-  const clusters = (fix.plan?.clusters ?? []).map((cluster) => {
-    const label = unitLabel('fixer', 'fixes', cluster.id);
-    const clusterState: ClusterState = isAnswered(review, 'fixes', cluster.id) ? 'answered' : isNotAttempted(fix, 'fixes', cluster.id) ? 'not attempted' : running.has(label) ? 'running' : 'pending';
-    return { id: cluster.id, state: clusterState, findings: cluster.findingIds, files: cluster.files };
+  const clusters = (fix.plan?.clusters ?? []).map((cluster) => ({ id: cluster.id, findings: cluster.findingIds, files: cluster.files }));
+  const batches = (fix.plan?.batches ?? []).map((batch) => {
+    const label = unitLabel('fixer', 'fixes', batch.key);
+    const batchState: BatchState = isAnswered(review, 'fixes', batch.key) ? 'answered' : isNotAttempted(fix, 'fixes', batch.key) ? 'not attempted' : running.has(label) ? 'running' : 'pending';
+    return { key: batch.key, cluster: batch.cluster, state: batchState, findings: batch.findingIds };
   });
   const held = (fix.plan?.routes ?? []).filter((route) => route.route === 'held').map((route) => route.id);
   const checks = (fix.checks.planned?.checks ?? []).map((check) => ({
@@ -73,8 +74,8 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
     outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check.kind)?.outcome ?? null])),
   }));
   const lines = [
-    fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${clusters.length === 0 ? 'no cluster' : clusters.map((cluster) => `${cluster.id} ${cluster.state}`).join(', ')}; ${String(held.length)} held for the author`,
+    fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${batches.length === 0 ? 'no batch' : batches.map((batch) => `${batch.key} ${batch.state}`).join(', ')}; ${String(held.length)} held for the author`,
     ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : checkPhases.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}`).join(', ')}`),
   ];
-  return { lines, json: { clusters, held, checks, revisions: fix.revisions.length } };
+  return { lines, json: { clusters, batches, held, checks, revisions: fix.revisions.length } };
 }

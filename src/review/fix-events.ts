@@ -18,6 +18,7 @@ import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
 import { readSnapshot, snapshotsDirectoryName } from './snapshot.ts';
+import type { FixPlan } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
 import { expectedAt, headStates, matchesExpected, reviseFrom, revisionsFromSnapshots, worktreeReader, type BaseReader, type FindingRevision } from './tree.ts';
 import { type CheckKind, type EditingPhase } from './vocabulary.ts';
@@ -47,19 +48,25 @@ function requireFix(state: RunState): FixState {
   return fix;
 }
 
-/** The ids a unit answers for, in the order its task numbers them: its cluster's findings, or for the repair the check kinds it repairs. */
+/** The planned batch a fixes-phase unit key names. */
+function batchOfUnit(state: RunState, key: string): FixPlan['batches'][number] {
+  const batch = fixPlanOf(state.review!).batches.find((candidate) => candidate.key === key);
+  if (batch === undefined) throw new Error(`The fix plan has no batch ${key}`);
+  return batch;
+}
+
+/** The ids a unit answers for, in the order its task numbers them: its batch's findings, or for the repair the check kinds it repairs. */
 export function unitIds(state: RunState, phase: EditingPhase, key: string): readonly string[] {
   const fix = requireFix(state);
   if (phase === 'repair') return repairTargets(fix);
-  const cluster = fixPlanOf(state.review!).clusters.find((candidate) => candidate.id === key);
-  if (cluster === undefined) throw new Error(`The fix plan has no cluster ${key}`);
-  return cluster.findingIds;
+  return batchOfUnit(state, key).findingIds;
 }
 
 /** The files every other cluster of the phase owns, each with its cluster's id; the repair, its phase's only unit, has none. */
 function othersOwned(state: RunState, phase: EditingPhase, key: string): Map<string, string> {
   if (phase === 'repair') return new Map();
-  return new Map(fixPlanOf(state.review!).clusters.filter((cluster) => cluster.id !== key).flatMap((cluster) => cluster.files.map((file): [string, string] => [file, cluster.id])));
+  const own = batchOfUnit(state, key).cluster;
+  return new Map(fixPlanOf(state.review!).clusters.filter((cluster) => cluster.id !== own).flatMap((cluster) => cluster.files.map((file): [string, string] => [file, cluster.id])));
 }
 
 /**
@@ -155,7 +162,7 @@ export function unansweredRevision(context: RevisionContext, phase: EditingPhase
   const { state, worktree, evidence } = context;
   const files = reviseFrom(evidence, worktreeReader(worktree), expectedTreeOf(state), baseOf(context), ownedFiles(requireFix(state), phase, key));
   if (files.length === 0) return null;
-  const who = phase === 'repair' ? 'the repair' : `cluster ${key}`;
+  const who = phase === 'repair' ? 'the repair' : `batch ${key}`;
   const payload: TreeRevised = {
     phase,
     source: { kind: 'unanswered', key },

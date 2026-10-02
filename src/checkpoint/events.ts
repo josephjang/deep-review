@@ -533,6 +533,7 @@ export const reviewVocabularyV2 = {
 /** The identifier spellings the fix pass's events record, frozen for the same reason. */
 export const reviewIdentifiersV2 = {
   clusterId: z.string().regex(/^c[1-9][0-9]*$/, 'a cluster id is c and a number from 1'),
+  batchKey: z.string().regex(/^c[1-9][0-9]*-[1-9][0-9]*$/, 'a batch key is a cluster id, a dash and a number from 1'),
   repairKey: z.literal('repair'),
 } as const;
 
@@ -542,6 +543,7 @@ const checkPhaseSchemaV2 = z.enum(vocabularyV2.checkPhases);
 const editingPhaseSchemaV2 = z.enum(vocabularyV2.editingPhases);
 const checkKindSchemaV2 = z.enum(vocabularyV2.checkKinds);
 const clusterIdSchemaV2 = reviewIdentifiersV2.clusterId;
+const batchKeySchemaV2 = reviewIdentifiersV2.batchKey;
 
 /** The blocker of version 2 of `phase.finished`: the recorded codes, which the wider phase list did not change. */
 const blockerSchemaV2 = z.strictObject({
@@ -643,13 +645,24 @@ export type ReportWrittenV2 = z.infer<typeof reportWrittenV2>;
 /** The report as the fold holds it: version 1 reads as a report with no patch. */
 export type ReportWritten = ReportWrittenV2;
 
-/** The routes of every ranked finding and the clusters of the fixer-routed ones, planned once at the fixes phase's first attempt (R2, R3 of the fix pass). */
+/**
+ * The routes of every ranked finding, the clusters of the fixer-routed
+ * ones, and the batches each cluster's findings are fixed in, one fixer
+ * unit per batch, planned once at the fixes phase's first attempt (R2,
+ * R3, R18 of the fix pass).
+ */
 export const fixesPlannedV1 = z.strictObject({
   routes: z.array(z.strictObject({ id: candidateIdSchema, route: z.enum(['fixer', 'held']) })),
   clusters: z.array(z.strictObject({
     id: clusterIdSchemaV2,
     findingIds: z.array(candidateIdSchema).min(1),
     files: z.array(z.string().min(1)),
+  })),
+  /** In launch order: by the rank of each batch's first finding. */
+  batches: z.array(z.strictObject({
+    key: batchKeySchemaV2,
+    cluster: clusterIdSchemaV2,
+    findingIds: z.array(candidateIdSchema).min(1),
   })),
 });
 export type FixesPlanned = z.infer<typeof fixesPlannedV1>;

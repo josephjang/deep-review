@@ -21,8 +21,8 @@ const fixedB = 'import { parse } from \'./a.ts\';\nexport const b = parse("x");\
 /** Two findings, one in src/a.ts and one in src/b.ts, each fixed by its cluster's fixer, which also adds a test to the first. */
 const twoFixes: Script = {
   triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
-  'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': 'test a\n' } }], output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
-  'fixer:fixes:c2': { edits: [{ writes: { 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+  'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': 'test a\n' } }], output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+  'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
 };
 
 describe('deep-review commit', { timeout: 900_000 }, () => {
@@ -80,7 +80,7 @@ describe('deep-review commit', { timeout: 900_000 }, () => {
     write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n');
     await fixRun({
       triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads } },
-      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
     });
     assert.equal(box.run().scope!.mode, 'worktree');
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo }), refused(/give that commit's message with --change-message/));
@@ -119,7 +119,7 @@ describe('deep-review commit', { timeout: 900_000 }, () => {
     const readOnly = box.checkpoint.listRuns().at(-1)!.id;
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: readOnly }), refused(/ran without --fix/));
     // A fix run whose fixer found its finding already applied, and changed nothing.
-    box.script({ ...twoFixes, 'fixer:fixes:c1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) }, 'fixer:fixes:c2': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
+    box.script({ ...twoFixes, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) }, 'fixer:fixes:c2-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
     assert.equal((await box.fix('claude')).kind, 'report');
     const unchanged = box.checkpoint.listRuns().at(-1)!.id;
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: unchanged }), refused(/changed no file, so there is nothing to commit/));
@@ -129,7 +129,7 @@ describe('deep-review commit', { timeout: 900_000 }, () => {
     const big = 'x'.repeat(freezeLimitBytes + 1);
     await fixRun({
       triage: { output: { candidates: [found('src/a.ts', 2, 'needs a big table')], leads: noLeads } },
-      'fixer:fixes:c1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/table.txt': big } }], output: fixerAnswer([{ files: ['src/a.ts', 'src/table.txt'] }]) },
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/table.txt': big } }], output: fixerAnswer([{ files: ['src/a.ts', 'src/table.txt'] }]) },
     });
     const objects = git(box.repo, 'count-objects');
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo }), refused(/src\/table\.txt is larger than the run freezes/));

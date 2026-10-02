@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { planFixes, routeOf } from '../../src/review/fixes.ts';
+import { batchesOf, planFixes, routeOf, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
 import type { ReportFinding } from '../../src/review/state.ts';
 import { angles, type Angle, type Verdict } from '../../src/review/vocabulary.ts';
 
@@ -45,13 +45,16 @@ describe('routeOf', () => {
   });
 });
 
+/** The plan in batches of four, the policy's default. */
+const planOf = (findings: readonly ReportFinding[]): FixPlan => planFixes(findings, 4);
+
 describe('planFixes', () => {
   it('plans nothing for no finding', () => {
-    assert.deepEqual(planFixes([]), { routes: [], clusters: [] });
+    assert.deepEqual(planOf([]), { routes: [], clusters: [], batches: [] });
   });
 
   it('routes every ranked finding once, in rank order, and clusters only the fixer-routed ones, one per file', () => {
-    const plan = planFixes([
+    const plan = planOf([
       finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),
       finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE'),
       finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts')),
@@ -65,7 +68,7 @@ describe('planFixes', () => {
   });
 
   it('keeps a merged finding whole: its two files join one cluster, pulling in every finding of both', () => {
-    const plan = planFixes([
+    const plan = planOf([
       finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),
       finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts')),
       finding(candidate('FOOTGUNS-1', 'FOOTGUNS', 'src/c.ts')),
@@ -79,7 +82,7 @@ describe('planFixes', () => {
   });
 
   it('merges transitively, so no file is ever owned by two clusters', () => {
-    const plan = planFixes([
+    const plan = planOf([
       finding(candidate('A-1', 'SCAN', 'a.ts'), 'CONFIRMED', [candidate('A-2', 'SCAN', 'b.ts')]),
       finding(candidate('B-1', 'SCAN', 'c.ts'), 'CONFIRMED', [candidate('B-2', 'SCAN', 'd.ts')]),
       finding(candidate('C-1', 'SCAN', 'b.ts'), 'CONFIRMED', [candidate('C-2', 'SCAN', 'c.ts')]),
@@ -90,11 +93,11 @@ describe('planFixes', () => {
   });
 
   it('owns a located file outside the change as it owns a changed one', () => {
-    assert.deepEqual(planFixes([finding(candidate('RIPPLE-1', 'RIPPLE', 'lib/caller.ts'))]).clusters, [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['lib/caller.ts'] }]);
+    assert.deepEqual(planOf([finding(candidate('RIPPLE-1', 'RIPPLE', 'lib/caller.ts'))]).clusters, [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['lib/caller.ts'] }]);
   });
 
   it('clusters an unlocated finding alone by its spelling, owning nothing, apart from a located file of the same name', () => {
-    const plan = planFixes([
+    const plan = planOf([
       finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),
       finding(candidate('SWEEP-1', 'SCAN', null, 'src/a.ts')),
     ]);
@@ -105,7 +108,7 @@ describe('planFixes', () => {
   });
 
   it('folds two spellings of one unlocated path, in case, slashes or an absolute prefix, into one cluster', () => {
-    const plan = planFixes([
+    const plan = planOf([
       finding(candidate('SCAN-1', 'SCAN', null, 'Src\\Gone.ts')),
       finding(candidate('RIPPLE-1', 'RIPPLE', null, './src/gone.ts')),
       finding(candidate('REMOVALS-1', 'REMOVALS', null, 'C:\\repo\\src\\gone.ts')),
@@ -118,12 +121,12 @@ describe('planFixes', () => {
   });
 
   it('lets an unlocated member join its finding\'s cluster without owning anything', () => {
-    const plan = planFixes([finding(candidate('SCAN-1', 'SCAN', 'src/a.ts'), 'CONFIRMED', [candidate('SWEEP-1', 'SCAN', null, 'elsewhere.ts')])]);
+    const plan = planOf([finding(candidate('SCAN-1', 'SCAN', 'src/a.ts'), 'CONFIRMED', [candidate('SWEEP-1', 'SCAN', null, 'elsewhere.ts')])]);
     assert.deepEqual(plan.clusters, [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/a.ts'] }]);
   });
 
   it('never lets a held finding\'s file join a cluster, nor its members', () => {
-    const plan = planFixes([
+    const plan = planOf([
       finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE', [candidate('ALTITUDE-1', 'ALTITUDE', 'src/b.ts')]),
       finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),
       finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts')),
@@ -132,5 +135,55 @@ describe('planFixes', () => {
       { id: 'c1', findingIds: ['SCAN-1'], files: ['src/a.ts'] },
       { id: 'c2', findingIds: ['RIPPLE-1'], files: ['src/b.ts'] },
     ]);
+  });
+});
+
+describe('batches', () => {
+  const ids = (prefix: string, count: number): string[] => Array.from({ length: count }, (_, index) => `${prefix}-${String(index + 1)}`);
+
+  it('cuts a cluster of nine into batches of four, four and one, in rank order, numbered within the cluster', () => {
+    const cluster: PlannedCluster = { id: 'c1', findingIds: ids('SCAN', 9), files: ['a.ts'] };
+    assert.deepEqual(batchesOf([cluster], cluster.findingIds, 4), [
+      { key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1', 'SCAN-2', 'SCAN-3', 'SCAN-4'] },
+      { key: 'c1-2', cluster: 'c1', findingIds: ['SCAN-5', 'SCAN-6', 'SCAN-7', 'SCAN-8'] },
+      { key: 'c1-3', cluster: 'c1', findingIds: ['SCAN-9'] },
+    ]);
+  });
+
+  it('gives a cluster of exactly the size one batch, and a batch size of one a batch per finding', () => {
+    const cluster: PlannedCluster = { id: 'c1', findingIds: ids('SCAN', 4), files: [] };
+    assert.deepEqual(batchesOf([cluster], cluster.findingIds, 4).map((batch) => batch.key), ['c1-1']);
+    assert.deepEqual(batchesOf([cluster], cluster.findingIds, 1).map((batch) => [batch.key, batch.findingIds]), [['c1-1', ['SCAN-1']], ['c1-2', ['SCAN-2']], ['c1-3', ['SCAN-3']], ['c1-4', ['SCAN-4']]]);
+  });
+
+  it('orders every batch of the run by the rank of its first finding, so the best-ranked go first whatever their cluster', () => {
+    // Ranked: A-1 A-2 B-1 A-3 A-4 B-2; A's cluster holds four, B's two, in batches of two.
+    const ranked = ['A-1', 'A-2', 'B-1', 'A-3', 'A-4', 'B-2'];
+    const clusters: PlannedCluster[] = [{ id: 'c1', findingIds: ['A-1', 'A-2', 'A-3', 'A-4'], files: ['a.ts'] }, { id: 'c2', findingIds: ['B-1', 'B-2'], files: ['b.ts'] }];
+    assert.deepEqual(batchesOf(clusters, ranked, 2).map((batch) => batch.key), ['c1-1', 'c2-1', 'c1-2']);
+    assert.deepEqual(batchesOf(clusters, ranked, 1).map((batch) => batch.key), ['c1-1', 'c1-2', 'c2-1', 'c1-3', 'c1-4', 'c2-2']);
+  });
+
+  it('refuses a batch size below one, and a finding the ranking does not hold', () => {
+    const cluster: PlannedCluster = { id: 'c1', findingIds: ['A-1'], files: [] };
+    for (const size of [0, -1, 1.5]) assert.throws(() => batchesOf([cluster], ['A-1'], size), /at least one finding/, String(size));
+    assert.throws(() => batchesOf([cluster], [], 4), /A-1 is not in the ranking/);
+  });
+
+  it('plans the batches with the clusters, every fixer-routed finding in exactly one, none for a held finding', () => {
+    const plan = planFixes([
+      finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),
+      finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE'),
+      finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts')),
+      finding(candidate('RIPPLE-2', 'RIPPLE', 'src/a.ts')),
+      finding(candidate('FOOTGUNS-1', 'FOOTGUNS', 'src/a.ts')),
+    ], 2);
+    assert.deepEqual(plan.batches, [
+      { key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1', 'RIPPLE-2'] },
+      { key: 'c2-1', cluster: 'c2', findingIds: ['RIPPLE-1'] },
+      { key: 'c1-2', cluster: 'c1', findingIds: ['FOOTGUNS-1'] },
+    ]);
+    const batched = plan.batches.flatMap((batch) => batch.findingIds).sort();
+    assert.deepEqual(batched, plan.routes.filter((route) => route.route === 'fixer').map((route) => route.id).sort());
   });
 });
