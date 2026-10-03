@@ -3,9 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { prepareSnapshots, readSnapshot, snapshotListingSchema, takeSnapshot } from '../../src/review/snapshot.ts';
+import { prepareSnapshots, readManifest, readSnapshot, snapshotListingSchema, takeSnapshot } from '../../src/review/snapshot.ts';
 import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
 import { git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
@@ -25,11 +26,14 @@ describe('snapshots', () => {
 
   const listingOf = (finding: number): ReturnType<typeof snapshotListingSchema.parse> => snapshotListingSchema.parse(JSON.parse(readFileSync(join(into, `${String(finding)}.json`), 'utf8')));
 
-  it('copies a modified, a created and a deleted path, lists the deleted one absent, and leaves out an ignored file', () => {
+  /** Launch a worker: the engine's manifest of the tree as it is now, with the paths the run expects. */
+  const launch = (expected: string[] = []): void => prepareSnapshots(into, repo, expected);
+
+  it('copies a modified, a created and a deleted path since the launch, and lists the deleted one absent', () => {
+    launch();
     write(repo, 'src/a.ts', 'fixed\n');
     write(repo, 'test/a.test.ts', 'test\n');
     remove(repo, 'src/b.ts');
-    write(repo, 'debug.log', 'noise');
     takeSnapshot({ worktree: repo, finding: 0, into });
     const listing = listingOf(0);
     assert.deepEqual(Object.keys(listing.paths).sort(), ['src/a.ts', 'src/b.ts', 'test/a.test.ts']);
@@ -42,31 +46,57 @@ describe('snapshots', () => {
     assert.equal(read('src/back.ts'), undefined, 'not listed, so unknown');
   });
 
-  it('copies what git sees changed, not every file a line-ending rewrite touched under core.autocrlf (R22)', () => {
-    // A clone with core.autocrlf checks out CRLF, as on the first gate run's Windows machine.
-    const origin = repositoryWith(join(directory, 'origin'), { 'src/a.ts': 'a\n', 'src/b.ts': 'b\n' });
+  it('walks past .git and what git ignored at launch, and lists a new file git would ignore for the engine to drop', () => {
+    write(repo, '.gitignore', '*.log\nbuild/\n');
+    write(repo, 'build/out.js', 'built\n');
+    write(repo, 'old.log', 'old\n');
+    launch();
+    write(repo, 'build/out.js', 'rebuilt\n');
+    write(repo, 'build/more.js', 'more\n');
+    write(repo, 'old.log', 'old, longer\n');
+    write(repo, 'new.log', 'new\n');
+    takeSnapshot({ worktree: repo, finding: 0, into });
+    assert.deepEqual(Object.keys(listingOf(0).paths), ['new.log'], 'nothing under build/ or in .git, nor the log ignored at launch');
+  });
+
+  it('lists what changed on disk since the launch, a line-ending rewrite under core.autocrlf included, which the engine compares as git would (R22, R23)', () => {
+    // A clone with core.autocrlf checks out CRLF, as on the gate's Windows machine.
+    const origin = repositoryWith(join(directory, 'origin'), { 'src/a.ts': 'a\n', 'src/b.ts': 'b\n', 'src/c.ts': 'c\n' });
     const crlfRepo = join(directory, 'crlf');
     git(directory, '-c', 'core.autocrlf=true', 'clone', '-q', origin, crlfRepo);
     git(crlfRepo, 'config', 'core.autocrlf', 'true');
     assert.equal(readFileSync(join(crlfRepo, 'src', 'a.ts'), 'utf8'), 'a\r\n');
-    // A formatter rewrites the checkout to LF: git status lists the file, git diff does not.
+    prepareSnapshots(into, crlfRepo, []);
     write(crlfRepo, 'src/a.ts', 'a\n');
     write(crlfRepo, 'src/b.ts', 'b changed\n');
-    assert.match(git(crlfRepo, 'status', '--porcelain'), /^ ?M src\/a\.ts$/m, 'the case git status gets wrong');
     takeSnapshot({ worktree: crlfRepo, finding: 0, into });
-    assert.deepEqual(Object.keys(listingOf(0).paths), ['src/b.ts'], 'only the file whose content changed');
+    assert.deepEqual(Object.keys(listingOf(0).paths), ['src/a.ts', 'src/b.ts'], 'src/c.ts, untouched, is not listed');
   });
 
-  it('copies every path the engine listed, so a path changed and changed back is still compared', () => {
-    prepareSnapshots(into, ['src/back.ts', 'src/never.ts']);
+  it('copies every path the engine expects, so a path changed and changed back is still compared, and records the tree at launch', () => {
+    launch(['src/back.ts', 'src/never.ts']);
     takeSnapshot({ worktree: repo, finding: 1, into });
     const listing = listingOf(1);
+    assert.deepEqual(Object.keys(listing.paths), ['src/back.ts', 'src/never.ts']);
     assert.deepEqual(listing.paths['src/back.ts'], { sha256: sha256Hex(Buffer.from('back\n')), size: 5, symlink: false });
     assert.equal(listing.paths['src/never.ts'], 'absent');
-    assert.deepEqual(JSON.parse(readFileSync(join(into, 'paths.json'), 'utf8')), ['src/back.ts', 'src/never.ts']);
+    const manifest = readManifest(into)!;
+    assert.equal(manifest.worktree, repo);
+    assert.deepEqual(manifest.expected, ['src/back.ts', 'src/never.ts']);
+    assert.deepEqual(Object.keys(manifest.files), ['.gitignore', 'src/a.ts', 'src/b.ts', 'src/back.ts']);
+    assert.equal(manifest.files['src/a.ts']![0], 2);
+  });
+
+  it('lists nothing but the expected paths without a manifest, and refuses one that is not a manifest', () => {
+    write(repo, 'src/a.ts', 'fixed\n');
+    takeSnapshot({ worktree: repo, finding: 0, into });
+    assert.deepEqual(listingOf(0).paths, {});
+    writeFileSync(join(into, 'manifest.json'), '{"expected":[]}');
+    assert.throws(() => takeSnapshot({ worktree: repo, finding: 0, into }), /is not a snapshot manifest/);
   });
 
   it('copies a symlink as its target text', (context) => {
+    launch();
     if (!link(repo, 'pointer', 'src/a.ts')) {
       context.skip('this platform does not let the test create a symlink');
       return;
@@ -76,6 +106,7 @@ describe('snapshots', () => {
   });
 
   it('replaces an earlier snapshot of the same index whole', () => {
+    launch();
     write(repo, 'src/a.ts', 'first\n');
     write(repo, 'src/temp.ts', 'temp\n');
     takeSnapshot({ worktree: repo, finding: 2, into });
@@ -94,6 +125,7 @@ describe('snapshots', () => {
 
   it('reads no snapshot for a finding with none, a listing that is not one, or a copy changed since', () => {
     assert.equal(readSnapshot(into, 0), null);
+    launch();
     write(repo, 'src/a.ts', 'fixed\n');
     takeSnapshot({ worktree: repo, finding: 0, into });
     writeFileSync(join(into, '0', 'src', 'a.ts'), 'tampered\n');
@@ -114,12 +146,35 @@ describe('snapshots', () => {
   describe('deep-review snapshot', () => {
     const run = (...args: string[]) => spawnSync(process.execPath, [cli, 'snapshot', ...args], { cwd: join(repo, 'src'), env: baseEnvironment, encoding: 'utf8' });
 
-    it('takes the snapshot of the worktree it runs in, from a subdirectory too, and says what it copied', () => {
+    it('takes the snapshot of the worktree the manifest names, wherever it runs, and says what it copied', () => {
+      launch();
       write(repo, 'src/a.ts', 'fixed\n');
-      const result = run('--finding', '0', '--into', into);
+      const result = spawnSync(process.execPath, [cli, 'snapshot', '--finding', '0', '--into', into], { cwd: directory, env: baseEnvironment, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       assert.equal(result.stdout, `snapshot 0: 1 paths into ${into}\n`);
       assert.deepEqual(readSnapshot(into, 0)!('src/a.ts'), { bytes: Buffer.from('fixed\n'), symlink: false });
+    });
+
+    it('starts no process with a manifest, as in a sandbox that lets a worker\'s process start none (R23)', () => {
+      launch();
+      write(repo, 'src/a.ts', 'fixed\n');
+      // Every way of starting a process throws, as Codex's Windows sandbox refuses them.
+      const forbid = join(directory, 'forbid.mjs');
+      writeFileSync(forbid, "import cp from 'node:child_process';\nimport { syncBuiltinESMExports } from 'node:module';\nfor (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) cp[name] = () => { throw Object.assign(new Error('spawn EPERM'), { code: 'EPERM' }); };\nsyncBuiltinESMExports();\n");
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(forbid).href, cli, 'snapshot', '--finding', '0', '--into', into], { cwd: join(repo, 'src'), env: baseEnvironment, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(readSnapshot(into, 0)!('src/a.ts'), { bytes: Buffer.from('fixed\n'), symlink: false });
+      // Without a manifest it asks git where the worktree is, which the same sandbox refuses.
+      const bare = join(directory, 'bare-scratch');
+      const refused = spawnSync(process.execPath, ['--import', pathToFileURL(forbid).href, cli, 'snapshot', '--finding', '0', '--into', bare], { cwd: join(repo, 'src'), env: baseEnvironment, encoding: 'utf8' });
+      assert.notEqual(refused.status, 0);
+      assert.match(refused.stderr, /EPERM/);
+    });
+
+    it('asks git where the worktree is when there is no manifest, from a subdirectory too', () => {
+      const result = run('--finding', '0', '--into', into);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, `snapshot 0: 0 paths into ${into}\n`);
     });
 
     it('refuses a missing or malformed index, a missing directory and an unknown flag, with the usage', () => {

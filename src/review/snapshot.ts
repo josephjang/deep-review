@@ -1,16 +1,19 @@
 /**
- * A fixer's snapshot of the tree after one finding (R6, PD14, TD14 of the
- * fix pass): `deep-review snapshot --finding <n> --into <dir>`, run by the
- * fixer from the worktree, copies every path whose content git sees
- * changed against `HEAD` and every untracked one, and
- * every path the engine listed in `<dir>/paths.json` (the paths the run
- * expects), into `<dir>/<n>/`, and writes `<dir>/<n>.json`, the listing
- * with each path's hash and size or `absent`. The engine reads it when it
- * records the answer and freezes what it needs; the directory is the
- * fixer's scratch, never evidence and never inside the reviewed tree.
+ * A fixer's snapshot of the tree after one finding (R6, R23, PD14, PD21,
+ * TD14, TD20 of the fix pass): `deep-review snapshot --finding <n> --into
+ * <dir>`, run by the fixer, copies every path that changed since the
+ * worker was launched, and every path the run expects, into `<dir>/<n>/`,
+ * and writes `<dir>/<n>.json`, the listing with each path's hash and size
+ * or `absent`. What changed it learns from `<dir>/manifest.json`, which
+ * the engine writes at launch with every file git does not ignore and its
+ * size and time, and the directories git ignores: the command starts no
+ * process, since in Codex's Windows sandbox a worker's process may start
+ * none. The engine reads the snapshots when it records the answer and
+ * freezes what it needs; the directory is the fixer's scratch, never
+ * evidence and never inside the reviewed tree.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { isInside } from '../paths.ts';
@@ -19,8 +22,8 @@ import { InvalidScopeRequestError } from '../scope/errors.ts';
 import { validateScopePath } from '../scope/capture.ts';
 import { readTreeEntry, type TreeEntry, type TreeReader } from './tree.ts';
 
-/** The file under the snapshot directory in which the engine lists the paths every snapshot copies besides git's changes. */
-export const snapshotPathsFileName = 'paths.json';
+/** The file under the snapshot directory in which the engine describes the tree at launch for every snapshot to compare with. */
+export const snapshotManifestFileName = 'manifest.json';
 
 /** The directory under a fixer's scratch its snapshots go to. */
 export const snapshotsDirectoryName = 'snapshots';
@@ -50,17 +53,77 @@ function safePath(path: string): boolean {
   }
 }
 
-/** The paths the engine asked every snapshot of this directory to copy, or none when it listed none. */
-function listedPaths(into: string): string[] {
-  const file = join(into, snapshotPathsFileName);
-  if (!existsSync(file)) return [];
-  const parsed = z.array(z.string()).safeParse(JSON.parse(readFileSync(file, 'utf8')));
-  if (!parsed.success) throw new Error(`${file} is not a list of paths`);
+/** A file's size and modification time as the manifest records them, or null where there is no file or symlink. */
+const fileStatSchema = z.tuple([z.number().int().nonnegative(), z.number()]).nullable();
+
+/**
+ * The tree as the engine saw it when it launched the worker: the worktree,
+ * the paths the run expects, every file git does not ignore with its size
+ * and time, and what git ignores, a directory with a trailing slash.
+ */
+export const snapshotManifestSchema = z.strictObject({
+  worktree: z.string().min(1),
+  expected: z.array(z.string()),
+  files: z.record(z.string(), fileStatSchema),
+  ignored: z.array(z.string()),
+});
+export type SnapshotManifest = z.infer<typeof snapshotManifestSchema>;
+
+/** The manifest the engine wrote under a snapshot directory, or null when it wrote none; one that is not a manifest is an error. */
+export function readManifest(into: string): SnapshotManifest | null {
+  const file = join(into, snapshotManifestFileName);
+  if (!existsSync(file)) return null;
+  const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
+  if (!parsed.success) throw new Error(`${file} is not a snapshot manifest: ${z.prettifyError(parsed.error)}`);
   return parsed.data;
 }
 
+/** A path's size and time from `lstat`, or null for no entry, a directory, or a path through a file. */
+function statOf(worktree: string, path: string): [number, number] | null {
+  let stat;
+  try {
+    stat = lstatSync(join(worktree, ...path.split('/')), { throwIfNoEntry: false });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOTDIR') return null;
+    throw error;
+  }
+  return stat !== undefined && (stat.isFile() || stat.isSymbolicLink()) ? [stat.size, stat.mtimeMs] : null;
+}
+
+/**
+ * The paths that changed since the manifest was taken: a file it lists
+ * whose size or time differs, or that is gone; and a file it does not
+ * list, found by walking the worktree past `.git` and everything git
+ * ignored then. Reads the file system only.
+ */
+function changedSince(manifest: SnapshotManifest): string[] {
+  const ignoredDirectories = new Set(manifest.ignored.filter((entry) => entry.endsWith('/')).map((entry) => entry.slice(0, -1)));
+  const ignoredFiles = new Set(manifest.ignored.filter((entry) => !entry.endsWith('/')));
+  const changed: string[] = [];
+  const found = new Set<string>();
+  const walk = (relative: string): void => {
+    for (const entry of readdirSync(join(manifest.worktree, ...relative.split('/').filter((part) => part !== '')), { withFileTypes: true })) {
+      const path = relative === '' ? entry.name : `${relative}/${entry.name}`;
+      if (entry.name === '.git') continue;
+      // A symlink, to a directory or not, is an entry of its own and is never followed.
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        if (!ignoredDirectories.has(path)) walk(path);
+        continue;
+      }
+      if (ignoredFiles.has(path) || !(entry.isFile() || entry.isSymbolicLink())) continue;
+      found.add(path);
+      const before = manifest.files[path];
+      const now = statOf(manifest.worktree, path);
+      if (before === undefined || before === null || now === null || before[0] !== now[0] || before[1] !== now[1]) changed.push(path);
+    }
+  };
+  walk('');
+  for (const [path, before] of Object.entries(manifest.files)) if (before !== null && !found.has(path)) changed.push(path);
+  return changed;
+}
+
 export interface SnapshotRequest {
-  /** The root of the worktree the fixer edits. */
+  /** The root of the worktree the fixer edits; the manifest's, when there is one. */
   readonly worktree: string;
   readonly finding: number;
   /** The snapshot directory; it must not be inside the worktree. */
@@ -79,9 +142,9 @@ export function takeSnapshot(request: SnapshotRequest): SnapshotListing {
   rmSync(listingFile, { force: true });
   rmSync(copies, { recursive: true, force: true });
   mkdirSync(copies, { recursive: true });
-  // What git sees changed, after its clean conversion, so a file only a line-ending rewrite touched is not copied (R22).
-  const changed = gitApi.changedAgainstHead(request.worktree);
-  const paths = [...new Set([...changed, ...listedPaths(request.into)])].filter(safePath).sort();
+  // What changed since the worker's launch, read from the file system against the engine's manifest; without one, only nothing.
+  const manifest = readManifest(request.into);
+  const paths = [...new Set([...(manifest === null ? [] : changedSince(manifest)), ...(manifest?.expected ?? [])])].filter(safePath).sort();
   const listed = paths.map((path): [string, SnapshotListing['paths'][string]] => {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, 'absent'];
@@ -145,8 +208,15 @@ export function snapshotPaths(into: string, count: number): string[] {
   return [...paths].sort();
 }
 
-/** Write the paths every snapshot under `into` copies besides git's changes: the paths the run expects, so one changed and changed back is still compared. */
-export function prepareSnapshots(into: string, paths: Iterable<string>): void {
+/**
+ * Write the manifest every snapshot under `into` compares with, from
+ * outside the worker's sandbox (TD20): the worktree, the paths the run
+ * expects, so one changed and changed back is still compared, every file
+ * git does not ignore with its size and time, and what git ignores.
+ */
+export function prepareSnapshots(into: string, worktree: string, expected: Iterable<string>): void {
   mkdirSync(into, { recursive: true });
-  writeFileSync(join(into, snapshotPathsFileName), `${JSON.stringify([...new Set(paths)].sort())}\n`);
+  const files = Object.fromEntries(gitApi.filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
+  const manifest: SnapshotManifest = { worktree, expected: [...new Set(expected)].sort(), files, ignored: gitApi.ignoredEntries(worktree) };
+  writeFileSync(join(into, snapshotManifestFileName), `${JSON.stringify(manifest)}\n`);
 }

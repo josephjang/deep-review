@@ -19,6 +19,7 @@ import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
 import { readSnapshot, snapshotPaths, snapshotsDirectoryName } from './snapshot.ts';
+import * as gitApi from '../scope/git.ts';
 import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
 import { type CheckKind, type EditingPhase } from './vocabulary.ts';
@@ -161,7 +162,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
  * after its last snapshot. The paths are the unit's owned files, and every
  * path its snapshots listed or git reports changed now that no other unit
  * of the phase owns, less the strays the run had already listed, which the
- * attempt did not make. A
+ * attempt did not make, and the files git ignores. A
  * worker with no scratch, or one the operating system cleaned, gives only
  * the last. The expected tree then holds the attempt's work, so the retry's
  * snapshots attribute only its own.
@@ -174,7 +175,10 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
   const others = othersOwned(state, phase, key);
   const strays = new Set(state.review!.checks.flatMap((check) => check.strays));
-  const listed = [...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)].filter((path) => !others.has(path) && !strays.has(path));
+  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !strays.has(path));
+  // A snapshot lists what changed on disk, ignored files a fixer wrote included; those are no work of the run (R23).
+  const ignored = new Set(gitApi.ignoredPaths(worktree, candidates));
+  const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
   const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids, context.match);
   const who = phase === 'repair' ? 'the repair' : `batch ${key}`;

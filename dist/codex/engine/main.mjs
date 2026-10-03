@@ -23378,6 +23378,16 @@ function changedAgainstHead(repo) {
   const untracked = records(gitText(repo, ["ls-files", "--others", "--exclude-standard", "-z"]));
   return [.../* @__PURE__ */ new Set([...changed, ...untracked])].sort();
 }
+function filesNotIgnored(repo) {
+  return [...new Set(records(gitText(repo, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])))].sort();
+}
+function ignoredEntries(repo) {
+  return records(gitText(repo, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"])).sort();
+}
+function ignoredPaths(repo, paths) {
+  if (paths.length === 0) return [];
+  return records(gitText(repo, ["check-ignore", "-z", "--stdin"], { okExitCodes: [1], input: Buffer.from(`${paths.join("\0")}\0`) })).sort();
+}
 function objectFormat(repo) {
   const format = gitText(repo, ["rev-parse", "--show-object-format"]).trim();
   if (format !== "sha1" && format !== "sha256") throw new Error(`git reports an object format this engine does not know: ${format}`);
@@ -25070,9 +25080,9 @@ function checkMergeRank(output2, count2) {
 
 // src/review/snapshot.ts
 import { createHash as createHash4 } from "node:crypto";
-import { existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync4, lstatSync as lstatSync6, mkdirSync as mkdirSync5, readdirSync as readdirSync4, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname2, join as join17 } from "node:path";
-var snapshotPathsFileName = "paths.json";
+var snapshotManifestFileName = "manifest.json";
 var snapshotsDirectoryName = "snapshots";
 var listedFileSchema = external_exports.union([
   external_exports.literal("absent"),
@@ -25092,12 +25102,53 @@ function safePath(path) {
     throw error62;
   }
 }
-function listedPaths(into) {
-  const file2 = join17(into, snapshotPathsFileName);
-  if (!existsSync4(file2)) return [];
-  const parsed = external_exports.array(external_exports.string()).safeParse(JSON.parse(readFileSync9(file2, "utf8")));
-  if (!parsed.success) throw new Error(`${file2} is not a list of paths`);
+var fileStatSchema = external_exports.tuple([external_exports.number().int().nonnegative(), external_exports.number()]).nullable();
+var snapshotManifestSchema = external_exports.strictObject({
+  worktree: external_exports.string().min(1),
+  expected: external_exports.array(external_exports.string()),
+  files: external_exports.record(external_exports.string(), fileStatSchema),
+  ignored: external_exports.array(external_exports.string())
+});
+function readManifest(into) {
+  const file2 = join17(into, snapshotManifestFileName);
+  if (!existsSync4(file2)) return null;
+  const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync9(file2, "utf8")));
+  if (!parsed.success) throw new Error(`${file2} is not a snapshot manifest: ${external_exports.prettifyError(parsed.error)}`);
   return parsed.data;
+}
+function statOf(worktree, path) {
+  let stat;
+  try {
+    stat = lstatSync6(join17(worktree, ...path.split("/")), { throwIfNoEntry: false });
+  } catch (error62) {
+    if (error62.code === "ENOTDIR") return null;
+    throw error62;
+  }
+  return stat !== void 0 && (stat.isFile() || stat.isSymbolicLink()) ? [stat.size, stat.mtimeMs] : null;
+}
+function changedSince(manifest) {
+  const ignoredDirectories = new Set(manifest.ignored.filter((entry) => entry.endsWith("/")).map((entry) => entry.slice(0, -1)));
+  const ignoredFiles = new Set(manifest.ignored.filter((entry) => !entry.endsWith("/")));
+  const changed = [];
+  const found = /* @__PURE__ */ new Set();
+  const walk = (relative3) => {
+    for (const entry of readdirSync4(join17(manifest.worktree, ...relative3.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
+      const path = relative3 === "" ? entry.name : `${relative3}/${entry.name}`;
+      if (entry.name === ".git") continue;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        if (!ignoredDirectories.has(path)) walk(path);
+        continue;
+      }
+      if (ignoredFiles.has(path) || !(entry.isFile() || entry.isSymbolicLink())) continue;
+      found.add(path);
+      const before = manifest.files[path];
+      const now = statOf(manifest.worktree, path);
+      if (before === void 0 || before === null || now === null || before[0] !== now[0] || before[1] !== now[1]) changed.push(path);
+    }
+  };
+  walk("");
+  for (const [path, before] of Object.entries(manifest.files)) if (before !== null && !found.has(path)) changed.push(path);
+  return changed;
 }
 function takeSnapshot(request) {
   if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
@@ -25106,8 +25157,8 @@ function takeSnapshot(request) {
   rmSync3(listingFile, { force: true });
   rmSync3(copies, { recursive: true, force: true });
   mkdirSync5(copies, { recursive: true });
-  const changed = changedAgainstHead(request.worktree);
-  const paths = [.../* @__PURE__ */ new Set([...changed, ...listedPaths(request.into)])].filter(safePath).sort();
+  const manifest = readManifest(request.into);
+  const paths = [.../* @__PURE__ */ new Set([...manifest === null ? [] : changedSince(manifest), ...manifest?.expected ?? []])].filter(safePath).sort();
   const listed = paths.map((path) => {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, "absent"];
@@ -25156,9 +25207,11 @@ function snapshotPaths(into, count2) {
   }
   return [...paths].sort();
 }
-function prepareSnapshots(into, paths) {
+function prepareSnapshots(into, worktree, expected) {
   mkdirSync5(into, { recursive: true });
-  writeFileSync3(join17(into, snapshotPathsFileName), `${JSON.stringify([...new Set(paths)].sort())}
+  const files = Object.fromEntries(filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
+  const manifest = { worktree, expected: [...new Set(expected)].sort(), files, ignored: ignoredEntries(worktree) };
+  writeFileSync3(join17(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
 `);
 }
 
@@ -25264,7 +25317,9 @@ function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const into = scratch === null ? null : join18(scratch, snapshotsDirectoryName);
   const others = othersOwned(state, phase, key);
   const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
-  const listed = [...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)].filter((path) => !others.has(path) && !strays.has(path));
+  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !strays.has(path));
+  const ignored = new Set(ignoredPaths(worktree, candidates));
+  const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
   const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids, context.match);
   const who = phase === "repair" ? "the repair" : `batch ${key}`;
@@ -26545,7 +26600,7 @@ async function runReview(options2) {
           };
           for (const unit of step.units) {
             const invocation = invocationFor(unit, context);
-            if (invocation.scratch !== void 0) prepareSnapshots(join22(invocation.scratch, snapshotsDirectoryName), expectedTreeOf(state).keys());
+            if (invocation.scratch !== void 0) prepareSnapshots(join22(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
             const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
@@ -27154,14 +27209,13 @@ async function run(argv, io) {
   for (const flag of Object.keys(values)) {
     if (values[flag] !== void 0 && !allowed[command].includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
+  if (command === "snapshot") return snapshot(values, io);
   const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve10(io.cwd, values.repo));
   switch (command) {
     case "review":
       return review(values, io, location.root, location.worktree);
     case "status":
       return status2(values, io, location.root);
-    case "snapshot":
-      return snapshot(values, io, location.worktree);
     case "commit":
       return commit(values, io, location.root, location.worktree);
     default:
@@ -27192,11 +27246,12 @@ function commit(values, io, root, worktree) {
     checkpoint.close();
   }
 }
-function snapshot(values, io, worktree) {
+function snapshot(values, io) {
   const finding = values.finding;
   if (finding === void 0 || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? "")}`);
   if (values.into === void 0 || values.into.trim() === "") throw new UsageError("--into <dir> is required");
   const into = resolve10(io.cwd, values.into);
+  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === void 0 ? io.cwd : resolve10(io.cwd, values.repo)).worktree;
   const listing = takeSnapshot({ worktree, finding: Number(finding), into });
   io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}
 `);

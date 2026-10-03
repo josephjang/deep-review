@@ -323,8 +323,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           };
           for (const unit of step.units) {
             const invocation = invocationFor(unit, context);
-            // An editing worker's snapshots copy every path the run expects besides git's changes.
-            if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), expectedTreeOf(state).keys());
+            // An editing worker's snapshots compare with the tree as it is now, from a manifest taken here, outside its sandbox (R23, TD20).
+            if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
             const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes: options.runtimes, environment, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
