@@ -489,7 +489,102 @@ suite already scripts workers with, then the gate by hand.
 
 ## Verification
 
-No checks have run yet.
+Run on the author's Windows 11 machine on 2026-10-04, Node 26.10.0 and
+git 2.55, over the five commits that build the element after the
+proposal (`fd82a45`), from `8505906` to `194e870`. `npm run check` and
+`npm run verify` passed before each commit, `npm run check` ending at
+1352 tests, 1334 passing and 18 skipped, the platform-bound cases the
+suite already skipped on this machine. Continuous integration on the
+three platforms has not run yet for these commits; it runs when the
+pull request opens, and its result is recorded here then. The gate of
+R14, click #3818 with `--fix` on Claude Code and on Codex and eslint
+#21247 with `--fix` on Claude Code, from fresh clones with no `--check`
+flag and an unprepared `PATH`, has not run: it needs both runtimes and
+spends real money, so it is run by hand and recorded here, with the
+surveyor's cost and time the Open Questions leave to it.
+
+The commits, in order, and what each carries:
+
+- `8505906` the survey itself: the vocabulary of version 3, the events
+  `survey.recorded@1`, `survey.failed@1`, `checks.planned@2` and
+  `review.configured@3`, version 3 of the six kinds that carry a phase,
+  their reducers and the fixture `schema-1-06`; the phase, the
+  surveyor's task, output schema and structural check; the planning of
+  the checks, the `check-unavailable` block and the failure rule; the
+  hints, the user-level setting and the scope block's convention
+  sources; the surveyor's five new fragments and its policy entry; the
+  whole-run tests.
+- `54dee68` the report's Conventions section, the Source column of
+  Checks, the operator's drop of a check the project defines, and the
+  third report snapshot.
+- `4a115c1` the rewording of `angles-conventions.md`, `rubrics.md`,
+  `phase3-sweep.md` and `fixer-apply.md` (R13), alone.
+- `7129742` the skill texts, rebuilt into `dist/`.
+- `194e870` the README.
+
+The roles' hashes. `8505906` adds the surveyor, 5 fragments and 6908
+bytes, `d497c899f721d30d975dc5a7b8764a8a562d3535927ba694733b166c0b34a643`,
+and changes no other role. `4a115c1` changes the roles that read the
+reworded fragments; every other role keeps its hash from `fd82a45`.
+
+| Role | Fragments | Bytes at `fd82a45` | SHA-256 at `fd82a45` | Bytes at `4a115c1` | SHA-256 at `4a115c1` |
+|---|---|---|---|---|---|
+| triage | 10 | 24202 | `704cb575c920c7ec2b63beda108c3b2b25a0e5d8e9163e4fa06d2195cfc3e44f` | 24295 | `bd64b0938d8a815170ae6ed958adc117e6a8a939632eeed95d078739a6e43226` |
+| finder-SCAN | 6 | 12512 | `b76d436076eef7f7eaf1a73883de94fa3d598246d1217cba21e474fa1825f14f` | 12523 | `dce993eb4b8e5cbbce774631b6b4bd9d9e42bc91491b3191e1ebe3988d5067e3` |
+| finder-CONVENTIONS | 4 | 3579 | `25eebcce7c5ef0cfa706d478024fa2fc90253bd65ec45b2fc1b17b2db8537f84` | 3661 | `2061a87bcd7c36899aab65f9296e3112ec0b33cdf6ebb062b4ea6016c8983be4` |
+| deduplication, verifier | 6 | 15658 | `0891f73b3af710f5ccfd850e76ae204543b75f40d47917b73a74e4147511a974` | 15669 | `87e880d8d6575ce2ea0457036929734cfba7ae70004d953c1546f38d51a71007` |
+| sweep | 10 | 22711 | `7292146ec20360f7dd22fa2ae69169ada0686d7a913e9082423680160f6aae4a` | 22790 | `41dccd93a2a923f5f032b9df7038e16b353e10ceca42fbb8492d18765b93e3ca` |
+| merge-rank | 6 | 13322 | `8504ff3d42b09c40914b084f61fe74f0a4dcc4f4cfeef0aa24b5ba4d4fadedba` | 13333 | `6ee7b948126544455f4529d8d968b61f26bf65a075f9f6f119d546e0eaf90bd7` |
+| test-assessment | 6 | 28760 | `a57fc5ca3d6f7387a34964f735f8a9ee5192281c0e75d44bb6052d9ce154102f` | 28771 | `55ed861886a0d7fa2d33a07469adec7c343f0039e87ee9c5ce311528bffb5bf4` |
+| fixer, answer | 7 | 13102 | `0d3cb33423bd8473b5123f3891b68e1a4fb7dcfa5be51d9777ac664a16f8b9f5` | 13500 | `54215ee16f9123adcca0a8c102326f56c70336fc313c14c81387f68acabce0b3` |
+| documentation | 7 | 13102 | `949f9efead6f4b7d7f8e5d55c3be0edc904640624adc7ebfdc2a8ca51b054c06` | 13500 | `8bb25be37d774e001119edb0955b73369f2f18ce66131d9fae31f47cf80b0f0a` |
+
+The `rolesDigest` a run pins changes with each, so no run configured
+before `8505906` resumes under this engine, as Risks & Migration says.
+
+What the implementation decided where the design left room, or departed
+from its text, each recorded here rather than silently:
+
+- **`report.written` gets a version 3 too.** The design named the five
+  kinds that carry a phase, but the report's statistics carry one per
+  row, and the survey's row needs the wider phase list, so six kinds
+  carry version 3.
+- **The survey's events record the policy's part.** `survey.recorded`
+  holds the convention sources with the user-level files the pinned
+  policy applies already joined, and `userRules` holds a decision on
+  every user-level file that existed, the policy's or the surveyor's;
+  `survey.failed` holds the policy's part alone. The design joined them
+  when the scope block is rendered; recording them means a later
+  invocation reads the sources the survey's own invocation saw, whatever
+  the home directory holds by then.
+- **The fold keeps every answer.** The run's survey is the last one, but
+  an earlier answer is kept, so the report can name what the project
+  defines for a kind the operator dropped after a survey run again.
+- **Any re-entered survey opens its unit again**, not only one blocked
+  on `check-unavailable`: an answer stands for an attempt, and an
+  invocation whose flags leave a kind the earlier answer did not cover
+  (it was settled by a flag then) surveys again instead of planning
+  from an answer that never chose it. A survey left running by a
+  stopped engine keeps its lost attempt.
+- **A fix run that goes on without its survey records the failure and
+  the plan in one append**, as one planner step, so no run is left
+  without a survey and without checks for an invocation with other
+  flags to stumble on.
+- **A hinted command is the hint's exact command.** An answer whose
+  basis is `hint` and whose command differs from the hint is refused;
+  a command the surveyor adapted is its own, with the basis `stated`
+  and its source.
+- **Under `apply` and `ignore` the task says the policy settles the
+  user-level files**, without naming them, so a surveyor does not list
+  one it was never offered.
+- **A planned check of version 2 carries the basis in its source**, so
+  the report reads where a command came from and what it stood on from
+  the plan alone.
+- **A surveyed run's report differs; an older run's does not.** The
+  Conventions section and the Checks table's Source column appear for a
+  run configured with the survey, and a run configured before it
+  renders as it did, so the two committed snapshots are unchanged and a
+  third covers the survey.
 
 ## Risks & Migration
 
