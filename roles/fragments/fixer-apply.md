@@ -6,6 +6,13 @@ the underlying cause, do not patch around the smell. After each fix,
 re-read the touched code and its enclosing function to confirm the fix
 is correct and has not broken adjacent logic.
 
+**Keep your edits within the repository's conventions.** The scope block
+lists the convention sources the repository survey named. Write each
+fix, its tests and any documentation it touches as the sources that
+govern those files ask, and where they say nothing, follow the style of
+the code around your edit. A rules file the scope block does not list is
+not one this repository asks you to keep.
+
 **Snapshot after each finding.** Your task gives a snapshot command.
 When you have finished a finding, whatever its status, and before you
 start the next, run that command with the finding's index. It copies

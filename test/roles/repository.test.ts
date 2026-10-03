@@ -247,16 +247,30 @@ describe('the repository\'s roles/', () => {
     }
   });
 
-  it('names the three rules files wherever CONVENTIONS is defined, judged or swept (R12 of the read-only review)', () => {
+  it('points CONVENTIONS at the survey\'s convention sources wherever it is defined, judged or swept, and at no fixed list of rules files (R7, R13 of the repository survey)', () => {
     const fragment = (name: string): string => readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8');
     const definition = fragment('angles-conventions.md');
-    for (const path of ['~/.claude/CLAUDE.md', '~/.codex/AGENTS.md', '`CLAUDE.md`', '`CLAUDE.local.md`', '`AGENTS.md`']) assert.ok(definition.includes(path), `angles-conventions.md names ${path}`);
-    assert.match(definition, /ancestor of a\s+changed file/);
+    assert.match(definition, /The scope block lists the convention sources the repository survey named/);
+    assert.match(definition, /A file the scope block does not list is not a\s+convention source, whatever its name/);
+    assert.match(definition, /If the scope block lists no source, or none\s+governs the changed files, return nothing for this angle/);
     const rubric = fragment('rubrics.md').slice(fragment('rubrics.md').indexOf('### Rubric for the CONVENTIONS angle'));
-    assert.match(rubric, /`CLAUDE\.md`, `CLAUDE\.local\.md`\s+or `AGENTS\.md`/);
-    assert.match(fragment('phase3-sweep.md'), /`CLAUDE\.md`, `CLAUDE\.local\.md` or\s+`AGENTS\.md` rule/);
-    // The angle is defined, judged and swept by roles the review runs; the three files reach each of them.
-    for (const key of ['finder-CONVENTIONS', 'verifier', 'sweep', 'triage']) assert.match(roles.find((role) => role.key === key)!.prompt, /AGENTS\.md/, key);
+    assert.match(rubric, /the cited file is a convention source the scope block\s+lists/);
+    assert.match(rubric, /not a listed convention source/);
+    assert.match(fragment('phase3-sweep.md'), /a clear violation of a rule a listed convention source\s+states/);
+    // The fixed list is gone from every role the review runs but the surveyor, which is told where a contributor looks.
+    const surveyed = ['surveyor', 'finder-CONVENTIONS', 'verifier', 'sweep', 'triage'];
+    for (const key of surveyed.slice(1)) assert.match(roles.find((role) => role.key === key)!.prompt, /convention sources?/, key);
+    for (const key of reviewRoles.filter((name) => name !== 'surveyor')) {
+      assert.doesNotMatch(roles.find((role) => role.key === key)!.prompt, /CLAUDE\.local\.md|ancestor of a\s+changed file|verify the list yourself/, key);
+    }
+  });
+
+  it('tells every fixer role to keep its edits within the convention sources the scope block lists (R7 of the repository survey)', () => {
+    for (const key of fixerRoles) {
+      const prompt = roles.find((role) => role.key === key)!.prompt;
+      assert.match(prompt, /\*\*Keep your edits within the repository's conventions\.\*\* The scope block\s+lists the convention sources the repository survey named/, key);
+      assert.match(prompt, /A rules file the scope block does not list is\s+not one this repository asks you to keep/, key);
+    }
   });
 
   it('describes the surveyor\'s answer as the fields of its output schema, and tells it to run no check (R2, R4, PD9 of the repository survey)', () => {
