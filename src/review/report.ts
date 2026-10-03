@@ -2,9 +2,10 @@
  * The report (R9, PD8 of the read-only review; R13 of the fix pass):
  * Markdown rendered by the engine from the fold alone, so two engines
  * render the same report from the same ledger and no model rewrites a
- * finding. Sections in order: the header, Angles, Findings, for a fix run
- * Fixes, Checks and Changed files (fix-report.ts), Refuted at
- * verification, Statistics and Limitations.
+ * finding. Sections in order: the header, Angles, for a surveyed run
+ * Conventions (survey-report.ts), Findings, for a fix run Fixes, Checks
+ * and Changed files (fix-report.ts), Refuted at verification, Statistics
+ * and Limitations.
  */
 import type { ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -14,6 +15,7 @@ import { fixHeaderLine, fixLimitations, fixSections } from './fix-report.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
+import { conventionsSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
 
 export interface ReportInput {
@@ -163,6 +165,7 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(', ')}.`);
   }
+  lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
   return lines;
 }
@@ -192,6 +195,8 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...[fixHeaderLine(review)].filter((line) => line !== null),
   ];
   const anglesSection = ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))];
+  // A surveyed run says which conventions the change was held to; a run configured before the survey has no such section.
+  const conventions = conventionsSection(review);
   const findingsSection = [
     '## Findings',
     '',
@@ -206,6 +211,6 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const limitationsSection = ['## Limitations', '', ...limitations(scope, review, input)];
   // A fix run's sections follow its findings; a run without the fix pass has none.
   const fixed = input.fix === undefined ? [] : fixSections(state, input.fix.evidencePath, input.fix.patches);
-  return [header, anglesSection, findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
+  return [header, anglesSection, ...(conventions === null ? [] : [conventions]), findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
 }
 

@@ -111,7 +111,9 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 2 patches; the edits are in the working tree, uncommitted$/m);
     assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nCluster: c1, batch c1-1 \(src\/a\.ts\); patch \d$/m);
     assert.match(text, /^### 3\. SWEEP-1 held for the author$/m);
-    assert.match(text, /^\| build \| ".*fake-check\.mjs" build \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
+    // The flags named every check, so each row's source is --check, where a check the survey chose names its file.
+    assert.match(text, /^\| build \| ".*fake-check\.mjs" build \| --check \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
+    assert.match(text, /^## Conventions\n\nThe survey found no file that states conventions/m);
     assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
     for (const patch of review.report!.patches) assert.ok(text.includes(box.checkpoint.evidence.pathOf(patch)), 'the report names each patch by its path');
     assert.match(text, /^- After the repair: not run, since no check failed after the fixes\.$/m);

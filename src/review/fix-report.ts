@@ -10,8 +10,10 @@ import type { CheckRan, FixedFinding, TreeRevised } from '../checkpoint/events.t
 import { allBatches, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
+import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
+import { checkSourceCell, droppedByOperator, unavailableCell } from './survey-report.ts';
 import { checkPhases, repairUnitKey, type CheckPhase } from './vocabulary.ts';
 
 /** What became of one ranked finding, as the report names it. */
@@ -132,15 +134,21 @@ function checkCell(run: CheckRan | null, evidencePath: (reference: { sha256: str
   return tableCell(text);
 }
 
-/** The Checks section: a row per kind and a column per checks phase that ran a check, a kind with no command saying why. */
-function checksSection(fix: FixState, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
+/**
+ * The Checks section: a row per kind and a column per checks phase that
+ * ran a check, a kind with no command saying why. A surveyed run's table
+ * also says where each command came from (R10, R15 of the repository
+ * survey); one configured before the survey renders as it did.
+ */
+function checksSection(fix: FixState, survey: SurveyState | null, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
   const failedAtBaseline = (kind: string): boolean => ['failed', 'timeout', 'not-started'].includes(fix.checks.runs['baseline-checks'].find((run) => run.kind === kind)?.outcome ?? '');
+  const sourceCell = (check: (typeof planned)[number]): string[] => (survey === null ? [] : [checkSourceCell(survey, check)]);
   const rows = planned.map((check) => {
-    if (check.command === null) return `| ${check.kind} | not available (${tableCell(check.origin)}: ${tableCell(check.reason ?? 'no command')}) | ${ran.map(() => '-').join(' | ')} |`;
+    if (check.command === null) return `| ${[check.kind, unavailableCell(survey, check), ...sourceCell(check), ...ran.map(() => '-')].join(' | ')} |`;
     const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check.kind), evidencePath, phase !== 'baseline-checks' && failedAtBaseline(check.kind)));
-    return `| ${check.kind} | ${tableCell(check.command)} | ${cells.join(' | ')} |`;
+    return `| ${[check.kind, tableCell(check.command), ...sourceCell(check), ...cells].join(' | ')} |`;
   });
   const notRun = [
     ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
@@ -149,8 +157,8 @@ function checksSection(fix: FixState, evidencePath: (reference: { sha256: string
   return [
     '## Checks',
     '',
-    `| Check | Command | ${ran.map((phase) => phaseTitles[phase]).join(' | ')} |`,
-    `|---|---|${ran.map(() => '---').join('|')}|`,
+    `| ${['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => phaseTitles[phase])].join(' | ')} |`,
+    `|${['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran].map(() => '---').join('|')}|`,
     ...rows,
     ...(notRun.length === 0 ? [] : ['', ...notRun]),
   ];
@@ -198,7 +206,7 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [fixesSection(review, fix), checksSection(fix, evidencePath), changedFilesSection(fix, patches)];
+  return [fixesSection(review, fix), checksSection(fix, review.survey, evidencePath), changedFilesSection(fix, patches)];
 }
 
 /** The header's line for a fix run: how many findings each outcome took, and that the edits are uncommitted. */
@@ -223,7 +231,8 @@ export function fixLimitations(review: ReviewState): string[] {
   const strays = [...new Set(review.checks.flatMap((check) => check.strays))].sort();
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);
-  if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check) => `${check.kind} (${inlineText(check.reason ?? 'no command')})`).join('; ')}.`);
+  // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).
+  if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check) => `${check.kind} (${inlineText(droppedByOperator(review.survey, check) ?? check.reason ?? 'no command')})`).join('; ')}.`);
   const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair)];
   for (const answer of answers) {
     for (const finding of answer.findings) {

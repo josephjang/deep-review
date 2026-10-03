@@ -26695,6 +26695,77 @@ function contributionEvent(unit, receipt, review2, context) {
   }
 }
 
+// src/review/survey-report.ts
+function missingToolOf(survey, kind) {
+  for (const answer of [...survey.answers].reverse()) {
+    const entry = answer.checks?.find((check2) => check2.kind === kind && check2.command !== null && check2.missingTool !== null);
+    if (entry !== void 0) return entry;
+  }
+  return null;
+}
+var definedPhrase = (entry) => `the project defines \`${entry.command ?? ""}\` (${entry.source?.path ?? "no source"}), ${entry.missingTool ?? "a tool"} not found`;
+function checkSourceCell(survey, check2) {
+  if (check2.origin === "survey" && check2.source !== null) return tableCell(`${check2.source.path} (${check2.source.basis})`);
+  if (check2.origin === "flag" && check2.command === null) return "--no-check";
+  if (check2.origin === "flag") {
+    const defined = missingToolOf(survey, check2.kind);
+    return tableCell(defined === null ? "--check" : `--check, in place of what ${definedPhrase(defined)}`);
+  }
+  return check2.origin === "none" ? "survey: none" : tableCell(check2.origin);
+}
+function droppedByOperator(survey, check2) {
+  const defined = survey === null || check2.origin !== "flag" || check2.command !== null ? null : missingToolOf(survey, check2.kind);
+  return defined === null ? null : `dropped by the operator; ${definedPhrase(defined)}`;
+}
+function unavailableCell(survey, check2) {
+  const dropped = droppedByOperator(survey, check2);
+  return dropped === null ? `not available (${tableCell(check2.origin)}: ${tableCell(check2.reason ?? "no command")})` : tableCell(dropped);
+}
+function conventionsSection2(review2) {
+  const survey = review2.survey;
+  if (survey === null) return null;
+  const known = conventionsKnown(survey);
+  const setting = review2.configuration.survey.userRules;
+  const lines = ["## Conventions", ""];
+  switch (known.status) {
+    case "surveyed":
+      lines.push(known.sources.length === 0 ? "The survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to." : "The survey named these files as stating the conventions the change was held to:");
+      break;
+    case "failed":
+      lines.push(`The survey failed: ${inlineText(known.reason)}.${known.sources.length === 0 ? " The run went on with no convention source." : " The run went on with the user-level rules files the policy applies:"}`);
+      break;
+    case "pending":
+    case "predates-survey":
+      lines.push("The survey has not answered, so no convention source is known.");
+      break;
+  }
+  const sources = known.status === "surveyed" || known.status === "failed" ? known.sources : [];
+  if (sources.length > 0) {
+    lines.push("", "| Source | Level | Governs | Applies to |", "|---|---|---|---|");
+    for (const source of sources) {
+      const level = source.level === "user" ? `user: ${source.grounds ?? "no grounds recorded"}` : "repository";
+      lines.push(`| ${tableCell(source.path)} | ${tableCell(level)} | ${tableCell(source.governs)} | ${source.appliesTo === null ? "the whole repository" : tableCell(source.appliesTo.join(", "))} |`);
+    }
+  }
+  const userRules = known.status === "surveyed" || known.status === "failed" ? known.userRules : [];
+  lines.push("");
+  if (userRules.length === 0) lines.push(`No user-level rules file of the reviewer's existed on this machine; the policy value was \`${setting}\`.`);
+  else {
+    lines.push(`The reviewer's own rules files, under the policy value \`${setting}\`:`, "");
+    for (const rule of userRules) lines.push(`- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`);
+  }
+  const answers = survey.answers;
+  if (answers.length > 1) lines.push("", `The survey answered ${String(answers.length)} times, a run blocked on a check this machine could not run in between; the last answer is shown.`);
+  const note = answers.at(-1)?.note.trim() ?? "";
+  if (note !== "") lines.push("", `Surveyor's note: ${inlineText(note)}`);
+  return lines;
+}
+function surveyLimitations(review2) {
+  const failure2 = review2.survey?.failure ?? null;
+  if (failure2 === null) return [];
+  return [`- The survey failed: ${inlineText(failure2.reason)}. No repository convention source was known${review2.fix === null ? "" : ", and every check was the flags'"}.`];
+}
+
 // src/review/fix-report.ts
 var statusWords = {
   applied: "applied",
@@ -26778,14 +26849,15 @@ function checkCell(run2, evidencePath, failedBefore) {
   const text2 = `${run2.outcome}, ${runSeconds(run2)}${run2.outcome === "passed" ? "" : output2}${failedBefore ? " (failing before the fix pass)" : ""}`;
   return tableCell(text2);
 }
-function checksSection(fix, evidencePath) {
+function checksSection(fix, survey, evidencePath) {
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
   const failedAtBaseline2 = (kind) => ["failed", "timeout", "not-started"].includes(fix.checks.runs["baseline-checks"].find((run2) => run2.kind === kind)?.outcome ?? "");
+  const sourceCell = (check2) => survey === null ? [] : [checkSourceCell(survey, check2)];
   const rows = planned.map((check2) => {
-    if (check2.command === null) return `| ${check2.kind} | not available (${tableCell(check2.origin)}: ${tableCell(check2.reason ?? "no command")}) | ${ran.map(() => "-").join(" | ")} |`;
+    if (check2.command === null) return `| ${[check2.kind, unavailableCell(survey, check2), ...sourceCell(check2), ...ran.map(() => "-")].join(" | ")} |`;
     const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check2.kind), evidencePath, phase !== "baseline-checks" && failedAtBaseline2(check2.kind)));
-    return `| ${check2.kind} | ${tableCell(check2.command)} | ${cells.join(" | ")} |`;
+    return `| ${[check2.kind, tableCell(check2.command), ...sourceCell(check2), ...cells].join(" | ")} |`;
   });
   const notRun = [
     ...fix.checks.runs.checks.length === 0 ? ["- After the fixes: not run, since no fix changed a file."] : [],
@@ -26794,8 +26866,8 @@ function checksSection(fix, evidencePath) {
   return [
     "## Checks",
     "",
-    `| Check | Command | ${ran.map((phase) => phaseTitles[phase]).join(" | ")} |`,
-    `|---|---|${ran.map(() => "---").join("|")}|`,
+    `| ${["Check", "Command", ...survey === null ? [] : ["Source"], ...ran.map((phase) => phaseTitles[phase])].join(" | ")} |`,
+    `|${["Check", "Command", ...survey === null ? [] : ["Source"], ...ran].map(() => "---").join("|")}|`,
     ...rows,
     ...notRun.length === 0 ? [] : ["", ...notRun]
   ];
@@ -26835,7 +26907,7 @@ function fixSections(state, evidencePath, patches) {
   const review2 = state.review;
   const fix = review2?.fix ?? null;
   if (review2 === null || fix === null) return [];
-  return [fixesSection(review2, fix), checksSection(fix, evidencePath), changedFilesSection(fix, patches)];
+  return [fixesSection(review2, fix), checksSection(fix, review2.survey, evidencePath), changedFilesSection(fix, patches)];
 }
 function fixHeaderLine(review2) {
   const fix = review2.fix;
@@ -26855,7 +26927,7 @@ function fixLimitations(review2) {
   const strays = [...new Set(review2.checks.flatMap((check2) => check2.strays))].sort();
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(", ")}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check2) => check2.command === null);
-  if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check2) => `${check2.kind} (${inlineText(check2.reason ?? "no command")})`).join("; ")}.`);
+  if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check2) => `${check2.kind} (${inlineText(droppedByOperator(review2.survey, check2) ?? check2.reason ?? "no command")})`).join("; ")}.`);
   const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair)];
   for (const answer of answers) {
     for (const finding of answer.findings) {
@@ -26966,6 +27038,7 @@ function limitations(scope, review2, input2) {
     const matching = unlocated2.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(", ")}.`);
   }
+  lines.push(...surveyLimitations(review2));
   lines.push(...fixLimitations(review2));
   return lines;
 }
@@ -26993,6 +27066,7 @@ function renderReport(state, input2) {
     ...[fixHeaderLine(review2)].filter((line) => line !== null)
   ];
   const anglesSection = ["## Angles", "", "| Angle | Ran | Lead from SCAN |", "|---|---|---|", ...angles.map((angle) => angleRow(review2, angle))];
+  const conventions = conventionsSection2(review2);
   const findingsSection = [
     "## Findings",
     "",
@@ -27007,7 +27081,7 @@ function renderReport(state, input2) {
   const statisticsSection = ["## Statistics", "", statisticsTable(review2, input2)];
   const limitationsSection = ["## Limitations", "", ...limitations(scope, review2, input2)];
   const fixed = input2.fix === void 0 ? [] : fixSections(state, input2.fix.evidencePath, input2.fix.patches);
-  return [header, anglesSection, findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
+  return [header, anglesSection, ...conventions === null ? [] : [conventions], findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
 }
 
 // src/review/controller.ts

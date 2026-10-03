@@ -341,3 +341,87 @@ export const fixed = (baseline: Readonly<Record<string, string>> = {}): History 
     .add('fixes.replanned', noSecondRound)
     .add('worktree.checked', endCheck('fixes'), 2)
     .finish('fixes');
+
+/**
+ * A whole fix run up to its report: the lint check rewrites the changed
+ * file at baseline and test fails there; c1 applies RIPPLE-1 with a
+ * correction, a validation, a drift line and a test, and leaves a stray;
+ * lint fails after the fixes, the repair makes it pass and finds every
+ * failure of test there before the fixes, and test still fails; SWEEP-1
+ * is held for the author.
+ */
+export function fixRun(): History {
+  return withFixPass(mergeRanked())
+    .start('baseline-checks')
+    .add('check.ran', checkRun('baseline-checks', 'build'))
+    .add('check.ran', checkRun('baseline-checks', 'lint'))
+    .add('tree.revised', { phase: 'baseline-checks', source: { kind: 'check', check: 'lint' }, change: { findings: [], message: { subject: 'chore: apply the lint check\'s rewrite', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('5') } }] })
+    .add('check.ran', checkRun('baseline-checks', 'test', 'failed'))
+    .finish('baseline-checks')
+    .start('fixes')
+    .add('fixes.planned', fixPlan)
+    .worker(50, 'fixer fixes:c1-1')
+    .add('fix.recorded', fixAnswer(worker(50), {
+      findings: [{
+        id: 'RIPPLE-1', status: 'applied', file: 'src/a.ts', line: 4, note: 'guarded the null before its use', message: { subject: 'fix: Guard the null in parse', body: 'Why.' },
+        files: ['src/a.ts', 'test/a.test.ts'],
+        corrections: [{ file: 'src/a.ts', anchor: 'parse', claim: 'parse is at line 4', fact: 'it moved to line 6', evidence: 'git blame' }],
+        validation: [{ method: 'old-code', source: 'test/a.test.ts', evidence: 'failed on the old code for the null, passed on the fix' }],
+        requiredFiles: [],
+      }],
+      drift: [{ file: 'README.md', what: 'parse no longer throws on null' }],
+      tests: [{ file: 'test/a.test.ts', covers: 'parse(null) returns 0' }],
+    }))
+    .add('tree.revised', { ...fixRevision(worker(50)), change: { findings: ['RIPPLE-1'], message: { subject: 'fix: Guard the null in parse', body: 'Why.' } }, files: [
+      { path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('f') } },
+      { path: 'test/a.test.ts', status: 'created', before: null, beforeSymlink: false, symlink: false, after: { blob: reference('7') } },
+    ] })
+    .add('worktree.checked', { ...endCheck('fixes'), strays: ['notes.txt'] }, 2)
+    .finish('fixes')
+    .start('checks')
+    .add('check.ran', checkRun('checks', 'build'))
+    .add('check.ran', checkRun('checks', 'lint', 'failed'))
+    .add('check.ran', checkRun('checks', 'test', 'failed'))
+    .finish('checks')
+    .start('repair')
+    .worker(60, 'fixer repair:repair')
+    .add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'lint', status: 'applied', file: 'src/a.ts', line: 4, note: 'formatted the guard', message: { subject: 'style: Format the guard', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }, { id: 'test', status: 'deferred', file: 'test/a.test.ts', line: null, note: 'every failure was there before the fixes', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] })
+    .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['lint'], message: { subject: 'style: Format the guard', body: 'Why.' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('8') } }] })
+    .add('worktree.checked', endCheck('repair'), 2)
+    .finish('repair')
+    .start('repair-checks')
+    .add('check.ran', checkRun('repair-checks', 'build'))
+    .add('check.ran', checkRun('repair-checks', 'lint'))
+    .add('check.ran', checkRun('repair-checks', 'test', 'failed'))
+    .finish('repair-checks')
+    .start('report');
+}
+
+export const fixStatistics = {
+  ...statistics,
+  phases: [
+    ...statistics.phases.filter((row) => row.phase !== 'report'),
+    ...(['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'report'] as const).map((phase) => ({ phase, workers: ['fixes', 'repair'].includes(phase) ? 1 : 0, seconds: 8, costUsd: null, costUnreported: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
+  ],
+};
+
+/**
+ * The same history surveyed first: configured at version 3 under
+ * `userRules`, with the fix pass when the history has it, and the survey
+ * phase's events, which `survey` adds, before its first phase. A version 1
+ * plan of checks is left out, since a surveyed run plans its checks in its
+ * survey.
+ */
+export function withSurvey(history: History, survey: (history: History) => History, userRules: 'ignore' | 'apply' | 'judge' = 'judge'): History {
+  const surveyed = new History();
+  for (const event of history.events) {
+    if (event.kind === 'checks.planned' && event.version === 1) continue;
+    if (event.kind !== 'review.configured') {
+      surveyed.add(event.kind, event.payload, event.version);
+      continue;
+    }
+    surveyed.add('review.configured', { fix: false, checks: null, fixes: null, ...(event.payload as object), survey: { userRules } }, 3);
+    survey(surveyed);
+  }
+  return surveyed;
+}
