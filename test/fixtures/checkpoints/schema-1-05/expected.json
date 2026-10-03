@@ -4460,6 +4460,24 @@
                       }
                     ],
                     "requiredFiles": []
+                  },
+                  {
+                    "id": "test",
+                    "status": "deferred",
+                    "file": "src/changed.ts",
+                    "line": 1,
+                    "note": "test deferred",
+                    "message": null,
+                    "files": [],
+                    "corrections": [],
+                    "validation": [
+                      {
+                        "method": "old-code",
+                        "source": "test/changed.test.ts",
+                        "evidence": "red before the fix, green after"
+                      }
+                    ],
+                    "requiredFiles": []
                   }
                 ],
                 "drift": [],

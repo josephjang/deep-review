@@ -64,6 +64,7 @@ A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw i
 ### Repair
 
 - lint check applied: formatted the guard; patch 3
+- test check deferred: every failure was there before the fixes; no patch
 
 Documentation the fixers say their edits made stale, which nothing in this run updated:
 

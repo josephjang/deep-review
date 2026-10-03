@@ -144,7 +144,7 @@ function checksSection(fix: FixState, evidencePath: (reference: { sha256: string
   });
   const notRun = [
     ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
-    ...(fix.checks.runs['repair-checks'].length === 0 ? ['- After the repair: not run, since no check the baseline passed failed after the fixes.'] : []),
+    ...(fix.checks.runs['repair-checks'].length === 0 ? ['- After the repair: not run, since no check failed after the fixes.'] : []),
   ];
   return [
     '## Checks',

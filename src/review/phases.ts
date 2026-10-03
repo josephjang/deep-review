@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, TreeRevised, VerdictsRecorded } from '../checkpoint/events.ts';
-import { fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
+import { failedAtBaseline, fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
@@ -41,7 +41,7 @@ import {
 import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, sweepTask, triageTask, verifierTask, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
+import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
 import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, and for an editing unit its scratch and snapshot command. */
@@ -117,7 +117,7 @@ function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'f
 }
 
 /** A fixer's task over its batch, from the plan, the ranked findings and the pinned checks. */
-function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput): string {
+function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'pathOf'>): string {
   const plan = fixPlanOf(review);
   const second = review.fix?.secondRound ?? null;
   const all = [...plan.batches, ...(second?.batches ?? [])];
@@ -164,6 +164,17 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput)
     snapshotCommand: editing.snapshotCommand,
     mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, [...earlier, ...(inSecondRound ? plan.batches : [])].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review, 'fixes', unit.key),
+    baselineFailures: baselineFailuresOf(review, evidence),
+  });
+}
+
+/** The checks that failed before any fixer edited the tree, with their frozen outputs' paths, as a fixer is told them (R24). */
+function baselineFailuresOf(review: ReviewState, evidence: Pick<EvidenceStore, 'pathOf'>): BaselineFailure[] {
+  const fix = review.fix;
+  if (fix === null) return [];
+  return (fix.checks.planned?.checks ?? []).flatMap((check): BaselineFailure[] => {
+    const run = failedAtBaseline(fix, check.kind) ? lastRun(fix, 'baseline-checks', check.kind) : null;
+    return run === null ? [] : [{ kind: check.kind, stdout: run.stdout === null ? 'none' : evidence.pathOf(run.stdout), stderr: run.stderr === null ? 'none' : evidence.pathOf(run.stderr) }];
   });
 }
 
@@ -174,13 +185,17 @@ function tailOf(evidence: Pick<EvidenceStore, 'read' | 'pathOf'>, reference: Art
   return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
 }
 
-/** The repair worker's task: the checks the fixers broke with their output, everything the fixes changed, and what each fixer did. */
+/** The repair worker's task: the checks failing after the fixes with their output, and their output before for one that failed then too (R24), everything the fixes changed, and what each fixer did. */
 function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'read' | 'pathOf'>): string {
   const fix = review.fix;
   if (fix === null) throw new Error('The repair runs only in a run with the fix pass');
   const checks = repairTargets(fix).map((kind): RepairTaskCheck => {
     const run = lastRun(fix, 'checks', kind)!;
-    return { kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr) };
+    const before = failedAtBaseline(fix, kind) ? lastRun(fix, 'baseline-checks', kind)! : null;
+    return {
+      kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr),
+      baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) },
+    };
   });
   const owned = fixesRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
@@ -215,7 +230,8 @@ export function taskFor(unit: Unit, review: ReviewState, editing: EditingTaskInp
     case 'merge-rank':
       return mergeRankTask(mergeRankInput(review).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
     case 'fixes':
-      return fixerTaskOf(unit, review, requireEditing());
+      if (evidence === null) throw new Error('The fixer task names the baseline checks\' frozen outputs and needs the evidence store');
+      return fixerTaskOf(unit, review, requireEditing(), evidence);
     case 'repair':
       if (evidence === null) throw new Error('The repair task quotes frozen logs and needs the evidence store');
       return repairTaskOf(review, requireEditing(), evidence);
