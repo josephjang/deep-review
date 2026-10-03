@@ -190,6 +190,22 @@ export function changedAgainstHead(repo: string): string[] {
   return [...new Set([...changed, ...untracked])].sort();
 }
 
+/** Every file git does not ignore, tracked or untracked, once each, sorted. */
+export function filesNotIgnored(repo: string): string[] {
+  return [...new Set(records(gitText(repo, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'])))].sort();
+}
+
+/** What git ignores in the worktree, a wholly ignored directory once with a trailing slash, sorted. */
+export function ignoredEntries(repo: string): string[] {
+  return records(gitText(repo, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])).sort();
+}
+
+/** The paths among `paths` that git ignores, sorted; `check-ignore` exits 1 when there is none. */
+export function ignoredPaths(repo: string, paths: readonly string[]): string[] {
+  if (paths.length === 0) return [];
+  return records(gitText(repo, ['check-ignore', '-z', '--stdin'], { okExitCodes: [1], input: Buffer.from(`${paths.join('\0')}\0`) })).sort();
+}
+
 /** The hash the repository names its objects with: `sha1`, or `sha256` for a repository created with that format. */
 export function objectFormat(repo: string): 'sha1' | 'sha256' {
   const format = gitText(repo, ['rev-parse', '--show-object-format']).trim();

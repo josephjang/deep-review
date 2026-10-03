@@ -26,7 +26,7 @@ import { reviewStatus } from './review/state.ts';
 import { checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import type { CheckFlags } from './review/checks/discover.ts';
 import { commitRun } from './review/commit.ts';
-import { takeSnapshot } from './review/snapshot.ts';
+import { readManifest, takeSnapshot } from './review/snapshot.ts';
 import { describeRun } from './review/status.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
@@ -205,14 +205,14 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
   for (const flag of Object.keys(values) as (keyof Values)[]) {
     if (values[flag] !== undefined && !allowed[command]!.includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
+  // A fixer's snapshot runs inside its sandbox, where a process may start no other, so it asks git nothing when the engine's manifest names the worktree (R23).
+  if (command === 'snapshot') return snapshot(values, io);
   const location = locateCheckpoint(values.repo === undefined ? io.cwd : resolve(io.cwd, values.repo));
   switch (command) {
     case 'review':
       return review(values, io, location.root, location.worktree);
     case 'status':
       return status(values, io, location.root);
-    case 'snapshot':
-      return snapshot(values, io, location.worktree);
     case 'commit':
       return commit(values, io, location.root, location.worktree);
     default:
@@ -248,12 +248,20 @@ function commit(values: Values, io: CommandIo, root: string, worktree: string): 
   }
 }
 
-/** Copy the worktree's changed and expected paths into a fixer's snapshot directory after one finding (R6 of the fix pass); reads no ledger, so a sandbox that keeps the git directory read-only runs it. */
-function snapshot(values: Values, io: CommandIo, worktree: string): number {
+/**
+ * Copy what changed since the fixer's launch, and the expected paths, into
+ * its snapshot directory after one finding (R6, R23 of the fix pass). It
+ * reads no ledger, so a sandbox that keeps the git directory read-only runs
+ * it, and starts no process when the engine's manifest is there, which
+ * names the worktree; only without one does it ask git where the
+ * worktree is, from `--repo` or the current directory.
+ */
+function snapshot(values: Values, io: CommandIo): number {
   const finding = values.finding;
   if (finding === undefined || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? '')}`);
   if (values.into === undefined || values.into.trim() === '') throw new UsageError('--into <dir> is required');
   const into = resolve(io.cwd, values.into);
+  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === undefined ? io.cwd : resolve(io.cwd, values.repo)).worktree;
   const listing = takeSnapshot({ worktree, finding: Number(finding), into });
   io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}\n`);
   return 0;
