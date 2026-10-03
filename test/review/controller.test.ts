@@ -159,7 +159,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(text, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/b\.ts:1$/m);
     assert.match(text, /## Refuted at verification\n\n- SCAN-2 \(SCAN\)  src\/a\.ts:6  other\(\) passes null\n  Evidence: other\(\) is never called/);
     assert.match(text, /^\| Total \| 17 \| /m);
-    assert.match(text, /- Run budget: 30\.00 USD/);
+    assert.match(text, /- Run budget: 60\.00 USD/);
     assert.match(text, /- Unlocated candidates.*RIPPLE-2 \(src\/nowhere\.ts:1\)/);
     // The prompts: the finder got its lead, the sweep got the lists, the verifier its numbered group, and every worker the scope block and rules file.
     const ripple = box.promptOf(state, 'finder-RIPPLE finders:RIPPLE');
