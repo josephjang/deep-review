@@ -22870,7 +22870,7 @@ import { tmpdir } from "node:os";
 import { join as join9, resolve as resolve7 } from "node:path";
 
 // src/paths.ts
-import { realpathSync as realpathSync2, statSync } from "node:fs";
+import { readlinkSync, realpathSync as realpathSync2, statSync } from "node:fs";
 import { basename, dirname, isAbsolute as isAbsolute2, join as join8, relative, resolve as resolve6, sep } from "node:path";
 function canonicalPath(path) {
   const absolute = resolve6(path);
@@ -22893,6 +22893,12 @@ function isInside(parent, child) {
 function sameDirectory(a, b) {
   const [left, right] = [resolve6(a), resolve6(b)];
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+function linkTargetText(target, platform = process.platform) {
+  return platform === "win32" ? target.replaceAll("\\", "/") : target;
+}
+function readLinkText(absolute) {
+  return Buffer.from(linkTargetText(readlinkSync(absolute)));
 }
 function isFile(path) {
   try {
@@ -23256,7 +23262,7 @@ function launcherFailure(result, error62, known, io) {
 }
 
 // src/scope/capture.ts
-import { lstatSync as lstatSync3, readFileSync as readFileSync5, readlinkSync } from "node:fs";
+import { lstatSync as lstatSync3, readFileSync as readFileSync5 } from "node:fs";
 import { join as join11 } from "node:path";
 
 // src/scope/errors.ts
@@ -23512,7 +23518,7 @@ function readWorktree(repo, path) {
   const absolute = join11(repo, ...path.split("/"));
   const stat = lstatSync3(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
-  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync(absolute)), symlink: true };
+  if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
   if (stat.isFile()) return { bytes: readFileSync5(absolute), symlink: false };
   throw new UnsupportedRepositoryStateError(`${path} is neither a file nor a symlink`);
 }
@@ -24045,7 +24051,7 @@ function renderMail(message, number5, total, diff) {
 }
 
 // src/review/tree.ts
-import { lstatSync as lstatSync4, readFileSync as readFileSync8, readlinkSync as readlinkSync2 } from "node:fs";
+import { lstatSync as lstatSync4, readFileSync as readFileSync8 } from "node:fs";
 import { join as join14 } from "node:path";
 
 // src/scope/compare.ts
@@ -24093,7 +24099,7 @@ function readTreeEntry(worktree, path) {
     throw error62;
   }
   if (stat === void 0) return null;
-  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync2(absolute)), symlink: true };
+  if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
   if (stat.isFile()) return { bytes: readFileSync8(absolute), symlink: false };
   return null;
 }
@@ -24227,7 +24233,7 @@ function conventionFiles(worktree, changedPaths2, home = homedir()) {
 }
 
 // src/review/locations.ts
-import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync3, readlinkSync as readlinkSync3, readSync } from "node:fs";
+import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync3, readSync } from "node:fs";
 import { join as join16 } from "node:path";
 var unlocated = { file: null, line: null, located: false, inScope: false };
 function normalizeFileName(file2) {
@@ -24319,7 +24325,7 @@ function worktreeLines(worktree, path) {
   const absolute = join16(worktree, ...path.split("/"));
   const stat = lstatSync5(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
-  if (stat.isSymbolicLink()) return countLines(Buffer.from(readlinkSync3(absolute)));
+  if (stat.isSymbolicLink()) return countLines(readLinkText(absolute));
   if (stat.isFile()) return countLinesOf(fileChunks(absolute));
   return null;
 }

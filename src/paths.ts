@@ -7,6 +7,11 @@
  * (`src/runtime/scratch.ts`), and the role prompts' output against the roles
  * directory (`scripts/roles.ts`).
  *
+ * A symlink's target as git records it, for every reader of the worktree's
+ * links: the scope capture (`src/scope/capture.ts`), the fix pass's tree
+ * (`src/review/tree.ts`) and the location check's line count
+ * (`src/review/locations.ts`).
+ *
  * Whether a path names a regular file, for every lookup that must skip what
  * is not one: the runtime executable on PATH (`src/review/executable.ts`)
  * and the rules files that govern a change (`src/review/conventions.ts`).
@@ -16,7 +21,7 @@
  * (`src/review/controller.ts`) and the commit command
  * (`src/review/commit.ts`).
  */
-import { realpathSync, statSync } from 'node:fs';
+import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
@@ -61,6 +66,22 @@ export function isInside(parent: string, child: string): boolean {
 export function sameDirectory(a: string, b: string): boolean {
   const [left, right] = [resolve(a), resolve(b)];
   return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+/**
+ * A symlink's target text as git records it. Windows stores a link's target
+ * with backslashes, where git records it with forward slashes, so the target
+ * reads back with forward slashes there and a link compares equal to its
+ * blob on every platform. Elsewhere a backslash is part of a name and the
+ * text is kept as written.
+ */
+export function linkTargetText(target: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? target.replaceAll('\\', '/') : target;
+}
+
+/** The target text of the symlink at `absolute`, as git records it. */
+export function readLinkText(absolute: string): Buffer {
+  return Buffer.from(linkTargetText(readlinkSync(absolute)));
 }
 
 /**

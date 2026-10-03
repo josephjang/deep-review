@@ -7,9 +7,10 @@
  * single file of the repository, or whose line lies past that file's end,
  * keeps its own spelling with `located: false`. No candidate is dropped here.
  */
-import { closeSync, lstatSync, openSync, readdirSync, readlinkSync, readSync } from 'node:fs';
+import { closeSync, lstatSync, openSync, readdirSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ScopeState } from '../checkpoint/events.ts';
+import { readLinkText } from '../paths.ts';
 
 /** Where a candidate points: a checked file and line, in the change or outside it, or nowhere the repository holds. */
 export type Location =
@@ -181,7 +182,7 @@ function worktreeLines(worktree: string, path: string): number | null {
   const absolute = join(worktree, ...path.split('/'));
   const stat = lstatSync(absolute, { throwIfNoEntry: false });
   if (stat === undefined) return null;
-  if (stat.isSymbolicLink()) return countLines(Buffer.from(readlinkSync(absolute)));
+  if (stat.isSymbolicLink()) return countLines(readLinkText(absolute));
   if (stat.isFile()) return countLinesOf(fileChunks(absolute));
   return null;
 }
