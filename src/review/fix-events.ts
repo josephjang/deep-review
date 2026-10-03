@@ -93,6 +93,7 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
       body: truncated(applied.map((finding) => `${finding.message!.subject}\n\n${finding.message!.body.trimEnd()}`.trimEnd()).join('\n\n'), bodyLength),
     };
   }
+  // An already-applied finding a fixer still edited files for, such as a pinning test, lands here too, since its answer carries no message: https://github.com/josephjang/deep-review/issues/9
   return {
     subject: truncated(`Keep the edits made for ${held.map((finding) => finding.id).join(', ')}`, subjectLength),
     body: truncated(held.map((finding) => `${finding.id} ${finding.status}: ${finding.note}`).join('\n'), bodyLength),
