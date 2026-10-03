@@ -97,7 +97,8 @@ describe('the committed roles/policy.json', () => {
   it('resolves for Codex with no per-worker budget and no run budget, since Codex caps nothing and reports no cost', () => {
     const resolved = resolvePolicy(committed, roles, codexAdapter);
     assert.equal(resolved.runtime, 'codex');
-    assert.deepEqual(resolved.models, { strong: 'gpt-6-astra', fast: 'gpt-5.6-terra' });
+    // The fast tier is the workhorse codex-cli 0.160.0's catalog lists first, near Astra on agentic coding (the survey's gate, 2026-10-04).
+    assert.deepEqual(resolved.models, { strong: 'gpt-6-astra', fast: 'gpt-6.1-sol' });
     assert.equal(resolved.runBudgetUsd, null);
     assert.ok(resolved.roles.every((role) => role.budgetUsd === null));
     assert.equal(pinnedRole(resolved.roles, 'triage').model, 'gpt-6-astra');
