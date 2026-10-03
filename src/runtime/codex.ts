@@ -108,7 +108,13 @@ export interface CodexProvider {
 
 /** How a Codex adapter is built. The user's own config is ignored, so anything a machine needs is chosen here. */
 export interface CodexOptions {
-  /** Unelevated by default, so a machine without the elevated setup still runs workers. */
+  /**
+   * Unelevated by default, so a machine without the elevated setup still
+   * runs workers. Under it no process a worker's process starts may start
+   * another, so a fixer cannot run a repository's build or tests, and
+   * `review` cannot choose elevated yet:
+   * https://github.com/josephjang/deep-review/issues/10
+   */
   readonly windowsSandbox?: WindowsSandbox;
   /** Codex's built-in OpenAI provider by default. */
   readonly provider?: CodexProvider;
