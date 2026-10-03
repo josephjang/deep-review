@@ -81,6 +81,22 @@ Verified at `3029053` (main).
   `worker-failed`. A re-entered phase gives its units fresh attempts.
 - **A configured run ignores check flags** (`resumePinned` in
   `controller.ts`), because its checks are already pinned.
+- **A read-only Codex worker on Windows can look a tool up.** Probed on
+  2026-10-03 with codex-cli 0.157.1 through `codex exec` with the
+  adapter's settings for a read-only worker (`sandbox_mode="read-only"`,
+  `windows.sandbox="unelevated"`, the isolation settings, the adapter's
+  `Path` without the WindowsApps directories), in the click clone. Asked
+  for a lookup and a `--version` of eleven tools, the worker found
+  `git`, `node`, `npm`, `uv` and `dotnet` with their paths and
+  versions, and reported `python`, `ruff`, `mypy`, `pnpm`, `make` and
+  `cargo` as not found, which is what the machine holds. Issue #10's
+  refusals are of processes started by a process the worker started, and
+  a lookup is one process from the worker's shell. Two things the probe
+  showed beside the answer: the worker's shell is PowerShell while a
+  check runs under `cmd.exe`, and on this machine the shell's error
+  text came back in a legacy code page, unreadable but still plainly a
+  failure. The elevated sandbox was not probed; the adapter does not
+  default to it.
 - **Evidence from the click gate**, run `92fbe0f2`: the facts under
   Problem in the requirements. Confirmed by reading the repository at
   `fc518e41`: `[tool.tox]` in `pyproject.toml`,
@@ -106,7 +122,10 @@ The role prompt is new fragments (R13). The task the phase writes names
 what the engine knows and the surveyor cannot see:
 
 - the platform and the shell a check will run under (on Windows,
-  `cmd.exe /d /s /c`, as `run.ts` starts it);
+  `cmd.exe /d /s /c`, as `run.ts` starts it), which is not always the
+  shell the worker's own commands run in, so a lookup is to be made as
+  that shell would resolve the name (`where.exe` on Windows) and judged
+  by whether it succeeded, not by the wording of an error;
 - whether the run fixes, and if so which kinds a flag settled, with the
   flag's command or its drop, so the surveyor leaves them alone;
 - under the policy value `judge`, which user-level rules files exist,
@@ -403,10 +422,6 @@ it gains the warning of the requirements' first risk.
 
 ## Open Questions
 
-- Whether the surveyor on Codex for Windows can look up a tool at all,
-  given issue #10. A probe through the adapter before the gate settles
-  it; if it cannot, the task tells it to leave `missingTool` empty there
-  and the README says that R15 does not hold on that runtime.
 - Whether a convention source outside the repository that the
   repository links to (click's guide points at palletsprojects.com) is
   ever listed. The design says no, since a worker has no network; the

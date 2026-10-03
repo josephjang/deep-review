@@ -278,11 +278,10 @@ contributing guide.
   the rules that matter, and this repository is such a case; always
   applying them is what the click gate showed to be wrong. The setting
   therefore has three values and the surveyor's judgment is one of them.
-  The three values and `judge` as the shipped one are my reading of the
-  decision, awaiting the author: `judge` keeps the model deciding, as
-  PD2 does for the repository's own sources, while a reviewer who only
-  reviews other people's code sets `ignore` and never pays for a wrong
-  judgment. A command-line flag was not added: the policy file is where
+  The author confirmed the three values and `judge` as the shipped one
+  on 2026-10-03: `judge` keeps the model deciding, as PD2 does for the
+  repository's own sources, while a reviewer who only reviews other
+  people's code sets `ignore` and never pays for a wrong judgment. A command-line flag was not added: the policy file is where
   every other default of a run lives.
 - **PD8: One command per kind.** The four kinds and their order are what
   the baseline, the repair and the report are built on. A project with
@@ -344,8 +343,11 @@ contributing guide.
   by running again or with `--check`), or miss one that is absent, in
   which case the kind fails at baseline as any wrong command does and
   the report shows it failed, not that it was skipped. Codex on Windows
-  is the case to watch: its sandbox refuses some process starts (issue
-  #10), which a surveyor could read as a missing tool.
+  was the case to watch, since its sandbox refuses some process starts
+  (issue #10); a probe on 2026-10-03 showed a read-only worker there
+  looks tools up correctly (Technical Design, Context). What remains is
+  that a worker looks from its own shell and the check runs under the
+  engine's, so the two can disagree on a tool only one of them finds.
 - **A fix run on a machine without the project's tools now stops where
   it used to go on.** That is the intent of PD12; the cost is one more
   invocation with a flag for an operator who knew.
