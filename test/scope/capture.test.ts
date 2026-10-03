@@ -216,6 +216,17 @@ describe('captureScope', () => {
       assert.deepEqual(summary(checkpoint, scope), [['to-target', 'modified', true, 'target.txt', 'elsewhere.txt']]);
     });
 
+    it('reads a symlink\'s target as git records it, so an untouched link with a slash in its target is no change', (t) => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'dir/target.txt': 't\n', 'other.txt': 'o\n' });
+      if (!link(repo, 'pointer', 'dir/target.txt')) return t.skip('symlinks are not permitted here');
+      commitAll(repo, 'add link');
+      // Windows stores the link's target with a backslash; git records it with the slash.
+      assert.equal(git(repo, 'cat-file', '-p', 'HEAD:pointer'), 'dir/target.txt');
+      write(repo, 'other.txt', 'changed\n');
+      const { checkpoint, scope } = capture(repo);
+      assert.deepEqual(summary(checkpoint, scope), [['other.txt', 'modified', false, 'o\n', 'changed\n']]);
+    });
+
     it('records a file over the limit by hash and size, in either state, storing no blob', () => {
       const big = Buffer.alloc(freezeLimitBytes + 1, 0x61);
       const repo = repositoryWith(join(sandbox, 'repo'), { 'big.bin': big, 'small.txt': 's\n' });

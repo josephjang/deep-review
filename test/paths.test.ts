@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { canonicalPath, isFile, isInside } from '../src/paths.ts';
+import { canonicalPath, isFile, isInside, linkTargetText } from '../src/paths.ts';
 
 describe('path containment', () => {
   let sandbox: string;
@@ -129,5 +129,22 @@ describe('isFile', () => {
     assert.equal(isFile(join(sandbox, 'file-link')), true);
     assert.equal(isFile(join(sandbox, 'directory-link')), false);
     assert.equal(isFile(join(sandbox, 'dangling-link')), false);
+  });
+});
+
+describe('linkTargetText', () => {
+  it('reads a Windows link target with forward slashes, as git records it', () => {
+    assert.equal(linkTargetText('src\\a.ts', 'win32'), 'src/a.ts');
+    assert.equal(linkTargetText('..\\up\\b.ts', 'win32'), '../up/b.ts');
+  });
+
+  it('keeps a target as written elsewhere, where a backslash is part of a name', () => {
+    assert.equal(linkTargetText('src\\a.ts', 'linux'), 'src\\a.ts');
+    assert.equal(linkTargetText('src/a.ts', 'darwin'), 'src/a.ts');
+  });
+
+  it('leaves a target with no separator alone on every platform', () => {
+    assert.equal(linkTargetText('target.txt', 'win32'), 'target.txt');
+    assert.equal(linkTargetText('', 'win32'), '');
   });
 });

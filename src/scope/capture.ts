@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { RunClosedError } from '../checkpoint/errors.ts';
@@ -6,6 +6,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
 import type { FrozenFile, ScopeFile, ScopeMode, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
 import { sha256Hex, type EvidenceStore } from '../evidence/store.ts';
+import { readLinkText } from '../paths.ts';
 import { CaptureRacedError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from './errors.ts';
 import * as gitApi from './git.ts';
 
@@ -165,7 +166,7 @@ export function readWorktree(repo: string, path: string): WorktreeEntry | null {
   const absolute = join(repo, ...path.split('/'));
   const stat = lstatSync(absolute, { throwIfNoEntry: false });
   if (stat === undefined) return null;
-  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync(absolute)), symlink: true };
+  if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
   if (stat.isFile()) return { bytes: readFileSync(absolute), symlink: false };
   throw new UnsupportedRepositoryStateError(`${path} is neither a file nor a symlink`);
 }

@@ -8,10 +8,11 @@
  * or a fixer's snapshot standing in for it) and freezing the ones that
  * differ from the state before.
  */
-import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FrozenFile, ScopeState } from '../checkpoint/events.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
+import { readLinkText } from '../paths.ts';
 import { freezeBytes } from '../scope/capture.ts';
 import { matchesFrozen } from '../scope/compare.ts';
 import * as gitApi from '../scope/git.ts';
@@ -118,7 +119,7 @@ export function readTreeEntry(worktree: string, path: string): TreeEntry | null 
     throw error;
   }
   if (stat === undefined) return null;
-  if (stat.isSymbolicLink()) return { bytes: Buffer.from(readlinkSync(absolute)), symlink: true };
+  if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
   if (stat.isFile()) return { bytes: readFileSync(absolute), symlink: false };
   return null;
 }
