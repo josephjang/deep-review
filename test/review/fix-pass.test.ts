@@ -516,6 +516,12 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       // The test came after the last snapshot: git reported it, and no finding accounts for it.
       [first.launch.workerId, [], ['test/a.test.ts created']],
     ]);
+    // The log names each revision by the finding it serves, and the last by what it is: no finding's (R27 of the fix pass).
+    assert.deepEqual(box.logs.filter((line) => line.startsWith('worker fixer fixes:c1-1: revised')), [
+      'worker fixer fixes:c1-1: revised 1 file for SCAN-1',
+      'worker fixer fixes:c1-1: revised 1 file for SCAN-2',
+      'worker fixer fixes:c1-1: revised 1 file after its last snapshot',
+    ]);
     const prompt = box.checkpoint.evidence.read(retry.launch.prompt).toString('utf8');
     assert.match(prompt, /An earlier attempt left edits for SCAN-1, SCAN-2, recorded as that attempt's work/);
     assert.deepEqual(fix.answers.fixes['c1-1']!.findings.map((finding) => [finding.status, finding.message?.subject ?? null]), [['already-applied', 'fix(a): Return 0 for a null text'], ['already-applied', 'fix(a): Stop other() passing null']]);
@@ -532,6 +538,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const state = box.run();
     const revision = state.review!.fix!.revisions.find((candidate) => candidate.source.kind === 'check');
     assert.deepEqual(revision === undefined ? null : [revision.phase, revision.source, revision.files.map((file) => file.path), revision.change.message.subject], ['baseline-checks', { kind: 'check', check: 'lint' }, ['src/a.ts'], 'chore: apply the lint check\'s rewrite']);
+    assert.ok(box.logs.includes('check lint (baseline-checks): rewrote 1 file the run expects; recorded as its revision'), box.logs.join('\n'));
     assert.ok(state.review!.checks.every((check) => !check.drifted));
   });
 

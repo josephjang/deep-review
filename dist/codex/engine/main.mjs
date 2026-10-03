@@ -26474,6 +26474,11 @@ function findActiveRun(checkpoint) {
 }
 var seconds = (ms) => `${(ms / 1e3).toFixed(1)} s`;
 var usd3 = (value) => value === null ? "" : `, ${value.toFixed(2)} USD`;
+var fileCount = (count2) => `${String(count2)} file${count2 === 1 ? "" : "s"}`;
+var revisionSummary = (revision) => {
+  const files = fileCount(revision.files.length);
+  return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(", ")}`;
+};
 var driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
 function snapshotCommandFor(engineEntry, into) {
   return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
@@ -26518,7 +26523,7 @@ async function runReview(options2) {
     const events = contributionOf(settled2.unit, settled2.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match });
     for (const event of events) {
       if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
-      if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: revised ${String(event.payload.files.length)} files for ${event.payload.change.findings.join(", ")}`);
+      if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: ${revisionSummary(event.payload)}`);
     }
     state = append(checkpoint, state, events);
   };
@@ -26559,7 +26564,7 @@ async function runReview(options2) {
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? "" : `: ${result.error}`}`);
       const ran = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
       const revision = checkRevision(revisionContext(), phase, due.kind, due.command);
-      if (revision !== null) log(`check ${due.kind} (${phase}): rewrote ${String(revision.payload.files.length)} files the run expects; recorded as its revision`);
+      if (revision !== null) log(`check ${due.kind} (${phase}): rewrote ${fileCount(revision.payload.files.length)} the run expects; recorded as its revision`);
       return [{ kind: "check.ran", version: 1, payload: ran }, ...revision === null ? [] : [revision]];
     };
     for (; ; ) {

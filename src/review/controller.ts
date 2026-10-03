@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, ChecksPlanned, ReviewConfiguration, ReviewLimits, ScopeRequest } from '../checkpoint/events.ts';
+import type { Blocker, CheckRan, ChecksPlanned, ReviewConfiguration, ReviewLimits, ScopeRequest, TreeRevised } from '../checkpoint/events.ts';
 import { revisionMessageOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
@@ -140,6 +140,19 @@ export function findActiveRun(checkpoint: Checkpoint): RunState | null {
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 const usd = (value: number | null): string => (value === null ? '' : `, ${value.toFixed(2)} USD`);
 
+/** A count of files, as the log names it. */
+const fileCount = (count: number): string => `${String(count)} file${count === 1 ? '' : 's'}`;
+
+/**
+ * What a worker's revision did, as the log names it: the findings it
+ * serves, or, for the revision of what a failed attempt left after its last
+ * snapshot, which names none, that (R27 of the fix pass).
+ */
+const revisionSummary = (revision: TreeRevised): string => {
+  const files = fileCount(revision.files.length);
+  return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(', ')}`;
+};
+
 /** What a drifted check found, as the log names it. */
 const driftList = (found: { readonly files: readonly { readonly path: string; readonly outcome: string }[]; readonly head: DriftFound['head'] }): string =>
   [...(found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`]), ...found.files.map((file) => `${file.path} (${file.outcome})`)].join(', ');
@@ -199,7 +212,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match });
     for (const event of events) {
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
-      if (event.kind === 'tree.revised') log(`worker ${settled.unit.role} ${name}: revised ${String((event.payload as { files: unknown[] }).files.length)} files for ${(event.payload as { change: { findings: string[] } }).change.findings.join(', ')}`);
+      if (event.kind === 'tree.revised') log(`worker ${settled.unit.role} ${name}: ${revisionSummary(event.payload as TreeRevised)}`);
     }
     state = append(checkpoint, state, events);
   };
@@ -248,7 +261,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? '' : `: ${result.error}`}`);
       const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
       const revision = checkRevision(revisionContext(), phase, due.kind, due.command);
-      if (revision !== null) log(`check ${due.kind} (${phase}): rewrote ${String((revision.payload as { files: unknown[] }).files.length)} files the run expects; recorded as its revision`);
+      if (revision !== null) log(`check ${due.kind} (${phase}): rewrote ${fileCount((revision.payload as TreeRevised).files.length)} the run expects; recorded as its revision`);
       return [{ kind: 'check.ran', version: 1, payload: ran }, ...(revision === null ? [] : [revision])];
     };
 
