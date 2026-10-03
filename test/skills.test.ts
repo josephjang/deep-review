@@ -60,7 +60,9 @@ describe('the skill texts', () => {
 
   it('tells the Codex skill that the run budget does not apply, and the Claude skill its default', () => {
     assert.match(read('skill/codex/SKILL.md'), /--budget-usd` does not apply to Codex/);
-    assert.match(read('skill/claude/skills/deep-review/SKILL.md'), /--budget-usd <usd>` only when the\s+user names a run budget; the default is 30 USD/);
+    // The default the skill names is the policy's, so a changed default cannot leave the skill behind.
+    const { runBudgetUsd } = (JSON.parse(read('roles/policy.json')) as { runtimes: { claude: { runBudgetUsd: number } } }).runtimes.claude;
+    assert.match(read('skill/claude/skills/deep-review/SKILL.md'), new RegExp(`--budget-usd <usd>\` only when the\\s+user names a run budget; the default is ${String(runBudgetUsd)} USD\\.`));
   });
 
   it('describes the plugin as carrying the engine, in the plugin and the marketplace alike, and no longer as editing nothing', () => {
