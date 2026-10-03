@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
@@ -493,6 +493,23 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       ['fix', ['SCAN-2'], ['src/b.ts']],
     ]);
     assert.ok(box.run().review!.checks.some((check) => check.strays.includes('notes.txt')), 'the notes are a stray, in no revision');
+  });
+
+  it('leaves out of a failed attempt\'s revisions a file git ignores that its snapshot listed, since the snapshot asks git nothing (R23)', async () => {
+    writeFileSync(join(box.repo, '.git', 'info', 'exclude'), '*.log\n');
+    box.script({
+      ...reviewScript,
+      // The log is new since the launch, so the snapshot's walk, which cannot ask git, lists it beside the fix.
+      'fixer:fixes:c1-1': [
+        { edits: [{ writes: { 'src/a.ts': fixedA, 'debug.log': 'trace\n' }, snapshot: 0 }], exit: 3 },
+        { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      ],
+    });
+    report(await box.fix('claude'));
+    const listings = readdirSync(box.scratchRoot, { recursive: true, encoding: 'utf8' }).filter((path) => basename(path) === '0.json');
+    assert.ok(listings.some((path) => Object.hasOwn((JSON.parse(readFileSync(join(box.scratchRoot, path), 'utf8')) as { paths: Record<string, unknown> }).paths, 'debug.log')), `a listing names the log: ${listings.join(', ')}`);
+    const fix = box.run().review!.fix!;
+    assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [['attempt', ['SCAN-1'], ['src/a.ts']]]);
   });
 
   it('records each finding an unfinished attempt snapshotted as its own revision, and commits it with the message the retry gives on verifying it', async () => {
