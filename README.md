@@ -165,7 +165,7 @@ attempt too, but a unit whose attempts run out with a lost worker among
 them blocks the run whatever its role, so an interruption never costs
 coverage: running again gives the unit fresh attempts. At most
 `--concurrency` workers run at once (4 by default), and on a runtime
-that reports cost the run has a budget (`--budget-usd`, 30 USD by
+that reports cost the run has a budget (`--budget-usd`, 60 USD by
 default on Claude Code) checked before every launch; the check counts a
 worker that ran but reported no cost, such as one that timed out, at its
 per-worker budget, and names but does not charge a worker lost with an
@@ -221,7 +221,10 @@ returns a schema the engine validates: per finding a status
 files it changed and, for an applied finding, a commit message. After
 each finding it runs `deep-review snapshot`, which copies what it
 changed into its scratch directory, so the engine records one revision
-of the tree per finding. Once every batch of this first round has
+of the tree per finding. The command finds what changed against a
+manifest of the worktree the engine wrote at launch and starts no
+process, so it works in a sandbox, such as Codex's on Windows, where a
+worker's process cannot start another. Once every batch of this first round has
 settled, a finding a fixer reported blocked only on files another
 cluster owned gets one second round, owning those files too.
 
@@ -247,9 +250,12 @@ default; `--no-check <kind>` drops one. They run one at a time through
 the platform shell, `build` first and the other three only when it
 passed, with the build-server and non-interactive pins, stdin at end of
 input and a timeout from `roles/policy.json`; a check passes by its
-exit code, and its output is frozen. A check that the baseline passed
-and the fixes broke goes to one repair worker; one that failed before
-any fix is reported as such and never repaired. In the fixes and repair
+exit code, and its output is frozen. A check that fails after the fixes
+goes to one repair worker: one the baseline passed to make it pass
+again, and one that failed before any fix too with both outputs, to fix
+only the failures the baseline's does not show. Every fixer is told
+which checks failed before any fix and where their output is. Which
+failures are new is the worker's reading; the engine parses no output. In the fixes and repair
 phases the run budget stops new launches instead of blocking the run:
 what was not launched is reported not attempted, and the run still
 reaches its report.
