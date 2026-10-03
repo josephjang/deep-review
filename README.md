@@ -43,6 +43,7 @@ test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
 test/fixtures/reports/   the report renderer's snapshot
 docs/changes/            change proposals, one per behavior change, in one file or a requirements and design pair
+docs/reports/            measurements of real runs and the levers they suggest, kept for later decisions
 AGENTS.md, CLAUDE.md     conventions every agent follows here
 ```
 
