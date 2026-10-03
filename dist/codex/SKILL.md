@@ -17,11 +17,15 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    user limited the review to. `--budget-usd` does not apply to Codex,
    which reports no cost; do not pass it.
 2. Decide whether to fix. When the user asks for the findings to be
-   fixed or applied, add `--fix`, and `--check <kind>=<command>` for each
-   check command the user names (kind `build`, `typecheck`, `lint` or
-   `test`). Before you run it, tell the user that the engine's workers
-   will edit the working tree and that the run commits nothing. Without
-   such a request, do not pass `--fix`: the review then edits nothing.
+   fixed or applied, add `--fix`. The engine surveys the repository for
+   its checks itself; add `--check <kind>=<command>` only for a check
+   command the user names, and `--no-check <kind>` only for a check the
+   user says to skip (kind `build`, `typecheck`, `lint` or `test`):
+   each settles its kind over the survey. Before you run it, tell the
+   user that the engine's workers will edit the working tree, that it
+   runs the check commands it chose from the repository, and that the
+   run commits nothing. Without such a request, do not pass `--fix`: the
+   review then edits nothing and runs no check.
 3. Run this from the repository, with the longest timeout you can, and
    wait for it to exit. `engine/main.mjs` is in this skill's directory,
    the one that holds this SKILL.md:
@@ -49,6 +53,11 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    per commit. On exit code 2, show stderr verbatim and stop.
 6. Exit code 2: the run is blocked or was refused, and stderr ends with
    the blocker and the operator's action. Show both verbatim and stop.
+   A `check-unavailable` blocker names a check the project defines whose
+   tool this machine lacks; when the user answers it, run the same
+   command again, adding `--no-check <kind>` if they choose to go
+   without that check or `--check <kind>=<command>` if they name one
+   that runs, and nothing if they installed the tool.
 7. Any other exit code: show stderr verbatim and stop.
 
 Never review, fix, revert or commit the change another way under this

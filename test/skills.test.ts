@@ -40,14 +40,23 @@ describe('the skill texts', () => {
     it(`${name}: passes --fix only when asked, warns that the workers edit the tree, and commits only through the engine (R14 of the fix pass)`, () => {
       const text = read(path);
       assert.match(text, /When the user asks for the findings to be\s+fixed or applied, add `--fix`/);
-      assert.match(text, /`--check <kind>=<command>` for each\s+check command the user names/);
-      assert.match(text, /tell the user that the engine's workers\s+will edit the working tree and that the run commits nothing/);
-      assert.match(text, /Without\s+such a request, do not pass `--fix`/);
+      // The survey chooses the checks; a flag settles only a kind the user names (R5 of the repository survey).
+      assert.match(text, /The engine surveys the repository for\s+its checks itself/);
+      assert.match(text, /add `--check <kind>=<command>` only for a check\s+command the user names, and `--no-check <kind>` only for a check the\s+user says to skip/);
+      assert.match(text, /each settles its kind over the survey/);
+      assert.match(text, /tell the\s+user that the engine's workers will edit the working tree, that it\s+runs the check commands it chose from the repository, and that the\s+run commits nothing/);
+      assert.match(text, /Without such a request, do not pass `--fix`/);
       assert.match(text, /the fixes are in the working tree, uncommitted, one\s+patch per finding/);
       assert.match(text, /offer\s+to commit them/);
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" commit`), 'the commit subcommand of the same bundle');
       assert.match(text, /adding `--change-message <message>` when the scope was `--worktree`/);
       assert.match(text, /ask the user for\s+that commit's message before you run it/);
+    });
+
+    it(`${name}: answers a check-unavailable blocker with the flag the user chooses, after showing it (R15 of the repository survey)`, () => {
+      const text = read(path);
+      assert.match(text, /A `check-unavailable` blocker names a check the project defines whose\s+tool this machine lacks/);
+      assert.match(text, /run the same\s+command again, adding `--no-check <kind>` if they choose to go\s+without that check or `--check <kind>=<command>` if they name one\s+that runs, and nothing if they installed the tool/);
     });
   }
 
