@@ -16,7 +16,7 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    With no instruction, use `--worktree` when `git status` shows changes
    and `--last-commit` otherwise. Add `--path <path>` for each path the
    user limited the review to. Pass `--budget-usd <usd>` only when the
-   user names a run budget; the default is 30 USD.
+   user names a run budget; the default is 60 USD.
 2. Decide whether to fix. When the user asks for the findings to be
    fixed or applied, add `--fix`, and `--check <kind>=<command>` for each
    check command the user names (kind `build`, `typecheck`, `lint` or
