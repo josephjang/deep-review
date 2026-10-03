@@ -425,8 +425,10 @@ it gains the warning of the requirements' first risk.
 - Whether a convention source outside the repository that the
   repository links to (click's guide points at palletsprojects.com) is
   ever listed. The design says no, since a worker has no network; the
-  surveyor's note may name it.
+  surveyor's note may name it. On the gate the Claude surveyor did
+  exactly that for click's two palletsprojects.com pages.
 - The strong tier for the surveyor, until the gate's numbers are in.
+  Settled on 2026-10-04 (Verification): the strong tier stays.
 
 ## Test Strategy
 
@@ -542,11 +544,11 @@ proposal (`fd82a45`), from `8505906` to `194e870`. `npm run check` and
 suite already skipped on this machine. Continuous integration on the
 three platforms has not run yet for these commits; it runs when the
 pull request opens, and its result is recorded here then. The gate of
-R14, click #3818 with `--fix` on Claude Code and on Codex and eslint
-#21247 with `--fix` on Claude Code, from fresh clones with no `--check`
-flag and an unprepared `PATH`, has not run: it needs both runtimes and
-spends real money, so it is run by hand and recorded here, with the
-surveyor's cost and time the Open Questions leave to it.
+R14 ran by hand on 2026-10-04 and is recorded below, after the commits;
+its first runs led to the amendment above and to three more commits,
+`790e088`, `903e825` and `7b92da7`, each with `npm run check` and
+`npm run verify` passing before it, the last ending at 1355 tests,
+1337 passing and 18 skipped.
 
 The commits, in order, and what each carries:
 
@@ -566,6 +568,13 @@ The commits, in order, and what each carries:
   `phase3-sweep.md` and `fixer-apply.md` (R13), alone.
 - `7129742` the skill texts, rebuilt into `dist/`.
 - `194e870` the README.
+- `790e088` the amendment after the first gate runs: the reviewer's
+  authorship as counts in the surveyor's task (TD14), and the lookup of
+  what a command starts (TD15), with their fragments.
+- `903e825` the Codex fast tier on gpt-6.1-sol, which the catalog of
+  codex-cli 0.160.0 lists first, in place of gpt-5.6-terra.
+- `7b92da7` the report's reason for checks phases that ran nothing
+  when no kind has a command, which the no-`uv` gate run showed.
 
 The roles' hashes. `8505906` adds the surveyor, 5 fragments and 6908
 bytes, `d497c899f721d30d975dc5a7b8764a8a562d3535927ba694733b166c0b34a643`,
@@ -630,6 +639,108 @@ from its text, each recorded here rather than silently:
   run configured with the survey, and a run configured before it
   renders as it did, so the two committed snapshots are unchanged and a
   third covers the survey.
+
+**R14 passed on 2026-10-04, after one amendment: every run reached a
+report with no hand on it, and on the amended engine the Codex surveyor
+met each criterion it failed before.**
+
+Every run used the shipped bundle of this worktree's `dist/`, on the
+author's Windows 11 machine with Node 26.10.0, from a fresh clone under
+`C:\Users\josep\projects\gate\survey-2026-10-04`, with no `--check`
+flag and a `PATH` that holds `uv` and no `python`, `tox`, `pre-commit`,
+`mypy`, `pyright` or `ruff`. click #3818 was reviewed as its one commit,
+`fc518e4`, with `--last-commit`; eslint #21247 as the range from its
+merge base `c6cc6c592` to its head `48a3ad4d9`. click got no setup,
+since its guide names none and `uv run` builds its own environment;
+eslint got `npm install`. The first three runs ran at once, and so did
+the last two, so their wall seconds are not a clean measure of one run.
+The first three ran on engine `0.0.0+98f84e1016d9` (`22a8415`), the
+last two on `0.0.0+635fefcbf69d` (`903e825`), after the amendment and
+the Codex fast tier's change. codex-cli was updated from 0.157.1 to
+0.160.0 between the two; each run's workers recorded one version.
+
+| | click, Claude | eslint, Claude | click, Codex | click, Codex, amended | click, Codex, no `uv` |
+|---|---|---|---|---|---|
+| Run | `e0a1f834` | `40971dc2` | `58925e84` | `e9755671` | `fac9ba18` |
+| Runtime | claude 2.1.288 | claude 2.1.288 | codex-cli 0.157.1 | codex-cli 0.160.0 | codex-cli 0.160.0 |
+| Models | `claude-opus-5-5`, `claude-sonnet-5-5` | the same | gpt-6-astra, gpt-5.6-terra | gpt-6-astra, gpt-6.1-sol | gpt-6-astra, gpt-6.1-sol |
+| Workers | 31 | 23 | 27 | 29 | 25 |
+| Wall seconds | 1318 | 879 | 2477 | 3540 | 2638 |
+| Cost | 10.15 USD of 60 | 7.63 USD of 60 | not reported | not reported | not reported |
+| Input tokens (cached) | 6201501 (5417160) | 5456266 (4791307) | 8079429 (6895744) | 10390422 (9049344) | 7664900 (6563584) |
+| Output tokens | 167737 | 104239 | 90688 | 106124 | 84096 |
+| Surveyor | 33.9 s, 0.28 USD | 32.8 s, 0.37 USD | 89.4 s | 68.3 s | 78.6 s |
+| Triage | 126.6 s, 0.59 USD | 147.4 s, 0.71 USD | 139.9 s | 161.8 s | 136.7 s |
+| Survey | completed | completed | blocked, then flags | completed | blocked, then flags |
+| Baseline | build, lint, test passed; typecheck failed | typecheck, lint, test passed | build, test passed; typecheck failed; lint dropped | build, lint, test passed; typecheck failed | no check |
+| Findings | 20: 5 CONFIRMED, 15 PLAUSIBLE | 10: 4, 6 | 15: 13, 2 | 22: 21, 1 | 18: 10, 8 |
+| Refuted | 10 | 4 | 3 | 0 | 0 |
+| Patches | 13 | 5 | 14 | 21 | 12 |
+
+The criteria, run by run:
+
+- **`docs/contributing.md` listed:** in all four click runs, each with
+  `.github/pull_request_template.md`; the first Codex run also listed
+  `docs/contrib.md`.
+- **The reviewer's home rules not applied under `judge`:** declined by
+  both Claude surveyors, which saw `user.email` unset in their shells,
+  and by the amended and the no-`uv` Codex surveyors, which cited the
+  task's statement that no email is configured. The first Codex
+  surveyor applied both on a commit author it read as the configured
+  email: the evidence of the amendment (TD14). Even there, every
+  `CONVENTIONS` finding quoted `docs/contributing.md` and none the home
+  rules.
+- **A `test` command that passes at baseline:** tox's `py3.13` on
+  Claude, 6.9 s, and `py3.14` on the amended Codex, 6.8 s, both through
+  `uv run --locked --no-default-groups --group dev` from
+  `.github/workflows/tests.yaml`. The first Codex run passed `py3.14`
+  too, but through `--check` after its false block.
+- **At least one of `lint` and `typecheck` from the project's own
+  configuration:** `lint` passed at baseline on Claude (`ruff check
+  --no-fix` and `ruff format --check`, from `.pre-commit-config.yaml`)
+  and on the amended Codex (`pre-commit run --all-files` through its
+  dependency group, from `.github/workflows/pre-commit.yaml`).
+  `typecheck`, tox's `typing` environment, failed at baseline in every
+  click run on the seven mypy errors in `_termui_impl.py` and
+  `testing.py` that the previous click gate measured by hand; each
+  repair worker read both outputs, found no new failure and deferred
+  the kind, as fix pass R24 intends.
+- **A check whose tool is missing blocks with R15's action and goes on
+  after `--no-check`:** the first Codex run blocked falsely, on `tox`
+  and `pre-commit` its commands provide (TD15), and went on after
+  `--no-check lint` and `--check` for the other two. The no-`uv` run
+  is the design's run on a shell without a chosen tool: its survey
+  blocked before the triage on all four kinds, `uv not found`, and went
+  on after `--no-check` for each. Both re-entered the survey and
+  planned with no second surveyor, and the no-`uv` report says of each
+  kind that the operator dropped it and what the project defines.
+- **eslint: `lint` and `test` commands that pass at baseline:** `node
+  Makefile lint`, 17.7 s, and `node Makefile mocha`, 55.3 s, from
+  `.github/workflows/ci.yml`, with `typecheck` `npx tsc -p
+  tests/lib/types/tsconfig.json` passing and `build` not available,
+  with the reason. The requirements call eslint at this commit a
+  repository with no rules file; that holds for `AGENTS.md` and
+  `CLAUDE.md` only. `.github/copilot-instructions.md` is there, and the
+  survey listed it with four contributor documents.
+
+What else the gate showed:
+
+- `CONVENTIONS` on click held the change to `docs/contributing.md`: the
+  80-column rule for Markdown that the previous click gate's fixer
+  broke is what the fixers of the Claude and the amended Codex runs
+  enforced, measuring the lines they rewrapped.
+- The no-`uv` report said the checks after the fixes did not run since
+  no fix changed a file, beside twelve patches; `7b92da7` fixes it.
+- The survey costs less than the triage everywhere: on Claude 33 s and
+  0.28 or 0.37 USD against 127 or 147 s and 0.59 or 0.71 USD, on Codex
+  68 to 89 s against 137 to 162 s. The Open Question on the surveyor's
+  tier is settled as the strong tier: the Codex surveyor's two failures
+  were facts it could not see, which TD14 and TD15 supply, and the same
+  model at the same effort answered rightly once they did.
+- The two Claude runs ran on the surveyor's prompt before `790e088`;
+  the author chose not to run them again. The amendment changes only
+  the surveyor's task and two of its fragments, and both Claude
+  surveyors already gave the answers it asks for.
 
 ## Risks & Migration
 

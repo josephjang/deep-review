@@ -299,7 +299,10 @@ invented ones. The reviewer's own `~/.claude/CLAUDE.md` and
 `roles/policy.json`, pinned on the run: `ignore` never applies them,
 `apply` always does, and `judge`, the shipped value, offers each that
 exists to the surveyor, which applies one only on stated grounds that
-the repository is the reviewer's own work or adopts those rules.
+the repository is the reviewer's own work or adopts those rules. The
+engine tells it how many of the repository's recent commits were
+authored with the reviewer's git email, which its isolated shell cannot
+see; the address itself never reaches a prompt.
 
 In a fix run the checks are planned when the survey completes, before
 the triage, from the invocation's flags over the survey: a
