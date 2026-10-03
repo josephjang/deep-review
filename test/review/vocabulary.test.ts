@@ -27,14 +27,14 @@ describe('roleOfAngle', () => {
 });
 
 describe('the review roles', () => {
-  it('are the triage, the nine finders in launch order, then the roles of the later phases and the fix pass\'s fixer, each once', () => {
-    assert.deepEqual(reviewRoles, ['triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
+  it('are the surveyor, the triage, the nine finders in launch order, then the roles of the later phases and the fix pass\'s fixer, each once', () => {
+    assert.deepEqual(reviewRoles, ['surveyor', 'triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
     assert.equal(new Set(reviewRoles).size, reviewRoles.length, 'no role is listed twice');
   });
 
   it('name the nine finders, and only them, as finder roles', () => {
     assert.deepEqual(reviewRoles.filter(isFinderRole), finderAngles.map((angle) => `finder-${angle}`));
-    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
+    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['surveyor', 'triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
   });
 });
 
@@ -42,7 +42,7 @@ describe('singleUnitKey', () => {
   it('is SCAN for the triage and the phase name for every other phase with one worker', () => {
     assert.equal(singleUnitKey('triage'), triageUnitKey);
     assert.equal(triageUnitKey, 'SCAN');
-    for (const phase of ['sweep', 'deduplication', 'sweep-deduplication', 'merge-rank'] as const) assert.equal(singleUnitKey(phase), phase);
+    for (const phase of ['survey', 'sweep', 'deduplication', 'sweep-deduplication', 'merge-rank'] as const) assert.equal(singleUnitKey(phase), phase);
   });
 });
 
@@ -55,9 +55,9 @@ describe('candidateIdPrefix', () => {
 });
 
 describe('the phases', () => {
-  it('are the read-only phases, the five of the fix pass, then the report', () => {
-    assert.deepEqual(phases, ['triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'report']);
-    assert.deepEqual(fixPhases, phases.slice(8, 13));
+  it('are the survey, the read-only phases, the five of the fix pass, then the report', () => {
+    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'report']);
+    assert.deepEqual(fixPhases, phases.slice(9, 14));
   });
 
   it('split the fix pass into the phases that run checks and the phases that edit', () => {

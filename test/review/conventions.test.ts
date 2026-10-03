@@ -3,63 +3,38 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { ancestorDirectories, conventionFileNames, conventionFiles, userConventionFiles } from '../../src/review/conventions.ts';
+import { existingUserRulesFiles, userConventionFiles } from '../../src/review/conventions.ts';
 
-describe('ancestorDirectories', () => {
-  it('gives the root and every ancestor of each changed path, shallowest first, without repeats', () => {
-    assert.deepEqual(ancestorDirectories([]), ['']);
-    assert.deepEqual(ancestorDirectories(['a.ts']), ['']);
-    assert.deepEqual(ancestorDirectories(['src/x/a.ts', 'src/b.ts', 'lib/c.ts', 'src/x/d.ts']), ['', 'lib', 'src', 'src/x']);
-  });
-});
-
-describe('conventionFiles', () => {
-  let sandbox: string;
+describe('existingUserRulesFiles', () => {
   let home: string;
-  let worktree: string;
-  const write = (root: string, path: string): void => {
-    mkdirSync(join(root, ...path.split('/').slice(0, -1)), { recursive: true });
-    writeFileSync(join(root, ...path.split('/')), `# ${path}\n`);
+  const write = (path: string): void => {
+    mkdirSync(join(home, ...path.split('/').slice(0, -1)), { recursive: true });
+    writeFileSync(join(home, ...path.split('/')), `# ${path}\n`);
   };
   beforeEach(() => {
-    sandbox = mkdtempSync(join(tmpdir(), 'deep-review-conventions-'));
-    home = join(sandbox, 'home');
-    worktree = join(sandbox, 'repo');
-    mkdirSync(home);
-    mkdirSync(worktree);
+    home = mkdtempSync(join(tmpdir(), 'deep-review-conventions-'));
   });
-  afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
+  afterEach(() => rmSync(home, { recursive: true, force: true }));
 
-  it('lists nothing when no rules file exists', () => {
-    assert.deepEqual(conventionFiles(worktree, ['src/a.ts'], home), []);
+  it('lists nothing when neither user-level rules file exists', () => {
+    assert.deepEqual(existingUserRulesFiles(home), []);
   });
 
-  it('lists the user files first, then the root and each ancestor directory of a changed file, in depth order', () => {
-    write(home, '.claude/CLAUDE.md');
-    write(home, '.codex/AGENTS.md');
-    write(worktree, 'AGENTS.md');
-    write(worktree, 'CLAUDE.local.md');
-    write(worktree, 'src/CLAUDE.md');
-    write(worktree, 'src/deep/AGENTS.md');
-    write(worktree, 'other/CLAUDE.md');
-    assert.deepEqual(conventionFiles(worktree, ['src/deep/a.ts', 'src/b.ts'], home), [
-      { level: 'user', path: join(home, '.claude', 'CLAUDE.md') },
-      { level: 'user', path: join(home, '.codex', 'AGENTS.md') },
-      { level: 'repository', path: 'CLAUDE.local.md' },
-      { level: 'repository', path: 'AGENTS.md' },
-      { level: 'repository', path: 'src/CLAUDE.md' },
-      { level: 'repository', path: 'src/deep/AGENTS.md' },
-    ]);
+  it('lists each that exists, absolute, Claude Code\'s before Codex\'s', () => {
+    write('.codex/AGENTS.md');
+    assert.deepEqual(existingUserRulesFiles(home), [join(home, '.codex', 'AGENTS.md')]);
+    write('.claude/CLAUDE.md');
+    assert.deepEqual(existingUserRulesFiles(home), [join(home, '.claude', 'CLAUDE.md'), join(home, '.codex', 'AGENTS.md')]);
   });
 
-  it('passes over a directory named like a rules file', () => {
-    mkdirSync(join(worktree, 'CLAUDE.md'));
-    write(worktree, 'src/AGENTS.md');
-    assert.deepEqual(conventionFiles(worktree, ['src/a.ts'], home), [{ level: 'repository', path: 'src/AGENTS.md' }]);
+  it('passes over a directory named like a rules file, and a rules file\'s name anywhere else under home', () => {
+    mkdirSync(join(home, '.claude', 'CLAUDE.md'), { recursive: true });
+    write('AGENTS.md');
+    write('.codex/rules/AGENTS.md');
+    assert.deepEqual(existingUserRulesFiles(home), []);
   });
 
-  it('names the three files and the two user paths the angle text names', () => {
-    assert.deepEqual(conventionFileNames, ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md']);
+  it('names the two user-level paths the role text names', () => {
     assert.deepEqual(userConventionFiles, ['.claude/CLAUDE.md', '.codex/AGENTS.md']);
   });
 });

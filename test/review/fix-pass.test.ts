@@ -4,7 +4,6 @@ import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
-import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { policyFileName } from '../../src/review/policy.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -68,7 +67,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const review = state.review!;
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(Object.fromEntries(Object.entries(review.phases).map(([phase, value]) => [phase, value.status])), {
-      triage: 'completed', finders: 'completed', deduplication: 'completed', verification: 'completed', sweep: 'completed', 'sweep-deduplication': 'completed', 'sweep-verification': 'completed', 'merge-rank': 'completed',
+      survey: 'completed', triage: 'completed', finders: 'completed', deduplication: 'completed', verification: 'completed', sweep: 'completed', 'sweep-deduplication': 'completed', 'sweep-verification': 'completed', 'merge-rank': 'completed',
       'baseline-checks': 'completed', fixes: 'completed', checks: 'completed', repair: 'completed', 'repair-checks': 'completed', report: 'completed',
     });
     const fix = review.fix!;
@@ -578,24 +577,41 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(state.review!.report!.patches.length, 1);
   });
 
-  it('discovers the checks from package.json and npm\'s lock file when no --check names them, and pins them on the run', async () => {
-    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+  it('runs the checks the surveyor chose from package.json, a hinted one and stated ones, with a --no-check over the survey, and pins them on the run (R4, R5, R11 of the repository survey)', async () => {
+    const script = (kind: string, basis: 'stated' | 'hint'): Record<string, unknown> => ({ kind, command: `npm run ${kind}`, basis, source: { path: 'package.json', quote: `"${kind}": "node ..."` }, missingTool: null, reason: null });
+    box.script({
+      ...reviewScript,
+      surveyor: { output: { conventions: [], userRules: [], checks: [script('build', 'hint'), script('lint', 'stated'), script('test', 'stated')], note: '' } },
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+    });
     report(await box.review('claude', { fix: { commands: {}, dropped: ['typecheck'] } }));
-    const planned = box.run().review!.fix!.checks.planned!;
-    assert.equal(planned.manager, 'npm');
-    assert.deepEqual(planned.checks.map((check) => [check.kind, check.command, check.origin]), [['build', 'npm run build', 'package'], ['typecheck', null, 'flag'], ['lint', 'npm run lint', 'package'], ['test', 'npm run test', 'package']]);
+    const state = box.run();
+    const planned = state.review!.fix!.checks.planned!;
+    assert.equal(planned.manager, null, 'a version 2 plan names no package manager');
+    assert.deepEqual(planned.checks.map((check) => [check.kind, check.command, check.origin, check.source?.basis ?? null]), [['build', 'npm run build', 'survey', 'hint'], ['typecheck', null, 'flag', null], ['lint', 'npm run lint', 'survey', 'stated'], ['test', 'npm run test', 'survey', 'stated']]);
     assert.deepEqual(box.checkRuns(), ['build', 'lint', 'test', 'build', 'lint', 'test'], 'npm ran each script, and the dropped kind never ran');
+    // The surveyor was told the kinds to choose, the flag that settled typecheck, the shell a check runs in, and the manifest rules' hints as guesses.
+    const prompt = box.promptOf(state, 'surveyor survey:survey');
+    assert.match(prompt, /^Kinds to choose: build, lint, test$/m);
+    assert.match(prompt, /^- typecheck: dropped by --no-check$/m);
+    assert.match(prompt, process.platform === 'win32' ? /as `cmd\.exe \/d \/s \/c "<command>"`[\s\S]*`where\.exe <tool>`/ : /as `\/bin\/sh -c "<command>"`[\s\S]*`command -v <tool>`/);
+    assert.match(prompt, /^- build: `npm run build` \(the package\.json script `build` through npm, which package-lock\.json names\)$/m);
+    assert.doesNotMatch(prompt, /^- typecheck: (none|`)/m, 'no hint for a kind a flag settled');
+    assert.ok(box.logs.includes(`run ${state.id}: check build: npm run build (survey, hint in package.json)`), box.logs.join('\n'));
+    assert.ok(box.logs.includes(`run ${state.id}: check typecheck: not available (flag: dropped by --no-check)`), box.logs.join('\n'));
   });
 
-  it('refuses a repository whose lock files name two package managers before any run is created, naming them and --check', async () => {
+  it('hints, and no longer refuses, a repository whose lock files name two package managers, and plans no check the surveyor did not choose (R11 of the repository survey)', async () => {
     write(box.repo, 'yarn.lock', '# yarn\n');
     git(box.repo, 'add', 'yarn.lock');
     git(box.repo, 'commit', '-q', '--amend', '--no-edit');
     box.script(reviewScript);
-    await assert.rejects(box.review('claude', { fix: { commands: {}, dropped: [] } }), (error: unknown) => error instanceof ReviewRefusedError && /yarn\.lock, package-lock\.json/.test(error.message) && /--check <kind>=<command>/.test(error.message));
-    assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
-    // Naming every check that would run a script settles it.
-    report(await box.fix('claude'));
+    report(await box.review('claude', { fix: { commands: {}, dropped: [] } }));
+    const state = box.run();
+    assert.match(box.promptOf(state, 'surveyor survey:survey'), /^- test: none \(the package\.json script `test`, but the lock files name more than one package manager \(yarn\.lock, package-lock\.json\)/m);
+    // The fake surveyor chose no command, so no hinted command ran: a hint is a guess, never a plan.
+    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.command, check.origin]), [['build', null, 'none'], ['typecheck', null, 'none'], ['lint', null, 'none'], ['test', null, 'none']]);
+    assert.deepEqual(box.checkRuns(), []);
   });
 
   it('writes a series that leaves the user\'s own uncommitted change out, so it applies at HEAD in worktree mode', async () => {

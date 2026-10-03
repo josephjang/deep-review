@@ -250,7 +250,6 @@ export const workerLostV1 = z.strictObject({
   message: 'a lost worker names both its phase and its unit key, or neither',
   path: ['key'],
 });
-export type WorkerLost = z.infer<typeof workerLostV1>;
 
 /** One role as the run pinned it: the model and effort it runs with, its per-worker budget (null on a runtime without a budget cap) and timeout. */
 export const pinnedRoleSchema = z.strictObject({
@@ -304,15 +303,13 @@ export const phaseStartedV1 = z.strictObject({
   phase: phaseSchema,
   attempt: z.number().int().min(1),
 });
-export type PhaseStarted = z.infer<typeof phaseStartedV1>;
 
-/** Why a run is blocked and what the operator does about it (R5). */
+/** Why a run is blocked and what the operator does about it (R5), as version 1 of `phase.finished` records it. */
 export const blockerSchema = z.strictObject({
   code: recordedBlockerCodeSchema,
   detail: recordedTextSchema,
   action: z.string().min(1).max(1000),
 });
-export type Blocker = z.infer<typeof blockerSchema>;
 
 /** A phase ends: every unit answered, some unit degraded by its role's rule, or the run blocked, with the blocker. */
 export const phaseFinishedV1 = z.strictObject({
@@ -324,7 +321,6 @@ export const phaseFinishedV1 = z.strictObject({
   message: 'a blocker is present exactly when the outcome is blocked',
   path: ['blocker'],
 });
-export type PhaseFinished = z.infer<typeof phaseFinishedV1>;
 
 /** The worktree was compared with the captured scope before a phase's work (R7); only the files that differ are listed. */
 export const worktreeCheckedV1 = z.strictObject({
@@ -406,7 +402,6 @@ export const attemptFailedV1 = z.strictObject({
   workerId: z.uuid(),
   reason: recordedTextSchema,
 });
-export type AttemptFailed = z.infer<typeof attemptFailedV1>;
 
 /** A finder angle failed twice and is not run in this review; the report says so and the sweep is told (R5). */
 export const angleFailedV1 = z.strictObject({
@@ -570,8 +565,6 @@ export const reviewConfiguredV2 = z.strictObject({
   path: ['fixes'],
 });
 export type ReviewConfigurationV2 = z.infer<typeof reviewConfiguredV2>;
-/** The configuration as the fold holds it, whichever version recorded it: version 1 reads as a run without the fix pass. */
-export type ReviewConfiguration = ReviewConfigurationV2;
 
 /** `phase.started` over the fourteen phases. */
 export const phaseStartedV2 = z.strictObject({
@@ -642,8 +635,6 @@ export const reportWrittenV2 = z.strictObject({
   patches: z.array(artifactReferenceSchema).max(2000),
 });
 export type ReportWrittenV2 = z.infer<typeof reportWrittenV2>;
-/** The report as the fold holds it: version 1 reads as a report with no patch. */
-export type ReportWritten = ReportWrittenV2;
 
 /**
  * The routes of every ranked finding, the clusters of the fixer-routed
@@ -709,7 +700,7 @@ export const checksPlannedV1 = z.strictObject({
   message: 'one check per kind, in the order the kinds run',
   path: ['checks'],
 });
-export type ChecksPlanned = z.infer<typeof checksPlannedV1>;
+export type ChecksPlannedV1 = z.infer<typeof checksPlannedV1>;
 
 /**
  * One check as it ran, or as it was skipped because `build` did not pass
@@ -854,6 +845,258 @@ export const commitsCreatedV1 = z.strictObject({
 });
 export type CommitsCreated = z.infer<typeof commitsCreatedV1>;
 
+/**
+ * The vocabulary version 3 of the review events records, and version 1 of
+ * the survey's events (R1, R3, R4, R15 of the repository survey): the
+ * fifteen phases, with `survey` first; the recorded blocker codes, with
+ * `check-unavailable`; who decided a check (`flag`, `survey` or `none`)
+ * and what a surveyed command stood on; where a convention source lives;
+ * and the values of the policy setting for the reviewer's own rules.
+ * Frozen here for the reason `reviewVocabularyV1` is: a test holds it
+ * equal to today's vocabulary.
+ */
+export const reviewVocabularyV3 = {
+  phases: [
+    'survey',
+    'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+    'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+    'report',
+  ],
+  phaseOutcomes: ['completed', 'degraded', 'blocked'],
+  recordedBlockerCodes: ['worker-failed', 'budget', 'drift', 'check-unavailable'],
+  checkKinds: ['build', 'typecheck', 'lint', 'test'],
+  checkOrigins: ['flag', 'survey', 'none'],
+  checkBases: ['stated', 'hint'],
+  conventionLevels: ['repository', 'user'],
+  userRulesSettings: ['ignore', 'apply', 'judge'],
+} as const;
+
+const vocabularyV3 = reviewVocabularyV3;
+const phaseSchemaV3 = z.enum(vocabularyV3.phases);
+const checkKindSchemaV3 = z.enum(vocabularyV3.checkKinds);
+const checkBaseSchemaV3 = z.enum(vocabularyV3.checkBases);
+
+/** The blocker of version 3 of `phase.finished`, with the survey's `check-unavailable`. */
+export const blockerSchemaV3 = z.strictObject({
+  code: z.enum(vocabularyV3.recordedBlockerCodes),
+  detail: recordedTextSchema,
+  action: z.string().min(1).max(1000),
+});
+/** A blocker as the fold holds it, whichever version recorded it. */
+export type Blocker = z.infer<typeof blockerSchemaV3>;
+
+/**
+ * `review.configured` with the survey (R3, TD13 of the repository
+ * survey): version 2 and the pinned value of the policy setting that
+ * decides whether the reviewer's own rules files apply.
+ */
+export const reviewConfiguredV3 = z.strictObject({
+  ...reviewConfiguredV2.shape,
+  survey: z.strictObject({ userRules: z.enum(vocabularyV3.userRulesSettings) }),
+}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
+  message: 'the checks are pinned exactly when the run fixes',
+  path: ['checks'],
+}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
+  message: 'the batch size is pinned exactly when the run fixes',
+  path: ['fixes'],
+});
+/** The configuration as the fold holds it, whichever version recorded it: version 1 reads as a run without the fix pass, and versions 1 and 2 as runs that applied the reviewer's own rules, which the engine did when they were recorded. */
+export type ReviewConfiguration = z.infer<typeof reviewConfiguredV3>;
+
+/** `phase.started` over the fifteen phases. */
+export const phaseStartedV3 = z.strictObject({
+  phase: phaseSchemaV3,
+  attempt: z.number().int().min(1),
+});
+export type PhaseStarted = z.infer<typeof phaseStartedV3>;
+
+/** `phase.finished` over the fifteen phases, with the blocker codes of version 3. */
+export const phaseFinishedV3 = z.strictObject({
+  phase: phaseSchemaV3,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV3.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+export type PhaseFinished = z.infer<typeof phaseFinishedV3>;
+
+/** `worktree.checked` over the fifteen phases. */
+export const worktreeCheckedV3 = z.strictObject({
+  ...worktreeCheckedV2.shape,
+  phase: phaseSchemaV3,
+}).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
+  message: 'drifted exactly when some file differs or HEAD moved',
+  path: ['drifted'],
+});
+export type WorktreeCheckV3 = z.infer<typeof worktreeCheckedV3>;
+
+/** `attempt.failed` over the fifteen phases. */
+export const attemptFailedV3 = z.strictObject({
+  phase: phaseSchemaV3,
+  key: unitKeySchema,
+  workerId: z.uuid(),
+  reason: recordedTextSchema,
+});
+export type AttemptFailed = z.infer<typeof attemptFailedV3>;
+
+/** `worker.lost` over the fifteen phases. */
+export const workerLostV3 = z.strictObject({
+  workerId: z.uuid(),
+  phase: phaseSchemaV3.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: z.string().min(1).max(1000),
+}).refine((lost) => (lost.phase === null) === (lost.key === null), {
+  message: 'a lost worker names both its phase and its unit key, or neither',
+  path: ['key'],
+});
+export type WorkerLost = z.infer<typeof workerLostV3>;
+
+/** `report.written` over the fifteen phases: the statistics gain the survey's row. */
+export const reportWrittenV3 = z.strictObject({
+  report: artifactReferenceSchema,
+  statistics: z.strictObject({
+    phases: z.array(spendSchema.extend({ phase: phaseSchemaV3 })),
+    total: spendSchema,
+    budgetApplied: z.boolean(),
+  }),
+  patches: z.array(artifactReferenceSchema).max(2000),
+});
+/** The report as the fold holds it: version 1 reads as a report with no patch. */
+export type ReportWritten = z.infer<typeof reportWrittenV3>;
+
+/** A repository-relative path with forward slashes, or an absolute path for a user-level file, as the survey's events record them. */
+const surveyPathSchema = z.string().min(1).max(1000);
+
+/**
+ * One file that states rules a change must follow (R2, R3 of the
+ * repository survey): its path, repository-relative for one in the
+ * repository and absolute for a user-level file; what it governs; the
+ * globs it applies to when that is narrower than the repository; and,
+ * for a user-level file alone, the grounds on which it applies.
+ */
+export const conventionSourceSchema = z.strictObject({
+  path: surveyPathSchema,
+  level: z.enum(vocabularyV3.conventionLevels),
+  governs: z.string().min(1).max(1000),
+  appliesTo: z.array(z.string().min(1).max(400)).min(1).max(50).nullable(),
+  grounds: z.string().min(1).max(1000).nullable(),
+}).refine((source) => (source.level === 'user') === (source.grounds !== null), {
+  message: 'a user-level source alone states its grounds',
+  path: ['grounds'],
+});
+export type ConventionSource = z.infer<typeof conventionSourceSchema>;
+
+/** Whether one user-level rules file that existed applies to the run, and why: the policy's value, or the surveyor's judgment (R3). */
+export const userRuleDecisionSchema = z.strictObject({
+  path: surveyPathSchema,
+  applied: z.boolean(),
+  reason: z.string().min(1).max(1000),
+});
+export type UserRuleDecision = z.infer<typeof userRuleDecisionSchema>;
+
+/**
+ * One kind's check as the surveyor chose it (R4, R11, R15): its command
+ * with the file and text it took it from and whether that was stated or a
+ * hint, and the tool it found missing; or no command, with the reason.
+ */
+export const surveyedCheckSchema = z.strictObject({
+  kind: checkKindSchemaV3,
+  command: z.string().min(1).max(2000).nullable(),
+  basis: checkBaseSchemaV3.nullable(),
+  source: z.strictObject({ path: surveyPathSchema, quote: z.string().min(1).max(2000) }).nullable(),
+  missingTool: z.string().min(1).max(400).nullable(),
+  reason: z.string().min(1).max(1000).nullable(),
+}).superRefine((check, context) => {
+  const commanded = check.command !== null;
+  if (commanded !== (check.basis !== null) || commanded !== (check.source !== null)) context.addIssue({ code: 'custom', message: 'a command alone has a basis and a source', path: ['command'] });
+  if (check.missingTool !== null && !commanded) context.addIssue({ code: 'custom', message: 'a missing tool is named only for a command', path: ['missingTool'] });
+  if (!commanded && check.reason === null) context.addIssue({ code: 'custom', message: 'a kind with no command says why', path: ['reason'] });
+});
+export type SurveyedCheck = z.infer<typeof surveyedCheckSchema>;
+
+/**
+ * Hold the convention sources and the user-level decisions to each
+ * other: no path twice in either, and the user-level sources exactly the
+ * user-level files decided as applied.
+ */
+function refineConventions(recorded: { readonly conventions: readonly ConventionSource[]; readonly userRules: readonly UserRuleDecision[] }, context: z.RefinementCtx): void {
+  if (new Set(recorded.conventions.map((source) => source.path)).size !== recorded.conventions.length) context.addIssue({ code: 'custom', message: 'each convention source is named once', path: ['conventions'] });
+  if (new Set(recorded.userRules.map((rule) => rule.path)).size !== recorded.userRules.length) context.addIssue({ code: 'custom', message: 'each user-level file is decided once', path: ['userRules'] });
+  const userSources = recorded.conventions.filter((source) => source.level === 'user').map((source) => source.path).sort();
+  const applied = recorded.userRules.filter((rule) => rule.applied).map((rule) => rule.path).sort();
+  if (userSources.join('\n') !== applied.join('\n')) context.addIssue({ code: 'custom', message: 'the user-level sources are exactly the user-level files applied', path: ['userRules'] });
+}
+
+/**
+ * The survey's answer as the engine checked it (R2, R4, R6, R8 of the
+ * repository survey): the convention sources, repository paths
+ * normalized to forward slashes and user-level ones joined by the pinned
+ * policy; every user-level rules file that existed, with whether it
+ * applies and why; in a fix run, one check per kind no flag settled when
+ * the surveyor was launched, and null in a run without the fix pass; and
+ * the surveyor's note.
+ */
+export const surveyRecordedV1 = z.strictObject({
+  workerId: z.uuid(),
+  conventions: z.array(conventionSourceSchema).max(100),
+  userRules: z.array(userRuleDecisionSchema).max(10),
+  checks: z.array(surveyedCheckSchema).max(vocabularyV3.checkKinds.length).nullable(),
+  note: z.string().max(4000),
+}).superRefine((recorded, context) => {
+  refineConventions(recorded, context);
+  if (recorded.checks !== null && new Set(recorded.checks.map((check) => check.kind)).size !== recorded.checks.length) context.addIssue({ code: 'custom', message: 'each kind is answered once', path: ['checks'] });
+});
+export type SurveyRecorded = z.infer<typeof surveyRecordedV1>;
+
+/**
+ * The run goes on without the survey (R9, PD6): a read-only review whose
+ * surveyor failed twice, or a fix run whose flags settled every check
+ * after its survey blocked on failures. It records the reason and the
+ * part of the convention sources the pinned policy decides alone, the
+ * user-level files it applies, with every user-level file's decision.
+ */
+export const surveyFailedV1 = z.strictObject({
+  reason: recordedTextSchema,
+  conventions: z.array(conventionSourceSchema).max(10),
+  userRules: z.array(userRuleDecisionSchema).max(10),
+}).superRefine((failed, context) => {
+  refineConventions(failed, context);
+  if (failed.conventions.some((source) => source.level !== 'user')) context.addIssue({ code: 'custom', message: 'a failed survey names no repository source', path: ['conventions'] });
+});
+export type SurveyFailed = z.infer<typeof surveyFailedV1>;
+
+/**
+ * One kind's check as a version 2 plan pins it (R6, R15 of the
+ * repository survey): its command or none with the reason, who decided
+ * (a flag, the survey, or nobody, when the survey found none), and for
+ * the survey's command the file and text it came from and what it stood
+ * on.
+ */
+export const plannedCheckSchemaV2 = z.strictObject({
+  kind: checkKindSchemaV3,
+  command: z.string().min(1).nullable(),
+  origin: z.enum(vocabularyV3.checkOrigins),
+  reason: z.string().min(1).max(1000).nullable(),
+  source: z.strictObject({ path: surveyPathSchema, quote: z.string().min(1).max(2000), basis: checkBaseSchemaV3 }).nullable(),
+}).superRefine((check, context) => {
+  if ((check.command === null) !== (check.reason !== null)) context.addIssue({ code: 'custom', message: 'a reason is given exactly when the kind has no command', path: ['reason'] });
+  if ((check.origin === 'survey') !== (check.source !== null)) context.addIssue({ code: 'custom', message: 'a source is given exactly for the survey\'s command', path: ['source'] });
+  if (check.origin === 'survey' && check.command === null) context.addIssue({ code: 'custom', message: 'the survey\'s check has a command', path: ['command'] });
+  if (check.origin === 'none' && check.command !== null) context.addIssue({ code: 'custom', message: 'a check nobody decided has no command', path: ['command'] });
+});
+export type PlannedCheckV2 = z.infer<typeof plannedCheckSchemaV2>;
+
+/** The checks the run executes, one per kind in the order they run, planned when the survey phase completes (R6 of the repository survey). */
+export const checksPlannedV2 = z.strictObject({
+  checks: z.array(plannedCheckSchemaV2).length(vocabularyV3.checkKinds.length),
+}).refine((planned) => planned.checks.every((check, index) => check.kind === vocabularyV3.checkKinds[index]), {
+  message: 'one check per kind, in the order the kinds run',
+  path: ['checks'],
+});
+export type ChecksPlannedV2 = z.infer<typeof checksPlannedV2>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -861,29 +1104,31 @@ export const eventRegistry = defineRegistry({
   'scope.captured': { 1: { schema: scopeCapturedV1 } },
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
-  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 } },
+  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
-  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 } },
-  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 } },
+  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 } },
+  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 } },
-  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 } },
+  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
   'verdicts.recorded': { 1: { schema: verdictsRecordedV1 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
-  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 } },
+  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
   'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
-  'checks.planned': { 1: { schema: checksPlannedV1 } },
+  'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 } },
   'check.ran': { 1: { schema: checkRanV1 } },
   'fix.recorded': { 1: { schema: fixRecordedV1 } },
   'tree.revised': { 1: { schema: treeRevisedV1 } },
   'unit.unattempted': { 1: { schema: unitUnattemptedV1 } },
   'commits.created': { 1: { schema: commitsCreatedV1 } },
+  'survey.recorded': { 1: { schema: surveyRecordedV1 } },
+  'survey.failed': { 1: { schema: surveyFailedV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

@@ -1,17 +1,20 @@
 /**
- * Which commands are the repository's checks (R8, PD6, TD5 of the fix
- * pass): for each kind, the first source that names one, in the order a
- * `--check` flag, a Taskfile task, a Makefile target, a justfile recipe,
- * a `package.json` script run through the package manager the repository
- * names, and a language's default. Discovery is pure over a snapshot of
- * the repository root, which `readRootManifests` takes, so the same root
- * and flags always give the same checks; nothing here runs a command or
- * asks a model.
+ * The manifest rules (R8, PD6, TD5 of the fix pass), kept as hints for the
+ * surveyor (R11, PD5, TD11 of the repository survey): for each kind, the
+ * first source that names one, in the order a Taskfile task, a Makefile
+ * target, a justfile recipe, a `package.json` script run through the
+ * package manager the repository names, and a language's default. They
+ * decide nothing: a hint is a mechanical guess the surveyor's task carries
+ * for a kind the repository states nothing about, and a hinted command
+ * runs only when the surveyor returns it. The rules are frozen as they
+ * are; a repository they miss is the surveyor's to read. Hints are pure
+ * over a snapshot of the repository root, which `readRootManifests` takes,
+ * so the same root always gives the same hints; nothing here runs a
+ * command or asks a model.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { ReviewRefusedError } from '../errors.ts';
-import { checkKinds, type CheckKind, type CheckOrigin } from '../vocabulary.ts';
+import { checkKinds, type CheckKind } from '../vocabulary.ts';
 
 /** The names Task reads its Taskfile under, in the order it looks for them. */
 const taskfileNames = ['Taskfile.yml', 'taskfile.yml', 'Taskfile.yaml', 'taskfile.yaml'] as const;
@@ -20,7 +23,7 @@ const makefileNames = ['GNUmakefile', 'makefile', 'Makefile'] as const;
 /** The names just reads its justfile under. */
 const justfileNames = ['justfile', 'Justfile', '.justfile'] as const;
 
-/** The files at the repository root discovery reads, when they are regular files. */
+/** The files at the repository root the rules read, when they are regular files. */
 export const manifestNames = [
   'package.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb', 'package-lock.json', 'npm-shrinkwrap.json',
   ...taskfileNames, ...makefileNames, ...justfileNames,
@@ -28,7 +31,7 @@ export const manifestNames = [
 ] as const;
 export type ManifestName = (typeof manifestNames)[number];
 
-/** What discovery reads of the repository root: the text of each manifest present, and the names of the root's entries. */
+/** What the rules read of the repository root: the text of each manifest present, and the names of the root's entries. */
 export interface RootManifests {
   readonly files: Readonly<Partial<Record<ManifestName, string>>>;
   /** Every entry name at the root, so a `.sln` or `.csproj` there is seen. */
@@ -43,20 +46,24 @@ export interface CheckFlags {
 
 export const noCheckFlags: CheckFlags = { commands: {}, dropped: [] };
 
-/** One kind's check as discovery resolved it: its command, or null with the reason none runs. */
-export interface PlannedCheck {
-  readonly kind: CheckKind;
-  readonly command: string | null;
-  readonly origin: CheckOrigin;
-  /** Why the kind has no command; null when it has one. */
-  readonly reason: string | null;
-}
+/** Whether a flag settles the kind, naming its command or dropping it (R5 of the repository survey). */
+export const isSettled = (flags: CheckFlags, kind: CheckKind): boolean => flags.dropped.includes(kind) || flags.commands[kind] !== undefined;
 
-export interface DiscoveredChecks {
-  /** One entry per kind, in the order the checks run. */
-  readonly checks: readonly PlannedCheck[];
-  /** The package manager a `package.json` script runs through, or null when no check is one. */
-  readonly manager: string | null;
+/** The kinds no flag settles, in the order the checks run: the ones the surveyor chooses. */
+export const unsettledKinds = (flags: CheckFlags): CheckKind[] => checkKinds.filter((kind) => !isSettled(flags, kind));
+
+/** The rule a hint came from: the sources the fix pass once decided by, as `checks.planned@1` names them, or none. */
+export const hintRules = ['taskfile', 'makefile', 'justfile', 'package', 'language', 'none'] as const;
+export type HintRule = (typeof hintRules)[number];
+
+/** One kind's hint: the command the old precedence gives, or none, with the rule and what it read, in words for the surveyor's task. */
+export interface CheckHint {
+  readonly kind: CheckKind;
+  /** The command, or null when the rules give none, or give one only ambiguously. */
+  readonly command: string | null;
+  readonly rule: HintRule;
+  /** What the rule read, such as "package.json script `lint` through pnpm, which pnpm-lock.yaml names". */
+  readonly reading: string;
 }
 
 /** The lock files and the package manager each names. */
@@ -78,11 +85,11 @@ export const packageScriptNames: Readonly<Record<CheckKind, readonly string[]>> 
 };
 
 /** A language's default command per kind, by the manifest that marks the language; a kind a language has no default for is absent. */
-const languageDefaults: readonly { readonly marks: (root: RootManifests) => boolean; readonly commands: Readonly<Partial<Record<CheckKind, string>>> }[] = [
-  { marks: (root) => root.files['go.mod'] !== undefined, commands: { build: 'go build ./...', typecheck: 'go vet ./...', test: 'go test ./...' } },
-  { marks: (root) => root.files['Cargo.toml'] !== undefined, commands: { build: 'cargo build --workspace', typecheck: 'cargo check --workspace', lint: 'cargo clippy --workspace', test: 'cargo test --workspace' } },
-  { marks: (root) => root.files['pyproject.toml'] !== undefined || root.files['pytest.ini'] !== undefined, commands: { test: 'python -m pytest' } },
-  { marks: (root) => root.entries.some((name) => /\.(sln|csproj)$/i.test(name)), commands: { build: 'dotnet build', test: 'dotnet test --no-build' } },
+const languageDefaults: readonly { readonly marker: string; readonly marks: (root: RootManifests) => boolean; readonly commands: Readonly<Partial<Record<CheckKind, string>>> }[] = [
+  { marker: 'go.mod', marks: (root) => root.files['go.mod'] !== undefined, commands: { build: 'go build ./...', typecheck: 'go vet ./...', test: 'go test ./...' } },
+  { marker: 'Cargo.toml', marks: (root) => root.files['Cargo.toml'] !== undefined, commands: { build: 'cargo build --workspace', typecheck: 'cargo check --workspace', lint: 'cargo clippy --workspace', test: 'cargo test --workspace' } },
+  { marker: 'pyproject.toml or pytest.ini', marks: (root) => root.files['pyproject.toml'] !== undefined || root.files['pytest.ini'] !== undefined, commands: { test: 'python -m pytest' } },
+  { marker: 'a .sln or .csproj file', marks: (root) => root.entries.some((name) => /\.(sln|csproj)$/i.test(name)), commands: { build: 'dotnet build', test: 'dotnet test --no-build' } },
 ];
 
 /** Characters a regular expression gives meaning to, so a kind is matched as written. */
@@ -161,67 +168,63 @@ export function packageScriptFor(scripts: Readonly<Record<string, string>>, kind
 }
 
 /**
- * The package manager a script runs through: the `packageManager` field's
- * name, else the one the lock files name, else npm. Lock files of two
- * managers and no field are refused, naming them and the flag that
- * settles it, since either guess may run the wrong tool.
+ * The package manager a script runs through, and what named it: the
+ * `packageManager` field, else the lock files, else npm, which no file
+ * names. Lock files of two managers and no field name none: either guess
+ * may run the wrong tool, so the hint says so instead of guessing.
  */
-function packageManager(root: RootManifests): string {
+function packageManager(root: RootManifests): { readonly manager: string; readonly namedBy: string } | { readonly ambiguous: readonly string[] } {
   const declared = declaredManager(root.files['package.json']);
-  if (declared !== null) return declared;
+  if (declared !== null) return { manager: declared, namedBy: 'which the packageManager field of package.json names' };
   const present = lockFiles.filter(([name]) => root.files[name] !== undefined);
   const managers = [...new Set(present.map(([, manager]) => manager))];
-  if (managers.length > 1) {
-    throw new ReviewRefusedError(`the repository holds lock files of more than one package manager (${present.map(([name]) => name).join(', ')}) and package.json names none in its packageManager field; name each check's command with --check <kind>=<command>, or add the field`);
-  }
-  return managers[0] ?? 'npm';
+  if (managers.length > 1) return { ambiguous: present.map(([name]) => name) };
+  if (managers.length === 1) return { manager: managers[0]!, namedBy: `which ${present.map(([name]) => name).join(' and ')} names` };
+  return { manager: 'npm', namedBy: 'the default, since no lock file or packageManager field names a manager' };
 }
 
-/** The first of a Taskfile task, a Makefile target or a justfile recipe named `kind`, as the command and its origin. */
-function taskRunnerCheck(root: RootManifests, kind: CheckKind): { command: string; origin: CheckOrigin } | null {
+/** The first of a Taskfile task, a Makefile target or a justfile recipe named `kind`, as the command, its rule and what it read. */
+function taskRunnerHint(root: RootManifests, kind: CheckKind): Omit<CheckHint, 'kind'> | null {
   // Each tool reads the first of its names present, so a later name is never the one it runs.
-  const first = (names: readonly ManifestName[]): string | undefined => names.map((name) => root.files[name]).find((text) => text !== undefined);
+  const first = (names: readonly ManifestName[]): ManifestName | undefined => names.find((name) => root.files[name] !== undefined);
   const taskfile = first(taskfileNames);
-  if (taskfile !== undefined && taskfileHas(taskfile, kind)) return { command: `task ${kind}`, origin: 'taskfile' };
+  if (taskfile !== undefined && taskfileHas(root.files[taskfile]!, kind)) return { command: `task ${kind}`, rule: 'taskfile', reading: `the task \`${kind}\` of ${taskfile}` };
   const makefile = first(makefileNames);
-  if (makefile !== undefined && makefileHas(makefile, kind)) return { command: `make ${kind}`, origin: 'makefile' };
+  if (makefile !== undefined && makefileHas(root.files[makefile]!, kind)) return { command: `make ${kind}`, rule: 'makefile', reading: `the target \`${kind}\` of ${makefile}` };
   const justfile = first(justfileNames);
-  if (justfile !== undefined && justfileHas(justfile, kind)) return { command: `just ${kind}`, origin: 'justfile' };
+  if (justfile !== undefined && justfileHas(root.files[justfile]!, kind)) return { command: `just ${kind}`, rule: 'justfile', reading: `the recipe \`${kind}\` of ${justfile}` };
   return null;
 }
 
-/** The reason a kind with no source has no command. */
-export const noSourceReason = 'no --check flag, Taskfile task, Makefile target, justfile recipe, package.json script or language default names it';
-/** The reason a kind dropped by `--no-check` has no command. */
-export const droppedReason = 'dropped by --no-check';
+/** What a kind with no hint reads, since none of the rules names it. */
+export const noHintReading = 'no Taskfile task, Makefile target, justfile recipe, package.json script or language default names it';
 
 /**
- * Resolve every kind's check, in the order they run (R8, PD6). Throws
- * `ReviewRefusedError` when a kind would run a `package.json` script and
- * the repository's lock files name two package managers.
+ * The hint of every kind in `kinds`, in the order the checks run (R11 of
+ * the repository survey): the first rule that names a command, or a
+ * hint of none. A script whose package manager the repository leaves
+ * ambiguous is named with no command, and the lock files that disagree.
  */
-export function discoverChecks(root: RootManifests, flags: CheckFlags = noCheckFlags): DiscoveredChecks {
+export function hintChecks(root: RootManifests, kinds: readonly CheckKind[] = checkKinds): CheckHint[] {
   const scripts = packageScripts(root.files['package.json']);
-  let manager: string | null = null;
-  const checks = checkKinds.map((kind): PlannedCheck => {
-    if (flags.dropped.includes(kind)) return { kind, command: null, origin: 'flag', reason: droppedReason };
-    const flagged = flags.commands[kind];
-    if (flagged !== undefined) return { kind, command: flagged, origin: 'flag', reason: null };
-    const runner = taskRunnerCheck(root, kind);
-    if (runner !== null) return { kind, ...runner, reason: null };
+  return checkKinds.filter((kind) => kinds.includes(kind)).map((kind): CheckHint => {
+    const runner = taskRunnerHint(root, kind);
+    if (runner !== null) return { kind, ...runner };
     const script = scripts === null ? null : packageScriptFor(scripts, kind);
     if (script !== null) {
-      manager ??= packageManager(root);
-      return { kind, command: `${manager} run ${script}`, origin: 'package', reason: null };
+      const manager = packageManager(root);
+      if ('ambiguous' in manager) {
+        return { kind, command: null, rule: 'package', reading: `the package.json script \`${script}\`, but the lock files name more than one package manager (${manager.ambiguous.join(', ')}) and package.json names none in its packageManager field, so the rules cannot tell which runs it` };
+      }
+      return { kind, command: `${manager.manager} run ${script}`, rule: 'package', reading: `the package.json script \`${script}\` through ${manager.manager}, ${manager.namedBy}` };
     }
     const language = languageDefaults.find((entry) => entry.marks(root) && entry.commands[kind] !== undefined);
-    if (language !== undefined) return { kind, command: language.commands[kind]!, origin: 'language', reason: null };
-    return { kind, command: null, origin: 'none', reason: noSourceReason };
+    if (language !== undefined) return { kind, command: language.commands[kind]!, rule: 'language', reading: `the default for a repository with ${language.marker}` };
+    return { kind, command: null, rule: 'none', reading: noHintReading };
   });
-  return { checks, manager };
 }
 
-/** Read the repository root as discovery needs it: each manifest that is a regular file, and the names of the root's entries. */
+/** Read the repository root as the rules need it: each manifest that is a regular file, and the names of the root's entries. */
 export function readRootManifests(root: string): RootManifests {
   const entries = readdirSync(root);
   const files: Partial<Record<ManifestName, string>> = {};

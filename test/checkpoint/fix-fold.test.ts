@@ -35,7 +35,8 @@ describe('the fix fold', () => {
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(review.configuration.checks, { timeoutMs: 600_000 });
     for (const phase of fixPhases) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 });
-    assert.deepEqual(review.fix?.checks.planned, plannedChecks);
+    // A version 1 plan names no source; the fold gives each of its checks a null one, as a version 2 plan's flag does.
+    assert.deepEqual(review.fix?.checks.planned, { ...plannedChecks, checks: plannedChecks.checks.map((check) => ({ ...check, source: null })) });
     assert.equal(review.fix?.plan, null);
     assert.deepEqual(review.fix?.revisions, []);
   });

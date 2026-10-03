@@ -1,8 +1,9 @@
 /**
  * The role policy (R3 of the read-only review, R12 and R18 of the fix
- * pass): one file, `roles/policy.json`, names for every role the review
- * runs its tier, effort, per-worker budget and timeout, the fix pass's
- * per-check timeout and fixer batch size, and for every runtime the model
+ * pass, R3 of the repository survey): one file, `roles/policy.json`, names
+ * for every role the review runs its tier, effort, per-worker budget and
+ * timeout, the fix pass's per-check timeout and fixer batch size, whether
+ * the reviewer's own rules files apply, and for every runtime the model
  * behind each tier and the default run budget. `resolvePolicy` turns it, the assembled roles, one runtime and
  * the command's flags into the values a run pins on its ledger.
  */
@@ -16,7 +17,7 @@ import { maxBudgetUsd, maxTimeoutMs } from '../runtime/contract.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import { roleKeySchema } from '../roles/manifest.ts';
 import { InvalidPolicyError } from './errors.ts';
-import { reviewRoles } from './vocabulary.ts';
+import { reviewRoles, userRulesSettingSchema } from './vocabulary.ts';
 
 /** The policy's file name under the roles root. */
 export const policyFileName = 'policy.json';
@@ -67,11 +68,22 @@ export const fixesPolicySchema = z.strictObject({
 });
 export type FixesPolicy = z.infer<typeof fixesPolicySchema>;
 
+/**
+ * The survey (R3, PD7 of the repository survey): whether the reviewer's
+ * user-level rules files are convention sources, never (`ignore`), always
+ * (`apply`), or when the surveyor has grounds (`judge`).
+ */
+export const surveyPolicySchema = z.strictObject({
+  userRules: userRulesSettingSchema,
+});
+export type SurveyPolicy = z.infer<typeof surveyPolicySchema>;
+
 export const policyFileSchema = z.strictObject({
   schemaVersion: z.literal(1),
   roles: z.record(roleKeySchema, rolePolicySchema),
   checks: checksPolicySchema,
   fixes: fixesPolicySchema,
+  survey: surveyPolicySchema,
   runtimes: z.record(z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
   concurrency: z.number().int().min(1).max(maxConcurrency),
 });
@@ -97,6 +109,8 @@ export interface ResolvedPolicy {
   readonly checks: ChecksPolicy;
   /** The fixer batches' policy, which a run that fixes pins. */
   readonly fixes: FixesPolicy;
+  /** The survey's policy, which every run pins. */
+  readonly survey: SurveyPolicy;
 }
 
 /**
@@ -214,6 +228,7 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     runBudgetUsd: capabilities.costInUsd ? (flags.budgetUsd ?? runtime.runBudgetUsd) : null,
     checks: policy.checks,
     fixes: policy.fixes,
+    survey: policy.survey,
   };
 }
 

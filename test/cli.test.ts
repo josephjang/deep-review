@@ -156,13 +156,13 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.match(named.stdout, new RegExp(`^Run ${runId}: complete\\n`));
     assert.match(named.stdout, /^Runtime: claude 2\.1\.283; models opus and sonnet$/m);
     assert.match(named.stdout, /^Phase: none running$/m);
-    assert.match(named.stdout, /^Workers: 0 running, 11 finished, 0 lost$/m);
+    assert.match(named.stdout, /^Workers: 0 running, 12 finished, 0 lost$/m);
     assert.match(named.stdout, /^Spend: 0\.01 USD of 60\.00 USD; \d+ input, \d+ output tokens$/m);
     assert.match(named.stdout, /^Report: .+$/m);
     const json = JSON.parse(run('status', '--run', runId, '--json').stdout) as { runId: string; status: string; workers: { finished: number }; review: { report: unknown; blocker: null } };
     assert.equal(json.runId, runId);
     assert.equal(json.status, 'complete');
-    assert.equal(json.workers.finished, 11);
+    assert.equal(json.workers.finished, 12);
     assert.ok(json.review.report !== null);
     assert.equal(json.review.blocker, null);
     // A complete run is not abandoned after the fact: its report stands, and so does its status.

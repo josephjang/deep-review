@@ -77,8 +77,21 @@ function numberedCount(prompt: string): number {
   return match === null ? 0 : Number(match[1]) + 1;
 }
 
+/**
+ * The surveyor's empty answer to its task: no convention source, every
+ * offered user-level file not applied, and for each kind the task asks to
+ * choose no command; in a run that does not fix, no checks.
+ */
+export function surveyorAnswer(prompt: string): unknown {
+  const offered = /^User-level rules files offered:\n((?:- .+\n)+)/m.exec(prompt)?.[1]?.trim().split('\n').map((line) => line.slice(2)) ?? [];
+  const kinds = /^Kinds to choose: (.+)$/m.exec(prompt)?.[1] ?? '';
+  const checks = kinds.startsWith('none; ') ? null : kinds === 'none' ? [] : kinds.split(', ').map((kind) => ({ kind, command: null, basis: null, source: null, missingTool: null, reason: 'fake: the repository states none' }));
+  return { conventions: [], userRules: offered.map((path) => ({ path, applied: false, reason: 'fake: no grounds' })), checks, note: '' };
+}
+
 /** The empty, valid answer of a review role: what a worker that found nothing returns. */
 export function defaultOutput(role: string, prompt: string): unknown {
+  if (role === 'surveyor') return surveyorAnswer(prompt);
   if (role === 'triage') return { candidates: [], leads: finderAngles.map((angle) => ({ angle, lead: null })) };
   if (role.startsWith('finder-') || role === 'sweep') return { candidates: [] };
   if (role === 'deduplication') return { groups: [] };

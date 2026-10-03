@@ -1,17 +1,19 @@
 /**
  * The reducers of the fix pass's events (R3, R5, R6, R9, R12, R17, R18 of
  * the fix pass), registered by `fold.ts` beside the review's. Each refuses
- * a history the engine could not have written: a second plan, a batch out
+ * a history the engine could not have written: a second plan, or a plan
+ * of checks the survey did not give, a batch out
  * of its cluster's order or over the pinned size, a run of a
  * check whose phase is not running, two runs of one kind in a phase, an
  * answer for a unit that does not exist, a revision no answer or check
  * accounts for, commits on a run without a report.
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlanned, CommitsCreated, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, clusterOfBatch, firstRoundSettled, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundClusters, type FixState } from './fix-state.ts';
+import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, CommitsCreated, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
+import { batchOf, clusterOfBatch, firstRoundSettled, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundClusters, type ChecksPlanned, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
+import { lastSurvey } from './survey-state.ts';
 
 /** The run, which must be configured for review with the fix pass. */
 function requireFix(state: RunState | undefined, event: DecodedEvent): { current: RunState; review: ReviewState; fix: FixState } {
@@ -31,12 +33,46 @@ function unitIds(fix: FixState, phase: EditingPhase, key: string): readonly stri
   return batchOf(fix, key)?.findingIds ?? null;
 }
 
-const checksPlanned: Reducer<ChecksPlanned> = (state, payload, event) => {
+/** The checks of a version 1 plan, recorded at configuration by the manifest rules (R8 of the fix pass), on a run configured before the survey existed. */
+const checksPlannedV1: Reducer<ChecksPlannedV1> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   if (fix.checks.planned !== null) throw invalid(event, 'plans its checks twice');
+  if (review.survey !== null) throw invalid(event, 'plans its checks by the manifest rules on a run its survey decides them for');
   const baseline = review.phases['baseline-checks'].status;
   if (baseline === 'completed' || baseline === 'degraded') throw invalid(event, `plans its checks after the baseline phase ${baseline}`);
-  return withFix(current, review, { ...fix, checks: { ...fix.checks, planned: payload } }, event);
+  const planned: ChecksPlanned = { checks: payload.checks.map((check) => ({ ...check, source: null })), manager: payload.manager };
+  return withFix(current, review, { ...fix, checks: { ...fix.checks, planned } }, event);
+};
+
+/**
+ * The checks of a version 2 plan, recorded when the survey phase
+ * completes (R6, R15 of the repository survey): once, while the phase
+ * runs, standing on a recorded survey or on the run going on without
+ * one. A check the survey decided is the last answer's command for its
+ * kind, with its source and basis, and no tool missing; one nobody
+ * decided is a kind that answer gave no command. A flag's is the flag's
+ * and is not checked here, since the flags are not on the ledger.
+ */
+const checksPlannedV2: Reducer<ChecksPlannedV2> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  if (fix.checks.planned !== null) throw invalid(event, 'plans its checks twice');
+  if (review.survey === null) throw invalid(event, 'plans its checks from a survey on a run configured before the survey existed');
+  requireRunning(review, event, 'survey');
+  const answer = lastSurvey(review.survey);
+  if (answer === null && review.survey.failure === null) throw invalid(event, 'plans its checks before its survey is recorded or the run goes on without one');
+  for (const check of payload.checks) {
+    if (check.origin === 'flag') continue;
+    const surveyed = answer?.checks?.find((entry) => entry.kind === check.kind) ?? null;
+    if (surveyed === null) throw invalid(event, `plans the ${check.kind} check as the survey's, which surveyed no such kind`);
+    if (check.origin === 'none') {
+      if (surveyed.command !== null) throw invalid(event, `plans no ${check.kind} check, for which the survey gave ${JSON.stringify(surveyed.command)}`);
+      continue;
+    }
+    const same = surveyed.command === check.command && surveyed.missingTool === null && surveyed.basis === check.source?.basis && surveyed.source?.path === check.source.path && surveyed.source.quote === check.source.quote;
+    if (!same) throw invalid(event, `plans ${JSON.stringify(check.command)} for the ${check.kind} check, which is not the survey's runnable command for it`);
+  }
+  const planned: ChecksPlanned = { checks: payload.checks, manager: null };
+  return withFix(current, review, { ...fix, checks: { ...fix.checks, planned } }, event);
 };
 
 const fixesPlanned: Reducer<FixesPlanned> = (state, payload, event) => {
@@ -258,7 +294,8 @@ const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {
 
 /** The fix pass's reducers, registered by `fold.ts` beside the review's. */
 export const fixReducers = {
-  'checks.planned@1': checksPlanned,
+  'checks.planned@1': checksPlannedV1,
+  'checks.planned@2': checksPlannedV2,
   'fixes.planned@1': fixesPlanned,
   'fixes.replanned@1': fixesReplanned,
   'check.ran@1': checkRan,

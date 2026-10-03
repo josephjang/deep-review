@@ -2,10 +2,10 @@
 // spend and report tests: a run created, scoped and configured, then taken
 // through its phases one scenario at a time.
 import assert from 'node:assert/strict';
-import type { ReviewConfiguration, ReviewConfigurationV1, ScopeState } from '../../src/checkpoint/events.ts';
+import { reviewVocabularyV1, type ReviewConfiguration, type ReviewConfigurationV1, type ScopeState } from '../../src/checkpoint/events.ts';
 import { foldRun, type DecodedEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
-import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
+import { finderAngles, fixPhases } from '../../src/review/vocabulary.ts';
 
 export const reference = (fill: string, bytes = 1): { sha256: string; bytes: number } => ({ sha256: fill.repeat(64), bytes });
 export const worker = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -32,8 +32,8 @@ export const configurationV1: ReviewConfigurationV1 = {
   runBudgetUsd: 30,
 };
 
-/** The configuration as the fold holds it: version 1's, read as a run without the fix pass. */
-export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null, fixes: null };
+/** The configuration as the fold holds it: version 1's, read as a run without the fix pass that applied the reviewer's own rules, and was not surveyed. */
+export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'apply' } };
 
 /** A launch under a review label, capped at the 8 USD per-worker budget the configuration's roles pin, as Claude Code's launches are. */
 export const launch = (workerId: string, label: string): Record<string, unknown> => ({
@@ -93,8 +93,8 @@ export const unlocated = (id: string, angle: string): Record<string, unknown> =>
 
 export const leads = finderAngles.map((angle) => ({ angle, lead: angle === 'RIPPLE' ? 'the callers of parse()' : null }));
 
-/** Whether a phase is one of the fix pass's, which only version 2 of the events that carry a phase can name. */
-const isFixPhase = (phase: string): boolean => (fixPhases as readonly string[]).includes(phase);
+/** The lowest version of the events that carry a phase that can name it: 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
+const phaseVersion = (phase: string): 1 | 2 | 3 => (phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
 
 /** A history builder that numbers events as it goes, so a scenario reads as its event list. */
 export class History {
@@ -105,17 +105,29 @@ export class History {
     this.events.push({ sequence, runId: 'run-1', kind, version, payload, recordedAt: `2026-09-27T00:00:${String(sequence % 60).padStart(2, '0')}.000Z`, engine: '0.0.0' });
     return this;
   }
-  /** Start a phase at the given attempt and record a clean worktree check for it: at version 1 for a read-only phase, as the histories here were recorded, and version 2 for a phase of the fix pass. */
+  /**
+   * Start a phase at the given attempt and record a clean worktree check
+   * for it: at version 1 for a read-only phase, as the histories here were
+   * recorded, version 2 for a phase of the fix pass, and version 3 for the
+   * survey, which only version 3 can name.
+   */
   start(phase: string, attempt = 1): this {
-    if (!isFixPhase(phase)) return this.add('phase.started', { phase, attempt }).add('worktree.checked', { phase, attempt, drifted: false, files: [] });
-    return this.add('phase.started', { phase, attempt }, 2).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 2);
+    const version = phaseVersion(phase);
+    if (version === 1) return this.add('phase.started', { phase, attempt }).add('worktree.checked', { phase, attempt, drifted: false, files: [] });
+    return this.add('phase.started', { phase, attempt }, version).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays: [] }, version);
   }
   finish(phase: string, outcome = 'completed', attempt = 1, blocker: unknown = null): this {
-    return this.add('phase.finished', { phase, attempt, outcome, blocker }, isFixPhase(phase) ? 2 : 1);
+    return this.add('phase.finished', { phase, attempt, outcome, blocker }, phaseVersion(phase));
   }
   /** Launch and finish one worker under a review label, so spend and lost-worker tests have a worker to count. */
   worker(n: number, label: string, change: Record<string, unknown> = {}, costUsd = 0.5, tokens = 100): this {
     return this.add('worker.launched', launch(worker(n), label)).add('worker.finished', finish(worker(n), change, costUsd, tokens));
+  }
+  /** Another history with the same events, to go on from without changing this one. */
+  clone(): History {
+    const copy = new History();
+    copy.events.push(...this.events);
+    return copy;
   }
   fold(): RunState {
     return foldRun(this.events);
@@ -129,6 +141,25 @@ export class History {
 
 /** A run created, scoped and configured, before any phase. */
 export const configured = (): History => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', configurationV1);
+
+/** The configuration as version 3 records it: a read-only run that is surveyed, its policy judging the reviewer's own rules. */
+export const configurationV3: ReviewConfiguration = { ...configuration, survey: { userRules: 'judge' } };
+
+/** A run configured at version 3, so its survey runs first: read-only unless `change` says otherwise. */
+export const surveyConfigured = (change: Partial<ReviewConfiguration> = {}): History =>
+  new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', { ...configurationV3, ...change }, 3);
+
+/** The same, with the fix pass and its batch size of four. */
+export const surveyConfiguredFix = (change: Partial<ReviewConfiguration> = {}): History => surveyConfigured({ fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 }, ...change });
+
+/** A surveyed answer: no convention source and no user-level file unless given, and the checks given, null in a read-only run. */
+export const surveyAnswer = (workerId: string, change: Record<string, unknown> = {}): Record<string, unknown> => ({ workerId, conventions: [], userRules: [], checks: null, note: '', ...change });
+
+/** A surveyed check of one kind: its command from a workflow, stated, with the tool given missing; or none, with a reason. */
+export const surveyedCheck = (kind: string, command: string | null, missingTool: string | null = null): Record<string, unknown> =>
+  command === null
+    ? { kind, command: null, basis: null, source: null, missingTool: null, reason: `no ${kind} step` }
+    : { kind, command, basis: 'stated', source: { path: '.github/workflows/ci.yml', quote: `run: ${command}` }, missingTool, reason: null };
 
 /** The run through its triage, with one SCAN candidate and the leads. */
 export const triaged = (): History =>
@@ -199,7 +230,7 @@ export const ranking = [
   { id: 'SWEEP-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one improvement' },
 ];
 export const statistics = {
-  phases: phases.filter((phase) => !(fixPhases as readonly string[]).includes(phase)).map((phase) => ({ phase, workers: 1, seconds: 2.5, costUsd: 0.5, costUnreported: phase === 'finders' ? 1 : 0, inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 })),
+  phases: reviewVocabularyV1.phases.map((phase) => ({ phase, workers: 1, seconds: 2.5, costUsd: 0.5, costUnreported: phase === 'finders' ? 1 : 0, inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 })),
   total: { workers: 9, seconds: 22.5, costUsd: 4.5, costUnreported: 1, inputTokens: 900, cachedInputTokens: 180, outputTokens: 90 },
   budgetApplied: true,
 };

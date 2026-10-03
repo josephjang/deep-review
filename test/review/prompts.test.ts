@@ -42,7 +42,7 @@ describe('the scope block', () => {
 
   it('names the repository, base, head and mode, and tabulates every file with its frozen before state by path', () => {
     const scope = scopeWith('--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old a\n+new a\n');
-    const block = scopeBlock({ worktree: '/repo', scope, evidence, conventions: [] });
+    const block = scopeBlock({ worktree: '/repo', scope, evidence, conventions: { status: 'surveyed', sources: [], userRules: [] } });
     assert.match(block, /^## Scope\n\nRepository: \/repo\nBase: 1{40}\nHead: 2{40}\nMode: range\n/);
     const frozen = scope.files[0]!.before!;
     assert.ok('blob' in frozen);
@@ -52,13 +52,45 @@ describe('the scope block', () => {
     assert.ok(block.includes('| src/gone.ts | deleted | ') && block.includes(' | deleted |'));
     assert.ok(block.includes(`| big.bin | modified | oversized ${'c'.repeat(64)} 9000000 bytes | read the file in the worktree |`));
     assert.ok(block.includes('| link | added (symlink) | none | read the file in the worktree |'));
-    assert.ok(block.includes('None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found'));
+    assert.ok(block.includes('### Convention sources\n\nThe repository survey found no file that states conventions a change here must follow.\n\n### Patch'), block);
     assert.ok(block.includes('### Patch\n\n```diff\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old a\n+new a\n```'), block);
   });
 
-  it('lists the rules files with their level', () => {
-    const block = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: [{ level: 'user', path: '/home/me/.claude/CLAUDE.md' }, { level: 'repository', path: 'AGENTS.md' }, { level: 'repository', path: 'src/CLAUDE.md' }] });
-    assert.ok(block.includes('- /home/me/.claude/CLAUDE.md (user level)\n- AGENTS.md (repository)\n- src/CLAUDE.md (repository)'), block);
+  it('lists the survey\'s convention sources with their level, what each governs and what it applies to (R7 of the repository survey)', () => {
+    const sources = [
+      { path: 'docs/contributing.md', level: 'repository' as const, governs: 'code style,\nand dependencies', appliesTo: null, grounds: null },
+      { path: 'src/AGENTS.md', level: 'repository' as const, governs: 'comments', appliesTo: ['src/**', 'lib/*.ts'], grounds: null },
+      { path: '/home/me/.codex/AGENTS.md', level: 'user' as const, governs: 'the reviewer\'s rules', appliesTo: null, grounds: 'AGENTS.md imports it' },
+    ];
+    const block = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'surveyed', sources, userRules: [] } });
+    assert.ok(block.includes([
+      '### Convention sources',
+      '',
+      'The repository survey named these files as stating the conventions a change here must follow:',
+      '',
+      '- docs/contributing.md (repository): code style, and dependencies',
+      '- src/AGENTS.md (repository): comments (applies to src/**, lib/*.ts)',
+      '- /home/me/.codex/AGENTS.md (user level, the reviewer\'s own rules, applied because: AGENTS.md imports it): the reviewer\'s rules',
+      '',
+      '### Patch',
+    ].join('\n')), block);
+  });
+
+  it('says the survey failed, with or without the policy\'s user-level sources, and that a run predates the survey', () => {
+    const failed = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'failed', reason: 'timeout', sources: [], userRules: [] } });
+    assert.ok(failed.includes('The repository survey failed, so no convention source is known.'), failed);
+    const applied = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'failed', reason: 'timeout', sources: [{ path: '/h/.claude/CLAUDE.md', level: 'user', governs: 'g', appliesTo: null, grounds: 'applied by the policy value apply' }], userRules: [] } });
+    assert.ok(applied.includes('The repository survey failed; the review policy applies these user-level rules files:\n\n- /h/.claude/CLAUDE.md (user level'), applied);
+    const older = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'predates-survey' } });
+    assert.ok(older.includes('This run was configured before the repository survey existed, so no convention source is recorded.'), older);
+    const pending = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'pending' } });
+    assert.ok(pending.includes('The repository survey has not answered yet'), pending);
+  });
+
+  it('leaves the section out of the surveyor\'s own block, which the survey has not filled yet', () => {
+    const block = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: null });
+    assert.ok(!block.includes('### Convention sources'), block);
+    assert.match(block, /\| link \| added \(symlink\) \| none \| read the file in the worktree \|\n\n### Patch\n/);
   });
 
   it('carries the patch inline up to the limit and names its path above it', () => {

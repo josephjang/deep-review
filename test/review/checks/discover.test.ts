@@ -3,48 +3,38 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { discoverChecks, droppedReason, justfileHas, makefileHas, noSourceReason, packageScriptFor, readRootManifests, taskfileHas, type RootManifests } from '../../../src/review/checks/discover.ts';
-import { ReviewRefusedError } from '../../../src/review/errors.ts';
+import { hintChecks, isSettled, justfileHas, makefileHas, noHintReading, packageScriptFor, readRootManifests, taskfileHas, unsettledKinds, type RootManifests } from '../../../src/review/checks/discover.ts';
 
 /** A root holding the given manifests, and `extra` entries besides them. */
 const root = (files: RootManifests['files'], extra: readonly string[] = []): RootManifests => ({ files, entries: [...Object.keys(files), ...extra] });
 const packageJson = (scripts: Record<string, string>, field: Record<string, unknown> = {}): string => JSON.stringify({ name: 'x', scripts, ...field });
 
-/** Each kind's command, in the order the checks run. */
-const commands = (manifests: RootManifests, flags?: Parameters<typeof discoverChecks>[1]): (string | null)[] => discoverChecks(manifests, flags).checks.map((check) => check.command);
+/** Each kind's hinted command, in the order the checks run. */
+const commands = (manifests: RootManifests): (string | null)[] => hintChecks(manifests).map((hint) => hint.command);
 
-describe('discoverChecks', () => {
-  it('finds nothing in an empty repository, giving every kind origin none and the reason', () => {
-    const discovered = discoverChecks(root({}));
-    assert.deepEqual(discovered.checks, ['build', 'typecheck', 'lint', 'test'].map((kind) => ({ kind, command: null, origin: 'none', reason: noSourceReason })));
-    assert.equal(discovered.manager, null);
+describe('hintChecks', () => {
+  it('hints nothing in an empty repository, giving every kind the rule none and what it read', () => {
+    assert.deepEqual(hintChecks(root({})), ['build', 'typecheck', 'lint', 'test'].map((kind) => ({ kind, command: null, rule: 'none', reading: noHintReading })));
   });
 
-  it('takes a --check flag over every other source, and drops a kind with --no-check', () => {
-    const manifests = root({ 'package.json': packageJson({ build: 'tsc', test: 'node --test' }), Makefile: 'lint:\n\techo lint\n' });
-    const discovered = discoverChecks(manifests, { commands: { test: 'make quick-test', lint: 'eslint .' }, dropped: ['build'] });
-    assert.deepEqual(discovered.checks, [
-      { kind: 'build', command: null, origin: 'flag', reason: droppedReason },
-      { kind: 'typecheck', command: null, origin: 'none', reason: noSourceReason },
-      { kind: 'lint', command: 'eslint .', origin: 'flag', reason: null },
-      { kind: 'test', command: 'make quick-test', origin: 'flag', reason: null },
-    ]);
-    assert.equal(discovered.manager, null, 'no kind runs a package script, so no manager is named');
+  it('hints only the kinds it is asked for, in the order the checks run', () => {
+    const manifests = root({ 'package.json': packageJson({ build: 'tsc', lint: 'eslint .', test: 'node --test' }) });
+    assert.deepEqual(hintChecks(manifests, ['test', 'build']).map((hint) => [hint.kind, hint.command]), [['build', 'npm run build'], ['test', 'npm run test']]);
+    assert.deepEqual(hintChecks(manifests, []), []);
   });
 
-  it('prefers a Taskfile task, then a Makefile target, then a justfile recipe, over a package script', () => {
+  it('prefers a Taskfile task, then a Makefile target, then a justfile recipe, over a package script, naming the file each read', () => {
     const manifests = root({
       'Taskfile.yml': 'version: "3"\ntasks:\n  test:\n    cmds: [go test ./...]\n',
       Makefile: 'test:\n\tmake-test\nlint:\n\tmake-lint\n',
       justfile: 'lint:\n  just-lint\ntypecheck:\n  just-typecheck\n',
       'package.json': packageJson({ build: 'tsc -b', typecheck: 'tsc', lint: 'eslint', test: 'vitest' }),
     });
-    const discovered = discoverChecks(manifests);
-    assert.deepEqual(discovered.checks.map((check) => [check.kind, check.command, check.origin]), [
-      ['build', 'npm run build', 'package'],
-      ['typecheck', 'just typecheck', 'justfile'],
-      ['lint', 'make lint', 'makefile'],
-      ['test', 'task test', 'taskfile'],
+    assert.deepEqual(hintChecks(manifests).map((hint) => [hint.kind, hint.command, hint.rule, hint.reading]), [
+      ['build', 'npm run build', 'package', 'the package.json script `build` through npm, the default, since no lock file or packageManager field names a manager'],
+      ['typecheck', 'just typecheck', 'justfile', 'the recipe `typecheck` of justfile'],
+      ['lint', 'make lint', 'makefile', 'the target `lint` of Makefile'],
+      ['test', 'task test', 'taskfile', 'the task `test` of Taskfile.yml'],
     ]);
   });
 
@@ -55,44 +45,49 @@ describe('discoverChecks', () => {
     assert.deepEqual(commands(root({ 'Taskfile.yml': 'tasks:\n  lint: x\n', 'Taskfile.yaml': 'tasks:\n  test: x\n' })), [null, null, 'task lint', null]);
   });
 
-  it('runs a package script through the manager each lock file names, npm when none does', () => {
+  it('runs a package script through the manager each lock file names, npm when none does, and says what named it', () => {
     const scripts = packageJson({ test: 'vitest run' });
-    const cases: [RootManifests['files'], string][] = [
-      [{ 'package.json': scripts }, 'npm'],
-      [{ 'package.json': scripts, 'package-lock.json': '{}' }, 'npm'],
-      [{ 'package.json': scripts, 'npm-shrinkwrap.json': '{}' }, 'npm'],
-      [{ 'package.json': scripts, 'pnpm-lock.yaml': '' }, 'pnpm'],
-      [{ 'package.json': scripts, 'yarn.lock': '' }, 'yarn'],
-      [{ 'package.json': scripts, 'bun.lock': '' }, 'bun'],
-      [{ 'package.json': scripts, 'bun.lockb': '' }, 'bun'],
+    const cases: [RootManifests['files'], string, string][] = [
+      [{ 'package.json': scripts }, 'npm', 'the default, since no lock file or packageManager field names a manager'],
+      [{ 'package.json': scripts, 'package-lock.json': '{}' }, 'npm', 'which package-lock.json names'],
+      [{ 'package.json': scripts, 'npm-shrinkwrap.json': '{}' }, 'npm', 'which npm-shrinkwrap.json names'],
+      [{ 'package.json': scripts, 'pnpm-lock.yaml': '' }, 'pnpm', 'which pnpm-lock.yaml names'],
+      [{ 'package.json': scripts, 'yarn.lock': '' }, 'yarn', 'which yarn.lock names'],
+      [{ 'package.json': scripts, 'bun.lock': '' }, 'bun', 'which bun.lock names'],
+      [{ 'package.json': scripts, 'bun.lockb': '' }, 'bun', 'which bun.lockb names'],
       // Two lock files of one manager are no ambiguity.
-      [{ 'package.json': scripts, 'bun.lock': '', 'bun.lockb': '' }, 'bun'],
+      [{ 'package.json': scripts, 'bun.lock': '', 'bun.lockb': '' }, 'bun', 'which bun.lock and bun.lockb names'],
     ];
-    for (const [files, manager] of cases) {
-      const discovered = discoverChecks(root(files));
-      assert.equal(discovered.manager, manager, Object.keys(files).join(', '));
-      assert.equal(discovered.checks[3]!.command, `${manager} run test`);
+    for (const [files, manager, namedBy] of cases) {
+      const hint = hintChecks(root(files))[3]!;
+      assert.equal(hint.command, `${manager} run test`, Object.keys(files).join(', '));
+      assert.equal(hint.reading, `the package.json script \`test\` through ${manager}, ${namedBy}`);
     }
   });
 
   it('takes the packageManager field over the lock files, even two that disagree', () => {
-    const discovered = discoverChecks(root({ 'package.json': packageJson({ lint: 'biome lint' }, { packageManager: 'pnpm@9.1.0+sha512.abc' }), 'yarn.lock': '', 'package-lock.json': '{}' }));
-    assert.equal(discovered.manager, 'pnpm');
-    assert.equal(discovered.checks[2]!.command, 'pnpm run lint');
+    const hint = hintChecks(root({ 'package.json': packageJson({ lint: 'biome lint' }, { packageManager: 'pnpm@9.1.0+sha512.abc' }), 'yarn.lock': '', 'package-lock.json': '{}' }))[2]!;
+    assert.equal(hint.command, 'pnpm run lint');
+    assert.match(hint.reading, /which the packageManager field of package\.json names$/);
   });
 
-  it('refuses lock files of two managers with no packageManager field, naming them and the flag', () => {
-    const manifests = root({ 'package.json': packageJson({ test: 'jest' }), 'yarn.lock': '', 'package-lock.json': '{}' });
-    assert.throws(() => discoverChecks(manifests), (error: unknown) => error instanceof ReviewRefusedError && /yarn\.lock, package-lock\.json/.test(error.message) && /--check <kind>=<command>/.test(error.message));
-    // The ambiguity matters only to a kind that would run a package script.
-    assert.deepEqual(commands(manifests, { commands: { test: 'npx jest' }, dropped: [] }), [null, null, null, 'npx jest']);
+  it('hints no command for a script whose lock files name two managers and no packageManager field, naming the lock files, and refuses nothing', () => {
+    const manifests = root({ 'package.json': packageJson({ test: 'jest', lint: 'eslint .' }), 'yarn.lock': '', 'package-lock.json': '{}', 'go.mod': '' });
+    const hints = hintChecks(manifests);
+    for (const hint of [hints[2]!, hints[3]!]) {
+      assert.equal(hint.command, null);
+      assert.equal(hint.rule, 'package');
+      assert.match(hint.reading, /lock files name more than one package manager \(yarn\.lock, package-lock\.json\)/);
+    }
+    // A kind no script names still gets its language default.
+    assert.equal(hints[0]!.command, 'go build ./...');
   });
 
   it('finds each kind under its aliases, the first present winning', () => {
     for (const name of ['typecheck', 'type-check', 'check-types', 'tsc']) {
-      assert.equal(discoverChecks(root({ 'package.json': packageJson({ [name]: 'tsc --noEmit' }) })).checks[1]!.command, `npm run ${name}`, name);
+      assert.equal(hintChecks(root({ 'package.json': packageJson({ [name]: 'tsc --noEmit' }) }))[1]!.command, `npm run ${name}`, name);
     }
-    assert.equal(discoverChecks(root({ 'package.json': packageJson({ tsc: 'tsc', 'type-check': 'tsc -p .' }) })).checks[1]!.command, 'npm run type-check');
+    assert.equal(hintChecks(root({ 'package.json': packageJson({ tsc: 'tsc', 'type-check': 'tsc -p .' }) }))[1]!.command, 'npm run type-check');
   });
 
   it('takes <name>:check beside <name> (TD5), and <name> alone otherwise', () => {
@@ -109,7 +104,8 @@ describe('discoverChecks', () => {
     assert.deepEqual(commands(root({ 'pytest.ini': '[pytest]\n' })), [null, null, null, 'python -m pytest']);
     assert.deepEqual(commands(root({}, ['App.sln'])), ['dotnet build', null, null, 'dotnet test --no-build']);
     assert.deepEqual(commands(root({}, ['App.csproj'])), ['dotnet build', null, null, 'dotnet test --no-build']);
-    assert.equal(discoverChecks(root({ 'go.mod': '' })).checks[0]!.origin, 'language');
+    const go = hintChecks(root({ 'go.mod': '' }))[0]!;
+    assert.deepEqual([go.rule, go.reading], ['language', 'the default for a repository with go.mod']);
   });
 
   it('takes a package script over a language default', () => {
@@ -119,6 +115,18 @@ describe('discoverChecks', () => {
   it('ignores a package.json that is not JSON, or whose scripts are not strings', () => {
     assert.deepEqual(commands(root({ 'package.json': '{ not json' })), [null, null, null, null]);
     assert.deepEqual(commands(root({ 'package.json': JSON.stringify({ scripts: { test: 1, lint: 'eslint' } }) })), [null, null, 'npm run lint', null]);
+  });
+});
+
+describe('the settled kinds', () => {
+  it('counts a kind settled by --check or --no-check, and leaves the rest to choose in run order', () => {
+    const flags = { commands: { lint: 'eslint .' }, dropped: ['build' as const] };
+    assert.equal(isSettled(flags, 'lint'), true);
+    assert.equal(isSettled(flags, 'build'), true);
+    assert.equal(isSettled(flags, 'test'), false);
+    assert.deepEqual(unsettledKinds(flags), ['typecheck', 'test']);
+    assert.deepEqual(unsettledKinds({ commands: {}, dropped: [] }), ['build', 'typecheck', 'lint', 'test']);
+    assert.deepEqual(unsettledKinds({ commands: { build: 'a', typecheck: 'b', lint: 'c' }, dropped: ['test'] }), []);
   });
 });
 

@@ -7,7 +7,30 @@
  * next from them. The questions below are answered from this state alone.
  */
 import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlanned, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, ChecksPlannedV1, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, TreeRevised, UnitUnattempted } from './events.ts';
+
+/**
+ * One kind's check as the fold holds a plan, whichever version recorded
+ * it. A version 1 plan's origin is the manifest rule that found its
+ * command, and it names no source; a version 2 plan's is who decided it,
+ * a flag, the survey or nobody, with the survey's source.
+ */
+export interface PlannedCheck {
+  readonly kind: CheckKind;
+  readonly command: string | null;
+  readonly origin: ChecksPlannedV1['checks'][number]['origin'] | PlannedCheckV2['origin'];
+  /** Why the kind has no command; null when it has one. */
+  readonly reason: string | null;
+  readonly source: PlannedCheckV2['source'];
+}
+
+/** The checks a run executes, as the fold holds them. */
+export interface ChecksPlanned {
+  /** One per kind, in the order the checks run. */
+  readonly checks: readonly PlannedCheck[];
+  /** The package manager a version 1 plan named for its package scripts; null for a version 2 plan, which a flag or the survey decided. */
+  readonly manager: string | null;
+}
 
 /** Why a unit of an editing phase was not attempted (R12, R19 of the fix pass). */
 export interface NotAttempted {
@@ -17,7 +40,7 @@ export interface NotAttempted {
 
 export interface FixState {
   readonly checks: {
-    /** The checks pinned at configuration, or null until `checks.planned` is folded. */
+    /** The checks the run executes, pinned at configuration by a version 1 plan and when the survey completes by a version 2 one, or null until `checks.planned` is folded. */
     readonly planned: ChecksPlanned | null;
     /** Every run or skip of a check, by checks phase, in ledger order. */
     readonly runs: Readonly<Record<CheckPhase, readonly CheckRan[]>>;

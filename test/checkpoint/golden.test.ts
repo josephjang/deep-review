@@ -92,6 +92,12 @@ describe('golden checkpoints', () => {
             assert.equal(review.configuration.fix, false, `${name} run ${String(index)} configuration.fix`);
             for (const phase of fixPhases) assert.equal(review.phases[phase].status, 'skipped', `${name} run ${String(index)} ${phase}`);
           }
+          // A review recorded before the survey existed reads as one that applied the reviewer's own rules and was not surveyed: no survey state, its survey skipped (R12 of the repository survey).
+          if (review !== null && !('survey' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.equal(review.survey, null, `${name} run ${String(index)} survey`);
+            assert.deepEqual(review.configuration.survey, { userRules: 'apply' }, `${name} run ${String(index)} configuration.survey`);
+            assert.equal(review.phases.survey.status, 'skipped', `${name} run ${String(index)} survey phase`);
+          }
         }
       }
       for (const reference of expected.evidence) {

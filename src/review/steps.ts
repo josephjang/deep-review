@@ -7,9 +7,12 @@
  * every resume test is a fold test.
  */
 import type { ArtifactReference } from '../evidence/store.ts';
-import type { Blocker, FrozenFile } from '../checkpoint/events.ts';
+import type { Blocker, FrozenFile, PlannedCheckV2 } from '../checkpoint/events.ts';
 import { earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
+import { lastSurvey } from '../checkpoint/survey-state.ts';
+import { unsettledKinds, type CheckFlags } from './checks/discover.ts';
+import { resolveChecks, type UnavailableCheck } from './survey.ts';
 import { planFixes, planSecondRound, type FixPlan, type SecondRoundPlan } from './fixes.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
@@ -23,6 +26,7 @@ import {
   repairUnitKey,
   roleOfAngle,
   singleUnitKey,
+  surveyWorkerFailedAction,
   unitName,
   type CheckKind,
   type CheckPhase,
@@ -50,10 +54,13 @@ export interface Live {
   readonly spend: BudgetSpend;
   /** Where a frozen blob lives, so a drift blocker names the bytes to restore (R7 of the fix pass). */
   readonly evidencePath: (reference: ArtifactReference) => string;
+  /** This invocation's `--check` and `--no-check` flags, which settle their kinds until the checks are planned (R5, TD6 of the repository survey); none in a run that does not fix. */
+  readonly checkFlags: CheckFlags;
 }
 
-/** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, or its batch's findings not attempted. */
+/** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, its batch's findings not attempted, or the run going on without its survey. */
 type DegradationTarget =
+  | { readonly kind: 'survey.failed' }
   | { readonly kind: 'angle.failed'; readonly angle: string }
   | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string }
   | { readonly kind: 'unit.unattempted'; readonly phase: EditingPhase; readonly key: string; readonly cause: 'failures' | 'budget' };
@@ -76,6 +83,8 @@ export type Step =
   | { readonly kind: 'plan-verification'; readonly phase: VerificationPhase; readonly groups: readonly PlannedGroup[] }
   | { readonly kind: 'plan-fixes'; readonly plan: FixPlan }
   | { readonly kind: 'plan-second-round'; readonly plan: SecondRoundPlan }
+  /** The checks the run executes, and for a fix run going on without its survey the reason, recorded with them in one append. */
+  | { readonly kind: 'plan-checks'; readonly checks: readonly PlannedCheckV2[]; readonly without: string | null }
   | { readonly kind: 'run-check'; readonly phase: CheckPhase; readonly attempt: number; readonly check: DueCheck }
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
@@ -108,6 +117,8 @@ export function secondRoundOf(review: ReviewState): SecondRoundPlan {
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
   const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
+    case 'survey':
+      return single('surveyor');
     case 'triage':
       return single('triage');
     case 'finders':
@@ -192,15 +203,20 @@ function listWithin(items: readonly string[], limit: number): string {
 
 /**
  * What a unit's role records once the unit has failed twice (R5, PD6; R12
- * of the fix pass): a finder's angle is not run, a verifier's group is
- * unverified, a fixer's batch is not attempted. Null for every other
- * role, whose second failure blocks the run instead. The one place the
- * role's rule lives: a unit degrades exactly when this names what it
- * records and no worker of it was lost (`exhaustedOutcome`), and a phase
- * added to the review does not compile until it is given a rule here.
+ * of the fix pass; R9, PD6 of the repository survey): a finder's angle is
+ * not run, a verifier's group is unverified, a fixer's batch is not
+ * attempted, and a read-only review goes on without its survey. Null for
+ * every other role, and for the survey of a fix run, which would run no
+ * check the flags did not name: their second failure blocks the run
+ * instead. The one place the role's rule lives: a unit degrades exactly
+ * when this names what it records and no worker of it was lost
+ * (`exhaustedOutcome`), and a phase added to the review does not compile
+ * until it is given a rule here.
  */
-function degradationOf(unit: Unit): DegradationTarget | null {
+function degradationOf(review: ReviewState, unit: Unit): DegradationTarget | null {
   switch (unit.phase) {
+    case 'survey':
+      return review.fix === null ? { kind: 'survey.failed' } : null;
     case 'finders':
       return { kind: 'angle.failed', angle: unit.key };
     case 'verification':
@@ -230,9 +246,11 @@ function degradationOf(unit: Unit): DegradationTarget | null {
  * re-entered phase gives its units fresh attempts.
  */
 function degraded(review: ReviewState, unit: Unit): boolean {
-  const target = degradationOf(unit);
+  const target = degradationOf(review, unit);
   if (target === null) return false;
   switch (target.kind) {
+    case 'survey.failed':
+      return (review.survey?.failure ?? null) !== null;
     case 'angle.failed':
       return Object.hasOwn(review.anglesNotRun, target.angle);
     case 'group.unverified':
@@ -253,8 +271,8 @@ const interrupted = (state: UnitState | undefined): boolean => state?.failures.s
  * `worker-failed` whatever its role, and the operator's next run gives it
  * fresh attempts.
  */
-function exhaustedOutcome(unit: Unit, state: UnitState | undefined): DegradationTarget | null {
-  return interrupted(state) ? null : degradationOf(unit);
+function exhaustedOutcome(review: ReviewState, unit: Unit, state: UnitState | undefined): DegradationTarget | null {
+  return interrupted(state) ? null : degradationOf(review, unit);
 }
 
 /** Whether a unit is settled for the rest of the run: answered, or degraded. */
@@ -275,10 +293,28 @@ const launchableUnit = (review: ReviewState, unit: Unit, state: UnitState | unde
 
 const usd = (value: number): string => value.toFixed(2);
 
-/** The blocker a phase finishes with when a unit failed twice under a blocking role, or with a worker lost with its engine among its failures. */
-export function workerFailedBlocker(unit: Unit, state: UnitState | undefined): Blocker {
+/**
+ * The blocker a phase finishes with when a unit failed twice under a
+ * blocking role, or with a worker lost with its engine among its
+ * failures. The survey of a fix run names the flags that let the run go
+ * on without it (R9 of the repository survey).
+ */
+export function workerFailedBlocker(unit: Unit, state: UnitState | undefined, fixing = false): Blocker {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ', a worker lost with its engine among the failures' : ''}: `;
-  return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions['worker-failed'] };
+  const action = unit.phase === 'survey' && fixing ? surveyWorkerFailedAction : blockerActions['worker-failed'];
+  return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
+}
+
+/**
+ * The blocker the survey finishes with when the project defines a check
+ * this machine cannot run, by the surveyor's word (R15, PD12 of the
+ * repository survey): each such kind with its command, its source and
+ * the missing tool, as many as the detail holds.
+ */
+export function checkUnavailableBlocker(unavailable: readonly UnavailableCheck[]): Blocker {
+  const prefix = `the project defines ${unavailable.length === 1 ? 'a check' : 'checks'} this machine cannot run: `;
+  const items = unavailable.map((check) => `${check.kind}: \`${check.command}\` (from ${check.source}), ${check.missingTool} not found`);
+  return { code: 'check-unavailable', detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions['check-unavailable'] };
 }
 
 /**
@@ -351,6 +387,51 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
 }
 
 /**
+ * The survey's own steps (R6, R9, R15, TD7 of the repository survey), or
+ * null when the generic rules of a phase's units decide: launch the
+ * surveyor, await it, retry it, degrade or block it.
+ *
+ * A read-only review's survey is done once its unit answered, it went on
+ * without it, or an earlier attempt's answer stands. A fix run's is done
+ * once its checks are planned, which happens without a worker when the
+ * survey's last answer, from this attempt or an earlier one, and this
+ * invocation's flags settle every kind and leave none whose tool is
+ * missing. An answer of this attempt that leaves a kind with a missing
+ * tool blocks with `check-unavailable`; one of an earlier attempt that
+ * does not settle every kind is surveyed again. After a survey blocked on
+ * its failures, flags that settle all four kinds let the run go on
+ * without it: the failure and the plan are one step, so they are recorded
+ * in one append and no run is left without a survey and without checks.
+ */
+function surveyStep(review: ReviewState, live: Live, attempt: number): Step | null {
+  const survey = review.survey;
+  if (survey === null) throw new Error('The survey phase runs only on a run configured with the survey');
+  const key = singleUnitKey('survey');
+  const finish = (): Step => ({ kind: 'finish-phase', phase: 'survey', attempt, outcome: survey.failure === null ? 'completed' : 'degraded', blocker: null });
+  const answer = lastSurvey(survey);
+  const answered = isAnswered(review, 'survey', key);
+  const fix = review.fix;
+  if (fix === null) return answered || answer !== null || survey.failure !== null ? finish() : null;
+  if (fix.checks.planned !== null) return finish();
+  if (live.running.has(unitName('survey', key))) return null;
+  if (answer !== null) {
+    const resolved = resolveChecks(answer, live.checkFlags);
+    if (answered && resolved.uncovered.length > 0) throw new Error(`The survey answered in this attempt leaves ${resolved.uncovered.join(', ')} unchosen, which its task asked for`);
+    if (answered && resolved.unavailable.length > 0) return { kind: 'finish-phase', phase: 'survey', attempt, outcome: 'blocked', blocker: checkUnavailableBlocker(resolved.unavailable) };
+    if (resolved.unavailable.length === 0 && resolved.uncovered.length === 0) return { kind: 'plan-checks', checks: resolved.checks, without: null };
+    return null;
+  }
+  // A fix run goes on without its survey only with its plan, in the same append.
+  if (survey.failure !== null) throw new Error('The fix run went on without its survey but planned no check, which the engine records together');
+  const fresh = (review.units.survey[key]?.failures.length ?? 0) === 0;
+  if (survey.lastBlock?.code === 'worker-failed' && fresh && unsettledKinds(live.checkFlags).length === 0) {
+    const without = truncated(`the survey blocked, ${survey.lastBlock.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
+    return { kind: 'plan-checks', checks: resolveChecks(null, live.checkFlags).checks, without };
+  }
+  return null;
+}
+
+/**
  * The next step, in order of precedence: a blocked run returns its blocker;
  * a written report is complete; a phase that is not running starts; a
  * running phase is checked against the worktree once per attempt, and an
@@ -379,6 +460,10 @@ export function nextStep(review: ReviewState, live: Live): Step {
   if ((phase === 'verification' || phase === 'sweep-verification') && review.plans[phase] === null) return { kind: 'plan-verification', phase, groups: groupsOf(review, phase) };
   if (phase === 'fixes' && review.fix !== null && review.fix.plan === null) return { kind: 'plan-fixes', plan: fixPlanOf(review) };
   if (phase === 'report') return { kind: 'write-report' };
+  if (phase === 'survey') {
+    const step = surveyStep(review, live, attempt);
+    if (step !== null) return step;
+  }
   if (isCheckPhase(phase)) {
     const due = dueCheck(review, phase);
     return due === null ? { kind: 'finish-phase', phase, attempt, outcome: 'completed', blocker: null } : { kind: 'run-check', phase, attempt, check: due };
@@ -389,13 +474,13 @@ export function nextStep(review: ReviewState, live: Live): Step {
   // The units out of attempts whose outcome is not yet on the ledger: a degrading role's are degraded, unless interrupted; the rest block the phase.
   const spent = units.filter((unit) => exhausted(review, unit, states[unit.key]) && !degraded(review, unit));
   const degradations = spent.flatMap((unit): Degradation[] => {
-    const target = exhaustedOutcome(unit, states[unit.key]);
+    const target = exhaustedOutcome(review, unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
-  const blocking = spent.find((unit) => exhaustedOutcome(unit, states[unit.key]) === null);
-  if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key]) };
+  const blocking = spent.find((unit) => exhaustedOutcome(review, unit, states[unit.key]) === null);
+  if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key], review.fix !== null) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     const { concurrency, runBudgetUsd } = review.limits;

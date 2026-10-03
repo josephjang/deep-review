@@ -1,16 +1,48 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
-import { angleFailedV1, attemptFailedV1, attemptFailedV2, blockerSchema, candidatesRecordedV1, unitUnattemptedV1, groupUnverifiedV1, phaseStartedV1, phaseStartedV2, recordedTextLengthV1, reviewIdentifiersV1, reviewIdentifiersV2, reviewVocabularyV1, reviewVocabularyV2, workerLostV1, workerLostV2 } from '../../src/checkpoint/events.ts';
+import {
+  angleFailedV1,
+  attemptFailedV1,
+  attemptFailedV2,
+  attemptFailedV3,
+  blockerSchema,
+  blockerSchemaV3,
+  candidatesRecordedV1,
+  groupUnverifiedV1,
+  phaseFinishedV2,
+  phaseFinishedV3,
+  phaseStartedV1,
+  phaseStartedV2,
+  phaseStartedV3,
+  recordedTextLengthV1,
+  reportWrittenV2,
+  reportWrittenV3,
+  reviewIdentifiersV1,
+  reviewIdentifiersV2,
+  reviewVocabularyV1,
+  reviewVocabularyV2,
+  reviewVocabularyV3,
+  surveyFailedV1,
+  unitUnattemptedV1,
+  workerLostV1,
+  workerLostV2,
+  workerLostV3,
+  worktreeCheckedV2,
+  worktreeCheckedV3,
+} from '../../src/checkpoint/events.ts';
+import { hintRules } from '../../src/review/checks/discover.ts';
 import {
   angles,
   candidateIdSchema,
   candidatePhases,
+  checkBases,
   checkKinds,
   checkOrigins,
   checkOutcomes,
   checkPhases,
   clusterIdSchema,
+  conventionLevels,
   deduplicationPhases,
   editingPhases,
   finderAngles,
@@ -25,6 +57,7 @@ import {
   severities,
   suiteResults,
   unitKeySchema,
+  userRulesSettings,
   validationMethods,
   verdicts,
   verificationPhases,
@@ -50,10 +83,11 @@ describe('the review vocabulary frozen by the v1 events', () => {
     });
   });
 
-  it('is today\'s vocabulary in every word the fix pass did not widen', () => {
-    const { phases: frozenPhases, ...rest } = reviewVocabularyV1;
-    assert.deepEqual(rest, { angles, finderAngles, candidatePhases, deduplicationPhases, verificationPhases, phaseOutcomes, recordedBlockerCodes, verdicts, severities });
-    assert.deepEqual(frozenPhases, phases.filter((phase) => !(fixPhases as readonly string[]).includes(phase)), 'the fix pass added its five phases and nothing else');
+  it('is today\'s vocabulary in every word the fix pass and the survey did not widen', () => {
+    const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, ...rest } = reviewVocabularyV1;
+    assert.deepEqual(rest, { angles, finderAngles, candidatePhases, deduplicationPhases, verificationPhases, phaseOutcomes, verdicts, severities });
+    assert.deepEqual(frozenPhases, phases.filter((phase) => !(fixPhases as readonly string[]).includes(phase) && phase !== 'survey'), 'the fix pass added its five phases, the survey its one, and nothing else');
+    assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable'), 'the survey added its blocker code and nothing else');
   });
 
   it('spells candidate ids, group ids and unit keys as today\'s vocabulary does', () => {
@@ -91,20 +125,33 @@ describe('the review vocabulary frozen by the v1 events', () => {
 // Version 2 of the review events and version 1 of the fix pass's record the
 // vocabulary the fix pass widened; the same rule holds them to today's.
 describe('the review vocabulary frozen by the v2 events', () => {
-  it('is today\'s vocabulary, word for word and in order', () => {
+  it('is the vocabulary of the fix pass, word for word and in order, whatever today\'s says', () => {
     assert.deepEqual(reviewVocabularyV2, {
-      phases,
-      checkPhases,
-      editingPhases,
-      phaseOutcomes,
-      recordedBlockerCodes,
-      checkKinds,
-      checkOrigins,
-      checkOutcomes,
-      fixStatuses,
-      validationMethods,
-      suiteResults,
+      phases: [
+        'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+        'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+        'report',
+      ],
+      checkPhases: ['baseline-checks', 'checks', 'repair-checks'],
+      editingPhases: ['fixes', 'repair'],
+      phaseOutcomes: ['completed', 'degraded', 'blocked'],
+      recordedBlockerCodes: ['worker-failed', 'budget', 'drift'],
+      checkKinds: ['build', 'typecheck', 'lint', 'test'],
+      checkOrigins: ['flag', 'taskfile', 'makefile', 'justfile', 'package', 'language', 'none'],
+      checkOutcomes: ['passed', 'failed', 'timeout', 'not-started', 'skipped'],
+      fixStatuses: ['applied', 'already-applied', 'deferred', 'blocked'],
+      validationMethods: ['old-code', 'mutation', 'static', 'existing', 'limited'],
+      suiteResults: ['pass', 'fail', 'not-run'],
     });
+  });
+
+  it('is today\'s vocabulary in every word the survey did not change, and its rules are the hints\' rules', () => {
+    const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, checkOrigins: frozenOrigins, ...rest } = reviewVocabularyV2;
+    assert.deepEqual(rest, { checkPhases, editingPhases, phaseOutcomes, checkKinds, checkOutcomes, fixStatuses, validationMethods, suiteResults });
+    assert.deepEqual(frozenPhases, phases.filter((phase) => phase !== 'survey'), 'the survey added its phase and nothing else');
+    assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable'));
+    // The origins a version 1 plan records are the flag and the manifest rules, which live on as the rules a hint names.
+    assert.deepEqual(frozenOrigins, ['flag', ...hintRules]);
   });
 
   it('spells a cluster id and the repair\'s key as today\'s vocabulary does', () => {
@@ -130,5 +177,60 @@ describe('the review vocabulary frozen by the v2 events', () => {
     assert.equal(workerLostV2.safeParse(lost).success, true);
     assert.equal(phaseStartedV1.safeParse({ phase: 'repair', attempt: 1 }).success, false);
     assert.equal(phaseStartedV2.safeParse({ phase: 'repair', attempt: 1 }).success, true);
+  });
+});
+
+// Version 3 of the review events and version 1 of the survey's record the
+// vocabulary the survey widened; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v3 events', () => {
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV3, {
+      phases,
+      phaseOutcomes,
+      recordedBlockerCodes,
+      checkKinds,
+      checkOrigins,
+      checkBases,
+      conventionLevels,
+      userRulesSettings,
+    });
+  });
+
+  it('caps a recorded reason at the same length as version 1', () => {
+    const text = (length: number): string => 'x'.repeat(length);
+    const cases: [string, (value: string) => unknown][] = [
+      ['attempt.failed@3 reason', (reason) => attemptFailedV3.safeParse({ phase: 'survey', key: 'survey', workerId: '00000000-0000-4000-8000-000000000001', reason }).success],
+      ['survey.failed@1 reason', (reason) => surveyFailedV1.safeParse({ reason, conventions: [], userRules: [] }).success],
+      ['a version 3 blocker detail', (detail) => blockerSchemaV3.safeParse({ code: 'check-unavailable', detail, action: 'install it' }).success],
+    ];
+    for (const [name, accepts] of cases) {
+      assert.equal(accepts(text(recordedTextLengthV1)), true, `${name} holds the cap`);
+      assert.equal(accepts(text(recordedTextLengthV1 + 1)), false, `${name} refuses one more`);
+    }
+  });
+
+  it('refuses the survey in every version 2 event that carries a phase, and accepts it in version 3', () => {
+    const workerId = '00000000-0000-4000-8000-000000000001';
+    const check = { attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] };
+    const spend = { workers: 1, seconds: 1, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null };
+    const report = { report: { sha256: 'a'.repeat(64), bytes: 1 }, statistics: { phases: [{ phase: 'survey', ...spend }], total: spend, budgetApplied: false }, patches: [] };
+    const cases: [string, z.ZodType, z.ZodType, unknown][] = [
+      ['phase.started', phaseStartedV2, phaseStartedV3, { phase: 'survey', attempt: 1 }],
+      ['phase.finished', phaseFinishedV2, phaseFinishedV3, { phase: 'survey', attempt: 1, outcome: 'completed', blocker: null }],
+      ['worktree.checked', worktreeCheckedV2, worktreeCheckedV3, { phase: 'survey', ...check }],
+      ['attempt.failed', attemptFailedV2, attemptFailedV3, { phase: 'survey', key: 'survey', workerId, reason: 'r' }],
+      ['worker.lost', workerLostV2, workerLostV3, { workerId, phase: 'survey', key: 'survey', reason: 'r' }],
+      ['report.written', reportWrittenV2, reportWrittenV3, report],
+    ];
+    for (const [kind, older, newer, payload] of cases) {
+      assert.equal(older.safeParse(payload).success, false, `${kind}@2 refuses the survey`);
+      assert.equal(newer.safeParse(payload).success, true, `${kind}@3 accepts it`);
+    }
+  });
+
+  it('records check-unavailable only from version 3 of phase.finished', () => {
+    const blocked = { phase: 'survey', attempt: 1, outcome: 'blocked', blocker: { code: 'check-unavailable', detail: 'lint: ruff not found', action: 'install it' } };
+    assert.equal(phaseFinishedV2.safeParse({ ...blocked, phase: 'triage' }).success, false);
+    assert.equal(phaseFinishedV3.safeParse(blocked).success, true);
   });
 });

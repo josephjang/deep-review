@@ -4,16 +4,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { attemptFailedV2, eventRegistry } from '../../src/checkpoint/events.ts';
+import { attemptFailedV3, eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
+import { noCheckFlags } from '../../src/review/checks/discover.ts';
 import { contributionOf, groupCandidates, invocationFor, taskFor, type PhaseContext } from '../../src/review/phases.ts';
+import type { SurveyInputs } from '../../src/review/survey.ts';
 import { outputSchemaOf } from '../../src/review/schemas.ts';
 import type { Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { configuration, configured, found, ranked, swept, triaged, verified } from '../helpers/review-history.ts';
+import { configuration, configured, found, ranked, surveyConfigured, surveyConfiguredFix, swept, triaged, verified } from '../helpers/review-history.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
 const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerReceipt => ({
@@ -28,10 +30,12 @@ const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerRe
   ...change,
 });
 const unit = (phase: Unit['phase'], key: string, role: ReviewRole): Unit => ({ phase, key, role });
+/** What an invocation knows for its survey in these tests: Linux, no flag, no user-level rules file and no hint. */
+const noSurveyInputs: SurveyInputs = { platform: 'linux', flags: noCheckFlags, userFiles: [], hints: [] };
 
 /** The one event a reading unit's receipt becomes; a reading unit freezes and compares nothing, so the evidence store refuses every write and the comparison every call. */
-const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string): NewEvent => {
-  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); } });
+const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string, survey: SurveyInputs = noSurveyInputs): NewEvent => {
+  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); }, survey: () => survey });
   assert.equal(events.length, 1, JSON.stringify(events));
   return events[0]!;
 };
@@ -60,7 +64,8 @@ describe('invocationFor', () => {
     worktree: '/w',
     roles,
     configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: role === 'finder-RIPPLE' ? 'sonnet' : 'opus', effort: 'high' as const, budgetUsd: role === 'triage' ? null : 8, timeoutMs: 600_000 })) },
-    scopeBlock: '## Scope\n\nRepository: /w',
+    scopeBlock: () => '## Scope\n\nRepository: /w',
+    survey: () => noSurveyInputs,
     evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' },
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
@@ -86,6 +91,62 @@ describe('invocationFor', () => {
     assert.equal('budgetUsd' in invocation, false);
     assert.throws(() => invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), roles: new Map() }), /No assembled prompt for role finder-RIPPLE/);
   });
+
+  it('gives the surveyor the scope block of its own phase, read-only, and every later worker the one of theirs (R7, TD10 of the repository survey)', () => {
+    const blocks = (phase: Unit['phase']): string => (phase === 'survey' ? '## Scope\n\nthe surveyor\'s block' : '## Scope\n\nthe later block');
+    const surveyed = invocationFor(unit('survey', 'survey', 'surveyor'), { ...context(surveyConfigured().start('survey').fold()), scopeBlock: blocks });
+    assert.equal(surveyed.access, 'read-only');
+    assert.equal(surveyed.label, 'surveyor survey:survey');
+    assert.equal(surveyed.outputSchema, outputSchemaOf('surveyor'));
+    assert.match(surveyed.prompt, /the surveyor's block/);
+    assert.match(invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), scopeBlock: blocks }).prompt, /the later block/);
+  });
+});
+
+describe('the surveyor\'s task', () => {
+  const inputs = (change: Partial<SurveyInputs> = {}): SurveyInputs => ({ ...noSurveyInputs, ...change });
+  const hints = [
+    { kind: 'build' as const, command: null, rule: 'none' as const, reading: 'nothing names it' },
+    { kind: 'lint' as const, command: 'npm run lint', rule: 'package' as const, reading: 'the package.json script `lint` through npm' },
+    { kind: 'test' as const, command: 'npm run test', rule: 'package' as const, reading: 'the package.json script `test` through npm' },
+  ];
+
+  it('asks a read-only run for no check, and offers no user-level file when none exists', () => {
+    const task = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: inputs() });
+    assert.match(task, /^Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null$/m);
+    assert.match(task, /^User-level rules files offered: none$/m);
+    assert.match(task, /No user-level rules file exists on this machine/);
+    assert.doesNotMatch(task, /Mechanical guesses/);
+  });
+
+  it('offers each user-level file under judge, and says the policy settles them under apply and ignore', () => {
+    const files = ['/home/me/.claude/CLAUDE.md', '/home/me/.codex/AGENTS.md'];
+    const judged = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: inputs({ userFiles: files }) });
+    assert.match(judged, /^User-level rules files offered:\n- \/home\/me\/\.claude\/CLAUDE\.md\n- \/home\/me\/\.codex\/AGENTS\.md\n\nThese exist on this machine and are the reviewer's own rules/m);
+    for (const userRules of ['apply', 'ignore'] as const) {
+      const settled = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured({ survey: { userRules } }).review(), { survey: inputs({ userFiles: files }) });
+      assert.match(settled, /^User-level rules files offered: none$/m, userRules);
+      assert.match(settled, /The review policy settles whether the reviewer's own rules apply/, userRules);
+      assert.ok(!settled.includes(files[0]!), `${userRules} names no file`);
+    }
+  });
+
+  it('names the kinds to choose in a fix run, the ones the flags settled, the shell a check runs in, and a hint per kind to choose', () => {
+    const fixing = surveyConfiguredFix().review();
+    const task = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ flags: { commands: { typecheck: 'tsc -p .' }, dropped: ['lint'] }, hints: hints.filter((hint) => hint.kind !== 'lint') }) });
+    assert.match(task, /^Kinds to choose: build, test$/m);
+    assert.match(task, /^- typecheck: `tsc -p \.` \(--check\)$/m);
+    assert.match(task, /^- lint: dropped by --no-check$/m);
+    assert.match(task, /as `\/bin\/sh -c "<command>"`[\s\S]*`command -v <tool>`/);
+    assert.match(task, /^- build: none \(nothing names it\)$/m);
+    assert.match(task, /^- test: `npm run test` \(the package\.json script `test` through npm\)$/m);
+    const windows = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ platform: 'win32', hints }) });
+    assert.match(windows, /on this machine \(win32\) as `cmd\.exe \/d \/s \/c "<command>"`[\s\S]*`where\.exe <tool>`/);
+    const all = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ flags: { commands: { build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, dropped: [] } }) });
+    assert.match(all, /^Kinds to choose: none$/m);
+    assert.match(all, /Every kind is settled, so return `checks` empty\./);
+    assert.throws(() => taskFor(unit('survey', 'survey', 'surveyor'), fixing), /needs it/);
+  });
 });
 
 describe('contributionOf', () => {
@@ -97,14 +158,26 @@ describe('contributionOf', () => {
   });
   afterEach(() => rmSync(worktree, { recursive: true, force: true }));
 
+  it('records the survey\'s answer with its paths in the worktree\'s spelling, under the kind whose schema it satisfies, and refuses one naming no file', () => {
+    const answer = { conventions: [{ path: 'src\\a.ts', level: 'repository', governs: 'how a.ts is written', appliesTo: ['src/**'], grounds: null }], userRules: [], checks: null, note: 'n' };
+    const event = contribution(unit('survey', 'survey', 'surveyor'), receipt(answer), surveyConfigured().start('survey').fold(), worktree);
+    assert.deepEqual(event, { kind: 'survey.recorded', version: 1, payload: { workerId: '00000000-0000-4000-8000-0000000000aa', conventions: [{ ...answer.conventions[0], path: 'src/a.ts' }], userRules: [], checks: null, note: 'n' } });
+    assert.ok(lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success);
+    const fixing = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, checks: [] }), surveyConfiguredFix().start('survey').fold(), worktree, { ...noSurveyInputs, flags: { commands: { build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, dropped: [] } });
+    assert.equal(fixing.kind, 'survey.recorded');
+    const missing = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, conventions: [{ ...answer.conventions[0], path: 'CONTRIBUTING.md' }] }), surveyConfigured().start('survey').fold(), worktree);
+    assert.equal(missing.kind, 'attempt.failed');
+    assert.match((missing.payload as { reason: string }).reason, /^structural check: The convention source "CONTRIBUTING\.md" is not a regular file of the repository$/);
+  });
+
   it('records a failed attempt for a receipt that did not complete, with the outcome and error', () => {
     const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'timeout', error: 'The worker ran past its timeout' }), triaged().fold(), worktree);
-    assert.deepEqual(event, { kind: 'attempt.failed', version: 2, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
+    assert.deepEqual(event, { kind: 'attempt.failed', version: 3, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
   });
 
   it('cuts a failed attempt\'s reason to what the ledger records, marking the cut', () => {
     const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'failed', error: 'e'.repeat(4000) }), triaged().fold(), worktree);
-    const payload = attemptFailedV2.parse(event.payload);
+    const payload = attemptFailedV3.parse(event.payload);
     assert.equal(payload.reason.length, 4000);
     assert.match(payload.reason, /^failed: e+ \[truncated\]$/);
   });

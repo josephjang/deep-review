@@ -5,10 +5,10 @@
  * the scope block every worker of a run shares. The launcher appends its
  * scratch note after.
  */
-import type { FrozenFile, ScopeState } from '../checkpoint/events.ts';
+import type { ConventionSource, FrozenFile, ScopeState } from '../checkpoint/events.ts';
+import type { ConventionsKnown } from '../checkpoint/survey-state.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
-import type { ConventionFile } from './conventions.ts';
-import { tableCell } from './markdown.ts';
+import { inlineText, tableCell } from './markdown.ts';
 import type { Phase } from './vocabulary.ts';
 
 /** The most bytes of patch that go inline in a prompt (TD3); above it the prompt names the frozen patch's path. */
@@ -19,7 +19,33 @@ export interface ScopeBlockInput {
   readonly worktree: string;
   readonly scope: ScopeState;
   readonly evidence: Pick<EvidenceStore, 'pathOf' | 'read'>;
-  readonly conventions: readonly ConventionFile[];
+  /** What the run knows of its convention sources, or null for the surveyor's own block, which has no such section since the survey has not answered (R7 of the repository survey). */
+  readonly conventions: ConventionsKnown | null;
+}
+
+/** One convention source as a line of the scope block: its path, its level, what it governs and what it applies to. */
+function sourceLine(source: ConventionSource): string {
+  const level = source.level === 'user' ? `user level, the reviewer's own rules, applied because: ${inlineText(source.grounds ?? 'no grounds recorded')}` : 'repository';
+  const narrower = source.appliesTo === null ? '' : ` (applies to ${source.appliesTo.map(inlineText).join(', ')})`;
+  return `- ${inlineText(source.path)} (${level}): ${inlineText(source.governs)}${narrower}`;
+}
+
+/** The scope block's section on the convention sources, from what the run knows of them. */
+export function conventionsSection(known: ConventionsKnown): string {
+  switch (known.status) {
+    case 'surveyed':
+      return known.sources.length === 0
+        ? 'The repository survey found no file that states conventions a change here must follow.'
+        : ['The repository survey named these files as stating the conventions a change here must follow:', '', ...known.sources.map(sourceLine)].join('\n');
+    case 'failed':
+      return known.sources.length === 0
+        ? 'The repository survey failed, so no convention source is known.'
+        : ['The repository survey failed; the review policy applies these user-level rules files:', '', ...known.sources.map(sourceLine)].join('\n');
+    case 'pending':
+      return 'The repository survey has not answered yet, so no convention source is known.';
+    case 'predates-survey':
+      return 'This run was configured before the repository survey existed, so no convention source is recorded.';
+  }
 }
 
 /** How a frozen before state is named to a worker. */
@@ -53,8 +79,8 @@ export function describePatch(scope: ScopeState, evidence: Pick<EvidenceStore, '
 /**
  * The scope block every worker of a run receives: the repository, base,
  * head and mode; a table of the changed files with the frozen before state
- * by path and the after state in the worktree; the rules files that govern
- * the change; and the patch.
+ * by path and the after state in the worktree; the convention sources the
+ * survey named, a section the surveyor's own block lacks; and the patch.
  */
 export function scopeBlock(input: ScopeBlockInput): string {
   const { scope, evidence } = input;
@@ -62,9 +88,6 @@ export function scopeBlock(input: ScopeBlockInput): string {
     const after = file.after === null ? 'deleted' : 'read the file in the worktree';
     return `| ${tableCell(file.path)} | ${file.status}${file.symlink ? ' (symlink)' : ''} | ${tableCell(describeFrozen(file.before, evidence))} | ${after} |`;
   });
-  const conventions = input.conventions.length === 0
-    ? 'None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file.'
-    : input.conventions.map((file) => `- ${file.path} (${file.level === 'user' ? 'user level' : 'repository'})`).join('\n');
   return [
     '## Scope',
     '',
@@ -81,10 +104,7 @@ export function scopeBlock(input: ScopeBlockInput): string {
     '|---|---|---|---|',
     ...rows,
     '',
-    '### Rules files that govern the change',
-    '',
-    conventions,
-    '',
+    ...(input.conventions === null ? [] : ['### Convention sources', '', conventionsSection(input.conventions), '']),
     '### Patch',
     '',
     describePatch(scope, evidence),

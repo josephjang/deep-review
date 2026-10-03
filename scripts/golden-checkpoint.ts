@@ -8,7 +8,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
-import { reviewVocabularyV1, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
+import { reviewVocabularyV1, reviewVocabularyV2, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
 import { finderAngles, phases, type Angle, type Phase } from '../src/review/vocabulary.ts';
@@ -45,15 +45,34 @@ class ReviewHistory {
     this.#lastSequence = this.#checkpoint.append(this.#runId, this.#lastSequence, [event]).lastSequence;
   }
 
-  /** Start a phase at its next attempt with a clean worktree check at version 2, as the engine now writes them, run `body`, and finish it. */
+  /** Start a phase at its next attempt with a clean worktree check at version 2, as the fix pass's engine wrote them, run `body`, and finish it. */
   phaseV2(phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+    this.phaseAt(2, phase, body, outcome, check);
+  }
+
+  /** The same at version 3, as the engine now writes them. */
+  phaseV3(phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+    this.phaseAt(3, phase, body, outcome, check);
+  }
+
+  phaseAt(version: 2 | 3, phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
     const number = (this.#attempts[phase] ?? 0) + 1;
     this.#attempts[phase] = number;
-    this.add('phase.started', { phase, attempt: number }, 2);
-    this.add('worktree.checked', { phase, attempt: number, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 2);
+    this.add('phase.started', { phase, attempt: number }, version);
+    this.add('worktree.checked', { phase, attempt: number, moment: 'start', drifted: false, head: null, files: [], strays: [] }, version);
     body();
-    if (check.end === true) this.add('worktree.checked', { phase, attempt: number, moment: 'end', drifted: false, head: null, files: [], strays: check.strays ?? [] }, 2);
-    this.add('phase.finished', { phase, attempt: number, outcome, blocker: null }, 2);
+    if (check.end === true) this.add('worktree.checked', { phase, attempt: number, moment: 'end', drifted: false, head: null, files: [], strays: check.strays ?? [] }, version);
+    this.add('phase.finished', { phase, attempt: number, outcome, blocker: null }, version);
+  }
+
+  /** Start a phase at its next attempt at version 3 with a clean check and finish it blocked, as a survey that blocks does. */
+  blockedV3(phase: Phase, body: () => void, blocker: { code: string; detail: string; action: string }): void {
+    const number = (this.#attempts[phase] ?? 0) + 1;
+    this.#attempts[phase] = number;
+    this.add('phase.started', { phase, attempt: number }, 3);
+    this.add('worktree.checked', { phase, attempt: number, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 3);
+    body();
+    this.add('phase.finished', { phase, attempt: number, outcome: 'blocked', blocker }, 3);
   }
 
   /** One check as it ran in a checks phase, four seconds long. */
@@ -494,10 +513,10 @@ try {
   });
   fix.phaseV2('report', () => {
     const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 4, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
+    const workersPerPhase: Record<(typeof reviewVocabularyV2.phases)[number], number> = { triage: 1, finders: 9, deduplication: 1, verification: 2, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, 'baseline-checks': 0, fixes: 4, checks: 0, repair: 1, 'repair-checks': 0, report: 0 };
     fix.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(20), budgetApplied: true },
+      statistics: { phases: reviewVocabularyV2.phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(['baseline-checks', 'checks', 'repair-checks'].includes(phase) ? { seconds: 12 } : {}) })), total: spend(20), budgetApplied: true },
       patches: ['lint rewrite', 'guard', 'check the guard', 'format'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
     }, 2);
   });
@@ -512,6 +531,148 @@ try {
     from: fixScope.head,
     to: 'e'.repeat(40),
   });
+  // A fifth run through the survey, every event at the version the engine
+  // now writes: a fix run whose policy judges the reviewer's own rules; its
+  // surveyor names a contributing guide and applies the reviewer's own
+  // rules file, and chooses a lint command whose tool is missing, so the
+  // survey blocks with check-unavailable; the next invocation drops lint
+  // with --no-check, and the re-entered survey plans the checks from the
+  // recorded answer with no new worker. The run goes on to an empty review,
+  // its baseline checks and its report, with the survey's row in the
+  // statistics.
+  const surveyedRun = checkpoint.createRun({ worktree: '/fixture/surveyed' });
+  const surveyed = new ReviewHistory(checkpoint, surveyedRun.id, checkpoint.append(surveyedRun.id, surveyedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  const userRules = '/fixture/home/.codex/AGENTS.md';
+  surveyed.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.290',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: [
+      pinned('surveyor', 'strong', 'medium'),
+      pinned('triage', 'strong'),
+      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
+      pinned('deduplication', 'strong'),
+      pinned('verifier', 'strong'),
+      pinned('sweep', 'strong'),
+      pinned('merge-rank', 'strong'),
+      pinned('fixer', 'strong', 'high', 1_800_000),
+    ],
+    rolesDigest: '6'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 60,
+    fix: true,
+    checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 4 },
+    survey: { userRules: 'judge' },
+  }, 3);
+  const surveyedChecks = [
+    { kind: 'build', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no build step' },
+    { kind: 'typecheck', command: 'uv run mypy src', basis: 'stated', source: { path: '.github/workflows/tests.yaml', quote: 'run: uv run mypy src' }, missingTool: null, reason: null },
+    { kind: 'lint', command: 'pre-commit run --all-files', basis: 'stated', source: { path: '.github/workflows/tests.yaml', quote: 'run: pre-commit run --all-files' }, missingTool: 'pre-commit', reason: null },
+    { kind: 'test', command: 'uv run pytest', basis: 'stated', source: { path: 'pyproject.toml', quote: 'commands = [["pytest"]]' }, missingTool: null, reason: null },
+  ];
+  surveyed.blockedV3('survey', () => {
+    surveyed.launch('201', 'surveyor survey:survey');
+    surveyed.finishWorker('201');
+    surveyed.add('survey.recorded', {
+      workerId: surveyed.id('201'),
+      conventions: [
+        { path: 'docs/contributing.md', level: 'repository', governs: 'code style, dependencies and the wrapping of Markdown', appliesTo: null, grounds: null },
+        { path: 'src/AGENTS.md', level: 'repository', governs: 'how the sources are commented', appliesTo: ['src/**'], grounds: null },
+        { path: userRules, level: 'user', governs: 'the reviewer\'s engineering rules', appliesTo: null, grounds: 'the repository\'s AGENTS.md imports it' },
+      ],
+      userRules: [{ path: userRules, applied: true, reason: 'the repository\'s AGENTS.md imports it' }],
+      checks: surveyedChecks,
+      note: 'docs/contributing.md links to a style page outside the repository',
+    });
+  }, { code: 'check-unavailable', detail: 'the project defines a check this machine cannot run: lint: `pre-commit run --all-files` (from .github/workflows/tests.yaml), pre-commit not found', action: 'install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs' });
+  surveyed.phaseV3('survey', () => {
+    surveyed.add('checks.planned', { checks: [
+      { kind: 'build', command: null, origin: 'none', reason: 'the project has no build step', source: null },
+      { kind: 'typecheck', command: 'uv run mypy src', origin: 'survey', reason: null, source: { path: '.github/workflows/tests.yaml', quote: 'run: uv run mypy src', basis: 'stated' } },
+      { kind: 'lint', command: null, origin: 'flag', reason: 'dropped by --no-check', source: null },
+      { kind: 'test', command: 'uv run pytest', origin: 'survey', reason: null, source: { path: 'pyproject.toml', quote: 'commands = [["pytest"]]', basis: 'stated' } },
+    ] }, 2);
+  });
+  surveyed.phaseV3('triage', () => {
+    surveyed.launch('202', 'triage triage:SCAN');
+    surveyed.finishWorker('202');
+    surveyed.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: surveyed.id('202'), candidates: [], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  surveyed.phaseV3('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = String(210 + finderAngles.indexOf(angle));
+      surveyed.launch(tag, `finder-${angle} finders:${angle}`);
+      surveyed.finishWorker(tag);
+      surveyed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: surveyed.id(tag), candidates: [], leads: null });
+    }
+  });
+  surveyed.phaseV3('deduplication', () => {});
+  surveyed.phaseV3('verification', () => surveyed.add('verification.planned', { phase: 'verification', groups: [] }));
+  surveyed.phaseV3('sweep', () => {
+    surveyed.launch('230', 'sweep sweep:sweep');
+    surveyed.finishWorker('230');
+    surveyed.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: surveyed.id('230'), candidates: [], leads: null });
+  });
+  surveyed.phaseV3('sweep-deduplication', () => {});
+  surveyed.phaseV3('sweep-verification', () => surveyed.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  surveyed.phaseV3('merge-rank', () => {});
+  surveyed.phaseV3('baseline-checks', () => {
+    surveyed.check('baseline-checks', 'typecheck', 'uv run mypy src', 'passed');
+    surveyed.check('baseline-checks', 'test', 'uv run pytest', 'passed');
+  });
+  surveyed.phaseV3('fixes', () => {
+    surveyed.add('fixes.planned', { routes: [], clusters: [], batches: [] });
+    surveyed.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
+  });
+  surveyed.phaseV3('checks', () => {});
+  surveyed.phaseV3('repair', () => {});
+  surveyed.phaseV3('repair-checks', () => {});
+  surveyed.phaseV3('report', () => {
+    const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+    const workersPerPhase: Record<Phase, number> = { survey: 1, triage: 1, finders: 9, deduplication: 0, verification: 0, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 0, 'baseline-checks': 0, fixes: 0, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
+    surveyed.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a surveyed run\n'),
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' ? { seconds: 8 } : {}) })), total: spend(12), budgetApplied: true },
+      patches: [],
+    }, 3);
+  });
+  // A sixth run, read-only and left active: its policy applies the
+  // reviewer's own rules, its surveyor fails twice, and the run goes on
+  // without the survey, the policy's file its one convention source, so
+  // CONVENTIONS still runs.
+  const unsurveyedRun = checkpoint.createRun({ worktree: '/fixture/unsurveyed' });
+  const unsurveyed = new ReviewHistory(checkpoint, unsurveyedRun.id, checkpoint.append(unsurveyedRun.id, unsurveyedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  unsurveyed.add('review.configured', {
+    runtime: 'codex',
+    executable: '/fixture/bin/codex',
+    executableArgs: [],
+    version: '0.157.1',
+    models: { strong: 'gpt-6-astra', fast: 'gpt-5.6-terra' },
+    roles: [pinned('surveyor', 'strong', 'medium'), pinned('triage', 'strong')],
+    rolesDigest: '7'.repeat(64),
+    concurrency: 2,
+    runBudgetUsd: null,
+    fix: false,
+    checks: null,
+    fixes: null,
+    survey: { userRules: 'apply' },
+  }, 3);
+  unsurveyed.phaseV3('survey', () => {
+    unsurveyed.launch('301', 'surveyor survey:survey');
+    unsurveyed.finishWorker('301', 'failed');
+    unsurveyed.add('attempt.failed', { phase: 'survey', key: 'survey', workerId: unsurveyed.id('301'), reason: 'failed: The answer does not match the output schema' }, 3);
+    unsurveyed.launch('302', 'surveyor survey:survey');
+    unsurveyed.finishWorker('302', 'timeout');
+    unsurveyed.add('attempt.failed', { phase: 'survey', key: 'survey', workerId: unsurveyed.id('302'), reason: 'timeout: The worker ran past its timeout' }, 3);
+    unsurveyed.add('survey.failed', {
+      reason: '2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout',
+      conventions: [{ path: userRules, level: 'user', governs: 'the reviewer\'s own rules, which the review policy applies to every run', appliesTo: null, grounds: 'applied by the policy value apply' }],
+      userRules: [{ path: userRules, applied: true, reason: 'applied by the policy value apply' }],
+    });
+  }, 'degraded');
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

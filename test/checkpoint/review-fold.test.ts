@@ -10,12 +10,13 @@ describe('the review fold', () => {
     const before = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).fold();
     assert.equal(before.review, null);
     const review = configured().review();
-    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped.
+    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped, and without the survey, which did not exist yet.
     assert.deepEqual(review.configuration, configuration);
     assert.equal(review.configuration.fix, false);
     assert.equal(review.fix, null);
     assert.deepEqual(review.limits, { concurrency: 4, runBudgetUsd: 30 }, 'the limits in force start as the pinned ones');
-    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: (fixPhases as readonly string[]).includes(phase) ? 'skipped' : 'pending', attempt: 0 }])));
+    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: (fixPhases as readonly string[]).includes(phase) || phase === 'survey' ? 'skipped' : 'pending', attempt: 0 }])));
+    assert.equal(review.survey, null);
     assert.equal(review.blocker, null);
     assert.deepEqual(review.candidates, {});
     assert.deepEqual(review.deduplications, { deduplication: null, 'sweep-deduplication': null });
@@ -129,7 +130,7 @@ describe('the review fold', () => {
     const review = reported().review();
     assert.deepEqual(review.ranking, ranking);
     assert.deepEqual(review.report, { report: reference('e', 2048), statistics, patches: [] }, 'version 1 of the report reads as one with no patch');
-    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
   });
 
   it('records a blocker on a blocked finish and clears it, with the phase\'s failures, on the next start', () => {

@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync5 } from "node:fs";
-import { join as join25, resolve as resolve10 } from "node:path";
+import { join as join26, resolve as resolve10 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -20478,35 +20478,198 @@ var commitsCreatedV1 = external_exports.strictObject({
   from: commitId,
   to: commitId
 });
+var reviewVocabularyV3 = {
+  phases: [
+    "survey",
+    "triage",
+    "finders",
+    "deduplication",
+    "verification",
+    "sweep",
+    "sweep-deduplication",
+    "sweep-verification",
+    "merge-rank",
+    "baseline-checks",
+    "fixes",
+    "checks",
+    "repair",
+    "repair-checks",
+    "report"
+  ],
+  phaseOutcomes: ["completed", "degraded", "blocked"],
+  recordedBlockerCodes: ["worker-failed", "budget", "drift", "check-unavailable"],
+  checkKinds: ["build", "typecheck", "lint", "test"],
+  checkOrigins: ["flag", "survey", "none"],
+  checkBases: ["stated", "hint"],
+  conventionLevels: ["repository", "user"],
+  userRulesSettings: ["ignore", "apply", "judge"]
+};
+var vocabularyV3 = reviewVocabularyV3;
+var phaseSchemaV3 = external_exports.enum(vocabularyV3.phases);
+var checkKindSchemaV3 = external_exports.enum(vocabularyV3.checkKinds);
+var checkBaseSchemaV3 = external_exports.enum(vocabularyV3.checkBases);
+var blockerSchemaV3 = external_exports.strictObject({
+  code: external_exports.enum(vocabularyV3.recordedBlockerCodes),
+  detail: recordedTextSchema,
+  action: external_exports.string().min(1).max(1e3)
+});
+var reviewConfiguredV3 = external_exports.strictObject({
+  ...reviewConfiguredV2.shape,
+  survey: external_exports.strictObject({ userRules: external_exports.enum(vocabularyV3.userRulesSettings) })
+}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
+  message: "the checks are pinned exactly when the run fixes",
+  path: ["checks"]
+}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
+  message: "the batch size is pinned exactly when the run fixes",
+  path: ["fixes"]
+});
+var phaseStartedV3 = external_exports.strictObject({
+  phase: phaseSchemaV3,
+  attempt: external_exports.number().int().min(1)
+});
+var phaseFinishedV3 = external_exports.strictObject({
+  phase: phaseSchemaV3,
+  attempt: external_exports.number().int().min(1),
+  outcome: external_exports.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV3.nullable()
+}).refine((finish) => finish.outcome === "blocked" === (finish.blocker !== null), {
+  message: "a blocker is present exactly when the outcome is blocked",
+  path: ["blocker"]
+});
+var worktreeCheckedV3 = external_exports.strictObject({
+  ...worktreeCheckedV2.shape,
+  phase: phaseSchemaV3
+}).refine((check2) => check2.drifted === (check2.files.length > 0 || check2.head !== null), {
+  message: "drifted exactly when some file differs or HEAD moved",
+  path: ["drifted"]
+});
+var attemptFailedV3 = external_exports.strictObject({
+  phase: phaseSchemaV3,
+  key: unitKeySchema,
+  workerId: external_exports.uuid(),
+  reason: recordedTextSchema
+});
+var workerLostV3 = external_exports.strictObject({
+  workerId: external_exports.uuid(),
+  phase: phaseSchemaV3.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: external_exports.string().min(1).max(1e3)
+}).refine((lost) => lost.phase === null === (lost.key === null), {
+  message: "a lost worker names both its phase and its unit key, or neither",
+  path: ["key"]
+});
+var reportWrittenV3 = external_exports.strictObject({
+  report: artifactReferenceSchema,
+  statistics: external_exports.strictObject({
+    phases: external_exports.array(spendSchema.extend({ phase: phaseSchemaV3 })),
+    total: spendSchema,
+    budgetApplied: external_exports.boolean()
+  }),
+  patches: external_exports.array(artifactReferenceSchema).max(2e3)
+});
+var surveyPathSchema = external_exports.string().min(1).max(1e3);
+var conventionSourceSchema = external_exports.strictObject({
+  path: surveyPathSchema,
+  level: external_exports.enum(vocabularyV3.conventionLevels),
+  governs: external_exports.string().min(1).max(1e3),
+  appliesTo: external_exports.array(external_exports.string().min(1).max(400)).min(1).max(50).nullable(),
+  grounds: external_exports.string().min(1).max(1e3).nullable()
+}).refine((source) => source.level === "user" === (source.grounds !== null), {
+  message: "a user-level source alone states its grounds",
+  path: ["grounds"]
+});
+var userRuleDecisionSchema = external_exports.strictObject({
+  path: surveyPathSchema,
+  applied: external_exports.boolean(),
+  reason: external_exports.string().min(1).max(1e3)
+});
+var surveyedCheckSchema = external_exports.strictObject({
+  kind: checkKindSchemaV3,
+  command: external_exports.string().min(1).max(2e3).nullable(),
+  basis: checkBaseSchemaV3.nullable(),
+  source: external_exports.strictObject({ path: surveyPathSchema, quote: external_exports.string().min(1).max(2e3) }).nullable(),
+  missingTool: external_exports.string().min(1).max(400).nullable(),
+  reason: external_exports.string().min(1).max(1e3).nullable()
+}).superRefine((check2, context) => {
+  const commanded = check2.command !== null;
+  if (commanded !== (check2.basis !== null) || commanded !== (check2.source !== null)) context.addIssue({ code: "custom", message: "a command alone has a basis and a source", path: ["command"] });
+  if (check2.missingTool !== null && !commanded) context.addIssue({ code: "custom", message: "a missing tool is named only for a command", path: ["missingTool"] });
+  if (!commanded && check2.reason === null) context.addIssue({ code: "custom", message: "a kind with no command says why", path: ["reason"] });
+});
+function refineConventions(recorded, context) {
+  if (new Set(recorded.conventions.map((source) => source.path)).size !== recorded.conventions.length) context.addIssue({ code: "custom", message: "each convention source is named once", path: ["conventions"] });
+  if (new Set(recorded.userRules.map((rule) => rule.path)).size !== recorded.userRules.length) context.addIssue({ code: "custom", message: "each user-level file is decided once", path: ["userRules"] });
+  const userSources = recorded.conventions.filter((source) => source.level === "user").map((source) => source.path).sort();
+  const applied = recorded.userRules.filter((rule) => rule.applied).map((rule) => rule.path).sort();
+  if (userSources.join("\n") !== applied.join("\n")) context.addIssue({ code: "custom", message: "the user-level sources are exactly the user-level files applied", path: ["userRules"] });
+}
+var surveyRecordedV1 = external_exports.strictObject({
+  workerId: external_exports.uuid(),
+  conventions: external_exports.array(conventionSourceSchema).max(100),
+  userRules: external_exports.array(userRuleDecisionSchema).max(10),
+  checks: external_exports.array(surveyedCheckSchema).max(vocabularyV3.checkKinds.length).nullable(),
+  note: external_exports.string().max(4e3)
+}).superRefine((recorded, context) => {
+  refineConventions(recorded, context);
+  if (recorded.checks !== null && new Set(recorded.checks.map((check2) => check2.kind)).size !== recorded.checks.length) context.addIssue({ code: "custom", message: "each kind is answered once", path: ["checks"] });
+});
+var surveyFailedV1 = external_exports.strictObject({
+  reason: recordedTextSchema,
+  conventions: external_exports.array(conventionSourceSchema).max(10),
+  userRules: external_exports.array(userRuleDecisionSchema).max(10)
+}).superRefine((failed2, context) => {
+  refineConventions(failed2, context);
+  if (failed2.conventions.some((source) => source.level !== "user")) context.addIssue({ code: "custom", message: "a failed survey names no repository source", path: ["conventions"] });
+});
+var plannedCheckSchemaV2 = external_exports.strictObject({
+  kind: checkKindSchemaV3,
+  command: external_exports.string().min(1).nullable(),
+  origin: external_exports.enum(vocabularyV3.checkOrigins),
+  reason: external_exports.string().min(1).max(1e3).nullable(),
+  source: external_exports.strictObject({ path: surveyPathSchema, quote: external_exports.string().min(1).max(2e3), basis: checkBaseSchemaV3 }).nullable()
+}).superRefine((check2, context) => {
+  if (check2.command === null !== (check2.reason !== null)) context.addIssue({ code: "custom", message: "a reason is given exactly when the kind has no command", path: ["reason"] });
+  if (check2.origin === "survey" !== (check2.source !== null)) context.addIssue({ code: "custom", message: "a source is given exactly for the survey's command", path: ["source"] });
+  if (check2.origin === "survey" && check2.command === null) context.addIssue({ code: "custom", message: "the survey's check has a command", path: ["command"] });
+  if (check2.origin === "none" && check2.command !== null) context.addIssue({ code: "custom", message: "a check nobody decided has no command", path: ["command"] });
+});
+var checksPlannedV2 = external_exports.strictObject({
+  checks: external_exports.array(plannedCheckSchemaV2).length(vocabularyV3.checkKinds.length)
+}).refine((planned) => planned.checks.every((check2, index2) => check2.kind === vocabularyV3.checkKinds[index2]), {
+  message: "one check per kind, in the order the kinds run",
+  path: ["checks"]
+});
 var eventRegistry = defineRegistry({
   "run.created": { 1: { schema: runCreatedV1 } },
   "run.abandoned": { 1: { schema: runAbandonedV1 } },
   "scope.captured": { 1: { schema: scopeCapturedV1 } },
   "worker.launched": { 1: { schema: workerLaunchedV1 } },
   "worker.finished": { 1: { schema: workerFinishedV1 } },
-  "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 } },
-  "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 } },
+  "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 } },
+  "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 } },
   "limits.changed": { 1: { schema: limitsChangedV1 } },
-  "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 } },
-  "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 } },
-  "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 } },
+  "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 } },
+  "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 } },
+  "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 } },
   "candidates.recorded": { 1: { schema: candidatesRecordedV1 } },
-  "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 } },
+  "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 } },
   "angle.failed": { 1: { schema: angleFailedV1 } },
   "deduplication.recorded": { 1: { schema: deduplicationRecordedV1 } },
   "verification.planned": { 1: { schema: verificationPlannedV1 } },
   "verdicts.recorded": { 1: { schema: verdictsRecordedV1 } },
   "group.unverified": { 1: { schema: groupUnverifiedV1 } },
   "ranking.recorded": { 1: { schema: rankingRecordedV1 } },
-  "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 } },
+  "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 } },
   "fixes.planned": { 1: { schema: fixesPlannedV1 } },
   "fixes.replanned": { 1: { schema: fixesReplannedV1 } },
-  "checks.planned": { 1: { schema: checksPlannedV1 } },
+  "checks.planned": { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 } },
   "check.ran": { 1: { schema: checkRanV1 } },
   "fix.recorded": { 1: { schema: fixRecordedV1 } },
   "tree.revised": { 1: { schema: treeRevisedV1 } },
   "unit.unattempted": { 1: { schema: unitUnattemptedV1 } },
-  "commits.created": { 1: { schema: commitsCreatedV1 } }
+  "commits.created": { 1: { schema: commitsCreatedV1 } },
+  "survey.recorded": { 1: { schema: surveyRecordedV1 } },
+  "survey.failed": { 1: { schema: surveyFailedV1 } }
 });
 
 // src/review/vocabulary.ts
@@ -20529,9 +20692,10 @@ var angleClasses = {
 function roleOfAngle(angle) {
   return angle === "SCAN" ? "triage" : `finder-${angle}`;
 }
-var reviewRoles = [...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank", "fixer"];
+var reviewRoles = ["surveyor", ...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank", "fixer"];
 var isFinderRole = (role) => role.startsWith("finder-");
 var phases = [
+  "survey",
   "triage",
   "finders",
   "deduplication",
@@ -20568,22 +20732,30 @@ var verificationPhases = ["verification", "sweep-verification"];
 var verificationPhaseSchema2 = external_exports.enum(verificationPhases);
 var phaseOutcomes = ["completed", "degraded", "blocked"];
 var phaseOutcomeSchema2 = external_exports.enum(phaseOutcomes);
-var recordedBlockerCodes = ["worker-failed", "budget", "drift"];
+var recordedBlockerCodes = ["worker-failed", "budget", "drift", "check-unavailable"];
 var recordedBlockerCodeSchema2 = external_exports.enum(recordedBlockerCodes);
 var blockerActions = {
   "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
   budget: "run the command again with --budget-usd above the spend, or abandon the run",
   drift: "restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one",
+  "check-unavailable": "install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs",
   "lock-held": "wait for that engine to finish; the lock clears itself when its process ends",
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
 };
+var surveyWorkerFailedAction = "run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without the survey and its convention sources, or abandon the run";
 function pinnedRuntimeAction(runId, executable) {
   return `make ${executable}, the executable run ${runId} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one; a configured run ignores --executable`;
 }
 var checkKinds = ["build", "typecheck", "lint", "test"];
 var checkKindSchema = external_exports.enum(checkKinds);
-var checkOrigins = ["flag", "taskfile", "makefile", "justfile", "package", "language", "none"];
+var checkOrigins = ["flag", "survey", "none"];
 var checkOriginSchema = external_exports.enum(checkOrigins);
+var checkBases = ["stated", "hint"];
+var checkBaseSchema = external_exports.enum(checkBases);
+var conventionLevels = ["repository", "user"];
+var conventionLevelSchema = external_exports.enum(conventionLevels);
+var userRulesSettings = ["ignore", "apply", "judge"];
+var userRulesSettingSchema = external_exports.enum(userRulesSettings);
 var fixStatuses = ["applied", "already-applied", "deferred", "blocked"];
 var fixStatusSchema = external_exports.enum(fixStatuses);
 var validationMethods = ["old-code", "mutation", "static", "existing", "limited"];
@@ -20689,6 +20861,21 @@ function isNotAttempted(fix, phase, key) {
   return Object.hasOwn(fix.notAttempted[phase], key);
 }
 
+// src/checkpoint/survey-state.ts
+function emptySurveyState() {
+  return { answers: [], failure: null, lastBlock: null };
+}
+function lastSurvey(survey) {
+  return survey.answers.at(-1) ?? null;
+}
+function conventionsKnown(survey) {
+  if (survey === null) return { status: "predates-survey" };
+  const answer = lastSurvey(survey);
+  if (answer !== null) return { status: "surveyed", sources: answer.conventions, userRules: answer.userRules };
+  if (survey.failure !== null) return { status: "failed", reason: survey.failure.reason, sources: survey.failure.conventions, userRules: survey.failure.userRules };
+  return { status: "pending" };
+}
+
 // src/checkpoint/review-fold.ts
 function repositoryLocation(candidate) {
   return candidate.located && candidate.file !== null && candidate.line !== null ? `${candidate.file}:${String(candidate.line)}` : null;
@@ -20741,11 +20928,11 @@ function withFailure(review2, drafts, { phase, key }, failure2) {
   ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, failure2] };
   return { ...review2, units };
 }
-var configured = (state, payload, event) => {
+function configure(state, payload, event, surveyed) {
   if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, "is configured for review before its scope is captured");
   if (state.review !== null) throw invalid(event, "is configured for review twice");
-  const skipped = new Set(payload.fix ? [] : fixPhases);
+  const skipped = /* @__PURE__ */ new Set([...payload.fix ? [] : fixPhases, ...surveyed ? [] : ["survey"]]);
   const review2 = {
     configuration: payload,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
@@ -20761,16 +20948,26 @@ var configured = (state, payload, event) => {
     unverifiedGroups: Object.fromEntries(verificationPhases.map((phase) => [phase, {}])),
     ranking: null,
     report: null,
-    fix: payload.fix ? emptyFixState() : null
+    fix: payload.fix ? emptyFixState() : null,
+    survey: surveyed ? emptySurveyState() : null
   };
   return withReview(state, review2, event);
-};
-var configuredV1 = (state, payload, event, drafts) => configured(state, { ...payload, fix: false, checks: null, fixes: null }, event, drafts);
+}
+var unsurveyed = { survey: { userRules: "apply" } };
+var configured = (state, payload, event) => configure(state, payload, event, true);
+var configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed }, event, false);
+var configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed }, event, false);
 var limitsChanged = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   if (review2.report !== null) throw invalid(event, "changes its limits after its report");
   return withReview(current, { ...review2, limits: payload }, event);
 };
+function reopened(review2, drafts, phase, key) {
+  const { units, ofPhase } = writableUnits(review2, drafts, phase);
+  const unit = ofPhase[key];
+  if (unit !== void 0 && unit.answeredBy !== null) ofPhase[key] = { answeredBy: null, failures: unit.failures };
+  return units;
+}
 function withFreshAttempts(review2, drafts, phase) {
   const { units, ofPhase } = writableUnits(review2, drafts, phase);
   for (const [key, state] of Object.entries(ofPhase)) {
@@ -20788,16 +20985,19 @@ var phaseStarted = (state, payload, event, drafts) => {
     const status3 = review2.phases[earlier].status;
     if (status3 !== "completed" && status3 !== "degraded" && status3 !== "skipped") throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status3}`);
   }
-  const units = phase.status === "blocked" ? withFreshAttempts(review2, drafts, payload.phase) : review2.units;
+  let units = phase.status === "blocked" ? withFreshAttempts(review2, drafts, payload.phase) : review2.units;
+  if (payload.phase === "survey" && payload.attempt > 1 && (review2.fix?.checks.planned ?? null) === null) units = reopened({ ...review2, units }, drafts, payload.phase, singleUnitKey(payload.phase));
   const phaseStates = { ...review2.phases, [payload.phase]: { status: "running", attempt: payload.attempt } };
   return withReview(current, { ...review2, phases: phaseStates, blocker: null, units }, event);
 };
 var phaseFinished = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, payload.phase, payload.attempt);
+  if (payload.blocker?.code === "check-unavailable" && payload.phase !== "survey") throw invalid(event, `blocks phase ${payload.phase} on a check that cannot run, which only the survey finds`);
   const phaseStates = { ...review2.phases, [payload.phase]: { status: payload.outcome, attempt: payload.attempt } };
   const blocker = payload.blocker === null ? null : { ...payload.blocker, phase: payload.phase };
-  return withReview(current, { ...review2, phases: phaseStates, blocker }, event);
+  const survey = payload.phase === "survey" && review2.survey !== null && payload.blocker !== null ? { ...review2.survey, lastBlock: payload.blocker } : review2.survey;
+  return withReview(current, { ...review2, phases: phaseStates, blocker, survey }, event);
 };
 var worktreeChecked = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
@@ -20951,17 +21151,22 @@ var reportWritten = (state, payload, event) => {
 var reportWrittenV12 = (state, payload, event, drafts) => reportWritten(state, { ...payload, patches: [] }, event, drafts);
 var reviewReducers = {
   "review.configured@1": configuredV1,
-  "review.configured@2": configured,
+  "review.configured@2": configuredV2,
+  "review.configured@3": configured,
   "limits.changed@1": limitsChanged,
   "phase.started@1": phaseStarted,
   "phase.started@2": phaseStarted,
+  "phase.started@3": phaseStarted,
   "phase.finished@1": phaseFinished,
   "phase.finished@2": phaseFinished,
+  "phase.finished@3": phaseFinished,
   "worktree.checked@1": worktreeCheckedV12,
   "worktree.checked@2": worktreeChecked,
+  "worktree.checked@3": worktreeChecked,
   "candidates.recorded@1": candidatesRecorded,
   "attempt.failed@1": attemptFailed,
   "attempt.failed@2": attemptFailed,
+  "attempt.failed@3": attemptFailed,
   "angle.failed@1": angleFailed,
   "deduplication.recorded@1": deduplicationRecorded,
   "verification.planned@1": verificationPlanned,
@@ -20969,7 +21174,8 @@ var reviewReducers = {
   "group.unverified@1": groupUnverified,
   "ranking.recorded@1": rankingRecorded,
   "report.written@1": reportWrittenV12,
-  "report.written@2": reportWritten
+  "report.written@2": reportWritten,
+  "report.written@3": reportWritten
 };
 function isAnswered(review2, phase, key) {
   return (review2.units[phase][key]?.answeredBy ?? null) !== null;
@@ -21000,12 +21206,35 @@ function unitIds(fix, phase, key) {
   }
   return batchOf(fix, key)?.findingIds ?? null;
 }
-var checksPlanned = (state, payload, event) => {
+var checksPlannedV12 = (state, payload, event) => {
   const { current, review: review2, fix } = requireFix(state, event);
   if (fix.checks.planned !== null) throw invalid(event, "plans its checks twice");
+  if (review2.survey !== null) throw invalid(event, "plans its checks by the manifest rules on a run its survey decides them for");
   const baseline = review2.phases["baseline-checks"].status;
   if (baseline === "completed" || baseline === "degraded") throw invalid(event, `plans its checks after the baseline phase ${baseline}`);
-  return withFix(current, review2, { ...fix, checks: { ...fix.checks, planned: payload } }, event);
+  const planned = { checks: payload.checks.map((check2) => ({ ...check2, source: null })), manager: payload.manager };
+  return withFix(current, review2, { ...fix, checks: { ...fix.checks, planned } }, event);
+};
+var checksPlannedV22 = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  if (fix.checks.planned !== null) throw invalid(event, "plans its checks twice");
+  if (review2.survey === null) throw invalid(event, "plans its checks from a survey on a run configured before the survey existed");
+  requireRunning(review2, event, "survey");
+  const answer = lastSurvey(review2.survey);
+  if (answer === null && review2.survey.failure === null) throw invalid(event, "plans its checks before its survey is recorded or the run goes on without one");
+  for (const check2 of payload.checks) {
+    if (check2.origin === "flag") continue;
+    const surveyed = answer?.checks?.find((entry) => entry.kind === check2.kind) ?? null;
+    if (surveyed === null) throw invalid(event, `plans the ${check2.kind} check as the survey's, which surveyed no such kind`);
+    if (check2.origin === "none") {
+      if (surveyed.command !== null) throw invalid(event, `plans no ${check2.kind} check, for which the survey gave ${JSON.stringify(surveyed.command)}`);
+      continue;
+    }
+    const same = surveyed.command === check2.command && surveyed.missingTool === null && surveyed.basis === check2.source?.basis && surveyed.source?.path === check2.source.path && surveyed.source.quote === check2.source.quote;
+    if (!same) throw invalid(event, `plans ${JSON.stringify(check2.command)} for the ${check2.kind} check, which is not the survey's runnable command for it`);
+  }
+  const planned = { checks: payload.checks, manager: null };
+  return withFix(current, review2, { ...fix, checks: { ...fix.checks, planned } }, event);
 };
 var fixesPlanned = (state, payload, event) => {
   const { current, review: review2, fix } = requireFix(state, event);
@@ -21195,7 +21424,8 @@ var commitsCreated = (state, payload, event) => {
   return withFix(current, review2, { ...fix, commits: payload }, event);
 };
 var fixReducers = {
-  "checks.planned@1": checksPlanned,
+  "checks.planned@1": checksPlannedV12,
+  "checks.planned@2": checksPlannedV22,
   "fixes.planned@1": fixesPlanned,
   "fixes.replanned@1": fixesReplanned,
   "check.ran@1": checkRan,
@@ -21203,6 +21433,51 @@ var fixReducers = {
   "tree.revised@1": treeRevised,
   "unit.unattempted@1": unitUnattempted,
   "commits.created@1": commitsCreated
+};
+
+// src/checkpoint/survey-fold.ts
+var surveyUnit = { phase: "survey", key: singleUnitKey("survey") };
+function requireSurvey(review2, event) {
+  if (review2.survey === null) throw invalid(event, `has ${event.kind} on a run configured before the survey existed`);
+  return review2.survey;
+}
+var isRepositoryPath = (path) => !path.includes("\\") && !/^([A-Za-z]:)?\//.test(path) && path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+function requireConventions(review2, event, conventions, userRules) {
+  for (const source of conventions) {
+    if (source.level === "repository" && !isRepositoryPath(source.path)) throw invalid(event, `names the convention source ${JSON.stringify(source.path)}, which is not a repository path`);
+  }
+  const setting = review2.configuration.survey.userRules;
+  if (setting === "apply" && userRules.some((rule) => !rule.applied)) throw invalid(event, "leaves a user-level rules file out under the policy value apply");
+  if (setting === "ignore" && userRules.some((rule) => rule.applied)) throw invalid(event, "applies a user-level rules file under the policy value ignore");
+}
+function requireOpenSurvey(review2, event) {
+  const survey = requireSurvey(review2, event);
+  requireRunning(review2, event, "survey");
+  if (survey.failure !== null) throw invalid(event, `has ${event.kind} after the run went on without its survey`);
+  if ((review2.fix?.checks.planned ?? null) !== null) throw invalid(event, `has ${event.kind} after its checks are planned`);
+  requireUnanswered(review2, event, surveyUnit);
+  return survey;
+}
+var surveyRecorded = (state, payload, event, drafts) => {
+  const { current, review: review2 } = requireReview(state, event);
+  const survey = requireOpenSurvey(review2, event);
+  if (review2.fix === null && payload.checks !== null) throw invalid(event, "records surveyed checks on a run without the fix pass");
+  if (review2.fix !== null && payload.checks === null) throw invalid(event, "records a survey without checks on a run with the fix pass");
+  requireConventions(review2, event, payload.conventions, payload.userRules);
+  const next = { ...survey, answers: [...survey.answers, payload] };
+  return withReview(current, { ...review2, survey: next, units: answered(review2, drafts, surveyUnit, payload.workerId) }, event);
+};
+var surveyFailed = (state, payload, event) => {
+  const { current, review: review2 } = requireReview(state, event);
+  const survey = requireOpenSurvey(review2, event);
+  if (survey.answers.length > 0) throw invalid(event, "goes on without its survey after recording an answer");
+  requireConventions(review2, event, payload.conventions, payload.userRules);
+  const anglesNotRun = payload.conventions.length > 0 ? review2.anglesNotRun : { ...review2.anglesNotRun, CONVENTIONS: `the survey failed, so no convention source is known: ${payload.reason}` };
+  return withReview(current, { ...review2, survey: { ...survey, failure: payload }, anglesNotRun }, event);
+};
+var surveyReducers = {
+  "survey.recorded@1": surveyRecorded,
+  "survey.failed@1": surveyFailed
 };
 
 // src/checkpoint/fold.ts
@@ -21287,8 +21562,10 @@ var reducers = {
   "worker.finished@1": workerFinished,
   "worker.lost@1": workerLost,
   "worker.lost@2": workerLost,
+  "worker.lost@3": workerLost,
   ...reviewReducers,
-  ...fixReducers
+  ...fixReducers,
+  ...surveyReducers
 };
 var runModel = defineModel(eventRegistry, reducers);
 function foldRun(events, model = runModel) {
@@ -21838,7 +22115,7 @@ function engineRolesRoot(directory = import.meta.dirname) {
 
 // src/review/controller.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { join as join22 } from "node:path";
+import { join as join23 } from "node:path";
 
 // src/runtime/errors.ts
 var InvalidInvocationError = class extends EngineError {
@@ -23567,25 +23844,6 @@ function normalizeRequest(request) {
 // src/review/checks/discover.ts
 import { readdirSync as readdirSync2, readFileSync as readFileSync6, statSync as statSync3 } from "node:fs";
 import { join as join12 } from "node:path";
-
-// src/review/errors.ts
-var InvalidPolicyError = class extends EngineError {
-  name = "InvalidPolicyError";
-};
-var StructuralCheckError = class extends EngineError {
-  name = "StructuralCheckError";
-};
-var ReviewRefusedError = class extends EngineError {
-  name = "ReviewRefusedError";
-  /** The blocker code the refusal prints, when it has one. */
-  code;
-  constructor(message, code = null) {
-    super(message);
-    this.code = code;
-  }
-};
-
-// src/review/checks/discover.ts
 var taskfileNames = ["Taskfile.yml", "taskfile.yml", "Taskfile.yaml", "taskfile.yaml"];
 var makefileNames = ["GNUmakefile", "makefile", "Makefile"];
 var justfileNames = ["justfile", "Justfile", ".justfile"];
@@ -23606,6 +23864,8 @@ var manifestNames = [
   "pytest.ini"
 ];
 var noCheckFlags = { commands: {}, dropped: [] };
+var isSettled = (flags, kind) => flags.dropped.includes(kind) || flags.commands[kind] !== void 0;
+var unsettledKinds = (flags) => checkKinds.filter((kind) => !isSettled(flags, kind));
 var lockFiles = [
   ["pnpm-lock.yaml", "pnpm"],
   ["yarn.lock", "yarn"],
@@ -23621,10 +23881,10 @@ var packageScriptNames = {
   test: ["test"]
 };
 var languageDefaults = [
-  { marks: (root) => root.files["go.mod"] !== void 0, commands: { build: "go build ./...", typecheck: "go vet ./...", test: "go test ./..." } },
-  { marks: (root) => root.files["Cargo.toml"] !== void 0, commands: { build: "cargo build --workspace", typecheck: "cargo check --workspace", lint: "cargo clippy --workspace", test: "cargo test --workspace" } },
-  { marks: (root) => root.files["pyproject.toml"] !== void 0 || root.files["pytest.ini"] !== void 0, commands: { test: "python -m pytest" } },
-  { marks: (root) => root.entries.some((name) => /\.(sln|csproj)$/i.test(name)), commands: { build: "dotnet build", test: "dotnet test --no-build" } }
+  { marker: "go.mod", marks: (root) => root.files["go.mod"] !== void 0, commands: { build: "go build ./...", typecheck: "go vet ./...", test: "go test ./..." } },
+  { marker: "Cargo.toml", marks: (root) => root.files["Cargo.toml"] !== void 0, commands: { build: "cargo build --workspace", typecheck: "cargo check --workspace", lint: "cargo clippy --workspace", test: "cargo test --workspace" } },
+  { marker: "pyproject.toml or pytest.ini", marks: (root) => root.files["pyproject.toml"] !== void 0 || root.files["pytest.ini"] !== void 0, commands: { test: "python -m pytest" } },
+  { marker: "a .sln or .csproj file", marks: (root) => root.entries.some((name) => /\.(sln|csproj)$/i.test(name)), commands: { build: "dotnet build", test: "dotnet test --no-build" } }
 ];
 var escape = (text2) => text2.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 var linesOf = (text2) => text2.split(/\r?\n/);
@@ -23682,45 +23942,41 @@ function packageScriptFor(scripts, kind) {
 }
 function packageManager(root) {
   const declared = declaredManager(root.files["package.json"]);
-  if (declared !== null) return declared;
+  if (declared !== null) return { manager: declared, namedBy: "which the packageManager field of package.json names" };
   const present = lockFiles.filter(([name]) => root.files[name] !== void 0);
   const managers = [...new Set(present.map(([, manager]) => manager))];
-  if (managers.length > 1) {
-    throw new ReviewRefusedError(`the repository holds lock files of more than one package manager (${present.map(([name]) => name).join(", ")}) and package.json names none in its packageManager field; name each check's command with --check <kind>=<command>, or add the field`);
-  }
-  return managers[0] ?? "npm";
+  if (managers.length > 1) return { ambiguous: present.map(([name]) => name) };
+  if (managers.length === 1) return { manager: managers[0], namedBy: `which ${present.map(([name]) => name).join(" and ")} names` };
+  return { manager: "npm", namedBy: "the default, since no lock file or packageManager field names a manager" };
 }
-function taskRunnerCheck(root, kind) {
-  const first = (names) => names.map((name) => root.files[name]).find((text2) => text2 !== void 0);
+function taskRunnerHint(root, kind) {
+  const first = (names) => names.find((name) => root.files[name] !== void 0);
   const taskfile = first(taskfileNames);
-  if (taskfile !== void 0 && taskfileHas(taskfile, kind)) return { command: `task ${kind}`, origin: "taskfile" };
+  if (taskfile !== void 0 && taskfileHas(root.files[taskfile], kind)) return { command: `task ${kind}`, rule: "taskfile", reading: `the task \`${kind}\` of ${taskfile}` };
   const makefile = first(makefileNames);
-  if (makefile !== void 0 && makefileHas(makefile, kind)) return { command: `make ${kind}`, origin: "makefile" };
+  if (makefile !== void 0 && makefileHas(root.files[makefile], kind)) return { command: `make ${kind}`, rule: "makefile", reading: `the target \`${kind}\` of ${makefile}` };
   const justfile = first(justfileNames);
-  if (justfile !== void 0 && justfileHas(justfile, kind)) return { command: `just ${kind}`, origin: "justfile" };
+  if (justfile !== void 0 && justfileHas(root.files[justfile], kind)) return { command: `just ${kind}`, rule: "justfile", reading: `the recipe \`${kind}\` of ${justfile}` };
   return null;
 }
-var noSourceReason = "no --check flag, Taskfile task, Makefile target, justfile recipe, package.json script or language default names it";
-var droppedReason = "dropped by --no-check";
-function discoverChecks(root, flags = noCheckFlags) {
+var noHintReading = "no Taskfile task, Makefile target, justfile recipe, package.json script or language default names it";
+function hintChecks(root, kinds = checkKinds) {
   const scripts = packageScripts(root.files["package.json"]);
-  let manager = null;
-  const checks = checkKinds.map((kind) => {
-    if (flags.dropped.includes(kind)) return { kind, command: null, origin: "flag", reason: droppedReason };
-    const flagged = flags.commands[kind];
-    if (flagged !== void 0) return { kind, command: flagged, origin: "flag", reason: null };
-    const runner = taskRunnerCheck(root, kind);
-    if (runner !== null) return { kind, ...runner, reason: null };
+  return checkKinds.filter((kind) => kinds.includes(kind)).map((kind) => {
+    const runner = taskRunnerHint(root, kind);
+    if (runner !== null) return { kind, ...runner };
     const script = scripts === null ? null : packageScriptFor(scripts, kind);
     if (script !== null) {
-      manager ??= packageManager(root);
-      return { kind, command: `${manager} run ${script}`, origin: "package", reason: null };
+      const manager = packageManager(root);
+      if ("ambiguous" in manager) {
+        return { kind, command: null, rule: "package", reading: `the package.json script \`${script}\`, but the lock files name more than one package manager (${manager.ambiguous.join(", ")}) and package.json names none in its packageManager field, so the rules cannot tell which runs it` };
+      }
+      return { kind, command: `${manager.manager} run ${script}`, rule: "package", reading: `the package.json script \`${script}\` through ${manager.manager}, ${manager.namedBy}` };
     }
     const language = languageDefaults.find((entry) => entry.marks(root) && entry.commands[kind] !== void 0);
-    if (language !== void 0) return { kind, command: language.commands[kind], origin: "language", reason: null };
-    return { kind, command: null, origin: "none", reason: noSourceReason };
+    if (language !== void 0) return { kind, command: language.commands[kind], rule: "language", reading: `the default for a repository with ${language.marker}` };
+    return { kind, command: null, rule: "none", reading: noHintReading };
   });
-  return { checks, manager };
 }
 function readRootManifests(root) {
   const entries = readdirSync2(root);
@@ -24206,31 +24462,35 @@ function gitContent(worktree, read) {
 
 // src/review/conventions.ts
 import { homedir } from "node:os";
-import { join as join15, posix } from "node:path";
-var conventionFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
+import { join as join15 } from "node:path";
 var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
-function ancestorDirectories(changedPaths2) {
-  const directories = /* @__PURE__ */ new Set([""]);
-  for (const path of changedPaths2) {
-    const parts = path.split("/").slice(0, -1);
-    for (let depth = 1; depth <= parts.length; depth += 1) directories.add(parts.slice(0, depth).join("/"));
-  }
-  return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
+function existingUserRulesFiles(home = homedir()) {
+  return userConventionFiles.map((relative3) => join15(home, ...relative3.split("/"))).filter(isFile);
 }
-function conventionFiles(worktree, changedPaths2, home = homedir()) {
-  const found = [];
-  for (const relative3 of userConventionFiles) {
-    const absolute = join15(home, ...relative3.split("/"));
-    if (isFile(absolute)) found.push({ level: "user", path: absolute });
+
+// src/review/survey.ts
+import { join as join17 } from "node:path";
+import { realpathSync as realpathSync3 } from "node:fs";
+
+// src/review/errors.ts
+var InvalidPolicyError = class extends EngineError {
+  name = "InvalidPolicyError";
+};
+var StructuralCheckError = class extends EngineError {
+  name = "StructuralCheckError";
+};
+var ReviewRefusedError = class extends EngineError {
+  name = "ReviewRefusedError";
+  /** The blocker code the refusal prints, when it has one. */
+  code;
+  constructor(message, code = null) {
+    super(message);
+    this.code = code;
   }
-  for (const directory of ancestorDirectories(changedPaths2)) {
-    for (const name of conventionFileNames) {
-      const relative3 = directory === "" ? name : posix.join(directory, name);
-      if (isFile(join15(worktree, ...relative3.split("/")))) found.push({ level: "repository", path: relative3 });
-    }
-  }
-  return found;
-}
+};
+
+// src/review/fix-answer.ts
+import { isAbsolute as isAbsolute3, relative as relative2 } from "node:path";
 
 // src/review/locations.ts
 import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync3, readSync } from "node:fs";
@@ -24351,16 +24611,178 @@ function normalizeLocations(scope, worktree, candidates) {
   });
 }
 
+// src/review/fix-answer.ts
+var rooted = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute3(name);
+function resolveReportedPath(worktree, lookup, raw) {
+  let name = normalizeFileName(raw.trim()).replace(/\/+$/, "");
+  if (rooted(name)) {
+    const inside = relative2(canonicalPath(worktree), canonicalPath(raw.trim()));
+    if (inside === "" || inside.startsWith("..") || isAbsolute3(inside)) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
+    name = inside.replaceAll("\\", "/");
+  }
+  const segments = name.split("/");
+  if (name === "" || segments.some((segment) => segment === "" || segment === "." || segment === "..")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is not a path inside the repository`);
+  if (segments.some((segment) => segment.toLowerCase() === ".git")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is in the git directory, which no fixer edits`);
+  const held = [...new Set(lookup(name))];
+  return held.length === 1 ? held[0] : name;
+}
+function resolveFixerAnswer(output2, context) {
+  const resolve11 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
+  const owned = new Set(context.owned);
+  const findings = output2.findings.map((finding) => {
+    const files = [...new Set(finding.files.map(resolve11))];
+    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve11))];
+    const own2 = requiredFiles.filter((path) => owned.has(path));
+    if (own2.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${own2.join(", ")}, which its own cluster owns`);
+    return { ...finding, files, requiredFiles };
+  });
+  const named = new Set(findings.flatMap((finding) => finding.files));
+  const violations = [...named].filter((path) => context.othersOwned.has(path)).sort();
+  return { findings, named, violations };
+}
+function requireOwnedReported(changedOwned, named) {
+  const unreported = changedOwned.filter((path) => !named.has(path));
+  if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned file${unreported.length === 1 ? "" : "s"} ${unreported.join(", ")}, whose bytes changed; every owned file a fixer changes is reported under the finding it served`);
+}
+
+// src/review/survey.ts
+var offeredUserFiles = (setting, inputs) => setting === "judge" ? inputs.userFiles : [];
+var policyWords = {
+  governs: "the reviewer's own rules, which the review policy applies to every run",
+  grounds: "applied by the policy value apply",
+  ignored: "ignored by the policy value ignore",
+  unjudged: "not judged, since the survey failed"
+};
+function policyPart(setting, userFiles) {
+  switch (setting) {
+    case "apply":
+      return {
+        conventions: userFiles.map((path) => ({ path, level: "user", governs: policyWords.governs, appliesTo: null, grounds: policyWords.grounds })),
+        userRules: userFiles.map((path) => ({ path, applied: true, reason: policyWords.grounds }))
+      };
+    case "ignore":
+      return { conventions: [], userRules: userFiles.map((path) => ({ path, applied: false, reason: policyWords.ignored })) };
+    case "judge":
+      return { conventions: [], userRules: userFiles.map((path) => ({ path, applied: false, reason: policyWords.unjudged })) };
+  }
+}
+function surveyFailure(reason, setting, userFiles) {
+  return { reason, ...policyPart(setting, userFiles) };
+}
+function repositoryFile(context, raw, what) {
+  const path = resolveReportedPath(context.worktree, context.lookup, raw);
+  const absolute = join17(context.worktree, ...path.split("/"));
+  if (!isFile(absolute)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a regular file of the repository`);
+  if (!isInside(context.worktree, realpathSync3.native(absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
+  return path;
+}
+var offeredFile = (offered, raw) => offered.find((path) => sameDirectory(path, raw)) ?? null;
+function requireOnce(keys, what) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const key of keys) {
+    if (seen.has(key)) throw new StructuralCheckError(`${what} ${JSON.stringify(key)} is named twice`);
+    seen.add(key);
+  }
+}
+function checkConventions(output2, context) {
+  const offered = offeredUserFiles(context.setting, context.inputs);
+  const conventions = output2.conventions.map((source) => {
+    if (source.level === "repository") {
+      if (source.grounds !== null) throw new StructuralCheckError(`The repository source ${JSON.stringify(source.path)} states grounds, which only a user-level source does`);
+      return { ...source, path: repositoryFile(context, source.path, "The convention source") };
+    }
+    const path = offeredFile(offered, source.path);
+    if (path === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} is not a file the task offered${offered.length === 0 ? "; it offered none" : ""}`);
+    if (source.grounds === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} states no grounds for applying the reviewer's own rules`);
+    return { ...source, path };
+  });
+  requireOnce(conventions.map((source) => source.path), "The convention source");
+  if (context.setting !== "judge") {
+    if (output2.userRules.length > 0) throw new StructuralCheckError(`The answer decides user-level rules files, which the policy value ${context.setting} settles, so none was offered`);
+    const part = policyPart(context.setting, context.inputs.userFiles);
+    return { conventions: [...conventions, ...part.conventions], userRules: part.userRules };
+  }
+  const userRules = output2.userRules.map((rule) => {
+    const path = offeredFile(offered, rule.path);
+    if (path === null) throw new StructuralCheckError(`The user-level decision on ${JSON.stringify(rule.path)} is not about a file the task offered`);
+    return { ...rule, path };
+  });
+  requireOnce(userRules.map((rule) => rule.path), "The user-level file");
+  const undecided = offered.filter((path) => !userRules.some((rule) => rule.path === path));
+  if (undecided.length > 0) throw new StructuralCheckError(`The answer decides nothing about the offered user-level file${undecided.length === 1 ? "" : "s"} ${undecided.join(", ")}`);
+  const listed = new Set(conventions.filter((source) => source.level === "user").map((source) => source.path));
+  for (const rule of userRules) {
+    if (rule.applied !== listed.has(rule.path)) throw new StructuralCheckError(`The user-level file ${rule.path} is ${rule.applied ? "applied but not listed as a source" : "listed as a source but not applied"}`);
+  }
+  return { conventions, userRules };
+}
+function checkSurveyedCheck(check2, context) {
+  const what = `The ${check2.kind} check`;
+  if (check2.command === null) {
+    if (check2.reason === null) throw new StructuralCheckError(`${what} has no command and gives no reason`);
+    if (check2.missingTool !== null) throw new StructuralCheckError(`${what} names a missing tool and no command`);
+    if (check2.source !== null || check2.basis !== null) throw new StructuralCheckError(`${what} has no command, so it has neither a source nor a basis`);
+    return { ...check2, source: null };
+  }
+  if (check2.command.trim() === "" || check2.command.includes("\0")) throw new StructuralCheckError(`${what}'s command is empty`);
+  if (check2.source === null || check2.basis === null) throw new StructuralCheckError(`${what} gives a command without ${check2.source === null ? "the file it took it from" : "its basis"}`);
+  if (check2.basis === "hint") {
+    const hint = context.inputs.hints.find((candidate) => candidate.kind === check2.kind)?.command ?? null;
+    if (hint === null) throw new StructuralCheckError(`${what} stands on a hint, and the engine gave no hinted command for ${check2.kind}`);
+    if (hint !== check2.command) throw new StructuralCheckError(`${what} stands on a hint, and its command ${JSON.stringify(check2.command)} is not the hint's ${JSON.stringify(hint)}`);
+  }
+  return { ...check2, source: { path: repositoryFile(context, check2.source.path, `${what}'s source`), quote: check2.source.quote } };
+}
+function checkSurveyAnswer(output2, context) {
+  const { conventions, userRules } = checkConventions(output2, context);
+  if (!context.fix) {
+    if (output2.checks !== null) throw new StructuralCheckError("The answer chooses checks, and this run does not fix, so it runs none");
+    return { conventions, userRules, checks: null, note: output2.note };
+  }
+  if (output2.checks === null) throw new StructuralCheckError("The answer chooses no checks, and this run fixes");
+  requireOnce(output2.checks.map((check2) => check2.kind), "The check kind");
+  const wanted = unsettledKinds(context.inputs.flags);
+  const settled2 = output2.checks.filter((check2) => isSettled(context.inputs.flags, check2.kind)).map((check2) => check2.kind);
+  if (settled2.length > 0) throw new StructuralCheckError(`The answer chooses ${settled2.join(", ")}, which a flag settles`);
+  const missing = wanted.filter((kind) => !output2.checks.some((check2) => check2.kind === kind));
+  if (missing.length > 0) throw new StructuralCheckError(`The answer chooses nothing for ${missing.join(", ")}`);
+  const checks = checkKinds.flatMap((kind) => output2.checks.filter((check2) => check2.kind === kind)).map((check2) => checkSurveyedCheck(check2, context));
+  return { conventions, userRules, checks, note: output2.note };
+}
+var droppedReason = "dropped by --no-check";
+function resolveChecks(answer, flags) {
+  const checks = [];
+  const unavailable = [];
+  const uncovered = [];
+  for (const kind of checkKinds) {
+    if (flags.dropped.includes(kind)) {
+      checks.push({ kind, command: null, origin: "flag", reason: droppedReason, source: null });
+      continue;
+    }
+    const flagged = flags.commands[kind];
+    if (flagged !== void 0) {
+      checks.push({ kind, command: flagged, origin: "flag", reason: null, source: null });
+      continue;
+    }
+    const surveyed = answer?.checks?.find((check2) => check2.kind === kind);
+    if (surveyed === void 0) uncovered.push(kind);
+    else if (surveyed.command === null) checks.push({ kind, command: null, origin: "none", reason: surveyed.reason ?? "the survey gave no command", source: null });
+    else if (surveyed.missingTool !== null) unavailable.push({ kind, command: surveyed.command, source: surveyed.source.path, missingTool: surveyed.missingTool });
+    else checks.push({ kind, command: surveyed.command, origin: "survey", reason: null, source: { ...surveyed.source, basis: surveyed.basis } });
+  }
+  return { checks, unavailable, uncovered };
+}
+
 // src/review/grouping.ts
 var maxGroupSize = 8;
 var spellingOf = (candidate) => normalizeFileName(candidate.rawFile).toLowerCase();
-var isAbsolute3 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
+var isAbsolute4 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
 function unlocatedSpellings(candidates) {
   const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
-  const relative3 = [...spellings].filter((spelling) => !isAbsolute3(spelling));
+  const relative3 = [...spellings].filter((spelling) => !isAbsolute4(spelling));
   const joined = /* @__PURE__ */ new Map();
   for (const spelling of spellings) {
-    const within = isAbsolute3(spelling) ? relative3.filter((name) => spelling.endsWith(`/${name}`)) : [];
+    const within = isAbsolute4(spelling) ? relative3.filter((name) => spelling.endsWith(`/${name}`)) : [];
     joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
   }
   return joined;
@@ -24676,6 +25098,8 @@ function secondRoundOf(review2) {
 function unitsOf(review2, phase) {
   const single = (role) => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
+    case "survey":
+      return single("surveyor");
     case "triage":
       return single("triage");
     case "finders":
@@ -24735,8 +25159,10 @@ function listWithin(items, limit) {
   const rest = more(items.length - 1);
   return `${truncated(items[0] ?? "", limit - rest.length)}${rest}`;
 }
-function degradationOf(unit) {
+function degradationOf(review2, unit) {
   switch (unit.phase) {
+    case "survey":
+      return review2.fix === null ? { kind: "survey.failed" } : null;
     case "finders":
       return { kind: "angle.failed", angle: unit.key };
     case "verification":
@@ -24758,9 +25184,11 @@ function degradationOf(unit) {
   }
 }
 function degraded(review2, unit) {
-  const target = degradationOf(unit);
+  const target = degradationOf(review2, unit);
   if (target === null) return false;
   switch (target.kind) {
+    case "survey.failed":
+      return (review2.survey?.failure ?? null) !== null;
     case "angle.failed":
       return Object.hasOwn(review2.anglesNotRun, target.angle);
     case "group.unverified":
@@ -24770,8 +25198,8 @@ function degraded(review2, unit) {
   }
 }
 var interrupted = (state) => state?.failures.some((failure2) => failure2.lost) ?? false;
-function exhaustedOutcome(unit, state) {
-  return interrupted(state) ? null : degradationOf(unit);
+function exhaustedOutcome(review2, unit, state) {
+  return interrupted(state) ? null : degradationOf(review2, unit);
 }
 var settled = (review2, unit) => isAnswered(review2, unit.phase, unit.key) || degraded(review2, unit);
 function waitsForItsCluster(review2, unit) {
@@ -24780,9 +25208,15 @@ function waitsForItsCluster(review2, unit) {
 }
 var launchableUnit = (review2, unit, state) => !settled(review2, unit) && !exhausted(review2, unit, state) && !waitsForItsCluster(review2, unit);
 var usd = (value) => value.toFixed(2);
-function workerFailedBlocker(unit, state) {
+function workerFailedBlocker(unit, state, fixing = false) {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
-  return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action: blockerActions["worker-failed"] };
+  const action = unit.phase === "survey" && fixing ? surveyWorkerFailedAction : blockerActions["worker-failed"];
+  return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
+}
+function checkUnavailableBlocker(unavailable) {
+  const prefix = `the project defines ${unavailable.length === 1 ? "a check" : "checks"} this machine cannot run: `;
+  const items = unavailable.map((check2) => `${check2.kind}: \`${check2.command}\` (from ${check2.source}), ${check2.missingTool} not found`);
+  return { code: "check-unavailable", detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions["check-unavailable"] };
 }
 function budgetDegradations(review2, units, live2, spent) {
   return units.filter((unit) => !settled(review2, unit) && !live2.running.has(unitName(unit.phase, unit.key))).map((unit) => ({ kind: "unit.unattempted", phase: unit.phase, key: unit.key, cause: "budget", reason: spent }));
@@ -24823,6 +25257,32 @@ function dueCheck(review2, phase) {
   }
   return null;
 }
+function surveyStep(review2, live2, attempt) {
+  const survey = review2.survey;
+  if (survey === null) throw new Error("The survey phase runs only on a run configured with the survey");
+  const key = singleUnitKey("survey");
+  const finish = () => ({ kind: "finish-phase", phase: "survey", attempt, outcome: survey.failure === null ? "completed" : "degraded", blocker: null });
+  const answer = lastSurvey(survey);
+  const answered2 = isAnswered(review2, "survey", key);
+  const fix = review2.fix;
+  if (fix === null) return answered2 || answer !== null || survey.failure !== null ? finish() : null;
+  if (fix.checks.planned !== null) return finish();
+  if (live2.running.has(unitName("survey", key))) return null;
+  if (answer !== null) {
+    const resolved = resolveChecks(answer, live2.checkFlags);
+    if (answered2 && resolved.uncovered.length > 0) throw new Error(`The survey answered in this attempt leaves ${resolved.uncovered.join(", ")} unchosen, which its task asked for`);
+    if (answered2 && resolved.unavailable.length > 0) return { kind: "finish-phase", phase: "survey", attempt, outcome: "blocked", blocker: checkUnavailableBlocker(resolved.unavailable) };
+    if (resolved.unavailable.length === 0 && resolved.uncovered.length === 0) return { kind: "plan-checks", checks: resolved.checks, without: null };
+    return null;
+  }
+  if (survey.failure !== null) throw new Error("The fix run went on without its survey but planned no check, which the engine records together");
+  const fresh = (review2.units.survey[key]?.failures.length ?? 0) === 0;
+  if (survey.lastBlock?.code === "worker-failed" && fresh && unsettledKinds(live2.checkFlags).length === 0) {
+    const without = truncated(`the survey blocked, ${survey.lastBlock.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
+    return { kind: "plan-checks", checks: resolveChecks(null, live2.checkFlags).checks, without };
+  }
+  return null;
+}
 function nextStep(review2, live2) {
   if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };
   if (review2.report !== null) return { kind: "complete" };
@@ -24840,6 +25300,10 @@ function nextStep(review2, live2) {
   if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
   if (phase === "fixes" && review2.fix !== null && review2.fix.plan === null) return { kind: "plan-fixes", plan: fixPlanOf(review2) };
   if (phase === "report") return { kind: "write-report" };
+  if (phase === "survey") {
+    const step = surveyStep(review2, live2, attempt);
+    if (step !== null) return step;
+  }
   if (isCheckPhase(phase)) {
     const due = dueCheck(review2, phase);
     return due === null ? { kind: "finish-phase", phase, attempt, outcome: "completed", blocker: null } : { kind: "run-check", phase, attempt, check: due };
@@ -24848,13 +25312,13 @@ function nextStep(review2, live2) {
   const states = review2.units[phase];
   const spent = units.filter((unit) => exhausted(review2, unit, states[unit.key]) && !degraded(review2, unit));
   const degradations = spent.flatMap((unit) => {
-    const target = exhaustedOutcome(unit, states[unit.key]);
+    const target = exhaustedOutcome(review2, unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
   if (degradations.length > 0) return { kind: "degrade", phase, degradations };
   const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
-  const blocking = spent.find((unit) => exhaustedOutcome(unit, states[unit.key]) === null);
-  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key]) };
+  const blocking = spent.find((unit) => exhaustedOutcome(review2, unit, states[unit.key]) === null);
+  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key], review2.fix !== null) };
   const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     const { concurrency, runBudgetUsd } = review2.limits;
@@ -24909,42 +25373,7 @@ function phaseCheck(state, worktree, phase, attempt, moment, match) {
 }
 
 // src/review/fix-events.ts
-import { join as join18 } from "node:path";
-
-// src/review/fix-answer.ts
-import { isAbsolute as isAbsolute4, relative as relative2 } from "node:path";
-var rooted = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute4(name);
-function resolveReportedPath(worktree, lookup, raw) {
-  let name = normalizeFileName(raw.trim()).replace(/\/+$/, "");
-  if (rooted(name)) {
-    const inside = relative2(canonicalPath(worktree), canonicalPath(raw.trim()));
-    if (inside === "" || inside.startsWith("..") || isAbsolute4(inside)) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
-    name = inside.replaceAll("\\", "/");
-  }
-  const segments = name.split("/");
-  if (name === "" || segments.some((segment) => segment === "" || segment === "." || segment === "..")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is not a path inside the repository`);
-  if (segments.some((segment) => segment.toLowerCase() === ".git")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is in the git directory, which no fixer edits`);
-  const held = [...new Set(lookup(name))];
-  return held.length === 1 ? held[0] : name;
-}
-function resolveFixerAnswer(output2, context) {
-  const resolve11 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
-  const owned = new Set(context.owned);
-  const findings = output2.findings.map((finding) => {
-    const files = [...new Set(finding.files.map(resolve11))];
-    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve11))];
-    const own2 = requiredFiles.filter((path) => owned.has(path));
-    if (own2.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${own2.join(", ")}, which its own cluster owns`);
-    return { ...finding, files, requiredFiles };
-  });
-  const named = new Set(findings.flatMap((finding) => finding.files));
-  const violations = [...named].filter((path) => context.othersOwned.has(path)).sort();
-  return { findings, named, violations };
-}
-function requireOwnedReported(changedOwned, named) {
-  const unreported = changedOwned.filter((path) => !named.has(path));
-  if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned file${unreported.length === 1 ? "" : "s"} ${unreported.join(", ")}, whose bytes changed; every owned file a fixer changes is reported under the finding it served`);
-}
+import { join as join19 } from "node:path";
 
 // src/review/schemas.ts
 var candidateFields = {
@@ -24977,6 +25406,34 @@ var mergeRankOutputSchema = external_exports.strictObject({
   findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema2, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
 });
 var reportedPath = external_exports.string().min(1).max(1e3);
+var surveyorCheckSchema = external_exports.strictObject({
+  kind: checkKindSchema,
+  /** One command that runs from the repository root through the platform shell, or null when the repository has none for the kind. */
+  command: external_exports.string().min(1).max(2e3).nullable(),
+  /** Whether the command is what the repository states or the engine's hint; null with no command. */
+  basis: checkBaseSchema.nullable(),
+  /** The file the command was taken from and the text there; null with no command. */
+  source: external_exports.strictObject({ path: reportedPath, quote: external_exports.string().min(1).max(2e3) }).nullable(),
+  /** A tool the command needs that does not resolve on this machine, or null when every one does. */
+  missingTool: external_exports.string().min(1).max(400).nullable(),
+  /** Why the kind has no command; may also qualify a command. */
+  reason: external_exports.string().min(1).max(1e3).nullable()
+});
+var surveyorOutputSchema = external_exports.strictObject({
+  conventions: external_exports.array(external_exports.strictObject({
+    /** Repository-relative for a file of the repository; the absolute path the task gave for a user-level one. */
+    path: reportedPath,
+    level: conventionLevelSchema,
+    governs: external_exports.string().min(1).max(1e3),
+    /** Globs of the paths it applies to when narrower than the repository, or null. */
+    appliesTo: external_exports.array(external_exports.string().min(1).max(400)).min(1).max(50).nullable(),
+    /** Why a user-level file applies; null for a file of the repository. */
+    grounds: external_exports.string().min(1).max(1e3).nullable()
+  })).max(50),
+  userRules: external_exports.array(external_exports.strictObject({ path: reportedPath, applied: external_exports.boolean(), reason: external_exports.string().min(1).max(1e3) })).max(10),
+  checks: external_exports.array(surveyorCheckSchema).max(checkKinds.length).nullable(),
+  note: external_exports.string().max(2e3)
+});
 var fixerOutputSchema = external_exports.strictObject({
   findings: external_exports.array(external_exports.strictObject({
     index,
@@ -25026,6 +25483,8 @@ function checkFixerAnswer(output2, count2) {
 function outputSchemaOf(role) {
   if (isFinderRole(role)) return finderOutputSchema;
   switch (role) {
+    case "surveyor":
+      return surveyorOutputSchema;
     case "triage":
       return triageOutputSchema;
     case "deduplication":
@@ -25090,7 +25549,7 @@ function checkMergeRank(output2, count2) {
 // src/review/snapshot.ts
 import { createHash as createHash4 } from "node:crypto";
 import { existsSync as existsSync4, lstatSync as lstatSync6, mkdirSync as mkdirSync5, readdirSync as readdirSync4, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname2, join as join17 } from "node:path";
+import { dirname as dirname2, join as join18 } from "node:path";
 var snapshotManifestFileName = "manifest.json";
 var snapshotsDirectoryName = "snapshots";
 var listedFileSchema = external_exports.union([
@@ -25119,7 +25578,7 @@ var snapshotManifestSchema = external_exports.strictObject({
   ignored: external_exports.array(external_exports.string())
 });
 function readManifest(into) {
-  const file2 = join17(into, snapshotManifestFileName);
+  const file2 = join18(into, snapshotManifestFileName);
   if (!existsSync4(file2)) return null;
   const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync9(file2, "utf8")));
   if (!parsed.success) throw new Error(`${file2} is not a snapshot manifest: ${external_exports.prettifyError(parsed.error)}`);
@@ -25128,7 +25587,7 @@ function readManifest(into) {
 function statOf(worktree, path) {
   let stat;
   try {
-    stat = lstatSync6(join17(worktree, ...path.split("/")), { throwIfNoEntry: false });
+    stat = lstatSync6(join18(worktree, ...path.split("/")), { throwIfNoEntry: false });
   } catch (error62) {
     if (error62.code === "ENOTDIR") return null;
     throw error62;
@@ -25141,7 +25600,7 @@ function changedSince(manifest) {
   const changed = [];
   const found = /* @__PURE__ */ new Set();
   const walk = (relative3) => {
-    for (const entry of readdirSync4(join17(manifest.worktree, ...relative3.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
+    for (const entry of readdirSync4(join18(manifest.worktree, ...relative3.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
       const path = relative3 === "" ? entry.name : `${relative3}/${entry.name}`;
       if (entry.name === ".git") continue;
       if (entry.isDirectory() && !entry.isSymbolicLink()) {
@@ -25161,8 +25620,8 @@ function changedSince(manifest) {
 }
 function takeSnapshot(request) {
   if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
-  const copies = join17(request.into, String(request.finding));
-  const listingFile = join17(request.into, `${String(request.finding)}.json`);
+  const copies = join18(request.into, String(request.finding));
+  const listingFile = join18(request.into, `${String(request.finding)}.json`);
   rmSync3(listingFile, { force: true });
   rmSync3(copies, { recursive: true, force: true });
   mkdirSync5(copies, { recursive: true });
@@ -25171,7 +25630,7 @@ function takeSnapshot(request) {
   const listed = paths.map((path) => {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, "absent"];
-    const copy = join17(copies, ...path.split("/"));
+    const copy = join18(copies, ...path.split("/"));
     mkdirSync5(dirname2(copy), { recursive: true });
     writeFileSync3(copy, entry.bytes);
     return [path, { sha256: sha256(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
@@ -25192,7 +25651,7 @@ function readSnapshot(into, finding) {
     if (listed === "absent") return null;
     let bytes;
     try {
-      bytes = readFileSync9(join17(into, String(finding), ...path.split("/")));
+      bytes = readFileSync9(join18(into, String(finding), ...path.split("/")));
     } catch {
       return void 0;
     }
@@ -25200,7 +25659,7 @@ function readSnapshot(into, finding) {
   };
 }
 function readListing(into, finding) {
-  const listingFile = join17(into, `${String(finding)}.json`);
+  const listingFile = join18(into, `${String(finding)}.json`);
   if (!existsSync4(listingFile)) return null;
   try {
     const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync9(listingFile, "utf8")));
@@ -25220,7 +25679,7 @@ function prepareSnapshots(into, worktree, expected) {
   mkdirSync5(into, { recursive: true });
   const files = Object.fromEntries(filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
   const manifest = { worktree, expected: [...new Set(expected)].sort(), files, ignored: ignoredEntries(worktree) };
-  writeFileSync3(join17(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
+  writeFileSync3(join18(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
 `);
 }
 
@@ -25307,7 +25766,7 @@ function fixAnswerEvents(unit, receipt, context) {
   });
   const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join18(scratch, snapshotsDirectoryName);
+  const into = scratch === null ? null : join19(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     { kind: "fix.recorded", version: 1, payload: recorded },
@@ -25323,7 +25782,7 @@ function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const fix = requireFix2(state);
   const ids = unitIds2(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join18(scratch, snapshotsDirectoryName);
+  const into = scratch === null ? null : join19(scratch, snapshotsDirectoryName);
   const others = othersOwned(state, phase, key);
   const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
   const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !strays.has(path));
@@ -25361,16 +25820,16 @@ function checkRevision(context, phase, kind, command) {
 // src/review/lock.ts
 import { mkdirSync as mkdirSync6, readFileSync as readFileSync10, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { constants } from "node:os";
-import { join as join19 } from "node:path";
+import { join as join20 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 var locksDirectoryName = "runs";
 var sqliteBusy = 5;
 var sqliteNotADatabase = 26;
 function startLockPath(checkpointRoot) {
-  return join19(checkpointRoot, "start.lock");
+  return join20(checkpointRoot, "start.lock");
 }
 function lockPath(checkpointRoot, runId) {
-  return join19(checkpointRoot, locksDirectoryName, `${runId}.lock`);
+  return join20(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
 function holderPath(path) {
   return `${path}.pid`;
@@ -25387,7 +25846,7 @@ function lockHolder(path) {
   return text2 !== "" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 function acquireRunLock(checkpointRoot, runId) {
-  mkdirSync6(join19(checkpointRoot, locksDirectoryName), { recursive: true });
+  mkdirSync6(join20(checkpointRoot, locksDirectoryName), { recursive: true });
   return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
 }
 function acquireStartLock(checkpointRoot) {
@@ -25460,12 +25919,12 @@ function releaseOnExit(release, end = exitBySignal) {
 }
 
 // src/review/phases.ts
-import { join as join21 } from "node:path";
+import { join as join22 } from "node:path";
 
 // src/review/policy.ts
 import { createHash as createHash5 } from "node:crypto";
 import { readFileSync as readFileSync11 } from "node:fs";
-import { join as join20 } from "node:path";
+import { join as join21 } from "node:path";
 var policyFileName = "policy.json";
 var tiers = ["strong", "fast"];
 var tierSchema = external_exports.enum(tiers);
@@ -25490,11 +25949,15 @@ var maxBatchSize = 20;
 var fixesPolicySchema = external_exports.strictObject({
   batchSize: external_exports.number().int().min(1).max(maxBatchSize)
 });
+var surveyPolicySchema = external_exports.strictObject({
+  userRules: userRulesSettingSchema
+});
 var policyFileSchema = external_exports.strictObject({
   schemaVersion: external_exports.literal(1),
   roles: external_exports.record(roleKeySchema, rolePolicySchema),
   checks: checksPolicySchema,
   fixes: fixesPolicySchema,
+  survey: surveyPolicySchema,
   runtimes: external_exports.record(external_exports.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
   concurrency: external_exports.number().int().min(1).max(maxConcurrency)
 });
@@ -25519,7 +25982,7 @@ function parsePolicy(value) {
   return parsed.data;
 }
 function readPolicy(rolesRoot) {
-  const path = join20(rolesRoot, policyFileName);
+  const path = join21(rolesRoot, policyFileName);
   let text2;
   try {
     text2 = readFileSync11(path, "utf8");
@@ -25578,7 +26041,8 @@ function resolvePolicy(policy, roles, adapter, flags = {}) {
     concurrency: flags.concurrency ?? policy.concurrency,
     runBudgetUsd: capabilities.costInUsd ? flags.budgetUsd ?? runtime.runBudgetUsd : null,
     checks: policy.checks,
-    fixes: policy.fixes
+    fixes: policy.fixes,
+    survey: policy.survey
   };
 }
 function pinnedRole(roles, role) {
@@ -25598,6 +26062,23 @@ function paragraphText(text2) {
 
 // src/review/prompts.ts
 var inlinePatchLimitBytes = 256 * 1024;
+function sourceLine(source) {
+  const level = source.level === "user" ? `user level, the reviewer's own rules, applied because: ${inlineText(source.grounds ?? "no grounds recorded")}` : "repository";
+  const narrower = source.appliesTo === null ? "" : ` (applies to ${source.appliesTo.map(inlineText).join(", ")})`;
+  return `- ${inlineText(source.path)} (${level}): ${inlineText(source.governs)}${narrower}`;
+}
+function conventionsSection(known) {
+  switch (known.status) {
+    case "surveyed":
+      return known.sources.length === 0 ? "The repository survey found no file that states conventions a change here must follow." : ["The repository survey named these files as stating the conventions a change here must follow:", "", ...known.sources.map(sourceLine)].join("\n");
+    case "failed":
+      return known.sources.length === 0 ? "The repository survey failed, so no convention source is known." : ["The repository survey failed; the review policy applies these user-level rules files:", "", ...known.sources.map(sourceLine)].join("\n");
+    case "pending":
+      return "The repository survey has not answered yet, so no convention source is known.";
+    case "predates-survey":
+      return "This run was configured before the repository survey existed, so no convention source is recorded.";
+  }
+}
 function describeFrozen(frozen, evidence) {
   if (frozen === null) return "none";
   if ("blob" in frozen) return evidence.pathOf(frozen.blob);
@@ -25625,7 +26106,6 @@ function scopeBlock(input2) {
     const after = file2.after === null ? "deleted" : "read the file in the worktree";
     return `| ${tableCell(file2.path)} | ${file2.status}${file2.symlink ? " (symlink)" : ""} | ${tableCell(describeFrozen(file2.before, evidence))} | ${after} |`;
   });
-  const conventions = input2.conventions.length === 0 ? "None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file." : input2.conventions.map((file2) => `- ${file2.path} (${file2.level === "user" ? "user level" : "repository"})`).join("\n");
   return [
     "## Scope",
     "",
@@ -25642,10 +26122,7 @@ function scopeBlock(input2) {
     "|---|---|---|---|",
     ...rows,
     "",
-    "### Rules files that govern the change",
-    "",
-    conventions,
-    "",
+    ...input2.conventions === null ? [] : ["### Convention sources", "", conventionsSection(input2.conventions), ""],
     "### Patch",
     "",
     describePatch(scope, evidence)
@@ -25673,6 +26150,49 @@ ${body}
 }
 
 // src/review/tasks.ts
+var kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
+function shellOf(platform) {
+  return platform === "win32" ? { shell: 'cmd.exe /d /s /c "<command>"', lookup: "`where.exe <tool>`" } : { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
+}
+function surveyTask(input2) {
+  const userRules = input2.offered.length > 0 ? [
+    "User-level rules files offered:",
+    ...input2.offered.map((path) => `- ${path}`),
+    "",
+    "These exist on this machine and are the reviewer's own rules, not the repository's. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer's own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason."
+  ] : [
+    "User-level rules files offered: none",
+    "",
+    input2.policySettlesUserRules ? "The review policy settles whether the reviewer's own rules apply, so none is offered to you: return `userRules` empty and list no source with `level` `user`." : "No user-level rules file exists on this machine: return `userRules` empty and list no source with `level` `user`."
+  ];
+  const checks = input2.fix ? fixChecks(input2) : [kindsToChooseLine(input2)];
+  return [
+    "Survey this repository as a new contributor would, and answer the two questions your role prompt defines: which files state the conventions a change here must follow, and, in a run that fixes, which commands are its checks. The changed paths in the scope block below are what a source's `appliesTo` is judged against.",
+    "",
+    ...userRules,
+    "",
+    ...checks
+  ].join("\n");
+}
+function fixChecks(input2) {
+  const { shell, lookup } = shellOf(input2.platform);
+  const settled2 = input2.settled.length === 0 ? [] : [
+    "Settled by the operator's flags, which you leave out of `checks`:",
+    ...input2.settled.map((entry) => entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: \`${entry.command}\` (--check)`),
+    ""
+  ];
+  if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled2, "Every kind is settled, so return `checks` empty."];
+  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: \`${hint.command}\` (${hint.reading})`);
+  return [
+    kindsToChooseLine(input2),
+    "",
+    ...settled2,
+    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look each tool a command names up as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
+    "",
+    "Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository's CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:",
+    ...hints
+  ];
+}
 function describeLocation(candidate) {
   const location = repositoryLocation(candidate);
   if (location === null) return `${rawLocation(candidate)} (unlocated: no file of the repository has this path and line)`;
@@ -25983,12 +26503,31 @@ function repairTaskOf(review2, editing, evidence) {
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
 }
-function taskFor(unit, review2, editing = null, evidence = null) {
+function surveyTaskOf(review2, inputs) {
+  const setting = review2.configuration.survey.userRules;
+  const fix = review2.fix !== null;
+  const unsettled = fix ? unsettledKinds(inputs.flags) : [];
+  return surveyTask({
+    platform: inputs.platform,
+    fix,
+    settled: fix ? checkKinds.filter((kind) => isSettled(inputs.flags, kind)).map((kind) => ({ kind, command: inputs.flags.dropped.includes(kind) ? null : inputs.flags.commands[kind] ?? null })) : [],
+    unsettled,
+    hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
+    offered: offeredUserFiles(setting, inputs),
+    policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0
+  });
+}
+function taskFor(unit, review2, options2 = {}) {
+  const editing = options2.editing ?? null;
+  const evidence = options2.evidence ?? null;
   const requireEditing = () => {
     if (editing === null) throw new Error(`The ${unit.phase} unit ${unit.key} needs its snapshot command`);
     return editing;
   };
   switch (unit.phase) {
+    case "survey":
+      if (options2.survey === void 0 || options2.survey === null) throw new Error("The surveyor's task names what the invocation knows for the survey and needs it");
+      return surveyTaskOf(review2, options2.survey);
     case "triage":
       return triageTask();
     case "finders": {
@@ -26029,8 +26568,9 @@ function invocationFor(unit, context) {
   if (role === void 0) throw new Error(`No assembled prompt for role ${unit.role}`);
   const policy = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join21(scratch, snapshotsDirectoryName)) };
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, editing, context.evidence) }, context.scopeBlock);
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join22(scratch, snapshotsDirectoryName)) };
+  const survey = unit.phase === "survey" ? context.survey() : null;
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
@@ -26048,7 +26588,7 @@ function invocationFor(unit, context) {
   };
 }
 function failed(unit, receipt, reason) {
-  return { kind: "attempt.failed", version: 2, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
+  return { kind: "attempt.failed", version: 3, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 function recordCandidates(phase, key, candidates, state, worktree) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -26087,7 +26627,7 @@ function contributionOf(unit, receipt, context) {
   if (receipt.outcome !== "completed") return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`, context);
   const review2 = requireReview2(context.state);
   try {
-    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review2, context.state, context.worktree)];
+    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review2, context)];
   } catch (error62) {
     if (error62 instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error62.message}`, context);
     throw error62;
@@ -26097,8 +26637,14 @@ function failedWithEdits(unit, receipt, reason, context) {
   const failure2 = failed(unit, receipt, reason);
   return isEditingPhase(unit.phase) ? [failure2, ...attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason)] : [failure2];
 }
-function contributionEvent(unit, receipt, review2, state, worktree) {
+function contributionEvent(unit, receipt, review2, context) {
+  const { state, worktree } = context;
   switch (unit.phase) {
+    case "survey": {
+      const output2 = receipt.output;
+      const checked = checkSurveyAnswer(output2, { worktree, lookup: worktreeLookup(worktree), setting: review2.configuration.survey.userRules, fix: review2.fix !== null, inputs: context.survey() });
+      return { kind: "survey.recorded", version: 1, payload: { workerId: receipt.workerId, ...checked } };
+    }
     case "triage": {
       const output2 = receipt.output;
       checkTriageLeads(output2);
@@ -26485,6 +27031,16 @@ var revisionSummary = (revision) => {
   const files = fileCount(revision.files.length);
   return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(", ")}`;
 };
+var checkLine = (check2) => {
+  const origin = check2.origin === "survey" ? `survey, ${check2.source.basis} in ${check2.source.path}` : check2.origin;
+  return check2.command === null ? `not available (${origin}: ${check2.reason ?? "no command"})` : `${check2.command} (${origin})`;
+};
+function surveyLines(runId, survey) {
+  return [
+    ...survey.conventions.length === 0 ? [`run ${runId}: survey: no convention source`] : survey.conventions.map((source) => `run ${runId}: convention source ${source.path} (${source.level}): ${source.governs}`),
+    ...survey.userRules.map((rule) => `run ${runId}: user-level rules ${rule.path}: ${rule.applied ? "applied" : "not applied"}, ${rule.reason}`)
+  ];
+}
 var driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
 function snapshotCommandFor(engineEntry, into) {
   return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
@@ -26503,8 +27059,19 @@ async function runReview(options2) {
   const opened = await openRun({ ...options2, log, environment, adapter, roles });
   let state = opened.state;
   const runId = state.id;
-  const { release, scopeRequest, configure } = opened;
+  const { release, scopeRequest, configure: configure2 } = opened;
   const inFlight = /* @__PURE__ */ new Map();
+  const checkFlags = options2.fix ?? noCheckFlags;
+  let surveyed = null;
+  const surveyInputs = () => {
+    surveyed ??= {
+      platform: process.platform,
+      flags: checkFlags,
+      userFiles: existingUserRulesFiles(options2.home),
+      hints: state.review?.configuration.fix === true ? hintChecks(readRootManifests(options2.worktree), unsettledKinds(checkFlags)) : []
+    };
+    return surveyed;
+  };
   const record2 = (settled2, startedAt) => {
     const name = unitName(settled2.unit.phase, settled2.unit.key);
     if ("error" in settled2) throw settled2.error;
@@ -26522,14 +27089,15 @@ async function runReview(options2) {
       const found = findDrift(state, options2.worktree, content.match);
       if (drifted(found)) {
         log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-        state = append(checkpoint, state, [{ kind: "worktree.checked", version: 2, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found) }]);
+        state = append(checkpoint, state, [{ kind: "worktree.checked", version: 3, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found) }]);
         return;
       }
     }
-    const events = contributionOf(settled2.unit, settled2.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match });
+    const events = contributionOf(settled2.unit, settled2.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match, survey: surveyInputs });
     for (const event of events) {
       if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
       if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: ${revisionSummary(event.payload)}`);
+      if (event.kind === "survey.recorded") for (const line of surveyLines(runId, event.payload)) log(line);
     }
     state = append(checkpoint, state, events);
   };
@@ -26538,23 +27106,27 @@ async function runReview(options2) {
       state = captureScope(checkpoint, runId, scopeRequest);
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files`);
     }
-    if (configure !== null) {
-      state = append(checkpoint, state, [
-        { kind: "review.configured", version: 2, payload: configure.configuration },
-        ...configure.checks === null ? [] : [{ kind: "checks.planned", version: 1, payload: configure.checks }]
-      ]);
-      const { configuration: configuration2 } = configure;
-      log(`run ${runId}: configured for ${configuration2.runtime} ${configuration2.version}, models ${configuration2.models.strong} and ${configuration2.models.fast}${configuration2.fix ? ", with the fix pass" : ""}`);
-      for (const check2 of configure.checks?.checks ?? []) log(`run ${runId}: check ${check2.kind}: ${check2.command ?? `not available (${check2.reason ?? "no command"})`}`);
+    if (configure2 !== null) {
+      state = append(checkpoint, state, [{ kind: "review.configured", version: 3, payload: configure2 }]);
+      log(`run ${runId}: configured for ${configure2.runtime} ${configure2.version}, models ${configure2.models.strong} and ${configure2.models.fast}${configure2.fix ? ", with the fix pass" : ""}; the reviewer's own rules: ${configure2.survey.userRules}`);
     }
     const configuration = state.review.configuration;
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, options2.worktree, content.match, log);
     state = reenterPhase(checkpoint, state, log);
     const scope = state.scope;
-    const block = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) });
+    const blocks = {};
+    const scopeBlockFor = (phase) => {
+      if (phase === "survey") return blocks.survey ??= scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: null });
+      if (blocks.rest === void 0) {
+        const survey = state.review.phases.survey.status;
+        if (survey !== "completed" && survey !== "degraded" && survey !== "skipped") throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
+        blocks.rest = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionsKnown(state.review.survey) });
+      }
+      return blocks.rest;
+    };
     const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
-    const scratchBase = join22(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
+    const scratchBase = join23(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
     const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match });
     const runDueCheck = async (phase, attempt, due) => {
       if (due.skip !== null) {
@@ -26566,7 +27138,7 @@ async function runReview(options2) {
       log(`check ${due.kind} (${phase}): ${due.command}`);
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === void 0) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
-      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, timeoutMs, ioDirectory: join22(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
+      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, timeoutMs, ioDirectory: join23(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? "" : `: ${result.error}`}`);
       const ran = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
       const revision = checkRevision(revisionContext(), phase, due.kind, due.command);
@@ -26575,7 +27147,7 @@ async function runReview(options2) {
     };
     for (; ; ) {
       const review2 = state.review;
-      const live2 = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference) };
+      const live2 = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags };
       const step = nextStep(review2, live2);
       switch (step.kind) {
         case "blocked":
@@ -26585,13 +27157,13 @@ async function runReview(options2) {
           return { kind: "report", runId, reportPath: checkpoint.evidence.pathOf(review2.report.report) };
         case "start-phase":
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)})`);
-          state = append(checkpoint, state, [{ kind: "phase.started", version: 2, payload: { phase: step.phase, attempt: step.attempt } }]);
+          state = append(checkpoint, state, [{ kind: "phase.started", version: 3, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case "check-worktree": {
           const check2 = phaseCheck(state, options2.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check2.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check2)}`);
           if (check2.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check2.strays.join(", ")}`);
-          state = append(checkpoint, state, [{ kind: "worktree.checked", version: 2, payload: check2 }]);
+          state = append(checkpoint, state, [{ kind: "worktree.checked", version: 3, payload: check2 }]);
           break;
         }
         case "plan-verification":
@@ -26610,16 +27182,34 @@ async function runReview(options2) {
           state = append(checkpoint, state, [{ kind: "fixes.replanned", version: 1, payload: step.plan }]);
           break;
         }
+        case "plan-checks": {
+          const failure2 = step.without === null ? null : surveyFailure(step.without, configuration.survey.userRules, surveyInputs().userFiles);
+          if (failure2 !== null) {
+            log(`phase survey: going on without the survey: ${failure2.reason}`);
+            for (const line of surveyLines(runId, failure2)) log(line);
+          }
+          for (const check2 of step.checks) log(`run ${runId}: check ${check2.kind}: ${checkLine(check2)}`);
+          state = append(checkpoint, state, [
+            ...failure2 === null ? [] : [{ kind: "survey.failed", version: 1, payload: failure2 }],
+            { kind: "checks.planned", version: 2, payload: { checks: [...step.checks] } }
+          ]);
+          break;
+        }
         case "run-check":
           state = append(checkpoint, state, await runDueCheck(step.phase, step.attempt, step.check));
           break;
         case "degrade":
           for (const degradation of step.degradations) {
-            const what = degradation.kind === "angle.failed" ? `angle ${degradation.angle} not run` : degradation.kind === "group.unverified" ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`;
+            const what = degradation.kind === "survey.failed" ? "going on without the survey" : degradation.kind === "angle.failed" ? `angle ${degradation.angle} not run` : degradation.kind === "group.unverified" ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`;
             log(`phase ${step.phase}: ${what}: ${degradation.reason}`);
           }
           state = append(checkpoint, state, step.degradations.flatMap((degradation) => {
             switch (degradation.kind) {
+              case "survey.failed": {
+                const failure2 = surveyFailure(degradation.reason, configuration.survey.userRules, surveyInputs().userFiles);
+                for (const line of surveyLines(runId, failure2)) log(line);
+                return [{ kind: "survey.failed", version: 1, payload: failure2 }];
+              }
               case "angle.failed":
                 return [{ kind: "angle.failed", version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
               case "group.unverified":
@@ -26635,14 +27225,15 @@ async function runReview(options2) {
             worktree: options2.worktree,
             roles: rolesByKey,
             configuration,
-            scopeBlock: block,
+            scopeBlock: scopeBlockFor,
+            survey: surveyInputs,
             evidence: checkpoint.evidence,
-            newScratch: () => join22(scratchBase, randomUUID4()),
+            newScratch: () => join23(scratchBase, randomUUID4()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into)
           };
           for (const unit of step.units) {
             const invocation = invocationFor(unit, context);
-            if (invocation.scratch !== void 0) prepareSnapshots(join22(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
+            if (invocation.scratch !== void 0) prepareSnapshots(join23(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
             const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
@@ -26657,7 +27248,7 @@ async function runReview(options2) {
         }
         case "finish-phase":
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? "" : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: "phase.finished", version: 2, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: "phase.finished", version: 3, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case "write-report": {
           const fixState = state.review.fix;
@@ -26667,8 +27258,8 @@ async function runReview(options2) {
           const fix = state.review.fix === null ? {} : { fix: { evidencePath: (reference) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
           state = append(checkpoint, state, [
-            { kind: "report.written", version: 2, payload: { report, statistics, patches } },
-            { kind: "phase.finished", version: 2, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
+            { kind: "report.written", version: 3, payload: { report, statistics, patches } },
+            { kind: "phase.finished", version: 3, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? "" : `, with ${String(patches.length)} patch${patches.length === 1 ? "" : "es"}`}`);
           break;
@@ -26731,27 +27322,24 @@ async function openRun(context) {
       if (found.scope !== null && context.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
     }
     const scopeRequest = found === null || found.scope === null ? context.scope.request() : null;
-    let configure = null;
+    let configure2 = null;
     if (found !== null && pinned !== null) {
-      await resumePinned(found.id, pinned, context);
+      await resumePinned(found, pinned, context);
     } else {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
       const fix = context.fix ?? null;
-      const discovered = fix === null ? null : discoverChecks(readRootManifests(context.worktree), fix);
       const executable = typeof context.executable === "function" ? context.executable() : context.executable;
       const executableArgs = [...context.executableArgs ?? []];
       const version2 = await qualify2(context.adapter, executable, executableArgs, context, null);
-      configure = {
-        configuration: { ...resolved, roles: [...resolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : resolved.checks, fixes: fix === null ? null : resolved.fixes },
-        checks: discovered === null ? null : { checks: [...discovered.checks], manager: discovered.manager }
-      };
+      const { checks, fixes, survey, ...rest } = resolved;
+      configure2 = { ...rest, roles: [...resolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
     if (found === null) {
       release = releaseOnExit(acquireRunLock(checkpoint.root, state.id));
       log(`run ${state.id}: created`);
     }
-    return { state, release, scopeRequest, configure };
+    return { state, release, scopeRequest, configure: configure2 };
   } catch (error62) {
     release?.();
     throw error62;
@@ -26759,7 +27347,8 @@ async function openRun(context) {
     releaseStart();
   }
 }
-async function resumePinned(runId, pinned, context) {
+async function resumePinned(run2, pinned, context) {
+  const runId = run2.id;
   const digest = rolesDigest(context.roles);
   if (digest !== pinned.rolesDigest) {
     throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
@@ -26769,10 +27358,10 @@ async function resumePinned(runId, pinned, context) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
   const fix = context.fix ?? null;
-  const checkFlags = fix !== null && (Object.keys(fix.commands).length > 0 || fix.dropped.length > 0);
+  const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
   if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ", --check and --no-check are" : " is"} ignored`);
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
-  if (pinned.fix && checkFlags) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
+  if (pinned.fix && checkFlags && (run2.review?.fix?.checks.planned ?? null) !== null) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
   await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
 }
 async function qualify2(adapter, executable, executableArgs, context, runId) {
@@ -26802,7 +27391,7 @@ function recordLostWorkers(checkpoint, state, worktree, match, log) {
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === "running")) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    const lost = { kind: "worker.lost", version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const lost = { kind: "worker.lost", version: 3, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
     const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence, match }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
     if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? "" : "s"}`);
     state = append(checkpoint, state, [lost, ...edits]);
@@ -26815,12 +27404,12 @@ function reenterPhase(checkpoint, state, log) {
   if (phase === null) return state;
   const attempt = review2.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}`);
-  return append(checkpoint, state, [{ kind: "phase.started", version: 2, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: "phase.started", version: 3, payload: { phase, attempt } }]);
 }
 
 // src/review/executable.ts
-import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute5, join as join23, posix as posix2, resolve as resolve9, win32 } from "node:path";
+import { realpathSync as realpathSync4 } from "node:fs";
+import { delimiter, extname, isAbsolute as isAbsolute5, join as join24, posix, resolve as resolve9, win32 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -26829,7 +27418,7 @@ var unspawnable = (why) => new ReviewRefusedError(
   "runtime-unqualified"
 );
 function refuseShim(executable, platform = process.platform) {
-  const extension = (platform === "win32" ? win32 : posix2).extname(executable);
+  const extension = (platform === "win32" ? win32 : posix).extname(executable);
   if (shellShims.has(extension.toLowerCase())) {
     throw unspawnable(`${executable} is a ${extension} shim, which cannot be spawned without a shell`);
   }
@@ -26842,15 +27431,15 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   if (isAbsolute5(name) || name.includes("/") || name.includes("\\")) {
     const absolute = resolve9(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
-    return refuseShim(realpathSync3.native(absolute), platform);
+    return refuseShim(realpathSync4.native(absolute), platform);
   }
   const path = spellingsOf(environment, "PATH", platform).map(([, value]) => value ?? "").find((value) => value.length > 0) ?? "";
   const directories = path.split(delimiter).filter((directory) => directory.length > 0);
   const extensions = platform === "win32" ? extname(name) === "" ? spellingsOf(environment, "PATHEXT", platform)[0]?.[1]?.split(";").filter((extension) => extension.length > 0) ?? defaultPathExt : [""] : [""];
   for (const directory of directories) {
     for (const extension of extensions) {
-      const candidate = join23(directory.replaceAll('"', ""), `${name}${extension}`);
-      if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
+      const candidate = join24(directory.replaceAll('"', ""), `${name}${extension}`);
+      if (isFile(candidate)) return refuseShim(realpathSync4.native(candidate), platform);
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
@@ -26860,7 +27449,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
 import { execFileSync as execFileSync3 } from "node:child_process";
 import { mkdtempSync, rmSync as rmSync5 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join24 } from "node:path";
+import { join as join25 } from "node:path";
 function git2(worktree, args, options2 = {}) {
   try {
     return execFileSync3("git", ["--no-optional-locks", ...args], {
@@ -27002,9 +27591,9 @@ function build(run2, options2) {
   const scope = run2.scope;
   const fix = run2.review.fix;
   for (const [path, file2] of expectedTree(scope, fix.revisions)) if (file2 !== null) bytesOf(checkpoint, path, file2.frozen);
-  const temporary = mkdtempSync(join24(tmpdir2(), "deep-review-commit-"));
+  const temporary = mkdtempSync(join25(tmpdir2(), "deep-review-commit-"));
   try {
-    const trees = new TreeBuilder(worktree, checkpoint, join24(temporary, "index"), scope.head);
+    const trees = new TreeBuilder(worktree, checkpoint, join25(temporary, "index"), scope.head);
     const made = [];
     let parent = scope.head;
     const commit2 = (message, revision) => {
@@ -27300,7 +27889,7 @@ function snapshot(values, io) {
   return 0;
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync5(join25(root, ledgerFileName))) return null;
+  if (!create && !existsSync5(join26(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 async function review(values, io, root, worktree) {

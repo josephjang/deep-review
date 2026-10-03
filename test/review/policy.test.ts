@@ -9,10 +9,10 @@ import { parsePolicy, pinnedRole, policyFileName, readPolicy, resolvePolicy, rol
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
-import { limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2 } from '../../src/checkpoint/events.ts';
+import { limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2, reviewConfiguredV3 } from '../../src/checkpoint/events.ts';
 import { maxTimeoutMs } from '../../src/runtime/contract.ts';
 import { invocationFlagProblem, maxBatchSize, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
-import { configuration, configurationV1 } from '../helpers/review-history.ts';
+import { configurationV1 } from '../helpers/review-history.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
 const committed = readPolicy(repositoryRolesRoot());
@@ -25,23 +25,24 @@ const changed = (change: (policy: { roles: Record<string, Record<string, unknown
 };
 
 describe('the committed roles/policy.json', () => {
-  it('names exactly the fifteen roles the review runs, the checks block, and only the two runtimes', () => {
+  it('names exactly the sixteen roles the review runs, the checks block, and only the two runtimes', () => {
     assert.deepEqual(Object.keys(committed.roles).sort(), [...reviewRoles].sort());
-    assert.equal(reviewRoles.length, 15);
-    assert.deepEqual(reviewRoles, ['triage', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer'], 'the role of every angle in launch order, then the roles of the later phases and the fix pass');
+    assert.equal(reviewRoles.length, 16);
+    assert.deepEqual(reviewRoles, ['surveyor', 'triage', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer'], 'the survey\'s role, the role of every angle in launch order, then the roles of the later phases and the fix pass');
     assert.deepEqual(committed.checks, { timeoutMs: 1_200_000 });
     assert.deepEqual(Object.keys(committed.runtimes).sort(), ['claude', 'codex']);
     assert.equal(committed.concurrency, 4);
   });
 
-  it('carries the proof of concept\'s values, with the gate\'s for the fixer and Claude\'s budget: strong analyst and lead roles, fast scouts, medium CONVENTIONS, 8 USD each, 600 s for a reader and 1800 s for the fixer, 60 USD a Claude run', () => {
+  it('carries the proof of concept\'s values, with the gate\'s for the fixer and Claude\'s budget: strong analyst and lead roles, fast scouts, medium CONVENTIONS and surveyor, 8 USD each, 600 s for a reader and 1800 s for the fixer, 60 USD a Claude run', () => {
     for (const [role, entry] of Object.entries(committed.roles)) {
       assert.equal(entry.budgetUsd, 8, role);
       // A fixer runs the suite against the unfixed code, the fixed code and a mutation; on the gate a Codex batch needed 1125 s and one ran past 1200 s (R12, R25 of the fix pass).
       assert.equal(entry.timeoutMs, role === 'fixer' ? 1_800_000 : 600_000, role);
       const scout = ['finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DUPLICATION', 'finder-CONVENTIONS'].includes(role);
       assert.equal(entry.tier, scout ? 'fast' : 'strong', role);
-      assert.equal(entry.effort, role === 'finder-CONVENTIONS' ? 'medium' : 'high', role);
+      // The surveyor reads and picks commands that steer the whole fix pass: the strong model, at medium effort (Policy of the repository survey).
+      assert.equal(entry.effort, role === 'finder-CONVENTIONS' || role === 'surveyor' ? 'medium' : 'high', role);
     }
     // A Claude fix run on the gate spent 29.07 USD (R26 of the fix pass).
     assert.deepEqual(committed.runtimes.claude, { strong: 'opus', fast: 'sonnet', runBudgetUsd: 60 });
@@ -66,6 +67,18 @@ describe('the committed roles/policy.json', () => {
     }
     for (const batchSize of [1, maxBatchSize]) assert.equal(parsePolicy(changed((copy) => { (copy as { fixes?: unknown }).fixes = { batchSize }; })).fixes.batchSize, batchSize);
     assert.throws(() => parsePolicy(changed((copy) => { (copy as { fixes?: unknown }).fixes = { batchSize: 4, extra: 1 }; })), InvalidPolicyError, 'the block is closed');
+  });
+
+  it('judges the reviewer\'s own rules by default, carries the setting to the resolved policy, and refuses a policy without it or with another value (R3, PD7 of the repository survey)', () => {
+    assert.deepEqual(committed.survey, { userRules: 'judge' });
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter).survey, { userRules: 'judge' });
+    for (const userRules of ['ignore', 'apply', 'judge'] as const) {
+      assert.deepEqual(resolvePolicy(parsePolicy(changed((copy) => { (copy as { survey?: unknown }).survey = { userRules }; })), roles, codexAdapter).survey, { userRules }, userRules);
+    }
+    assert.throws(() => parsePolicy(changed((copy) => { delete (copy as { survey?: unknown }).survey; })), (error: unknown) => error instanceof InvalidPolicyError && /survey/.test(error.message));
+    assert.throws(() => parsePolicy(changed((copy) => { (copy as { survey?: unknown }).survey = { userRules: 'always' }; })), InvalidPolicyError);
+    assert.throws(() => parsePolicy(changed((copy) => { (copy as { survey?: unknown }).survey = { userRules: 'judge', extra: 1 }; })), InvalidPolicyError, 'the block is closed');
+    assert.throws(() => resolvePolicy(changed((copy) => { delete copy.roles.surveyor; }), roles, claudeAdapter), /it does not name surveyor$/);
   });
 
   it('resolves for Claude with per-worker budgets and the run budget', () => {
@@ -149,28 +162,44 @@ describe('the per-invocation flags', () => {
     assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency + 1 }), (error: unknown) => error instanceof InvalidPolicyError && error.message === `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(maxConcurrency + 1)}`);
   });
 
+  /** The configuration as version 2 records it, before the survey: version 1's, without the fix pass. */
+  const configurationV2 = { ...configurationV1, fix: false, checks: null, fixes: null };
+  /** The configuration as version 3 records it, with the survey's setting. */
+  const configurationV3 = { ...configurationV2, survey: { userRules: 'judge' } };
+
   it('is the bound the frozen v1 events accept, so every concurrency a run may be given can be recorded', () => {
     for (let concurrency = 1; concurrency <= maxConcurrency; concurrency += 1) {
       assert.ok(reviewConfiguredV1.safeParse({ ...configurationV1, concurrency }).success, `review.configured@1 with concurrency ${String(concurrency)}`);
-      assert.ok(reviewConfiguredV2.safeParse({ ...configuration, concurrency }).success, `review.configured@2 with concurrency ${String(concurrency)}`);
+      assert.ok(reviewConfiguredV2.safeParse({ ...configurationV2, concurrency }).success, `review.configured@2 with concurrency ${String(concurrency)}`);
+      assert.ok(reviewConfiguredV3.safeParse({ ...configurationV3, concurrency }).success, `review.configured@3 with concurrency ${String(concurrency)}`);
       assert.ok(limitsChangedV1.safeParse({ concurrency, runBudgetUsd: null }).success, `limits.changed@1 with concurrency ${String(concurrency)}`);
     }
     for (const concurrency of [0, maxConcurrency + 1]) {
       assert.ok(!reviewConfiguredV1.safeParse({ ...configurationV1, concurrency }).success, String(concurrency));
-      assert.ok(!reviewConfiguredV2.safeParse({ ...configuration, concurrency }).success, String(concurrency));
+      assert.ok(!reviewConfiguredV2.safeParse({ ...configurationV2, concurrency }).success, String(concurrency));
+      assert.ok(!reviewConfiguredV3.safeParse({ ...configurationV3, concurrency }).success, String(concurrency));
       assert.ok(!limitsChangedV1.safeParse({ concurrency, runBudgetUsd: null }).success, String(concurrency));
     }
   });
 
   it('records every batch size the policy accepts, and pins one exactly when the run fixes', () => {
-    const fixing = { ...configuration, fix: true, checks: { timeoutMs: 1_200_000 } };
-    for (let batchSize = 1; batchSize <= maxBatchSize; batchSize += 1) {
-      assert.ok(reviewConfiguredV2.safeParse({ ...fixing, fixes: { batchSize } }).success, `review.configured@2 with batch size ${String(batchSize)}`);
+    for (const [version, schema, base] of [[2, reviewConfiguredV2, configurationV2], [3, reviewConfiguredV3, configurationV3]] as const) {
+      const fixing = { ...base, fix: true, checks: { timeoutMs: 1_200_000 } };
+      for (let batchSize = 1; batchSize <= maxBatchSize; batchSize += 1) {
+        assert.ok(schema.safeParse({ ...fixing, fixes: { batchSize } }).success, `review.configured@${String(version)} with batch size ${String(batchSize)}`);
+      }
+      for (const batchSize of [0, maxBatchSize + 1, 2.5]) assert.ok(!schema.safeParse({ ...fixing, fixes: { batchSize } }).success, String(batchSize));
+      assert.ok(!schema.safeParse({ ...fixing, fixes: null }).success, 'a fixing run without a batch size');
+      assert.ok(!schema.safeParse({ ...base, fixes: { batchSize: 4 } }).success, 'a read-only run with a batch size');
+      assert.ok(schema.safeParse(base).success, 'a read-only run pins none');
     }
-    for (const batchSize of [0, maxBatchSize + 1, 2.5]) assert.ok(!reviewConfiguredV2.safeParse({ ...fixing, fixes: { batchSize } }).success, String(batchSize));
-    assert.ok(!reviewConfiguredV2.safeParse({ ...fixing, fixes: null }).success, 'a fixing run without a batch size');
-    assert.ok(!reviewConfiguredV2.safeParse({ ...configuration, fixes: { batchSize: 4 } }).success, 'a read-only run with a batch size');
-    assert.ok(reviewConfiguredV2.safeParse(configuration).success, 'a read-only run pins none');
+  });
+
+  it('pins the survey\'s setting from version 3 on, and only one of its three values', () => {
+    assert.ok(!reviewConfiguredV2.safeParse(configurationV3).success, 'version 2 has no survey setting');
+    assert.ok(!reviewConfiguredV3.safeParse(configurationV2).success, 'version 3 requires it');
+    for (const userRules of ['ignore', 'apply', 'judge']) assert.ok(reviewConfiguredV3.safeParse({ ...configurationV2, survey: { userRules } }).success, userRules);
+    assert.ok(!reviewConfiguredV3.safeParse({ ...configurationV2, survey: { userRules: 'never' } }).success);
   });
 });
 
@@ -275,15 +304,15 @@ describe('rolesDigest', () => {
     assert.notEqual(rolesDigest(fixer), before);
   });
 
-  it('is one digest over every role, not only the fifteen the review runs', () => {
+  it('is one digest over every role, not only the sixteen the review runs', () => {
     assert.notEqual(rolesDigest(roles), rolesDigest(roles.filter((role) => (reviewRoles as readonly string[]).includes(role.key))));
-    assert.equal(finderAngles.length + 6, reviewRoles.length);
+    assert.equal(finderAngles.length + 7, reviewRoles.length);
   });
 });
 
 describe('pinnedRole', () => {
   it('names the role it cannot find and the roles it has', () => {
     const resolved = resolvePolicy(committed, roles, claudeAdapter);
-    assert.throws(() => pinnedRole(resolved.roles, 'auditor'), /pins no role auditor; it pins triage, finder-REMOVALS/);
+    assert.throws(() => pinnedRole(resolved.roles, 'auditor'), /pins no role auditor; it pins surveyor, triage, finder-REMOVALS/);
   });
 });

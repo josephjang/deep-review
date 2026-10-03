@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, TreeRevised, VerdictsRecorded } from '../checkpoint/events.ts';
+import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, SurveyRecorded, TreeRevised, VerdictsRecorded } from '../checkpoint/events.ts';
 import { failedAtBaseline, fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
@@ -20,7 +20,7 @@ import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { StructuralCheckError } from './errors.ts';
 import { attemptRevisionEvents, fixAnswerEvents, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
-import { normalizeLocations } from './locations.ts';
+import { normalizeLocations, worktreeLookup } from './locations.ts';
 import { pinnedRole } from './policy.ts';
 import { composeWorkerPrompt } from './prompts.ts';
 import { snapshotsDirectoryName } from './snapshot.ts';
@@ -34,24 +34,29 @@ import {
   type DeduplicationOutput,
   type FinderOutput,
   type MergeRankOutput,
+  type SurveyorOutput,
   type SweepOutput,
   type TriageOutput,
   type VerifierOutput,
 } from './schemas.ts';
+import { isSettled, unsettledKinds } from './checks/discover.ts';
+import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey.ts';
 import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
-import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
+import { candidateIdPrefix, checkKinds, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
-/** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, and for an editing unit its scratch and snapshot command. */
+/** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, the survey's inputs, and for an editing unit its scratch and snapshot command. */
 export interface PhaseContext {
   readonly state: RunState;
   readonly worktree: string;
   readonly roles: ReadonlyMap<string, AssembledRole>;
   readonly configuration: ReviewConfiguration;
-  /** The scope block every worker of the run shares, rendered once. */
-  readonly scopeBlock: string;
+  /** The scope block a worker of the unit's phase receives: the surveyor's, without the convention sources, or the one every later worker shares, each rendered once. */
+  readonly scopeBlock: (phase: Unit['phase']) => string;
+  /** What this invocation knows for the survey, for the surveyor's task. */
+  readonly survey: () => SurveyInputs;
   /** The evidence store, for the frozen logs a repair task quotes. */
   readonly evidence: Pick<EvidenceStore, 'read' | 'pathOf'>;
   /** A fresh scratch directory for an editing worker, outside the reviewed tree and the checkpoint, so its task can name its snapshot directory. */
@@ -202,13 +207,41 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
 
+/** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, and the survey's inputs. */
+export interface TaskOptions {
+  readonly editing?: EditingTaskInput | null;
+  readonly evidence?: Pick<EvidenceStore, 'read' | 'pathOf'> | null;
+  readonly survey?: SurveyInputs | null;
+}
+
+/** The surveyor's task: what the invocation knows, read against the pinned policy and whether the run fixes. */
+function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
+  const setting = review.configuration.survey.userRules;
+  const fix = review.fix !== null;
+  const unsettled = fix ? unsettledKinds(inputs.flags) : [];
+  return surveyTask({
+    platform: inputs.platform,
+    fix,
+    settled: fix ? checkKinds.filter((kind) => isSettled(inputs.flags, kind)).map((kind) => ({ kind, command: inputs.flags.dropped.includes(kind) ? null : (inputs.flags.commands[kind] ?? null) })) : [],
+    unsettled,
+    hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
+    offered: offeredUserFiles(setting, inputs),
+    policySettlesUserRules: setting !== 'judge' && inputs.userFiles.length > 0,
+  });
+}
+
 /** The task text of a unit, from the fold at launch time; an editing unit's names its snapshot command too. */
-export function taskFor(unit: Unit, review: ReviewState, editing: EditingTaskInput | null = null, evidence: Pick<EvidenceStore, 'read' | 'pathOf'> | null = null): string {
+export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = {}): string {
+  const editing = options.editing ?? null;
+  const evidence = options.evidence ?? null;
   const requireEditing = (): EditingTaskInput => {
     if (editing === null) throw new Error(`The ${unit.phase} unit ${unit.key} needs its snapshot command`);
     return editing;
   };
   switch (unit.phase) {
+    case 'survey':
+      if (options.survey === undefined || options.survey === null) throw new Error('The surveyor\'s task names what the invocation knows for the survey and needs it');
+      return surveyTaskOf(review, options.survey);
     case 'triage':
       return triageTask();
     case 'finders': {
@@ -258,7 +291,8 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const policy: PinnedRole = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)) };
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, editing, context.evidence) }, context.scopeBlock);
+  const survey = unit.phase === 'survey' ? context.survey() : null;
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
@@ -278,7 +312,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
 
 /** The failed attempt a unit records for a receipt or a refused answer. */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
-  return { kind: 'attempt.failed', version: 2, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
+  return { kind: 'attempt.failed', version: 3, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
@@ -328,11 +362,16 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
  * or for an editing unit its recorded answer and the revisions of the
  * tree it made.
  */
-export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: RevisionContext): NewEvent[] {
+/** What recording a contribution needs: the revision context, and for the survey what the invocation knew when it launched the surveyor. */
+export interface ContributionContext extends RevisionContext {
+  readonly survey: () => SurveyInputs;
+}
+
+export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: ContributionContext): NewEvent[] {
   if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context);
   const review = requireReview(context.state);
   try {
-    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review, context.state, context.worktree)];
+    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review, context)];
   } catch (error) {
     if (error instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error.message}`, context);
     throw error;
@@ -347,6 +386,7 @@ function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, con
 
 /** The events a unit's contribution is recorded as, each kind with its own payload. */
 type ContributionEvent =
+  | { readonly kind: 'survey.recorded'; readonly version: 1; readonly payload: SurveyRecorded }
   | { readonly kind: 'candidates.recorded'; readonly version: 1; readonly payload: CandidatesRecorded }
   | { readonly kind: 'deduplication.recorded'; readonly version: 1; readonly payload: DeduplicationRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
@@ -359,8 +399,14 @@ type ContributionEvent =
  * the review does not compile until it is given a case. Throws
  * `StructuralCheckError` for an answer a check refuses.
  */
-function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewState, state: RunState, worktree: string): ContributionEvent {
+function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewState, context: ContributionContext): ContributionEvent {
+  const { state, worktree } = context;
   switch (unit.phase) {
+    case 'survey': {
+      const output = receipt.output as SurveyorOutput;
+      const checked = checkSurveyAnswer(output, { worktree, lookup: worktreeLookup(worktree), setting: review.configuration.survey.userRules, fix: review.fix !== null, inputs: context.survey() });
+      return { kind: 'survey.recorded', version: 1, payload: { workerId: receipt.workerId, ...checked } };
+    }
     case 'triage': {
       const output = receipt.output as TriageOutput;
       checkTriageLeads(output);

@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "roles": {
+    "surveyor": { "tier": "strong", "effort": "medium", "budgetUsd": 8, "timeoutMs": 600000 },
     "triage": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
     "finder-REMOVALS": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
     "finder-RIPPLE": { "tier": "fast", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
@@ -19,6 +20,7 @@
   },
   "checks": { "timeoutMs": 1200000 },
   "fixes": { "batchSize": 4 },
+  "survey": { "userRules": "judge" },
   "runtimes": {
     "claude": { "strong": "opus", "fast": "sonnet", "runBudgetUsd": 60 },
     "codex": { "strong": "gpt-6-astra", "fast": "gpt-5.6-terra", "runBudgetUsd": null }

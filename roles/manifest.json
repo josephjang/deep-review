@@ -1,6 +1,13 @@
 {
   "schemaVersion": 1,
   "roles": {
+    "surveyor": [
+      "surveyor-brief.md",
+      "survey-conventions.md",
+      "survey-user-rules.md",
+      "survey-checks.md",
+      "survey-output.md"
+    ],
     "triage": [
       "lead-brief.md",
       "worker-scope.md",

@@ -4,8 +4,9 @@
  * Containment judged on canonical paths, for every check that must tell
  * whether one directory lies within another however either is spelled: the
  * scratch directory against the reviewed tree and the checkpoint
- * (`src/runtime/scratch.ts`), and the role prompts' output against the roles
- * directory (`scripts/roles.ts`).
+ * (`src/runtime/scratch.ts`), the role prompts' output against the roles
+ * directory (`scripts/roles.ts`), and a file the survey names, once its links
+ * are followed, against the worktree (`src/review/survey.ts`).
  *
  * A symlink's target as git records it, for every reader of the worktree's
  * links: the scope capture (`src/scope/capture.ts`), the fix pass's tree
@@ -14,7 +15,8 @@
  *
  * Whether a path names a regular file, for every lookup that must skip what
  * is not one: the runtime executable on PATH (`src/review/executable.ts`)
- * and the rules files that govern a change (`src/review/conventions.ts`).
+ * and the reviewer's own rules files (`src/review/conventions.ts`) and a
+ * convention source the survey names (`src/review/survey.ts`).
  *
  * Whether two worktree paths name one directory, for every command that
  * acts on a run recorded in another invocation: a review resuming it

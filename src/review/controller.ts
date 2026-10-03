@@ -1,18 +1,21 @@
 /**
  * The controller (R1, R5, R6, R7 of the read-only review; TD1, TD5, TD6;
- * R1, R6, R7, R9 of the fix pass): find or create the run, take its lock,
- * record the workers a previous engine lost, then loop over fold, plan,
- * execute and append until the report is written or the run blocks. It
- * launches workers, runs the fix pass's checks one at a time, and records
+ * R1, R6, R7, R9 of the fix pass; R1, R6, R7 of the repository survey):
+ * find or create the run, take its lock, record the workers a previous
+ * engine lost, then loop over fold, plan, execute and append until the
+ * report is written or the run blocks. It launches workers, plans the
+ * checks when the survey completes, runs them one at a time, and records
  * every edit as a revision of the tree. Every fact the planner needs is an
- * event, so a resumed run continues from the last step the ledger holds.
+ * event, or this invocation's check flags, so a resumed run continues
+ * from the last step the ledger holds.
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, ChecksPlanned, ReviewConfiguration, ReviewLimits, ScopeRequest, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, CheckRan, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
 import { revisionMessageOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import { conventionsKnown } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { PreflightError } from '../runtime/errors.ts';
@@ -22,10 +25,10 @@ import type { RuntimeRegistry } from '../runtime/registry.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
-import { discoverChecks, readRootManifests, type CheckFlags } from './checks/discover.ts';
+import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
-import { conventionFiles } from './conventions.ts';
+import { existingUserRulesFiles } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, worktreeChecked, type DriftFound } from './drift.ts';
 import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
@@ -41,9 +44,10 @@ import { prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
+import { surveyFailure, type SurveyInputs } from './survey.ts';
 import { snapshotIndexPlaceholder } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
-import { blockerActions, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckPhase, type Phase } from './vocabulary.ts';
+import { blockerActions, checkKinds, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckPhase, type Phase } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved only when the run it acts
@@ -80,16 +84,18 @@ export interface ReviewOptions {
   readonly scope: ScopeSource;
   readonly environment?: NodeJS.ProcessEnv;
   readonly scratchRoot?: string;
-  /** The home directory the rules files are looked for under; the user's by default. */
+  /** The home directory the reviewer's own rules files are looked for under; the user's by default. */
   readonly home?: string;
   /** Progress, one line at a time; stderr by default. */
   readonly log?: (line: string) => void;
   readonly preflightOptions?: PreflightOptions;
   /**
-   * The fix pass a run not yet configured pins (R1, R8 of the fix pass):
-   * null or absent for the read-only review, else the `--check` and
-   * `--no-check` flags its checks are discovered with. A configured run
-   * keeps what it pinned, and says when the command asks otherwise.
+   * The fix pass a run not yet configured pins (R1 of the fix pass): null
+   * or absent for the read-only review, else the `--check` and
+   * `--no-check` flags that settle their kinds over the survey (R5 of the
+   * repository survey). Whether a run fixes is pinned at configuration;
+   * the flags apply to every invocation until the checks are planned, and
+   * are named as ignored after.
    */
   readonly fix?: CheckFlags | null;
   /**
@@ -153,6 +159,20 @@ const revisionSummary = (revision: TreeRevised): string => {
   return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(', ')}`;
 };
 
+/** One planned check as the log names it: its command and who decided it, with the survey's source, or why it has none. */
+const checkLine = (check: PlannedCheckV2): string => {
+  const origin = check.origin === 'survey' ? `survey, ${check.source!.basis} in ${check.source!.path}` : check.origin;
+  return check.command === null ? `not available (${origin}: ${check.reason ?? 'no command'})` : `${check.command} (${origin})`;
+};
+
+/** What the survey recorded, as the log names it: each convention source and each user-level decision (R10 of the repository survey). */
+function surveyLines(runId: string, survey: Pick<SurveyRecorded, 'conventions' | 'userRules'>): string[] {
+  return [
+    ...(survey.conventions.length === 0 ? [`run ${runId}: survey: no convention source`] : survey.conventions.map((source) => `run ${runId}: convention source ${source.path} (${source.level}): ${source.governs}`)),
+    ...survey.userRules.map((rule) => `run ${runId}: user-level rules ${rule.path}: ${rule.applied ? 'applied' : 'not applied'}, ${rule.reason}`),
+  ];
+}
+
 /** What a drifted check found, as the log names it. */
 const driftList = (found: { readonly files: readonly { readonly path: string; readonly outcome: string }[]; readonly head: DriftFound['head'] }): string =>
   [...(found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`]), ...found.files.map((file) => `${file.path} (${file.outcome})`)].join(', ');
@@ -185,6 +205,23 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const runId = state.id;
   const { release, scopeRequest, configure } = opened;
   const inFlight = new Map<string, InFlight>();
+  const checkFlags = options.fix ?? noCheckFlags;
+  let surveyed: SurveyInputs | null = null;
+  /**
+   * What this invocation knows for the survey, read once, when the
+   * surveyor's task or its answer first needs it: the platform, the check
+   * flags, the user-level rules files that exist, and in a fix run the
+   * manifest rules' hint for each kind no flag settles.
+   */
+  const surveyInputs = (): SurveyInputs => {
+    surveyed ??= {
+      platform: process.platform,
+      flags: checkFlags,
+      userFiles: existingUserRulesFiles(options.home),
+      hints: state.review?.configuration.fix === true ? hintChecks(readRootManifests(options.worktree), unsettledKinds(checkFlags)) : [],
+    };
+    return surveyed;
+  };
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
     const name = unitName(settled.unit.phase, settled.unit.key);
@@ -205,14 +242,15 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       const found = findDrift(state, options.worktree, content.match);
       if (drifted(found)) {
         log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-        state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 2, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found) }]);
+        state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 3, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found) }]);
         return;
       }
     }
-    const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match });
+    const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, survey: surveyInputs });
     for (const event of events) {
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
       if (event.kind === 'tree.revised') log(`worker ${settled.unit.role} ${name}: ${revisionSummary(event.payload as TreeRevised)}`);
+      if (event.kind === 'survey.recorded') for (const line of surveyLines(runId, event.payload as SurveyRecorded)) log(line);
     }
     state = append(checkpoint, state, events);
   };
@@ -222,14 +260,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files`);
     }
     if (configure !== null) {
-      // The checks a fixing run discovered are pinned with its configuration, so a resume runs the same commands (R8 of the fix pass).
-      state = append(checkpoint, state, [
-        { kind: 'review.configured', version: 2, payload: configure.configuration },
-        ...(configure.checks === null ? [] : [{ kind: 'checks.planned', version: 1, payload: configure.checks }]),
-      ]);
-      const { configuration } = configure;
-      log(`run ${runId}: configured for ${configuration.runtime} ${configuration.version}, models ${configuration.models.strong} and ${configuration.models.fast}${configuration.fix ? ', with the fix pass' : ''}`);
-      for (const check of configure.checks?.checks ?? []) log(`run ${runId}: check ${check.kind}: ${check.command ?? `not available (${check.reason ?? 'no command'})`}`);
+      // The checks are planned when the survey completes, not here (R6 of the repository survey).
+      state = append(checkpoint, state, [{ kind: 'review.configured', version: 3, payload: configure }]);
+      log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}${configure.fix ? ', with the fix pass' : ''}; the reviewer's own rules: ${configure.survey.userRules}`);
     }
     const configuration = state.review!.configuration;
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
@@ -237,7 +270,23 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     state = reenterPhase(checkpoint, state, log);
 
     const scope = state.scope!;
-    const block = scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions: conventionFiles(options.worktree, scope.files.map((file) => file.path), options.home) });
+    const blocks: { survey?: string; rest?: string } = {};
+    /**
+     * The scope block a phase's workers receive, each rendered once: the
+     * surveyor's has no convention sources, which the survey is there to
+     * name; every later worker's lists the sources the survey recorded, so
+     * it is rendered after the survey phase (R7, TD10 of the repository
+     * survey).
+     */
+    const scopeBlockFor = (phase: Phase): string => {
+      if (phase === 'survey') return (blocks.survey ??= scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions: null }));
+      if (blocks.rest === undefined) {
+        const survey = state.review!.phases.survey.status;
+        if (survey !== 'completed' && survey !== 'degraded' && survey !== 'skipped') throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
+        blocks.rest = scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions: conventionsKnown(state.review!.survey) });
+      }
+      return blocks.rest;
+    };
     const engineEntry = options.engineEntry ?? process.argv[1] ?? 'deep-review';
     const scratchBase = join(options.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
     const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match });
@@ -267,7 +316,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 
     for (;;) {
       const review = state.review!;
-      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference) };
+      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags };
       const step = nextStep(review, live);
       switch (step.kind) {
         case 'blocked':
@@ -277,14 +326,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report) };
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)})`);
-          state = append(checkpoint, state, [{ kind: 'phase.started', version: 2, payload: { phase: step.phase, attempt: step.attempt } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.started', version: 3, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case 'check-worktree': {
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
           const check = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check)}`);
           if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}`);
-          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 2, payload: check }]);
+          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 3, payload: check }]);
           break;
         }
         case 'plan-verification':
@@ -303,16 +352,39 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           state = append(checkpoint, state, [{ kind: 'fixes.replanned', version: 1, payload: step.plan }]);
           break;
         }
+        case 'plan-checks': {
+          // The flags of this invocation and the recorded survey, kind by kind, pinned before the triage (R6 of the repository survey); a run going on without its survey records that with the plan, in one append (R9).
+          const failure = step.without === null ? null : surveyFailure(step.without, configuration.survey.userRules, surveyInputs().userFiles);
+          if (failure !== null) {
+            log(`phase survey: going on without the survey: ${failure.reason}`);
+            for (const line of surveyLines(runId, failure)) log(line);
+          }
+          for (const check of step.checks) log(`run ${runId}: check ${check.kind}: ${checkLine(check)}`);
+          state = append(checkpoint, state, [
+            ...(failure === null ? [] : [{ kind: 'survey.failed', version: 1, payload: failure }]),
+            { kind: 'checks.planned', version: 2, payload: { checks: [...step.checks] } },
+          ]);
+          break;
+        }
         case 'run-check':
           state = append(checkpoint, state, await runDueCheck(step.phase, step.attempt, step.check));
           break;
         case 'degrade':
           for (const degradation of step.degradations) {
-            const what = degradation.kind === 'angle.failed' ? `angle ${degradation.angle} not run` : degradation.kind === 'group.unverified' ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`;
+            const what = degradation.kind === 'survey.failed' ? 'going on without the survey'
+              : degradation.kind === 'angle.failed' ? `angle ${degradation.angle} not run`
+                : degradation.kind === 'group.unverified' ? `group ${degradation.groupId} unverified`
+                  : `${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`;
             log(`phase ${step.phase}: ${what}: ${degradation.reason}`);
           }
           state = append(checkpoint, state, step.degradations.flatMap((degradation): NewEvent[] => {
             switch (degradation.kind) {
+              case 'survey.failed': {
+                // The pinned policy alone decides the user-level files of a run without its survey (R3, R9 of the repository survey).
+                const failure = surveyFailure(degradation.reason, configuration.survey.userRules, surveyInputs().userFiles);
+                for (const line of surveyLines(runId, failure)) log(line);
+                return [{ kind: 'survey.failed', version: 1, payload: failure }];
+              }
               case 'angle.failed':
                 return [{ kind: 'angle.failed', version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
               case 'group.unverified':
@@ -329,7 +401,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             worktree: options.worktree,
             roles: rolesByKey,
             configuration,
-            scopeBlock: block,
+            scopeBlock: scopeBlockFor,
+            survey: surveyInputs,
             evidence: checkpoint.evidence,
             newScratch: () => join(scratchBase, randomUUID()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
@@ -353,7 +426,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
         case 'finish-phase':
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? '' : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: 'phase.finished', version: 2, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.finished', version: 3, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case 'write-report': {
           // One patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass).
@@ -364,8 +437,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
           state = append(checkpoint, state, [
-            { kind: 'report.written', version: 2, payload: { report, statistics, patches } },
-            { kind: 'phase.finished', version: 2, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
+            { kind: 'report.written', version: 3, payload: { report, statistics, patches } },
+            { kind: 'phase.finished', version: 3, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
           break;
@@ -431,8 +504,8 @@ interface OpenedRun {
   readonly release: ReleaseLock;
   /** The scope to capture, for a run that has none yet; null for one that captured it. */
   readonly scopeRequest: ScopeRequest | null;
-  /** The configuration to pin, with the checks a fixing run discovered, for a run not yet configured; null for one whose configuration is pinned. */
-  readonly configure: { readonly configuration: ReviewConfiguration; readonly checks: ChecksPlanned | null } | null;
+  /** The configuration to pin, for a run not yet configured; null for one whose configuration is pinned. */
+  readonly configure: ReviewConfiguration | null;
 }
 
 /**
@@ -452,7 +525,8 @@ interface OpenedRun {
  *   or the flags (R3, design: role policy): its roles must still digest
  *   as pinned, and its pinned executable is what is preflighted. Only
  *   `--concurrency` and `--budget-usd` apply per invocation, and the
- *   limits they put in force are recorded when they change. A run not yet
+ *   limits they put in force are recorded when they change; `--check` and
+ *   `--no-check` apply until the checks are planned. A run not yet
  *   configured resolves the policy and the command's executable and
  *   preflights it, before a new run is created so a refusal creates
  *   nothing.
@@ -494,19 +568,15 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     const scopeRequest = found === null || found.scope === null ? context.scope.request() : null;
     let configure: OpenedRun['configure'] = null;
     if (found !== null && pinned !== null) {
-      await resumePinned(found.id, pinned, context);
+      await resumePinned(found, pinned, context);
     } else {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
       const fix = context.fix ?? null;
-      // Discovered before a run is created, so a repository whose package manager is ambiguous is refused with nothing recorded (R8 of the fix pass).
-      const discovered = fix === null ? null : discoverChecks(readRootManifests(context.worktree), fix);
       const executable = typeof context.executable === 'function' ? context.executable() : context.executable;
       const executableArgs = [...(context.executableArgs ?? [])];
       const version = await qualify(context.adapter, executable, executableArgs, context, null);
-      configure = {
-        configuration: { ...resolved, roles: [...resolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : resolved.checks, fixes: fix === null ? null : resolved.fixes },
-        checks: discovered === null ? null : { checks: [...discovered.checks], manager: discovered.manager },
-      };
+      const { checks, fixes, survey, ...rest } = resolved;
+      configure = { ...rest, roles: [...resolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
     if (found === null) {
@@ -527,10 +597,11 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * prompts it ran must still digest as pinned, so the report's digest says
  * which prompts every worker got; the flags that apply per invocation are
  * checked as a new run's are, and the model flags, which do not apply,
- * are named as ignored; the pinned executable, not the command's, must
- * still qualify.
+ * are named as ignored, as are the check flags once the checks are
+ * planned; the pinned executable, not the command's, must still qualify.
  */
-async function resumePinned(runId: string, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
+async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
+  const runId = run.id;
   const digest = rolesDigest(context.roles);
   if (digest !== pinned.rolesDigest) {
     throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
@@ -539,12 +610,12 @@ async function resumePinned(runId: string, pinned: ReviewConfiguration, context:
   if (context.flags.strongModel !== undefined || context.flags.fastModel !== undefined) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
-  // Whether the run fixes, and with which checks, is pinned at configuration (R1, R8 of the fix pass); a later invocation's flags are named and ignored.
+  // Whether the run fixes is pinned at configuration (R1 of the fix pass); the check flags settle their kinds until the checks are planned (TD6 of the repository survey), and are named and ignored after.
   const fix = context.fix ?? null;
-  const checkFlags = fix !== null && (Object.keys(fix.commands).length > 0 || fix.dropped.length > 0);
+  const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
   if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored`);
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
-  if (pinned.fix && checkFlags) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
+  if (pinned.fix && checkFlags && (run.review?.fix?.checks.planned ?? null) !== null) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
   await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
 }
 
@@ -605,7 +676,7 @@ function recordLostWorkers(checkpoint: Checkpoint, state: RunState, worktree: st
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === 'running')) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    const lost: NewEvent = { kind: 'worker.lost', version: 2, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const lost: NewEvent = { kind: 'worker.lost', version: 3, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
     const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence, match }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
     if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? '' : 's'}`);
     state = append(checkpoint, state, [lost, ...edits]);
@@ -620,5 +691,5 @@ function reenterPhase(checkpoint: Checkpoint, state: RunState, log: (line: strin
   if (phase === null) return state;
   const attempt = review.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}`);
-  return append(checkpoint, state, [{ kind: 'phase.started', version: 2, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: 'phase.started', version: 3, payload: { phase, attempt } }]);
 }

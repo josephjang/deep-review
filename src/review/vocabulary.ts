@@ -48,11 +48,12 @@ export function roleOfAngle(angle: Angle): 'triage' | FinderRole {
 }
 
 /**
- * The roles a review runs, in phase order: every angle's role, the later
- * read-only phases', and the fix pass's `fixer`, which runs the fixes and
- * the repair. The role policy must name exactly these.
+ * The roles a review runs, in phase order: the survey's `surveyor`, every
+ * angle's role, the later read-only phases', and the fix pass's `fixer`,
+ * which runs the fixes and the repair. The role policy must name exactly
+ * these.
  */
-export const reviewRoles = [...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer'] as const;
+export const reviewRoles = ['surveyor', ...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer'] as const;
 export type ReviewRole = (typeof reviewRoles)[number];
 
 /** Whether a review role is one of the nine finders'. */
@@ -60,13 +61,15 @@ export const isFinderRole = (role: ReviewRole): role is FinderRole => role.start
 
 /**
  * The phases of a review, in the order they run (R2 of the read-only
- * review, R1 of the fix pass): the read-only phases, then the five of the
- * fix pass, which a run without `--fix` records as skipped, then
- * `report`, a phase with no worker that is started so the worktree check
- * before the report has a phase to block, and finished when the report
- * is written.
+ * review, R1 of the fix pass, R1 of the repository survey): the survey,
+ * which a run configured before it existed records as skipped, the
+ * read-only phases, then the five of the fix pass, which a run without
+ * `--fix` records as skipped, then `report`, a phase with no worker that
+ * is started so the worktree check before the report has a phase to
+ * block, and finished when the report is written.
  */
 export const phases = [
+  'survey',
   'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
   'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
   'report',
@@ -127,13 +130,13 @@ export type PhaseOutcome = z.infer<typeof phaseOutcomeSchema>;
 
 /**
  * Why a run stopped short of a report, with the operator's action for
- * each (R5, R6, R7). The first three are recorded on `phase.finished`;
- * `lock-held` and `runtime-unqualified` are refused before any event
- * exists and are printed, never recorded.
+ * each (R5, R6, R7; R15 of the repository survey). The first four are
+ * recorded on `phase.finished`; `lock-held` and `runtime-unqualified` are
+ * refused before any event exists and are printed, never recorded.
  */
-export const blockerCodes = ['worker-failed', 'budget', 'drift', 'lock-held', 'runtime-unqualified'] as const;
+export const blockerCodes = ['worker-failed', 'budget', 'drift', 'check-unavailable', 'lock-held', 'runtime-unqualified'] as const;
 export type BlockerCode = (typeof blockerCodes)[number];
-export const recordedBlockerCodes = ['worker-failed', 'budget', 'drift'] as const;
+export const recordedBlockerCodes = ['worker-failed', 'budget', 'drift', 'check-unavailable'] as const;
 export const recordedBlockerCodeSchema = z.enum(recordedBlockerCodes);
 export type RecordedBlockerCode = z.infer<typeof recordedBlockerCodeSchema>;
 
@@ -142,9 +145,17 @@ export const blockerActions: Readonly<Record<BlockerCode, string>> = {
   'worker-failed': 'run the command again, which gives the failed worker two fresh attempts, or abandon the run',
   budget: 'run the command again with --budget-usd above the spend, or abandon the run',
   drift: 'restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one',
+  'check-unavailable': 'install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs',
   'lock-held': 'wait for that engine to finish; the lock clears itself when its process ends',
   'runtime-unqualified': 'fix the runtime installation or pass --executable with a qualifying binary, then run the command again',
 };
+
+/**
+ * The `worker-failed` action when the survey of a fix run blocks (R9 of
+ * the repository survey): going on with no survey would run no check the
+ * flags did not name, so the operator may name all four instead.
+ */
+export const surveyWorkerFailedAction = 'run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without the survey and its convention sources, or abandon the run';
 
 /**
  * The `runtime-unqualified` action for a configured run, which keeps the
@@ -166,13 +177,33 @@ export const checkKindSchema = z.enum(checkKinds);
 export type CheckKind = z.infer<typeof checkKindSchema>;
 
 /**
- * Where a check's command came from (R8): a `--check` or `--no-check`
- * flag, a Taskfile task, a Makefile target, a justfile recipe, a
- * `package.json` script, a language's default, or nothing.
+ * Who decided a check's command (R6 of the repository survey): a
+ * `--check` or `--no-check` flag, the survey, or nobody, when the survey
+ * found the repository has none for the kind. The manifest rules that
+ * once decided are the rules a hint names (`checks/discover.ts`).
  */
-export const checkOrigins = ['flag', 'taskfile', 'makefile', 'justfile', 'package', 'language', 'none'] as const;
+export const checkOrigins = ['flag', 'survey', 'none'] as const;
 export const checkOriginSchema = z.enum(checkOrigins);
 export type CheckOrigin = z.infer<typeof checkOriginSchema>;
+
+/** What a surveyed command stood on (R11 of the repository survey): what the repository states, or the engine's mechanical hint. */
+export const checkBases = ['stated', 'hint'] as const;
+export const checkBaseSchema = z.enum(checkBases);
+export type CheckBasis = z.infer<typeof checkBaseSchema>;
+
+/** Where a convention source lives: in the repository, or among the reviewer's own user-level rules files. */
+export const conventionLevels = ['repository', 'user'] as const;
+export const conventionLevelSchema = z.enum(conventionLevels);
+export type ConventionLevel = z.infer<typeof conventionLevelSchema>;
+
+/**
+ * Whether the reviewer's own rules files are convention sources (R3 of
+ * the repository survey): never, always, or when the surveyor has
+ * grounds that the repository is the reviewer's own or adopts them.
+ */
+export const userRulesSettings = ['ignore', 'apply', 'judge'] as const;
+export const userRulesSettingSchema = z.enum(userRulesSettings);
+export type UserRulesSetting = z.infer<typeof userRulesSettingSchema>;
 
 /**
  * What a fixer did with one finding (R5 of the fix pass): applied it,

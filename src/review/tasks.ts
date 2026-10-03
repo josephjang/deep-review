@@ -5,11 +5,96 @@
  * index (TD4), and describes the same fields its output schema demands
  * (R4). The closing sentence is appended by the prompt composer.
  */
+import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
 import type { Lead } from '../checkpoint/events.ts';
-import type { PlannedCheck } from './checks/discover.ts';
+import type { CheckHint } from './checks/discover.ts';
 import { fenceFor } from './prompts.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
+
+/** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
+export interface SurveyTaskInput {
+  readonly platform: NodeJS.Platform;
+  /** Whether the run fixes, and so asks for checks (PD10). */
+  readonly fix: boolean;
+  /** The kinds a flag settled, with the flag's command, or null for one it dropped. */
+  readonly settled: readonly { readonly kind: CheckKind; readonly command: string | null }[];
+  /** The kinds the surveyor chooses, in the order the checks run. */
+  readonly unsettled: readonly CheckKind[];
+  /** The manifest rules' hint for each kind in `unsettled`. */
+  readonly hints: readonly CheckHint[];
+  /** The user-level rules files offered for judgment, absolute; empty when the policy settles them or none exists. */
+  readonly offered: readonly string[];
+  /** Whether the policy settles the user-level files, so the task offers none of them (R3). */
+  readonly policySettlesUserRules: boolean;
+}
+
+/** The line a survey task opens its checks with, which names the kinds to choose, or that the run does not fix. */
+export const kindsToChooseLine = (input: Pick<SurveyTaskInput, 'fix' | 'unsettled'>): string =>
+  input.fix ? `Kinds to choose: ${input.unsettled.length === 0 ? 'none' : input.unsettled.join(', ')}` : 'Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null';
+
+/** How a check reaches its shell on a platform, and how a name is looked up as that shell resolves it. */
+function shellOf(platform: NodeJS.Platform): { readonly shell: string; readonly lookup: string } {
+  return platform === 'win32'
+    ? { shell: 'cmd.exe /d /s /c "<command>"', lookup: '`where.exe <tool>`' }
+    : { shell: '/bin/sh -c "<command>"', lookup: '`command -v <tool>`' };
+}
+
+/**
+ * The surveyor's task (R2 to R5, R11 of the repository survey): the
+ * user-level files offered for judgment or none, then in a fix run the
+ * kinds to choose, the ones the operator's flags settled, how a check
+ * reaches its shell on this platform and how to look a tool up as it
+ * would, and the manifest rules' hints as guesses; in a run that does not
+ * fix, that no check is asked for.
+ */
+export function surveyTask(input: SurveyTaskInput): string {
+  const userRules = input.offered.length > 0
+    ? [
+        'User-level rules files offered:',
+        ...input.offered.map((path) => `- ${path}`),
+        '',
+        'These exist on this machine and are the reviewer\'s own rules, not the repository\'s. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer\'s own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason.',
+      ]
+    : [
+        'User-level rules files offered: none',
+        '',
+        input.policySettlesUserRules
+          ? 'The review policy settles whether the reviewer\'s own rules apply, so none is offered to you: return `userRules` empty and list no source with `level` `user`.'
+          : 'No user-level rules file exists on this machine: return `userRules` empty and list no source with `level` `user`.',
+      ];
+  const checks = input.fix ? fixChecks(input) : [kindsToChooseLine(input)];
+  return [
+    'Survey this repository as a new contributor would, and answer the two questions your role prompt defines: which files state the conventions a change here must follow, and, in a run that fixes, which commands are its checks. The changed paths in the scope block below are what a source\'s `appliesTo` is judged against.',
+    '',
+    ...userRules,
+    '',
+    ...checks,
+  ].join('\n');
+}
+
+/** The checks part of a fix run's survey task. */
+function fixChecks(input: SurveyTaskInput): string[] {
+  const { shell, lookup } = shellOf(input.platform);
+  const settled = input.settled.length === 0
+    ? []
+    : [
+        'Settled by the operator\'s flags, which you leave out of `checks`:',
+        ...input.settled.map((entry) => (entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: \`${entry.command}\` (--check)`)),
+        '',
+      ];
+  if (input.unsettled.length === 0) return [kindsToChooseLine(input), '', ...settled, 'Every kind is settled, so return `checks` empty.'];
+  const hints = input.hints.map((hint) => (hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: \`${hint.command}\` (${hint.reading})`));
+  return [
+    kindsToChooseLine(input),
+    '',
+    ...settled,
+    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look each tool a command names up as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
+    '',
+    'Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository\'s CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:',
+    ...hints,
+  ];
+}
 
 /**
  * Where a candidate points, as a worker reads it: its repository location,

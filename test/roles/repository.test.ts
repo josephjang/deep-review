@@ -4,12 +4,13 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { fixerOutputSchema } from '../../src/review/schemas.ts';
+import { fixerOutputSchema, surveyorCheckSchema, surveyorOutputSchema } from '../../src/review/schemas.ts';
 import { fixStatuses, validationMethods } from '../../src/review/vocabulary.ts';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
-/** Every role the engine knows, in manifest order: the ten finder angles and the phase roles around them. */
+/** Every role the engine knows, in manifest order: the surveyor, the ten finder angles and the phase roles around them. */
 const expectedRoles = [
+  'surveyor',
   'triage',
   'finder-SCAN', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY',
   'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS',
@@ -20,8 +21,8 @@ const expectedRoles = [
 /** The roles whose prompt opens with the lead reviewer's brief. */
 const leadRoles = ['triage', 'finder-SCAN', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'test-assessment'];
 
-/** The roles the read-only review runs: the triage (which runs `SCAN`), the nine other finders, and the four phase roles after them. */
-const reviewRoles = ['triage', ...expectedRoles.filter((key) => key.startsWith('finder-') && key !== 'finder-SCAN'), 'deduplication', 'verifier', 'sweep', 'merge-rank'];
+/** The roles the read-only review runs: the surveyor, the triage (which runs `SCAN`), the nine other finders, and the four phase roles after them. */
+const reviewRoles = ['surveyor', 'triage', ...expectedRoles.filter((key) => key.startsWith('finder-') && key !== 'finder-SCAN'), 'deduplication', 'verifier', 'sweep', 'merge-rank'];
 
 describe('the repository\'s roles/', () => {
   const roles = assembleRoles(repositoryRolesRoot());
@@ -258,6 +259,19 @@ describe('the repository\'s roles/', () => {
     for (const key of ['finder-CONVENTIONS', 'verifier', 'sweep', 'triage']) assert.match(roles.find((role) => role.key === key)!.prompt, /AGENTS\.md/, key);
   });
 
+  it('describes the surveyor\'s answer as the fields of its output schema, and tells it to run no check (R2, R4, PD9 of the repository survey)', () => {
+    const surveyor = roles.find((role) => role.key === 'surveyor')!;
+    const conventionFields = Object.keys(surveyorOutputSchema.shape.conventions.element.shape);
+    const fields = [...Object.keys(surveyorOutputSchema.shape), ...conventionFields, ...Object.keys(surveyorCheckSchema.shape), 'applied', 'quote', 'build', 'typecheck', 'lint', 'test', 'stated', 'hint', 'repository', 'user'];
+    for (const field of fields) assert.ok(surveyor.prompt.includes(`\`${field}\``), `surveyor names \`${field}\``);
+    assert.match(surveyor.prompt, /run no check, no\s+test suite, no build and no installer/);
+    assert.match(surveyor.prompt, /Do not run the checks: the engine runs them itself/);
+    assert.match(surveyor.prompt, /an empty\s+`conventions` list is then the correct answer/);
+    assert.match(surveyor.prompt, /Prefer the form that verifies over the form that rewrites/);
+    // The reviewer's own rules are offered or settled by the policy; a file not offered is never listed.
+    assert.match(surveyor.prompt, /one it does not offer is settled by the\s+review policy, and you never list it/);
+  });
+
   it('tells the triage and every finder how the engine runs every angle and assigns every id', () => {
     const triage = roles.find((role) => role.key === 'triage')!;
     assert.match(triage.prompt, /Every angle runs on every review/);
@@ -390,7 +404,7 @@ describe('scripts/roles.ts', () => {
     assert.equal(result.status, 0, result.stderr);
     const lines = result.stdout.trim().split('\n');
     assert.deepEqual(lines.slice(0, -1).map((line) => line.split('\t')[0]), expectedRoles);
-    assert.match(lines.at(-1)!, /^Wrote 20 prompts to /);
+    assert.match(lines.at(-1)!, /^Wrote 21 prompts to /);
     assert.deepEqual(readdirSync(output).sort(), expectedRoles.map((key) => `${key}.md`).sort());
     for (const role of assembleRoles(repositoryRolesRoot())) {
       assert.equal(readFileSync(join(output, `${role.key}.md`), 'utf8'), role.prompt, role.key);

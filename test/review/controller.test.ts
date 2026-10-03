@@ -31,13 +31,17 @@ const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DE
 /** A candidate as a finder returns it. */
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
 
+/** The surveyor's answer of a read-only run that names the sandbox's AGENTS.md as its one convention source. */
+const surveyedAgents = { output: { conventions: [{ path: 'AGENTS.md', level: 'repository', governs: 'how globs are quoted', appliesTo: null, grounds: null }], userRules: [], checks: null, note: '' } };
+
 /**
- * A review in which the triage and RIPPLE find candidates at one line, the
+ * A review in which the surveyor names the rules file, the triage and RIPPLE find candidates at one line, the
  * SCAN one located and one RIPPLE one unlocated, deduplication folds the
  * located pair, the verifier refutes one and confirms the rest, the sweep
  * adds a design candidate, and merge-rank ranks them.
  */
 const fullScript: Script = {
+  surveyor: surveyedAgents,
   triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src\\a.ts', 6, 'other() passes null')], leads: [
     { angle: 'REMOVALS', lead: 'src/gone.ts was deleted' }, { angle: 'RIPPLE', lead: 'callers of parse()' }, { angle: 'FOOTGUNS', lead: null }, { angle: 'WRAPPERS', lead: null },
     { angle: 'EFFICIENCY', lead: null }, { angle: 'DESIGN', lead: null }, { angle: 'DUPLICATION', lead: null }, { angle: 'ALTITUDE', lead: null }, { angle: 'CONVENTIONS', lead: null },
@@ -119,13 +123,13 @@ describe('runReview', { timeout: 600_000 }, () => {
     const text = report(outcome);
     const state = box.run();
     assert.equal(state.review?.report !== null, true);
-    // A run without --fix skips the five phases of the fix pass, and has no fix state.
-    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    // A run without --fix surveys first, skips the five phases of the fix pass, and has no fix state.
+    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
     assert.equal(state.review!.fix, null);
     assert.equal(state.review!.configuration.fix, false);
-    // Workers: triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1.
+    // Workers: survey 1, triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1.
     const workers = Object.values(state.workers);
-    assert.equal(workers.length, 17);
+    assert.equal(workers.length, 18);
     assert.ok(workers.every((worker) => worker.status === 'finished'));
     const labels = workers.map((worker) => worker.launch.label);
     assert.equal(labels.filter((label) => label === 'finder-WRAPPERS finders:WRAPPERS').length, 2, 'the malformed WRAPPERS answer was retried once');
@@ -137,9 +141,12 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(order.every((position) => position >= 0), 'every phase it runs started');
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
     assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && (fixPhases as readonly string[]).includes(payload.phase as string)), 'no phase of the fix pass started');
-    assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 9);
-    // The engine writes only the second version of each kind that carries a phase.
-    assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => ['review.configured', 'phase.started', 'phase.finished', 'worktree.checked', 'attempt.failed', 'report.written'].includes(event.kind) && event.version !== 2).map((event) => `${event.kind}@${String(event.version)}`), []);
+    assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 10);
+    // The engine writes only the third version of each kind that carries a phase, and of the configuration.
+    assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => ['review.configured', 'phase.started', 'phase.finished', 'worktree.checked', 'attempt.failed', 'report.written'].includes(event.kind) && event.version !== 3).map((event) => `${event.kind}@${String(event.version)}`), []);
+    // The survey is recorded once, and a read-only run plans no check.
+    assert.deepEqual(state.review!.survey?.answers.map((answer) => answer.conventions.map((source) => source.path)), [['AGENTS.md']]);
+    assert.ok(!kinds.includes('checks.planned'));
     // Candidates: ids assigned, locations normalized, the unlocated one kept.
     const candidates = state.review!.candidates;
     assert.deepEqual(Object.keys(candidates), ['SCAN-1', 'SCAN-2', 'RIPPLE-1', 'RIPPLE-2', 'SWEEP-1']);
@@ -158,14 +165,22 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(text, /^### 1\. \[major\] CONFIRMED  RIPPLE-1 \(also RIPPLE-2\)  src\/a\.ts:2$/m);
     assert.match(text, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/b\.ts:1$/m);
     assert.match(text, /## Refuted at verification\n\n- SCAN-2 \(SCAN\)  src\/a\.ts:6  other\(\) passes null\n  Evidence: other\(\) is never called/);
-    assert.match(text, /^\| Total \| 17 \| /m);
+    assert.match(text, /^\| Total \| 18 \| /m);
+    assert.match(text, /^\| survey \| 1 \| /m);
     assert.match(text, /- Run budget: 60\.00 USD/);
     assert.match(text, /- Unlocated candidates.*RIPPLE-2 \(src\/nowhere\.ts:1\)/);
-    // The prompts: the finder got its lead, the sweep got the lists, the verifier its numbered group, and every worker the scope block and rules file.
+    // The prompts: the finder got its lead, the sweep got the lists, the verifier its numbered group, and every worker after the survey the scope block and the source it named.
     const ripple = box.promptOf(state, 'finder-RIPPLE finders:RIPPLE');
     assert.match(ripple, /^SCAN lead: callers of parse\(\)$/m);
     assert.match(ripple, /^Role: finder-RIPPLE\nUnit: RIPPLE\nPhase: finders$/m);
-    assert.match(ripple, /- AGENTS\.md \(repository\)/);
+    assert.match(ripple, /### Convention sources\n\nThe repository survey named these files as stating the conventions a change here must follow:\n\n- AGENTS\.md \(repository\): how globs are quoted\n/);
+    assert.match(box.promptOf(state, 'triage triage:SCAN'), /- AGENTS\.md \(repository\): how globs are quoted/);
+    // The surveyor's own block has no such section, and a read-only run asks it for no check.
+    const surveyor = box.promptOf(state, 'surveyor survey:survey');
+    assert.doesNotMatch(surveyor, /### Convention sources/);
+    assert.match(surveyor, /^Kinds to choose: none; this run does not fix/m);
+    assert.match(surveyor, /\| src\/gone\.ts \| deleted \| .* \| deleted \|/);
+    assert.ok(box.logs.includes(`run ${state.id}: convention source AGENTS.md (repository): how globs are quoted`), box.logs.join('\n'));
     assert.match(ripple, /\| src\/gone\.ts \| deleted \| .* \| deleted \|/);
     assert.match(ripple, /```diff\n/);
     const sweep = box.promptOf(state, 'sweep sweep:sweep');
@@ -186,11 +201,11 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(state.review?.configuration.runtime, 'codex');
     assert.equal(state.review?.configuration.runBudgetUsd, null);
     assert.ok(state.review!.configuration.roles.every((role) => role.budgetUsd === null));
-    // Nothing found: 1 triage + 9 finders, no deduplication, verification with no group, sweep, no merge-rank.
-    assert.equal(Object.values(state.workers).length, 11);
+    // Nothing found: 1 survey + 1 triage + 9 finders, no deduplication, verification with no group, sweep, no merge-rank.
+    assert.equal(Object.values(state.workers).length, 12);
     assert.match(text, /No finding survived verification\./);
     assert.match(text, /- The run budget did not apply: runtime codex reports no cost in USD/);
-    assert.match(text, /^\| Total \| 11 \| [0-9.]+ \| - \| \d+ \| 0 \| \d+ \|$/m);
+    assert.match(text, /^\| Total \| 12 \| [0-9.]+ \| - \| \d+ \| 0 \| \d+ \|$/m);
   });
 
   it('degrades an angle whose finder fails twice, tells the sweep, and names it in the report', async () => {
@@ -232,7 +247,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     }
     let state = box.run();
     assert.equal(state.review!.phases.triage.status, 'blocked');
-    assert.equal(Object.values(state.workers).length, 2);
+    assert.equal(Object.values(state.workers).length, 3, 'the surveyor and the two triage workers');
     box.script({});
     // The run keeps the scope it captured: the command's is never resolved, and the log says it is ignored.
     const scope = { named: true, request: (): never => assert.fail('a run that captured its scope asked for another') };
@@ -246,7 +261,8 @@ describe('runReview', { timeout: 600_000 }, () => {
   });
 
   it('blocks on the run budget before a launch, and completes when run again with a higher --budget-usd', async () => {
-    box.script({ '*': { costUsd: 12 } });
+    // The surveyor reports no cost, so the budget meets the triage and the finders as it did before the survey.
+    box.script({ '*': { costUsd: 12 }, surveyor: { costUsd: 0 } });
     const blocked = await box.review('claude', { flags: { budgetUsd: 20 } });
     assert.equal(blocked.kind, 'blocked');
     if (blocked.kind === 'blocked') {
@@ -256,7 +272,7 @@ describe('runReview', { timeout: 600_000 }, () => {
       assert.match(blocked.blocker.action, /--budget-usd above 60\.00/);
     }
     let state = box.run();
-    assert.equal(Object.values(state.workers).length, 5, 'the triage and one batch of four finders ran before the check stopped the next launch');
+    assert.equal(Object.values(state.workers).length, 6, 'the surveyor, the triage and one batch of four finders ran before the check stopped the next launch');
     assert.equal(state.review!.configuration.runBudgetUsd, 20, 'the pinned budget is the first invocation\'s');
     assert.deepEqual(state.review!.limits, { concurrency: 4, runBudgetUsd: 20 }, 'the limits in force start as the configuration\'s');
     const limitsChanges = (): Record<string, unknown>[] => box.events(state.id).filter(([kind]) => kind === 'limits.changed').map(([, payload]) => payload);
@@ -308,13 +324,13 @@ describe('runReview', { timeout: 600_000 }, () => {
   it('charges a timed-out worker, which reports no cost, at its per-worker cap, so timeouts reach the run budget', async () => {
     // Every worker reports 0.5 USD but REMOVALS, which hangs until its timeout; every role is capped at 8 USD.
     // One worker at a time, so REMOVALS, the first angle, is the only finder launched before its timeout settles.
-    box.script({ '*': { costUsd: 0.5 }, 'finder-REMOVALS': { hang: true } });
+    box.script({ '*': { costUsd: 0.5 }, surveyor: { costUsd: 0 }, 'finder-REMOVALS': { hang: true } });
     const blocked = await box.review('claude', { flags: { budgetUsd: 8, concurrency: 1 } });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'budget', JSON.stringify(blocked));
     // The triage reported 0.50 USD and the timeout counts its 8 USD cap, so REMOVALS is not tried again.
     assert.equal(blocked.blocker.detail, 'spent 8.50 USD of the 8.00 USD run budget, counting 1 worker that reported no cost at its per-worker cap');
     const state = box.run();
-    assert.equal(Object.values(state.workers).length, 2, 'the triage and the one REMOVALS worker');
+    assert.equal(Object.values(state.workers).length, 3, 'the surveyor, the triage and the one REMOVALS worker');
     assert.equal(state.review!.anglesNotRun.REMOVALS, undefined, 'the angle is blocked on the budget, not given up');
     const lines = describeRun(state, claudeAdapter, () => '').lines;
     assert.ok(lines.includes('Budget check: 8.50 USD of 8.00 USD, counting 1 worker that reported no cost at its per-worker cap'), lines.join('\n'));
@@ -327,9 +343,10 @@ describe('runReview', { timeout: 600_000 }, () => {
     const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
     const pending = box.review('claude');
     // While the triage worker waits, the tree changes; the check before its answer is recorded sees it. The
-    // edit waits for the triage worker on the ledger, which launches only after the scope is captured: an
-    // edit made before the capture would be part of the scope, and nothing would have drifted.
-    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
+    // edit waits for the triage worker on the ledger, which launches only after the scope is captured and the
+    // survey answered: an edit made before the capture would be part of the scope, and one made while the
+    // surveyor ran would block the survey instead.
+    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running' && worker.launch.label === 'triage triage:SCAN')), 'the triage worker on the ledger', 60_000);
     write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     writeFileSync(marker, '');
     const blocked = await pending;
@@ -354,7 +371,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     // Still drifted: the check at the re-entered attempt's start blocks again at once, without a worker.
     const again = await box.review('claude');
     assert.ok(again.kind === 'blocked' && again.blocker.code === 'drift', JSON.stringify(again));
-    assert.equal(Object.values(box.run().workers).length, 1);
+    assert.equal(Object.values(box.run().workers).length, 2, 'the surveyor and the first triage worker');
     // Restored from the path the blocker named.
     writeFileSync(join(box.repo, 'src', 'b.ts'), readFileSync(expectedAt));
     box.script({});
@@ -363,8 +380,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 3 });
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'triage triage:SCAN').length, 2, 'the triage is launched once more');
     assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'attempt.failed'), []);
-    // Triage attempt 1 has its clean check at the start and the drifted one before its answer; attempts 2 and 3 one each; eight more phases.
-    assert.match(text, /- Worktree checks: 12, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
+    // The survey's one check; triage attempt 1 has its clean check at the start and the drifted one before its answer; attempts 2 and 3 one each; eight more phases.
+    assert.match(text, /- Worktree checks: 13, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
   });
 
   it('sets aside a finder\'s answer when a scope file changes while it runs, lets the others settle, and relaunches it without using an attempt', async () => {
@@ -463,7 +480,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     box.script({});
     await assert.rejects(box.review('claude', { worktree: otherRoot }), (error: unknown) => error instanceof ReviewRefusedError && error.code === null
       && error.message === `run ${runId} is active in worktree ${box.repo}, not ${otherRoot}; run the command there, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\``);
-    assert.equal(Object.values(box.run().workers).length, 2, 'nothing ran in the other worktree');
+    assert.equal(Object.values(box.run().workers).length, 3, 'nothing ran in the other worktree');
     // The run's own worktree still resumes it.
     report(await box.review('claude'));
   });
@@ -491,7 +508,7 @@ describe('runReview', { timeout: 600_000 }, () => {
       && /lacks flags the adapter uses/.test(error.message)
       && error.message.endsWith(pinnedAction(state))
       && !/pass --executable/.test(error.message));
-    assert.equal(Object.values(box.run().workers).length, 2, 'nothing ran');
+    assert.equal(Object.values(box.run().workers).length, 3, 'nothing ran');
   });
 
   it('resolves the command\'s executable only for a run not yet configured, and a refusal of it creates no run', async () => {
@@ -522,7 +539,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.code === null
       && error.message.startsWith(`run ${state.id} was configured with roles digest ${state.review!.configuration.rolesDigest}, and the roles at ${box.rolesRoot} now digest `)
       && error.message.endsWith(`; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${state.id} --reason <text>\``));
-    assert.equal(Object.values(box.run().workers).length, 2, 'nothing ran');
+    assert.equal(Object.values(box.run().workers).length, 3, 'nothing ran');
   });
 
   it('refuses --budget-usd when resuming a run on a runtime that reports no cost, as a new run does', async () => {
@@ -564,8 +581,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     let foreign = 0;
     const log = (line: string): void => {
       box.logs.push(line);
-      // Another writer breaks in between the plan that starts the triage and its append.
-      if (line === 'phase triage: started (attempt 1)') {
+      // Another writer breaks in between the plan that starts the first phase and its append.
+      if (line === 'phase survey: started (attempt 1)') {
         const state = box.run();
         box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'worker.launched', version: 1, payload: frozenLaunch(box.checkpoint, worker(90), 'another writer') }]);
         foreign += 1;

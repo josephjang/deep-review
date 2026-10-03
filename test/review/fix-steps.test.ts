@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { noCheckFlags } from '../../src/review/checks/discover.ts';
 import { nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
 import { baselined, checkRun, checksPhase, configured, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
-const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}` };
+const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
 
 describe('nextStep in the fix pass', () => {

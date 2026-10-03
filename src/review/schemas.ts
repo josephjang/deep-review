@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -68,6 +68,46 @@ export type MergeRankOutput = z.infer<typeof mergeRankOutputSchema>;
 
 /** A repository path as a fixer reports it; the engine resolves it against the worktree. */
 const reportedPath = z.string().min(1).max(1000);
+
+/**
+ * What the surveyor returns (R2, R3, R4 of the repository survey): the
+ * files that state the conventions a change must follow; a decision on
+ * each user-level rules file the task offered; in a fix run one check per
+ * kind the task asks for, and null otherwise; and a note. The schema
+ * holds the shape; `checkSurveyAnswer` in survey.ts holds the answer to
+ * the tree and to what the task offered.
+ */
+export const surveyorCheckSchema = z.strictObject({
+  kind: checkKindSchema,
+  /** One command that runs from the repository root through the platform shell, or null when the repository has none for the kind. */
+  command: z.string().min(1).max(2000).nullable(),
+  /** Whether the command is what the repository states or the engine's hint; null with no command. */
+  basis: checkBaseSchema.nullable(),
+  /** The file the command was taken from and the text there; null with no command. */
+  source: z.strictObject({ path: reportedPath, quote: z.string().min(1).max(2000) }).nullable(),
+  /** A tool the command needs that does not resolve on this machine, or null when every one does. */
+  missingTool: z.string().min(1).max(400).nullable(),
+  /** Why the kind has no command; may also qualify a command. */
+  reason: z.string().min(1).max(1000).nullable(),
+});
+export type SurveyorCheckOutput = z.infer<typeof surveyorCheckSchema>;
+
+export const surveyorOutputSchema = z.strictObject({
+  conventions: z.array(z.strictObject({
+    /** Repository-relative for a file of the repository; the absolute path the task gave for a user-level one. */
+    path: reportedPath,
+    level: conventionLevelSchema,
+    governs: z.string().min(1).max(1000),
+    /** Globs of the paths it applies to when narrower than the repository, or null. */
+    appliesTo: z.array(z.string().min(1).max(400)).min(1).max(50).nullable(),
+    /** Why a user-level file applies; null for a file of the repository. */
+    grounds: z.string().min(1).max(1000).nullable(),
+  })).max(50),
+  userRules: z.array(z.strictObject({ path: reportedPath, applied: z.boolean(), reason: z.string().min(1).max(1000) })).max(10),
+  checks: z.array(surveyorCheckSchema).max(checkKinds.length).nullable(),
+  note: z.string().max(2000),
+});
+export type SurveyorOutput = z.infer<typeof surveyorOutputSchema>;
 
 /**
  * What a fixer returns (R5 of the fix pass), per finding by the index the
@@ -137,6 +177,8 @@ export function checkFixerAnswer(output: FixerOutput, count: number): void {
 export function outputSchemaOf(role: ReviewRole): z.ZodType {
   if (isFinderRole(role)) return finderOutputSchema;
   switch (role) {
+    case 'surveyor':
+      return surveyorOutputSchema;
     case 'triage':
       return triageOutputSchema;
     case 'deduplication':
