@@ -24467,6 +24467,13 @@ var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
 function existingUserRulesFiles(home = homedir()) {
   return userConventionFiles.map((relative3) => join15(home, ...relative3.split("/"))).filter(isFile);
 }
+var authorshipWindow = 200;
+function reviewerAuthorship(worktree) {
+  const email3 = gitText(worktree, ["config", "--get", "user.email"], { okExitCodes: [1] }).trim().toLowerCase();
+  if (email3 === "") return { identity: "unset" };
+  const authors = gitText(worktree, ["log", `-${String(authorshipWindow)}`, "--format=%ae", "HEAD"]).split(/\r?\n/).filter((line) => line.length > 0);
+  return { identity: "set", commits: authors.length, byReviewer: authors.filter((author) => author.trim().toLowerCase() === email3).length };
+}
 
 // src/review/survey.ts
 import { join as join17 } from "node:path";
@@ -26150,6 +26157,11 @@ ${body}
 }
 
 // src/review/tasks.ts
+function authorshipLine(authorship) {
+  const preamble = "What the reviewer's git configuration, which your own shell does not see, says of this repository's history:";
+  if (authorship.identity === "unset") return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
+  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email.`;
+}
 var kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
 function shellOf(platform) {
   return platform === "win32" ? { shell: 'cmd.exe /d /s /c "<command>"', lookup: "`where.exe <tool>`" } : { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
@@ -26159,7 +26171,9 @@ function surveyTask(input2) {
     "User-level rules files offered:",
     ...input2.offered.map((path) => `- ${path}`),
     "",
-    "These exist on this machine and are the reviewer's own rules, not the repository's. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer's own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason."
+    "These exist on this machine and are the reviewer's own rules, not the repository's. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer's own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason.",
+    "",
+    authorshipLine(input2.authorship)
   ] : [
     "User-level rules files offered: none",
     "",
@@ -26187,7 +26201,7 @@ function fixChecks(input2) {
     kindsToChooseLine(input2),
     "",
     ...settled2,
-    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look each tool a command names up as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
+    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look up what each command starts as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. A tool the command runs through something that provides it, such as \`uv run\` with a dependency group or \`npx\` with a project dependency, needs only that to resolve. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
     "",
     "Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository's CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:",
     ...hints
@@ -26514,7 +26528,8 @@ function surveyTaskOf(review2, inputs) {
     unsettled,
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
-    policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0
+    policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0,
+    authorship: inputs.authorship
   });
 }
 function taskFor(unit, review2, options2 = {}) {
@@ -27142,7 +27157,8 @@ async function runReview(options2) {
       platform: process.platform,
       flags: checkFlags,
       userFiles: existingUserRulesFiles(options2.home),
-      hints: state.review?.configuration.fix === true ? hintChecks(readRootManifests(options2.worktree), unsettledKinds(checkFlags)) : []
+      hints: state.review?.configuration.fix === true ? hintChecks(readRootManifests(options2.worktree), unsettledKinds(checkFlags)) : [],
+      authorship: reviewerAuthorship(options2.worktree)
     };
     return surveyed;
   };

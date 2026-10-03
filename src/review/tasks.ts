@@ -9,6 +9,7 @@ import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
 import type { Lead } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
+import type { ReviewerAuthorship } from './conventions.ts';
 import { fenceFor } from './prompts.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
 
@@ -27,6 +28,15 @@ export interface SurveyTaskInput {
   readonly offered: readonly string[];
   /** Whether the policy settles the user-level files, so the task offers none of them (R3). */
   readonly policySettlesUserRules: boolean;
+  /** The reviewer's authorship of the recent history, told with the offered files. */
+  readonly authorship: ReviewerAuthorship;
+}
+
+/** The reviewer's authorship as the task states it: a fact the surveyor's own shell cannot see. */
+function authorshipLine(authorship: ReviewerAuthorship): string {
+  const preamble = 'What the reviewer\'s git configuration, which your own shell does not see, says of this repository\'s history:';
+  if (authorship.identity === 'unset') return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
+  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email.`;
 }
 
 /** The line a survey task opens its checks with, which names the kinds to choose, or that the run does not fix. */
@@ -55,6 +65,8 @@ export function surveyTask(input: SurveyTaskInput): string {
         ...input.offered.map((path) => `- ${path}`),
         '',
         'These exist on this machine and are the reviewer\'s own rules, not the repository\'s. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer\'s own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason.',
+        '',
+        authorshipLine(input.authorship),
       ]
     : [
         'User-level rules files offered: none',
@@ -89,7 +101,7 @@ function fixChecks(input: SurveyTaskInput): string[] {
     kindsToChooseLine(input),
     '',
     ...settled,
-    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look each tool a command names up as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
+    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look up what each command starts as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. A tool the command runs through something that provides it, such as \`uv run\` with a dependency group or \`npx\` with a project dependency, needs only that to resolve. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
     '',
     'Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository\'s CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:',
     ...hints,

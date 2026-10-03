@@ -282,6 +282,10 @@ describe('the repository\'s roles/', () => {
     assert.match(surveyor.prompt, /Do not run the checks: the engine runs them itself/);
     assert.match(surveyor.prompt, /an empty\s+`conventions` list is then the correct answer/);
     assert.match(surveyor.prompt, /Prefer the form that verifies over the form that rewrites/);
+    // The reviewer's identity is the task's fact, never the surveyor's lookup, and a tool run through what provides it is not missing (the first survey gate, 2026-10-04).
+    assert.match(surveyor.prompt, /do not look the reviewer's identity up yourself, and never take a\s+commit's author for it/);
+    assert.match(surveyor.prompt, /`uv run --group dev tox` needs `uv`, not `tox`/);
+    assert.doesNotMatch(surveyor.prompt, /git config user\.email/);
     // The reviewer's own rules are offered or settled by the policy; a file not offered is never listed.
     assert.match(surveyor.prompt, /one it does not offer is settled by the\s+review policy, and you never list it/);
   });

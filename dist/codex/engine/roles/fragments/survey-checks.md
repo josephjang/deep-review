@@ -35,8 +35,11 @@ kind to choose, return one command, or say the repository has none.
   a check the project does not have, and do not put a weaker command
   that happens to run in place of the project's own.
 
-Look up each tool a command needs, as your task says, and name the
-first one that does not resolve in `missingTool`, or null when all do.
+Look up what each command starts, as your task says, and name the first
+tool that does not resolve in `missingTool`, or null when all do. A
+tool the command runs through something that provides it needs only
+that to resolve: `uv run --group dev tox` needs `uv`, not `tox`, and
+`npx eslint` in a project that depends on eslint needs `npx`.
 Do not run the checks: the engine runs them itself, under a timeout and
 with their output recorded. A command whose tool is missing is still the
 right answer when it is the project's check; the engine asks the

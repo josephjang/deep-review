@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { existingUserRulesFiles, userConventionFiles } from '../../src/review/conventions.ts';
+import { execFileSync } from 'node:child_process';
+import { existingUserRulesFiles, reviewerAuthorship, userConventionFiles } from '../../src/review/conventions.ts';
+import { commitAll, repositoryWith, write as writeFile } from '../helpers/repository.ts';
 
 describe('existingUserRulesFiles', () => {
   let home: string;
@@ -36,5 +38,48 @@ describe('existingUserRulesFiles', () => {
 
   it('names the two user-level paths the role text names', () => {
     assert.deepEqual(userConventionFiles, ['.claude/CLAUDE.md', '.codex/AGENTS.md']);
+  });
+});
+
+describe('reviewerAuthorship', () => {
+  let sandbox: string;
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'deep-review-authorship-'));
+  });
+  afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
+
+  const gitIn = (repo: string, ...args: string[]): void => {
+    execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
+  };
+  /** A commit by another author, as a maintainer of the repository makes one. */
+  const commitBy = (repo: string, email: string, path: string): void => {
+    writeFile(repo, path, `${path}\n`);
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, '-c', `user.email=${email}`, '-c', 'user.name=Someone', 'commit', '-q', '-m', path);
+  };
+
+  it('counts the recent commits authored with the configured email, without regard to case', () => {
+    const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
+    gitIn(repo, 'config', 'user.email', 'Reviewer@Example.invalid');
+    commitBy(repo, 'reviewer@example.invalid', 'b.txt');
+    commitBy(repo, 'maintainer@example.invalid', 'c.txt');
+    writeFile(repo, 'd.txt', 'd\n');
+    commitAll(repo, 'by the configured identity');
+    // The helper's first commit is test@example.invalid's, then the reviewer's, a maintainer's, and the configured identity's.
+    assert.deepEqual(reviewerAuthorship(repo), { identity: 'set', commits: 4, byReviewer: 2 });
+  });
+
+  it('says no identity is configured, and so attributes nothing, when user.email is unset for the repository', () => {
+    const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
+    gitIn(repo, 'config', '--unset-all', 'user.email');
+    // The machine's own global and system configuration may name an email; the engine's git inherits the environment, so the case points both away.
+    const before = { global: process.env.GIT_CONFIG_GLOBAL, nosystem: process.env.GIT_CONFIG_NOSYSTEM };
+    Object.assign(process.env, { GIT_CONFIG_GLOBAL: join(sandbox, 'no-global'), GIT_CONFIG_NOSYSTEM: '1' });
+    try {
+      assert.deepEqual(reviewerAuthorship(repo), { identity: 'unset' });
+    } finally {
+      if (before.global === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = before.global;
+      if (before.nosystem === undefined) delete process.env.GIT_CONFIG_NOSYSTEM; else process.env.GIT_CONFIG_NOSYSTEM = before.nosystem;
+    }
   });
 });

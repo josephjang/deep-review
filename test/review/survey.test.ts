@@ -43,7 +43,7 @@ describe('checkSurveyAnswer', () => {
     lookup: worktreeLookup(worktree),
     setting: change.setting ?? 'judge',
     fix: change.fix ?? false,
-    inputs: { platform: 'linux', flags: change.flags ?? noCheckFlags, userFiles: change.userFiles ?? [userFile], hints: change.hints ?? [] },
+    inputs: { platform: 'linux', flags: change.flags ?? noCheckFlags, userFiles: change.userFiles ?? [userFile], hints: change.hints ?? [], authorship: { identity: 'unset' } },
   });
   /** The context of a fix run whose flags settle build and typecheck, with a hint for lint. */
   const fixing = (change: Parameters<typeof context>[0] = {}): SurveyCheckContext =>

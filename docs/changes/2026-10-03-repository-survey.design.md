@@ -487,6 +487,51 @@ suite already scripts workers with, then the gate by hand.
   run started on a shell where a chosen tool is absent.
 - `npm run check` and `npm run verify`.
 
+## Amendment after the first gate runs
+
+Added 2026-10-04. The first runs of the R14 gate (Verification) are the
+evidence. On click #3818 the Claude surveyor answered as the design
+intends, and the Codex surveyor (gpt-6-astra, medium effort) failed two
+of its judgments, both on facts its own shell sees badly.
+
+- **It applied the reviewer's home rules on invented grounds.** It ran
+  `git config user.email; git log -8 --format=%ae` as one command. A
+  worker runs isolated from the reviewer's git configuration, so the
+  first printed nothing, and the first line of output was the first
+  commit's author, `kevin@deldycke.com`, a click maintainer, which the
+  surveyor took for the configured email. Both home rules files were
+  listed as convention sources of a repository the reviewer does not
+  own, the failure R3 exists to prevent.
+- **It reported tools missing that its commands provide.** Each of its
+  commands ran its tool through `uv run --group <group>`, which installs
+  `tox` and `pre-commit` into the project's environment, and it looked
+  up `tox` and `pre-commit` on `PATH`. The survey blocked with
+  `check-unavailable` on three kinds that would have run.
+
+**TD14: The engine gives the surveyor the reviewer's authorship as
+counts.** The fragment named commits by the person `git config
+user.email` names as grounds, which asks the surveyor for a fact it
+cannot see. The engine reads `user.email` with the operator's own git
+configuration and counts how many of the last 200 commits on HEAD were
+authored with it; the task states the counts, or that no email is
+configured for the repository, and the fragment tells the surveyor not
+to look the identity up and never to take a commit's author for it. The
+address itself never reaches a prompt. Passing the address was rejected
+for that reason; telling the surveyor to run `git config` on its own
+was rejected because its environment does not hold the answer; raising
+the surveyor's effort was rejected as the fix, since the fact was
+missing, not the reasoning. Whether the counts are grounds stays the
+surveyor's judgment (PD7).
+
+**TD15: A tool run through what provides it needs only that to
+resolve.** The task and the fragment now say to look up what a command
+starts, and that `uv run --group dev tox` needs `uv` and `npx eslint`
+in a project that depends on eslint needs `npx`. The engine still parses
+no command line (TD4).
+
+The Claude runs on click and eslint ran on the prompts before this
+amendment; the Codex click run is run again on it from a fresh clone.
+
 ## Verification
 
 Run on the author's Windows 11 machine on 2026-10-04, Node 26.10.0 and

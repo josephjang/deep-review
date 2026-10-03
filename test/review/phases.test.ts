@@ -31,7 +31,7 @@ const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerRe
 });
 const unit = (phase: Unit['phase'], key: string, role: ReviewRole): Unit => ({ phase, key, role });
 /** What an invocation knows for its survey in these tests: Linux, no flag, no user-level rules file and no hint. */
-const noSurveyInputs: SurveyInputs = { platform: 'linux', flags: noCheckFlags, userFiles: [], hints: [] };
+const noSurveyInputs: SurveyInputs = { platform: 'linux', flags: noCheckFlags, userFiles: [], hints: [], authorship: { identity: 'unset' } };
 
 /** The one event a reading unit's receipt becomes; a reading unit freezes and compares nothing, so the evidence store refuses every write and the comparison every call. */
 const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string, survey: SurveyInputs = noSurveyInputs): NewEvent => {
@@ -123,6 +123,11 @@ describe('the surveyor\'s task', () => {
     const files = ['/home/me/.claude/CLAUDE.md', '/home/me/.codex/AGENTS.md'];
     const judged = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: inputs({ userFiles: files }) });
     assert.match(judged, /^User-level rules files offered:\n- \/home\/me\/\.claude\/CLAUDE\.md\n- \/home\/me\/\.codex\/AGENTS\.md\n\nThese exist on this machine and are the reviewer's own rules/m);
+    // The reviewer's authorship is the engine's fact, in counts: the surveyor's shell cannot see the git identity, and is never given the address.
+    assert.match(judged, /^What the reviewer's git configuration, which your own shell does not see, says of this repository's history: no `user\.email` is configured for it, so no commit here can be attributed to the reviewer\.$/m);
+    const authored = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: inputs({ userFiles: files, authorship: { identity: 'set', commits: 200, byReviewer: 187 } }) });
+    assert.match(authored, /says of this repository's history: 187 of the last 200 commits on HEAD were authored with the reviewer's email\.$/m);
+    assert.doesNotMatch(authored, /@/, 'no address reaches the task');
     for (const userRules of ['apply', 'ignore'] as const) {
       const settled = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured({ survey: { userRules } }).review(), { survey: inputs({ userFiles: files }) });
       assert.match(settled, /^User-level rules files offered: none$/m, userRules);
@@ -140,6 +145,9 @@ describe('the surveyor\'s task', () => {
     assert.match(task, /as `\/bin\/sh -c "<command>"`[\s\S]*`command -v <tool>`/);
     assert.match(task, /^- build: none \(nothing names it\)$/m);
     assert.match(task, /^- test: `npm run test` \(the package\.json script `test` through npm\)$/m);
+    // What a command starts is looked up; a tool it runs through what provides it needs only that.
+    assert.match(task, /look up what each command starts as that shell resolves it/);
+    assert.match(task, /such as `uv run` with a dependency group or `npx` with a project dependency, needs only that to resolve/);
     const windows = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ platform: 'win32', hints }) });
     assert.match(windows, /on this machine \(win32\) as `cmd\.exe \/d \/s \/c "<command>"`[\s\S]*`where\.exe <tool>`/);
     const all = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ flags: { commands: { build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, dropped: [] } }) });

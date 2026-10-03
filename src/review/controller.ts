@@ -28,7 +28,7 @@ import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
-import { existingUserRulesFiles } from './conventions.ts';
+import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, worktreeChecked, type DriftFound } from './drift.ts';
 import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
@@ -210,8 +210,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   /**
    * What this invocation knows for the survey, read once, when the
    * surveyor's task or its answer first needs it: the platform, the check
-   * flags, the user-level rules files that exist, and in a fix run the
-   * manifest rules' hint for each kind no flag settles.
+   * flags, the user-level rules files that exist, in a fix run the
+   * manifest rules' hint for each kind no flag settles, and the reviewer's
+   * authorship of the recent history.
    */
   const surveyInputs = (): SurveyInputs => {
     surveyed ??= {
@@ -219,6 +220,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       flags: checkFlags,
       userFiles: existingUserRulesFiles(options.home),
       hints: state.review?.configuration.fix === true ? hintChecks(readRootManifests(options.worktree), unsettledKinds(checkFlags)) : [],
+      authorship: reviewerAuthorship(options.worktree),
     };
     return surveyed;
   };

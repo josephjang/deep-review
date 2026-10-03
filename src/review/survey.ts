@@ -11,6 +11,7 @@ import { realpathSync } from 'node:fs';
 import type { ConventionSource, PlannedCheckV2, SurveyedCheck, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
 import { isFile, isInside, sameDirectory } from '../paths.ts';
 import { isSettled, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
+import type { ReviewerAuthorship } from './conventions.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
 import type { RepoLookup } from './locations.ts';
@@ -21,7 +22,8 @@ import { checkKinds, type CheckKind, type UserRulesSetting } from './vocabulary.
  * What one invocation knows for its survey, read once: the platform its
  * checks run on, the `--check` and `--no-check` flags it was given (none
  * in a run that does not fix), the user-level rules files that exist, and
- * in a fix run the manifest rules' hint for each kind no flag settles.
+ * in a fix run the manifest rules' hint for each kind no flag settles,
+ * and how much of the repository's recent history the reviewer authored.
  */
 export interface SurveyInputs {
   readonly platform: NodeJS.Platform;
@@ -29,6 +31,8 @@ export interface SurveyInputs {
   /** Absolute paths, in the order `userConventionFiles` lists them. */
   readonly userFiles: readonly string[];
   readonly hints: readonly CheckHint[];
+  /** The reviewer's authorship of the recent history, which the surveyor weighs a user-level file by and cannot see itself. */
+  readonly authorship: ReviewerAuthorship;
 }
 
 /** The user-level files the surveyor is told of: every one that exists under `judge`, and none otherwise, since the policy settles them (R3). */
