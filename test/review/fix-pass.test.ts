@@ -115,7 +115,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.match(text, /^\| build \| ".*fake-check\.mjs" build \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
     assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
     for (const patch of review.report!.patches) assert.ok(text.includes(box.checkpoint.evidence.pathOf(patch)), 'the report names each patch by its path');
-    assert.match(text, /^- After the repair: not run, since no check the baseline passed failed after the fixes\.$/m);
+    assert.match(text, /^- After the repair: not run, since no check failed after the fixes\.$/m);
     // The two clusters' fixers ran at once: both launched before either finished.
     const events = box.events(state.id);
     const launched = (cluster: string): number => events.findIndex(([kind, payload]) => kind === 'worker.launched' && payload.label === `fixer fixes:${cluster}`);
@@ -344,14 +344,31 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(existsSync(join(box.repo, 'notes.txt')), true, 'the engine removes nothing from the tree');
   });
 
-  it('reports a check that failed before any edit, runs it again after the fixes, and never repairs it', async () => {
+  it('gives a check that failed before any edit and still fails to the repair worker with both outputs, for the failures that are new (R24)', async () => {
     box.checks({ lint: 'fail' });
-    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
-    report(await box.fix('claude'));
-    const fix = box.run().review!.fix!;
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+      'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [], note: 'every failure was there before the fixes' }]) },
+    });
+    const text = report(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
     assert.equal(fix.checks.runs['baseline-checks'].find((run) => run.kind === 'lint')?.outcome, 'failed');
     assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'lint')?.outcome, 'failed');
-    assert.deepEqual(fix.answers.repair, {}, 'no repair worker ran');
+    assert.deepEqual(fix.answers.repair.repair!.findings.map((finding) => [finding.id, finding.status]), [['lint', 'deferred']]);
+    const repair = promptOf(state, 'fixer repair:repair');
+    assert.match(repair, /^\[0\] lint: .*\n {4}exited with code 1\n[\s\S]*?\n {4}It failed before any fixer edited the tree too: fix only the failures its output then does not show/m);
+    // Each fixer was told what failed before it edited anything.
+    assert.match(promptOf(state, 'fixer fixes:c1-1'), /^These failed before any fixer edited the tree; their output then is at the paths given\. [^\n]*\n- lint: \S/m);
+    assert.deepEqual(fix.checks.runs['repair-checks'].map((run) => run.kind), ['build', 'typecheck', 'lint', 'test'], 'the checks ran once more after the repair');
+    assert.match(text, /^- lint check deferred: every failure was there before the fixes; no patch$/m);
+  });
+
+  it('never sends the repair a check that failed before any edit and passes after', async () => {
+    box.checks({ lint: ['fail', 'pass'] });
+    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    report(await box.fix('claude'));
     assert.ok(!Object.values(box.run().workers).some((worker) => worker.launch.label === 'fixer repair:repair'));
   });
 
@@ -370,7 +387,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(fix.checks.runs['repair-checks'].map((run) => [run.kind, run.outcome]), [['build', 'passed'], ['typecheck', 'passed'], ['lint', 'passed'], ['test', 'passed']]);
     assert.deepEqual(fix.revisions.map((revision) => [revision.phase, revision.change.findings]), [['fixes', ['SCAN-1']], ['repair', ['test']]]);
     const repair = promptOf(state, 'fixer repair:repair');
-    assert.match(repair, /^Repair: 1 check, numbered \[0\] to \[0\], passed before any fixer edited the tree and fails now\./m);
+    assert.match(repair, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the fixers' edits\./m);
+    assert.match(repair, /^ {4}It passed before any fixer edited the tree\.$/m);
     assert.match(repair, /^\[0\] test: .*fake-check\.mjs" test\n {4}exited with code 1\n {4}stdout, its last \d+ bytes \(the whole is at .+\):\n```text\ntest: src\/a\.ts is broken\n```/m);
     assert.match(repair, /Files you own: every file the fixers changed\.\n- src\/a\.ts\n/);
     assert.match(repair, /^- c1-1 SCAN-1 applied: fake applied \[0\]$/m);

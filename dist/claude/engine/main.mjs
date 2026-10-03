@@ -20623,9 +20623,12 @@ function emptyFixState() {
 function lastRun(fix, phase, kind) {
   return fix.checks.runs[phase].findLast((run2) => run2.kind === kind) ?? null;
 }
+function failedAtBaseline(fix, kind) {
+  return ["failed", "timeout"].includes(lastRun(fix, "baseline-checks", kind)?.outcome ?? "");
+}
 function repairTargets(fix) {
   const planned = fix.checks.planned?.checks ?? [];
-  return planned.map((check2) => check2.kind).filter((kind) => lastRun(fix, "baseline-checks", kind)?.outcome === "passed" && ["failed", "timeout"].includes(lastRun(fix, "checks", kind)?.outcome ?? ""));
+  return planned.map((check2) => check2.kind).filter((kind) => (lastRun(fix, "baseline-checks", kind)?.outcome === "passed" || failedAtBaseline(fix, kind)) && ["failed", "timeout"].includes(lastRun(fix, "checks", kind)?.outcome ?? ""));
 }
 function allClusters(fix) {
   return [...fix.plan?.clusters ?? [], ...fix.secondRound?.clusters ?? []];
@@ -25734,12 +25737,16 @@ function sweepTask(inputs) {
   ].join("\n");
 }
 var snapshotIndexPlaceholder = "<index>";
-function checksBlock(checks) {
+function checksBlock(checks, failing = []) {
   if (checks.every((check2) => check2.command === null)) return "No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.";
   return [
     "The engine runs these checks, in this order, before any fixer edits and again after every fixer returns:",
     ...checks.map((check2) => check2.command === null ? `- ${check2.kind}: not available (${check2.reason ?? "no command"})` : `- ${check2.kind}: ${check2.command}`),
-    "Run the ones that cover your change before you return, and report the suite you ran in `suite`."
+    "Run the ones that cover your change before you return, and report the suite you ran in `suite`.",
+    ...failing.length === 0 ? [] : [
+      "These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch's tree already had it:",
+      ...failing.map((check2) => `- ${check2.kind}: ${check2.stdout}, ${check2.stderr}`)
+    ]
   ].join("\n");
 }
 function snapshotBlock(command, unit) {
@@ -25790,7 +25797,7 @@ function fixerTask(input2) {
     "",
     "You may edit any other file of the repository, existing or new, when a fix or its tests need it; report every file you edit or create under the finding it served.",
     "",
-    checksBlock(input2.checks),
+    checksBlock(input2.checks, input2.baselineFailures),
     "",
     snapshotBlock(input2.snapshotCommand, "finding"),
     "",
@@ -25813,10 +25820,15 @@ function repairTask(input2) {
     `[${String(index2)}] ${check2.kind}: ${check2.command}`,
     `    ${check2.outcome === "timeout" ? "ran past its timeout and was killed" : `exited with code ${check2.exitCode === null ? "none (ended by a signal)" : String(check2.exitCode)}`}`,
     outputTail("stdout", check2.stdout.tail, check2.stdout.path),
-    outputTail("stderr", check2.stderr.tail, check2.stderr.path)
+    outputTail("stderr", check2.stderr.tail, check2.stderr.path),
+    ...check2.baseline === null ? ["    It passed before any fixer edited the tree."] : [
+      "    It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before. Its output then:",
+      outputTail("stdout", check2.baseline.stdout.tail, check2.baseline.stdout.path),
+      outputTail("stderr", check2.baseline.stderr.tail, check2.baseline.stderr.path)
+    ]
   ].join("\n"));
   return [
-    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], passed before any fixer edited the tree and fail${count2 === 1 ? "s" : ""} now. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
+    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
     "",
     ...checks,
     "",
@@ -25884,7 +25896,7 @@ function batchOutcomes(review2, batch) {
     return { batch: batch.key, id, outcome: finding?.status ?? "not attempted", note: finding?.note ?? null };
   });
 }
-function fixerTaskOf(unit, review2, editing) {
+function fixerTaskOf(unit, review2, editing, evidence) {
   const plan = fixPlanOf(review2);
   const second = review2.fix?.secondRound ?? null;
   const all = [...plan.batches, ...second?.batches ?? []];
@@ -25928,7 +25940,16 @@ function fixerTaskOf(unit, review2, editing) {
     checks: review2.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
     mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, [...earlier, ...inSecondRound ? plan.batches : []].map((sibling) => sibling.key)),
-    unfinished: unfinishedIds(review2, "fixes", unit.key)
+    unfinished: unfinishedIds(review2, "fixes", unit.key),
+    baselineFailures: baselineFailuresOf(review2, evidence)
+  });
+}
+function baselineFailuresOf(review2, evidence) {
+  const fix = review2.fix;
+  if (fix === null) return [];
+  return (fix.checks.planned?.checks ?? []).flatMap((check2) => {
+    const run2 = failedAtBaseline(fix, check2.kind) ? lastRun(fix, "baseline-checks", check2.kind) : null;
+    return run2 === null ? [] : [{ kind: check2.kind, stdout: run2.stdout === null ? "none" : evidence.pathOf(run2.stdout), stderr: run2.stderr === null ? "none" : evidence.pathOf(run2.stderr) }];
   });
 }
 function tailOf(evidence, reference) {
@@ -25941,7 +25962,16 @@ function repairTaskOf(review2, editing, evidence) {
   if (fix === null) throw new Error("The repair runs only in a run with the fix pass");
   const checks = repairTargets(fix).map((kind) => {
     const run2 = lastRun(fix, "checks", kind);
-    return { kind, command: run2.command, outcome: run2.outcome === "timeout" ? "timeout" : "failed", exitCode: run2.exitCode, stdout: tailOf(evidence, run2.stdout), stderr: tailOf(evidence, run2.stderr) };
+    const before = failedAtBaseline(fix, kind) ? lastRun(fix, "baseline-checks", kind) : null;
+    return {
+      kind,
+      command: run2.command,
+      outcome: run2.outcome === "timeout" ? "timeout" : "failed",
+      exitCode: run2.exitCode,
+      stdout: tailOf(evidence, run2.stdout),
+      stderr: tailOf(evidence, run2.stderr),
+      baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) }
+    };
   });
   const owned = fixesRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
@@ -25974,7 +26004,8 @@ function taskFor(unit, review2, editing = null, evidence = null) {
     case "merge-rank":
       return mergeRankTask(mergeRankInput(review2).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
     case "fixes":
-      return fixerTaskOf(unit, review2, requireEditing());
+      if (evidence === null) throw new Error("The fixer task names the baseline checks' frozen outputs and needs the evidence store");
+      return fixerTaskOf(unit, review2, requireEditing(), evidence);
     case "repair":
       if (evidence === null) throw new Error("The repair task quotes frozen logs and needs the evidence store");
       return repairTaskOf(review2, requireEditing(), evidence);
@@ -26198,15 +26229,15 @@ function checkCell(run2, evidencePath, failedBefore) {
 function checksSection(fix, evidencePath) {
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
-  const failedAtBaseline = (kind) => ["failed", "timeout", "not-started"].includes(fix.checks.runs["baseline-checks"].find((run2) => run2.kind === kind)?.outcome ?? "");
+  const failedAtBaseline2 = (kind) => ["failed", "timeout", "not-started"].includes(fix.checks.runs["baseline-checks"].find((run2) => run2.kind === kind)?.outcome ?? "");
   const rows = planned.map((check2) => {
     if (check2.command === null) return `| ${check2.kind} | not available (${tableCell(check2.origin)}: ${tableCell(check2.reason ?? "no command")}) | ${ran.map(() => "-").join(" | ")} |`;
-    const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check2.kind), evidencePath, phase !== "baseline-checks" && failedAtBaseline(check2.kind)));
+    const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check2.kind), evidencePath, phase !== "baseline-checks" && failedAtBaseline2(check2.kind)));
     return `| ${check2.kind} | ${tableCell(check2.command)} | ${cells.join(" | ")} |`;
   });
   const notRun = [
     ...fix.checks.runs.checks.length === 0 ? ["- After the fixes: not run, since no fix changed a file."] : [],
-    ...fix.checks.runs["repair-checks"].length === 0 ? ["- After the repair: not run, since no check the baseline passed failed after the fixes."] : []
+    ...fix.checks.runs["repair-checks"].length === 0 ? ["- After the repair: not run, since no check failed after the fixes."] : []
   ];
   return [
     "## Checks",

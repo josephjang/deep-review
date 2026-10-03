@@ -185,12 +185,14 @@ describe('nextStep in the fix pass', () => {
     assert.equal(step.kind === 'finish-phase' ? step.blocker?.code : step.kind, 'worker-failed');
   });
 
-  it('runs the checks after the fixes only when they changed the tree, and the repair only for a check they broke', () => {
+  it('runs the checks after the fixes only when they changed the tree, and the repair only for a check failing after them', () => {
     const unchanged = baselined().start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50))).add('worktree.checked', endCheck('fixes'), 2).finish('fixes').start('checks');
     assert.deepEqual(nextStep(unchanged.review(), idle), { kind: 'finish-phase', phase: 'checks', attempt: 1, outcome: 'completed', blocker: null }, 'no revision, nothing to check');
+    const repairUnit = [{ phase: 'repair', key: 'repair', role: 'fixer' }];
     assert.deepEqual(unitsOf(checksPhase(fixed(), 'checks').review(), 'repair'), [], 'every check passed after the fixes');
-    assert.deepEqual(unitsOf(checksPhase(fixed({ test: 'failed' }), 'checks', { test: 'failed' }).review(), 'repair'), [], 'test failed before the fixes too');
-    assert.deepEqual(unitsOf(checksPhase(fixed(), 'checks', { test: 'failed' }).review(), 'repair'), [{ phase: 'repair', key: 'repair', role: 'fixer' }]);
+    assert.deepEqual(unitsOf(checksPhase(fixed(), 'checks', { test: 'failed' }).review(), 'repair'), repairUnit, 'the fixes broke test');
+    assert.deepEqual(unitsOf(checksPhase(fixed({ test: 'failed' }), 'checks', { test: 'failed' }).review(), 'repair'), repairUnit, 'test failed before the fixes too, and is read for new failures (R24)');
+    assert.deepEqual(unitsOf(checksPhase(fixed({ test: 'failed' }), 'checks').review(), 'repair'), [], 'test failed before the fixes and passes after');
     // The repair checks run only when the repair phase had a unit.
     const noRepair = checksPhase(fixed(), 'checks').start('repair').finish('repair').start('repair-checks');
     assert.deepEqual(nextStep(noRepair.review(), idle), { kind: 'finish-phase', phase: 'repair-checks', attempt: 1, outcome: 'completed', blocker: null });

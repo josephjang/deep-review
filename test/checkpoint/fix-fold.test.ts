@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { fixesRevisedPaths, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf } from '../../src/checkpoint/fix-state.ts';
+import { failedAtBaseline, fixesRevisedPaths, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
@@ -58,9 +58,18 @@ describe('the fix fold', () => {
     assert.deepEqual(review.phases.checks, { status: 'completed', attempt: 1 });
   });
 
-  it('never repairs a kind that failed before the fixes', () => {
+  it('repairs a kind the fixes broke, and one that failed before them and still fails, for the failures its output then did not show (R24)', () => {
     const fix = checksPhase(fixed({ lint: 'failed' }), 'checks', { lint: 'failed', test: 'timeout' }).review().fix!;
-    assert.deepEqual(repairTargets(fix), ['test'], 'lint failed at baseline; test timed out after');
+    assert.deepEqual(repairTargets(fix), ['lint', 'test'], 'lint failed at baseline and after; test timed out after');
+    assert.equal(failedAtBaseline(fix, 'lint'), true);
+    assert.equal(failedAtBaseline(fix, 'test'), false);
+  });
+
+  it('never repairs a kind that failed before the fixes and passes after, nor one that did not start at baseline', () => {
+    assert.deepEqual(repairTargets(checksPhase(fixed({ lint: 'failed' }), 'checks').review().fix!), [], 'lint failed at baseline and passes after');
+    const missing = checksPhase(fixed({ build: 'not-started' }), 'checks', { build: 'not-started', lint: 'skipped', test: 'skipped' }).review().fix!;
+    assert.deepEqual(repairTargets(missing), [], 'a tool missing at baseline is the environment');
+    assert.equal(failedAtBaseline(missing, 'build'), false);
   });
 
   it('folds a repair, a failed cluster with the edits it left, and the commits built after the report', () => {

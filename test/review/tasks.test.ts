@@ -123,6 +123,7 @@ describe('the fixer\'s task', () => {
     snapshotCommand: snapshot,
     mayHoldWork: false,
     unfinished: [],
+    baselineFailures: [],
   };
 
   it('numbers the batch\'s findings with everything the fixer judges by', () => {
@@ -164,6 +165,12 @@ describe('the fixer\'s task', () => {
     assert.doesNotMatch(fixerTask(input), /first round|second round/, 'a first-round batch says nothing of rounds');
   });
 
+  it('names the checks that failed before any fixer edited the tree, with their outputs\' paths, as failures that are not the fixer\'s (R24)', () => {
+    assert.doesNotMatch(fixerTask(input), /These failed before any fixer edited the tree/);
+    const task = fixerTask({ ...input, baselineFailures: [{ kind: 'test', stdout: '/evidence/out', stderr: '/evidence/err' }] });
+    assert.match(task, /^These failed before any fixer edited the tree; their output then is at the paths given\. A failure that output does not show is yours, even when an earlier batch's tree already had it:\n- test: \/evidence\/out, \/evidence\/err$/m);
+  });
+
   it('names each check\'s command or why it has none, or that none is available', () => {
     const task = fixerTask(input);
     assert.match(task, /^- build: not available \(nothing names it\)\n- typecheck: npm run typecheck\n- lint: not available \(dropped by --no-check\)\n- test: npm run test$/m);
@@ -200,6 +207,7 @@ describe('the repair task', () => {
     exitCode: 1,
     stdout: { tail: Buffer.from('```\n1 failing\n'), path: '/evidence/out' },
     stderr: { tail: Buffer.alloc(0), path: '/evidence/err' },
+    baseline: null,
   };
 
   it('numbers the failing checks with their exit, fenced output and logs, and lists the files and what each fixer did', () => {
@@ -212,7 +220,8 @@ describe('the repair task', () => {
       mayHoldWork: true,
       unfinished: ['test'],
     });
-    assert.match(task, /^Repair: 2 checks, numbered \[0\] to \[1\], passed before any fixer edited the tree and fail now\./);
+    assert.match(task, /^Repair: 2 checks, numbered \[0\] to \[1\], fail after the fixers' edits\./);
+    assert.match(task, /^\[0\] test: [\s\S]*?\n {4}It passed before any fixer edited the tree\.$/m);
     assert.match(task, /^\[0\] test: npm run test\n {4}exited with code 1\n {4}stdout, its last 14 bytes \(the whole is at \/evidence\/out\):\n````text\n```\n1 failing\n````\n {4}stderr: empty \(frozen at \/evidence\/err\)$/m);
     assert.match(task, /^\[1\] lint: npm run lint\n {4}ran past its timeout and was killed$/m);
     assert.match(task, /Files you own: every file the fixers changed\.\n- src\/a\.ts\n- test\/a\.test\.ts/);
@@ -221,5 +230,20 @@ describe('the repair task', () => {
     assert.match(task, /Verify each check against the code/);
     assert.match(task, /The `message` of an applied check describes what the repair changed\./);
     assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied`, give the `message` its commit will carry, as for an applied check\./);
+  });
+
+  it('gives a check that failed before the fixes too its output then, and tells the worker to fix only the failures it does not show (R24)', () => {
+    const before = { stdout: { tail: Buffer.from('2 failing\n'), path: '/evidence/before-out' }, stderr: { tail: Buffer.alloc(0), path: '/evidence/before-err' } };
+    const task = repairTask({
+      checks: [{ ...failing, baseline: before }],
+      owned: ['src/a.ts'],
+      answers: [],
+      allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null }],
+      snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
+      mayHoldWork: false,
+      unfinished: [],
+    });
+    assert.match(task, /^ {4}It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before\. Its output then:\n {4}stdout, its last 10 bytes \(the whole is at \/evidence\/before-out\):\n```text\n2 failing\n```\n {4}stderr: empty \(frozen at \/evidence\/before-err\)$/m);
+    assert.doesNotMatch(task, /It passed before any fixer/);
   });
 });

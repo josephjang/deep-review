@@ -16,8 +16,9 @@ const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evid
  * A whole fix run up to its report: the lint check rewrites the changed
  * file at baseline and test fails there; c1 applies RIPPLE-1 with a
  * correction, a validation, a drift line and a test, and leaves a stray;
- * lint fails after the fixes, the repair makes it pass, and test still
- * fails; SWEEP-1 is held for the author.
+ * lint fails after the fixes, the repair makes it pass and finds every
+ * failure of test there before the fixes, and test still fails; SWEEP-1
+ * is held for the author.
  */
 function fixRun(): History {
   return withFixPass(mergeRanked())
@@ -54,7 +55,7 @@ function fixRun(): History {
     .finish('checks')
     .start('repair')
     .worker(60, 'fixer repair:repair')
-    .add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'lint', status: 'applied', file: 'src/a.ts', line: 4, note: 'formatted the guard', message: { subject: 'style: Format the guard', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }] })
+    .add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'lint', status: 'applied', file: 'src/a.ts', line: 4, note: 'formatted the guard', message: { subject: 'style: Format the guard', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }, { id: 'test', status: 'deferred', file: 'test/a.test.ts', line: null, note: 'every failure was there before the fixes', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] })
     .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['lint'], message: { subject: 'style: Format the guard', body: 'Why.' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('8') } }] })
     .add('worktree.checked', endCheck('repair'), 2)
     .finish('repair')

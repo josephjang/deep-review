@@ -117,12 +117,25 @@ export function sweepTask(inputs: SweepInputs): string {
 export const snapshotIndexPlaceholder = '<index>';
 
 /** The checks as a fixer reads them: each kind's command, or why it has none. */
-function checksBlock(checks: readonly PlannedCheck[]): string {
+/** A check that failed before any fixer edited the tree, with where its frozen output is (R24 of the fix pass). */
+export interface BaselineFailure {
+  readonly kind: CheckKind;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function checksBlock(checks: readonly PlannedCheck[], failing: readonly BaselineFailure[] = []): string {
   if (checks.every((check) => check.command === null)) return 'No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.';
   return [
     'The engine runs these checks, in this order, before any fixer edits and again after every fixer returns:',
     ...checks.map((check) => (check.command === null ? `- ${check.kind}: not available (${check.reason ?? 'no command'})` : `- ${check.kind}: ${check.command}`)),
     'Run the ones that cover your change before you return, and report the suite you ran in `suite`.',
+    ...(failing.length === 0
+      ? []
+      : [
+          'These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch\'s tree already had it:',
+          ...failing.map((check) => `- ${check.kind}: ${check.stdout}, ${check.stderr}`),
+        ]),
   ].join('\n');
 }
 
@@ -204,6 +217,8 @@ export interface FixerTaskInput {
   readonly mayHoldWork: boolean;
   /** The findings an earlier attempt of this batch left recorded edits for, whose message a verifying fixer gives. */
   readonly unfinished: readonly string[];
+  /** The checks that failed before any fixer edited the tree (R24). */
+  readonly baselineFailures: readonly BaselineFailure[];
 }
 
 const fileList = (files: readonly string[]): string => (files.length === 0 ? '(none)' : files.map((file) => `- ${file}`).join('\n'));
@@ -244,7 +259,7 @@ export function fixerTask(input: FixerTaskInput): string {
     '',
     'You may edit any other file of the repository, existing or new, when a fix or its tests need it; report every file you edit or create under the finding it served.',
     '',
-    checksBlock(input.checks),
+    checksBlock(input.checks, input.baselineFailures),
     '',
     snapshotBlock(input.snapshotCommand, 'finding'),
     '',
@@ -267,6 +282,8 @@ export interface RepairTaskCheck {
   /** The output's last `repairTailBytes` bytes, and the path of the whole, frozen. */
   readonly stdout: { readonly tail: Buffer; readonly path: string };
   readonly stderr: { readonly tail: Buffer; readonly path: string };
+  /** For a check that failed before any fixer edited the tree too, its output then (R24); null for one that passed. */
+  readonly baseline: { readonly stdout: { readonly tail: Buffer; readonly path: string }; readonly stderr: { readonly tail: Buffer; readonly path: string } } | null;
 }
 
 export interface RepairTaskInput {
@@ -290,7 +307,7 @@ function outputTail(name: string, tail: Buffer, path: string): string {
   return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text.endsWith('\n') ? text.slice(0, -1) : text, fence].join('\n');
 }
 
-/** The repair worker's task (R11 of the fix pass): every check the fixers broke with its output, the files it owns, what each fixer did, and the same answer as a fixer's with the checks as its findings. */
+/** The repair worker's task (R11, R24 of the fix pass): every check failing after the fixes with its output, and its output before them when it failed then too, the files it owns, what each fixer did, and the same answer as a fixer's with the checks as its findings. */
 export function repairTask(input: RepairTaskInput): string {
   const count = input.checks.length;
   const checks = input.checks.map((check, index) => [
@@ -298,9 +315,16 @@ export function repairTask(input: RepairTaskInput): string {
     `    ${check.outcome === 'timeout' ? 'ran past its timeout and was killed' : `exited with code ${check.exitCode === null ? 'none (ended by a signal)' : String(check.exitCode)}`}`,
     outputTail('stdout', check.stdout.tail, check.stdout.path),
     outputTail('stderr', check.stderr.tail, check.stderr.path),
+    ...(check.baseline === null
+      ? ['    It passed before any fixer edited the tree.']
+      : [
+          '    It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before. Its output then:',
+          outputTail('stdout', check.baseline.stdout.tail, check.baseline.stdout.path),
+          outputTail('stderr', check.baseline.stderr.tail, check.baseline.stderr.path),
+        ]),
   ].join('\n'));
   return [
-    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], passed before any fixer edited the tree and fail${count === 1 ? 's' : ''} now. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
+    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
     '',
     ...checks,
     '',

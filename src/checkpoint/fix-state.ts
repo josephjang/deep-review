@@ -54,16 +54,24 @@ export function lastRun(fix: FixState, phase: CheckPhase, kind: CheckKind): Chec
   return fix.checks.runs[phase].findLast((run) => run.kind === kind) ?? null;
 }
 
+/** Whether a kind's check failed or timed out before any edit (R10, R24 of the fix pass). */
+export function failedAtBaseline(fix: FixState, kind: CheckKind): boolean {
+  return ['failed', 'timeout'].includes(lastRun(fix, 'baseline-checks', kind)?.outcome ?? '');
+}
+
 /**
- * The kinds the repair takes (R10, R11 of the fix pass): those whose check
- * passed before any edit and failed or timed out after the fixes. A kind
- * that failed at baseline is never the fixers' fault and is not repaired.
+ * The kinds the repair takes (R10, R11, R24 of the fix pass): those whose
+ * check failed or timed out after the fixes, having passed before any
+ * edit, which the fixes broke, or having failed then too, whose output
+ * may hide a failure the fixes added. The repair worker reads which
+ * failures are new; a kind that did not start at baseline, its tool
+ * missing, is never one.
  */
 export function repairTargets(fix: FixState): CheckKind[] {
   const planned = fix.checks.planned?.checks ?? [];
   return planned
     .map((check) => check.kind)
-    .filter((kind) => lastRun(fix, 'baseline-checks', kind)?.outcome === 'passed' && ['failed', 'timeout'].includes(lastRun(fix, 'checks', kind)?.outcome ?? ''));
+    .filter((kind) => (lastRun(fix, 'baseline-checks', kind)?.outcome === 'passed' || failedAtBaseline(fix, kind)) && ['failed', 'timeout'].includes(lastRun(fix, 'checks', kind)?.outcome ?? ''));
 }
 
 export type PlannedCluster = FixesPlanned['clusters'][number];

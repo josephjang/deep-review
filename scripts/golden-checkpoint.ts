@@ -474,7 +474,8 @@ try {
     fix.add('fixes.replanned', { blocked: [{ id: 'RIPPLE-1', requiredFiles: ['src/changed.ts'] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['src/caller.ts', 'src/changed.ts'] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] });
     fix.add('unit.unattempted', { phase: 'fixes', key: 'c3-1', cause: 'budget', reason: 'spent 30.10 USD of the 30.00 USD run budget' });
   }, 'degraded', { end: true, strays: ['notes.txt'] });
-  // The fixers broke lint, which the repair takes; test failed before any fix, so no repair is owed it.
+  // The fixers broke lint, which the repair takes; test failed before any fix and still fails, so the
+  // repair reads it too and finds every failure there before (R24).
   fix.phaseV2('checks', () => {
     fix.check('checks', 'build', checks.build, 'passed');
     fix.check('checks', 'lint', checks.lint, 'failed');
@@ -483,7 +484,7 @@ try {
   fix.phaseV2('repair', () => {
     fix.launch('160', 'fixer repair:repair');
     fix.finishWorker('160');
-    fix.add('fix.recorded', { phase: 'repair', key: 'repair', workerId: fix.id('160'), findings: [finding('lint', 'applied', ['src/changed.ts'], 'style: Format the guard as lint asks')], drift: [], tests: [], suite: { result: 'pass', command: 'npm run lint:check', failures: '' }, violations: [] });
+    fix.add('fix.recorded', { phase: 'repair', key: 'repair', workerId: fix.id('160'), findings: [finding('lint', 'applied', ['src/changed.ts'], 'style: Format the guard as lint asks'), finding('test', 'deferred', [], null)], drift: [], tests: [], suite: { result: 'pass', command: 'npm run lint:check', failures: '' }, violations: [] });
     fix.add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: fix.id('160') }, change: { findings: ['lint'], message: message('style: Format the guard as lint asks') }, files: [{ path: 'src/changed.ts', status: 'modified', before: fix.frozen('after; // guarded, checked\n'), beforeSymlink: false, symlink: false, after: fix.frozen('after; /* guarded */\n') }] });
   }, 'completed', { end: true });
   fix.phaseV2('repair-checks', () => {
