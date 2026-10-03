@@ -26874,7 +26874,7 @@ function checksSection(fix, survey, evidencePath) {
     const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check2.kind), evidencePath, phase !== "baseline-checks" && failedAtBaseline2(check2.kind)));
     return `| ${[check2.kind, tableCell(check2.command), ...sourceCell(check2), ...cells].join(" | ")} |`;
   });
-  const notRun = [
+  const notRun = planned.every((check2) => check2.command === null) ? ["- No check ran in any phase, since no kind has a command."] : [
     ...fix.checks.runs.checks.length === 0 ? ["- After the fixes: not run, since no fix changed a file."] : [],
     ...fix.checks.runs["repair-checks"].length === 0 ? ["- After the repair: not run, since no check failed after the fixes."] : []
   ];

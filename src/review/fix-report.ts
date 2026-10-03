@@ -150,10 +150,13 @@ function checksSection(fix: FixState, survey: SurveyState | null, evidencePath: 
     const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check.kind), evidencePath, phase !== 'baseline-checks' && failedAtBaseline(check.kind)));
     return `| ${[check.kind, tableCell(check.command), ...sourceCell(check), ...cells].join(' | ')} |`;
   });
-  const notRun = [
-    ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
-    ...(fix.checks.runs['repair-checks'].length === 0 ? ['- After the repair: not run, since no check failed after the fixes.'] : []),
-  ];
+  // Why a checks phase ran nothing: with no kind given a command, none ever runs, whatever the fixes did; otherwise the phase's own condition.
+  const notRun = planned.every((check) => check.command === null)
+    ? ['- No check ran in any phase, since no kind has a command.']
+    : [
+        ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
+        ...(fix.checks.runs['repair-checks'].length === 0 ? ['- After the repair: not run, since no check failed after the fixes.'] : []),
+      ];
   return [
     '## Checks',
     '',

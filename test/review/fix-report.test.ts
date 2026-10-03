@@ -73,6 +73,21 @@ describe('the report of a fix run', () => {
     assert.ok(fixLimitations(withViolation).includes('- Ownership violation: src/b.ts, owned by c2, was edited by c1-1, which reported it; the edit is kept and revised (PD4).'));
   });
 
+  it('says a checks phase did not run because no check has a command, not because no fix changed a file, when every kind is dropped (the survey\'s gate, 2026-10-04)', () => {
+    // A fix run whose revisions changed files but whose every kind had no command, as an operator without the project's tools runs one.
+    const state = fixRun().fold();
+    const fix = state.review!.fix!;
+    const noCommand = { ...fix, checks: { planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.map((check) => ({ ...check, command: null, origin: 'flag' as const, reason: 'dropped by --no-check' })) }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [] } } };
+    const report = render({ ...state, review: { ...state.review!, fix: noCommand } });
+    assert.ok(fix.revisions.length > 0, 'the fixes changed files');
+    assert.doesNotMatch(report, /no fix changed a file/);
+    assert.doesNotMatch(report, /no check failed after the fixes/);
+    assert.match(report, /^- No check ran in any phase, since no kind has a command\.$/m);
+    // A run with commands whose fixes changed nothing still says so.
+    const unchanged = { ...fix, revisions: [], checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: [], 'repair-checks': [] } } };
+    assert.match(render({ ...state, review: { ...state.review!, fix: unchanged } }), /^- After the fixes: not run, since no fix changed a file\.$/m);
+  });
+
   it('renders a run without the fix pass with none of these sections', () => {
     const report = renderReport(reported().fold(), { engine: '0.0.0+dev', statistics });
     for (const heading of ['## Fixes', '## Checks', '## Changed files']) assert.ok(!report.includes(heading), heading);
