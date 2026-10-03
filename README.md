@@ -13,11 +13,13 @@ runtime adapter that runs one model worker on Claude Code or Codex, the
 role prompts those workers are given, the read-only review: one
 command that runs a change through the triage, nine more finder
 angles, deduplication, verification, a gap sweep and a merge-and-rank
-pass and writes a Markdown report, editing nothing; and the fix pass,
+pass and writes a Markdown report, editing nothing; the fix pass,
 which on request carries that review on to apply the fixes through
 its own workers and run the project's checks, committing nothing until
-a person asks. The engine ships as one bundle inside both artifacts,
-and the installed skill runs it.
+a person asks; and the repository survey, which begins every run by
+naming the files that state the repository's conventions and, for a
+fix run, choosing its checks. The engine ships as one bundle inside
+both artifacts, and the installed skill runs it.
 
 ## Layout
 
@@ -34,14 +36,14 @@ src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
 src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
 src/roles/               assembling each role's prompt from roles/
-src/review/              the review: policy, schemas, prompts, planner, controller, report, and the fix pass's
-                         routing, expected tree, snapshots, patches and commit command
-src/review/checks/       the fix pass's checks: discovering the repository's commands, running one
+src/review/              the review: policy, schemas, prompts, planner, controller, report, the survey's check of
+                         its answer, and the fix pass's routing, expected tree, snapshots, patches and commit command
+src/review/checks/       the fix pass's checks: the manifest rules that hint the surveyor, running one
 src/cli.ts               the deep-review command: review, status, abandon, commit, snapshot
 scripts/                 build, fixture and smoke entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
-test/fixtures/reports/   the report renderer's snapshot
+test/fixtures/reports/   the report renderer's snapshots
 docs/changes/            change proposals, one per behavior change, in one file or a requirements and design pair
 docs/reports/            measurements of real runs and the levers they suggest, kept for later decisions
 AGENTS.md, CLAUDE.md     conventions every agent follows here
@@ -108,9 +110,9 @@ caller builds the runtimes with. See
 
 ## The role prompts
 
-A worker runs in a role: the `SCAN` triage, one of the ten finder
-angles, the verifier, the sweep, the fixer, the auditor and the rest,
-twenty in all. Each role's prompt is assembled from the fragments
+A worker runs in a role: the surveyor, the `SCAN` triage, one of the
+ten finder angles, the verifier, the sweep, the fixer, the auditor and
+the rest, twenty-one in all. Each role's prompt is assembled from the fragments
 under `roles/fragments/` in the order `roles/manifest.json` lists for
 it, joined with one blank line. The manifest is the only place
 composition is declared, and every fragment is held to a few invariants
@@ -128,9 +130,9 @@ that the engine's narration of a review is not its task. The read-only
 review then rewrote the four fragments that narrate the phases for the
 engine's workers, in a commit of its own, and the `angle-decision` role
 left the manifest. Which model tier, effort, budget and timeout a role
-runs with is declared in `roles/policy.json` for the fourteen roles the
-read-only review runs; what each must return is the output schema of the
-phase that runs it. `npm run roles -- --output <dir>`
+runs with is declared in `roles/policy.json` for the sixteen roles a
+review runs, the surveyor and the fixer among them; what each must
+return is the output schema of the phase that runs it. `npm run roles -- --output <dir>`
 writes every assembled prompt for reading to a new directory outside
 `roles/`. See `docs/changes/2026-09-27-role-prompts.md`.
 
@@ -138,7 +140,9 @@ writes every assembled prompt for reading to a new directory outside
 
 `deep-review review` reviews one change and writes a report, in the
 foreground, and is resumable. It creates a run, captures the scope, and
-runs the phases in a fixed order: the `SCAN` triage, which also returns
+runs the phases in a fixed order: the survey, which names the
+convention sources every later worker is given (see The repository
+survey); the `SCAN` triage, which also returns
 one lead per other angle; the nine other finder angles in parallel, each
 given its lead; deduplication; one verifier per group of candidates in
 one file; a gap sweep told which angles did not run; the sweep's own
@@ -161,7 +165,8 @@ fails its schema or a structural check, is run once more as a fresh
 worker; a second failure degrades by role: a finder's angle is recorded
 as not run, a verifier's group as unverified with its candidates
 `PLAUSIBLE` and marked, and the triage, deduplication, sweep and
-merge-rank block the run. A worker lost when the engine stops uses an
+merge-rank block the run; the survey degrades a read-only review and
+blocks a fix run. A worker lost when the engine stops uses an
 attempt too, but a unit whose attempts run out with a lost worker among
 them blocks the run whatever its role, so an interruption never costs
 coverage: running again gives the unit fresh attempts. At most
@@ -171,12 +176,12 @@ default on Claude Code) checked before every launch; the check counts a
 worker that ran but reported no cost, such as one that timed out, at its
 per-worker budget, and names but does not charge a worker lost with an
 earlier engine. Every way a run stops short of a report names the
-operator's action: run again, raise the budget, restore the tree, or
-abandon.
+operator's action: run again, raise the budget, restore the tree,
+settle a check the machine cannot run, or abandon.
 
 The report is Markdown rendered by the engine into the evidence store;
 the command prints its path as the last line of stdout and exits 0. Its
-sections are the header, Angles, Findings (most severe first, with the
+sections are the header, Angles, Conventions, Findings (most severe first, with the
 merged ids, verdict, evidence and the outside-the-change, unlocated and
 unverified marks), Refuted at verification, Statistics per phase and
 Limitations. A finding's location is matched to a file of the
@@ -187,7 +192,8 @@ run exits 2 with the blocker and its action on stderr, and so does a
 refusal, such as another engine holding the run, a runtime that does not
 qualify, or an active run that belongs to another worktree or runtime.
 A resumed run keeps the scope, policy and executable it pinned; only
-`--concurrency` and `--budget-usd` apply to each invocation. `deep-review
+`--concurrency` and `--budget-usd` apply to each invocation, and
+`--check` and `--no-check` until the checks are planned. `deep-review
 status` prints the fold of the active run, as text or `--json`;
 `deep-review abandon --reason <text>` closes an active or blocked run.
 The engine ships as one esbuild bundle, `engine/main.mjs`, in both
@@ -202,9 +208,9 @@ design.
 `deep-review review --fix` runs five more phases between merge and rank
 and the report: baseline checks, fixes, checks, repair and repair
 checks. A run without `--fix` records them as skipped and is the
-read-only review exactly. Whether a run fixes, and with which checks,
-is pinned when it is configured; a resumed run keeps both and says
-when the command asks otherwise.
+read-only review exactly. Whether a run fixes is pinned when it is
+configured, and which checks it runs when its survey completes; a
+resumed run keeps both and says when the command asks otherwise.
 
 Every ranked finding is routed by its merged verdict and its primary's
 angle: a `CONFIRMED` finding, or a `PLAUSIBLE` one from a correctness
@@ -243,11 +249,8 @@ violation, a file no answer names as a stray, and neither stops the
 run.
 
 The checks are the repository's own `build`, `typecheck`, `lint` and
-`test` commands: a `--check <kind>=<command>` flag, else a Taskfile
-task, a Makefile target or a justfile recipe of that name, else a
-`package.json` script (its `<name>:check` variant beside it preferred)
-run through the package manager the lock file names, else a language
-default; `--no-check <kind>` drops one. They run one at a time through
+`test` commands, as the survey chose them or a `--check <kind>=<command>`
+names one; `--no-check <kind>` drops one. They run one at a time through
 the platform shell, `build` first and the other three only when it
 passed, with the build-server and non-interactive pins, stdin at end of
 input and a timeout from `roles/policy.json`; a check passes by its
@@ -272,6 +275,65 @@ the captured change first in `--worktree` mode with
 `--change-message`, moves the branch once and resets the index, writing
 no file and running no hook. See
 `docs/changes/2026-10-01-fix-pass.requirements.md` and its design.
+
+## The repository survey
+
+Every run, read-only or fixing, begins with a `survey` phase before the
+triage. One read-only `surveyor` worker reads the repository the way a
+new contributor would, its rules files, contributing guide, CI
+workflows and manifests, and answers two questions: which files state
+the conventions a change here must follow, and, in a fix run, which
+command is each of the four checks. The answer is checked against the
+tree (every path a regular file of the repository, every kind asked for
+answered once, a hinted command exactly the hint) and recorded once as
+`survey.recorded`; an answer the check refuses is a failed attempt and
+gets the one fresh retry every role does.
+
+The convention sources replace the three rules-file names the engine
+used to look for. The scope block of every later worker lists them,
+each with what it governs and the paths it applies to; `CONVENTIONS`
+holds the change to them alone, and a fixer keeps its edits within
+them. A repository that states no conventions is reviewed without
+invented ones. The reviewer's own `~/.claude/CLAUDE.md` and
+`~/.codex/AGENTS.md` are decided by `survey.userRules` in
+`roles/policy.json`, pinned on the run: `ignore` never applies them,
+`apply` always does, and `judge`, the shipped value, offers each that
+exists to the surveyor, which applies one only on stated grounds that
+the repository is the reviewer's own work or adopts those rules.
+
+In a fix run the checks are planned when the survey completes, before
+the triage, from the invocation's flags over the survey: a
+`--check <kind>=<command>` or `--no-check <kind>` settles its kind, and
+the surveyor chooses the rest from what the repository's CI and
+contributor documentation run, in the form that verifies, with the file
+each command came from. The manifest rules the fix pass decided by (a
+Taskfile task, a Makefile target, a justfile recipe, a `package.json`
+script, a language default) decide nothing now: their result is a hint
+in the surveyor's task for a kind the repository states nothing about,
+and a hinted command runs only when the surveyor returns it. The
+surveyor looks each tool up as the check's shell resolves it and runs
+no check. When it reports a tool missing, the survey blocks with
+`check-unavailable` before any other worker is paid for, naming the
+kind, the command, its source and the tool: the operator installs the
+tool and runs the command again, which surveys afresh, or runs it again
+with `--no-check <kind>` or `--check <kind>=<command>`, which settles
+the block with no new survey. A survey that fails twice degrades a
+read-only review, `CONVENTIONS` not run when no source is left, and
+blocks a fix run until the command runs again or flags settle all four
+kinds. Once the checks are planned a resumed run never surveys again
+and names its check flags as ignored.
+
+The report gains a Conventions section and a Source column in its
+Checks table, and a kind the operator dropped says what the project
+defines. A command the survey chose runs with the operator's
+privileges, unsandboxed, and no person approves it first: text in the
+repository can steer the surveyor to any command line. Each chosen
+command is printed with its source before the baseline runs and is on
+the ledger with the file it came from, but anyone reviewing an
+untrusted repository with `--fix` should settle every check with
+`--check` or `--no-check`, or not fix. See
+`docs/changes/2026-10-03-repository-survey.requirements.md` and its
+design.
 
 ## Developing
 
@@ -337,8 +399,9 @@ The skill is then `/deep-review:deep-review`. It runs the bundled engine
 with `--runtime claude` on the scope the user named (the dirty worktree
 by default, else the last commit), waits for it, and shows the report's
 path. Asked to fix the findings, it passes `--fix`, says first that the
-engine's workers will edit the working tree, and afterwards offers to
-commit the edits with `deep-review commit`. Node 26 or newer must be on
+engine's workers will edit the working tree and that it runs the check
+commands it chose from the repository, and afterwards offers to commit
+the edits with `deep-review commit`. Node 26 or newer must be on
 the machine. The plugin carries no
 version field on purpose, so `/plugin marketplace update deep-review`
 follows the latest commit. The repository is private; adding it uses the
