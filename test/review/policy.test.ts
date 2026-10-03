@@ -34,16 +34,17 @@ describe('the committed roles/policy.json', () => {
     assert.equal(committed.concurrency, 4);
   });
 
-  it('carries the proof of concept\'s values: strong analyst and lead roles, fast scouts, medium CONVENTIONS, 8 USD each, 600 s for a reader and twice that for the fixer', () => {
+  it('carries the proof of concept\'s values, with the gate\'s for the fixer and Claude\'s budget: strong analyst and lead roles, fast scouts, medium CONVENTIONS, 8 USD each, 600 s for a reader and 1800 s for the fixer, 60 USD a Claude run', () => {
     for (const [role, entry] of Object.entries(committed.roles)) {
       assert.equal(entry.budgetUsd, 8, role);
-      // A fixer runs the suite against the unfixed code, the fixed code and a mutation, so it has twice a reader's time (R12 of the fix pass).
-      assert.equal(entry.timeoutMs, role === 'fixer' ? 1_200_000 : 600_000, role);
+      // A fixer runs the suite against the unfixed code, the fixed code and a mutation; on the gate a Codex batch needed 1125 s and one ran past 1200 s (R12, R25 of the fix pass).
+      assert.equal(entry.timeoutMs, role === 'fixer' ? 1_800_000 : 600_000, role);
       const scout = ['finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DUPLICATION', 'finder-CONVENTIONS'].includes(role);
       assert.equal(entry.tier, scout ? 'fast' : 'strong', role);
       assert.equal(entry.effort, role === 'finder-CONVENTIONS' ? 'medium' : 'high', role);
     }
-    assert.deepEqual(committed.runtimes.claude, { strong: 'opus', fast: 'sonnet', runBudgetUsd: 30 });
+    // A Claude fix run on the gate spent 29.07 USD (R26 of the fix pass).
+    assert.deepEqual(committed.runtimes.claude, { strong: 'opus', fast: 'sonnet', runBudgetUsd: 60 });
     assert.equal(committed.runtimes.codex?.runBudgetUsd, null);
   });
 
@@ -72,7 +73,7 @@ describe('the committed roles/policy.json', () => {
     assert.equal(resolved.runtime, 'claude');
     assert.deepEqual(resolved.models, { strong: 'opus', fast: 'sonnet' });
     assert.equal(resolved.concurrency, 4);
-    assert.equal(resolved.runBudgetUsd, 30);
+    assert.equal(resolved.runBudgetUsd, 60);
     assert.deepEqual(resolved.roles.map((role) => role.role), reviewRoles);
     assert.deepEqual(pinnedRole(resolved.roles, 'finder-RIPPLE'), { role: 'finder-RIPPLE', model: 'sonnet', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 });
     assert.deepEqual(pinnedRole(resolved.roles, 'finder-CONVENTIONS'), { role: 'finder-CONVENTIONS', model: 'sonnet', effort: 'medium', budgetUsd: 8, timeoutMs: 600_000 });
