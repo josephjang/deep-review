@@ -42,10 +42,10 @@ Windows 11 machine:
 
 | Run | Engine | Runtime | Fixer batches | Fix phase |
 |---|---|---|---|---|
-| `0e53023f` | first amendment (`3c5ed0e`) | claude 2.1.287, opus at high effort | 10 (4 clusters, one second round) | 23 applied, 1 already applied |
-| `2aacbf44` | first amendment (`3c5ed0e`) | codex-cli 0.157.1, gpt-6-astra at high effort | 16 (7 clusters, two second-round batches) | 29 applied, 8 already applied, 1 deferred |
-| `42bce9f8` | second amendment (`0a1a844`) | claude 2.1.287, opus at high effort | 6 (2 clusters) | 11 applied, 6 already applied, 3 deferred |
-| `509e520e` | second amendment (`0a1a844`) | codex-cli 0.157.1, gpt-6-astra at high effort | 8 (1 cluster of 7 batches, one retried) | 21 applied, 5 already applied |
+| `0e53023f` | first amendment (`bd944e7`) | claude 2.1.287, opus at high effort | 10 (4 clusters, one second round) | 23 applied, 1 already applied |
+| `2aacbf44` | first amendment (`bd944e7`) | codex-cli 0.157.1, gpt-6-astra at high effort | 16 (7 clusters, two second-round batches) | 29 applied, 8 already applied, 1 deferred |
+| `42bce9f8` | second amendment (`91f8022`) | claude 2.1.287, opus at high effort | 6 (2 clusters) | 11 applied, 6 already applied, 3 deferred |
+| `509e520e` | second amendment (`91f8022`) | codex-cli 0.157.1, gpt-6-astra at high effort | 8 (1 cluster of 7 batches, one retried) | 21 applied, 5 already applied |
 
 Sources, per fixer and repair worker:
 
