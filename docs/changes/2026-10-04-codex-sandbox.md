@@ -354,7 +354,71 @@ Departures and choices the proposal did not state:
 - `review` takes a `platform` option, the process's by default, so the
   suite exercises the Windows cases on every runner of CI.
 
-Not run: R10's acceptance. No real run under `elevated` or `none` has
-reached a report yet, and no run under `unelevated` has been recorded
-for the warning and the count of `EPERM` results, so the default (D4)
-cannot be decided yet.
+### Gate, reduced (2026-10-04 to 10-05)
+
+R10's runs, cut down for cost at the author's request, so they are
+evidence for D4 rather than R10's acceptance as written. The engine was
+`1f640ce` built with one uncommitted change, never committed: only the
+five best-ranked fixer-routed findings went to fixers, the rest held.
+The models were `--strong-model gpt-6.1-sol --fast-model gpt-6-luna`,
+one step below the policy's. zod #6530 from fresh `core.autocrlf=true`
+clones at `e48a0055`, `--from eca96871 --to HEAD --fix`, codex-cli
+0.160.0, pnpm 10.12.1 on PATH from its own prefix.
+
+| | `none` | `elevated` | `unelevated` |
+|---|---|---|---|
+| Run | `67dda382` | `0bda0a7c` | `8376b749` |
+| Reader timeout | 600 s | 1200 s | 1200 s |
+| Hand on the run | none | survey blocked, checks given by flag; restarted | none |
+| Findings | 20 (19 CONFIRMED) | 26 (23 CONFIRMED) | 35 (35 CONFIRMED) |
+| Fixes | 1 applied, 4 already applied | 5 applied | 2 applied, 2 already applied, 1 deferred |
+| `spawn EPERM` in fixer and repair results | 0 | 0 | 0 |
+| Executed red and green validation | 3 findings | 5 findings | 4 findings, run in one process |
+| Checks after the fixes | build passes; test 6 failures to 2 | all as baseline | build regressed, repaired |
+| Workers, wall time | 30, 6703 s | 28, 4538 s | 30, 5458 s |
+| Input (cached), output tokens | 13.4M (11.8M), 123k | 21.5M (19.6M), 188k | 18.0M (16.0M), 174k |
+
+What the runs showed:
+
+- **`none` meets R10's four criteria.** Its editors ran `pnpm build`,
+  `pnpm test`, vitest, biome and the integration typecheck with no
+  refusal; one found the cause of zod's `attw` failure
+  (`FORCE_HYPERLINK`) and one fixed zod's Windows path bug in
+  `treeshake.test.ts` to get its validation running, a one-line edit
+  outside its findings that rode in a finding's patch.
+- **`elevated` runs the build and the tests, with friction for every
+  worker.** As the sandbox user, `where.exe` finds nothing, so the
+  surveyor reported pnpm missing and the survey blocked with
+  `check-unavailable` (R15); `os.userInfo()` throws (`uv_os_get_passwd`
+  `ENOMEM`), so `tsx` fails and with it `pnpm build`'s postbuild and the
+  comment check; vitest's default config loader cannot read the
+  directories above the workspace and needs `--configLoader runner`; and
+  `biome` does not resolve from a pnpm script though `biome.exe` and the
+  shim run directly. The fixers worked around each and still produced
+  executed validation for all five findings; the repair worker could not
+  run `pnpm test` at all. `PSExecutionPolicyPreference` removed the shim
+  refusal: no fixer met `PSSecurityException`.
+- **`unelevated` does what R5 and R6 intend.** The warning printed once,
+  before the first worker. No fixer called pnpm or vitest: each wrote a
+  single-process runner in its scratch directory and ran it with `node`,
+  for red and green and mutation runs. A fixer's edit then broke the
+  build, a biome `noAssignInExpressions` error in `postbuild`, which no
+  fixer could have run; the repair worker, given the output, fixed the
+  line, checked it with `biome.exe` directly, and every check passed
+  after it except test's six baseline failures. R10's `EPERM` count
+  against `509e520e`'s 48 is 0, though over five findings in three
+  batches, not 26 in seven.
+- **The survey's commands depend on the shell.** zod's `test:source` and
+  `check:circular` scripts need a POSIX shell; under `cmd.exe` the
+  `none` run's typecheck and lint failed before and after every fix, so
+  only build and test could see a regression there. The first
+  `elevated` surveyor chose `pnpm --config.shell-emulator=true`, the
+  others did not; the later runs set `npm_config_shell_emulator=true`.
+- **600 s is short for `gpt-6.1-sol` on zod.** On the `none` run the
+  triage and the sweep each needed their retry and REMOVALS did not run;
+  the first `elevated` run's sweep timed out four times and the run was
+  abandoned. With 1200 s nothing timed out but one fixer at 1800 s,
+  whose snapshots kept its work (R20).
+
+Not settled: R10 as written, with the policy's models and every finding;
+and D4, for which the runs give the evidence above.
