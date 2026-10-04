@@ -251,11 +251,10 @@ describe('the repository\'s roles/', () => {
     const fragment = (name: string): string => readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8');
     const definition = fragment('angles-conventions.md');
     assert.match(definition, /The scope block lists the convention sources the repository survey named/);
-    assert.match(definition, /A file the scope block does not list is not a\s+convention source, whatever its name/);
-    assert.match(definition, /If the scope block lists no source, or none\s+governs the changed files, return nothing for this angle/);
+    assert.match(definition, /A file the scope block does\s+not list is not a convention source, whatever its name/);
+    assert.match(definition, /If the scope block\s+lists no source, or none governs the changed files, return nothing for\s+this angle/);
     const rubric = fragment('rubrics.md').slice(fragment('rubrics.md').indexOf('### Rubric for the CONVENTIONS angle'));
     assert.match(rubric, /the cited file is a convention source the scope block\s+lists/);
-    assert.match(rubric, /not a listed convention source/);
     assert.match(fragment('phase3-sweep.md'), /a clear violation of a rule a listed convention source\s+states/);
     // The fixed list is gone from every role the review runs but the surveyor, which is told where a contributor looks.
     const surveyed = ['surveyor', 'finder-CONVENTIONS', 'verifier', 'sweep', 'triage'];
@@ -271,6 +270,24 @@ describe('the repository\'s roles/', () => {
     assert.match(surveyor.prompt, /the files in a\s+`\.cursor\/rules` directory/);
     assert.match(surveyor.prompt, /list each such file, never a\s+directory/);
     assert.doesNotMatch(surveyor.prompt, /a `\.cursor\/rules`\s+directory and the like/);
+  });
+
+  it('has CONVENTIONS follow a local file a listed source imports from outside the repository, and judges a rule in it as the source\'s', () => {
+    // A rules file whose whole content is `@../.codex/AGENTS.md` states its rules only through the import; the engine lists no path outside the repository but the offered user-level files.
+    const fragment = (name: string): string => readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8');
+    const definition = fragment('angles-conventions.md');
+    assert.match(definition, /following any local file it\s+imports or links to, in the repository or outside it/);
+    assert.doesNotMatch(definition, /imports or\s+links to inside the repository/);
+    assert.match(definition, /unless a listed\s+source imports or links to it: its rules are then that source's/);
+    const rubric = fragment('rubrics.md').slice(fragment('rubrics.md').indexOf('### Rubric for the CONVENTIONS angle'));
+    assert.match(rubric, /or a file such a source imports or links to/);
+    assert.match(rubric, /neither a listed convention source nor\s+a file one imports or links to/);
+    // The surveyor lists only files of the repository, and its reason for leaving a page out is the network, not that no worker can read a local file.
+    const surveyor = roles.find((role) => role.key === 'surveyor')!;
+    assert.doesNotMatch(surveyor.prompt, /since no\s+worker can read it/);
+    assert.match(surveyor.prompt, /A web page\s+that a file links to is not a source, since a worker has no network to\s+read it/);
+    assert.match(surveyor.prompt, /Nor is a local file outside the\s+repository that a source imports, unless your task offers it/);
+    assert.match(surveyor.prompt, /the finder that checks\s+the source follows its imports/);
   });
 
   it('tells every fixer role to keep its edits within the convention sources the scope block lists (R7 of the repository survey)', () => {

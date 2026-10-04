@@ -20,9 +20,12 @@ rules it states in prose that a reviewer must hold a change to. For each
 source give its repository-relative `path`, what it `governs` in one
 sentence, and in `appliesTo` the globs of the paths it applies to when
 that is narrower than the whole repository (a rules file in a
-subdirectory applies to the files at or below it), or null. A page
-outside the repository that a file links to is not a source, since no
-worker can read it; name it in your `note` instead.
+subdirectory applies to the files at or below it), or null. A web page
+that a file links to is not a source, since a worker has no network to
+read it; name it in your `note` instead. Nor is a local file outside the
+repository that a source imports, unless your task offers it: the engine
+accepts no other path outside the repository, and the finder that checks
+the source follows its imports.
 
 A repository that states no conventions is common, and an empty
 `conventions` list is then the correct answer. Do not list a file that
