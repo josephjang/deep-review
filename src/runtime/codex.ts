@@ -105,6 +105,9 @@ export const elevatedExecutionPolicy = { name: 'PSExecutionPolicyPreference', va
  * Under the elevated sandbox the PowerShell execution policy is set too,
  * unless the caller already sets it to something; under the others the
  * worker runs as the operator's own account, whose policy is the operator's.
+ * The policy is left in exactly one spelling either way: Node hands a
+ * Windows child only the spelling that sorts first, which could otherwise
+ * be an empty one beside the policy the caller set.
  */
 export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform, windowsSandbox: WindowsSandbox = 'unelevated'): NodeJS.ProcessEnv {
   if (platform !== 'win32') return { ...environment };
@@ -113,10 +116,22 @@ export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJ
     .filter((directory) => directory.length > 0 && !underWindowsApps(directory));
   const adjusted = { ...withoutVariables(environment, ['PATH'], platform), PATH: directories.join(';') };
   if (windowsSandbox !== 'elevated') return adjusted;
-  // An empty value sets no policy, so it is replaced, every other spelling with it.
   const { name, value } = elevatedExecutionPolicy;
-  const given = spellingsOf(adjusted, name, platform).some(([, set]) => set !== undefined && set !== '');
-  return given ? adjusted : pinVariables(adjusted, { [name]: value }, platform);
+  return pinVariables(adjusted, givenVariable(adjusted, name, platform) ?? { [name]: value }, platform);
+}
+
+/**
+ * The spelling and value of a variable the caller sets to something, or
+ * null when no spelling holds a value: an empty value sets nothing. When
+ * several spellings hold one, the one Node would have handed a child wins,
+ * the first by code unit.
+ */
+function givenVariable(environment: NodeJS.ProcessEnv, name: string, platform: NodeJS.Platform): Record<string, string> | null {
+  const given = spellingsOf(environment, name, platform)
+    .filter((entry): entry is [string, string] => entry[1] !== undefined && entry[1] !== '')
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const [first] = given;
+  return first === undefined ? null : { [first[0]]: first[1] };
 }
 
 /**

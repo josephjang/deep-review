@@ -391,6 +391,23 @@ describe('codexEnvironment', () => {
 
     it('replaces an empty value, which sets no policy, and every other spelling with it', () => {
       assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: '' }, 'win32', 'elevated'), { PATH: '', PSExecutionPolicyPreference: 'RemoteSigned' });
+      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: '', PSExecutionPolicyPreference: undefined }, 'win32', 'elevated'), { PATH: '', PSExecutionPolicyPreference: 'RemoteSigned' });
+    });
+
+    // Node hands a Windows child only the spelling that sorts first, so a second spelling must never survive beside the one kept.
+    it('keeps the policy the caller sets in one spelling when another is empty or unset, whichever sorts first', () => {
+      for (const empty of ['', undefined]) {
+        for (const environment of [
+          { PSExecutionPolicyPreference: empty, psexecutionpolicypreference: 'AllSigned' },
+          { psexecutionpolicypreference: 'AllSigned', PSExecutionPolicyPreference: empty },
+        ]) {
+          assert.deepEqual(codexEnvironment(environment, 'win32', 'elevated'), { PATH: '', psexecutionpolicypreference: 'AllSigned' }, JSON.stringify(environment));
+        }
+      }
+    });
+
+    it('keeps only the spelling Node would have passed when two set different policies', () => {
+      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: 'Bypass', PSExecutionPolicyPreference: 'AllSigned' }, 'win32', 'elevated'), { PATH: '', PSExecutionPolicyPreference: 'AllSigned' });
     });
 
     it('is not set under the other values, where the worker is the operator\'s own account, nor on another platform', () => {
