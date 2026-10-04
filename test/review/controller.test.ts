@@ -19,7 +19,7 @@ import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
-import { ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { fakeCheckCommand, ReviewSandbox } from '../helpers/review-sandbox.ts';
 import { write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
@@ -282,6 +282,27 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
     assert.equal(box.logs.filter((line) => line.startsWith('phase survey: going on without the survey: the survey blocked, ')).length, 1, box.logs.join('\n'));
     assert.ok(box.logs.includes(`run ${state.id}: survey: no convention source`), box.logs.join('\n'));
+    // No survey answered, so the engine cannot tell which flags an earlier invocation gave: it says they must be given again.
+    assert.deepEqual(box.logs.filter((line) => line.includes('has not planned its checks')), [`run ${state.id} has not planned its checks yet; --check and --no-check apply to each invocation until it does, so give again every one an earlier invocation gave`]);
+    assert.ok(!box.logs.some((line) => line.includes('its survey was asked with')), box.logs.join('\n'));
+  });
+
+  it('names the kinds an earlier invocation\'s flags settled for the survey when a resume before the checks are planned leaves them unsettled (TD6 of the repository survey)', async () => {
+    const stated = (kind: 'build' | 'typecheck' | 'lint' | 'test', missingTool: string | null = null): Record<string, unknown> =>
+      ({ kind, command: missingTool === null ? fakeCheckCommand(kind) : `${missingTool} check .`, basis: 'stated', source: { path: 'package.json', quote: `"${kind}": "node ..."` }, missingTool, reason: null });
+    box.script({ surveyor: [
+      { output: { conventions: [], userRules: [], checks: [stated('lint', 'ruff'), stated('test')], note: '' } },
+      { output: { conventions: [], userRules: [], checks: [stated('build'), stated('typecheck'), stated('test')], note: 'asked again' } },
+    ] });
+    const flags = ReviewSandbox.checkFlags();
+    const blocked = await box.review('claude', { fix: { commands: { build: flags.commands.build!, typecheck: flags.commands.typecheck! }, dropped: [] } });
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
+    // The resume answers the block with --no-check lint, and gives neither of the --check flags the survey was asked with.
+    report(await box.review('claude', { fix: { commands: {}, dropped: ['lint'] } }));
+    const state = box.run();
+    assert.ok(box.logs.includes(`run ${state.id}: its survey was asked with --check or --no-check settling build, typecheck, which this invocation leaves unsettled, so the survey is asked again for them; give those flags again to keep them`), box.logs.join('\n'));
+    assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', 'asked again']);
+    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.origin]), [['build', 'survey'], ['typecheck', 'survey'], ['lint', 'flag'], ['test', 'survey']]);
   });
 
   it('lists, for a run configured before the survey existed and resumed, the rules files the engine found for it then, as its pinned role prompts expect', async () => {
