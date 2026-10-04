@@ -29,6 +29,7 @@ describe('the fixer\'s answer against the tree', () => {
       assert.equal(resolveReportedPath(worktree, lookup, 'src\\Parser.ts'), 'src/Parser.ts');
       assert.equal(resolveReportedPath(worktree, lookup, 'SRC/parser.ts'), 'src/Parser.ts', 'a spelling that differs only in case');
       assert.equal(resolveReportedPath(worktree, lookup, join(worktree, 'src', 'b.ts')), 'src/b.ts', 'an absolute path inside the worktree');
+      assert.equal(resolveReportedPath(worktree, lookup, join(worktree, '..tmp')), '..tmp', 'a name that only begins with two dots is inside');
     });
 
     it('keeps a path the worktree does not hold as written, for a file deleted or created', () => {
@@ -42,6 +43,22 @@ describe('the fixer\'s answer against the tree', () => {
       for (const raw of [join(directory, 'outside.ts'), '../outside.ts', 'src/../../x.ts', '.git/config', 'src/.GIT/hooks/pre-commit', '/', '.', worktree]) {
         assert.throws(() => resolveReportedPath(worktree, lookup, raw), StructuralCheckError, raw);
       }
+      assert.throws(() => resolveReportedPath(worktree, lookup, '.git/config'), /^StructuralCheckError: The reported path "\.git\/config" is in the git directory, which no fixer edits$/);
+    });
+
+    it('refuses, rather than throwing what the file system says, a path with a NUL or one the file system cannot resolve', () => {
+      for (const raw of ['/foo\u0000bar', 'src/a\u0000b.ts']) {
+        assert.throws(() => resolveReportedPath(worktree, lookup, raw), (error: unknown) => error instanceof StructuralCheckError && error.message === `The reported path ${JSON.stringify(raw)} contains a NUL character`, raw);
+      }
+      // Longer than any file system resolves: realpath fails with ENAMETOOLONG, not ENOENT.
+      assert.throws(() => resolveReportedPath(worktree, lookup, join(worktree, 'a'.repeat(40_000))), (error: unknown) => error instanceof StructuralCheckError && /^The reported path ".*" cannot be resolved: ENAMETOOLONG/.test(error.message));
+    });
+
+    it('names the path and the git directory\'s reason in the words its caller gives', () => {
+      const wording = { what: 'The source', gitDirectory: 'which is git\'s' };
+      assert.throws(() => resolveReportedPath(worktree, lookup, '.git/config', wording), /^StructuralCheckError: The source "\.git\/config" is in the git directory, which is git's$/);
+      assert.throws(() => resolveReportedPath(worktree, lookup, '../x', wording), /^StructuralCheckError: The source "\.\.\/x" is not a path inside the repository$/);
+      assert.throws(() => resolveReportedPath(worktree, lookup, join(directory, 'x'), wording), /^StructuralCheckError: The source ".*" is outside the worktree /);
     });
   });
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -26,7 +26,7 @@ describe('checkSurveyAnswer', () => {
   beforeEach(() => {
     sandbox = mkdtempSync(join(tmpdir(), 'deep-review-survey-'));
     worktree = join(sandbox, 'repo');
-    for (const path of ['docs/contributing.md', '.github/workflows/ci.yml', 'src/AGENTS.md', 'package.json', '.git/config']) {
+    for (const path of ['AGENTS.md', 'docs/contributing.md', '.github/workflows/ci.yml', 'src/AGENTS.md', 'src/deep/CLAUDE.local.md', 'package.json', '.git/config']) {
       mkdirSync(join(worktree, ...path.split('/').slice(0, -1)), { recursive: true });
       writeFileSync(join(worktree, ...path.split('/')), `# ${path}\n`);
     }
@@ -78,9 +78,43 @@ describe('checkSurveyAnswer', () => {
     refuses(answer({ ...decided, conventions: [source('docs/guides')] }), context(), /not a regular file of the repository/);
     refuses(answer({ ...decided, conventions: [source('../outside.md')] }), context(), /not a path inside the repository/);
     refuses(answer({ ...decided, conventions: [source(join(sandbox, 'elsewhere.md'))] }), context(), /outside the worktree/);
-    refuses(answer({ ...decided, conventions: [source('.git/config')] }), context(), /git directory/);
+    // The refusal speaks to a surveyor, not to a fixer.
+    refuses(answer({ ...decided, conventions: [source('.git/config')] }), context(), /^The convention source "\.git\/config" is in the git directory, which holds git's own data, not a file of the repository$/);
     refuses(answer({ ...decided, conventions: [source('docs/contributing.md'), source('docs\\contributing.md')] }), context(), /named twice/);
     refuses(answer({ ...decided, conventions: [{ ...source('docs/contributing.md'), grounds: 'mine' }] }), context(), /states grounds, which only a user-level source does/);
+  });
+
+  it('refuses, as a failed attempt rather than an error that ends the run, a path the file system cannot resolve', () => {
+    const source = (path: string): SurveyorOutput['conventions'][number] => ({ path, level: 'repository', governs: 'g', appliesTo: null, grounds: null });
+    const decided = { userRules: [{ path: userFile, applied: false, reason: 'r' }] };
+    refuses(answer({ ...decided, conventions: [source('/foo\u0000bar')] }), context(), /^The convention source "\/foo\\u0000bar" contains a NUL character$/);
+    refuses(answer({ ...decided, conventions: [source('docs/a\u0000b.md')] }), context(), /contains a NUL character/);
+    // Longer than any file system resolves: realpath fails with ENAMETOOLONG, not ENOENT.
+    refuses(answer({ ...decided, conventions: [source(join(worktree, 'a'.repeat(40_000)))] }), context(), /^The convention source ".*" cannot be resolved: ENAMETOOLONG/);
+    refuses(answer({ ...decided, checks: [stated('lint', 'eslint .', { source: { path: join(worktree, 'a'.repeat(40_000)), quote: 'q' } }), stated('test', null)] }), fixing(), /^The lint check's source ".*" cannot be resolved: ENAMETOOLONG/);
+  });
+
+  it('refuses a source inside the tree whose links lead outside the repository', () => {
+    const outside = join(sandbox, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'rules.md'), '# not the repository\'s\n');
+    // A junction needs no privilege on Windows, and is a directory symlink elsewhere.
+    symlinkSync(outside, join(worktree, 'docs', 'linked'), 'junction');
+    const decided = { userRules: [{ path: userFile, applied: false, reason: 'r' }] };
+    refuses(answer({ ...decided, conventions: [{ path: 'docs/linked/rules.md', level: 'repository', governs: 'g', appliesTo: null, grounds: null }] }), context(), /^The convention source "docs\/linked\/rules\.md" leads outside the repository$/);
+    refuses(answer({ ...decided, checks: [stated('lint', 'eslint .', { source: { path: 'docs/linked/rules.md', quote: 'q' } }), stated('test', null)] }), fixing(), /^The lint check's source "docs\/linked\/rules\.md" leads outside the repository$/);
+  });
+
+  it('refuses a source that is a file symlink leading outside the repository', (t) => {
+    writeFileSync(join(sandbox, 'elsewhere.md'), '# not the repository\'s\n');
+    try {
+      symlinkSync(join(sandbox, 'elsewhere.md'), join(worktree, 'docs', 'rules.md'), 'file');
+    } catch (error) {
+      // Windows without Developer Mode denies symlink creation; nothing to test then.
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('symlinks are not permitted here');
+      throw error;
+    }
+    refuses(answer({ userRules: [{ path: userFile, applied: false, reason: 'r' }], conventions: [{ path: 'docs/rules.md', level: 'repository', governs: 'g', appliesTo: null, grounds: null }] }), context(), /^The convention source "docs\/rules\.md" leads outside the repository$/);
   });
 
   it('holds the user-level decisions under judge to the offered files: each decided once, listed exactly when applied, with grounds', () => {
@@ -92,6 +126,23 @@ describe('checkSurveyAnswer', () => {
     refuses(answer({ conventions: [listed], userRules: [{ path: userFile, applied: false, reason: 'r' }] }), context(), /listed as a source but not applied/);
     refuses(answer({ conventions: [{ ...listed, grounds: null }], userRules: [{ path: userFile, applied: true, reason: 'r' }] }), context(), /states no grounds/);
     refuses(answer({ conventions: [{ ...listed, path: '/elsewhere/AGENTS.md' }] }), context({ userFiles: [] }), /not a file the task offered; it offered none/);
+  });
+
+  it('matches an offered user-level file by its absolute path however it is spelled, and never a relative one, wherever the engine runs', () => {
+    const decide = (path: string): SurveyorOutput => answer({ conventions: [{ path, level: 'user', governs: 'g', appliesTo: null, grounds: 'imported' }], userRules: [{ path, applied: true, reason: 'r' }] });
+    const respelled = checkSurveyAnswer(decide(userFile.replaceAll('\\', '/')), context());
+    assert.deepEqual([respelled.conventions[0]?.path, respelled.userRules[0]?.path], [userFile, userFile], 'the engine\'s spelling of the offered file');
+    const relativeToHome = join('.codex', 'AGENTS.md');
+    const here = process.cwd();
+    // Run from the home directory a relative path would resolve to the offered file; it is still not the path the task gave.
+    process.chdir(join(sandbox, 'home'));
+    try {
+      refuses(decide(relativeToHome), context(), /^The user-level source ".*" is not a file the task offered$/);
+      refuses(answer({ userRules: [{ path: relativeToHome, applied: false, reason: 'r' }] }), context(), /is not about a file the task offered/);
+    } finally {
+      process.chdir(here);
+    }
+    refuses(decide('/foo\u0000bar'), context(), /contains a NUL character/);
   });
 
   it('joins the policy\'s part under apply and ignore, and refuses a surveyor deciding what the policy settles', () => {

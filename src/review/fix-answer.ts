@@ -6,7 +6,7 @@
  * is reported under some finding. The checks the schema cannot express
  * and that need no tree are `checkFixerAnswer` in schemas.ts.
  */
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, relative, sep } from 'node:path';
 import { canonicalPath } from '../paths.ts';
 import { StructuralCheckError } from './errors.ts';
 import { normalizeFileName, type RepoLookup } from './locations.ts';
@@ -16,24 +16,66 @@ import type { FixerOutput } from './schemas.ts';
 const rooted = (name: string): boolean => name.startsWith('/') || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute(name);
 
 /**
- * The repository path a fixer's reported path names, in the worktree's
+ * How a refusal of a reported path names it, so each worker reads a
+ * reason that fits its own task: a fixer, which edits files, and a
+ * surveyor, which only names them.
+ */
+export interface ReportedPathWording {
+  /** The path's name in a refusal, such as `The reported path`. */
+  readonly what: string;
+  /** Why a path into the git directory is refused, after "is in the git directory, ". */
+  readonly gitDirectory: string;
+}
+
+/** The wording of a fixer's reported path. */
+const fixerWording: ReportedPathWording = { what: 'The reported path', gitDirectory: 'which no fixer edits' };
+
+/**
+ * The answer to a file system question about a worker's path, or a
+ * structural refusal of the path when the file system cannot give one
+ * (denied, too long, a loop of links): the path came from the worker, so
+ * the failure costs its attempt rather than ending the run. An error that
+ * does not come from the file system is thrown as it is.
+ */
+export function resolvingPath<T>(what: string, raw: string, question: () => T): T {
+  try {
+    return question();
+  } catch (error) {
+    const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+    if (typeof code !== 'string') throw error;
+    throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} cannot be resolved: ${code}`, { cause: error });
+  }
+}
+
+/** Refuse a path holding a NUL, which names no file and which every file system call rejects. */
+export function requireNoNul(what: string, raw: string): void {
+  if (raw.includes('\0')) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} contains a NUL character`);
+}
+
+/**
+ * The repository path a worker's reported path names, in the worktree's
  * own spelling when the worktree holds it (so `Src/A.ts` on a
  * case-insensitive file system is `src/a.ts`), and as written otherwise,
  * for a file it deleted or one it means to create. An absolute path is
- * taken relative to the worktree. A path outside the worktree, through
- * `..`, or into the git directory is refused as a structural check.
+ * taken relative to the worktree. A path with a NUL, one the file system
+ * cannot resolve, one outside the worktree, through `..`, or into the git
+ * directory is refused as a structural check, in the words `wording`
+ * gives (a fixer's by default).
  */
-export function resolveReportedPath(worktree: string, lookup: RepoLookup, raw: string): string {
+export function resolveReportedPath(worktree: string, lookup: RepoLookup, raw: string, wording: ReportedPathWording = fixerWording): string {
+  const { what } = wording;
+  requireNoNul(what, raw);
   let name = normalizeFileName(raw.trim()).replace(/\/+$/, '');
   if (rooted(name)) {
-    const inside = relative(canonicalPath(worktree), canonicalPath(raw.trim()));
-    if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
+    const inside = relative(canonicalPath(worktree), resolvingPath(what, raw, () => canonicalPath(raw.trim())));
+    // Judged by whole segments, as `isInside` does, so a child named `..tmp` is inside while `..` is not.
+    if (inside === '' || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
     name = inside.replaceAll('\\', '/');
   }
   const segments = name.split('/');
-  if (name === '' || segments.some((segment) => segment === '' || segment === '.' || segment === '..')) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is not a path inside the repository`);
-  if (segments.some((segment) => segment.toLowerCase() === '.git')) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is in the git directory, which no fixer edits`);
-  const held = [...new Set(lookup(name))];
+  if (name === '' || segments.some((segment) => segment === '' || segment === '.' || segment === '..')) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a path inside the repository`);
+  if (segments.some((segment) => segment.toLowerCase() === '.git')) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is in the git directory, ${wording.gitDirectory}`);
+  const held = [...new Set(resolvingPath(what, raw, () => lookup(name)))];
   // None held is a deleted or a new file; two held, differing only in case on a case-sensitive file system, leave the one written.
   return held.length === 1 ? held[0]! : name;
 }

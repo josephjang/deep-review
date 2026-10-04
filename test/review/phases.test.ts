@@ -176,6 +176,10 @@ describe('contributionOf', () => {
     const missing = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, conventions: [{ ...answer.conventions[0], path: 'CONTRIBUTING.md' }] }), surveyConfigured().start('survey').fold(), worktree);
     assert.equal(missing.kind, 'attempt.failed');
     assert.match((missing.payload as { reason: string }).reason, /^structural check: The convention source "CONTRIBUTING\.md" is not a regular file of the repository$/);
+    // A path the file system refuses to resolve costs the attempt, never the run.
+    const unresolvable = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, conventions: [{ ...answer.conventions[0], path: '/foo\u0000bar' }] }), surveyConfigured().start('survey').fold(), worktree);
+    assert.equal(unresolvable.kind, 'attempt.failed');
+    assert.match((unresolvable.payload as { reason: string }).reason, /^structural check: The convention source "\/foo\\u0000bar" contains a NUL character$/);
   });
 
   it('records a failed attempt for a receipt that did not complete, with the outcome and error', () => {
