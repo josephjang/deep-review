@@ -41,6 +41,7 @@ import type {
   ReviewConfiguration,
   ReviewConfigurationV1,
   ReviewConfigurationV2,
+  ReviewConfigurationV3,
   ReviewLimits,
   VerdictsRecorded,
   VerificationPlanned,
@@ -251,14 +252,27 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
 /** The engine did not yet survey a run whose configuration predates version 3: it applied the user-level rules files it found, which `apply` names. */
 const unsurveyed = { survey: { userRules: 'apply' as const } };
 
-/** Version 3 of the configuration: a run that is surveyed. */
+/**
+ * The Codex Windows sandbox of a run whose configuration predates version
+ * 4: the engine ran every Codex worker under the unelevated one then, and
+ * no worker of another runtime under any (R3 of the Codex sandbox). The
+ * fold cannot tell the platform the run was on, so a Codex run recorded
+ * elsewhere reads as unelevated too, which the adapter applies only on
+ * Windows.
+ */
+const unpinnedCodex = (runtime: string): Pick<ReviewConfiguration, 'codex'> => ({ codex: runtime === 'codex' ? { windowsSandbox: 'unelevated' } : null });
+
+/** Version 4 of the configuration: a run that is surveyed and pins its Codex Windows sandbox. */
 const configured: Reducer<ReviewConfiguration> = (state, payload, event) => configure(state, payload, event, true);
 
+/** Version 3 of the configuration, recorded before the Codex Windows sandbox was pinned: a run that is surveyed. */
+const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime) }, event, true);
+
 /** Version 2 of the configuration, recorded before the survey existed: a run whose survey is skipped. */
-const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed }, event, false);
+const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
 
 /** Version 1 of the configuration, recorded before the fix pass existed: a run without it, and without the survey. */
-const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed }, event, false);
+const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
 
 /** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
 const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
@@ -487,7 +501,8 @@ const reportWrittenV1: Reducer<ReportWrittenV1> = (state, payload, event, drafts
 export const reviewReducers = {
   'review.configured@1': configuredV1,
   'review.configured@2': configuredV2,
-  'review.configured@3': configured,
+  'review.configured@3': configuredV3,
+  'review.configured@4': configured,
   'limits.changed@1': limitsChanged,
   'phase.started@1': phaseStarted,
   'phase.started@2': phaseStarted,

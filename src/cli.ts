@@ -21,13 +21,14 @@ import { findActiveRun, runReview, type ScopeSource } from './review/controller.
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
-import { invocationFlagProblem, maxConcurrency, type PolicyFlags } from './review/policy.ts';
+import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
 import { checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import type { CheckFlags } from './review/checks/discover.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
 import { describeRun } from './review/status.ts';
+import { windowsSandboxes, type WindowsSandbox } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
 
@@ -37,6 +38,7 @@ export const usage = `usage:
                       (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
                       [--fix [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
+                      [--codex-windows-sandbox ${windowsSandboxes.join('|')}]   (with --runtime codex; applies on Windows)
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
@@ -67,6 +69,7 @@ const options = {
   fix: { type: 'boolean' },
   check: { type: 'string', multiple: true },
   'no-check': { type: 'string', multiple: true },
+  'codex-windows-sandbox': { type: 'string' },
   'change-message': { type: 'string' },
   finding: { type: 'string' },
   into: { type: 'string' },
@@ -85,7 +88,7 @@ export interface CommandIo {
 
 /** The flags each command takes; any other given flag is refused by name. */
 const allowed: Record<string, readonly (keyof Values)[]> = {
-  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'check', 'no-check', 'help'],
+  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'check', 'no-check', 'codex-windows-sandbox', 'help'],
   status: ['run', 'json', 'repo', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
@@ -279,11 +282,16 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   if (!runtimes.names().includes(values.runtime)) throw new UsageError(`--runtime must be one of ${runtimes.names().join(', ')}, not ${JSON.stringify(values.runtime)}`);
   const concurrency = number('--concurrency', values.concurrency);
   const budgetUsd = number('--budget-usd', values['budget-usd']);
+  // A sandbox Codex lacks, or the flag on another runtime, is a command-line mistake refused with the usage, as a malformed number is below.
+  const sandboxProblem = codexWindowsSandboxFlagProblem(values.runtime, values['codex-windows-sandbox']);
+  if (sandboxProblem !== null) throw new UsageError(sandboxProblem);
+  const codexWindowsSandbox = values['codex-windows-sandbox'] as WindowsSandbox | undefined;
   const flags: PolicyFlags = {
     ...(values['strong-model'] === undefined ? {} : { strongModel: values['strong-model'] }),
     ...(values['fast-model'] === undefined ? {} : { fastModel: values['fast-model'] }),
     ...(concurrency === undefined ? {} : { concurrency }),
     ...(budgetUsd === undefined ? {} : { budgetUsd }),
+    ...(codexWindowsSandbox === undefined ? {} : { codexWindowsSandbox }),
   };
   // A malformed value is a command-line mistake, refused with the usage before the checkpoint is opened; the policy refuses it with the same message for a caller that does not come through here.
   const problem = invocationFlagProblem(flags);
@@ -304,7 +312,8 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
     const outcome = await runReview({
       checkpoint,
       worktree,
-      runtimes,
+      // Built again with the Codex Windows sandbox the run pins, for the runtimes its workers launch on.
+      runtimes: defaultRuntimes,
       runtime,
       // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned.
       executable: () => resolveExecutable(values.executable ?? runtime, io.environment, process.platform, io.cwd),

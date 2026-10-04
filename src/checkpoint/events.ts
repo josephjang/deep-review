@@ -900,8 +900,44 @@ export const reviewConfiguredV3 = z.strictObject({
   message: 'the batch size is pinned exactly when the run fixes',
   path: ['fixes'],
 });
-/** The configuration as the fold holds it, whichever version recorded it: version 1 reads as a run without the fix pass, and versions 1 and 2 as runs that applied the reviewer's own rules, which the engine did when they were recorded. */
-export type ReviewConfiguration = z.infer<typeof reviewConfiguredV3>;
+export type ReviewConfigurationV3 = z.infer<typeof reviewConfiguredV3>;
+
+/**
+ * How a Codex run's workers are confined on Windows, as version 4 of
+ * `review.configured` records it (R3 of the Codex sandbox). Frozen here,
+ * as the review vocabulary is, so a later change to the Codex adapter's
+ * values is a new version of the event; a test holds it equal to them.
+ */
+export const codexWindowsSandboxesV4 = ['unelevated', 'elevated', 'none'] as const;
+
+/**
+ * `review.configured` with the Codex Windows sandbox (R1, R3 of the Codex
+ * sandbox): version 3 and the value the run's Codex workers are confined
+ * by, from `--codex-windows-sandbox` or the policy. It is null for a run
+ * on another runtime, and for a Codex run on another platform than
+ * Windows, where the adapter applies no Windows sandbox.
+ */
+export const reviewConfiguredV4 = z.strictObject({
+  ...reviewConfiguredV3.shape,
+  codex: z.strictObject({ windowsSandbox: z.enum(codexWindowsSandboxesV4) }).nullable(),
+}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
+  message: 'the checks are pinned exactly when the run fixes',
+  path: ['checks'],
+}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
+  message: 'the batch size is pinned exactly when the run fixes',
+  path: ['fixes'],
+}).refine((configuration) => configuration.runtime === 'codex' || configuration.codex === null, {
+  message: 'only a Codex run pins a Codex Windows sandbox',
+  path: ['codex'],
+});
+/**
+ * The configuration as the fold holds it, whichever version recorded it:
+ * version 1 reads as a run without the fix pass; versions 1 and 2 as runs
+ * that applied the reviewer's own rules, which the engine did when they
+ * were recorded; and versions 1 to 3 of a Codex run as one under the
+ * unelevated Windows sandbox, the only one the engine used then.
+ */
+export type ReviewConfiguration = z.infer<typeof reviewConfiguredV4>;
 
 /** `phase.started` over the fifteen phases. */
 export const phaseStartedV3 = z.strictObject({
@@ -1114,7 +1150,7 @@ export const eventRegistry = defineRegistry({
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
   'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
   'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 } },
   'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 } },

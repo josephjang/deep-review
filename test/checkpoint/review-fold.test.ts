@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
+import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { History, candidate, configuration, configurationV1, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
@@ -23,6 +23,27 @@ describe('the review fold', () => {
     assert.deepEqual(review.plans, { verification: null, 'sweep-verification': null });
     assert.equal(review.ranking, null);
     assert.equal(review.report, null);
+  });
+
+  it('folds the Codex Windows sandbox version 4 pinned, and reads an earlier Codex run as unelevated and any other run as pinning none (R3 of the Codex sandbox)', () => {
+    const configuredAt = (version: number, payload: Record<string, unknown>): ReviewState => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', payload, version).review();
+    const codexV1 = { ...configurationV1, runtime: 'codex', runBudgetUsd: null };
+    const codexV2 = { ...codexV1, fix: false, checks: null, fixes: null };
+    const codexV3 = { ...codexV2, survey: { userRules: 'judge' } };
+    for (const windowsSandbox of ['unelevated', 'elevated', 'none']) {
+      const review = configuredAt(4, { ...codexV3, codex: { windowsSandbox } });
+      assert.deepEqual(review.configuration.codex, { windowsSandbox }, windowsSandbox);
+      assert.equal(review.phases.survey.status, 'pending', 'a version 4 run is surveyed');
+    }
+    assert.equal(configuredAt(4, { ...codexV3, codex: null }).configuration.codex, null, 'a Codex run off Windows');
+    const unelevated = { windowsSandbox: 'unelevated' };
+    assert.deepEqual(configuredAt(3, codexV3).configuration.codex, unelevated);
+    assert.equal(configuredAt(3, codexV3).phases.survey.status, 'pending', 'a version 3 run is still surveyed');
+    assert.deepEqual(configuredAt(2, codexV2).configuration.codex, unelevated);
+    assert.deepEqual(configuredAt(1, codexV1).configuration.codex, unelevated);
+    for (const [version, payload] of [[1, configurationV1], [2, { ...configurationV1, fix: false, checks: null, fixes: null }], [3, { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' } }]] as const) {
+      assert.equal(configuredAt(version, payload).configuration.codex, null, `a Claude Code run at version ${String(version)}`);
+    }
   });
 
   it('folds the triage: its candidate, its leads, its unit answered and the phase completed', () => {

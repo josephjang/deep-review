@@ -1,9 +1,10 @@
 /**
  * The controller (R1, R5, R6, R7 of the read-only review; TD1, TD5, TD6;
- * R1, R6, R7, R9 of the fix pass; R1, R6, R7 of the repository survey):
- * find or create the run, take its lock, record the workers a previous
- * engine lost, then loop over fold, plan, execute and append until the
- * report is written or the run blocks. It launches workers, plans the
+ * R1, R6, R7, R9 of the fix pass; R1, R6, R7 of the repository survey;
+ * R1 to R3 of the Codex sandbox): find or create the run, take its lock,
+ * record the workers a previous engine lost, then loop over fold, plan,
+ * execute and append until the report is written or the run blocks. It
+ * launches workers on the runtimes built for what the run pinned, plans the
  * checks when the survey completes, runs them one at a time, and records
  * every edit as a revision of the tree. Every fact the planner needs is an
  * event, or this invocation's check flags, so a resumed run continues
@@ -22,6 +23,7 @@ import { PreflightError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
+import type { RuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
@@ -66,8 +68,18 @@ export interface ReviewOptions {
   readonly checkpoint: Checkpoint;
   /** The worktree the review runs in; workers use it as their working directory. */
   readonly worktree: string;
-  readonly runtimes: RuntimeRegistry;
+  /**
+   * The runtimes, built for the options a run pinned (R2 of the Codex
+   * sandbox). Called once with none, for the adapter that resolves the
+   * policy, preflights the executable and reads usage, none of which a
+   * pinned option changes; and once the run is configured, with the
+   * options its configuration names, for the runtimes its workers launch
+   * on: `defaultRuntimes` for the engine's own.
+   */
+  readonly runtimes: (options: RuntimeOptions) => RuntimeRegistry;
   readonly runtime: string;
+  /** The platform a run is configured for, which decides whether it pins a Codex Windows sandbox; this process's by default, the one its workers run on. */
+  readonly platform?: NodeJS.Platform;
   /**
    * The executable a run not yet configured pins: its path, or a function
    * that resolves it, called only for such a run. A configured run
@@ -229,14 +241,16 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     process.stderr.write(`${line}\n`);
   });
   const environment = options.environment ?? process.env;
-  const adapter = options.runtimes.get(options.runtime);
+  const platform = options.platform ?? process.platform;
+  // No pinned option changes what this adapter is asked: its capabilities, its qualification and its reading of usage.
+  const adapter = options.runtimes({}).get(options.runtime);
   const roles = assembleRoles(options.rolesRoot);
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
 
   const { checkpoint } = options;
   // Every comparison with what the run expects, and every patch, sees a file as git would store it (R22 of the fix pass).
   const content = gitContent(options.worktree, (reference) => checkpoint.evidence.read(reference));
-  const opened = await openRun({ ...options, log, environment, adapter, roles });
+  const opened = await openRun({ ...options, log, environment, platform, adapter, roles });
   let state = opened.state;
   const runId = state.id;
   const { release, scopeRequest, configure } = opened;
@@ -257,7 +271,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
    * history it cannot read does not stop it there.
    */
   const surveyed: SurveyInputs = {
-    platform: process.platform,
+    platform,
     flags: checkFlags,
     get userFiles() {
       return userFiles();
@@ -309,10 +323,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     if (configure !== null) {
       // The checks are planned when the survey completes, not here (R6 of the repository survey).
-      state = append(checkpoint, state, [{ kind: 'review.configured', version: 3, payload: configure }]);
-      log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}${configure.fix ? ', with the fix pass' : ''}; the reviewer's own rules: ${configure.survey.userRules}`);
+      state = append(checkpoint, state, [{ kind: 'review.configured', version: 4, payload: configure }]);
+      log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}${configure.fix ? ', with the fix pass' : ''}${configure.codex === null ? '' : `, Codex Windows sandbox ${configure.codex.windowsSandbox}`}; the reviewer's own rules: ${configure.survey.userRules}`);
     }
     const configuration = state.review!.configuration;
+    // The runtimes the workers launch on, with the options the run pinned, however long ago it was configured.
+    const runtimes = options.runtimes(runtimeOptionsOf(configuration));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, options.worktree, content.match, log);
     state = reenterPhase(checkpoint, state, log);
@@ -466,7 +482,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes: options.runtimes, environment, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
+            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes, environment, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
               .then((receipt): Settled => ({ unit, receipt }), (error: unknown): Settled => ({ unit, error }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise });
           }
@@ -543,10 +559,20 @@ async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: 
   return { settled, startedAt: entry.startedAt };
 }
 
+/**
+ * The runtime options a run's configuration names: the Codex Windows
+ * sandbox it pinned, or none for a run that pins none (R2 of the Codex
+ * sandbox), so a resumed run's workers are confined as its first ones were.
+ */
+export function runtimeOptionsOf(configuration: Pick<ReviewConfiguration, 'codex'>): RuntimeOptions {
+  return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };
+}
+
 /** What opening a run needs beyond the review's options. */
 interface OpenContext extends ReviewOptions {
   readonly log: (line: string) => void;
   readonly environment: NodeJS.ProcessEnv;
+  readonly platform: NodeJS.Platform;
   readonly adapter: RuntimeAdapter;
   readonly roles: readonly AssembledRole[];
 }
@@ -623,7 +649,8 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     if (found !== null && pinned !== null) {
       await resumePinned(found, pinned, context);
     } else {
-      const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
+      const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags, context.platform);
+      if (context.flags.codexWindowsSandbox !== undefined && resolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
       const fix = context.fix ?? null;
       const executable = typeof context.executable === 'function' ? context.executable() : context.executable;
       const executableArgs = [...(context.executableArgs ?? [])];
@@ -653,8 +680,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * are named as ignored, as are the check flags once the checks are
  * planned; before then, a fix run is told the check flags must be given
  * again, and the kinds it can tell an earlier invocation's flags settled
- * and this one's do not are named; the pinned executable, not the
- * command's, must still qualify.
+ * and this one's do not are named; a `--codex-windows-sandbox` other than
+ * the pinned value is refused, and one a run off Windows pinned none for
+ * is named as ignored; the pinned executable, not the command's, must
+ * still qualify.
  */
 async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
   const runId = run.id;
@@ -663,6 +692,12 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
     throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
   }
   refuseInvocationFlags(context.adapter, context.flags);
+  // How the run's workers are confined is pinned at configuration (R3 of the Codex sandbox): a resume asking for another confinement is refused, not silently given the pinned one.
+  const sandbox = context.flags.codexWindowsSandbox;
+  if (sandbox !== undefined && pinned.codex === null) context.log(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`);
+  if (sandbox !== undefined && pinned.codex !== null && sandbox !== pinned.codex.windowsSandbox) {
+    throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${pinned.codex.windowsSandbox}, not ${sandbox}; run it with --codex-windows-sandbox ${pinned.codex.windowsSandbox} or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+  }
   if (context.flags.strongModel !== undefined || context.flags.fastModel !== undefined) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }

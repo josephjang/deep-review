@@ -506,9 +506,12 @@ export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
   };
 }
 
+/** The name the Codex adapter registers under, which a review's Codex-only settings are keyed by. */
+export const codexRuntimeName = 'codex';
+
 /** Everything about the Codex adapter that no option changes; `createCodexAdapter` adds the command. */
 const codexRuntime: Omit<RuntimeAdapter, 'command'> = {
-  name: 'codex',
+  name: codexRuntimeName,
   capabilities: {
     assignsSessionId: false,
     budgetCap: false,

@@ -7,11 +7,11 @@ import { assembleRoles, repositoryRolesRoot, type AssembledRole } from '../../sr
 import { InvalidPolicyError } from '../../src/review/errors.ts';
 import { parsePolicy, pinnedRole, policyFileName, readPolicy, resolvePolicy, rolesDigest, type PolicyFile } from '../../src/review/policy.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { codexAdapter } from '../../src/runtime/codex.ts';
+import { codexAdapter, windowsSandboxes } from '../../src/runtime/codex.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
-import { limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2, reviewConfiguredV3 } from '../../src/checkpoint/events.ts';
+import { codexWindowsSandboxesV4, limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2, reviewConfiguredV3, reviewConfiguredV4 } from '../../src/checkpoint/events.ts';
 import { maxTimeoutMs } from '../../src/runtime/contract.ts';
-import { invocationFlagProblem, maxBatchSize, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
+import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxBatchSize, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
 import { configurationV1 } from '../helpers/review-history.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
@@ -201,6 +201,69 @@ describe('the per-invocation flags', () => {
     assert.ok(!reviewConfiguredV3.safeParse(configurationV2).success, 'version 3 requires it');
     for (const userRules of ['ignore', 'apply', 'judge']) assert.ok(reviewConfiguredV3.safeParse({ ...configurationV2, survey: { userRules } }).success, userRules);
     assert.ok(!reviewConfiguredV3.safeParse({ ...configurationV2, survey: { userRules: 'never' } }).success);
+  });
+
+  it('pins the Codex Windows sandbox from version 4 on: one of three values for a Codex run, none for another runtime (R3 of the Codex sandbox)', () => {
+    const codexRun = { ...configurationV3, runtime: 'codex' };
+    assert.ok(!reviewConfiguredV3.safeParse({ ...codexRun, codex: null }).success, 'version 3 has no Codex Windows sandbox');
+    assert.ok(!reviewConfiguredV4.safeParse(codexRun).success, 'version 4 requires it');
+    for (const windowsSandbox of ['unelevated', 'elevated', 'none']) assert.ok(reviewConfiguredV4.safeParse({ ...codexRun, codex: { windowsSandbox } }).success, windowsSandbox);
+    assert.ok(reviewConfiguredV4.safeParse({ ...codexRun, codex: null }).success, 'a Codex run off Windows pins none');
+    assert.ok(reviewConfiguredV4.safeParse({ ...configurationV3, codex: null }).success, 'a Claude Code run pins none');
+    assert.ok(!reviewConfiguredV4.safeParse({ ...configurationV3, codex: { windowsSandbox: 'elevated' } }).success, 'a Claude Code run cannot pin one');
+    assert.ok(!reviewConfiguredV4.safeParse({ ...codexRun, codex: { windowsSandbox: 'full-access' } }).success);
+    assert.ok(!reviewConfiguredV4.safeParse({ ...codexRun, codex: { windowsSandbox: 'none', extra: 1 } }).success, 'the block is closed');
+    assert.ok(!reviewConfiguredV4.safeParse({ ...codexRun, fix: true, codex: null }).success, 'the fix pass refinements still hold');
+  });
+
+  it('records exactly the Windows sandboxes the Codex adapter has, so a new one needs a new version of the event', () => {
+    assert.deepEqual(codexWindowsSandboxesV4, windowsSandboxes);
+  });
+});
+
+describe('the Codex Windows sandbox (R1, R3 of the Codex sandbox)', () => {
+  it('is unelevated by default in the committed policy, named on the Codex entry alone', () => {
+    assert.equal(committed.runtimes.codex?.windowsSandbox, 'unelevated');
+    assert.equal(committed.runtimes.claude?.windowsSandbox, undefined);
+  });
+
+  it('refuses a policy whose Codex entry names none, another entry that names one, or a value Codex lacks', () => {
+    assert.throws(() => parsePolicy(changed((copy) => { delete copy.runtimes.codex!.windowsSandbox; })), (error: unknown) => error instanceof InvalidPolicyError && /the codex entry names its windowsSandbox, one of unelevated, elevated, none/.test(error.message));
+    assert.throws(() => parsePolicy(changed((copy) => { copy.runtimes.claude!.windowsSandbox = 'elevated'; })), (error: unknown) => error instanceof InvalidPolicyError && /a windowsSandbox is a setting of the codex entry only/.test(error.message));
+    assert.throws(() => parsePolicy(changed((copy) => { copy.runtimes.codex!.windowsSandbox = 'sandboxed'; })), InvalidPolicyError);
+    for (const windowsSandbox of ['unelevated', 'elevated', 'none']) assert.equal(parsePolicy(changed((copy) => { copy.runtimes.codex!.windowsSandbox = windowsSandbox; })).runtimes.codex?.windowsSandbox, windowsSandbox);
+  });
+
+  it('is the policy\'s value for a Codex run on Windows, and the flag\'s when it is given', () => {
+    assert.deepEqual(resolvePolicy(committed, roles, codexAdapter, {}, 'win32').codex, { windowsSandbox: 'unelevated' });
+    const elevatedPolicy = parsePolicy(changed((copy) => { copy.runtimes.codex!.windowsSandbox = 'elevated'; }));
+    assert.deepEqual(resolvePolicy(elevatedPolicy, roles, codexAdapter, {}, 'win32').codex, { windowsSandbox: 'elevated' });
+    for (const codexWindowsSandbox of ['unelevated', 'elevated', 'none'] as const) {
+      assert.deepEqual(resolvePolicy(elevatedPolicy, roles, codexAdapter, { codexWindowsSandbox }, 'win32').codex, { windowsSandbox: codexWindowsSandbox }, codexWindowsSandbox);
+    }
+  });
+
+  it('is none for a Codex run on another platform, flag or not, and for a Claude Code run', () => {
+    for (const platform of ['linux', 'darwin'] as const) {
+      assert.equal(resolvePolicy(committed, roles, codexAdapter, {}, platform).codex, null, platform);
+      assert.equal(resolvePolicy(committed, roles, codexAdapter, { codexWindowsSandbox: 'none' }, platform).codex, null, `${platform} with the flag`);
+    }
+    assert.equal(resolvePolicy(committed, roles, claudeAdapter, {}, 'win32').codex, null);
+  });
+
+  it('refuses the flag on another runtime than Codex, or naming a sandbox Codex lacks, before any run exists', () => {
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { codexWindowsSandbox: 'elevated' }, 'win32'), (error: unknown) => error instanceof InvalidPolicyError && error.message === '--codex-windows-sandbox applies only to runtime codex, not claude');
+    assert.throws(() => refuseInvocationFlags(codexAdapter, { codexWindowsSandbox: 'full' as never }), (error: unknown) => error instanceof InvalidPolicyError && error.message === '--codex-windows-sandbox must be one of unelevated, elevated, none, not "full"');
+    assert.equal(codexWindowsSandboxFlagProblem('claude', undefined), null, 'no flag, no problem');
+    assert.equal(codexWindowsSandboxFlagProblem('codex', 'none'), null);
+    assert.equal(codexWindowsSandboxFlagProblem('claude', 'nope'), '--codex-windows-sandbox must be one of unelevated, elevated, none, not "nope"', 'the value is named before the runtime');
+  });
+
+  it('refuses a Codex entry that names none when the policy was not parsed, rather than guessing one', () => {
+    const unchecked = structuredClone(committed);
+    delete (unchecked.runtimes.codex as { windowsSandbox?: unknown }).windowsSandbox;
+    assert.throws(() => resolvePolicy(unchecked, roles, codexAdapter, {}, 'win32'), (error: unknown) => error instanceof InvalidPolicyError && /codex entry names no windowsSandbox/.test(error.message));
+    assert.equal(resolvePolicy(unchecked, roles, codexAdapter, {}, 'linux').codex, null, 'off Windows it is not asked for');
   });
 });
 
