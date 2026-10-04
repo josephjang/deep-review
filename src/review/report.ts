@@ -15,7 +15,7 @@ import { fixHeaderLine, fixLimitations, fixSections } from './fix-report.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { conventionsSection, surveyLimitations } from './survey-report.ts';
+import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
 
 export interface ReportInput {
@@ -196,7 +196,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
   ];
   const anglesSection = ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has no such section.
-  const conventions = conventionsSection(review);
+  const conventions = conventionsReportSection(review);
   const findingsSection = [
     '## Findings',
     '',
