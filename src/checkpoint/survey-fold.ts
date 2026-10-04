@@ -66,12 +66,15 @@ const surveyRecorded: Reducer<SurveyRecorded> = (state, payload, event, drafts: 
  * not even a user-level file the policy applies, the `CONVENTIONS` angle
  * has nothing to hold the change to and is recorded as not run, so the
  * sweep is told to cover its territory (R9 of the repository survey).
+ * Its decisions are the pinned policy's alone: under `judge` only the
+ * surveyor applies a user-level file, so with no survey none applies.
  */
 const surveyFailed: Reducer<SurveyFailed> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
   const survey = requireOpenSurvey(review, event);
   if (survey.answers.length > 0) throw invalid(event, 'goes on without its survey after recording an answer');
   requireConventions(review, event, payload.conventions, payload.userRules);
+  if (review.configuration.survey.userRules === 'judge' && payload.userRules.some((rule) => rule.applied)) throw invalid(event, 'applies a user-level rules file with no survey to judge it under the policy value judge');
   const anglesNotRun = payload.conventions.length > 0 ? review.anglesNotRun : { ...review.anglesNotRun, CONVENTIONS: `the survey failed, so no convention source is known: ${payload.reason}` };
   return withReview(current, { ...review, survey: { ...survey, failure: payload }, anglesNotRun }, event);
 };
