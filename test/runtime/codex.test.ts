@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
 import { maxLineBytes, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
-import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter, isWindowsSandbox, tomlString, type CodexProvider } from '../../src/runtime/codex.ts';
+import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter, isWindowsSandbox, tomlString, windowsSandboxes, type CodexProvider, type WindowsSandbox } from '../../src/runtime/codex.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { textOutputs } from '../helpers/outputs.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
@@ -195,6 +195,33 @@ describe('Windows sandbox option', () => {
         assert.deepEqual(none.command(invocation({ access }), plan({ scratch, platform: 'win32', environment })).environment, { HOME: 'h', PATH: 'C:\\Windows' }, access);
       }
     });
+  });
+
+  it('confines every worker as its value, access and platform say, scratch directory given or not', () => {
+    const confinementOf = (args: readonly string[]): string[] => args.filter((arg) => /^(sandbox_mode|sandbox_workspace_write\.|windows\.sandbox)/.test(arg));
+    const roots = `sandbox_workspace_write.writable_roots=[${JSON.stringify(scratch)}]`;
+    type Case = [NodeJS.Platform, WindowsSandbox, 'read-only' | 'edit', string[]];
+    const cases: Case[] = [
+      ['win32', 'unelevated', 'read-only', ['sandbox_mode="read-only"', 'windows.sandbox="unelevated"']],
+      ['win32', 'unelevated', 'edit', ['sandbox_mode="workspace-write"', roots, 'windows.sandbox="unelevated"']],
+      ['win32', 'elevated', 'read-only', ['sandbox_mode="read-only"', 'windows.sandbox="elevated"']],
+      ['win32', 'elevated', 'edit', ['sandbox_mode="workspace-write"', roots, 'windows.sandbox="elevated"']],
+      ['win32', 'none', 'read-only', ['sandbox_mode="read-only"', 'windows.sandbox="unelevated"']],
+      ['win32', 'none', 'edit', ['sandbox_mode="danger-full-access"', 'windows.sandbox="unelevated"']],
+      ...(['linux', 'darwin'] as const).flatMap((platform) =>
+        windowsSandboxes.flatMap((sandbox): Case[] => [
+          [platform, sandbox, 'read-only', ['sandbox_mode="read-only"']],
+          [platform, sandbox, 'edit', ['sandbox_mode="workspace-write"', roots]],
+        ]),
+      ),
+    ];
+    assert.equal(cases.length, 18, 'every value, access and platform');
+    for (const [platform, sandbox, access, flags] of cases) {
+      const command = (given: string | null): readonly string[] => createCodexAdapter({ windowsSandbox: sandbox }).command(invocation({ access }), plan({ platform, scratch: given })).args;
+      const label = `${platform} ${sandbox} ${access}`;
+      assert.deepEqual(confinementOf(command(scratch)), flags, label);
+      assert.deepEqual(confinementOf(command(null)), flags.filter((flag) => flag !== roots), `${label} without a scratch directory`);
+    }
   });
 
   it('is chosen through the default runtimes', () => {

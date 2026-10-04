@@ -239,36 +239,49 @@ export function providerConfig(provider: CodexProvider): string[] {
   ];
 }
 
+/** How one worker is confined: what `codexCommand` writes as `sandbox_mode`, its writable roots and `windows.sandbox`. */
+interface Confinement {
+  readonly sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access';
+  /** Directories a `workspace-write` sandbox may write besides the worktree; empty under every other mode, where they mean nothing. */
+  readonly writableRoots: readonly string[];
+  /** The Codex Windows sandbox the worker's commands run in, or null off Windows, where Codex has none to choose. */
+  readonly windowsSandbox: Exclude<WindowsSandbox, 'none'> | null;
+}
+
 /**
- * The `sandbox_mode` a worker runs under: `read-only` for a reader and
- * `workspace-write` for an editor, except that on Windows under `none` an
- * editor runs in no sandbox, `danger-full-access`. A reader keeps its
- * sandbox under every value, and no other platform has a `none`.
+ * How the adapter's `windowsSandbox` confines one worker, every value's
+ * meaning in one place. A reader runs `read-only` and an editor
+ * `workspace-write` with the scratch directory writable, under the
+ * chosen Windows sandbox on Windows and under none elsewhere. `none`
+ * means something on Windows only: an editor runs in no sandbox,
+ * `danger-full-access`, with no writable root, and every worker keeps
+ * `windows.sandbox="unelevated"`, which needs no setup, so a reader
+ * stays read-only.
  */
-function sandboxMode(invocation: Invocation, platform: NodeJS.Platform, windowsSandbox: WindowsSandbox): 'read-only' | 'workspace-write' | 'danger-full-access' {
-  if (invocation.access !== 'edit') return 'read-only';
-  return platform === 'win32' && windowsSandbox === 'none' ? 'danger-full-access' : 'workspace-write';
+function confinementOf(invocation: Invocation, plan: Pick<LaunchPlan, 'platform' | 'scratch'>, windowsSandbox: WindowsSandbox): Confinement {
+  const windows = plan.platform === 'win32';
+  const codexSandbox = !windows ? null : windowsSandbox === 'none' ? 'unelevated' : windowsSandbox;
+  if (invocation.access !== 'edit') return { sandboxMode: 'read-only', writableRoots: [], windowsSandbox: codexSandbox };
+  if (windows && windowsSandbox === 'none') return { sandboxMode: 'danger-full-access', writableRoots: [], windowsSandbox: codexSandbox };
+  return { sandboxMode: 'workspace-write', writableRoots: plan.scratch === null ? [] : [plan.scratch], windowsSandbox: codexSandbox };
 }
 
 /**
  * The Codex command line for one worker. `windowsSandbox` is the adapter's
- * choice, applied only on Windows: Codex's own Windows sandbox for every
- * worker, `unelevated` for the readers under `none`, and the environment
- * the adapter adjusts for it. `provider`, when there is one, is chosen for
- * a fresh worker and a continuation alike.
+ * choice, applied only on Windows, as `confinementOf` reads it, and the
+ * environment the adapter adjusts for it. `provider`, when there is one,
+ * is chosen for a fresh worker and a continuation alike.
  */
 export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox, provider: CodexProvider | null = null): WorkerCommand {
-  const mode = sandboxMode(invocation, plan.platform, windowsSandbox);
-  // A read-only sandbox writes nowhere and no sandbox needs no root, so only a confined editor is given the scratch directory.
-  const writable = mode === 'workspace-write' && plan.scratch !== null ? [plan.scratch] : [];
+  const confinement = confinementOf(invocation, plan, windowsSandbox);
   const options = [
     '--ignore-user-config',
     '--strict-config',
     '--ignore-rules',
     '--skip-git-repo-check',
-    '--config', `sandbox_mode=${tomlString(mode)}`,
-    ...(writable.length === 0 ? [] : ['--config', `sandbox_workspace_write.writable_roots=[${writable.map(tomlString).join(',')}]`]),
-    ...(plan.platform === 'win32' ? ['--config', `windows.sandbox=${tomlString(windowsSandbox === 'none' ? 'unelevated' : windowsSandbox)}`] : []),
+    '--config', `sandbox_mode=${tomlString(confinement.sandboxMode)}`,
+    ...(confinement.writableRoots.length === 0 ? [] : ['--config', `sandbox_workspace_write.writable_roots=[${confinement.writableRoots.map(tomlString).join(',')}]`]),
+    ...(confinement.windowsSandbox === null ? [] : ['--config', `windows.sandbox=${tomlString(confinement.windowsSandbox)}`]),
     ...isolation.flatMap((setting) => ['--config', setting]),
     ...(provider === null ? [] : providerConfig(provider)).flatMap((setting) => ['--config', setting]),
     '--model', invocation.model,
