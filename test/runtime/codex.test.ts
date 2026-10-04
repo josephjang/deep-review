@@ -180,8 +180,8 @@ describe('Windows sandbox option', () => {
       }
     });
 
-    it('leaves the environment as unelevated does', () => {
-      const environment = { PATH: 'C:\\Windows', HOME: 'h' };
+    it('leaves the environment as unelevated does, WindowsApps dropped even for the unsandboxed editor', () => {
+      const environment = { PATH: 'C:\\Windows;C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps', HOME: 'h' };
       for (const access of ['edit', 'read-only'] as const) {
         assert.deepEqual(none.command(invocation({ access }), plan({ scratch, platform: 'win32', environment })).environment, { HOME: 'h', PATH: 'C:\\Windows' }, access);
       }
