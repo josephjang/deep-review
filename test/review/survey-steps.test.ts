@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { conventionsKnown } from '../../src/checkpoint/survey-state.ts';
 import { noCheckFlags, type CheckFlags } from '../../src/review/checks/discover.ts';
 import { checkUnavailableBlocker, nextStep, unitsOf, workerFailedBlocker, type Live } from '../../src/review/steps.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
@@ -165,6 +166,23 @@ describe('nextStep in the survey', () => {
     assert.equal(nextStep(lost.review(), live({ checkFlags: allFour })).kind, 'plan-checks');
     // Flags that leave a kind unsettled retry the surveyor in the attempt.
     assert.deepEqual(nextStep(interrupted.review(), idle), { kind: 'launch', units: [surveyor] });
+  });
+
+  it('goes on from an earlier answer, its convention sources standing, when the flags settle a survey that failed twice after it, as the action says (R9)', () => {
+    const unavailable = checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }]);
+    const resurveyed = answered(missingRuff).finish('survey', 'blocked', 1, unavailable).start('survey', 2);
+    const twice = failedOnce(failedOnce(resurveyed, 2), 3);
+    const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
+    assert.deepEqual(nextStep(twice.review(), idle), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'blocked', blocker: failed });
+    assert.equal(failed.action, surveyWorkerFailedAction);
+    assert.match(failed.action, /with the convention sources of an earlier survey of this run if one answered, and with none otherwise/);
+    // The flags plan the checks over the earlier answer, and the run records no failure: that answer is still the run's survey.
+    const reentered = twice.finish('survey', 'blocked', 2, failed).start('survey', 3);
+    const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
+    assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    const planned = reentered.add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 2).review();
+    assert.deepEqual(conventionsKnown(planned.survey), { status: 'surveyed', sources: surveyAnswer(worker(1)).conventions, userRules: [] });
+    assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 3, outcome: 'completed', blocker: null });
   });
 
   it('launches the surveyor of a fix run whose flags settle all four kinds, on its first attempt, for the conventions', () => {

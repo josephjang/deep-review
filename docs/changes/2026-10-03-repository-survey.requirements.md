@@ -167,8 +167,10 @@ contributing guide.
   says so under Limitations. A fix run blocks, since going on would run
   no check the flags did not name: the blocker's action is to run the
   command again, which surveys afresh, or to settle every kind with
-  `--check` and `--no-check`, after which the run goes on with no
-  convention sources.
+  `--check` and `--no-check`, after which the run goes on without
+  surveying again: with the convention sources of an earlier answer of
+  the run, one that blocked on a missing tool, and with none when no
+  attempt answered.
 - **R10: The report and the log show the choice.** The log prints each
   convention source and each check with its origin when the survey is
   recorded. The report gains a Conventions section (each source, what it

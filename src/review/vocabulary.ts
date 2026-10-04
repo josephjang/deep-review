@@ -153,9 +153,13 @@ export const blockerActions: Readonly<Record<BlockerCode, string>> = {
 /**
  * The `worker-failed` action when the survey of a fix run blocks (R9 of
  * the repository survey): going on with no survey would run no check the
- * flags did not name, so the operator may name all four instead.
+ * flags did not name, so the operator may name all four instead. The run
+ * then surveys no more; an answer an earlier attempt recorded, before a
+ * `check-unavailable` block, stays the run's survey and its convention
+ * sources govern the review, and with none the run records the survey as
+ * failed and goes on with no convention source.
  */
-export const surveyWorkerFailedAction = 'run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without the survey and its convention sources, or abandon the run';
+export const surveyWorkerFailedAction = 'run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without surveying again, with the convention sources of an earlier survey of this run if one answered, and with none otherwise, or abandon the run';
 
 /**
  * The `runtime-unqualified` action for a configured run, which keeps the
