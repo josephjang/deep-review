@@ -515,3 +515,16 @@ What the runs showed:
 
 Not settled: R10 as written, with the policy's models and every finding.
 D4 was decided on this evidence on 2026-10-05: the default is `none`.
+
+### R11 and R12 (2026-10-05)
+
+`b0cb767` spells the search path `PATH` (R11), with a test that every
+spelling a caller holds becomes one `PATH` under every value, which
+failed before the change; `ecc01bc` gives the elevated surveyor the
+`Get-Command` lookup (R12), with a test that it is the one difference
+from every other surveyor task and run-level tests that an elevated
+run's surveyor gets it and a `none` or `unelevated` one keeps
+`where.exe`. `npm run check` passes at `ecc01bc`: 1445 tests, 1426
+passing and 19 skipped; `npm run verify` matches. Both rest on the
+`codex sandbox` probes in Evidence; no `codex exec` run has used them
+yet.
