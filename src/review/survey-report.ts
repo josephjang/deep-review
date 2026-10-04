@@ -8,11 +8,12 @@
  * configured before the survey existed has none of these, and its report
  * renders as it did before.
  */
-import type { ConventionSource, SurveyedCheck, UserRuleDecision } from '../checkpoint/events.ts';
+import type { ConventionSource, UserRuleDecision } from '../checkpoint/events.ts';
 import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { conventionsKnown, type SurveyState } from '../checkpoint/survey-state.ts';
 import { inlineText, tableCell } from './markdown.ts';
+import type { UnavailableCheck } from './survey.ts';
 
 /**
  * The surveyed command of a kind whose tool was missing, or null: read
@@ -22,13 +23,13 @@ import { inlineText, tableCell } from './markdown.ts';
  * older answer that found the tool missing never outweighs a later one
  * that found it present or found no command.
  */
-function missingToolOf(survey: SurveyState, kind: PlannedCheck['kind']): SurveyedCheck | null {
+function missingToolOf(survey: SurveyState, kind: PlannedCheck['kind']): UnavailableCheck | null {
   const entry = survey.answers.findLast((answer) => answer.checks?.some((check) => check.kind === kind) === true)?.checks?.find((check) => check.kind === kind);
-  return entry === undefined || entry.command === null || entry.missingTool === null ? null : entry;
+  return entry === undefined || entry.command === null || entry.missingTool === null ? null : { kind, command: entry.command, source: entry.source.path, missingTool: entry.missingTool };
 }
 
 /** What the project defines for a kind whose tool was missing, as a phrase: its command, its source and the tool. */
-const definedPhrase = (entry: SurveyedCheck): string => `the project defines \`${entry.command ?? ''}\` (${entry.source?.path ?? 'no source'}), ${entry.missingTool ?? 'a tool'} not found`;
+const definedPhrase = (defined: UnavailableCheck): string => `the project defines \`${defined.command}\` (${defined.source}), ${defined.missingTool} not found`;
 
 /**
  * Where a surveyed run's check came from, as its cell in the Checks

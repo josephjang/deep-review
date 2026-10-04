@@ -20583,19 +20583,24 @@ var userRuleDecisionSchema = external_exports.strictObject({
   applied: external_exports.boolean(),
   reason: external_exports.string().min(1).max(1e3)
 });
-var surveyedCheckSchema = external_exports.strictObject({
-  kind: checkKindSchemaV3,
-  command: external_exports.string().min(1).max(2e3).nullable(),
-  basis: checkBaseSchemaV3.nullable(),
-  source: external_exports.strictObject({ path: surveyPathSchema, quote: external_exports.string().min(1).max(2e3) }).nullable(),
-  missingTool: external_exports.string().min(1).max(400).nullable(),
-  reason: external_exports.string().min(1).max(1e3).nullable()
-}).superRefine((check2, context) => {
-  const commanded = check2.command !== null;
-  if (commanded !== (check2.basis !== null) || commanded !== (check2.source !== null)) context.addIssue({ code: "custom", message: "a command alone has a basis and a source", path: ["command"] });
-  if (check2.missingTool !== null && !commanded) context.addIssue({ code: "custom", message: "a missing tool is named only for a command", path: ["missingTool"] });
-  if (!commanded && check2.reason === null) context.addIssue({ code: "custom", message: "a kind with no command says why", path: ["reason"] });
-});
+var surveyedCheckSchema = external_exports.union([
+  external_exports.strictObject({
+    kind: checkKindSchemaV3,
+    command: external_exports.string().min(1).max(2e3),
+    basis: checkBaseSchemaV3,
+    source: external_exports.strictObject({ path: surveyPathSchema, quote: external_exports.string().min(1).max(2e3) }),
+    missingTool: external_exports.string().min(1).max(400).nullable(),
+    reason: external_exports.string().min(1).max(1e3).nullable()
+  }),
+  external_exports.strictObject({
+    kind: checkKindSchemaV3,
+    command: external_exports.null(),
+    basis: external_exports.null(),
+    source: external_exports.null(),
+    missingTool: external_exports.null(),
+    reason: external_exports.string().min(1).max(1e3)
+  })
+]);
 function refineConventions(recorded, context) {
   if (new Set(recorded.conventions.map((source) => source.path)).size !== recorded.conventions.length) context.addIssue({ code: "custom", message: "each convention source is named once", path: ["conventions"] });
   if (new Set(recorded.userRules.map((rule) => rule.path)).size !== recorded.userRules.length) context.addIssue({ code: "custom", message: "each user-level file is decided once", path: ["userRules"] });
@@ -20621,18 +20626,18 @@ var surveyFailedV1 = external_exports.strictObject({
   refineConventions(failed2, context);
   if (failed2.conventions.some((source) => source.level !== "user")) context.addIssue({ code: "custom", message: "a failed survey names no repository source", path: ["conventions"] });
 });
-var plannedCheckSchemaV2 = external_exports.strictObject({
-  kind: checkKindSchemaV3,
-  command: external_exports.string().min(1).nullable(),
-  origin: external_exports.enum(vocabularyV3.checkOrigins),
-  reason: external_exports.string().min(1).max(1e3).nullable(),
-  source: external_exports.strictObject({ path: surveyPathSchema, quote: external_exports.string().min(1).max(2e3), basis: checkBaseSchemaV3 }).nullable()
-}).superRefine((check2, context) => {
-  if (check2.command === null !== (check2.reason !== null)) context.addIssue({ code: "custom", message: "a reason is given exactly when the kind has no command", path: ["reason"] });
-  if (check2.origin === "survey" !== (check2.source !== null)) context.addIssue({ code: "custom", message: "a source is given exactly for the survey's command", path: ["source"] });
-  if (check2.origin === "survey" && check2.command === null) context.addIssue({ code: "custom", message: "the survey's check has a command", path: ["command"] });
-  if (check2.origin === "none" && check2.command !== null) context.addIssue({ code: "custom", message: "a check nobody decided has no command", path: ["command"] });
-});
+var plannedCheckSchemaV2 = external_exports.union([
+  external_exports.strictObject({ kind: checkKindSchemaV3, command: external_exports.string().min(1), origin: external_exports.literal("flag"), reason: external_exports.null(), source: external_exports.null() }),
+  external_exports.strictObject({ kind: checkKindSchemaV3, command: external_exports.null(), origin: external_exports.literal("flag"), reason: external_exports.string().min(1).max(1e3), source: external_exports.null() }),
+  external_exports.strictObject({
+    kind: checkKindSchemaV3,
+    command: external_exports.string().min(1),
+    origin: external_exports.literal("survey"),
+    reason: external_exports.null(),
+    source: external_exports.strictObject({ path: surveyPathSchema, quote: external_exports.string().min(1).max(2e3), basis: checkBaseSchemaV3 })
+  }),
+  external_exports.strictObject({ kind: checkKindSchemaV3, command: external_exports.null(), origin: external_exports.literal("none"), reason: external_exports.string().min(1).max(1e3), source: external_exports.null() })
+]);
 var checksPlannedV2 = external_exports.strictObject({
   checks: external_exports.array(plannedCheckSchemaV2).length(vocabularyV3.checkKinds.length)
 }).refine((planned) => planned.checks.every((check2, index2) => check2.kind === vocabularyV3.checkKinds[index2]), {
@@ -24760,7 +24765,7 @@ function checkSurveyedCheck(check2, context) {
     if (check2.reason === null) throw new StructuralCheckError(`${what} has no command and gives no reason`);
     if (check2.missingTool !== null) throw new StructuralCheckError(`${what} names a missing tool and no command`);
     if (check2.source !== null || check2.basis !== null) throw new StructuralCheckError(`${what} has no command, so it has neither a source nor a basis`);
-    return { ...check2, source: null };
+    return { kind: check2.kind, command: null, basis: null, source: null, missingTool: null, reason: check2.reason };
   }
   if (check2.command.trim() === "") throw new StructuralCheckError(`${what}'s command is empty`);
   if (check2.command.includes("\0")) throw new StructuralCheckError(`${what}'s command contains a NUL character, which no shell runs`);
@@ -24771,7 +24776,8 @@ function checkSurveyedCheck(check2, context) {
     if (hint === null) throw new StructuralCheckError(`${what} stands on a hint, and the engine gave no hinted command for ${check2.kind}`);
     if (hint !== check2.command) throw new StructuralCheckError(`${what} stands on a hint, and its command ${JSON.stringify(check2.command)} is not the hint's ${JSON.stringify(hint)}`);
   }
-  return { ...check2, source: { path: repositoryFile(context, check2.source.path, `${what}'s source`), quote: check2.source.quote } };
+  const source = { path: repositoryFile(context, check2.source.path, `${what}'s source`), quote: check2.source.quote };
+  return { kind: check2.kind, command: check2.command, basis: check2.basis, source, missingTool: check2.missingTool, reason: check2.reason };
 }
 function checkSurveyAnswer(output2, context) {
   const { conventions, userRules } = checkConventions(output2, context);
@@ -24779,14 +24785,15 @@ function checkSurveyAnswer(output2, context) {
     if (output2.checks !== null) throw new StructuralCheckError("The answer chooses checks, and this run does not fix, so it runs none");
     return { conventions, userRules, checks: null, note: output2.note };
   }
-  if (output2.checks === null) throw new StructuralCheckError("The answer chooses no checks, and this run fixes");
-  requireOnce(output2.checks.map((check2) => check2.kind), "The check kind");
+  const answered2 = output2.checks;
+  if (answered2 === null) throw new StructuralCheckError("The answer chooses no checks, and this run fixes");
+  requireOnce(answered2.map((check2) => check2.kind), "The check kind");
   const wanted = unsettledKinds(context.inputs.flags);
-  const settled2 = output2.checks.filter((check2) => isSettled(context.inputs.flags, check2.kind)).map((check2) => check2.kind);
+  const settled2 = answered2.filter((check2) => isSettled(context.inputs.flags, check2.kind)).map((check2) => check2.kind);
   if (settled2.length > 0) throw new StructuralCheckError(`The answer chooses ${settled2.join(", ")}, which a flag settles`);
-  const missing = wanted.filter((kind) => !output2.checks.some((check2) => check2.kind === kind));
+  const missing = wanted.filter((kind) => !answered2.some((check2) => check2.kind === kind));
   if (missing.length > 0) throw new StructuralCheckError(`The answer chooses nothing for ${missing.join(", ")}`);
-  const checks = checkKinds.flatMap((kind) => output2.checks.filter((check2) => check2.kind === kind)).map((check2) => checkSurveyedCheck(check2, context));
+  const checks = checkKinds.flatMap((kind) => answered2.filter((check2) => check2.kind === kind)).map((check2) => checkSurveyedCheck(check2, context));
   return { conventions, userRules, checks, note: output2.note };
 }
 var droppedReason = "dropped by --no-check";
@@ -24806,7 +24813,7 @@ function resolveChecks(answer, flags) {
     }
     const surveyed = answer?.checks?.find((check2) => check2.kind === kind);
     if (surveyed === void 0) uncovered.push(kind);
-    else if (surveyed.command === null) checks.push({ kind, command: null, origin: "none", reason: surveyed.reason ?? "the survey gave no command", source: null });
+    else if (surveyed.command === null) checks.push({ kind, command: null, origin: "none", reason: surveyed.reason, source: null });
     else if (surveyed.missingTool !== null) unavailable.push({ kind, command: surveyed.command, source: surveyed.source.path, missingTool: surveyed.missingTool });
     else checks.push({ kind, command: surveyed.command, origin: "survey", reason: null, source: { ...surveyed.source, basis: surveyed.basis } });
   }
@@ -26768,9 +26775,9 @@ function contributionEvent(unit, receipt, review2, context) {
 // src/review/survey-report.ts
 function missingToolOf(survey, kind) {
   const entry = survey.answers.findLast((answer) => answer.checks?.some((check2) => check2.kind === kind) === true)?.checks?.find((check2) => check2.kind === kind);
-  return entry === void 0 || entry.command === null || entry.missingTool === null ? null : entry;
+  return entry === void 0 || entry.command === null || entry.missingTool === null ? null : { kind, command: entry.command, source: entry.source.path, missingTool: entry.missingTool };
 }
-var definedPhrase = (entry) => `the project defines \`${entry.command ?? ""}\` (${entry.source?.path ?? "no source"}), ${entry.missingTool ?? "a tool"} not found`;
+var definedPhrase = (defined) => `the project defines \`${defined.command}\` (${defined.source}), ${defined.missingTool} not found`;
 function checkSourceCell(survey, check2) {
   if (check2.origin === "survey" && check2.source !== null) return tableCell(`${check2.source.path} (${check2.source.basis})`);
   if (check2.origin === "flag" && check2.command === null) return "--no-check";
@@ -27183,7 +27190,7 @@ var revisionSummary = (revision) => {
 };
 var checkLine = (check2) => {
   const origin = check2.origin === "survey" ? `survey, ${check2.source.basis} in ${check2.source.path}` : check2.origin;
-  return check2.command === null ? `not available (${origin}: ${check2.reason ?? "no command"})` : `${check2.command} (${origin})`;
+  return check2.command === null ? `not available (${origin}: ${check2.reason})` : `${check2.command} (${origin})`;
 };
 function surveyLines(runId, survey) {
   return [

@@ -157,7 +157,7 @@ function checkSurveyedCheck(check: SurveyorCheckOutput, context: SurveyCheckCont
     if (check.reason === null) throw new StructuralCheckError(`${what} has no command and gives no reason`);
     if (check.missingTool !== null) throw new StructuralCheckError(`${what} names a missing tool and no command`);
     if (check.source !== null || check.basis !== null) throw new StructuralCheckError(`${what} has no command, so it has neither a source nor a basis`);
-    return { ...check, source: null };
+    return { kind: check.kind, command: null, basis: null, source: null, missingTool: null, reason: check.reason };
   }
   if (check.command.trim() === '') throw new StructuralCheckError(`${what}'s command is empty`);
   if (check.command.includes('\0')) throw new StructuralCheckError(`${what}'s command contains a NUL character, which no shell runs`);
@@ -169,7 +169,8 @@ function checkSurveyedCheck(check: SurveyorCheckOutput, context: SurveyCheckCont
     if (hint === null) throw new StructuralCheckError(`${what} stands on a hint, and the engine gave no hinted command for ${check.kind}`);
     if (hint !== check.command) throw new StructuralCheckError(`${what} stands on a hint, and its command ${JSON.stringify(check.command)} is not the hint's ${JSON.stringify(hint)}`);
   }
-  return { ...check, source: { path: repositoryFile(context, check.source.path, `${what}'s source`), quote: check.source.quote } };
+  const source = { path: repositoryFile(context, check.source.path, `${what}'s source`), quote: check.source.quote };
+  return { kind: check.kind, command: check.command, basis: check.basis, source, missingTool: check.missingTool, reason: check.reason };
 }
 
 /**
@@ -186,14 +187,15 @@ export function checkSurveyAnswer(output: SurveyorOutput, context: SurveyCheckCo
     if (output.checks !== null) throw new StructuralCheckError('The answer chooses checks, and this run does not fix, so it runs none');
     return { conventions, userRules, checks: null, note: output.note };
   }
-  if (output.checks === null) throw new StructuralCheckError('The answer chooses no checks, and this run fixes');
-  requireOnce(output.checks.map((check) => check.kind), 'The check kind');
+  const answered = output.checks;
+  if (answered === null) throw new StructuralCheckError('The answer chooses no checks, and this run fixes');
+  requireOnce(answered.map((check) => check.kind), 'The check kind');
   const wanted = unsettledKinds(context.inputs.flags);
-  const settled = output.checks.filter((check) => isSettled(context.inputs.flags, check.kind)).map((check) => check.kind);
+  const settled = answered.filter((check) => isSettled(context.inputs.flags, check.kind)).map((check) => check.kind);
   if (settled.length > 0) throw new StructuralCheckError(`The answer chooses ${settled.join(', ')}, which a flag settles`);
-  const missing = wanted.filter((kind) => !output.checks!.some((check) => check.kind === kind));
+  const missing = wanted.filter((kind) => !answered.some((check) => check.kind === kind));
   if (missing.length > 0) throw new StructuralCheckError(`The answer chooses nothing for ${missing.join(', ')}`);
-  const checks = checkKinds.flatMap((kind) => output.checks!.filter((check) => check.kind === kind)).map((check) => checkSurveyedCheck(check, context));
+  const checks = checkKinds.flatMap((kind) => answered.filter((check) => check.kind === kind)).map((check) => checkSurveyedCheck(check, context));
   return { conventions, userRules, checks, note: output.note };
 }
 
@@ -241,9 +243,9 @@ export function resolveChecks(answer: Pick<SurveyRecorded, 'checks'> | null, fla
     }
     const surveyed = answer?.checks?.find((check) => check.kind === kind);
     if (surveyed === undefined) uncovered.push(kind);
-    else if (surveyed.command === null) checks.push({ kind, command: null, origin: 'none', reason: surveyed.reason ?? 'the survey gave no command', source: null });
-    else if (surveyed.missingTool !== null) unavailable.push({ kind, command: surveyed.command, source: surveyed.source!.path, missingTool: surveyed.missingTool });
-    else checks.push({ kind, command: surveyed.command, origin: 'survey', reason: null, source: { ...surveyed.source!, basis: surveyed.basis! } });
+    else if (surveyed.command === null) checks.push({ kind, command: null, origin: 'none', reason: surveyed.reason, source: null });
+    else if (surveyed.missingTool !== null) unavailable.push({ kind, command: surveyed.command, source: surveyed.source.path, missingTool: surveyed.missingTool });
+    else checks.push({ kind, command: surveyed.command, origin: 'survey', reason: null, source: { ...surveyed.source, basis: surveyed.basis } });
   }
   return { checks, unavailable, uncovered };
 }

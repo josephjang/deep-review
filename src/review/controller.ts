@@ -168,8 +168,8 @@ const revisionSummary = (revision: TreeRevised): string => {
 
 /** One planned check as the log names it: its command and who decided it, with the survey's source, or why it has none. */
 const checkLine = (check: PlannedCheckV2): string => {
-  const origin = check.origin === 'survey' ? `survey, ${check.source!.basis} in ${check.source!.path}` : check.origin;
-  return check.command === null ? `not available (${origin}: ${check.reason ?? 'no command'})` : `${check.command} (${origin})`;
+  const origin = check.origin === 'survey' ? `survey, ${check.source.basis} in ${check.source.path}` : check.origin;
+  return check.command === null ? `not available (${origin}: ${check.reason})` : `${check.command} (${origin})`;
 };
 
 /** What the survey recorded, as the log names it: each convention source and each user-level decision (R10 of the repository survey). */
