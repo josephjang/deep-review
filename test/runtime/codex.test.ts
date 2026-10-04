@@ -183,7 +183,7 @@ describe('Windows sandbox option', () => {
     it('leaves the environment as unelevated does', () => {
       const environment = { PATH: 'C:\\Windows', HOME: 'h' };
       for (const access of ['edit', 'read-only'] as const) {
-        assert.deepEqual(none.command(invocation({ access }), plan({ scratch, platform: 'win32', environment })).environment, { HOME: 'h', Path: 'C:\\Windows' }, access);
+        assert.deepEqual(none.command(invocation({ access }), plan({ scratch, platform: 'win32', environment })).environment, { HOME: 'h', PATH: 'C:\\Windows' }, access);
       }
     });
   });
@@ -340,7 +340,7 @@ describe('codexEnvironment', () => {
       { Path: 'C:\\Windows;C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps', PATH: 'C:\\tools;;D:\\windowsapps\\x', HOME: 'h' },
       'win32',
     );
-    assert.deepEqual(environment, { HOME: 'h', Path: 'C:\\Windows;C:\\tools' });
+    assert.deepEqual(environment, { HOME: 'h', PATH: 'C:\\Windows;C:\\tools' });
   });
 
   it('drops a WindowsApps directory however it is written: trailing separator, forward slashes, quotes, any case', () => {
@@ -349,12 +349,12 @@ describe('codexEnvironment', () => {
       'C:/Program Files/WindowsApps/Package_1.0_x64',
       '"C:\\Users\\u\\AppData\\Local\\Microsoft\\WINDOWSAPPS"',
     ];
-    assert.deepEqual(codexEnvironment({ PATH: ['C:\\Windows', ...windowsApps].join(';') }, 'win32'), { Path: 'C:\\Windows' });
+    assert.deepEqual(codexEnvironment({ PATH: ['C:\\Windows', ...windowsApps].join(';') }, 'win32'), { PATH: 'C:\\Windows' });
   });
 
   it('keeps a directory whose name only contains WindowsApps', () => {
     const kept = ['D:\\tools\\mywindowsapps\\bin', 'C:\\WindowsAppsTools', 'E:\\windowsapps-cache', 'C:\\WindowsApps.old\\bin'];
-    assert.deepEqual(codexEnvironment({ PATH: kept.join(';') }, 'win32'), { Path: kept.join(';') });
+    assert.deepEqual(codexEnvironment({ PATH: kept.join(';') }, 'win32'), { PATH: kept.join(';') });
   });
 
   it('leaves the environment alone elsewhere', () => {
@@ -363,13 +363,21 @@ describe('codexEnvironment', () => {
     assert.notEqual(codexEnvironment(inherited, 'darwin'), inherited);
   });
 
+  it('hands the worker one search path spelled PATH, whatever spellings the caller held, so a runner that adds its own PATH makes no second one (R11)', () => {
+    for (const sandbox of ['unelevated', 'elevated', 'none'] as const) {
+      const environment = codexEnvironment({ Path: 'C:\\a', path: 'C:\\b', HOME: 'h' }, 'win32', sandbox);
+      assert.deepEqual(Object.keys(environment).filter((key) => key.toLowerCase() === 'path'), ['PATH'], sandbox);
+      assert.equal(environment.PATH, 'C:\\a;C:\\b', sandbox);
+    }
+  });
+
   it('is what the command runs with', () => {
-    assert.deepEqual(codexAdapter.command(invocation(), plan({ platform: 'win32', environment: { PATH: 'a;b\\WindowsApps' } })).environment, { Path: 'a' });
+    assert.deepEqual(codexAdapter.command(invocation(), plan({ platform: 'win32', environment: { PATH: 'a;b\\WindowsApps' } })).environment, { PATH: 'a' });
   });
 
   describe('the execution policy under the elevated sandbox', () => {
     it('is RemoteSigned for the worker\'s process tree on Windows, reader and editor alike', () => {
-      assert.deepEqual(codexEnvironment({ PATH: 'C:\\Windows', HOME: 'h' }, 'win32', 'elevated'), { HOME: 'h', Path: 'C:\\Windows', PSExecutionPolicyPreference: 'RemoteSigned' });
+      assert.deepEqual(codexEnvironment({ PATH: 'C:\\Windows', HOME: 'h' }, 'win32', 'elevated'), { HOME: 'h', PATH: 'C:\\Windows', PSExecutionPolicyPreference: 'RemoteSigned' });
       const elevated = createCodexAdapter({ windowsSandbox: 'elevated' });
       for (const access of ['edit', 'read-only'] as const) {
         assert.equal(elevated.command(invocation({ access }), plan({ scratch, platform: 'win32' })).environment.PSExecutionPolicyPreference, 'RemoteSigned', access);
@@ -377,12 +385,12 @@ describe('codexEnvironment', () => {
     });
 
     it('keeps a policy the caller already sets, in any spelling', () => {
-      assert.deepEqual(codexEnvironment({ PSExecutionPolicyPreference: 'AllSigned' }, 'win32', 'elevated'), { Path: '', PSExecutionPolicyPreference: 'AllSigned' });
-      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: 'Bypass' }, 'win32', 'elevated'), { Path: '', psexecutionpolicypreference: 'Bypass' });
+      assert.deepEqual(codexEnvironment({ PSExecutionPolicyPreference: 'AllSigned' }, 'win32', 'elevated'), { PATH: '', PSExecutionPolicyPreference: 'AllSigned' });
+      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: 'Bypass' }, 'win32', 'elevated'), { PATH: '', psexecutionpolicypreference: 'Bypass' });
     });
 
     it('replaces an empty value, which sets no policy, and every other spelling with it', () => {
-      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: '' }, 'win32', 'elevated'), { Path: '', PSExecutionPolicyPreference: 'RemoteSigned' });
+      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: '' }, 'win32', 'elevated'), { PATH: '', PSExecutionPolicyPreference: 'RemoteSigned' });
     });
 
     it('is not set under the other values, where the worker is the operator\'s own account, nor on another platform', () => {

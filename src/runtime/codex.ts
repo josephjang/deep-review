@@ -96,6 +96,12 @@ export const elevatedExecutionPolicy = { name: 'PSExecutionPolicyPreference', va
  * The caller's environment, with every spelling of PATH merged into one on
  * Windows and directories under WindowsApps removed: Codex runs tools under a
  * restricted token that cannot launch the Store's app-execution aliases.
+ * The one is spelled `PATH`, because Codex's elevated runner adds a `PATH`
+ * of its own: under any other spelling the worker's process sees two, and a
+ * tool that prepends to one while its child shell reads the other, as
+ * `pnpm exec` does with `node_modules\.bin`, loses what it prepended (R11
+ * of the Codex sandbox). Windows reads the name in any case, so this
+ * changes nothing where no runner adds one.
  * Under the elevated sandbox the PowerShell execution policy is set too,
  * unless the caller already sets it to something; under the others the
  * worker runs as the operator's own account, whose policy is the operator's.
@@ -105,7 +111,7 @@ export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJ
   const directories = spellingsOf(environment, 'PATH', platform)
     .flatMap(([, value]) => (value ?? '').split(';'))
     .filter((directory) => directory.length > 0 && !underWindowsApps(directory));
-  const adjusted = { ...withoutVariables(environment, ['PATH'], platform), Path: directories.join(';') };
+  const adjusted = { ...withoutVariables(environment, ['PATH'], platform), PATH: directories.join(';') };
   if (windowsSandbox !== 'elevated') return adjusted;
   // An empty value sets no policy, so it is replaced, every other spelling with it.
   const { name, value } = elevatedExecutionPolicy;

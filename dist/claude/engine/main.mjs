@@ -22888,7 +22888,7 @@ var elevatedExecutionPolicy = { name: "PSExecutionPolicyPreference", value: "Rem
 function codexEnvironment(environment, platform, windowsSandbox = "unelevated") {
   if (platform !== "win32") return { ...environment };
   const directories = spellingsOf(environment, "PATH", platform).flatMap(([, value2]) => (value2 ?? "").split(";")).filter((directory) => directory.length > 0 && !underWindowsApps(directory));
-  const adjusted = { ...withoutVariables(environment, ["PATH"], platform), Path: directories.join(";") };
+  const adjusted = { ...withoutVariables(environment, ["PATH"], platform), PATH: directories.join(";") };
   if (windowsSandbox !== "elevated") return adjusted;
   const { name, value } = elevatedExecutionPolicy;
   const given = spellingsOf(adjusted, name, platform).some(([, set2]) => set2 !== void 0 && set2 !== "");
