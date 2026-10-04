@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { hintChecks, isSettled, justfileHas, makefileHas, noHintReading, packageScriptFor, readRootManifests, taskfileHas, unsettledKinds, type RootManifests } from '../../../src/review/checks/discover.ts';
+import { flagSetting, hintChecks, isSettled, justfileHas, makefileHas, noHintReading, packageScriptFor, readRootManifests, settledKinds, taskfileHas, unsettledKinds, type RootManifests } from '../../../src/review/checks/discover.ts';
 
 /** A root holding the given manifests, and `extra` entries besides them. */
 const root = (files: RootManifests['files'], extra: readonly string[] = []): RootManifests => ({ files, entries: [...Object.keys(files), ...extra] });
@@ -127,6 +127,17 @@ describe('the settled kinds', () => {
     assert.deepEqual(unsettledKinds(flags), ['typecheck', 'test']);
     assert.deepEqual(unsettledKinds({ commands: {}, dropped: [] }), ['build', 'typecheck', 'lint', 'test']);
     assert.deepEqual(unsettledKinds({ commands: { build: 'a', typecheck: 'b', lint: 'c' }, dropped: ['test'] }), []);
+  });
+
+  it('reads one setting per kind, a drop winning over a command, and lists the settled kinds in run order', () => {
+    // --check build=make --no-check build: the drop wins, as the survey's task and the plan both read it.
+    const flags = { commands: { test: 'npm test', lint: 'eslint .', build: 'make' }, dropped: ['build' as const] };
+    assert.deepEqual(flagSetting(flags, 'lint'), { command: 'eslint .' });
+    assert.deepEqual(flagSetting(flags, 'build'), { command: null });
+    assert.deepEqual(flagSetting(flags, 'test'), { command: 'npm test' });
+    assert.equal(flagSetting(flags, 'typecheck'), null);
+    assert.deepEqual(settledKinds(flags), [{ kind: 'build', command: null }, { kind: 'lint', command: 'eslint .' }, { kind: 'test', command: 'npm test' }]);
+    assert.deepEqual(settledKinds({ commands: {}, dropped: [] }), []);
   });
 });
 

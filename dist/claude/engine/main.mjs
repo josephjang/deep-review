@@ -23880,7 +23880,16 @@ var manifestNames = [
   "pytest.ini"
 ];
 var noCheckFlags = { commands: {}, dropped: [] };
-var isSettled = (flags, kind) => flags.dropped.includes(kind) || flags.commands[kind] !== void 0;
+function flagSetting(flags, kind) {
+  if (flags.dropped.includes(kind)) return { command: null };
+  const command = flags.commands[kind];
+  return command === void 0 ? null : { command };
+}
+var isSettled = (flags, kind) => flagSetting(flags, kind) !== null;
+var settledKinds = (flags) => checkKinds.flatMap((kind) => {
+  const setting = flagSetting(flags, kind);
+  return setting === null ? [] : [{ kind, command: setting.command }];
+});
 var unsettledKinds = (flags) => checkKinds.filter((kind) => !isSettled(flags, kind));
 var lockFiles = [
   ["pnpm-lock.yaml", "pnpm"],
@@ -24802,13 +24811,9 @@ function resolveChecks(answer, flags) {
   const unavailable = [];
   const uncovered = [];
   for (const kind of checkKinds) {
-    if (flags.dropped.includes(kind)) {
-      checks.push({ kind, command: null, origin: "flag", reason: droppedReason, source: null });
-      continue;
-    }
-    const flagged = flags.commands[kind];
-    if (flagged !== void 0) {
-      checks.push({ kind, command: flagged, origin: "flag", reason: null, source: null });
+    const flagged = flagSetting(flags, kind);
+    if (flagged !== null) {
+      checks.push(flagged.command === null ? { kind, command: null, origin: "flag", reason: droppedReason, source: null } : { kind, command: flagged.command, origin: "flag", reason: null, source: null });
       continue;
     }
     const surveyed = answer?.checks?.find((check2) => check2.kind === kind);
@@ -26584,7 +26589,7 @@ function surveyTaskOf(review2, inputs) {
   return surveyTask({
     platform: inputs.platform,
     fix,
-    settled: fix ? checkKinds.filter((kind) => isSettled(inputs.flags, kind)).map((kind) => ({ kind, command: inputs.flags.dropped.includes(kind) ? null : inputs.flags.commands[kind] ?? null })) : [],
+    settled: fix ? settledKinds(inputs.flags) : [],
     unsettled,
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
