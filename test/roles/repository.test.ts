@@ -265,6 +265,14 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  it('tells the surveyor to list the rule files inside a directory of rules, never the directory, which the engine refuses (R8 of the repository survey)', () => {
+    // checkSurveyAnswer refuses a source that is not a regular file, and the retry is not told why, so naming the directory fails both attempts.
+    const surveyor = roles.find((role) => role.key === 'surveyor')!;
+    assert.match(surveyor.prompt, /the files in a\s+`\.cursor\/rules` directory/);
+    assert.match(surveyor.prompt, /list each such file, never a\s+directory/);
+    assert.doesNotMatch(surveyor.prompt, /a `\.cursor\/rules`\s+directory and the like/);
+  });
+
   it('tells every fixer role to keep its edits within the convention sources the scope block lists (R7 of the repository survey)', () => {
     for (const key of fixerRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
