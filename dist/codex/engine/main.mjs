@@ -22884,6 +22884,9 @@ function underWindowsApps(directory) {
   return directory.replaceAll('"', "").split(/[\\/]/).some((segment) => segment.toLowerCase() === "windowsapps");
 }
 var windowsSandboxes = ["unelevated", "elevated", "none"];
+function isWindowsSandbox(value) {
+  return windowsSandboxes.some((sandbox) => sandbox === value);
+}
 var elevatedExecutionPolicy = { name: "PSExecutionPolicyPreference", value: "RemoteSigned" };
 function codexEnvironment(environment, platform, windowsSandbox = "unelevated") {
   if (platform !== "win32") return { ...environment };
@@ -23124,7 +23127,7 @@ function createCodexAdapter(options2 = {}) {
   const unknown2 = unknownKeys(given, codexOptionKeys);
   if (unknown2.length > 0) throw new Error(`Unknown Codex option ${JSON.stringify(unknown2[0])}; use ${codexOptionKeys.join(" or ")}`);
   const windowsSandbox = options2.windowsSandbox ?? "unelevated";
-  if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(", ")}`);
+  if (!isWindowsSandbox(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(", ")}`);
   const provider = options2.provider === void 0 ? null : checkedProvider(options2.provider);
   return {
     ...codexRuntime,
@@ -26070,7 +26073,7 @@ var policyFileSchema = external_exports.strictObject({
 });
 function codexWindowsSandboxFlagProblem(runtime, value) {
   if (value === void 0) return null;
-  if (!windowsSandboxes.includes(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(", ")}, not ${JSON.stringify(value)}`;
+  if (!isWindowsSandbox(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(", ")}, not ${JSON.stringify(value)}`;
   if (runtime !== codexRuntimeName) return `--codex-windows-sandbox applies only to runtime ${codexRuntimeName}, not ${runtime}`;
   return null;
 }
@@ -28196,9 +28199,10 @@ async function review(values, io, root, worktree) {
   if (!runtimes.names().includes(values.runtime)) throw new UsageError(`--runtime must be one of ${runtimes.names().join(", ")}, not ${JSON.stringify(values.runtime)}`);
   const concurrency = number4("--concurrency", values.concurrency);
   const budgetUsd = number4("--budget-usd", values["budget-usd"]);
-  const sandboxProblem = codexWindowsSandboxFlagProblem(values.runtime, values["codex-windows-sandbox"]);
+  const sandboxFlag = values["codex-windows-sandbox"];
+  const sandboxProblem = codexWindowsSandboxFlagProblem(values.runtime, sandboxFlag);
   if (sandboxProblem !== null) throw new UsageError(sandboxProblem);
-  const codexWindowsSandbox = values["codex-windows-sandbox"];
+  const codexWindowsSandbox = isWindowsSandbox(sandboxFlag) ? sandboxFlag : void 0;
   const flags = {
     ...values["strong-model"] === void 0 ? {} : { strongModel: values["strong-model"] },
     ...values["fast-model"] === void 0 ? {} : { fastModel: values["fast-model"] },

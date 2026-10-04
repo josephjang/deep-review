@@ -82,6 +82,11 @@ function underWindowsApps(directory: string): boolean {
 export const windowsSandboxes = ['unelevated', 'elevated', 'none'] as const;
 export type WindowsSandbox = (typeof windowsSandboxes)[number];
 
+/** Whether a value, such as a flag or an option from outside TypeScript, names one of the Windows sandboxes. */
+export function isWindowsSandbox(value: unknown): value is WindowsSandbox {
+  return windowsSandboxes.some((sandbox) => sandbox === value);
+}
+
 /**
  * The PowerShell execution policy an elevated worker's process tree runs
  * under. As the sandbox user, Windows PowerShell refuses every `.ps1` shim
@@ -524,8 +529,8 @@ export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
   if (!isObject(given)) throw new Error('Codex options must be an object');
   const unknown = unknownKeys(given, codexOptionKeys);
   if (unknown.length > 0) throw new Error(`Unknown Codex option ${JSON.stringify(unknown[0])}; use ${codexOptionKeys.join(' or ')}`);
-  const windowsSandbox = options.windowsSandbox ?? 'unelevated';
-  if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(', ')}`);
+  const windowsSandbox: unknown = options.windowsSandbox ?? 'unelevated';
+  if (!isWindowsSandbox(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(', ')}`);
   const provider = options.provider === undefined ? null : checkedProvider(options.provider);
   return {
     ...codexRuntime,
