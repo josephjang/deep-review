@@ -69,17 +69,31 @@ describe('reviewerAuthorship', () => {
     assert.deepEqual(reviewerAuthorship(repo), { identity: 'set', commits: 4, byReviewer: 2 });
   });
 
-  it('says no identity is configured, and so attributes nothing, when user.email is unset for the repository', () => {
-    const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
-    gitIn(repo, 'config', '--unset-all', 'user.email');
-    // The machine's own global and system configuration may name an email; the engine's git inherits the environment, so the case points both away.
+  /**
+   * Run `body` with git reading no global or system configuration. The
+   * machine's own may name an email or change how signatures are checked,
+   * and the engine's git inherits the environment.
+   */
+  const withoutMachineGitConfig = <T>(body: () => T): T => {
     const before = { global: process.env.GIT_CONFIG_GLOBAL, nosystem: process.env.GIT_CONFIG_NOSYSTEM };
     Object.assign(process.env, { GIT_CONFIG_GLOBAL: join(sandbox, 'no-global'), GIT_CONFIG_NOSYSTEM: '1' });
     try {
-      assert.deepEqual(reviewerAuthorship(repo), { identity: 'unset' });
+      return body();
     } finally {
       if (before.global === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = before.global;
       if (before.nosystem === undefined) delete process.env.GIT_CONFIG_NOSYSTEM; else process.env.GIT_CONFIG_NOSYSTEM = before.nosystem;
     }
+  };
+
+  it('says no identity is configured, and so attributes nothing, when user.email is unset for the repository', () => {
+    const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
+    gitIn(repo, 'config', '--unset-all', 'user.email');
+    assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'unset' });
+  });
+
+  it('reads HEAD as the revision when the repository tracks a file named HEAD', () => {
+    // Without `--`, git refuses a bare HEAD that names both a revision and a tracked path.
+    const repo = repositoryWith(join(sandbox, 'repo'), { HEAD: 'not a revision\n' });
+    assert.deepEqual(reviewerAuthorship(repo), { identity: 'set', commits: 1, byReviewer: 1 });
   });
 });

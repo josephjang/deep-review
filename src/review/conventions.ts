@@ -45,6 +45,7 @@ export function reviewerAuthorship(worktree: string): ReviewerAuthorship {
   // `git config` exits 1 for a key that is not set.
   const email = gitText(worktree, ['config', '--get', 'user.email'], { okExitCodes: [1] }).trim().toLowerCase();
   if (email === '') return { identity: 'unset' };
-  const authors = gitText(worktree, ['log', `-${String(authorshipWindow)}`, '--format=%ae', 'HEAD']).split(/\r?\n/).filter((line) => line.length > 0);
+  // `--` keeps HEAD a revision when the repository also tracks a file named HEAD.
+  const authors = gitText(worktree, ['log', `-${String(authorshipWindow)}`, '--format=%ae', 'HEAD', '--']).split(/\r?\n/).filter((line) => line.length > 0);
   return { identity: 'set', commits: authors.length, byReviewer: authors.filter((author) => author.trim().toLowerCase() === email).length };
 }
