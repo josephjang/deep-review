@@ -26712,11 +26712,8 @@ function contributionEvent(unit, receipt, review2, context) {
 
 // src/review/survey-report.ts
 function missingToolOf(survey, kind) {
-  for (const answer of [...survey.answers].reverse()) {
-    const entry = answer.checks?.find((check2) => check2.kind === kind && check2.command !== null && check2.missingTool !== null);
-    if (entry !== void 0) return entry;
-  }
-  return null;
+  const entry = survey.answers.findLast((answer) => answer.checks?.some((check2) => check2.kind === kind) === true)?.checks?.find((check2) => check2.kind === kind);
+  return entry === void 0 || entry.command === null || entry.missingTool === null ? null : entry;
 }
 var definedPhrase = (entry) => `the project defines \`${entry.command ?? ""}\` (${entry.source?.path ?? "no source"}), ${entry.missingTool ?? "a tool"} not found`;
 function checkSourceCell(survey, check2) {
