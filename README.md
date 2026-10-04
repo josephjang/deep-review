@@ -166,10 +166,10 @@ worker; a second failure degrades by role: a finder's angle is recorded
 as not run, a verifier's group as unverified with its candidates
 `PLAUSIBLE` and marked, and the triage, deduplication, sweep and
 merge-rank block the run; the survey degrades a read-only review and
-blocks a fix run. A worker lost when the engine stops uses an
-attempt too, but a unit whose attempts run out with a lost worker among
-them blocks the run whatever its role, so an interruption never costs
-coverage: running again gives the unit fresh attempts. At most
+blocks a fix run, unless that run's flags settle every check. A worker
+lost when the engine stops uses an attempt too, but a unit whose
+attempts run out with a lost worker among them blocks the run whatever
+its role, so an interruption never costs coverage: running again gives the unit fresh attempts. At most
 `--concurrency` workers run at once (4 by default), and on a runtime
 that reports cost the run has a budget (`--budget-usd`, 60 USD by
 default on Claude Code) checked before every launch; the check counts a
@@ -327,7 +327,8 @@ with `--no-check <kind>` or `--check <kind>=<command>`, which settles
 the block with no new survey. A survey that fails twice degrades a
 read-only review, `CONVENTIONS` not run when no source is left, and
 blocks a fix run until the command runs again or flags settle all four
-kinds. Once the checks are planned a resumed run never surveys again
+kinds; a fix run whose flags already settle all four goes on without
+it. Once the checks are planned a resumed run never surveys again
 and names its check flags as ignored.
 
 The report gains a Conventions section and a Source column in its

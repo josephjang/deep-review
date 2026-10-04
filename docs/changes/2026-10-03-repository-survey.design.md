@@ -18,8 +18,9 @@ list and keeps the user-level two, which a new policy setting decides
 the use of.
 
 The phase can end three ways: completed; degraded, for a read-only
-review whose surveyor failed twice; and blocked, for a fix run whose
-surveyor failed twice or returned a check whose tool this machine lacks.
+review whose surveyor failed twice, or a fix run whose flags settle
+every kind; and blocked, for a fix run whose surveyor failed twice with
+a kind left unsettled or returned a check whose tool this machine lacks.
 A blocked survey is the one place a run asks the operator something,
 through the blocker's action and the flags of the next invocation.
 
@@ -195,8 +196,9 @@ and a paraphrase is not a reason to pay for the survey twice.
 
 - `survey.recorded@1`: the worker id and the answer as checked, with
   paths normalized to repository-relative forward slashes.
-- `survey.failed@1`: the degradation of a read-only review (R9), with
-  the reason, as `angle.failed` is for a finder.
+- `survey.failed@1`: the degradation of a read-only review, or a fix
+  run going on without its survey on flags that settle every kind (R9),
+  with the reason, as `angle.failed` is for a finder.
 - `checks.planned@2`: as version 1, with origins `flag`, `survey` and
   `none`, each check carrying its source (path and quote) when the
   origin is `survey`, and no `manager` field. Version 1 keeps its schema
@@ -282,12 +284,17 @@ The role's rule in `steps.ts` reads the run's mode:
   degraded, the convention list is empty, and `CONVENTIONS` is recorded
   in `anglesNotRun` with the survey's failure as its reason, so the
   sweep is told to cover its territory as for any angle not run;
-- a fix run blocks with `worker-failed`. Its action gains a clause for
-  this phase: run again, or settle every kind with `--check` and
-  `--no-check`. On re-entry, if flags settle all four kinds, the engine
-  records `survey.failed@1`, plans the checks from the flags alone and
-  goes on without convention sources; otherwise the surveyor gets its
-  fresh attempts. When an earlier attempt answered and blocked on a
+- a fix run whose surveyor failed twice with no worker lost among the
+  failures, and whose invocation's flags already settle all four kinds,
+  goes on at once: the engine records `survey.failed@1`, plans the
+  checks from the flags alone and goes on without convention sources,
+  since a block would only ask for the flags it was given;
+- any other fix run blocks with `worker-failed`. Its action gains a
+  clause for this phase: run again, or settle every kind with `--check`
+  and `--no-check`. On re-entry, if flags settle all four kinds, the
+  engine records `survey.failed@1`, plans the checks from the flags
+  alone and goes on without convention sources; otherwise the surveyor
+  gets its fresh attempts. When an earlier attempt answered and blocked on a
   missing tool, that answer stays the run's survey: the flags plan the
   checks over it, no `survey.failed@1` is recorded, and its convention
   sources govern the review, as the action says.
@@ -491,7 +498,8 @@ suite already scripts workers with, then the gate by hand.
 - R9: two failed attempts in a read-only run degrade, `CONVENTIONS` is
   in `anglesNotRun`, the run reaches a report; in a fix run they block
   with the action; a re-entry with all four kinds flagged goes on, and
-  one with three launches the surveyor.
+  one with three launches the surveyor. A first invocation with all four
+  flagged goes on with no block, unless a worker was lost.
 - R10: report and log snapshots for a completed survey, an operator
   drop after a block, and a failed survey.
 - R11: the surveyor's task in a fix run carries a hint per unsettled

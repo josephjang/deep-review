@@ -132,6 +132,24 @@ describe('nextStep in the survey', () => {
     assert.throws(() => nextStep(reentered.clone().add('survey.failed', { reason: 'r', conventions: [], userRules: [] }).review(), live({ checkFlags: allFour })), /planned no check/);
   });
 
+  it('goes on without a fix run\'s survey that failed twice in this attempt when this invocation\'s flags settle all four kinds, with no block first (R9)', () => {
+    // The first invocation already gave every flag: blocking would only tell the operator to run again with the flags it gave.
+    const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
+    const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
+    const plan = nextStep(twice.review(), live({ checkFlags: allFour }));
+    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    assert.equal(plan.kind === 'plan-checks' ? plan.without : null, `${failed.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`);
+    const planned = twice.clone().add('survey.failed', { reason: plan.kind === 'plan-checks' ? plan.without ?? '' : '', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 2).review();
+    assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'degraded', blocker: null });
+    // Three kinds settled still block, with the action that names the flags.
+    const three = nextStep(twice.review(), live({ checkFlags: flags({ build: 'a', lint: 'b' }, ['test']) }));
+    assert.ok(three.kind === 'finish-phase' && three.outcome === 'blocked' && three.blocker?.action === surveyWorkerFailedAction, JSON.stringify(three));
+    // A worker lost with its engine is an interruption, not the survey failing: it blocks, and the next invocation surveys afresh or goes on by the block.
+    const lost = failedOnce(surveyConfiguredFix().start('survey'), 1).add('worker.launched', launch(worker(2), 'surveyor survey:survey')).add('worker.lost', { workerId: worker(2), phase: 'survey', key: 'survey', reason: 'the engine exited' }, 3);
+    const interrupted = nextStep(lost.review(), live({ checkFlags: allFour }));
+    assert.ok(interrupted.kind === 'finish-phase' && interrupted.outcome === 'blocked' && interrupted.blocker?.code === 'worker-failed', JSON.stringify(interrupted));
+  });
+
   it('goes on without the survey once the flags settle all four kinds, though a drift blocked the attempt the first flagged invocation re-entered (R9)', () => {
     const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
     const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
