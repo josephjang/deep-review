@@ -9,7 +9,7 @@ import type { RuntimeRegistry } from '../../src/runtime/registry.ts';
 import { defaultRuntimes, type RuntimeOptions } from '../../src/runtime/runtimes.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { fixerAnswer } from '../helpers/fake-runtime.ts';
-import { ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { fakeCheckCommand, ReviewSandbox } from '../helpers/review-sandbox.ts';
 
 describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', { timeout: 600_000 }, () => {
   let box: ReviewSandbox;
@@ -166,4 +166,36 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'unelevated' });
     assert.deepEqual(warnings(), []);
   });
+});
+
+describe('the surveyor of an elevated run (R12 of the Codex sandbox)', { timeout: 600_000 }, () => {
+  let box: ReviewSandbox;
+  beforeEach(() => {
+    box = new ReviewSandbox();
+    // The flags settle three kinds and leave test to the surveyor, whose task then says how to look a tool up; the triage fails twice, so the run stops after the survey.
+    box.script({
+      surveyor: { output: { conventions: [], userRules: [], checks: [{ kind: 'test', command: fakeCheckCommand('test'), basis: 'stated', source: { path: 'package.json', quote: '"test": "node ..."' }, missingTool: null, reason: null }], note: '' } },
+      triage: { exit: 2 },
+    });
+  });
+  afterEach(() => {
+    box.close();
+  });
+
+  const threeSettled = { commands: { build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck'), lint: fakeCheckCommand('lint') }, dropped: [] };
+  const surveyorPrompt = (): string => box.promptOf(box.run(), 'surveyor survey:survey');
+
+  it('is told to look tools up with Get-Command, not where.exe', async () => {
+    assert.equal((await box.review('codex', { platform: 'win32', fix: threeSettled, flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
+    assert.match(surveyorPrompt(), /, with `powershell\.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` \(not `where\.exe`/);
+    assert.doesNotMatch(surveyorPrompt(), /with `where\.exe <tool>`/);
+  });
+
+  for (const windowsSandbox of ['none', 'unelevated'] as const) {
+    it(`is told to use where.exe under ${windowsSandbox}, where it works`, async () => {
+      assert.equal((await box.review('codex', { platform: 'win32', fix: threeSettled, flags: { codexWindowsSandbox: windowsSandbox } })).kind, 'blocked');
+      assert.match(surveyorPrompt(), /, with `where\.exe <tool>`, and judge/);
+      assert.doesNotMatch(surveyorPrompt(), /Get-Command/);
+    });
+  }
 });
