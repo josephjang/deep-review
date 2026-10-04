@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { unelevatedEditorsWarning, type ReviewOptions } from '../../src/review/controller.ts';
+import { findActiveRun, unelevatedEditorsWarning, type ReviewOptions } from '../../src/review/controller.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { unelevatedSandboxRule } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
@@ -129,7 +129,7 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
     const runId = box.run().id;
     assert.deepEqual(warnings(), [unelevatedEditorsWarning(runId)], 'printed once');
-    assert.match(warnings()[0]!, /cannot run tools that start processes through Node, which includes most build and test commands; a run started with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox, can run them$/);
+    assert.equal(warnings()[0], `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`);
     const firstWorker = box.logs.findIndex((line) => /^worker \S+ \S+: started$/.test(line));
     assert.ok(firstWorker > box.logs.indexOf(warnings()[0]!), 'the warning comes before the first worker starts');
     for (const prompt of editorPrompts()) assert.ok(prompt.includes(unelevatedSandboxRule), prompt);
@@ -143,6 +143,25 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     assert.equal((await box.fix('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'unelevated' } })).kind, 'blocked');
     assert.equal((await box.fix('codex', { platform: 'win32' })).kind, 'blocked', 'a resume without the flag keeps the pinned unelevated');
     assert.equal(warnings().length, 2);
+  });
+
+  it('gives a resumed run advice it can follow: the flag alone is refused, and abandoning the run first starts one that can run the build', async () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.fix('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'unelevated' } })).kind, 'blocked');
+    const runId = box.run().id;
+    assert.equal((await box.fix('codex', { platform: 'win32' })).kind, 'blocked');
+    assert.deepEqual(warnings(), [unelevatedEditorsWarning(runId), unelevatedEditorsWarning(runId)], 'the resume says what the first invocation said');
+    assert.ok(warnings()[1]!.includes(`abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated`), warnings().join('\n'));
+    // The flag alone, on the run the warning is about, is refused, as the warning says.
+    await assert.rejects(box.fix('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'none' } }), (error: unknown) => error instanceof ReviewRefusedError && /is pinned to the Codex Windows sandbox unelevated, not none/.test(error.message));
+    // Abandoning it first, as the warning says, lets the flag start a run pinned to the new value, which does not warn.
+    const pinned = box.run();
+    box.checkpoint.append(pinned.id, pinned.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'start again with a sandbox that runs the build' } }]);
+    assert.equal((await box.fix('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'none' } })).kind, 'blocked');
+    const active = findActiveRun(box.checkpoint);
+    assert.ok(active !== null && active.id !== runId, 'a new run');
+    assert.deepEqual(active.review!.configuration.codex, { windowsSandbox: 'none' });
+    assert.equal(warnings().length, 2, 'the new run does not warn');
   });
 
   // The editors can run the build under each of these, so the run neither warns nor tells them anything, and their tasks are what they were before the setting existed.

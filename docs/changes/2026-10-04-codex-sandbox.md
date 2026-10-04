@@ -127,7 +127,11 @@ every machine has it.
   before the first worker starts: editors cannot run tools that start
   processes through Node, which includes most build and test commands,
   and the two other values of the flag. The warning is printed again on
-  each resume of such a run.
+  each resume of such a run. (Amended 2026-10-05.) Since the value is
+  pinned and a resume naming another is refused (R3), the warning says
+  the run is abandoned before a new one is started with either value; it
+  had said only that a run started with one could run them, which a
+  resume following it was refused for.
 - R6: In the same case the fixer's and the repair worker's task carries
   one fragment saying that a Node process here cannot start a child whose
   output it captures, so the build, the tests and package scripts fail
