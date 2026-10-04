@@ -22891,8 +22891,12 @@ function codexEnvironment(environment, platform, windowsSandbox = "unelevated") 
   const adjusted = { ...withoutVariables(environment, ["PATH"], platform), PATH: directories.join(";") };
   if (windowsSandbox !== "elevated") return adjusted;
   const { name, value } = elevatedExecutionPolicy;
-  const given = spellingsOf(adjusted, name, platform).some(([, set2]) => set2 !== void 0 && set2 !== "");
-  return given ? adjusted : pinVariables(adjusted, { [name]: value }, platform);
+  return pinVariables(adjusted, givenVariable(adjusted, name, platform) ?? { [name]: value }, platform);
+}
+function givenVariable(environment, name, platform) {
+  const given = spellingsOf(environment, name, platform).filter((entry) => entry[1] !== void 0 && entry[1] !== "").sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const [first] = given;
+  return first === void 0 ? null : { [first[0]]: first[1] };
 }
 var codexOptionKeys = ["windowsSandbox", "provider"];
 var codexProviderKeys = ["id", "baseUrl", "envKey", "queryParams"];

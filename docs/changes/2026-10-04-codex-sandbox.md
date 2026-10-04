@@ -434,7 +434,13 @@ Departures and choices the proposal did not state:
   `windows.sandbox="unelevated"`, as the probe that ran
   `danger-full-access` had it.
 - An empty `PSExecutionPolicyPreference` is taken as unset and replaced,
-  since an empty value sets no policy.
+  since an empty value sets no policy. (Amended 2026-10-05.) The worker
+  gets the variable in one spelling only: when the caller's environment
+  holds several, the first by code unit that has a value is kept and
+  the others removed. Node hands a Windows child only the spelling that
+  sorts first, so an empty `PSExecutionPolicyPreference` beside a
+  `psexecutionpolicypreference=AllSigned` had reached the worker as the
+  empty one, with no policy pinned.
 - A resume that passes the flag to a run that pinned none, because it was
   configured off Windows, says the flag is ignored rather than refusing
   it, as a new run off Windows does.
