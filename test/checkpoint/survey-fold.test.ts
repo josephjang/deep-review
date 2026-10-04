@@ -4,7 +4,7 @@ import { checksPlannedV2, conventionSourceSchema, plannedCheckSchemaV2, surveyed
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { conventionsKnown, lastSurvey } from '../../src/checkpoint/survey-state.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { configured, launch, plannedChecks, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
+import { configured, configuredFixBeforeSurvey, launch, plannedChecks, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
 
 const user = '/home/me/.codex/AGENTS.md';
 const repositorySource = { path: 'docs/contributing.md', level: 'repository', governs: 'style', appliesTo: null, grounds: null };
@@ -117,7 +117,8 @@ describe('the survey fold', () => {
     ['going on without a survey after an answer', () => surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks })).finish('survey', 'blocked', 1, unavailable).start('survey', 2).add('survey.failed', { reason: 'failed', conventions: [], userRules: [] }), /after recording an answer/],
     ['going on without a survey twice', () => surveyConfigured().start('survey').add('survey.failed', { reason: 'a', conventions: [], userRules: [] }).add('survey.failed', { reason: 'b', conventions: [], userRules: [] }), /after the run went on without its survey/],
     ['a check-unavailable blocker outside the survey', () => surveyConfigured().start('survey').add('survey.failed', { reason: 'a', conventions: [], userRules: [] }).finish('survey', 'degraded').start('triage').add('phase.finished', { phase: 'triage', attempt: 1, outcome: 'blocked', blocker: unavailable }, 3), /which only the survey finds/],
-    ['a version 2 plan on a run configured before the survey existed', () => withV2Plan(configured()), /configured without the fix pass|before the survey existed/],
+    ['a version 2 plan on a fix run configured before the survey existed', () => configuredFixBeforeSurvey().add('checks.planned', plannedV2(), 2), /plans its checks from a survey on a run configured before the survey existed/],
+    ['a version 2 plan on a read-only run', () => configured().add('checks.planned', plannedV2(), 2), /has checks\.planned on a run configured without the fix pass/],
     ['a version 2 plan before the survey answered or failed', () => surveyConfiguredFix().start('survey').add('checks.planned', plannedV2(), 2), /before its survey is recorded/],
     ['a version 2 plan outside the survey phase', () => surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks })).add('checks.planned', plannedV2(), 2).finish('survey').add('checks.planned', plannedV2(), 2), /twice/],
     ['a planned survey command the survey did not give', () => surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks })).add('checks.planned', plannedV2({ kind: 'lint', command: 'eslint .', origin: 'survey', reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: ruff check .', basis: 'stated' } }), 2), /not the survey's runnable command/],
@@ -133,11 +134,6 @@ describe('the survey fold', () => {
     });
   }
 });
-
-/** A run with a version 2 plan of checks appended, for the refusal of one on a run that cannot have it. */
-function withV2Plan(history: History): History {
-  return history.add('checks.planned', plannedV2(), 2);
-}
 
 describe('the survey\'s payloads', () => {
   it('give a user-level source alone its grounds', () => {
