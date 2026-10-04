@@ -162,15 +162,27 @@ export function invocationFlagProblem(flags: Pick<PolicyFlags, 'concurrency' | '
 }
 
 /**
+ * The Windows sandbox that confines a run's workers on `platform` (R3 of
+ * the Codex sandbox): the value the run pinned on Windows, and null on
+ * another platform or for a run that pins none. The platform is asked as
+ * well as the pinned value, since a Codex run configured before the value
+ * was pinned folds to `unelevated` wherever it ran. Every question about
+ * how a run's workers are confined goes through this, so none can leave
+ * the platform out.
+ */
+export function pinnedWindowsSandbox(configuration: Pick<ReviewConfiguration, 'codex'>, platform: NodeJS.Platform): WindowsSandbox | null {
+  return platform === 'win32' ? (configuration.codex?.windowsSandbox ?? null) : null;
+}
+
+/**
  * Whether a run's editors work in Codex's unelevated Windows sandbox,
  * where a Node process cannot start a child whose output it captures, so
  * they cannot run most build and test commands (R5, R6 of the Codex
- * sandbox): a fix run on Windows that pins `unelevated`. The platform is
- * asked as well as the pinned value, since a Codex run configured before
- * the value was pinned folds to `unelevated` wherever it ran.
+ * sandbox): a fix run whose pinned sandbox on this platform is
+ * `unelevated`.
  */
 export function editorsUnderUnelevatedSandbox(configuration: Pick<ReviewConfiguration, 'fix' | 'codex'>, platform: NodeJS.Platform): boolean {
-  return configuration.fix && platform === 'win32' && configuration.codex?.windowsSandbox === 'unelevated';
+  return configuration.fix && pinnedWindowsSandbox(configuration, platform) === 'unelevated';
 }
 
 /**

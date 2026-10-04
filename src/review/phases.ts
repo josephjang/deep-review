@@ -21,7 +21,7 @@ import { StructuralCheckError } from './errors.ts';
 import { attemptRevisionEvents, fixAnswerEvents, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations, worktreeLookup } from './locations.ts';
-import { pinnedRole } from './policy.ts';
+import { pinnedRole, pinnedWindowsSandbox } from './policy.ts';
 import { composeWorkerPrompt } from './prompts.ts';
 import { snapshotsDirectoryName } from './snapshot.ts';
 import {
@@ -237,7 +237,7 @@ function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
     policySettlesUserRules: setting !== 'judge' && inputs.userFiles.length > 0,
-    elevatedSandbox: inputs.platform === 'win32' && review.configuration.codex?.windowsSandbox === 'elevated',
+    elevatedSandbox: pinnedWindowsSandbox(review.configuration, inputs.platform) === 'elevated',
     get authorship() {
       return inputs.authorship;
     },
