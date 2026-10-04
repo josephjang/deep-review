@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
 import { maxLineBytes, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
-import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter, tomlString, type CodexProvider } from '../../src/runtime/codex.ts';
+import { codexAdapter, codexEnvironment, codexFlags, createCodexAdapter, isWindowsSandbox, tomlString, type CodexProvider } from '../../src/runtime/codex.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { textOutputs } from '../helpers/outputs.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from '../../src/runtime/contract.ts';
@@ -150,6 +150,15 @@ describe('Windows sandbox option', () => {
   it('refuses a sandbox Codex does not have, naming the three it does', () => {
     assert.throws(() => createCodexAdapter({ windowsSandbox: 'full-access' as never }), /Unknown Codex Windows sandbox "full-access"; use unelevated, elevated, none$/);
     assert.throws(() => createCodexAdapter({ windowsSandbox: '' as never }), /Unknown Codex Windows sandbox ""/);
+    assert.throws(() => createCodexAdapter({ windowsSandbox: 1 as never }), /Unknown Codex Windows sandbox 1;/);
+    assert.throws(() => createCodexAdapter({ windowsSandbox: ['none'] as never }), /Unknown Codex Windows sandbox \["none"\];/);
+  });
+
+  it('tells a Windows sandbox from any other value', () => {
+    for (const sandbox of ['unelevated', 'elevated', 'none']) assert.equal(isWindowsSandbox(sandbox), true, sandbox);
+    for (const other of ['Elevated', 'NONE', ' none', '', 'full-access', 'toString', undefined, null, 0, ['none'], { toString: () => 'none' }, new String('none')]) {
+      assert.equal(isWindowsSandbox(other), false, String(other));
+    }
   });
 
   describe('none', () => {

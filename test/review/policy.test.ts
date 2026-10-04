@@ -255,7 +255,10 @@ describe('the Codex Windows sandbox (R1, R3 of the Codex sandbox)', () => {
     assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { codexWindowsSandbox: 'elevated' }, 'win32'), (error: unknown) => error instanceof InvalidPolicyError && error.message === '--codex-windows-sandbox applies only to runtime codex, not claude');
     assert.throws(() => refuseInvocationFlags(codexAdapter, { codexWindowsSandbox: 'full' as never }), (error: unknown) => error instanceof InvalidPolicyError && error.message === '--codex-windows-sandbox must be one of unelevated, elevated, none, not "full"');
     assert.equal(codexWindowsSandboxFlagProblem('claude', undefined), null, 'no flag, no problem');
-    assert.equal(codexWindowsSandboxFlagProblem('codex', 'none'), null);
+    for (const sandbox of ['unelevated', 'elevated', 'none']) assert.equal(codexWindowsSandboxFlagProblem('codex', sandbox), null, sandbox);
+    for (const near of ['Elevated', ' none', 'toString', '']) {
+      assert.equal(codexWindowsSandboxFlagProblem('codex', near), `--codex-windows-sandbox must be one of unelevated, elevated, none, not ${JSON.stringify(near)}`, near);
+    }
     assert.equal(codexWindowsSandboxFlagProblem('claude', 'nope'), '--codex-windows-sandbox must be one of unelevated, elevated, none, not "nope"', 'the value is named before the runtime');
   });
 

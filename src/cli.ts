@@ -28,7 +28,7 @@ import type { CheckFlags } from './review/checks/discover.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
 import { describeRun } from './review/status.ts';
-import { windowsSandboxes, type WindowsSandbox } from './runtime/codex.ts';
+import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
 
@@ -283,9 +283,11 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   const concurrency = number('--concurrency', values.concurrency);
   const budgetUsd = number('--budget-usd', values['budget-usd']);
   // A sandbox Codex lacks, or the flag on another runtime, is a command-line mistake refused with the usage, as a malformed number is below.
-  const sandboxProblem = codexWindowsSandboxFlagProblem(values.runtime, values['codex-windows-sandbox']);
+  const sandboxFlag = values['codex-windows-sandbox'];
+  const sandboxProblem = codexWindowsSandboxFlagProblem(values.runtime, sandboxFlag);
   if (sandboxProblem !== null) throw new UsageError(sandboxProblem);
-  const codexWindowsSandbox = values['codex-windows-sandbox'] as WindowsSandbox | undefined;
+  // Past the check a given value names a sandbox; the guard only tells the type so.
+  const codexWindowsSandbox = isWindowsSandbox(sandboxFlag) ? sandboxFlag : undefined;
   const flags: PolicyFlags = {
     ...(values['strong-model'] === undefined ? {} : { strongModel: values['strong-model'] }),
     ...(values['fast-model'] === undefined ? {} : { fastModel: values['fast-model'] }),
