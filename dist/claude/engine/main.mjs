@@ -24715,20 +24715,6 @@ function offeredFile(offered, raw, what) {
   const named = resolvingPath(what, raw, () => canonicalPath(raw));
   return offered.find((path) => resolvingPath(what, raw, () => canonicalPath(path)) === named) ?? null;
 }
-var directoryRulesFiles = /* @__PURE__ */ new Set(["AGENTS.md", "CLAUDE.md", "CLAUDE.local.md"]);
-function requireDirectoryScope(path, appliesTo) {
-  const slash = path.lastIndexOf("/");
-  if (slash < 0 || !directoryRulesFiles.has(path.slice(slash + 1))) return;
-  const directory = path.slice(0, slash);
-  const reason = `The convention source ${JSON.stringify(path)} is a rules file in ${directory}, which governs only the files at or below it`;
-  if (appliesTo === null) throw new StructuralCheckError(`${reason}, and names no paths it applies to; name them, such as ${directory}/**`);
-  const below = (glob) => {
-    const [name, prefix] = [normalizeFileName(glob).toLowerCase(), directory.toLowerCase()];
-    return name === prefix || name.startsWith(`${prefix}/`);
-  };
-  const beyond = appliesTo.filter((glob) => !below(glob));
-  if (beyond.length > 0) throw new StructuralCheckError(`${reason}, and applies beyond it to ${beyond.map((glob) => JSON.stringify(glob)).join(", ")}`);
-}
 function requireOnce(keys, what) {
   const seen = /* @__PURE__ */ new Set();
   for (const key of keys) {
@@ -24741,9 +24727,7 @@ function checkConventions(output2, context) {
   const conventions = output2.conventions.map((source) => {
     if (source.level === "repository") {
       if (source.grounds !== null) throw new StructuralCheckError(`The repository source ${JSON.stringify(source.path)} states grounds, which only a user-level source does`);
-      const path2 = repositoryFile(context, source.path, "The convention source");
-      requireDirectoryScope(path2, source.appliesTo);
-      return { ...source, path: path2 };
+      return { ...source, path: repositoryFile(context, source.path, "The convention source") };
     }
     const path = offeredFile(offered, source.path, "The user-level source");
     if (path === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} is not a file the task offered${offered.length === 0 ? "; it offered none" : ""}`);
