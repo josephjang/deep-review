@@ -50,17 +50,17 @@ describe('the committed roles/policy.json', () => {
   });
 
   it('refuses a policy without the fixer or without the checks block, and a checks timeout outside a worker\'s bounds', () => {
-    assert.throws(() => resolvePolicy(changed((copy) => { delete copy.roles.fixer; }), roles, claudeAdapter), /must name exactly the roles the review runs: it does not name fixer$/);
+    assert.throws(() => resolvePolicy(changed((copy) => { delete copy.roles.fixer; }), roles, claudeAdapter, {}, 'win32'), /must name exactly the roles the review runs: it does not name fixer$/);
     assert.throws(() => parsePolicy(changed((copy) => { delete (copy as { checks?: unknown }).checks; })), (error: unknown) => error instanceof InvalidPolicyError && /checks/.test(error.message));
     for (const timeoutMs of [999, maxTimeoutMs + 1, 1.5]) {
       assert.throws(() => parsePolicy(changed((copy) => { (copy as { checks?: unknown }).checks = { timeoutMs }; })), InvalidPolicyError, String(timeoutMs));
     }
-    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter).checks, { timeoutMs: 1_200_000 }, 'the resolved policy carries the checks block a fixing run pins');
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter, {}, 'win32').checks, { timeoutMs: 1_200_000 }, 'the resolved policy carries the checks block a fixing run pins');
   });
 
   it('gives a fixer batch four findings, and refuses a policy without the fixes block or with a batch size outside 1 to 20', () => {
     assert.deepEqual(committed.fixes, { batchSize: 4 });
-    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter).fixes, { batchSize: 4 }, 'the resolved policy carries the batch size a fixing run pins');
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter, {}, 'win32').fixes, { batchSize: 4 }, 'the resolved policy carries the batch size a fixing run pins');
     assert.throws(() => parsePolicy(changed((copy) => { delete (copy as { fixes?: unknown }).fixes; })), (error: unknown) => error instanceof InvalidPolicyError && /fixes/.test(error.message));
     for (const batchSize of [0, maxBatchSize + 1, 1.5, -4]) {
       assert.throws(() => parsePolicy(changed((copy) => { (copy as { fixes?: unknown }).fixes = { batchSize }; })), InvalidPolicyError, String(batchSize));
@@ -71,18 +71,18 @@ describe('the committed roles/policy.json', () => {
 
   it('judges the reviewer\'s own rules by default, carries the setting to the resolved policy, and refuses a policy without it or with another value (R3, PD7 of the repository survey)', () => {
     assert.deepEqual(committed.survey, { userRules: 'judge' });
-    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter).survey, { userRules: 'judge' });
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter, {}, 'win32').survey, { userRules: 'judge' });
     for (const userRules of ['ignore', 'apply', 'judge'] as const) {
-      assert.deepEqual(resolvePolicy(parsePolicy(changed((copy) => { (copy as { survey?: unknown }).survey = { userRules }; })), roles, codexAdapter).survey, { userRules }, userRules);
+      assert.deepEqual(resolvePolicy(parsePolicy(changed((copy) => { (copy as { survey?: unknown }).survey = { userRules }; })), roles, codexAdapter, {}, 'win32').survey, { userRules }, userRules);
     }
     assert.throws(() => parsePolicy(changed((copy) => { delete (copy as { survey?: unknown }).survey; })), (error: unknown) => error instanceof InvalidPolicyError && /survey/.test(error.message));
     assert.throws(() => parsePolicy(changed((copy) => { (copy as { survey?: unknown }).survey = { userRules: 'always' }; })), InvalidPolicyError);
     assert.throws(() => parsePolicy(changed((copy) => { (copy as { survey?: unknown }).survey = { userRules: 'judge', extra: 1 }; })), InvalidPolicyError, 'the block is closed');
-    assert.throws(() => resolvePolicy(changed((copy) => { delete copy.roles.surveyor; }), roles, claudeAdapter), /it does not name surveyor$/);
+    assert.throws(() => resolvePolicy(changed((copy) => { delete copy.roles.surveyor; }), roles, claudeAdapter, {}, 'win32'), /it does not name surveyor$/);
   });
 
   it('resolves for Claude with per-worker budgets and the run budget', () => {
-    const resolved = resolvePolicy(committed, roles, claudeAdapter);
+    const resolved = resolvePolicy(committed, roles, claudeAdapter, {}, 'win32');
     assert.equal(resolved.runtime, 'claude');
     assert.deepEqual(resolved.models, { strong: 'opus', fast: 'sonnet' });
     assert.equal(resolved.concurrency, 4);
@@ -92,20 +92,24 @@ describe('the committed roles/policy.json', () => {
     assert.deepEqual(pinnedRole(resolved.roles, 'finder-CONVENTIONS'), { role: 'finder-CONVENTIONS', model: 'sonnet', effort: 'medium', budgetUsd: 8, timeoutMs: 600_000 });
     assert.deepEqual(pinnedRole(resolved.roles, 'verifier'), { role: 'verifier', model: 'opus', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 });
     assert.equal(resolved.rolesDigest, rolesDigest(roles));
+    assert.equal(resolved.codex, null, 'a Claude Code run pins no Codex sandbox, even on Windows');
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter, {}, 'linux'), resolved, 'the platform changes nothing of a Claude Code run');
   });
 
   it('resolves for Codex with no per-worker budget and no run budget, since Codex caps nothing and reports no cost', () => {
-    const resolved = resolvePolicy(committed, roles, codexAdapter);
+    const resolved = resolvePolicy(committed, roles, codexAdapter, {}, 'win32');
     assert.equal(resolved.runtime, 'codex');
     // The fast tier is the workhorse codex-cli 0.160.0's catalog lists first, near Astra on agentic coding (the survey's gate, 2026-10-04).
     assert.deepEqual(resolved.models, { strong: 'gpt-6-astra', fast: 'gpt-6.1-sol' });
     assert.equal(resolved.runBudgetUsd, null);
     assert.ok(resolved.roles.every((role) => role.budgetUsd === null));
     assert.equal(pinnedRole(resolved.roles, 'triage').model, 'gpt-6-astra');
+    assert.deepEqual(resolved.codex, { windowsSandbox: 'none' }, 'on Windows the run pins the policy\'s sandbox');
+    assert.deepEqual(resolvePolicy(committed, roles, codexAdapter, {}, 'linux'), { ...resolved, codex: null }, 'off Windows only the sandbox differs: the run pins none');
   });
 
   it('lets the flags override the models, the concurrency and the run budget', () => {
-    const resolved = resolvePolicy(committed, roles, claudeAdapter, { strongModel: 'claude-opus-5-5', fastModel: 'claude-sonnet-5', concurrency: 2, budgetUsd: 45.5 });
+    const resolved = resolvePolicy(committed, roles, claudeAdapter, { strongModel: 'claude-opus-5-5', fastModel: 'claude-sonnet-5', concurrency: 2, budgetUsd: 45.5 }, 'win32');
     assert.deepEqual(resolved.models, { strong: 'claude-opus-5-5', fast: 'claude-sonnet-5' });
     assert.equal(pinnedRole(resolved.roles, 'triage').model, 'claude-opus-5-5');
     assert.equal(pinnedRole(resolved.roles, 'finder-RIPPLE').model, 'claude-sonnet-5');
@@ -114,18 +118,18 @@ describe('the committed roles/policy.json', () => {
   });
 
   it('refuses --budget-usd on a runtime that reports no cost, rather than ignoring it', () => {
-    assert.throws(() => resolvePolicy(committed, roles, codexAdapter, { budgetUsd: 10 }), (error: unknown) => error instanceof InvalidPolicyError && /--budget-usd does not apply to runtime codex/.test(error.message));
-    assert.equal(resolvePolicy(committed, roles, codexAdapter, { concurrency: 1 }).concurrency, 1);
+    assert.throws(() => resolvePolicy(committed, roles, codexAdapter, { budgetUsd: 10 }, 'win32'), (error: unknown) => error instanceof InvalidPolicyError && /--budget-usd does not apply to runtime codex/.test(error.message));
+    assert.equal(resolvePolicy(committed, roles, codexAdapter, { concurrency: 1 }, 'win32').concurrency, 1);
   });
 
   it('refuses malformed flags by name', () => {
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 0 }), new RegExp(`--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not 0`));
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency + 1 }), /--concurrency/);
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 2.5 }), /--concurrency/);
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { budgetUsd: 0 }), /--budget-usd must be a positive number, not 0/);
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { budgetUsd: NaN }), /--budget-usd must be a positive number/);
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { strongModel: '' }), /--strong-model must be a model name/);
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { fastModel: '--verbose' }), /--fast-model must be a model name/);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 0 }, 'win32'), new RegExp(`--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not 0`));
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency + 1 }, 'win32'), /--concurrency/);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: 2.5 }, 'win32'), /--concurrency/);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { budgetUsd: 0 }, 'win32'), /--budget-usd must be a positive number, not 0/);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { budgetUsd: NaN }, 'win32'), /--budget-usd must be a positive number/);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { strongModel: '' }, 'win32'), /--strong-model must be a model name/);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { fastModel: '--verbose' }, 'win32'), /--fast-model must be a model name/);
   });
 });
 
@@ -159,8 +163,8 @@ describe('the per-invocation flags', () => {
   it('holds the policy file and resolvePolicy to the same bound', () => {
     assert.equal(parsePolicy(changed((copy) => { copy.concurrency = maxConcurrency; })).concurrency, maxConcurrency);
     assert.throws(() => parsePolicy(changed((copy) => { copy.concurrency = maxConcurrency + 1; })), (error: unknown) => error instanceof InvalidPolicyError && /concurrency/.test(error.message));
-    assert.equal(resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency }).concurrency, maxConcurrency);
-    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency + 1 }), (error: unknown) => error instanceof InvalidPolicyError && error.message === `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(maxConcurrency + 1)}`);
+    assert.equal(resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency }, 'win32').concurrency, maxConcurrency);
+    assert.throws(() => resolvePolicy(committed, roles, claudeAdapter, { concurrency: maxConcurrency + 1 }, 'win32'), (error: unknown) => error instanceof InvalidPolicyError && error.message === `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not ${String(maxConcurrency + 1)}`);
   });
 
   /** The configuration as version 2 records it, before the survey: version 1's, without the fix pass. */
@@ -283,33 +287,33 @@ describe('the Codex Windows sandbox (R1, R3 of the Codex sandbox)', () => {
 describe('resolvePolicy against the manifest and the runtime', () => {
   it('refuses a policy that lacks a role the review runs, naming it', () => {
     const policy = changed((copy) => { delete copy.roles.sweep; });
-    assert.throws(() => resolvePolicy(policy, roles, claudeAdapter), /must name exactly the roles the review runs: it does not name sweep$/);
+    assert.throws(() => resolvePolicy(policy, roles, claudeAdapter, {}, 'win32'), /must name exactly the roles the review runs: it does not name sweep$/);
   });
 
   it('refuses a policy that names a role the review does not run, even one the manifest declares', () => {
     const policy = changed((copy) => { copy.roles.documentation = { tier: 'strong', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 }; });
-    assert.throws(() => resolvePolicy(policy, roles, claudeAdapter), /names documentation, which the review does not run/);
+    assert.throws(() => resolvePolicy(policy, roles, claudeAdapter, {}, 'win32'), /names documentation, which the review does not run/);
     const both = changed((copy) => {
       delete copy.roles.sweep;
       copy.roles.auditor = { tier: 'strong', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 };
     });
-    assert.throws(() => resolvePolicy(both, roles, claudeAdapter), /does not name sweep and names auditor/);
+    assert.throws(() => resolvePolicy(both, roles, claudeAdapter, {}, 'win32'), /does not name sweep and names auditor/);
   });
 
   it('refuses a policy role the manifest does not declare', () => {
     const withoutSweep = roles.filter((role) => role.key !== 'sweep');
-    assert.throws(() => resolvePolicy(committed, withoutSweep, claudeAdapter), /names sweep, which the role manifest does not declare/);
+    assert.throws(() => resolvePolicy(committed, withoutSweep, claudeAdapter, {}, 'win32'), /names sweep, which the role manifest does not declare/);
   });
 
   it('refuses an effort the runtime lacks, before any run exists', () => {
     const policy = changed((copy) => { copy.roles.verifier!.effort = 'max'; });
-    assert.equal(resolvePolicy(policy, roles, claudeAdapter).roles.find((role) => role.role === 'verifier')?.effort, 'max');
-    assert.throws(() => resolvePolicy(policy, roles, codexAdapter), /runs verifier at effort max, which runtime codex lacks; it has low, medium, high, xhigh/);
+    assert.equal(resolvePolicy(policy, roles, claudeAdapter, {}, 'win32').roles.find((role) => role.role === 'verifier')?.effort, 'max');
+    assert.throws(() => resolvePolicy(policy, roles, codexAdapter, {}, 'win32'), /runs verifier at effort max, which runtime codex lacks; it has low, medium, high, xhigh/);
   });
 
   it('refuses a runtime the policy has no entry for', () => {
     const policy = changed((copy) => { delete copy.runtimes.codex; });
-    assert.throws(() => resolvePolicy(policy, roles, codexAdapter), /no entry for runtime codex; it has claude/);
+    assert.throws(() => resolvePolicy(policy, roles, codexAdapter, {}, 'win32'), /no entry for runtime codex; it has claude/);
   });
 });
 
@@ -389,7 +393,7 @@ describe('rolesDigest', () => {
 
 describe('pinnedRole', () => {
   it('names the role it cannot find and the roles it has', () => {
-    const resolved = resolvePolicy(committed, roles, claudeAdapter);
+    const resolved = resolvePolicy(committed, roles, claudeAdapter, {}, 'win32');
     assert.throws(() => pinnedRole(resolved.roles, 'auditor'), /pins no role auditor; it pins surveyor, triage, finder-REMOVALS/);
   });
 });

@@ -26122,7 +26122,7 @@ function rolesDigest(roles) {
   const lines = roles.map((role) => `${role.key}:${role.sha256}`).sort();
   return createHash5("sha256").update(lines.join("\n")).digest("hex");
 }
-function resolvePolicy(policy, roles, adapter, flags = {}, platform = process.platform) {
+function resolvePolicy(policy, roles, adapter, flags, platform) {
   const named = Object.keys(policy.roles).sort();
   const expected = [...reviewRoles].sort();
   const missing = expected.filter((role) => !named.includes(role));
