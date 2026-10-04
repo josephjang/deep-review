@@ -157,11 +157,13 @@ function checksSection(fix: FixState, survey: SurveyState | null, evidencePath: 
         ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
         ...(fix.checks.runs['repair-checks'].length === 0 ? ['- After the repair: not run, since no check failed after the fixes.'] : []),
       ];
+  // One list of columns gives the header and the separator, so the two cannot disagree on the count.
+  const columns = ['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => phaseTitles[phase])];
   return [
     '## Checks',
     '',
-    `| ${['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => phaseTitles[phase])].join(' | ')} |`,
-    `|${['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran].map(() => '---').join('|')}|`,
+    `| ${columns.join(' | ')} |`,
+    `|${columns.map(() => '---').join('|')}|`,
     ...rows,
     ...(notRun.length === 0 ? [] : ['', ...notRun]),
   ];
