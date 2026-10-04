@@ -111,9 +111,12 @@ describe('nextStep in the survey', () => {
     const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
     const step = nextStep(twice.review(), idle);
     assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked', JSON.stringify(step));
-    const blocker = workerFailedBlocker(surveyor, twice.review().units.survey.survey, true);
+    const blocker = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
     assert.deepEqual(step.kind === 'finish-phase' ? step.blocker : null, blocker);
     assert.equal(blocker.action, surveyWorkerFailedAction);
+    // The action is the survey's own, read from the run's mode: a read-only survey and another phase of a fix run keep the generic one.
+    assert.equal(workerFailedBlocker(surveyConfigured().review(), surveyor, twice.review().units.survey.survey).action, blockerActions['worker-failed']);
+    assert.equal(workerFailedBlocker(twice.review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, twice.review().units.survey.survey).action, blockerActions['worker-failed']);
     const reentered = twice.finish('survey', 'blocked', 1, blocker).start('survey', 2);
     // Three kinds settled is not enough: the survey runs again with fresh attempts.
     assert.deepEqual(nextStep(reentered.review(), live({ checkFlags: flags({ build: 'a', lint: 'b' }, ['test']) })), { kind: 'launch', units: [surveyor] });

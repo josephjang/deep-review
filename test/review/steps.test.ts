@@ -366,7 +366,7 @@ describe('nextStep', () => {
 describe('the blockers', () => {
   it('name the operator action for a failed worker and a drift', () => {
     const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage' as const };
-    const blocker = workerFailedBlocker(unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false }, { workerId: worker(2), reason: 'y', lost: false }] });
+    const blocker = workerFailedBlocker(configured().review(), unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false }, { workerId: worker(2), reason: 'y', lost: false }] });
     assert.equal(blocker.code, 'worker-failed');
     assert.match(blocker.action, /two fresh attempts/);
     const drift = driftBlocker({ files: [{ path: 'a.ts', outcome: 'modified' }, { path: 'b.ts', outcome: 'deleted' }], head: null }, idle.evidencePath);
@@ -432,19 +432,19 @@ describe('the recorded reasons and details', () => {
   });
 
   it('keep short failures whole', () => {
-    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false }, { workerId: worker(2), reason: 'y', lost: false }] });
+    const blocker = workerFailedBlocker(configured().review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false }, { workerId: worker(2), reason: 'y', lost: false }] });
     assert.equal(blocker.detail, 'the triage worker for triage:SCAN failed twice: 2 attempts did not complete: x; y');
   });
 
   it('fit a worker-failed blocker however long the failures were', () => {
-    const blocker = workerFailedBlocker({ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank' }, twoLongFailures);
+    const blocker = workerFailedBlocker(configured().review(), { phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank' }, twoLongFailures);
     blockerSchema.parse(blocker);
     assert.ok(blocker.detail.length <= 4000, String(blocker.detail.length));
     assert.match(blocker.detail, /^the merge-rank worker for merge-rank:merge-rank failed twice: 2 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]$/);
   });
 
   it('fit a worker-failed blocker when a lost worker added a third failure', () => {
-    const blocker = workerFailedBlocker({ phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z'), lost: true }] });
+    const blocker = workerFailedBlocker(configured().review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z'), lost: true }] });
     blockerSchema.parse(blocker);
     assert.match(blocker.detail, /3 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]; z+ \[truncated\]$/);
   });

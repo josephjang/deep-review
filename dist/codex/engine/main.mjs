@@ -25216,9 +25216,9 @@ function waitsForItsCluster(review2, unit) {
 }
 var launchableUnit = (review2, unit, state) => !settled(review2, unit) && !exhausted(review2, unit, state) && !waitsForItsCluster(review2, unit);
 var usd = (value) => value.toFixed(2);
-function workerFailedBlocker(unit, state, fixing = false) {
+function workerFailedBlocker(review2, unit, state) {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
-  const action = unit.phase === "survey" && fixing ? surveyWorkerFailedAction : blockerActions["worker-failed"];
+  const action = unit.phase === "survey" && degradationOf(review2, unit) === null ? surveyWorkerFailedAction : blockerActions["worker-failed"];
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
 function checkUnavailableBlocker(unavailable) {
@@ -25326,7 +25326,7 @@ function nextStep(review2, live2) {
   if (degradations.length > 0) return { kind: "degrade", phase, degradations };
   const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
   const blocking = spent.find((unit) => exhaustedOutcome(review2, unit, states[unit.key]) === null);
-  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(blocking, states[blocking.key], review2.fix !== null) };
+  if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(review2, blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     const { concurrency, runBudgetUsd } = review2.limits;
