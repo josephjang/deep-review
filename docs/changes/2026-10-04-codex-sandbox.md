@@ -156,6 +156,18 @@ every machine has it.
   fixes is repaired or deferred for a reason other than being unable to
   run it. A run under `unelevated` is recorded for the warning and for
   the count of `EPERM` results against `509e520e`'s 48.
+- R11: (Added 2026-10-05.) On Windows the Codex adapter hands a worker
+  its search path as one variable spelled `PATH`, under every value. The
+  elevated runner adds a `PATH` of its own, so the `Path` the adapter
+  wrote until then reached the worker beside it; `pnpm exec` prepends
+  `node_modules\.bin` to one of the two while the shell it starts reads
+  the other, so no project binary resolved.
+- R12: (Added 2026-10-05.) When a run's value is `elevated` on Windows,
+  the surveyor's task names `Get-Command -CommandType Application <tool>`
+  in Windows PowerShell as the way to look a tool up, in place of
+  `where.exe`, which finds nothing as the sandbox user under a directory
+  whose ancestors that user cannot list, such as anything in the
+  operator's profile. Every other run's surveyor task is unchanged.
 
 ## Decisions
 
@@ -238,6 +250,23 @@ every machine has it.
   (`spawnSync git` does fail), so the note says what the cause is and
   that the decision is unchanged.
 
+- **D9: Under `elevated` the engine fixes what is its own and leaves the
+  sandbox as Codex draws it.** (Added 2026-10-05.) The author's position:
+  a run that trusts the change uses `none`, so `elevated` is for a change
+  that is not trusted, and its confinement is the point. Two causes of
+  the gate's failures are the engine's own and are fixed: the duplicate
+  search path (R11) and the lookup command the surveyor is told to use
+  (R12). Two are left: `os.userInfo()` throws because the sandbox user has
+  no profile, which stops `tsx`, and the sandbox user cannot list the
+  operator's profile directory, which stops a tool that walks up through
+  it, such as vitest's default config loader. A preload in
+  `NODE_OPTIONS` that answers `os.userInfo()` from the environment was
+  probed and works, and a list-only grant on the profile directory was
+  probed and works; both were rejected, the first for reaching into every
+  Node process the repository runs, the second for widening what the
+  sandbox user may see. The README names both limits and the workarounds
+  a worker found.
+
 ## Evidence
 
 Probes of 2026-10-04 on Windows 11, codex-cli 0.160.0, Node 26.10.0. The
@@ -275,6 +304,34 @@ module.
 Not probed: pnpm with its store under `elevated` (the directory is
 readable; an install and a build were not run), `dotnet build`, and what
 `codex exec` does under `elevated` on a machine without the setup.
+
+Probes of 2026-10-05 with `codex sandbox` under `elevated`, after the
+gate, as `CodexSandboxOffline`:
+
+- The sandbox user has no profile: no `ProfileList` entry for its SID
+  and no `C:\Users\CodexSandboxOffline`; it inherits the operator's
+  `USERPROFILE`. `os.userInfo()` throws `uv_os_get_passwd returned
+  ENOMEM`, and `tsx` calls it on load, so `pnpm check:comments` fails;
+  with a preload answering it from the environment, the same command
+  passes.
+- `C:\Users\josep` carries no entry for `CodexSandboxUsers`, which has
+  read and execute on chosen folders under it (`projects`, `AppData`,
+  `.claude`, `.agents`, `.codex`). The sandbox user cannot list the
+  profile directory itself. `where.exe` fails for every file under it,
+  `where /R` with "Access is denied", and succeeds under
+  `C:\Program Files`, `C:\Windows\System32` and `C:\Users\Public`.
+  Rebuilt under `C:\Users\Public`, a directory the user cannot list made
+  `where.exe` and Node's `readdirSync` of it fail, and a grant of
+  `(S,RD,X,RA)` on that directory alone made both work, while a file in
+  it stayed unreadable.
+- `Get-Command -CommandType Application <tool>` in Windows PowerShell
+  finds `pnpm.cmd`, `node` and `git` with exit code 0 and a missing tool
+  with 1, under `elevated` and `unelevated` alike.
+- The worker's process sees both `PATH` and `Path`. `pnpm exec biome
+  --version` and `pnpm exec vitest --version` fail with "not recognized"
+  while `pnpm format:check`, a script, passes; launched with the parent's
+  search path spelled `PATH` alone, the child sees one variable and
+  `pnpm exec biome --version` prints its version.
 
 ## Risks
 
