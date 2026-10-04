@@ -169,6 +169,17 @@ describe('the task runners\' matching', () => {
     assert.equal(justfileHas('  test:\n', 'test'), false);
     assert.equal(justfileHas('tests:\n', 'test'), false);
   });
+
+  it('matches a name and an indentation as written, never as a pattern', () => {
+    assert.equal(taskfileHas('tasks:\n\tbuild:\n', 'build'), true, 'a tab indentation');
+    assert.equal(taskfileHas('tasks:\n  a.b:\n', 'a.b'), true);
+    assert.equal(taskfileHas('tasks:\n  axb:\n', 'a.b'), false, 'a dot is not any character');
+    assert.equal(taskfileHas('tasks:\n  c++:\n', 'c++'), true);
+    assert.equal(justfileHas('a.b:\n', 'a.b'), true);
+    assert.equal(justfileHas('axb:\n', 'a.b'), false, 'a dot is not any character');
+    assert.equal(justfileHas('t(x)|y:\n', 't(x)|y'), true);
+    assert.equal(justfileHas('y:\n', 't(x)|y'), false, 'a bar is not an alternation');
+  });
 });
 
 describe('readRootManifests', () => {

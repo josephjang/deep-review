@@ -111,9 +111,6 @@ const languageDefaults: readonly { readonly marker: string; readonly marks: (roo
   { marker: 'a .sln or .csproj file', marks: (root) => root.entries.some((name) => /\.(sln|csproj)$/i.test(name)), commands: { build: 'dotnet build', test: 'dotnet test --no-build' } },
 ];
 
-/** Characters a regular expression gives meaning to, so a kind is matched as written. */
-const escape = (text: string): string => text.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** The lines of a file, whatever its line endings. */
 const linesOf = (text: string): string[] => text.split(/\r?\n/);
 
@@ -133,7 +130,7 @@ export function taskfileHas(text: string, kind: string): boolean {
     // A line back at the left margin ends the `tasks:` mapping.
     if (leading.length === 0) return false;
     indent ??= leading;
-    if (leading === indent && new RegExp(`^${escape(indent)}${escape(kind)}:(\\s|$)`).test(line)) return true;
+    if (leading === indent && new RegExp(`^${RegExp.escape(indent)}${RegExp.escape(kind)}:(\\s|$)`).test(line)) return true;
   }
   return false;
 }
@@ -148,7 +145,7 @@ export function makefileHas(text: string, kind: string): boolean {
 
 /** Whether a justfile has a recipe named `kind`, quiet (`@`) or not, with or without parameters and their defaults, and not a `:=` assignment. */
 export function justfileHas(text: string, kind: string): boolean {
-  return linesOf(text).some((line) => new RegExp(`^@?${escape(kind)}(\\s[^:]*)?:(?!=)`).test(line));
+  return linesOf(text).some((line) => new RegExp(`^@?${RegExp.escape(kind)}(\\s[^:]*)?:(?!=)`).test(line));
 }
 
 /** The scripts of a `package.json`, or null when it has none or is not JSON an object. */

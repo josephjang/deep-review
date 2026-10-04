@@ -19,8 +19,7 @@ export interface PreflightOptions {
 
 /** Whether `text` mentions `flag` as a whole flag, so `--settings` is not found inside `--setting-sources`. */
 export function mentionsFlag(text: string, flag: string): boolean {
-  const escaped = flag.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`).test(text);
+  return new RegExp(`(?<![\\w-])${RegExp.escape(flag)}(?![\\w-])`).test(text);
 }
 
 /** Refuse a limit that is not a positive whole number, which would end every probe at once or never. */
