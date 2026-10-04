@@ -25328,11 +25328,13 @@ function surveyStep(review2, live2, attempt) {
     return null;
   }
   if (survey.failure !== null) throw new Error("The fix run went on without its survey but planned no check, which the engine records together");
-  if (survey.lastBlock?.code === "worker-failed" && unsettledKinds(live2.checkFlags).length === 0) {
-    const without = truncated(`the survey blocked, ${survey.lastBlock.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
-    return { kind: "plan-checks", checks: resolveChecks(null, live2.checkFlags).checks, without };
-  }
-  return null;
+  if (unsettledKinds(live2.checkFlags).length > 0) return null;
+  const unit = { phase: "survey", key, role: "surveyor" };
+  const state = review2.units.survey[key];
+  const failed2 = survey.lastBlock?.code === "worker-failed" ? `the survey blocked, ${survey.lastBlock.detail}` : exhausted(review2, unit, state) && !interrupted(state) ? workerFailedBlocker(review2, unit, state).detail : null;
+  if (failed2 === null) return null;
+  const without = truncated(`${failed2}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
+  return { kind: "plan-checks", checks: resolveChecks(null, live2.checkFlags).checks, without };
 }
 function nextStep(review2, live2) {
   if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };

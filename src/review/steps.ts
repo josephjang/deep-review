@@ -206,9 +206,10 @@ function listWithin(items: readonly string[], limit: number): string {
  * of the fix pass; R9, PD6 of the repository survey): a finder's angle is
  * not run, a verifier's group is unverified, a fixer's batch is not
  * attempted, and a read-only review goes on without its survey. Null for
- * every other role, and for the survey of a fix run, which would run no
- * check the flags did not name: their second failure blocks the run
- * instead. The one place the role's rule lives: a unit degrades exactly
+ * every other role, and for the survey of a fix run, which goes on only
+ * with checks: its second failure blocks the run instead, unless this
+ * invocation's flags settle every kind, when `surveyStep` plans their
+ * checks and records the run going on without it. The one place the role's rule lives: a unit degrades exactly
  * when this names what it records and no worker of it was lost
  * (`exhaustedOutcome`), and a phase added to the review does not compile
  * until it is given a rule here.
@@ -401,10 +402,13 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
  * invocation's flags settle every kind and leave none whose tool is
  * missing. An answer of this attempt that leaves a kind with a missing
  * tool blocks with `check-unavailable`; one of an earlier attempt that
- * does not settle every kind is surveyed again. After a survey blocked on
- * its failures with no answer, flags that settle all four kinds let the
- * run go on without it, even when a drift or the budget blocked a later
- * attempt or a stopped engine left a failure in this one: the failure and
+ * does not settle every kind is surveyed again. Flags that settle all
+ * four kinds let the run go on without a survey that never answered once
+ * it failed twice in this attempt with no worker lost among the failures,
+ * and once it blocked on its failures, even when a drift or the budget
+ * blocked a later attempt or a stopped engine left a failure in this one;
+ * flags that leave a kind unsettled block the first and survey the second
+ * afresh, and a lost worker blocks as for any unit. The failure and
  * the plan are one step, so they are recorded in one append and no run
  * is left without a survey and without checks.
  */
@@ -428,12 +432,18 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   }
   // A fix run goes on without its survey only with its plan, in the same append.
   if (survey.failure !== null) throw new Error('The fix run went on without its survey but planned no check, which the engine records together');
+  // With no answer, only flags that settle every kind let a fix run go on: the run then runs no check they did not name.
+  if (unsettledKinds(live.checkFlags).length > 0) return null;
+  const unit: Unit = { phase: 'survey', key, role: 'surveyor' };
+  const state = review.units.survey[key];
   // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action promised these flags would let the run go on.
-  if (survey.lastBlock?.code === 'worker-failed' && unsettledKinds(live.checkFlags).length === 0) {
-    const without = truncated(`the survey blocked, ${survey.lastBlock.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
-    return { kind: 'plan-checks', checks: resolveChecks(null, live.checkFlags).checks, without };
-  }
-  return null;
+  // Or it failed twice in this attempt, no worker lost among the failures: blocking would only ask for the flags this invocation already gave.
+  const failed = survey.lastBlock?.code === 'worker-failed'
+    ? `the survey blocked, ${survey.lastBlock.detail}`
+    : exhausted(review, unit, state) && !interrupted(state) ? workerFailedBlocker(review, unit, state).detail : null;
+  if (failed === null) return null;
+  const without = truncated(`${failed}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
+  return { kind: 'plan-checks', checks: resolveChecks(null, live.checkFlags).checks, without };
 }
 
 /**

@@ -163,11 +163,16 @@ contributing guide.
   attempt, and the surveyor gets its one fresh retry as every role
   does. So does a path the file system cannot resolve: an odd path from
   the model costs its attempt, never the run.
-- **R9: A survey that fails twice stops a fix run and not a read-only
-  one.** A read-only review goes on with no convention sources:
-  `CONVENTIONS` is recorded as not run for that reason, and the report
-  says so under Limitations. A fix run blocks, since going on would run
-  no check the flags did not name: the blocker's action is to run the
+- **R9: A survey that fails twice stops a fix run its flags do not
+  settle, and not a read-only one.** A read-only review goes on with no
+  convention sources: `CONVENTIONS` is recorded as not run for that
+  reason, and the report says so under Limitations. A fix run whose
+  invocation's `--check` and `--no-check` flags already settle every
+  kind goes on the same way, its checks the flags', since a block would
+  only ask for the flags it was given. Any other fix run blocks, since
+  going on would run no check the flags did not name, and so does a
+  survey with a worker lost among its failures, as any interrupted
+  unit: the blocker's action is to run the
   command again, which surveys afresh, or to settle every kind with
   `--check` and `--no-check`, after which the run goes on without
   surveying again: with the convention sources of an earlier answer of
