@@ -94,8 +94,13 @@ export const elevatedExecutionPolicy = { name: 'PSExecutionPolicyPreference', va
 
 /**
  * The caller's environment, with every spelling of PATH merged into one on
- * Windows and directories under WindowsApps removed: Codex runs tools under a
- * restricted token that cannot launch the Store's app-execution aliases.
+ * Windows and directories under WindowsApps removed: a worker in Codex's
+ * Windows sandbox runs tools under a restricted token that cannot launch the
+ * Store's app-execution aliases. They are removed under every value, for an
+ * editor that `none` runs in no sandbox too, which could launch them: its
+ * environment stays as it was before `none` existed (R4 of the Codex
+ * sandbox), and so does the shell it finds: Windows PowerShell 5.1 where
+ * PowerShell 7 was installed from the Store.
  * The one is spelled `PATH`, because Codex's elevated runner adds a `PATH`
  * of its own: under any other spelling the worker's process sees two, and a
  * tool that prepends to one while its child shell reads the other, as
