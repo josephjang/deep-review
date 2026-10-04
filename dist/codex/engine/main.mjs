@@ -20523,6 +20523,20 @@ var reviewConfiguredV3 = external_exports.strictObject({
   message: "the batch size is pinned exactly when the run fixes",
   path: ["fixes"]
 });
+var codexWindowsSandboxesV4 = ["unelevated", "elevated", "none"];
+var reviewConfiguredV4 = external_exports.strictObject({
+  ...reviewConfiguredV3.shape,
+  codex: external_exports.strictObject({ windowsSandbox: external_exports.enum(codexWindowsSandboxesV4) }).nullable()
+}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
+  message: "the checks are pinned exactly when the run fixes",
+  path: ["checks"]
+}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
+  message: "the batch size is pinned exactly when the run fixes",
+  path: ["fixes"]
+}).refine((configuration) => configuration.runtime === "codex" || configuration.codex === null, {
+  message: "only a Codex run pins a Codex Windows sandbox",
+  path: ["codex"]
+});
 var phaseStartedV3 = external_exports.strictObject({
   phase: phaseSchemaV3,
   attempt: external_exports.number().int().min(1)
@@ -20651,7 +20665,7 @@ var eventRegistry = defineRegistry({
   "worker.launched": { 1: { schema: workerLaunchedV1 } },
   "worker.finished": { 1: { schema: workerFinishedV1 } },
   "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 } },
-  "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 } },
+  "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 } },
   "limits.changed": { 1: { schema: limitsChangedV1 } },
   "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 } },
   "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 } },
@@ -20969,9 +20983,11 @@ function configure(state, payload, event, surveyed) {
   return withReview(state, review2, event);
 }
 var unsurveyed = { survey: { userRules: "apply" } };
+var unpinnedCodex = (runtime) => ({ codex: runtime === "codex" ? { windowsSandbox: "unelevated" } : null });
 var configured = (state, payload, event) => configure(state, payload, event, true);
-var configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed }, event, false);
-var configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed }, event, false);
+var configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime) }, event, true);
+var configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
+var configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
 var limitsChanged = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   if (review2.report !== null) throw invalid(event, "changes its limits after its report");
@@ -21167,7 +21183,8 @@ var reportWrittenV12 = (state, payload, event, drafts) => reportWritten(state, {
 var reviewReducers = {
   "review.configured@1": configuredV1,
   "review.configured@2": configuredV2,
-  "review.configured@3": configured,
+  "review.configured@3": configuredV3,
+  "review.configured@4": configured,
   "limits.changed@1": limitsChanged,
   "phase.started@1": phaseStarted,
   "phase.started@2": phaseStarted,
@@ -23110,8 +23127,9 @@ function createCodexAdapter(options2 = {}) {
     command: (invocation, plan) => codexCommand(invocation, plan, windowsSandbox, provider)
   };
 }
+var codexRuntimeName = "codex";
 var codexRuntime = {
-  name: "codex",
+  name: codexRuntimeName,
   capabilities: {
     assignsSessionId: false,
     budgetCap: false,
@@ -26013,7 +26031,13 @@ var runtimePolicySchema = external_exports.strictObject({
   strong: external_exports.string().min(1).refine((model) => !model.startsWith("-"), "a model name must not start with a dash"),
   fast: external_exports.string().min(1).refine((model) => !model.startsWith("-"), "a model name must not start with a dash"),
   /** The default run budget in US dollars, or null for none; a runtime that reports no cost has null. */
-  runBudgetUsd: external_exports.number().positive().nullable()
+  runBudgetUsd: external_exports.number().positive().nullable(),
+  /**
+   * How the runtime's workers are confined on Windows when
+   * `--codex-windows-sandbox` says nothing (R1 of the Codex sandbox): the
+   * Codex entry names it, and no other entry may.
+   */
+  windowsSandbox: external_exports.enum(windowsSandboxes).optional()
 });
 var maxConcurrency = 16;
 var checksPolicySchema = external_exports.strictObject({
@@ -26032,9 +26056,20 @@ var policyFileSchema = external_exports.strictObject({
   checks: checksPolicySchema,
   fixes: fixesPolicySchema,
   survey: surveyPolicySchema,
-  runtimes: external_exports.record(external_exports.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
+  runtimes: external_exports.record(external_exports.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema).superRefine((runtimes, context) => {
+    for (const [name, entry] of Object.entries(runtimes)) {
+      if (name === codexRuntimeName && entry.windowsSandbox === void 0) context.addIssue({ code: "custom", message: `the ${codexRuntimeName} entry names its windowsSandbox, one of ${windowsSandboxes.join(", ")}`, path: [name, "windowsSandbox"] });
+      if (name !== codexRuntimeName && entry.windowsSandbox !== void 0) context.addIssue({ code: "custom", message: `a windowsSandbox is a setting of the ${codexRuntimeName} entry only`, path: [name, "windowsSandbox"] });
+    }
+  }),
   concurrency: external_exports.number().int().min(1).max(maxConcurrency)
 });
+function codexWindowsSandboxFlagProblem(runtime, value) {
+  if (value === void 0) return null;
+  if (!windowsSandboxes.includes(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(", ")}, not ${JSON.stringify(value)}`;
+  if (runtime !== codexRuntimeName) return `--codex-windows-sandbox applies only to runtime ${codexRuntimeName}, not ${runtime}`;
+  return null;
+}
 function invocationFlagProblem(flags) {
   const { concurrency, budgetUsd } = flags;
   if (concurrency !== void 0 && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > maxConcurrency)) {
@@ -26047,7 +26082,7 @@ function refuseInvocationFlags(adapter, flags) {
   if (flags.budgetUsd !== void 0 && !adapter.capabilities.costInUsd) {
     throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
   }
-  const problem = invocationFlagProblem(flags);
+  const problem = codexWindowsSandboxFlagProblem(adapter.name, flags.codexWindowsSandbox) ?? invocationFlagProblem(flags);
   if (problem !== null) throw new InvalidPolicyError(problem);
 }
 function parsePolicy(value) {
@@ -26075,7 +26110,7 @@ function rolesDigest(roles) {
   const lines = roles.map((role) => `${role.key}:${role.sha256}`).sort();
   return createHash5("sha256").update(lines.join("\n")).digest("hex");
 }
-function resolvePolicy(policy, roles, adapter, flags = {}) {
+function resolvePolicy(policy, roles, adapter, flags = {}, platform = process.platform) {
   const named = Object.keys(policy.roles).sort();
   const expected = [...reviewRoles].sort();
   const missing = expected.filter((role) => !named.includes(role));
@@ -26107,6 +26142,12 @@ function resolvePolicy(policy, roles, adapter, flags = {}) {
     const entry = policy.roles[role];
     return { role, model: models[entry.tier], effort: entry.effort, budgetUsd: capabilities.budgetCap ? entry.budgetUsd : null, timeoutMs: entry.timeoutMs };
   });
+  let codex = null;
+  if (adapter.name === codexRuntimeName && platform === "win32") {
+    const windowsSandbox = flags.codexWindowsSandbox ?? runtime.windowsSandbox;
+    if (windowsSandbox === void 0) throw new InvalidPolicyError(`The role policy's ${codexRuntimeName} entry names no windowsSandbox; name one of ${windowsSandboxes.join(", ")}`);
+    codex = { windowsSandbox };
+  }
   return {
     runtime: adapter.name,
     models,
@@ -26116,7 +26157,8 @@ function resolvePolicy(policy, roles, adapter, flags = {}) {
     runBudgetUsd: capabilities.costInUsd ? flags.budgetUsd ?? runtime.runBudgetUsd : null,
     checks: policy.checks,
     fixes: policy.fixes,
-    survey: policy.survey
+    survey: policy.survey,
+    codex
   };
 }
 function pinnedRole(roles, role) {
@@ -27249,12 +27291,13 @@ async function runReview(options2) {
 `);
   });
   const environment = options2.environment ?? process.env;
-  const adapter = options2.runtimes.get(options2.runtime);
+  const platform = options2.platform ?? process.platform;
+  const adapter = options2.runtimes({}).get(options2.runtime);
   const roles = assembleRoles(options2.rolesRoot);
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
   const { checkpoint } = options2;
   const content = gitContent(options2.worktree, (reference) => checkpoint.evidence.read(reference));
-  const opened = await openRun({ ...options2, log, environment, adapter, roles });
+  const opened = await openRun({ ...options2, log, environment, platform, adapter, roles });
   let state = opened.state;
   const runId = state.id;
   const { release, scopeRequest, configure: configure2 } = opened;
@@ -27264,7 +27307,7 @@ async function runReview(options2) {
   const hints = once(() => state.review?.configuration.fix === true ? hintChecks(readRootManifests(options2.worktree), unsettledKinds(checkFlags)) : []);
   const authorship = once(() => reviewerAuthorship(options2.worktree));
   const surveyed = {
-    platform: process.platform,
+    platform,
     flags: checkFlags,
     get userFiles() {
       return userFiles();
@@ -27312,10 +27355,11 @@ async function runReview(options2) {
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files`);
     }
     if (configure2 !== null) {
-      state = append(checkpoint, state, [{ kind: "review.configured", version: 3, payload: configure2 }]);
-      log(`run ${runId}: configured for ${configure2.runtime} ${configure2.version}, models ${configure2.models.strong} and ${configure2.models.fast}${configure2.fix ? ", with the fix pass" : ""}; the reviewer's own rules: ${configure2.survey.userRules}`);
+      state = append(checkpoint, state, [{ kind: "review.configured", version: 4, payload: configure2 }]);
+      log(`run ${runId}: configured for ${configure2.runtime} ${configure2.version}, models ${configure2.models.strong} and ${configure2.models.fast}${configure2.fix ? ", with the fix pass" : ""}${configure2.codex === null ? "" : `, Codex Windows sandbox ${configure2.codex.windowsSandbox}`}; the reviewer's own rules: ${configure2.survey.userRules}`);
     }
     const configuration = state.review.configuration;
+    const runtimes = options2.runtimes(runtimeOptionsOf(configuration));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, options2.worktree, content.match, log);
     state = reenterPhase(checkpoint, state, log);
@@ -27440,7 +27484,7 @@ async function runReview(options2) {
             if (invocation.scratch !== void 0) prepareSnapshots(join23(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
+            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise: promise2 });
           }
           break;
@@ -27498,6 +27542,9 @@ async function nextSettled(inFlight) {
   inFlight.delete(name);
   return { settled: settled2, startedAt: entry.startedAt };
 }
+function runtimeOptionsOf(configuration) {
+  return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };
+}
 async function openRun(context) {
   const { checkpoint, log } = context;
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
@@ -27530,7 +27577,8 @@ async function openRun(context) {
     if (found !== null && pinned !== null) {
       await resumePinned(found, pinned, context);
     } else {
-      const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags);
+      const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags, context.platform);
+      if (context.flags.codexWindowsSandbox !== void 0 && resolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
       const fix = context.fix ?? null;
       const executable = typeof context.executable === "function" ? context.executable() : context.executable;
       const executableArgs = [...context.executableArgs ?? []];
@@ -27558,6 +27606,11 @@ async function resumePinned(run2, pinned, context) {
     throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
   }
   refuseInvocationFlags(context.adapter, context.flags);
+  const sandbox = context.flags.codexWindowsSandbox;
+  if (sandbox !== void 0 && pinned.codex === null) context.log(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`);
+  if (sandbox !== void 0 && pinned.codex !== null && sandbox !== pinned.codex.windowsSandbox) {
+    throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${pinned.codex.windowsSandbox}, not ${sandbox}; run it with --codex-windows-sandbox ${pinned.codex.windowsSandbox} or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+  }
   if (context.flags.strongModel !== void 0 || context.flags.fastModel !== void 0) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
@@ -27912,6 +27965,7 @@ var usage = `usage:
                       (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
                       [--fix [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(", ")})
+                      [--codex-windows-sandbox ${windowsSandboxes.join("|")}]   (with --runtime codex; applies on Windows)
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
@@ -27941,13 +27995,14 @@ var options = {
   fix: { type: "boolean" },
   check: { type: "string", multiple: true },
   "no-check": { type: "string", multiple: true },
+  "codex-windows-sandbox": { type: "string" },
   "change-message": { type: "string" },
   finding: { type: "string" },
   into: { type: "string" },
   help: { type: "boolean", short: "h" }
 };
 var allowed = {
-  review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "fix", "check", "no-check", "help"],
+  review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "fix", "check", "no-check", "codex-windows-sandbox", "help"],
   status: ["run", "json", "repo", "help"],
   abandon: ["reason", "run", "repo", "help"],
   commit: ["run", "change-message", "repo", "help"],
@@ -28115,11 +28170,15 @@ async function review(values, io, root, worktree) {
   if (!runtimes.names().includes(values.runtime)) throw new UsageError(`--runtime must be one of ${runtimes.names().join(", ")}, not ${JSON.stringify(values.runtime)}`);
   const concurrency = number4("--concurrency", values.concurrency);
   const budgetUsd = number4("--budget-usd", values["budget-usd"]);
+  const sandboxProblem = codexWindowsSandboxFlagProblem(values.runtime, values["codex-windows-sandbox"]);
+  if (sandboxProblem !== null) throw new UsageError(sandboxProblem);
+  const codexWindowsSandbox = values["codex-windows-sandbox"];
   const flags = {
     ...values["strong-model"] === void 0 ? {} : { strongModel: values["strong-model"] },
     ...values["fast-model"] === void 0 ? {} : { fastModel: values["fast-model"] },
     ...concurrency === void 0 ? {} : { concurrency },
-    ...budgetUsd === void 0 ? {} : { budgetUsd }
+    ...budgetUsd === void 0 ? {} : { budgetUsd },
+    ...codexWindowsSandbox === void 0 ? {} : { codexWindowsSandbox }
   };
   const problem = invocationFlagProblem(flags);
   if (problem !== null) throw new UsageError(problem);
@@ -28138,7 +28197,8 @@ async function review(values, io, root, worktree) {
     const outcome = await runReview({
       checkpoint,
       worktree,
-      runtimes,
+      // Built again with the Codex Windows sandbox the run pins, for the runtimes its workers launch on.
+      runtimes: defaultRuntimes,
       runtime,
       // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned.
       executable: () => resolveExecutable(values.executable ?? runtime, io.environment, process.platform, io.cwd),

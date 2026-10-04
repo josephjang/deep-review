@@ -113,7 +113,7 @@ export class ReviewSandbox {
     return runReview({
       checkpoint: this.checkpoint,
       worktree: this.repo,
-      runtimes: defaultRuntimes(),
+      runtimes: defaultRuntimes,
       runtime,
       executable: process.execPath,
       executableArgs: [runtime === 'claude' ? fakeClaude : fakeCodex],

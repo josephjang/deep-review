@@ -540,7 +540,9 @@ try {
     to: 'e'.repeat(40),
   });
   // A fifth run through the survey, every event at the version the engine
-  // now writes: a fix run whose policy judges the reviewer's own rules; its
+  // wrote when the survey arrived, the configuration at version 3, which
+  // reads as a Claude Code run with no Codex Windows sandbox: a fix run
+  // whose policy judges the reviewer's own rules; its
   // surveyor names a contributing guide and applies the reviewer's own
   // rules file, and chooses a lint command whose tool is missing, so the
   // survey blocks with check-unavailable; the next invocation drops lint
@@ -647,10 +649,11 @@ try {
       patches: [],
     }, 3);
   });
-  // A sixth run, read-only and left active: its policy applies the
-  // reviewer's own rules, its surveyor fails twice, and the run goes on
-  // without the survey, the policy's file its one convention source, so
-  // CONVENTIONS still runs.
+  // A sixth run, read-only and left active, on Codex and configured at
+  // version 3, so it reads as a run under the unelevated Windows sandbox:
+  // its policy applies the reviewer's own rules, its surveyor fails twice,
+  // and the run goes on without the survey, the policy's file its one
+  // convention source, so CONVENTIONS still runs.
   const unsurveyedRun = checkpoint.createRun({ worktree: '/fixture/unsurveyed' });
   const unsurveyed = new ReviewHistory(checkpoint, unsurveyedRun.id, checkpoint.append(unsurveyedRun.id, unsurveyedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
   unsurveyed.add('review.configured', {
@@ -681,6 +684,29 @@ try {
       userRules: [{ path: userRules, applied: true, reason: 'applied by the policy value apply' }],
     });
   }, 'degraded');
+  // A seventh run, configured at the version the engine now writes: a
+  // Codex fix run on Windows whose editors run in no sandbox, pinned with
+  // --codex-windows-sandbox none; abandoned as its survey starts.
+  const unsandboxedRun = checkpoint.createRun({ worktree: 'C:\\fixture\\unsandboxed' });
+  const unsandboxed = new ReviewHistory(checkpoint, unsandboxedRun.id, checkpoint.append(unsandboxedRun.id, unsandboxedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  unsandboxed.add('review.configured', {
+    runtime: 'codex',
+    executable: 'C:\\fixture\\bin\\codex.exe',
+    executableArgs: [],
+    version: '0.160.0',
+    models: { strong: 'gpt-6-astra', fast: 'gpt-6.1-sol' },
+    roles: [pinned('surveyor', 'strong', 'medium'), pinned('fixer', 'strong', 'high', 1_800_000)],
+    rolesDigest: '8'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: null,
+    fix: true,
+    checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 4 },
+    survey: { userRules: 'judge' },
+    codex: { windowsSandbox: 'none' },
+  }, 4);
+  unsandboxed.add('phase.started', { phase: 'survey', attempt: 1 }, 3);
+  unsandboxed.add('run.abandoned', { reason: 'fixture run abandoned as its survey starts' });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

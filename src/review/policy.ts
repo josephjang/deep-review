@@ -1,11 +1,13 @@
 /**
  * The role policy (R3 of the read-only review, R12 and R18 of the fix
- * pass, R3 of the repository survey): one file, `roles/policy.json`, names
- * for every role the review runs its tier, effort, per-worker budget and
- * timeout, the fix pass's per-check timeout and fixer batch size, whether
- * the reviewer's own rules files apply, and for every runtime the model
- * behind each tier and the default run budget. `resolvePolicy` turns it, the assembled roles, one runtime and
- * the command's flags into the values a run pins on its ledger.
+ * pass, R3 of the repository survey, R1 of the Codex sandbox): one file,
+ * `roles/policy.json`, names for every role the review runs its tier,
+ * effort, per-worker budget and timeout, the fix pass's per-check timeout
+ * and fixer batch size, whether the reviewer's own rules files apply, for
+ * every runtime the model behind each tier and the default run budget,
+ * and for Codex the default Windows sandbox. `resolvePolicy` turns it, the
+ * assembled roles, one runtime, the command's flags and the platform into
+ * the values a run pins on its ledger.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -13,6 +15,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { effortSchema, type PinnedRole } from '../checkpoint/events.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
+import { codexRuntimeName, windowsSandboxes, type WindowsSandbox } from '../runtime/codex.ts';
 import { maxBudgetUsd, maxTimeoutMs } from '../runtime/contract.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import { roleKeySchema } from '../roles/manifest.ts';
@@ -41,6 +44,12 @@ export const runtimePolicySchema = z.strictObject({
   fast: z.string().min(1).refine((model) => !model.startsWith('-'), 'a model name must not start with a dash'),
   /** The default run budget in US dollars, or null for none; a runtime that reports no cost has null. */
   runBudgetUsd: z.number().positive().nullable(),
+  /**
+   * How the runtime's workers are confined on Windows when
+   * `--codex-windows-sandbox` says nothing (R1 of the Codex sandbox): the
+   * Codex entry names it, and no other entry may.
+   */
+  windowsSandbox: z.enum(windowsSandboxes).optional(),
 });
 export type RuntimePolicy = z.infer<typeof runtimePolicySchema>;
 
@@ -84,7 +93,12 @@ export const policyFileSchema = z.strictObject({
   checks: checksPolicySchema,
   fixes: fixesPolicySchema,
   survey: surveyPolicySchema,
-  runtimes: z.record(z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema),
+  runtimes: z.record(z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/), runtimePolicySchema).superRefine((runtimes, context) => {
+    for (const [name, entry] of Object.entries(runtimes)) {
+      if (name === codexRuntimeName && entry.windowsSandbox === undefined) context.addIssue({ code: 'custom', message: `the ${codexRuntimeName} entry names its windowsSandbox, one of ${windowsSandboxes.join(', ')}`, path: [name, 'windowsSandbox'] });
+      if (name !== codexRuntimeName && entry.windowsSandbox !== undefined) context.addIssue({ code: 'custom', message: `a windowsSandbox is a setting of the ${codexRuntimeName} entry only`, path: [name, 'windowsSandbox'] });
+    }
+  }),
   concurrency: z.number().int().min(1).max(maxConcurrency),
 });
 export type PolicyFile = z.infer<typeof policyFileSchema>;
@@ -95,6 +109,8 @@ export interface PolicyFlags {
   readonly fastModel?: string;
   readonly concurrency?: number;
   readonly budgetUsd?: number;
+  /** How a Codex run's workers are confined on Windows, over the policy's value; pinned on the run like the models. */
+  readonly codexWindowsSandbox?: WindowsSandbox;
 }
 
 /** The policy as resolved for one runtime: what `review.configured` records, less the executable and version the command adds and whether the run fixes. */
@@ -111,6 +127,22 @@ export interface ResolvedPolicy {
   readonly fixes: FixesPolicy;
   /** The survey's policy, which every run pins. */
   readonly survey: SurveyPolicy;
+  /** The Windows sandbox a Codex run on Windows pins; null on another runtime or platform (R3 of the Codex sandbox). */
+  readonly codex: { readonly windowsSandbox: WindowsSandbox } | null;
+}
+
+/**
+ * What is wrong with `--codex-windows-sandbox`, or null when nothing is or
+ * it is not given (R1 of the Codex sandbox): it names one of the Codex
+ * adapter's Windows sandboxes, and applies to a Codex run only. The
+ * command line checks it with this before it opens the checkpoint, and
+ * `refuseInvocationFlags` for every caller that does not come through it.
+ */
+export function codexWindowsSandboxFlagProblem(runtime: string, value: string | undefined): string | null {
+  if (value === undefined) return null;
+  if (!(windowsSandboxes as readonly string[]).includes(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(', ')}, not ${JSON.stringify(value)}`;
+  if (runtime !== codexRuntimeName) return `--codex-windows-sandbox applies only to runtime ${codexRuntimeName}, not ${runtime}`;
+  return null;
 }
 
 /**
@@ -130,16 +162,19 @@ export function invocationFlagProblem(flags: Pick<PolicyFlags, 'concurrency' | '
 }
 
 /**
- * Refuse the per-invocation flags a new run and a resumed one both take:
+ * Refuse the flags a new run and a resumed one both take and check alike:
  * a `--budget-usd` on a runtime that reports no cost is refused rather
- * than ignored, since the check it would set could never run, and a
- * malformed flag is refused with `invocationFlagProblem`'s message.
+ * than ignored, since the check it would set could never run; a
+ * `--codex-windows-sandbox` on another runtime than Codex, or naming no
+ * sandbox it has, is refused with `codexWindowsSandboxFlagProblem`'s
+ * message; and a malformed per-invocation flag with
+ * `invocationFlagProblem`'s.
  */
-export function refuseInvocationFlags(adapter: Pick<RuntimeAdapter, 'name' | 'capabilities'>, flags: Pick<PolicyFlags, 'concurrency' | 'budgetUsd'>): void {
+export function refuseInvocationFlags(adapter: Pick<RuntimeAdapter, 'name' | 'capabilities'>, flags: Pick<PolicyFlags, 'concurrency' | 'budgetUsd' | 'codexWindowsSandbox'>): void {
   if (flags.budgetUsd !== undefined && !adapter.capabilities.costInUsd) {
     throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
   }
-  const problem = invocationFlagProblem(flags);
+  const problem = codexWindowsSandboxFlagProblem(adapter.name, flags.codexWindowsSandbox) ?? invocationFlagProblem(flags);
   if (problem !== null) throw new InvalidPolicyError(problem);
 }
 
@@ -183,9 +218,12 @@ export function rolesDigest(roles: readonly Pick<AssembledRole, 'key' | 'sha256'
  * per-role budget is null on a runtime that cannot stop a worker at a
  * budget, since the launcher would refuse it. A `--budget-usd` on a
  * runtime that reports no cost is refused rather than ignored: the check
- * it would set could never run.
+ * it would set could never run. A Codex run on Windows takes its Windows
+ * sandbox from the flag, else the Codex entry; a Codex run on another
+ * `platform` has none, and a `--codex-windows-sandbox` on another runtime
+ * is refused.
  */
-export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags = {}): ResolvedPolicy {
+export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags = {}, platform: NodeJS.Platform = process.platform): ResolvedPolicy {
   const named = Object.keys(policy.roles).sort();
   const expected: string[] = [...reviewRoles].sort();
   const missing = expected.filter((role) => !named.includes(role));
@@ -219,6 +257,13 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     const entry = policy.roles[role]!;
     return { role, model: models[entry.tier], effort: entry.effort, budgetUsd: capabilities.budgetCap ? entry.budgetUsd : null, timeoutMs: entry.timeoutMs };
   });
+  let codex: ResolvedPolicy['codex'] = null;
+  if (adapter.name === codexRuntimeName && platform === 'win32') {
+    const windowsSandbox = flags.codexWindowsSandbox ?? runtime.windowsSandbox;
+    // The policy file's own check requires the entry's value; a policy built some other way may lack it.
+    if (windowsSandbox === undefined) throw new InvalidPolicyError(`The role policy's ${codexRuntimeName} entry names no windowsSandbox; name one of ${windowsSandboxes.join(', ')}`);
+    codex = { windowsSandbox };
+  }
   return {
     runtime: adapter.name,
     models,
@@ -229,6 +274,7 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     checks: policy.checks,
     fixes: policy.fixes,
     survey: policy.survey,
+    codex,
   };
 }
 

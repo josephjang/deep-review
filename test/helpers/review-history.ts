@@ -2,7 +2,7 @@
 // spend and report tests: a run created, scoped and configured, then taken
 // through its phases one scenario at a time.
 import assert from 'node:assert/strict';
-import { reviewVocabularyV1, type ReviewConfiguration, type ReviewConfigurationV1, type ScopeState } from '../../src/checkpoint/events.ts';
+import { reviewVocabularyV1, type ReviewConfiguration, type ReviewConfigurationV1, type ReviewConfigurationV3, type ScopeState } from '../../src/checkpoint/events.ts';
 import { foldRun, type DecodedEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, fixPhases } from '../../src/review/vocabulary.ts';
@@ -32,8 +32,8 @@ export const configurationV1: ReviewConfigurationV1 = {
   runBudgetUsd: 30,
 };
 
-/** The configuration as the fold holds it: version 1's, read as a run without the fix pass that applied the reviewer's own rules, and was not surveyed. */
-export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'apply' } };
+/** The configuration as the fold holds it: version 1's, read as a run without the fix pass that applied the reviewer's own rules, was not surveyed, and pins no Codex Windows sandbox, being a Claude Code run. */
+export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'apply' }, codex: null };
 
 /** A launch under a review label, capped at the 8 USD per-worker budget the configuration's roles pin, as Claude Code's launches are. */
 export const launch = (workerId: string, label: string): Record<string, unknown> => ({
@@ -143,10 +143,10 @@ export class History {
 export const configured = (): History => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', configurationV1);
 
 /** The configuration as version 3 records it: a read-only run that is surveyed, its policy judging the reviewer's own rules. */
-export const configurationV3: ReviewConfiguration = { ...configuration, survey: { userRules: 'judge' } };
+export const configurationV3: ReviewConfigurationV3 = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' } };
 
 /** A run configured at version 3, so its survey runs first: read-only unless `change` says otherwise. */
-export const surveyConfigured = (change: Partial<ReviewConfiguration> = {}): History =>
+export const surveyConfigured = (change: Partial<ReviewConfigurationV3> = {}): History =>
   new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', { ...configurationV3, ...change }, 3);
 
 /** The same, with the fix pass and its batch size of four. */

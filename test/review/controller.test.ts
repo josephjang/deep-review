@@ -145,8 +145,10 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
     assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && (fixPhases as readonly string[]).includes(payload.phase as string)), 'no phase of the fix pass started');
     assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 10);
-    // The engine writes only the third version of each kind that carries a phase, and of the configuration.
-    assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => ['review.configured', 'phase.started', 'phase.finished', 'worktree.checked', 'attempt.failed', 'report.written'].includes(event.kind) && event.version !== 3).map((event) => `${event.kind}@${String(event.version)}`), []);
+    // The engine writes only the third version of each kind that carries a phase, and the fourth of the configuration.
+    const written: Record<string, number> = { 'review.configured': 4, 'phase.started': 3, 'phase.finished': 3, 'worktree.checked': 3, 'attempt.failed': 3, 'report.written': 3 };
+    assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => event.kind in written && event.version !== written[event.kind]).map((event) => `${event.kind}@${String(event.version)}`), []);
+    assert.ok(kinds.includes('review.configured'));
     // The survey is recorded once, and a read-only run plans no check.
     assert.deepEqual(state.review!.survey?.answers.map((answer) => answer.conventions.map((source) => source.path)), [['AGENTS.md']]);
     assert.ok(!kinds.includes('checks.planned'));
@@ -306,12 +308,13 @@ describe('runReview', { timeout: 600_000 }, () => {
   });
 
   it('lists, for a run configured before the survey existed and resumed, the rules files the engine found for it then, as its pinned role prompts expect', async () => {
-    // A run of this engine gives the configuration such a run pinned: the same one, without the survey's setting.
+    // A run of this engine gives the configuration such a run pinned: the same one, without the survey's setting or the Codex Windows sandbox.
     box.script({ triage: { exit: 2 } });
     const first = await box.review('claude');
     assert.ok(first.kind === 'blocked', JSON.stringify(first));
     const pinned = { ...box.events(first.runId).find(([kind]) => kind === 'review.configured')![1] };
     delete pinned.survey;
+    delete pinned.codex;
     box.checkpoint.append(first.runId, box.checkpoint.fold(first.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
     const older = box.checkpoint.createRun({ worktree: box.repo });
     const captured = captureScope(box.checkpoint, older.id, { paths: [] });

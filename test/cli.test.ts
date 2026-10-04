@@ -36,6 +36,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(help.status, 0);
     assert.match(help.stdout, /deep-review review {2}--runtime claude\|codex/);
     assert.ok(help.stdout.includes(`[--concurrency 1..${String(maxConcurrency)}]`), 'the usage names the bound the flag is checked against');
+    assert.ok(help.stdout.includes('[--codex-windows-sandbox unelevated|elevated|none]'), 'the usage names the Codex Windows sandboxes');
   });
 
   it('refuses a command-line mistake with the usage and exit 1', () => {
@@ -63,6 +64,10 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
       [claudeFlags('--last-commit', '--fix', '--check', 'lint'), /--check takes <kind>=<command>, not "lint"/],
       [claudeFlags('--last-commit', '--fix', '--check', 'lint= '), /--check lint= needs a command/],
       [['status', '--fix'], /--fix does not apply to status/],
+      [claudeFlags('--last-commit', '--codex-windows-sandbox', 'elevated'), /--codex-windows-sandbox applies only to runtime codex, not claude/],
+      [claudeFlags('--last-commit', '--codex-windows-sandbox', 'full'), /--codex-windows-sandbox must be one of unelevated, elevated, none, not "full"/],
+      [['review', '--runtime', 'codex', '--executable', process.execPath, '--executable-arg', fakeCodex, '--roles', box.rolesRoot, '--last-commit', '--codex-windows-sandbox', ''], /--codex-windows-sandbox must be one of unelevated, elevated, none, not ""/],
+      [['status', '--codex-windows-sandbox', 'none'], /--codex-windows-sandbox does not apply to status/],
     ] as const) {
       const result = run(...args);
       assert.equal(result.status, 1, `${args.join(' ')}: ${result.stderr}`);
