@@ -85,6 +85,10 @@ describe('the survey fold', () => {
     const applied = surveyConfigured({ survey: { userRules: 'apply' } }).start('survey')
       .add('survey.failed', { reason: 'failed', conventions: [{ ...userSource, grounds: 'applied by the policy value apply' }], userRules: [{ path: user, applied: true, reason: 'applied by the policy value apply' }] }).review();
     assert.deepEqual(applied.anglesNotRun, {}, 'CONVENTIONS holds the change to the file the policy applies');
+    // Under judge a failed survey leaves every user-level file unjudged, so none applies and CONVENTIONS is not run.
+    const unjudged = surveyConfigured().start('survey').add('survey.failed', { reason: 'failed', conventions: [], userRules: [{ path: user, applied: false, reason: 'not judged, since the survey failed' }] }).review();
+    assert.deepEqual(conventionsKnown(unjudged.survey), { status: 'failed', reason: 'failed', sources: [], userRules: [{ path: user, applied: false, reason: 'not judged, since the survey failed' }] });
+    assert.equal(unjudged.anglesNotRun.CONVENTIONS, 'the survey failed, so no convention source is known: failed');
   });
 
   it('plans a fix run\'s checks from its survey and the flags while the phase runs, once', () => {
@@ -107,6 +111,7 @@ describe('the survey fold', () => {
     ['an absolute repository source', () => surveying(surveyConfigured()).add('survey.recorded', surveyAnswer(worker(1), { conventions: [{ ...repositorySource, path: 'C:/repo/AGENTS.md' }] })), /not a repository path/],
     ['a user-level file left out under apply', () => surveying(surveyConfigured({ survey: { userRules: 'apply' } })).add('survey.recorded', surveyAnswer(worker(1), { userRules: [{ path: user, applied: false, reason: 'no' }] })), /under the policy value apply/],
     ['a user-level file applied under ignore', () => surveying(surveyConfigured({ survey: { userRules: 'ignore' } })).add('survey.recorded', surveyAnswer(worker(1), { conventions: [userSource], userRules: [{ path: user, applied: true, reason: 'yes' }] })), /under the policy value ignore/],
+    ['a user-level file applied by a failed survey under judge', () => surveyConfigured().start('survey').add('survey.failed', { reason: 'failed', conventions: [userSource], userRules: [{ path: user, applied: true, reason: 'imported' }] }), /applies a user-level rules file with no survey to judge it under the policy value judge/],
     ['an answer after the checks are planned', () => surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks })).add('checks.planned', plannedV2(), 2).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks })), /after its checks are planned/],
     ['an answer after the run went on without one', () => surveyConfigured().start('survey').add('survey.failed', { reason: 'failed', conventions: [], userRules: [] }).worker(1, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(1))), /after the run went on without its survey/],
     ['going on without a survey after an answer', () => surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks })).finish('survey', 'blocked', 1, unavailable).start('survey', 2).add('survey.failed', { reason: 'failed', conventions: [], userRules: [] }), /after recording an answer/],

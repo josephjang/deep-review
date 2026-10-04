@@ -21472,6 +21472,7 @@ var surveyFailed = (state, payload, event) => {
   const survey = requireOpenSurvey(review2, event);
   if (survey.answers.length > 0) throw invalid(event, "goes on without its survey after recording an answer");
   requireConventions(review2, event, payload.conventions, payload.userRules);
+  if (review2.configuration.survey.userRules === "judge" && payload.userRules.some((rule) => rule.applied)) throw invalid(event, "applies a user-level rules file with no survey to judge it under the policy value judge");
   const anglesNotRun = payload.conventions.length > 0 ? review2.anglesNotRun : { ...review2.anglesNotRun, CONVENTIONS: `the survey failed, so no convention source is known: ${payload.reason}` };
   return withReview(current, { ...review2, survey: { ...survey, failure: payload }, anglesNotRun }, event);
 };
