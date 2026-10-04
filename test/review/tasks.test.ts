@@ -67,7 +67,22 @@ describe('the survey task', () => {
     offered: [],
     policySettlesUserRules: true,
     authorship: { identity: 'unset' },
+    elevatedSandbox: false,
   };
+
+  it('looks a tool up as the check\'s shell resolves it: where.exe on Windows, command -v elsewhere', () => {
+    assert.match(surveyTask({ ...input, platform: 'win32' }), /as `cmd\.exe \/d \/s \/c "<command>"`[^\n]*, with `where\.exe <tool>`, and judge the lookup by whether it succeeded/);
+    assert.match(surveyTask(input), /as `\/bin\/sh -c "<command>"`[^\n]*, with `command -v <tool>`, and judge/);
+  });
+
+  it('looks a tool up with Get-Command in place of where.exe under the elevated sandbox, and changes nothing else (R12 of the Codex sandbox)', () => {
+    const plain = surveyTask({ ...input, platform: 'win32' });
+    const elevated = surveyTask({ ...input, platform: 'win32', elevatedSandbox: true });
+    const lookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
+    assert.equal(elevated, plain.replace('`where.exe <tool>`', lookup), 'the lookup is the one difference');
+    assert.notEqual(elevated, plain);
+    assert.equal(surveyTask({ ...input, elevatedSandbox: true }), surveyTask(input), 'off Windows there is no elevated sandbox to look around');
+  });
 
   it('quotes each --check command in a code span the command cannot close, and names a dropped kind', () => {
     const task = surveyTask({ ...input, settled: [{ kind: 'build', command: 'echo `git rev-parse HEAD` && make' }, { kind: 'typecheck', command: null }] });

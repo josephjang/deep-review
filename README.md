@@ -295,11 +295,14 @@ warning. Each value needs and gives up something:
   that the sandbox user can read; the engine sets PowerShell's execution
   policy for the worker's processes to `RemoteSigned`, so the `npm` and
   `pnpm` shims start, unless `PSExecutionPolicyPreference` is set
-  already or a group policy overrides it. As that user `where.exe` finds
-  nothing, so the survey takes installed tools for missing and blocks
-  until `--check` names the commands; `os.userInfo()` throws, which
-  stops `tsx`; and directories above the workspace cannot be read, which
-  stops vitest's default config loader. Workers get around these at the
+  already or a group policy overrides it, and its surveyor looks tools
+  up with PowerShell's `Get-Command`, since `where.exe` finds nothing as
+  that user. Two limits stay, since lifting them would widen the
+  sandbox: the sandbox user has no profile, so `os.userInfo()` throws
+  and `tsx` with it; and it cannot list the operator's profile directory,
+  so a tool that walks up through it from a repository inside the
+  profile fails, such as vitest's default config loader
+  (`--configLoader runner` avoids it). Workers get around these at the
   cost of turns.
 - `none`, the default, runs the workers that edit in no sandbox and
   leaves those that only read under `unelevated`, since Codex has no

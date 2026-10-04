@@ -26288,8 +26288,10 @@ function authorshipLine(authorship) {
   return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email or with an address the repository's \`.mailmap\` gives as the reviewer's.`;
 }
 var kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
-function shellOf(platform) {
-  return platform === "win32" ? { shell: 'cmd.exe /d /s /c "<command>"', lookup: "`where.exe <tool>`" } : { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
+var elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
+function shellOf(platform, elevatedSandbox) {
+  if (platform !== "win32") return { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
+  return { shell: 'cmd.exe /d /s /c "<command>"', lookup: elevatedSandbox ? elevatedLookup : "`where.exe <tool>`" };
 }
 function surveyTask(input2) {
   const userRules = input2.offered.length > 0 ? [
@@ -26322,7 +26324,7 @@ function codeSpan(text2) {
   return `${delimiter2}${pad}${text2}${pad}${delimiter2}`;
 }
 function fixChecks(input2) {
-  const { shell, lookup } = shellOf(input2.platform);
+  const { shell, lookup } = shellOf(input2.platform, input2.elevatedSandbox);
   const settled2 = input2.settled.length === 0 ? [] : [
     "Settled by the operator's flags, which you leave out of `checks`:",
     ...input2.settled.map((entry) => entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`),
@@ -26666,6 +26668,7 @@ function surveyTaskOf(review2, inputs) {
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
     policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0,
+    elevatedSandbox: inputs.platform === "win32" && review2.configuration.codex?.windowsSandbox === "elevated",
     get authorship() {
       return inputs.authorship;
     }

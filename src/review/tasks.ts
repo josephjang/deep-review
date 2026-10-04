@@ -30,6 +30,12 @@ export interface SurveyTaskInput {
   readonly policySettlesUserRules: boolean;
   /** The reviewer's authorship of the recent history, told with the offered files. */
   readonly authorship: ReviewerAuthorship;
+  /**
+   * Whether the surveyor runs as Codex's elevated sandbox user on Windows,
+   * for whom `where.exe` finds nothing under a directory whose ancestors it
+   * cannot list, so its task names another lookup (R12 of the Codex sandbox).
+   */
+  readonly elevatedSandbox: boolean;
 }
 
 /** The reviewer's authorship as the task states it: a fact the surveyor's own shell cannot see. */
@@ -43,11 +49,18 @@ function authorshipLine(authorship: ReviewerAuthorship): string {
 export const kindsToChooseLine = (input: Pick<SurveyTaskInput, 'fix' | 'unsettled'>): string =>
   input.fix ? `Kinds to choose: ${input.unsettled.length === 0 ? 'none' : input.unsettled.join(', ')}` : 'Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null';
 
-/** How a check reaches its shell on a platform, and how a name is looked up as that shell resolves it. */
-function shellOf(platform: NodeJS.Platform): { readonly shell: string; readonly lookup: string } {
-  return platform === 'win32'
-    ? { shell: 'cmd.exe /d /s /c "<command>"', lookup: '`where.exe <tool>`' }
-    : { shell: '/bin/sh -c "<command>"', lookup: '`command -v <tool>`' };
+/**
+ * The lookup an elevated Codex surveyor on Windows is given in place of
+ * `where.exe` (R12 of the Codex sandbox): PowerShell's `Get-Command`
+ * limited to applications, which finds what `cmd.exe` would run through
+ * PATH and PATHEXT, and exits 1 when nothing is found, as the sandbox user.
+ */
+const elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
+
+/** How a check reaches its shell on a platform, and how a name is looked up as that shell resolves it, as the surveyor's sandbox lets it. */
+function shellOf(platform: NodeJS.Platform, elevatedSandbox: boolean): { readonly shell: string; readonly lookup: string } {
+  if (platform !== 'win32') return { shell: '/bin/sh -c "<command>"', lookup: '`command -v <tool>`' };
+  return { shell: 'cmd.exe /d /s /c "<command>"', lookup: elevatedSandbox ? elevatedLookup : '`where.exe <tool>`' };
 }
 
 /**
@@ -103,7 +116,7 @@ export function codeSpan(text: string): string {
 
 /** The checks part of a fix run's survey task. */
 function fixChecks(input: SurveyTaskInput): string[] {
-  const { shell, lookup } = shellOf(input.platform);
+  const { shell, lookup } = shellOf(input.platform, input.elevatedSandbox);
   const settled = input.settled.length === 0
     ? []
     : [

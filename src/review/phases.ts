@@ -237,6 +237,7 @@ function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
     policySettlesUserRules: setting !== 'judge' && inputs.userFiles.length > 0,
+    elevatedSandbox: inputs.platform === 'win32' && review.configuration.codex?.windowsSandbox === 'elevated',
     get authorship() {
       return inputs.authorship;
     },
