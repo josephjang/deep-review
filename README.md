@@ -277,10 +277,11 @@ reaches its report.
 
 On Windows a Codex run chooses how its workers are confined with
 `--codex-windows-sandbox`, else the policy's
-`runtimes.codex.windowsSandbox`, shipped as `unelevated`. The value is
-pinned on the run and named in the report's header; on another platform
-the flag is ignored with a warning. Each value needs and gives up
-something:
+`runtimes.codex.windowsSandbox`, shipped as `none`, the one value under
+which a gate on zod reached its report untouched with editors that ran
+the build and the tests. The value is pinned on the run and named in
+the report's header; on another platform the flag is ignored with a
+warning. Each value needs and gives up something:
 
 - `unelevated` needs no setup, but a Node process there cannot start a
   child whose output it captures, so a fixer or the repair worker cannot
@@ -294,13 +295,20 @@ something:
   that the sandbox user can read; the engine sets PowerShell's execution
   policy for the worker's processes to `RemoteSigned`, so the `npm` and
   `pnpm` shims start, unless `PSExecutionPolicyPreference` is set
-  already or a group policy overrides it.
-- `none` runs the workers that edit in no sandbox and leaves those that
-  only read under `unelevated`, since Codex has no tool list to hold a
-  reader. An editor then has an unconfined shell and the network, as a
-  Claude Code editor does, for the whole of its session, so `none` suits
-  a change the operator trusts, or a machine that is itself the
-  boundary, such as a container or a virtual machine.
+  already or a group policy overrides it. As that user `where.exe` finds
+  nothing, so the survey takes installed tools for missing and blocks
+  until `--check` names the commands; `os.userInfo()` throws, which
+  stops `tsx`; and directories above the workspace cannot be read, which
+  stops vitest's default config loader. Workers get around these at the
+  cost of turns.
+- `none`, the default, runs the workers that edit in no sandbox and
+  leaves those that only read under `unelevated`, since Codex has no
+  tool list to hold a reader. An editor then has an unconfined shell and
+  the network, as a Claude Code editor does, for the whole of its
+  session, so `none` suits a change the operator trusts, or a machine
+  that is itself the boundary, such as a container or a virtual machine;
+  for any other change, pass `--codex-windows-sandbox unelevated` or
+  `elevated`.
 
 The engine sets up neither the machine nor its package stores. See
 `docs/changes/2026-10-04-codex-sandbox.md`.
@@ -377,7 +385,8 @@ repository can steer the surveyor to any command line. Each chosen
 command is printed with its source before the baseline runs and is on
 the ledger with the file it came from, but anyone reviewing an
 untrusted repository with `--fix` should settle every check with
-`--check` or `--no-check`, or not fix. See
+`--check` or `--no-check`, and on Codex for Windows confine the editors
+with `--codex-windows-sandbox unelevated` or `elevated`, or not fix. See
 `docs/changes/2026-10-03-repository-survey.requirements.md` and its
 design.
 
