@@ -136,6 +136,32 @@ describe('the surveyor\'s task', () => {
     }
   });
 
+  it('reads the reviewer\'s authorship only for a task that offers a user-level file, which is the only one that prints it', () => {
+    // The authorship costs two git commands, so a task that never prints it must not ask for it.
+    let reads = 0;
+    const counted = (change: Partial<SurveyInputs>): SurveyInputs => ({
+      ...noSurveyInputs,
+      ...change,
+      get authorship() {
+        reads += 1;
+        return { identity: 'set', commits: 3, byReviewer: 2 } as const;
+      },
+    });
+    const files = ['/home/me/.claude/CLAUDE.md'];
+    const none = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: counted({}) });
+    assert.doesNotMatch(none, /What the reviewer's git configuration/);
+    assert.equal(reads, 0, 'no user-level file exists');
+    for (const userRules of ['apply', 'ignore'] as const) {
+      taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured({ survey: { userRules } }).review(), { survey: counted({ userFiles: files }) });
+      assert.equal(reads, 0, `${userRules} offers none`);
+    }
+    taskFor(unit('survey', 'survey', 'surveyor'), surveyConfiguredFix().review(), { survey: counted({}) });
+    assert.equal(reads, 0, 'a fix run offering no file');
+    const judged = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: counted({ userFiles: files }) });
+    assert.match(judged, /says of this repository's history: 2 of the last 3 commits on HEAD were authored with the reviewer's email\.$/m);
+    assert.equal(reads, 1, 'judge offers the file and prints the authorship');
+  });
+
   it('names the kinds to choose in a fix run, the ones the flags settled, the shell a check runs in, and a hint per kind to choose', () => {
     const fixing = surveyConfiguredFix().review();
     const task = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ flags: { commands: { typecheck: 'tsc -p .' }, dropped: ['lint'] }, hints: hints.filter((hint) => hint.kind !== 'lint') }) });

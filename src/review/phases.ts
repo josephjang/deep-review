@@ -214,7 +214,12 @@ export interface TaskOptions {
   readonly survey?: SurveyInputs | null;
 }
 
-/** The surveyor's task: what the invocation knows, read against the pinned policy and whether the run fixes. */
+/**
+ * The surveyor's task: what the invocation knows, read against the pinned
+ * policy and whether the run fixes. The reviewer's authorship (two git
+ * commands) is passed as a getter, so it is read only by a task that
+ * prints it, the one that offers a user-level file.
+ */
 function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
   const setting = review.configuration.survey.userRules;
   const fix = review.fix !== null;
@@ -227,7 +232,9 @@ function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
     policySettlesUserRules: setting !== 'judge' && inputs.userFiles.length > 0,
-    authorship: inputs.authorship,
+    get authorship() {
+      return inputs.authorship;
+    },
   });
 }
 

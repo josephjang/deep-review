@@ -26598,7 +26598,9 @@ function surveyTaskOf(review2, inputs) {
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
     policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0,
-    authorship: inputs.authorship
+    get authorship() {
+      return inputs.authorship;
+    }
   });
 }
 function taskFor(unit, review2, options2 = {}) {
