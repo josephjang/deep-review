@@ -233,9 +233,13 @@ export function rolesDigest(roles: readonly Pick<AssembledRole, 'key' | 'sha256'
  * it would set could never run. A Codex run on Windows takes its Windows
  * sandbox from the flag, else the Codex entry; a Codex run on another
  * `platform` has none, and a `--codex-windows-sandbox` on another runtime
- * is refused.
+ * is refused. The flags and the platform are the caller's to name: the
+ * controller defaults the platform once, to the process's, and passes the
+ * same value here as to every other platform question of the run, so the
+ * policy is never resolved for one platform and the workers confined for
+ * another.
  */
-export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags = {}, platform: NodeJS.Platform = process.platform): ResolvedPolicy {
+export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags, platform: NodeJS.Platform): ResolvedPolicy {
   const named = Object.keys(policy.roles).sort();
   const expected: string[] = [...reviewRoles].sort();
   const missing = expected.filter((role) => !named.includes(role));
