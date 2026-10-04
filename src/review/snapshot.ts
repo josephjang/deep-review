@@ -7,8 +7,9 @@
  * or `absent`. What changed it learns from `<dir>/manifest.json`, which
  * the engine writes at launch with every file git does not ignore and its
  * size and time, and the directories git ignores: the command starts no
- * process, since in Codex's Windows sandbox a worker's process may start
- * none. The engine reads the snapshots when it records the answer and
+ * process, since in Codex's unelevated Windows sandbox a Node process
+ * cannot start one whose output it captures, as asking git does. The
+ * engine reads the snapshots when it records the answer and
  * freezes what it needs; the directory is the fixer's scratch, never
  * evidence and never inside the reviewed tree.
  */

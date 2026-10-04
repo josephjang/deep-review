@@ -234,8 +234,9 @@ each finding it runs `deep-review snapshot`, which copies what it
 changed into its scratch directory, so the engine records one revision
 of the tree per finding. The command finds what changed against a
 manifest of the worktree the engine wrote at launch and starts no
-process, so it works in a sandbox, such as Codex's on Windows, where a
-worker's process cannot start another. Once every batch of this first round has
+process, so it works in a sandbox, such as Codex's unelevated one on
+Windows, where a Node process cannot start a child whose output it
+captures. Once every batch of this first round has
 settled, a finding a fixer reported blocked only on files another
 cluster owned gets one second round, owning those files too.
 

@@ -250,6 +250,15 @@ what it takes, and how to check it.
   tests, and a change proposal.
 - **Check.** `EPERM` results per batch fall to near zero, and turns and
   wall time per batch fall with them.
+- **Corrected 2026-10-04.** The sentence the change proposes rests on a
+  wrong cause. A later probe found that under the unelevated sandbox a
+  process cannot create a named pipe, and Node gives a child its piped
+  stdio through one, so a Node process cannot start a child whose
+  output it captures; processes started with stdio `inherit` or a file
+  run. The build, the tests and package scripts fail all the same, so
+  the lever holds with that cause, and
+  `docs/changes/2026-10-04-codex-sandbox.md` takes it up (R6) beside a
+  setting that lets the build run.
 
 ### 3. Leave the reviewed diff out of the fixer prompt
 
