@@ -297,13 +297,17 @@ warning. Each value needs and gives up something:
   `pnpm` shims start, unless `PSExecutionPolicyPreference` is set
   already or a group policy overrides it, and its surveyor looks tools
   up with PowerShell's `Get-Command`, since `where.exe` finds nothing as
-  that user. Two limits stay, since lifting them would widen the
-  sandbox: the sandbox user has no profile, so `os.userInfo()` throws
-  and `tsx` with it; and it cannot list the operator's profile directory,
-  so a tool that walks up through it from a repository inside the
-  profile fails, such as vitest's default config loader
-  (`--configLoader runner` avoids it). Workers get around these at the
-  cost of turns.
+  that user. Two limits come from Codex and have no fix on this side:
+  Codex logs the sandbox user on without a profile, so `os.userInfo()`
+  throws and every tool that calls it, `tsx` among them, fails
+  ([openai/codex#42753](https://github.com/openai/codex/issues/42753));
+  and by design it gives that user no access to the operator's profile
+  directory itself, so a tool that walks up through it from a repository
+  inside the profile fails, as esbuild and vitest's default config
+  loader do
+  ([openai/codex#41237](https://github.com/openai/codex/issues/41237)).
+  Which tools break depends on the repository, so under `elevated` an
+  editor may not be able to run the build or the tests at all.
 - `none`, the default, runs the workers that edit in no sandbox and
   leaves those that only read under `unelevated`, since Codex has no
   tool list to hold a reader. An editor then has an unconfined shell and

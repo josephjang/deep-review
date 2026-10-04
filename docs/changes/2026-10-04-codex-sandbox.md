@@ -264,8 +264,23 @@ every machine has it.
   probed and works, and a list-only grant on the profile directory was
   probed and works; both were rejected, the first for reaching into every
   Node process the repository runs, the second for widening what the
-  sandbox user may see. The README names both limits and the workarounds
-  a worker found.
+  sandbox user may see. A search of Codex's issues and source found no
+  supported fix for either. Codex's elevated runner passes
+  `LOGON_WITH_PROFILE` only in its registered-Core mode
+  (`CODEX_WINDOWS_REGISTERED_CORE=1`, `runner_client.rs`), so the CLI's
+  sandbox user has no profile; openai/codex#42753 reports the same
+  `ENOMEM` and is open with no reply. Codex stopped granting the profile
+  root on purpose (openai/codex#18443, to keep `.ssh` and the like
+  intact), and openai/codex#41237 reports esbuild failing on it, open
+  with no reply; its one way to add a readable directory,
+  `/sandbox-add-read-dir`, lasts a session of the interactive client and
+  is not open to `codex exec`. Placing the repository outside the profile
+  was rejected as a fix: it asks every operator to change where they
+  work, and any tool that walks up through the profile, now or later,
+  breaks again. So both limits stay until Codex changes, and under
+  `elevated` an editor may not run the build or the tests, depending on
+  the repository's tools; the README says so. Revisit when #42753 is
+  fixed or Codex grants the profile root again.
 
 ## Evidence
 
