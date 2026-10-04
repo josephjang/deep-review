@@ -115,6 +115,33 @@ describe('the report of a surveyed run', () => {
     assert.match(renderReport(none.fold(), { engine: '0.0.0+dev', statistics }), /^## Conventions\n\nThe survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to\.$/m);
   });
 
+  it('counts the survey\'s answers, and says it blocked on a check this machine could not run only when the ledger records that block (R10)', () => {
+    // The checks fixRun() runs (build, lint, test) as the survey's, and no typecheck.
+    const stated = (kind: string, command: string) => ({ kind, command, basis: 'stated', source: { path: 'package.json', quote: `"${kind}"` }, missingTool: null, reason: null });
+    const surveyed = [stated('build', 'npm run build'), { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'no typecheck' }, stated('lint', 'npm run lint'), stated('test', 'npm run test')];
+    const answer = (n: number) => ({ workerId: worker(n), conventions: [], userRules: [], checks: surveyed, note: '' });
+    const plan = { checks: surveyed.map(({ kind, command, basis, source, reason }) => ({ kind, command, origin: command === null ? 'none' : 'survey', reason, source: source === null || basis === null ? null : { ...source, basis } })) };
+    const conventionsOf = (history: History): string => {
+      const report = render(history.fold());
+      return report.slice(report.indexOf('\n## Conventions\n'), report.indexOf('\n## Findings\n'));
+    };
+    // The engine died between the first answer and its plan; the resumed invocation surveyed again with no block in between.
+    const resumed = withSurvey(fixRun(), (history) => history
+      .start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', answer(80))
+      .start('survey', 2).worker(81, 'surveyor survey:survey').add('survey.recorded', answer(81))
+      .add('checks.planned', plan, 2).finish('survey', 'completed', 2));
+    const resumedText = conventionsOf(resumed);
+    assert.match(resumedText, /^The survey answered 2 times; the last answer is shown\.$/m);
+    assert.doesNotMatch(resumedText, /blocked/);
+    const blocked = withSurvey(fixRun(), (history) => history
+      .start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', answer(80))
+      .finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'test', command: 'npx vitest run', source: 'CONTRIBUTING.md', missingTool: 'vitest' }]))
+      .start('survey', 2).worker(81, 'surveyor survey:survey').add('survey.recorded', answer(81))
+      .add('checks.planned', plan, 2).finish('survey', 'completed', 2));
+    assert.match(conventionsOf(blocked), /^The survey answered 2 times; it last blocked on a check this machine could not run, and the last answer is shown\.$/m);
+    assert.doesNotMatch(render(), /The survey answered/, 'one answer is not counted');
+  });
+
   it('renders a run configured before the survey existed with no Conventions section and no Source column, as it did', () => {
     const older = renderReport(fixRun().fold(), { engine: '0.0.0+dev', statistics: fixStatistics, fix: { evidencePath, patches } });
     assert.ok(!older.includes('## Conventions'));
