@@ -18,6 +18,13 @@ if (values.output === undefined) throw new Error('--output DIRECTORY is required
 const output = resolve(values.output);
 if (existsSync(output)) throw new Error(`Fixture output must not exist yet: ${output}`);
 
+/** What a phase that finishes blocked records as its blocker. */
+interface PhaseBlocker {
+  readonly code: string;
+  readonly detail: string;
+  readonly action: string;
+}
+
 /**
  * Appends the reviewed run's events one at a time, as the controller does,
  * so a fixture reader sees one event per sequence; and keeps the launch and
@@ -55,24 +62,25 @@ class ReviewHistory {
     this.phaseAt(3, phase, body, outcome, check);
   }
 
-  phaseAt(version: 2 | 3, phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+  /** Start a phase at its next attempt at version 3 with a clean check and finish it blocked, as a survey that blocks does. */
+  blockedV3(phase: Phase, body: () => void, blocker: PhaseBlocker): void {
+    this.phaseAt(3, phase, body, blocker);
+  }
+
+  /**
+   * Start a phase at its next attempt with a clean worktree check at
+   * `version`, run `body`, optionally check the worktree again at the end,
+   * and finish it: `completed` or `degraded`, or `blocked` on a blocker.
+   */
+  phaseAt(version: 2 | 3, phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
     const number = (this.#attempts[phase] ?? 0) + 1;
     this.#attempts[phase] = number;
     this.add('phase.started', { phase, attempt: number }, version);
     this.add('worktree.checked', { phase, attempt: number, moment: 'start', drifted: false, head: null, files: [], strays: [] }, version);
     body();
     if (check.end === true) this.add('worktree.checked', { phase, attempt: number, moment: 'end', drifted: false, head: null, files: [], strays: check.strays ?? [] }, version);
-    this.add('phase.finished', { phase, attempt: number, outcome, blocker: null }, version);
-  }
-
-  /** Start a phase at its next attempt at version 3 with a clean check and finish it blocked, as a survey that blocks does. */
-  blockedV3(phase: Phase, body: () => void, blocker: { code: string; detail: string; action: string }): void {
-    const number = (this.#attempts[phase] ?? 0) + 1;
-    this.#attempts[phase] = number;
-    this.add('phase.started', { phase, attempt: number }, 3);
-    this.add('worktree.checked', { phase, attempt: number, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 3);
-    body();
-    this.add('phase.finished', { phase, attempt: number, outcome: 'blocked', blocker }, 3);
+    const finished = typeof finish === 'string' ? { outcome: finish, blocker: null } : { outcome: 'blocked', blocker: finish };
+    this.add('phase.finished', { phase, attempt: number, ...finished }, version);
   }
 
   /** One check as it ran in a checks phase, four seconds long. */
