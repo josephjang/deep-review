@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import type { ReviewOutcome } from '../../src/review/controller.ts';
+import { presurveyRulesFiles, type ReviewOutcome } from '../../src/review/controller.ts';
+import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { maxConcurrency, policyFileName } from '../../src/review/policy.ts';
@@ -280,6 +282,30 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
     assert.equal(box.logs.filter((line) => line.startsWith('phase survey: going on without the survey: the survey blocked, ')).length, 1, box.logs.join('\n'));
     assert.ok(box.logs.includes(`run ${state.id}: survey: no convention source`), box.logs.join('\n'));
+  });
+
+  it('lists, for a run configured before the survey existed and resumed, the rules files the engine found for it then, as its pinned role prompts expect', async () => {
+    // A run of this engine gives the configuration such a run pinned: the same one, without the survey's setting.
+    box.script({ triage: { exit: 2 } });
+    const first = await box.review('claude');
+    assert.ok(first.kind === 'blocked', JSON.stringify(first));
+    const pinned = { ...box.events(first.runId).find(([kind]) => kind === 'review.configured')![1] };
+    delete pinned.survey;
+    box.checkpoint.append(first.runId, box.checkpoint.fold(first.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
+    const older = box.checkpoint.createRun({ worktree: box.repo });
+    const captured = captureScope(box.checkpoint, older.id, { paths: [] });
+    box.checkpoint.append(older.id, captured.lastSequence, [{ kind: 'review.configured', version: 2, payload: pinned }]);
+    assert.equal(box.checkpoint.fold(older.id).review!.survey, null, 'the run predates the survey');
+    const userFile = join(box.home, '.codex', 'AGENTS.md');
+    write(box.home, '.codex/AGENTS.md', '# the reviewer\'s rules\n');
+    // Resumed, it blocks in the triage again, whose prompt is the one to read.
+    const resumed = await box.review('claude');
+    assert.ok(resumed.kind === 'blocked' && resumed.runId === older.id, JSON.stringify(resumed));
+    const state = box.checkpoint.fold(older.id);
+    assert.equal(state.review!.phases.survey.status, 'skipped');
+    const triage = box.promptOf(state, 'triage triage:SCAN');
+    assert.ok(triage.includes(`### Rules files that govern the change\n\n- ${userFile} (user level)\n- AGENTS.md (repository)\n\n### Patch\n`), triage);
+    assert.doesNotMatch(triage, /### Convention sources/);
   });
 
   it('records and logs a run going on without its survey the same way in a read-only review as in a fix run, the user-level files decided by the policy alone (R3, R9 of the repository survey)', async () => {
@@ -672,5 +698,54 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(box.checkpoint.fold(first.id).lastSequence, first.lastSequence + 1, 'nothing but the close was appended to the first run');
     assert.ok(box.logs.includes(`run ${first.id}: abandoned before its lock was taken; a new run is created`), box.logs.join('\n'));
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, first.id)), true, 'its lock is released');
+  });
+});
+
+describe('presurveyRulesFiles', () => {
+  let sandbox: string;
+  let home: string;
+  let worktree: string;
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'deep-review-presurvey-'));
+    home = join(sandbox, 'home');
+    worktree = join(sandbox, 'repo');
+    mkdirSync(home);
+    mkdirSync(worktree);
+  });
+  afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
+  const rulesFile = (root: string, path: string): void => write(root, path, `# ${path}\n`);
+
+  it('lists nothing when no rules file exists, and the root alone for no changed path', () => {
+    assert.deepEqual(presurveyRulesFiles(worktree, ['src/a.ts'], home), []);
+    rulesFile(worktree, 'AGENTS.md');
+    rulesFile(worktree, 'src/AGENTS.md');
+    assert.deepEqual(presurveyRulesFiles(worktree, [], home), [{ level: 'repository', path: 'AGENTS.md' }]);
+  });
+
+  it('lists the user files first, then the root and each ancestor directory of a changed file, shallowest first, as the engine did before the survey', () => {
+    rulesFile(home, '.claude/CLAUDE.md');
+    rulesFile(home, '.codex/AGENTS.md');
+    rulesFile(worktree, 'AGENTS.md');
+    rulesFile(worktree, 'CLAUDE.local.md');
+    rulesFile(worktree, 'src/CLAUDE.md');
+    rulesFile(worktree, 'src/deep/AGENTS.md');
+    rulesFile(worktree, 'lib/CLAUDE.md');
+    // A directory that holds no changed file is not an ancestor, and its rules file is left out.
+    rulesFile(worktree, 'other/CLAUDE.md');
+    assert.deepEqual(presurveyRulesFiles(worktree, ['src/deep/a.ts', 'src/b.ts', 'lib/c.ts', 'src/deep/d.ts'], home), [
+      { level: 'user', path: join(home, '.claude', 'CLAUDE.md') },
+      { level: 'user', path: join(home, '.codex', 'AGENTS.md') },
+      { level: 'repository', path: 'CLAUDE.local.md' },
+      { level: 'repository', path: 'AGENTS.md' },
+      { level: 'repository', path: 'lib/CLAUDE.md' },
+      { level: 'repository', path: 'src/CLAUDE.md' },
+      { level: 'repository', path: 'src/deep/AGENTS.md' },
+    ]);
+  });
+
+  it('passes over a directory named like a rules file', () => {
+    mkdirSync(join(worktree, 'CLAUDE.md'));
+    rulesFile(worktree, 'src/AGENTS.md');
+    assert.deepEqual(presurveyRulesFiles(worktree, ['src/a.ts'], home), [{ level: 'repository', path: 'src/AGENTS.md' }]);
   });
 });

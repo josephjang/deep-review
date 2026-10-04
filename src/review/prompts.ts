@@ -21,10 +21,28 @@ export interface ScopeBlockBase {
   readonly evidence: Pick<EvidenceStore, 'pathOf' | 'read'>;
 }
 
+/** A rules file the engine lists for a run configured before the survey existed, as it did then (R12, TD11 of the read-only review). */
+export interface PresurveyRulesFile {
+  /** `user` for a file under the home directory, `repository` for one under the worktree. */
+  readonly level: 'user' | 'repository';
+  /** Absolute for a user file; repository-relative with forward slashes for a repository file, as a worker's working directory is the worktree. */
+  readonly path: string;
+}
+
+/**
+ * What a scope block says of the conventions: what the run knows of its
+ * convention sources, and for a run configured before the survey existed,
+ * which recorded none, the rules files the engine looked up for it, which
+ * the role prompts that run pinned expect the scope block to list.
+ */
+export type ScopeConventions =
+  | Exclude<ConventionsKnown, { readonly status: 'predates-survey' }>
+  | { readonly status: 'predates-survey'; readonly rulesFiles: readonly PresurveyRulesFile[] };
+
 /** What the scope block of every worker after the survey is rendered from. */
 export interface ScopeBlockInput extends ScopeBlockBase {
-  /** What the run knows of its convention sources (R7 of the repository survey). */
-  readonly conventions: ConventionsKnown;
+  /** What the scope block says of the conventions (R7 of the repository survey). */
+  readonly conventions: ScopeConventions;
 }
 
 /** One convention source as a line of the scope block: its path, its level, what it governs and what it applies to. */
@@ -34,21 +52,31 @@ function sourceLine(source: ConventionSource): string {
   return `- ${inlineText(source.path)} (${level}): ${inlineText(source.governs)}${narrower}`;
 }
 
-/** The scope block's section on the convention sources, from what the run knows of them. */
-export function conventionsSection(known: ConventionsKnown): string {
+/**
+ * The scope block's section on the conventions, heading and body: the
+ * convention sources the run knows of, or for a run that predates the
+ * survey the rules files the engine found, under the heading and in the
+ * words the engine rendered them in then, which the role prompts that run
+ * pinned refer to.
+ */
+export function conventionsSection(known: ScopeConventions): string {
+  const section = (heading: string, body: string): string => `### ${heading}\n\n${body}`;
+  const sources = (body: string): string => section('Convention sources', body);
   switch (known.status) {
     case 'surveyed':
-      return known.sources.length === 0
+      return sources(known.sources.length === 0
         ? 'The repository survey found no file that states conventions a change here must follow.'
-        : ['The repository survey named these files as stating the conventions a change here must follow:', '', ...known.sources.map(sourceLine)].join('\n');
+        : ['The repository survey named these files as stating the conventions a change here must follow:', '', ...known.sources.map(sourceLine)].join('\n'));
     case 'failed':
-      return known.sources.length === 0
+      return sources(known.sources.length === 0
         ? 'The repository survey failed, so no convention source is known.'
-        : ['The repository survey failed; the review policy applies these user-level rules files:', '', ...known.sources.map(sourceLine)].join('\n');
+        : ['The repository survey failed; the review policy applies these user-level rules files:', '', ...known.sources.map(sourceLine)].join('\n'));
     case 'pending':
-      return 'The repository survey has not answered yet, so no convention source is known.';
+      return sources('The repository survey has not answered yet, so no convention source is known.');
     case 'predates-survey':
-      return 'This run was configured before the repository survey existed, so no convention source is recorded.';
+      return section('Rules files that govern the change', known.rulesFiles.length === 0
+        ? 'None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file.'
+        : known.rulesFiles.map((file) => `- ${inlineText(file.path)} (${file.level === 'user' ? 'user level' : 'repository'})`).join('\n'));
   }
 }
 
@@ -122,13 +150,12 @@ export function surveyScopeBlock(input: ScopeBlockBase): string {
 
 /**
  * The scope block every worker after the survey receives: the shared
- * opening, the convention sources the run knows of, and the patch.
+ * opening, the convention sources the run knows of (for a run that
+ * predates the survey, the rules files the engine found), and the patch.
  */
 export function scopeBlock(input: ScopeBlockInput): string {
   return [
     ...scopeHeader(input),
-    '',
-    '### Convention sources',
     '',
     conventionsSection(input.conventions),
     '',

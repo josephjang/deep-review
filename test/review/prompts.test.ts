@@ -76,15 +76,30 @@ describe('the scope block', () => {
     ].join('\n')), block);
   });
 
-  it('says the survey failed, with or without the policy\'s user-level sources, and that a run predates the survey', () => {
+  it('says the survey failed, with or without the policy\'s user-level sources, and that it has not answered yet', () => {
     const failed = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'failed', reason: 'timeout', sources: [], userRules: [] } });
     assert.ok(failed.includes('The repository survey failed, so no convention source is known.'), failed);
     const applied = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'failed', reason: 'timeout', sources: [{ path: '/h/.claude/CLAUDE.md', level: 'user', governs: 'g', appliesTo: null, grounds: 'applied by the policy value apply' }], userRules: [] } });
     assert.ok(applied.includes('The repository survey failed; the review policy applies these user-level rules files:\n\n- /h/.claude/CLAUDE.md (user level'), applied);
-    const older = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'predates-survey' } });
-    assert.ok(older.includes('This run was configured before the repository survey existed, so no convention source is recorded.'), older);
     const pending = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'pending' } });
     assert.ok(pending.includes('The repository survey has not answered yet'), pending);
+  });
+
+  it('lists the rules files the engine found for a run that predates the survey, under the heading its pinned role prompts name', () => {
+    const rulesFiles = [{ level: 'user' as const, path: '/home/me/.claude/CLAUDE.md' }, { level: 'repository' as const, path: 'AGENTS.md' }, { level: 'repository' as const, path: 'src/CLAUDE.md' }];
+    const older = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'predates-survey', rulesFiles } });
+    assert.ok(older.includes([
+      '### Rules files that govern the change',
+      '',
+      '- /home/me/.claude/CLAUDE.md (user level)',
+      '- AGENTS.md (repository)',
+      '- src/CLAUDE.md (repository)',
+      '',
+      '### Patch',
+    ].join('\n')), older);
+    assert.ok(!older.includes('### Convention sources'), older);
+    const none = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: { status: 'predates-survey', rulesFiles: [] } });
+    assert.ok(none.includes('### Rules files that govern the change\n\nNone of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file.\n\n### Patch'), none);
   });
 
   it('gives the surveyor the changed paths without the convention sources it is there to name or the patch it does not read (R7, TD10 of the repository survey)', () => {
