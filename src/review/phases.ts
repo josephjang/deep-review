@@ -63,6 +63,8 @@ export interface PhaseContext {
   readonly newScratch: () => string;
   /** The command a fixer runs to snapshot into a directory, holding `snapshotIndexPlaceholder` for the index. */
   readonly snapshotCommand: (into: string) => string;
+  /** Whether the run's editors work in Codex's unelevated Windows sandbox (`editorsUnderUnelevatedSandbox`). */
+  readonly unelevatedEditors: boolean;
 }
 
 function requireReview(state: RunState): ReviewState {
@@ -81,9 +83,11 @@ export function groupCandidates(review: ReviewState, phase: VerificationPhase, g
   });
 }
 
-/** What an editing unit's task names beyond the fold: the directory its snapshots go to, and the command that takes one. */
+/** What an editing unit's task names beyond the fold: the command that takes a snapshot into its directory, and what its sandbox will not run. */
 export interface EditingTaskInput {
   readonly snapshotCommand: string;
+  /** Whether the worker runs in Codex's unelevated Windows sandbox, whose limit its task states (R6 of the Codex sandbox). */
+  readonly unelevatedSandbox: boolean;
 }
 
 /**
@@ -167,6 +171,7 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
     othersOwned: clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
     checks: review.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
+    unelevatedSandbox: editing.unelevatedSandbox,
     mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, [...earlier, ...(inSecondRound ? plan.batches : [])].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review, 'fixes', unit.key),
     baselineFailures: baselineFailuresOf(review, evidence),
@@ -204,7 +209,7 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   });
   const owned = fixesRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
-  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
+  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
 
 /** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, and the survey's inputs. */
@@ -298,7 +303,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   if (role === undefined) throw new Error(`No assembled prompt for role ${unit.role}`);
   const policy: PinnedRole = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)) };
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === 'survey' ? context.survey() : null;
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
   return {

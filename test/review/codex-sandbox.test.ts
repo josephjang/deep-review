@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { ReviewOptions } from '../../src/review/controller.ts';
+import { unelevatedEditorsWarning, type ReviewOptions } from '../../src/review/controller.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
+import { unelevatedSandboxRule } from '../../src/review/tasks.ts';
+import { finderAngles } from '../../src/review/vocabulary.ts';
 import type { RuntimeRegistry } from '../../src/runtime/registry.ts';
 import { defaultRuntimes, type RuntimeOptions } from '../../src/runtime/runtimes.ts';
 import { captureScope } from '../../src/scope/capture.ts';
+import { fixerAnswer } from '../helpers/fake-runtime.ts';
 import { ReviewSandbox } from '../helpers/review-sandbox.ts';
 
 describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', { timeout: 600_000 }, () => {
@@ -98,5 +101,64 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     await codex();
     assert.deepEqual(box.checkpoint.fold(older.id).review!.configuration.codex, { windowsSandbox: 'unelevated' });
     assert.deepEqual(built.at(-1), { codex: { windowsSandbox: 'unelevated' } });
+  });
+});
+
+describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Codex sandbox)', { timeout: 900_000 }, () => {
+  let box: ReviewSandbox;
+  beforeEach(() => {
+    box = new ReviewSandbox();
+    // One finding for one fixer, and a lint check failing before and after the fixes, so a repair worker runs too.
+    box.checks({ lint: 'fail' });
+    box.script({
+      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n\nexport function other() {\n  return parse(null);\n}\n' } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+      'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [], note: 'every failure was there before the fixes' }]) },
+    });
+  });
+  afterEach(() => {
+    box.close();
+  });
+
+  const warnings = (): string[] => box.logs.filter((line) => line.includes(': warning: its fixers and repair worker run in Codex\'s unelevated Windows sandbox'));
+  const editorPrompts = (): string[] => ['fixer fixes:c1-1', 'fixer repair:repair'].map((label) => box.promptOf(box.run(), label));
+
+  it('warns before the first worker and tells the fixer and the repair worker what cannot run, while no reader is told', async () => {
+    const outcome = await box.fix('codex', { platform: 'win32' });
+    assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
+    const runId = box.run().id;
+    assert.deepEqual(warnings(), [unelevatedEditorsWarning(runId)], 'printed once');
+    assert.match(warnings()[0]!, /cannot run tools that start processes through Node, which includes most build and test commands; a run started with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox, can run them$/);
+    const firstWorker = box.logs.findIndex((line) => /^worker \S+ \S+: started$/.test(line));
+    assert.ok(firstWorker > box.logs.indexOf(warnings()[0]!), 'the warning comes before the first worker starts');
+    for (const prompt of editorPrompts()) assert.ok(prompt.includes(unelevatedSandboxRule), prompt);
+    for (const label of ['surveyor survey:survey', 'triage triage:SCAN', 'finder-RIPPLE finders:RIPPLE']) assert.ok(!box.promptOf(box.run(), label).includes(unelevatedSandboxRule), label);
+  });
+
+  it('warns again on each resume of such a run', async () => {
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.fix('codex', { platform: 'win32' })).kind, 'blocked');
+    assert.equal((await box.fix('codex', { platform: 'win32' })).kind, 'blocked');
+    assert.equal(warnings().length, 2);
+  });
+
+  // The editors can run the build under each of these, so the run neither warns nor tells them anything, and their tasks are what they were before the setting existed.
+  for (const [name, runtime, change] of [
+    ['elevated', 'codex', { platform: 'win32', flags: { codexWindowsSandbox: 'elevated' } }],
+    ['none', 'codex', { platform: 'win32', flags: { codexWindowsSandbox: 'none' } }],
+    ['Codex on another platform', 'codex', { platform: 'linux' }],
+    ['Claude Code', 'claude', { platform: 'win32' }],
+  ] as const) {
+    it(`neither warns nor tells the editors anything under ${name}`, async () => {
+      const outcome = await box.fix(runtime, change);
+      assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
+      assert.deepEqual(warnings(), []);
+      for (const prompt of editorPrompts()) assert.ok(!prompt.includes(unelevatedSandboxRule) && !prompt.includes('EPERM'), prompt);
+    });
+  }
+
+  it('does not warn a read-only run, which has no editor', async () => {
+    assert.equal((await box.review('codex', { platform: 'win32' })).kind, 'report');
+    assert.deepEqual(warnings(), []);
   });
 });

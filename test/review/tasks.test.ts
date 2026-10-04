@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { codeSpan, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, verifierTask, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { codeSpan, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -173,6 +173,7 @@ describe('the fixer\'s task', () => {
     mayHoldWork: false,
     unfinished: [],
     baselineFailures: [],
+    unelevatedSandbox: false,
   };
 
   it('numbers the batch\'s findings with everything the fixer judges by', () => {
@@ -228,6 +229,16 @@ describe('the fixer\'s task', () => {
     assert.doesNotMatch(none, /- build:/);
   });
 
+  it('tells a fixer in the unelevated sandbox what cannot run there and how to validate instead, and says nothing of it otherwise, so other runs\' tasks are unchanged (R6 of the Codex sandbox)', () => {
+    const plain = fixerTask(input);
+    const held = fixerTask({ ...input, unelevatedSandbox: true });
+    assert.doesNotMatch(plain, /unelevated|EPERM/);
+    assert.equal(held, plain.replace('\n\nAfter finishing each finding', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each finding`), 'the rule is the one difference, a paragraph after the checks');
+    assert.match(unelevatedSandboxRule, /a Node process cannot start a child whose output it captures: the build, the tests and package scripts .* fail there with `EPERM`/);
+    assert.match(unelevatedSandboxRule, /such as a direct `node` probe or one test file run in a single process; when nothing that runs can show it, record the validation as `limited` with that reason./);
+    assert.match(unelevatedSandboxRule, /The engine runs the checks itself after you return.$/);
+  });
+
   it('quotes the snapshot command on a line of its own, and asks for it after each finding', () => {
     const task = fixerTask(input);
     assert.ok(task.includes(`\n\n    ${snapshot}\n\n`), task);
@@ -268,6 +279,7 @@ describe('the repair task', () => {
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: true,
       unfinished: ['test'],
+      unelevatedSandbox: false,
     });
     assert.match(task, /^Repair: 2 checks, numbered \[0\] to \[1\], fail after the fixers' edits\./);
     assert.match(task, /^\[0\] test: [\s\S]*?\n {4}It passed before any fixer edited the tree\.$/m);
@@ -291,8 +303,16 @@ describe('the repair task', () => {
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: false,
       unfinished: [],
+      unelevatedSandbox: false,
     });
     assert.match(task, /^ {4}It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before\. Its output then:\n {4}stdout, its last 10 bytes \(the whole is at \/evidence\/before-out\):\n```text\n2 failing\n```\n {4}stderr: empty \(frozen at \/evidence\/before-err\)$/m);
     assert.doesNotMatch(task, /It passed before any fixer/);
+  });
+
+  it('tells a repair worker in the unelevated sandbox the same as a fixer, and says nothing of it otherwise (R6 of the Codex sandbox)', () => {
+    const repair = { checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
+    const plain = repairTask({ ...repair, unelevatedSandbox: false });
+    assert.doesNotMatch(plain, /unelevated|EPERM/);
+    assert.equal(repairTask({ ...repair, unelevatedSandbox: true }), plain.replace('\n\nAfter finishing each check', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each check`));
   });
 });
