@@ -182,6 +182,11 @@ describe('checkSurveyAnswer', () => {
     refuses(checks(stated('lint', 'eslint .', { source: null }), stated('test', null)), fixing(), /gives a command without the file it took it from/);
     refuses(checks(stated('lint', 'eslint .', { basis: null }), stated('test', null)), fixing(), /gives a command without its basis/);
     refuses(checks(stated('lint', '   '), stated('test', null)), fixing(), /command is empty/);
+    refuses(checks(stated('lint', 'eslint\u0000 .'), stated('test', null)), fixing(), /^The lint check's command contains a NUL character, which no shell runs$/);
+    // cmd.exe runs only the first line of a command and sh judges only the last, so one line's exit code alone would decide the check.
+    for (const command of ['npm run lint\nnpm run format', 'npm run lint\r\nnpm run format', 'npm run lint\rnpm run format', 'npm run lint\n']) {
+      refuses(checks(stated('lint', command), stated('test', null)), fixing(), /^The lint check's command spans more than one line, and cmd.exe runs only the first while sh judges only the last; join the commands on one line with &&$/);
+    }
     refuses(checks(stated('lint', 'eslint .', { source: { path: 'eslint.config.js', quote: 'q' } }), stated('test', null)), fixing(), /source "eslint.config.js" is not a regular file/);
     refuses(checks(stated('lint', null, { reason: null }), stated('test', null)), fixing(), /has no command and gives no reason/);
     refuses(checks(stated('lint', null, { missingTool: 'eslint' }), stated('test', null)), fixing(), /names a missing tool and no command/);
