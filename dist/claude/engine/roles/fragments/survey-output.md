@@ -15,5 +15,9 @@ One JSON object with four fields:
 
 Every path you name must be a file you read. The engine checks each one
 against the repository and refuses the whole answer for a path that is
-not a regular file there, a user-level file the task did not offer, a
-kind it did not ask for, or a kind it asked for and you left out.
+not a regular file there, a user-level file the task did not offer or
+one you name by a relative path, an `AGENTS.md`, `CLAUDE.md` or
+`CLAUDE.local.md` in a subdirectory whose `appliesTo` is null or
+reaches beyond that directory, a command on more than one line or with
+a NUL character, a kind it did not ask for, or a kind it asked for and
+you left out.
