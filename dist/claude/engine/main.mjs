@@ -26742,25 +26742,27 @@ function unavailableCell(survey, check2) {
   const dropped = droppedByOperator(survey, check2);
   return dropped === null ? `not available (${tableCell(check2.origin)}: ${tableCell(check2.reason ?? "no command")})` : tableCell(dropped);
 }
-function conventionsSection2(review2) {
+function conventionsReportSection(review2) {
   const survey = review2.survey;
   if (survey === null) return null;
   const known = conventionsKnown(survey);
   const setting = review2.configuration.survey.userRules;
   const lines = ["## Conventions", ""];
+  let sources = [];
+  let userRules = [];
   switch (known.status) {
     case "surveyed":
-      lines.push(known.sources.length === 0 ? "The survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to." : "The survey named these files as stating the conventions the change was held to:");
+      ({ sources, userRules } = known);
+      lines.push(sources.length === 0 ? "The survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to." : "The survey named these files as stating the conventions the change was held to:");
       break;
     case "failed":
-      lines.push(`The survey failed: ${inlineText(known.reason)}.${known.sources.length === 0 ? " The run went on with no convention source." : " The run went on with the user-level rules files the policy applies:"}`);
+      ({ sources, userRules } = known);
+      lines.push(`The survey failed: ${inlineText(known.reason)}.${sources.length === 0 ? " The run went on with no convention source." : " The run went on with the user-level rules files the policy applies:"}`);
       break;
     case "pending":
-    case "predates-survey":
       lines.push("The survey has not answered, so no convention source is known.");
       break;
   }
-  const sources = known.status === "surveyed" || known.status === "failed" ? known.sources : [];
   if (sources.length > 0) {
     lines.push("", "| Source | Level | Governs | Applies to |", "|---|---|---|---|");
     for (const source of sources) {
@@ -26768,7 +26770,6 @@ function conventionsSection2(review2) {
       lines.push(`| ${tableCell(source.path)} | ${tableCell(level)} | ${tableCell(source.governs)} | ${source.appliesTo === null ? "the whole repository" : tableCell(source.appliesTo.join(", "))} |`);
     }
   }
-  const userRules = known.status === "surveyed" || known.status === "failed" ? known.userRules : [];
   lines.push("");
   if (userRules.length === 0) lines.push(`No user-level rules file of the reviewer's existed on this machine; the policy value was \`${setting}\`.`);
   else {
@@ -27090,7 +27091,7 @@ function renderReport(state, input2) {
     ...[fixHeaderLine(review2)].filter((line) => line !== null)
   ];
   const anglesSection = ["## Angles", "", "| Angle | Ran | Lead from SCAN |", "|---|---|---|", ...angles.map((angle) => angleRow(review2, angle))];
-  const conventions = conventionsSection2(review2);
+  const conventions = conventionsReportSection(review2);
   const findingsSection = [
     "## Findings",
     "",

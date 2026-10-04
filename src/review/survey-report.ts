@@ -8,7 +8,7 @@
  * configured before the survey existed has none of these, and its report
  * renders as it did before.
  */
-import type { SurveyedCheck } from '../checkpoint/events.ts';
+import type { ConventionSource, SurveyedCheck, UserRuleDecision } from '../checkpoint/events.ts';
 import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { conventionsKnown, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -64,27 +64,30 @@ export function unavailableCell(survey: SurveyState | null, check: PlannedCheck)
 }
 
 /** The Conventions section of a surveyed run: the sources, the user-level decisions under the pinned policy, and the surveyor's note; none for a run configured before the survey. */
-export function conventionsSection(review: ReviewState): string[] | null {
+export function conventionsReportSection(review: ReviewState): string[] | null {
   const survey = review.survey;
   if (survey === null) return null;
+  // A survey that exists is surveyed, failed or pending; only a run configured before it is 'predates-survey', and that returned above.
   const known = conventionsKnown(survey);
   const setting = review.configuration.survey.userRules;
   const lines = ['## Conventions', ''];
+  let sources: readonly ConventionSource[] = [];
+  let userRules: readonly UserRuleDecision[] = [];
   switch (known.status) {
     case 'surveyed':
-      lines.push(known.sources.length === 0
+      ({ sources, userRules } = known);
+      lines.push(sources.length === 0
         ? 'The survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to.'
         : 'The survey named these files as stating the conventions the change was held to:');
       break;
     case 'failed':
-      lines.push(`The survey failed: ${inlineText(known.reason)}.${known.sources.length === 0 ? ' The run went on with no convention source.' : ' The run went on with the user-level rules files the policy applies:'}`);
+      ({ sources, userRules } = known);
+      lines.push(`The survey failed: ${inlineText(known.reason)}.${sources.length === 0 ? ' The run went on with no convention source.' : ' The run went on with the user-level rules files the policy applies:'}`);
       break;
     case 'pending':
-    case 'predates-survey':
       lines.push('The survey has not answered, so no convention source is known.');
       break;
   }
-  const sources = known.status === 'surveyed' || known.status === 'failed' ? known.sources : [];
   if (sources.length > 0) {
     lines.push('', '| Source | Level | Governs | Applies to |', '|---|---|---|---|');
     for (const source of sources) {
@@ -92,7 +95,6 @@ export function conventionsSection(review: ReviewState): string[] | null {
       lines.push(`| ${tableCell(source.path)} | ${tableCell(level)} | ${tableCell(source.governs)} | ${source.appliesTo === null ? 'the whole repository' : tableCell(source.appliesTo.join(', '))} |`);
     }
   }
-  const userRules = known.status === 'surveyed' || known.status === 'failed' ? known.userRules : [];
   lines.push('');
   if (userRules.length === 0) lines.push(`No user-level rules file of the reviewer's existed on this machine; the policy value was \`${setting}\`.`);
   else {
