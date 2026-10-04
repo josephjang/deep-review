@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { ScopeState } from '../../src/checkpoint/events.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
-import { closingSentence, composeWorkerPrompt, describeFrozen, describePatch, fenceFor, inlinePatchLimitBytes, readTaskHeader, scopeBlock } from '../../src/review/prompts.ts';
+import { closingSentence, composeWorkerPrompt, describeFrozen, describePatch, fenceFor, inlinePatchLimitBytes, readTaskHeader, scopeBlock, surveyScopeBlock } from '../../src/review/prompts.ts';
 
 describe('fenceFor', () => {
   it('is three backticks unless the text holds a run that long, then one more than the longest run', () => {
@@ -87,10 +87,26 @@ describe('the scope block', () => {
     assert.ok(pending.includes('The repository survey has not answered yet'), pending);
   });
 
-  it('leaves the section out of the surveyor\'s own block, which the survey has not filled yet', () => {
-    const block = scopeBlock({ worktree: '/repo', scope: scopeWith('x\n'), evidence, conventions: null });
+  it('gives the surveyor the changed paths without the convention sources it is there to name or the patch it does not read (R7, TD10 of the repository survey)', () => {
+    const scope = scopeWith('--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old a\n+new a\n');
+    const block = surveyScopeBlock({ worktree: '/repo', scope, evidence });
+    const shared = scopeBlock({ worktree: '/repo', scope, evidence, conventions: { status: 'surveyed', sources: [], userRules: [] } });
+    // The surveyor's block is the shared block's opening, header and changed files alike, and stops after the table.
+    assert.match(block, /^## Scope\n\nRepository: \/repo\nBase: 1{40}\nHead: 2{40}\nMode: range\n/);
+    for (const path of ['src/a.ts', 'src/new\\|pipe.ts', 'src/gone.ts', 'big.bin', 'link']) assert.ok(block.includes(`| ${path} | `), `${path} is listed: ${block}`);
+    assert.ok(block.endsWith('| link | added (symlink) | none | read the file in the worktree |'), block);
+    assert.ok(shared.startsWith(`${block}\n\n### Convention sources\n`), shared);
     assert.ok(!block.includes('### Convention sources'), block);
-    assert.match(block, /\| link \| added \(symlink\) \| none \| read the file in the worktree \|\n\n### Patch\n/);
+    assert.ok(!block.includes('### Patch'), block);
+    assert.ok(!block.includes('```'), 'no patch fence');
+    assert.ok(!block.includes('+new a'), 'no patch text');
+  });
+
+  it('names no patch path in the surveyor\'s block even when the patch is too large to carry inline', () => {
+    const scope = scopeWith(Buffer.alloc(inlinePatchLimitBytes + 1, 0x2b));
+    const block = surveyScopeBlock({ worktree: '/repo', scope, evidence });
+    assert.ok(!block.includes(evidence.pathOf(scope.patch)), block);
+    assert.ok(!block.includes('too large to carry here'), block);
   });
 
   it('carries the patch inline up to the limit and names its path above it', () => {

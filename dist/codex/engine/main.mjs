@@ -26108,7 +26108,7 @@ function describePatch(scope, evidence) {
 ${text2.endsWith("\n") ? text2 : `${text2}
 `}${fence}`;
 }
-function scopeBlock(input2) {
+function scopeHeader(input2) {
   const { scope, evidence } = input2;
   const rows = scope.files.map((file2) => {
     const after = file2.after === null ? "deleted" : "read the file in the worktree";
@@ -26128,12 +26128,23 @@ function scopeBlock(input2) {
     "",
     "| Path | Status | Before | After |",
     "|---|---|---|---|",
-    ...rows,
+    ...rows
+  ];
+}
+function surveyScopeBlock(input2) {
+  return scopeHeader(input2).join("\n");
+}
+function scopeBlock(input2) {
+  return [
+    ...scopeHeader(input2),
     "",
-    ...input2.conventions === null ? [] : ["### Convention sources", "", conventionsSection(input2.conventions), ""],
+    "### Convention sources",
+    "",
+    conventionsSection(input2.conventions),
+    "",
     "### Patch",
     "",
-    describePatch(scope, evidence)
+    describePatch(input2.scope, input2.evidence)
   ].join("\n");
 }
 var closingSentence = "Return only the JSON your schema describes.";
@@ -27218,7 +27229,7 @@ async function runReview(options2) {
     const scope = state.scope;
     const blocks = {};
     const scopeBlockFor = (phase) => {
-      if (phase === "survey") return blocks.survey ??= scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: null });
+      if (phase === "survey") return blocks.survey ??= surveyScopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence });
       if (blocks.rest === void 0) {
         const survey = state.review.phases.survey.status;
         if (survey !== "completed" && survey !== "degraded" && survey !== "skipped") throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
