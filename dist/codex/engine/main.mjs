@@ -22945,22 +22945,24 @@ function providerConfig(provider) {
     ...params === null ? [] : [`${entry}.query_params={${params.map(([name, value]) => `${tomlString(name)}=${tomlString(value)}`).join(",")}}`]
   ];
 }
-function sandboxMode(invocation, platform, windowsSandbox) {
-  if (invocation.access !== "edit") return "read-only";
-  return platform === "win32" && windowsSandbox === "none" ? "danger-full-access" : "workspace-write";
+function confinementOf(invocation, plan, windowsSandbox) {
+  const windows = plan.platform === "win32";
+  const codexSandbox = !windows ? null : windowsSandbox === "none" ? "unelevated" : windowsSandbox;
+  if (invocation.access !== "edit") return { sandboxMode: "read-only", writableRoots: [], windowsSandbox: codexSandbox };
+  if (windows && windowsSandbox === "none") return { sandboxMode: "danger-full-access", writableRoots: [], windowsSandbox: codexSandbox };
+  return { sandboxMode: "workspace-write", writableRoots: plan.scratch === null ? [] : [plan.scratch], windowsSandbox: codexSandbox };
 }
 function codexCommand(invocation, plan, windowsSandbox, provider = null) {
-  const mode = sandboxMode(invocation, plan.platform, windowsSandbox);
-  const writable = mode === "workspace-write" && plan.scratch !== null ? [plan.scratch] : [];
+  const confinement = confinementOf(invocation, plan, windowsSandbox);
   const options2 = [
     "--ignore-user-config",
     "--strict-config",
     "--ignore-rules",
     "--skip-git-repo-check",
     "--config",
-    `sandbox_mode=${tomlString(mode)}`,
-    ...writable.length === 0 ? [] : ["--config", `sandbox_workspace_write.writable_roots=[${writable.map(tomlString).join(",")}]`],
-    ...plan.platform === "win32" ? ["--config", `windows.sandbox=${tomlString(windowsSandbox === "none" ? "unelevated" : windowsSandbox)}`] : [],
+    `sandbox_mode=${tomlString(confinement.sandboxMode)}`,
+    ...confinement.writableRoots.length === 0 ? [] : ["--config", `sandbox_workspace_write.writable_roots=[${confinement.writableRoots.map(tomlString).join(",")}]`],
+    ...confinement.windowsSandbox === null ? [] : ["--config", `windows.sandbox=${tomlString(confinement.windowsSandbox)}`],
     ...isolation.flatMap((setting) => ["--config", setting]),
     ...(provider === null ? [] : providerConfig(provider)).flatMap((setting) => ["--config", setting]),
     "--model",
