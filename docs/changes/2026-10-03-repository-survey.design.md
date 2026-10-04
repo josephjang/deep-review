@@ -270,7 +270,10 @@ The role's rule in `steps.ts` reads the run's mode:
   `--no-check`. On re-entry, if flags settle all four kinds, the engine
   records `survey.failed@1`, plans the checks from the flags alone and
   goes on without convention sources; otherwise the surveyor gets its
-  fresh attempts.
+  fresh attempts. When an earlier attempt answered and blocked on a
+  missing tool, that answer stays the run's survey: the flags plan the
+  checks over it, no `survey.failed@1` is recorded, and its convention
+  sources govern the review, as the action says.
 
 ### Using the survey (R7)
 
