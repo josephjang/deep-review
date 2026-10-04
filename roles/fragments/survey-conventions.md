@@ -4,7 +4,8 @@ A convention source is a file that states rules a change to this
 repository must follow: how its code is written, tested, documented or
 committed. Look where a contributor would look:
 
-- rules files written for coding assistants, at the root and in
+- rules files written for coding assistants, at the root, in
+  every directory between the root and a changed path, and in other
   subdirectories (`AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md`,
   `.github/copilot-instructions.md`, `.cursorrules`, the files in a
   `.cursor/rules` directory and the like); list each such file, never a

@@ -272,6 +272,12 @@ describe('the repository\'s roles/', () => {
     assert.doesNotMatch(surveyor.prompt, /a `\.cursor\/rules`\s+directory and the like/);
   });
 
+  it('sends the surveyor into every directory between the root and a changed path, since no later worker looks past its list (R7 of the repository survey)', () => {
+    // A subdirectory's rules file the survey leaves out is no convention source to any finder or verifier, and the engine never checks the list for one.
+    const surveyor = roles.find((role) => role.key === 'surveyor')!;
+    assert.match(surveyor.prompt, /rules files written for coding assistants, at the root, in\s+every directory between the root and a changed path/);
+  });
+
   it('has CONVENTIONS follow a local file a listed source imports from outside the repository, and judges a rule in it as the source\'s', () => {
     // A rules file whose whole content is `@../.codex/AGENTS.md` states its rules only through the import; the engine lists no path outside the repository but the offered user-level files.
     const fragment = (name: string): string => readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8');
