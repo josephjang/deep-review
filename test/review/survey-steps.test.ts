@@ -131,6 +131,42 @@ describe('nextStep in the survey', () => {
     assert.throws(() => nextStep(reentered.clone().add('survey.failed', { reason: 'r', conventions: [], userRules: [] }).review(), live({ checkFlags: allFour })), /planned no check/);
   });
 
+  it('goes on without the survey once the flags settle all four kinds, though a drift blocked the attempt the first flagged invocation re-entered (R9)', () => {
+    const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
+    const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
+    // The first flagged invocation finds the tree drifted at its attempt's start and blocks before it can plan.
+    const drift = { code: 'drift', detail: `the worktree differs from what the run expects: HEAD is ${'b'.repeat(40)}, the run expects ${'a'.repeat(40)}`, action: blockerActions.drift };
+    const drifted = twice.finish('survey', 'blocked', 1, failed)
+      .add('phase.started', { phase: 'survey', attempt: 2 }, 3)
+      .add('worktree.checked', { phase: 'survey', attempt: 2, moment: 'start', drifted: true, head: { expected: 'a'.repeat(40), actual: 'b'.repeat(40) }, files: [], strays: [] }, 3);
+    assert.deepEqual(nextStep(drifted.review(), live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'blocked', blocker: drift });
+    // The operator restores HEAD and runs again with the same flags: the drift said nothing of the survey, whose failure still stands.
+    const restored = drifted.finish('survey', 'blocked', 2, drift).start('survey', 3);
+    const plan = nextStep(restored.review(), live({ checkFlags: allFour }));
+    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: /);
+    // Without the flags, the operator's other choice: a fresh surveyor.
+    assert.deepEqual(nextStep(restored.review(), idle), { kind: 'launch', units: [surveyor] });
+  });
+
+  it('goes on without the survey once the flags settle all four kinds, though a stopped engine left a failure in the re-entered attempt (R9)', () => {
+    const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
+    const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
+    // An invocation with no flag re-enters the survey, its surveyor fails once, and its engine is killed; the next one finds the attempt running.
+    const reentered = twice.finish('survey', 'blocked', 1, failed).start('survey', 2);
+    const interrupted = failedOnce(reentered.clone(), 3);
+    assert.equal(interrupted.review().units.survey.survey?.failures.length, 1);
+    const plan = nextStep(interrupted.review(), live({ checkFlags: allFour }));
+    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    // A worker lost with that engine is no different.
+    const lost = reentered.clone()
+      .add('worker.launched', launch(worker(3), 'surveyor survey:survey'))
+      .add('worker.lost', { workerId: worker(3), phase: 'survey', key: 'survey', reason: 'the engine exited' }, 3);
+    assert.equal(nextStep(lost.review(), live({ checkFlags: allFour })).kind, 'plan-checks');
+    // Flags that leave a kind unsettled retry the surveyor in the attempt.
+    assert.deepEqual(nextStep(interrupted.review(), idle), { kind: 'launch', units: [surveyor] });
+  });
+
   it('launches the surveyor of a fix run whose flags settle all four kinds, on its first attempt, for the conventions', () => {
     assert.deepEqual(nextStep(surveyConfiguredFix().start('survey').review(), live({ checkFlags: allFour })), { kind: 'launch', units: [surveyor] });
     assert.equal(nextStep(answered([]).review(), live({ checkFlags: allFour })).kind, 'plan-checks');

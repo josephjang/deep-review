@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { History, candidate, configuration, configurationV1, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { History, candidate, configuration, configurationV1, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
@@ -185,6 +185,28 @@ describe('the review fold', () => {
       .review();
     assert.deepEqual(review.checks, [{ phase: 'triage', attempt: 1, moment: 'start', drifted: true, head: null, files: [{ path: 'src/a.ts', outcome: 'modified' }], strays: [] }], 'version 1 of the check reads as one at the start, with no head and no strays');
     assert.equal(review.blocker?.code, 'drift');
+  });
+
+  it('keeps the survey\'s own last blocker through a drift or budget block of its phase, and replaces it with the survey\'s next own one', () => {
+    const failed = { code: 'worker-failed', detail: 'the surveyor worker for survey:survey failed twice: 2 attempts did not complete: a; b', action: 'run it again' };
+    const drift = { code: 'drift', detail: 'src/a.ts modified', action: 'restore it' };
+    const budget = { code: 'budget', detail: 'spent 31.00 USD of the 30.00 USD run budget', action: 'raise it' };
+    const unavailable = { code: 'check-unavailable', detail: 'the project defines a check this machine cannot run: lint', action: 'install it' };
+    const history = surveyConfiguredFix().start('survey')
+      .finish('survey', 'blocked', 1, failed)
+      .add('phase.started', { phase: 'survey', attempt: 2 }, 3)
+      .add('worktree.checked', { phase: 'survey', attempt: 2, moment: 'start', drifted: true, head: { expected: 'a'.repeat(40), actual: 'b'.repeat(40) }, files: [], strays: [] }, 3)
+      .finish('survey', 'blocked', 2, drift);
+    const drifted = history.review();
+    assert.equal(drifted.blocker?.code, 'drift', 'the run is blocked on the drift');
+    assert.deepEqual(drifted.survey?.lastBlock, failed, 'the survey still reads as failed');
+    const budgeted = history.start('survey', 3).finish('survey', 'blocked', 3, budget).review();
+    assert.equal(budgeted.blocker?.code, 'budget');
+    assert.deepEqual(budgeted.survey?.lastBlock, failed);
+    const answered = history.start('survey', 4).worker(1, 'surveyor survey:survey')
+      .add('survey.recorded', surveyAnswer(worker(1), { checks: ['build', 'typecheck', 'test'].map((kind) => surveyedCheck(kind, `make ${kind}`)).concat(surveyedCheck('lint', 'ruff check .', 'ruff')) }))
+      .finish('survey', 'blocked', 4, unavailable).review();
+    assert.deepEqual(answered.survey?.lastBlock, unavailable, 'the survey\'s own next block replaces it');
   });
 
   it('loses a worker without a unit when its label named none', () => {

@@ -20862,6 +20862,16 @@ function isNotAttempted(fix, phase, key) {
 }
 
 // src/checkpoint/survey-state.ts
+function surveyBlocker(blocker) {
+  switch (blocker.code) {
+    case "worker-failed":
+    case "check-unavailable":
+      return true;
+    case "drift":
+    case "budget":
+      return false;
+  }
+}
 function emptySurveyState() {
   return { answers: [], failure: null, lastBlock: null };
 }
@@ -20996,7 +21006,7 @@ var phaseFinished = (state, payload, event) => {
   if (payload.blocker?.code === "check-unavailable" && payload.phase !== "survey") throw invalid(event, `blocks phase ${payload.phase} on a check that cannot run, which only the survey finds`);
   const phaseStates = { ...review2.phases, [payload.phase]: { status: payload.outcome, attempt: payload.attempt } };
   const blocker = payload.blocker === null ? null : { ...payload.blocker, phase: payload.phase };
-  const survey = payload.phase === "survey" && review2.survey !== null && payload.blocker !== null ? { ...review2.survey, lastBlock: payload.blocker } : review2.survey;
+  const survey = payload.phase === "survey" && review2.survey !== null && payload.blocker !== null && surveyBlocker(payload.blocker) ? { ...review2.survey, lastBlock: payload.blocker } : review2.survey;
   return withReview(current, { ...review2, phases: phaseStates, blocker, survey }, event);
 };
 var worktreeChecked = (state, payload, event) => {
@@ -25304,8 +25314,7 @@ function surveyStep(review2, live2, attempt) {
     return null;
   }
   if (survey.failure !== null) throw new Error("The fix run went on without its survey but planned no check, which the engine records together");
-  const fresh = (review2.units.survey[key]?.failures.length ?? 0) === 0;
-  if (survey.lastBlock?.code === "worker-failed" && fresh && unsettledKinds(live2.checkFlags).length === 0) {
+  if (survey.lastBlock?.code === "worker-failed" && unsettledKinds(live2.checkFlags).length === 0) {
     const without = truncated(`the survey blocked, ${survey.lastBlock.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
     return { kind: "plan-checks", checks: resolveChecks(null, live2.checkFlags).checks, without };
   }

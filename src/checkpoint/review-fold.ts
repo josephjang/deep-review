@@ -49,7 +49,7 @@ import type {
 } from './events.ts';
 import { emptyFixState, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
-import { emptySurveyState, type SurveyState } from './survey-state.ts';
+import { emptySurveyState, surveyBlocker, type SurveyState } from './survey-state.ts';
 
 /**
  * A phase's status; `skipped` is set at configuration and never started:
@@ -308,8 +308,8 @@ const phaseFinished: Reducer<PhaseFinished> = (state, payload, event) => {
   if (payload.blocker?.code === 'check-unavailable' && payload.phase !== 'survey') throw invalid(event, `blocks phase ${payload.phase} on a check that cannot run, which only the survey finds`);
   const phaseStates = { ...review.phases, [payload.phase]: { status: payload.outcome, attempt: payload.attempt } };
   const blocker = payload.blocker === null ? null : { ...payload.blocker, phase: payload.phase };
-  // The survey's last blocker outlives the next start, which clears the run's: a re-entered survey reads from it whether the flags may stand in for it.
-  const survey = payload.phase === 'survey' && review.survey !== null && payload.blocker !== null ? { ...review.survey, lastBlock: payload.blocker } : review.survey;
+  // The survey's last blocker of its own outlives the next start, which clears the run's: a re-entered survey reads from it whether the flags may stand in for it. A drift or budget block leaves it, so it never hides the survey's failure.
+  const survey = payload.phase === 'survey' && review.survey !== null && payload.blocker !== null && surveyBlocker(payload.blocker) ? { ...review.survey, lastBlock: payload.blocker } : review.survey;
   return withReview(current, { ...review, phases: phaseStates, blocker, survey }, event);
 };
 
