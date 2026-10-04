@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { existingUserRulesFiles, reviewerAuthorship, userConventionFiles } from '../../src/review/conventions.ts';
-import { commitAll, repositoryWith, write as writeFile } from '../helpers/repository.ts';
+import { commitAll, git as repoGit, repositoryWith, write as writeFile } from '../helpers/repository.ts';
 
 describe('existingUserRulesFiles', () => {
   let home: string;
@@ -95,5 +95,30 @@ describe('reviewerAuthorship', () => {
     // Without `--`, git refuses a bare HEAD that names both a revision and a tracked path.
     const repo = repositoryWith(join(sandbox, 'repo'), { HEAD: 'not a revision\n' });
     assert.deepEqual(reviewerAuthorship(repo), { identity: 'set', commits: 1, byReviewer: 1 });
+  });
+
+  it('counts each commit once when log.showSignature makes git print signature checks', () => {
+    const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
+    // A commit with an SSH signature header, written as a raw object so no signing key is needed. Git cannot verify it and says so on stdout.
+    const signed = join(sandbox, 'signed-commit');
+    writeFileSync(signed, [
+      `tree ${repoGit(repo, 'rev-parse', 'HEAD^{tree}')}`,
+      `parent ${repoGit(repo, 'rev-parse', 'HEAD')}`,
+      'author Test <test@example.invalid> 1700000000 +0000',
+      'committer Test <test@example.invalid> 1700000000 +0000',
+      'gpgsig -----BEGIN SSH SIGNATURE-----',
+      ' U1NIU0lH',
+      ' -----END SSH SIGNATURE-----',
+      '',
+      'signed',
+      '',
+    ].join('\n'));
+    gitIn(repo, 'update-ref', 'refs/heads/main', repoGit(repo, 'hash-object', '-t', 'commit', '-w', signed));
+    gitIn(repo, 'config', 'log.showSignature', 'true');
+    withoutMachineGitConfig(() => {
+      // The setting does reach a plain `git log`: it prints more lines than the two commits.
+      assert.ok(repoGit(repo, 'log', '--format=%ae', 'HEAD', '--').split(/\r?\n/).length > 2);
+      assert.deepEqual(reviewerAuthorship(repo), { identity: 'set', commits: 2, byReviewer: 2 });
+    });
   });
 });

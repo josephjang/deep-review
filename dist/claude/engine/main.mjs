@@ -24471,7 +24471,7 @@ var authorshipWindow = 200;
 function reviewerAuthorship(worktree) {
   const email3 = gitText(worktree, ["config", "--get", "user.email"], { okExitCodes: [1] }).trim().toLowerCase();
   if (email3 === "") return { identity: "unset" };
-  const authors = gitText(worktree, ["log", `-${String(authorshipWindow)}`, "--format=%ae", "HEAD", "--"]).split(/\r?\n/).filter((line) => line.length > 0);
+  const authors = gitText(worktree, ["log", `-${String(authorshipWindow)}`, "--no-show-signature", "--format=%ae", "HEAD", "--"]).split(/\r?\n/).filter((line) => line.length > 0);
   return { identity: "set", commits: authors.length, byReviewer: authors.filter((author) => author.trim().toLowerCase() === email3).length };
 }
 
