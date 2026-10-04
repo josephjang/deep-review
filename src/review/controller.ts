@@ -30,7 +30,7 @@ import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, worktreeChecked, type DriftFound } from './drift.ts';
-import { sameDirectory } from '../paths.ts';
+import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
@@ -38,7 +38,7 @@ import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } fro
 import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
-import { scopeBlock, surveyScopeBlock } from './prompts.ts';
+import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
@@ -180,6 +180,35 @@ function surveyLines(runId: string, survey: Pick<SurveyRecorded, 'conventions' |
   ];
 }
 
+/** The rules files a directory may hold, as the engine looked for them before the survey existed, in the order it listed them. */
+const presurveyRulesFileNames = ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md'] as const;
+
+/** Every directory from the repository root down to each changed file's own, repository-relative, the root as ``, by depth then path and without repeats. */
+function ancestorDirectories(changedPaths: readonly string[]): string[] {
+  const directories = new Set<string>(['']);
+  for (const path of changedPaths) {
+    const parts = path.split('/').slice(0, -1);
+    for (let depth = 1; depth <= parts.length; depth += 1) directories.add(parts.slice(0, depth).join('/'));
+  }
+  return [...directories].sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * The rules files the engine lists for a run configured before the survey
+ * existed, found as the engine found them then (R12, TD11 of the
+ * read-only review): the user-level ones that exist, then `CLAUDE.md`,
+ * `CLAUDE.local.md` and `AGENTS.md` in the repository root and every
+ * ancestor directory of a changed path, by depth and path. Such a run
+ * recorded no convention source, and resumes with the role prompts it
+ * pinned, which tell its workers the scope block lists these files.
+ */
+export function presurveyRulesFiles(worktree: string, changedPaths: readonly string[], home?: string): PresurveyRulesFile[] {
+  const repository = ancestorDirectories(changedPaths)
+    .flatMap((directory) => presurveyRulesFileNames.map((name) => (directory === '' ? name : `${directory}/${name}`)))
+    .filter((path) => isFile(join(worktree, ...path.split('/'))));
+  return [...existingUserRulesFiles(home).map((path): PresurveyRulesFile => ({ level: 'user', path })), ...repository.map((path): PresurveyRulesFile => ({ level: 'repository', path }))];
+}
+
 /** What a drifted check found, as the log names it. */
 const driftList = (found: { readonly files: readonly { readonly path: string; readonly outcome: string }[]; readonly head: DriftFound['head'] }): string =>
   [...(found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`]), ...found.files.map((file) => `${file.path} (${file.outcome})`)].join(', ');
@@ -303,7 +332,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (blocks.rest === undefined) {
         const survey = state.review!.phases.survey.status;
         if (survey !== 'completed' && survey !== 'degraded' && survey !== 'skipped') throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
-        blocks.rest = scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions: conventionsKnown(state.review!.survey) });
+        const known = conventionsKnown(state.review!.survey);
+        // A run that predates the survey gets the rules files the engine listed when it was configured, which its pinned role prompts expect.
+        const conventions: ScopeConventions = known.status === 'predates-survey' ? { status: 'predates-survey', rulesFiles: presurveyRulesFiles(options.worktree, scope.files.map((file) => file.path), options.home) } : known;
+        blocks.rest = scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions });
       }
       return blocks.rest;
     };

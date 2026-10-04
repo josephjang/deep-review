@@ -26107,15 +26107,19 @@ function sourceLine(source) {
   return `- ${inlineText(source.path)} (${level}): ${inlineText(source.governs)}${narrower}`;
 }
 function conventionsSection(known) {
+  const section = (heading, body) => `### ${heading}
+
+${body}`;
+  const sources = (body) => section("Convention sources", body);
   switch (known.status) {
     case "surveyed":
-      return known.sources.length === 0 ? "The repository survey found no file that states conventions a change here must follow." : ["The repository survey named these files as stating the conventions a change here must follow:", "", ...known.sources.map(sourceLine)].join("\n");
+      return sources(known.sources.length === 0 ? "The repository survey found no file that states conventions a change here must follow." : ["The repository survey named these files as stating the conventions a change here must follow:", "", ...known.sources.map(sourceLine)].join("\n"));
     case "failed":
-      return known.sources.length === 0 ? "The repository survey failed, so no convention source is known." : ["The repository survey failed; the review policy applies these user-level rules files:", "", ...known.sources.map(sourceLine)].join("\n");
+      return sources(known.sources.length === 0 ? "The repository survey failed, so no convention source is known." : ["The repository survey failed; the review policy applies these user-level rules files:", "", ...known.sources.map(sourceLine)].join("\n"));
     case "pending":
-      return "The repository survey has not answered yet, so no convention source is known.";
+      return sources("The repository survey has not answered yet, so no convention source is known.");
     case "predates-survey":
-      return "This run was configured before the repository survey existed, so no convention source is recorded.";
+      return section("Rules files that govern the change", known.rulesFiles.length === 0 ? "None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file." : known.rulesFiles.map((file2) => `- ${inlineText(file2.path)} (${file2.level === "user" ? "user level" : "repository"})`).join("\n"));
   }
 }
 function describeFrozen(frozen, evidence) {
@@ -26168,8 +26172,6 @@ function surveyScopeBlock(input2) {
 function scopeBlock(input2) {
   return [
     ...scopeHeader(input2),
-    "",
-    "### Convention sources",
     "",
     conventionsSection(input2.conventions),
     "",
@@ -27187,6 +27189,19 @@ function surveyLines(runId, survey) {
     ...survey.userRules.map((rule) => `run ${runId}: user-level rules ${rule.path}: ${rule.applied ? "applied" : "not applied"}, ${rule.reason}`)
   ];
 }
+var presurveyRulesFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
+function ancestorDirectories(changedPaths2) {
+  const directories = /* @__PURE__ */ new Set([""]);
+  for (const path of changedPaths2) {
+    const parts = path.split("/").slice(0, -1);
+    for (let depth = 1; depth <= parts.length; depth += 1) directories.add(parts.slice(0, depth).join("/"));
+  }
+  return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
+}
+function presurveyRulesFiles(worktree, changedPaths2, home) {
+  const repository = ancestorDirectories(changedPaths2).flatMap((directory) => presurveyRulesFileNames.map((name) => directory === "" ? name : `${directory}/${name}`)).filter((path) => isFile(join23(worktree, ...path.split("/"))));
+  return [...existingUserRulesFiles(home).map((path) => ({ level: "user", path })), ...repository.map((path) => ({ level: "repository", path }))];
+}
 var driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
 function snapshotCommandFor(engineEntry, into) {
   return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
@@ -27274,7 +27289,9 @@ async function runReview(options2) {
       if (blocks.rest === void 0) {
         const survey = state.review.phases.survey.status;
         if (survey !== "completed" && survey !== "degraded" && survey !== "skipped") throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
-        blocks.rest = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions: conventionsKnown(state.review.survey) });
+        const known = conventionsKnown(state.review.survey);
+        const conventions = known.status === "predates-survey" ? { status: "predates-survey", rulesFiles: presurveyRulesFiles(options2.worktree, scope.files.map((file2) => file2.path), options2.home) } : known;
+        blocks.rest = scopeBlock({ worktree: options2.worktree, scope, evidence: checkpoint.evidence, conventions });
       }
       return blocks.rest;
     };
