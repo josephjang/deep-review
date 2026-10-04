@@ -278,6 +278,15 @@ describe('the repository\'s roles/', () => {
     assert.match(surveyor.prompt, /rules files written for coding assistants, at the root, in\s+every directory between the root and a changed path/);
   });
 
+  it('has the CONVENTIONS verifier judge what a source that names no paths reaches, since the engine refuses no scope by file name (R11 of the repository survey)', () => {
+    // A rules file in a subdirectory may govern the whole repository (.claude/CLAUDE.md) or one package; only its place and its words say which.
+    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
+    const conventions = rubric.slice(rubric.indexOf('### Rubric for the CONVENTIONS angle'));
+    assert.match(conventions, /cover that file; when it names none, judge from where the\s+source lives and what it says whether it reaches that file: a rules\s+file in one package's directory governs that package, not its\s+siblings\) AND the quoted line breaks the quoted rule/);
+    const surveyor = roles.find((role) => role.key === 'surveyor')!;
+    assert.doesNotMatch(surveyor.prompt, /in a subdirectory whose `appliesTo` is null/);
+  });
+
   it('has CONVENTIONS follow a local file a listed source imports from outside the repository, and judges a rule in it as the source\'s', () => {
     // A rules file whose whole content is `@../.codex/AGENTS.md` states its rules only through the import; the engine lists no path outside the repository but the offered user-level files.
     const fragment = (name: string): string => readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8');

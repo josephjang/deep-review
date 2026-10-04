@@ -116,7 +116,10 @@ finder already quoted.
 - **CONFIRMED** — the cited file is a convention source the scope block
   lists, or a file such a source imports or links to, it genuinely
   governs the changed file (the paths its source applies to, when it
-  names any, cover that file) AND the quoted line breaks the quoted rule.
+  names any, cover that file; when it names none, judge from where the
+  source lives and what it says whether it reaches that file: a rules
+  file in one package's directory governs that package, not its
+  siblings) AND the quoted line breaks the quoted rule.
   Both quotes present and accurate.
 - **PLAUSIBLE** — the rule governs and the line looks like a violation, but
   whether it actually breaks the rule turns on a reading the verifier can't
