@@ -402,9 +402,11 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
  * missing. An answer of this attempt that leaves a kind with a missing
  * tool blocks with `check-unavailable`; one of an earlier attempt that
  * does not settle every kind is surveyed again. After a survey blocked on
- * its failures, flags that settle all four kinds let the run go on
- * without it: the failure and the plan are one step, so they are recorded
- * in one append and no run is left without a survey and without checks.
+ * its failures with no answer, flags that settle all four kinds let the
+ * run go on without it, even when a drift or the budget blocked a later
+ * attempt or a stopped engine left a failure in this one: the failure and
+ * the plan are one step, so they are recorded in one append and no run
+ * is left without a survey and without checks.
  */
 function surveyStep(review: ReviewState, live: Live, attempt: number): Step | null {
   const survey = review.survey;
@@ -426,8 +428,8 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   }
   // A fix run goes on without its survey only with its plan, in the same append.
   if (survey.failure !== null) throw new Error('The fix run went on without its survey but planned no check, which the engine records together');
-  const fresh = (review.units.survey[key]?.failures.length ?? 0) === 0;
-  if (survey.lastBlock?.code === 'worker-failed' && fresh && unsettledKinds(live.checkFlags).length === 0) {
+  // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action promised these flags would let the run go on.
+  if (survey.lastBlock?.code === 'worker-failed' && unsettledKinds(live.checkFlags).length === 0) {
     const without = truncated(`the survey blocked, ${survey.lastBlock.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
     return { kind: 'plan-checks', checks: resolveChecks(null, live.checkFlags).checks, without };
   }

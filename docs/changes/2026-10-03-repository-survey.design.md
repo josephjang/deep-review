@@ -624,6 +624,14 @@ from its text, each recorded here rather than silently:
   the plan in one append**, as one planner step, so no run is left
   without a survey and without checks for an invocation with other
   flags to stumble on.
+- **The flags' promise outlives what blocks after it.** The fold keeps
+  the survey's own last blocker, `worker-failed` or `check-unavailable`,
+  and a drift or budget block of the phase leaves it, since neither
+  says anything of the survey. A survey that blocked on its failures
+  and never answered goes on without it once an invocation's flags
+  settle every kind, whatever blocked since and whatever failed in the
+  attempt a stopped engine left running, because that is what the
+  block's action told the operator.
 - **A hinted command is the hint's exact command.** An answer whose
   basis is `hint` and whose command differs from the hint is refused;
   a command the surveyor adapted is its own, with the basis `stated`

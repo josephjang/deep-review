@@ -2,9 +2,9 @@
  * What the survey's events say about a run (R2, R3, R6, R9, R15 of the
  * repository survey): every answer the surveyor recorded, the last of
  * which is the run's; the run going on without a survey, when it did;
- * and the last blocker the survey phase finished with, which tells a
- * re-entered survey whether the operator's flags may stand in for it.
- * Facts as recorded; the planner reads what to do next from them.
+ * and the last blocker the survey's own work finished its phase with,
+ * which tells a re-entered survey whether the operator's flags may stand
+ * in for it. Facts as recorded; the planner reads what to do next from them.
  */
 import type { Blocker, ConventionSource, SurveyFailed, SurveyRecorded, UserRuleDecision } from './events.ts';
 
@@ -13,8 +13,32 @@ export interface SurveyState {
   readonly answers: readonly SurveyRecorded[];
   /** The run going on without a survey, or null. */
   readonly failure: SurveyFailed | null;
-  /** The blocker the survey phase last finished with, or null while it never blocked. */
+  /**
+   * The last blocker the survey's own work finished its phase with
+   * (`surveyBlocker`), or null while it never blocked so. A drift or a
+   * budget block, which says nothing of the survey, leaves it as it was,
+   * so a survey that failed twice and then met a drift still reads as
+   * failed to the invocation after.
+   */
   readonly lastBlock: Blocker | null;
+}
+
+/**
+ * Whether a blocker is the survey's own outcome, which a re-entered
+ * survey reads: its surveyor failing twice (`worker-failed`) or its
+ * answer naming a check this machine cannot run (`check-unavailable`).
+ * A drift at the attempt's start or the run budget reached before the
+ * launch blocks the phase too, but says nothing of the survey.
+ */
+export function surveyBlocker(blocker: Blocker): boolean {
+  switch (blocker.code) {
+    case 'worker-failed':
+    case 'check-unavailable':
+      return true;
+    case 'drift':
+    case 'budget':
+      return false;
+  }
 }
 
 /** The survey state of a run just configured with the survey. */
