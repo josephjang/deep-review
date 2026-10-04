@@ -263,6 +263,22 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(box.logs.some((line) => /^phase triage: re-entered \(attempt 2\), clearing the worker-failed blocker$/.test(line)));
   });
 
+  it('goes on without a fix run\'s failed survey on flags alone, reading only the user-level files, so a git history it cannot read does not stop it (R9 of the repository survey)', async () => {
+    box.script({ surveyor: { exit: 2 } });
+    const halfFlagged = { commands: { build: ReviewSandbox.checkFlags().commands.build! }, dropped: [] };
+    const blocked = await box.review('claude', { fix: halfFlagged });
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'worker-failed' && blocked.blocker.phase === 'survey', JSON.stringify(blocked));
+    // The reviewer's authorship, which only the surveyor's task tells, is read with `git log`, which now fails; the escape hatch needs none of it.
+    execFileSync('git', ['config', 'log.date', 'not-a-date-format'], { cwd: box.repo, stdio: 'ignore' });
+    assert.throws(() => execFileSync('git', ['log', '-1', 'HEAD', '--'], { cwd: box.repo, stdio: 'ignore' }), 'git log fails in the repository');
+    box.script({});
+    report(await box.fix('claude'));
+    const state = box.run();
+    assert.equal(state.review!.phases.survey.status, 'degraded');
+    assert.match(state.review!.survey!.failure!.reason, /^the survey blocked, /);
+    assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
+  });
+
   it('blocks on the run budget before a launch, and completes when run again with a higher --budget-usd', async () => {
     // The surveyor reports no cost, so the budget meets the triage and the finders as it did before the survey.
     box.script({ '*': { costUsd: 12 }, surveyor: { costUsd: 0 } });
