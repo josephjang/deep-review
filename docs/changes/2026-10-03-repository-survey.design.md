@@ -742,6 +742,11 @@ What else the gate showed:
   the surveyor's task and two of its fragments, and both Claude
   surveyors already gave the answers it asks for.
 
+**Continuous integration, 2026-10-04, on PR #13.** The first run, at
+`f806970`, passed on all three systems: 1355 tests, with 1344 passing
+and 11 skipped on windows-latest, 1348 and 7 on macos-latest, 1349 and
+6 on ubuntu-latest.
+
 ## Risks & Migration
 
 - **The exposure of an unapproved command** is the requirements' first
