@@ -26189,15 +26189,23 @@ function surveyTask(input2) {
     ...checks
   ].join("\n");
 }
+function codeSpan(text2) {
+  let longest = 0;
+  for (const run2 of text2.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
+  const delimiter2 = "`".repeat(longest + 1);
+  const padded = text2.startsWith("`") || text2.endsWith("`") || text2.startsWith(" ") && text2.endsWith(" ") && text2.trim() !== "";
+  const pad = padded ? " " : "";
+  return `${delimiter2}${pad}${text2}${pad}${delimiter2}`;
+}
 function fixChecks(input2) {
   const { shell, lookup } = shellOf(input2.platform);
   const settled2 = input2.settled.length === 0 ? [] : [
     "Settled by the operator's flags, which you leave out of `checks`:",
-    ...input2.settled.map((entry) => entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: \`${entry.command}\` (--check)`),
+    ...input2.settled.map((entry) => entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`),
     ""
   ];
   if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled2, "Every kind is settled, so return `checks` empty."];
-  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: \`${hint.command}\` (${hint.reading})`);
+  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
   return [
     kindsToChooseLine(input2),
     "",
