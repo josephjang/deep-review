@@ -4,9 +4,15 @@
  * Containment judged on canonical paths, for every check that must tell
  * whether one directory lies within another however either is spelled: the
  * scratch directory against the reviewed tree and the checkpoint
- * (`src/runtime/scratch.ts`), the role prompts' output against the roles
+ * (`src/runtime/scratch.ts`), the snapshot directory against the worktree
+ * (`src/review/snapshot.ts`), the role prompts' output against the roles
  * directory (`scripts/roles.ts`), and a file the survey names, once its links
  * are followed, against the worktree (`src/review/survey.ts`).
+ *
+ * A path's canonical spelling, for every comparison that must see through
+ * links and short names: a worker's absolute reported path against the
+ * worktree (`src/review/fix-answer.ts`) and a user-level file the survey
+ * names against the files its task offered (`src/review/survey.ts`).
  *
  * A symlink's target as git records it, for every reader of the worktree's
  * links: the scope capture (`src/scope/capture.ts`), the fix pass's tree
@@ -14,14 +20,17 @@
  * (`src/review/locations.ts`).
  *
  * Whether a path names a regular file, for every lookup that must skip what
- * is not one: the runtime executable on PATH (`src/review/executable.ts`)
- * and the reviewer's own rules files (`src/review/conventions.ts`) and a
- * convention source the survey names (`src/review/survey.ts`).
+ * is not one: the runtime executable on PATH (`src/review/executable.ts`),
+ * the reviewer's own rules files (`src/review/conventions.ts`) and a
+ * convention source or a check's source the survey names
+ * (`src/review/survey.ts`).
  *
  * Whether two worktree paths name one directory, for every command that
  * acts on a run recorded in another invocation: a review resuming it
  * (`src/review/controller.ts`) and the commit command
- * (`src/review/commit.ts`).
+ * (`src/review/commit.ts`). It resolves a relative path against the
+ * engine's working directory, so it suits two directories the engine
+ * itself holds, not a path a worker wrote.
  */
 import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';

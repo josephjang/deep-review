@@ -6,14 +6,13 @@
  * the plan of the checks from the operator's flags and the recorded
  * survey. Nothing here asks a model or runs a command.
  */
-import { join } from 'node:path';
-import { realpathSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import type { ConventionSource, PlannedCheckV2, SurveyedCheck, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
-import { isFile, isInside, sameDirectory } from '../paths.ts';
+import { canonicalPath, isFile, isInside } from '../paths.ts';
 import { isSettled, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { StructuralCheckError } from './errors.ts';
-import { resolveReportedPath } from './fix-answer.ts';
+import { requireNoNul, resolveReportedPath, resolvingPath } from './fix-answer.ts';
 import type { RepoLookup } from './locations.ts';
 import type { SurveyorCheckOutput, SurveyorOutput } from './schemas.ts';
 import { checkKinds, type CheckKind, type UserRulesSetting } from './vocabulary.ts';
@@ -76,21 +75,37 @@ export interface SurveyCheckContext {
   readonly inputs: SurveyInputs;
 }
 
+/** Why the survey refuses a path into the git directory: a surveyor names the repository's files, and git's own are none of them. */
+const surveyGitDirectory = 'which holds git\'s own data, not a file of the repository';
+
 /**
  * A path the surveyor names in the repository, in the worktree's own
  * spelling, refused unless it is a regular file inside the worktree once
  * every link is followed (R8, TD9). `what` names the field for the reason.
+ * Every way the path can fail, the file system's included, is a
+ * `StructuralCheckError`, so an odd path costs the attempt, not the run.
  */
 function repositoryFile(context: SurveyCheckContext, raw: string, what: string): string {
-  const path = resolveReportedPath(context.worktree, context.lookup, raw);
+  const path = resolveReportedPath(context.worktree, context.lookup, raw, { what, gitDirectory: surveyGitDirectory });
   const absolute = join(context.worktree, ...path.split('/'));
   if (!isFile(absolute)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a regular file of the repository`);
-  if (!isInside(context.worktree, realpathSync.native(absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
+  if (!resolvingPath(what, raw, () => isInside(context.worktree, absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
   return path;
 }
 
-/** The offered user-level file a path names, in the engine's spelling, or null for one that was not offered. */
-const offeredFile = (offered: readonly string[], raw: string): string | null => offered.find((path) => sameDirectory(path, raw)) ?? null;
+/**
+ * The offered user-level file a path names, in the engine's spelling, or
+ * null for one that was not offered. The task offers each by its absolute
+ * path, so only an absolute path names one, compared with every link
+ * followed; a relative path names none, rather than whatever it would
+ * resolve to from the directory the engine happens to run in.
+ */
+function offeredFile(offered: readonly string[], raw: string, what: string): string | null {
+  requireNoNul(what, raw);
+  if (!isAbsolute(raw)) return null;
+  const named = resolvingPath(what, raw, () => canonicalPath(raw));
+  return offered.find((path) => resolvingPath(what, raw, () => canonicalPath(path)) === named) ?? null;
+}
 
 /** Refuse the second of two entries with one key. */
 function requireOnce(keys: readonly string[], what: string): void {
@@ -109,7 +124,7 @@ function checkConventions(output: SurveyorOutput, context: SurveyCheckContext): 
       if (source.grounds !== null) throw new StructuralCheckError(`The repository source ${JSON.stringify(source.path)} states grounds, which only a user-level source does`);
       return { ...source, path: repositoryFile(context, source.path, 'The convention source') };
     }
-    const path = offeredFile(offered, source.path);
+    const path = offeredFile(offered, source.path, 'The user-level source');
     if (path === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} is not a file the task offered${offered.length === 0 ? '; it offered none' : ''}`);
     if (source.grounds === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} states no grounds for applying the reviewer's own rules`);
     return { ...source, path };
@@ -121,7 +136,7 @@ function checkConventions(output: SurveyorOutput, context: SurveyCheckContext): 
     return { conventions: [...conventions, ...part.conventions], userRules: part.userRules };
   }
   const userRules = output.userRules.map((rule): UserRuleDecision => {
-    const path = offeredFile(offered, rule.path);
+    const path = offeredFile(offered, rule.path, 'The user-level file');
     if (path === null) throw new StructuralCheckError(`The user-level decision on ${JSON.stringify(rule.path)} is not about a file the task offered`);
     return { ...rule, path };
   });

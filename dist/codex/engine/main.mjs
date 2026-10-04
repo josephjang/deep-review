@@ -24477,8 +24477,7 @@ function reviewerAuthorship(worktree) {
 }
 
 // src/review/survey.ts
-import { join as join17 } from "node:path";
-import { realpathSync as realpathSync3 } from "node:fs";
+import { isAbsolute as isAbsolute4, join as join17 } from "node:path";
 
 // src/review/errors.ts
 var InvalidPolicyError = class extends EngineError {
@@ -24498,7 +24497,7 @@ var ReviewRefusedError = class extends EngineError {
 };
 
 // src/review/fix-answer.ts
-import { isAbsolute as isAbsolute3, relative as relative2 } from "node:path";
+import { isAbsolute as isAbsolute3, relative as relative2, sep as sep2 } from "node:path";
 
 // src/review/locations.ts
 import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync3, readSync } from "node:fs";
@@ -24621,17 +24620,32 @@ function normalizeLocations(scope, worktree, candidates) {
 
 // src/review/fix-answer.ts
 var rooted = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute3(name);
-function resolveReportedPath(worktree, lookup, raw) {
+var fixerWording = { what: "The reported path", gitDirectory: "which no fixer edits" };
+function resolvingPath(what, raw, question) {
+  try {
+    return question();
+  } catch (error62) {
+    const code = error62 instanceof Error ? error62.code : void 0;
+    if (typeof code !== "string") throw error62;
+    throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} cannot be resolved: ${code}`, { cause: error62 });
+  }
+}
+function requireNoNul(what, raw) {
+  if (raw.includes("\0")) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} contains a NUL character`);
+}
+function resolveReportedPath(worktree, lookup, raw, wording = fixerWording) {
+  const { what } = wording;
+  requireNoNul(what, raw);
   let name = normalizeFileName(raw.trim()).replace(/\/+$/, "");
   if (rooted(name)) {
-    const inside = relative2(canonicalPath(worktree), canonicalPath(raw.trim()));
-    if (inside === "" || inside.startsWith("..") || isAbsolute3(inside)) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
+    const inside = relative2(canonicalPath(worktree), resolvingPath(what, raw, () => canonicalPath(raw.trim())));
+    if (inside === "" || inside === ".." || inside.startsWith(`..${sep2}`) || isAbsolute3(inside)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
     name = inside.replaceAll("\\", "/");
   }
   const segments = name.split("/");
-  if (name === "" || segments.some((segment) => segment === "" || segment === "." || segment === "..")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is not a path inside the repository`);
-  if (segments.some((segment) => segment.toLowerCase() === ".git")) throw new StructuralCheckError(`The reported path ${JSON.stringify(raw)} is in the git directory, which no fixer edits`);
-  const held = [...new Set(lookup(name))];
+  if (name === "" || segments.some((segment) => segment === "" || segment === "." || segment === "..")) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a path inside the repository`);
+  if (segments.some((segment) => segment.toLowerCase() === ".git")) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is in the git directory, ${wording.gitDirectory}`);
+  const held = [...new Set(resolvingPath(what, raw, () => lookup(name)))];
   return held.length === 1 ? held[0] : name;
 }
 function resolveFixerAnswer(output2, context) {
@@ -24677,14 +24691,20 @@ function policyPart(setting, userFiles) {
 function surveyFailure(reason, setting, userFiles) {
   return { reason, ...policyPart(setting, userFiles) };
 }
+var surveyGitDirectory = "which holds git's own data, not a file of the repository";
 function repositoryFile(context, raw, what) {
-  const path = resolveReportedPath(context.worktree, context.lookup, raw);
+  const path = resolveReportedPath(context.worktree, context.lookup, raw, { what, gitDirectory: surveyGitDirectory });
   const absolute = join17(context.worktree, ...path.split("/"));
   if (!isFile(absolute)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a regular file of the repository`);
-  if (!isInside(context.worktree, realpathSync3.native(absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
+  if (!resolvingPath(what, raw, () => isInside(context.worktree, absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
   return path;
 }
-var offeredFile = (offered, raw) => offered.find((path) => sameDirectory(path, raw)) ?? null;
+function offeredFile(offered, raw, what) {
+  requireNoNul(what, raw);
+  if (!isAbsolute4(raw)) return null;
+  const named = resolvingPath(what, raw, () => canonicalPath(raw));
+  return offered.find((path) => resolvingPath(what, raw, () => canonicalPath(path)) === named) ?? null;
+}
 function requireOnce(keys, what) {
   const seen = /* @__PURE__ */ new Set();
   for (const key of keys) {
@@ -24699,7 +24719,7 @@ function checkConventions(output2, context) {
       if (source.grounds !== null) throw new StructuralCheckError(`The repository source ${JSON.stringify(source.path)} states grounds, which only a user-level source does`);
       return { ...source, path: repositoryFile(context, source.path, "The convention source") };
     }
-    const path = offeredFile(offered, source.path);
+    const path = offeredFile(offered, source.path, "The user-level source");
     if (path === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} is not a file the task offered${offered.length === 0 ? "; it offered none" : ""}`);
     if (source.grounds === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} states no grounds for applying the reviewer's own rules`);
     return { ...source, path };
@@ -24711,7 +24731,7 @@ function checkConventions(output2, context) {
     return { conventions: [...conventions, ...part.conventions], userRules: part.userRules };
   }
   const userRules = output2.userRules.map((rule) => {
-    const path = offeredFile(offered, rule.path);
+    const path = offeredFile(offered, rule.path, "The user-level file");
     if (path === null) throw new StructuralCheckError(`The user-level decision on ${JSON.stringify(rule.path)} is not about a file the task offered`);
     return { ...rule, path };
   });
@@ -24784,13 +24804,13 @@ function resolveChecks(answer, flags) {
 // src/review/grouping.ts
 var maxGroupSize = 8;
 var spellingOf = (candidate) => normalizeFileName(candidate.rawFile).toLowerCase();
-var isAbsolute4 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
+var isAbsolute5 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
 function unlocatedSpellings(candidates) {
   const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
-  const relative3 = [...spellings].filter((spelling) => !isAbsolute4(spelling));
+  const relative3 = [...spellings].filter((spelling) => !isAbsolute5(spelling));
   const joined = /* @__PURE__ */ new Map();
   for (const spelling of spellings) {
-    const within = isAbsolute4(spelling) ? relative3.filter((name) => spelling.endsWith(`/${name}`)) : [];
+    const within = isAbsolute5(spelling) ? relative3.filter((name) => spelling.endsWith(`/${name}`)) : [];
     joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
   }
   return joined;
@@ -27520,8 +27540,8 @@ function reenterPhase(checkpoint, state, log) {
 }
 
 // src/review/executable.ts
-import { realpathSync as realpathSync4 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute5, join as join24, posix, resolve as resolve9, win32 } from "node:path";
+import { realpathSync as realpathSync3 } from "node:fs";
+import { delimiter, extname, isAbsolute as isAbsolute6, join as join24, posix, resolve as resolve9, win32 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -27540,10 +27560,10 @@ function refuseShim(executable, platform = process.platform) {
   return executable;
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
-  if (isAbsolute5(name) || name.includes("/") || name.includes("\\")) {
+  if (isAbsolute6(name) || name.includes("/") || name.includes("\\")) {
     const absolute = resolve9(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
-    return refuseShim(realpathSync4.native(absolute), platform);
+    return refuseShim(realpathSync3.native(absolute), platform);
   }
   const path = spellingsOf(environment, "PATH", platform).map(([, value]) => value ?? "").find((value) => value.length > 0) ?? "";
   const directories = path.split(delimiter).filter((directory) => directory.length > 0);
@@ -27551,7 +27571,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   for (const directory of directories) {
     for (const extension of extensions) {
       const candidate = join24(directory.replaceAll('"', ""), `${name}${extension}`);
-      if (isFile(candidate)) return refuseShim(realpathSync4.native(candidate), platform);
+      if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
