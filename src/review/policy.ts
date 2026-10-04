@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { effortSchema, type PinnedRole, type ReviewConfiguration } from '../checkpoint/events.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
-import { codexRuntimeName, windowsSandboxes, type WindowsSandbox } from '../runtime/codex.ts';
+import { codexRuntimeName, isWindowsSandbox, windowsSandboxes, type WindowsSandbox } from '../runtime/codex.ts';
 import { maxBudgetUsd, maxTimeoutMs } from '../runtime/contract.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import { roleKeySchema } from '../roles/manifest.ts';
@@ -140,7 +140,7 @@ export interface ResolvedPolicy {
  */
 export function codexWindowsSandboxFlagProblem(runtime: string, value: string | undefined): string | null {
   if (value === undefined) return null;
-  if (!(windowsSandboxes as readonly string[]).includes(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(', ')}, not ${JSON.stringify(value)}`;
+  if (!isWindowsSandbox(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(', ')}, not ${JSON.stringify(value)}`;
   if (runtime !== codexRuntimeName) return `--codex-windows-sandbox applies only to runtime ${codexRuntimeName}, not ${runtime}`;
   return null;
 }

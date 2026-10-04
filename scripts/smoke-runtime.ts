@@ -25,7 +25,7 @@ import { Checkpoint } from '../src/checkpoint/checkpoint.ts';
 import { effortSchema } from '../src/checkpoint/events.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
 import { engineVersion } from '../src/engine.ts';
-import { windowsSandboxes, type WindowsSandbox } from '../src/runtime/codex.ts';
+import { isWindowsSandbox, windowsSandboxes } from '../src/runtime/codex.ts';
 import type { InvocationInput } from '../src/runtime/contract.ts';
 import { runWorker, type WorkerReceipt } from '../src/runtime/launcher.ts';
 import { defaultRuntimes } from '../src/runtime/runtimes.ts';
@@ -43,8 +43,8 @@ const { values } = parseArgs({
 });
 if (values.claude === undefined && values.codex === undefined) throw new Error('Name at least one runtime: --claude <path> and/or --codex <path>');
 if (values.codex !== undefined && values['codex-model'] === undefined) throw new Error('--codex needs --codex-model; Codex has no model this script can assume');
-const windowsSandbox = values['codex-windows-sandbox'] as WindowsSandbox;
-if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`--codex-windows-sandbox must be one of ${windowsSandboxes.join(', ')}`);
+const windowsSandbox = values['codex-windows-sandbox'];
+if (!isWindowsSandbox(windowsSandbox)) throw new Error(`--codex-windows-sandbox must be one of ${windowsSandboxes.join(', ')}`);
 const effort = effortSchema.parse(values.effort);
 const runtimes = defaultRuntimes({ codex: { windowsSandbox } });
 
