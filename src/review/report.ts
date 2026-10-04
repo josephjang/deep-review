@@ -1,5 +1,6 @@
 /**
- * The report (R9, PD8 of the read-only review; R13 of the fix pass):
+ * The report (R9, PD8 of the read-only review; R13 of the fix pass; R7
+ * of the Codex sandbox):
  * Markdown rendered by the engine from the fold alone, so two engines
  * render the same report from the same ledger and no model rewrites a
  * finding. Sections in order: the header, Angles, for a surveyed run
@@ -17,6 +18,14 @@ import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
+import type { WindowsSandbox } from '../runtime/codex.ts';
+
+/** How the header names the Codex Windows sandbox a run pinned; `none` says what it means for each kind of worker, since it differs. */
+const codexSandboxWords: Readonly<Record<WindowsSandbox, string>> = {
+  unelevated: 'unelevated',
+  elevated: 'elevated',
+  none: 'none (workers that edit ran in no sandbox, workers that read under unelevated)',
+};
 
 export interface ReportInput {
   /** The identity of the engine writing the report. */
@@ -189,6 +198,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     `Run: ${state.id}`,
     `Engine: ${input.engine}${state.engine === input.engine ? '' : ` (run created by ${state.engine})`}`,
     `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,
+    ...(configuration.codex === null ? [] : [`Codex Windows sandbox: ${codexSandboxWords[configuration.codex.windowsSandbox]}`]),
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,

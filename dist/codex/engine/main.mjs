@@ -27098,6 +27098,11 @@ function fixLimitations(review2) {
 }
 
 // src/review/report.ts
+var codexSandboxWords = {
+  unelevated: "unelevated",
+  elevated: "elevated",
+  none: "none (workers that edit ran in no sandbox, workers that read under unelevated)"
+};
 var usd2 = (value) => value === null ? "-" : value.toFixed(2);
 var count = (value) => value === null ? "-" : String(value);
 var workersCount = (n) => `${String(n)} worker${n === 1 ? "" : "s"}`;
@@ -27216,6 +27221,7 @@ function renderReport(state, input2) {
     `Run: ${state.id}`,
     `Engine: ${input2.engine}${state.engine === input2.engine ? "" : ` (run created by ${state.engine})`}`,
     `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,
+    ...configuration.codex === null ? [] : [`Codex Windows sandbox: ${codexSandboxWords[configuration.codex.windowsSandbox]}`],
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
