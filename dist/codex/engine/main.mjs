@@ -27281,6 +27281,12 @@ async function runReview(options2) {
     const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
     const scratchBase = join23(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
     const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match });
+    const surveyFailedEvent = (reason) => {
+      const failure2 = surveyFailure(reason, configuration.survey.userRules, userFiles());
+      log(`phase survey: going on without the survey: ${failure2.reason}`);
+      for (const line of surveyLines(runId, failure2)) log(line);
+      return { kind: "survey.failed", version: 1, payload: failure2 };
+    };
     const runDueCheck = async (phase, attempt, due) => {
       if (due.skip !== null) {
         log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
@@ -27336,42 +27342,33 @@ async function runReview(options2) {
           break;
         }
         case "plan-checks": {
-          const failure2 = step.without === null ? null : surveyFailure(step.without, configuration.survey.userRules, surveyInputs().userFiles);
-          if (failure2 !== null) {
-            log(`phase survey: going on without the survey: ${failure2.reason}`);
-            for (const line of surveyLines(runId, failure2)) log(line);
-          }
+          const failed2 = step.without === null ? [] : [surveyFailedEvent(step.without)];
           for (const check2 of step.checks) log(`run ${runId}: check ${check2.kind}: ${checkLine(check2)}`);
-          state = append(checkpoint, state, [
-            ...failure2 === null ? [] : [{ kind: "survey.failed", version: 1, payload: failure2 }],
-            { kind: "checks.planned", version: 2, payload: { checks: [...step.checks] } }
-          ]);
+          state = append(checkpoint, state, [...failed2, { kind: "checks.planned", version: 2, payload: { checks: [...step.checks] } }]);
           break;
         }
         case "run-check":
           state = append(checkpoint, state, await runDueCheck(step.phase, step.attempt, step.check));
           break;
-        case "degrade":
-          for (const degradation of step.degradations) {
-            const what = degradation.kind === "survey.failed" ? "going on without the survey" : degradation.kind === "angle.failed" ? `angle ${degradation.angle} not run` : degradation.kind === "group.unverified" ? `group ${degradation.groupId} unverified` : `${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`;
-            log(`phase ${step.phase}: ${what}: ${degradation.reason}`);
-          }
-          state = append(checkpoint, state, step.degradations.flatMap((degradation) => {
+        case "degrade": {
+          const degraded2 = (what, reason) => log(`phase ${step.phase}: ${what}: ${reason}`);
+          state = append(checkpoint, state, step.degradations.map((degradation) => {
             switch (degradation.kind) {
-              case "survey.failed": {
-                const failure2 = surveyFailure(degradation.reason, configuration.survey.userRules, surveyInputs().userFiles);
-                for (const line of surveyLines(runId, failure2)) log(line);
-                return [{ kind: "survey.failed", version: 1, payload: failure2 }];
-              }
+              case "survey.failed":
+                return surveyFailedEvent(degradation.reason);
               case "angle.failed":
-                return [{ kind: "angle.failed", version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
+                degraded2(`angle ${degradation.angle} not run`, degradation.reason);
+                return { kind: "angle.failed", version: 1, payload: { angle: degradation.angle, reason: degradation.reason } };
               case "group.unverified":
-                return [{ kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }];
+                degraded2(`group ${degradation.groupId} unverified`, degradation.reason);
+                return { kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } };
               case "unit.unattempted":
-                return [{ kind: "unit.unattempted", version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } }];
+                degraded2(`${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`, degradation.reason);
+                return { kind: "unit.unattempted", version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
             }
           }));
           break;
+        }
         case "launch": {
           const context = {
             state,

@@ -311,6 +311,19 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     const scratchBase = join(options.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
     const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match });
     /**
+     * The run going on without its survey, as the event that records it and
+     * logged with it: a read-only review whose surveyor failed twice, or a
+     * fix run whose flags settle every check after its survey blocked. The
+     * pinned policy alone decides the user-level files of such a run (R3,
+     * R9 of the repository survey).
+     */
+    const surveyFailedEvent = (reason: string): NewEvent => {
+      const failure = surveyFailure(reason, configuration.survey.userRules, userFiles());
+      log(`phase survey: going on without the survey: ${failure.reason}`);
+      for (const line of surveyLines(runId, failure)) log(line);
+      return { kind: 'survey.failed', version: 1, payload: failure };
+    };
+    /**
      * Run one due check, or record it skipped, as the events to append: its
      * `check.ran`, and a revision when it wrote to files the run expects
      * (R9, TD6 of the fix pass). The engine runs at most one check, and no
@@ -374,47 +387,35 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
         case 'plan-checks': {
           // The flags of this invocation and the recorded survey, kind by kind, pinned before the triage (R6 of the repository survey); a run going on without its survey records that with the plan, in one append (R9).
-          const failure = step.without === null ? null : surveyFailure(step.without, configuration.survey.userRules, surveyInputs().userFiles);
-          if (failure !== null) {
-            log(`phase survey: going on without the survey: ${failure.reason}`);
-            for (const line of surveyLines(runId, failure)) log(line);
-          }
+          const failed = step.without === null ? [] : [surveyFailedEvent(step.without)];
           for (const check of step.checks) log(`run ${runId}: check ${check.kind}: ${checkLine(check)}`);
-          state = append(checkpoint, state, [
-            ...(failure === null ? [] : [{ kind: 'survey.failed', version: 1, payload: failure }]),
-            { kind: 'checks.planned', version: 2, payload: { checks: [...step.checks] } },
-          ]);
+          state = append(checkpoint, state, [...failed, { kind: 'checks.planned', version: 2, payload: { checks: [...step.checks] } }]);
           break;
         }
         case 'run-check':
           state = append(checkpoint, state, await runDueCheck(step.phase, step.attempt, step.check));
           break;
-        case 'degrade':
-          for (const degradation of step.degradations) {
-            const what = degradation.kind === 'survey.failed' ? 'going on without the survey'
-              : degradation.kind === 'angle.failed' ? `angle ${degradation.angle} not run`
-                : degradation.kind === 'group.unverified' ? `group ${degradation.groupId} unverified`
-                  : `${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`;
-            log(`phase ${step.phase}: ${what}: ${degradation.reason}`);
-          }
-          state = append(checkpoint, state, step.degradations.flatMap((degradation): NewEvent[] => {
+        case 'degrade': {
+          /** Log one degradation of the phase, by what it gives up, with its reason. */
+          const degraded = (what: string, reason: string): void => log(`phase ${step.phase}: ${what}: ${reason}`);
+          state = append(checkpoint, state, step.degradations.map((degradation): NewEvent => {
             switch (degradation.kind) {
-              case 'survey.failed': {
-                // The pinned policy alone decides the user-level files of a run without its survey (R3, R9 of the repository survey).
-                const failure = surveyFailure(degradation.reason, configuration.survey.userRules, surveyInputs().userFiles);
-                for (const line of surveyLines(runId, failure)) log(line);
-                return [{ kind: 'survey.failed', version: 1, payload: failure }];
-              }
+              case 'survey.failed':
+                return surveyFailedEvent(degradation.reason);
               case 'angle.failed':
-                return [{ kind: 'angle.failed', version: 1, payload: { angle: degradation.angle, reason: degradation.reason } }];
+                degraded(`angle ${degradation.angle} not run`, degradation.reason);
+                return { kind: 'angle.failed', version: 1, payload: { angle: degradation.angle, reason: degradation.reason } };
               case 'group.unverified':
-                return [{ kind: 'group.unverified', version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } }];
+                degraded(`group ${degradation.groupId} unverified`, degradation.reason);
+                return { kind: 'group.unverified', version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } };
               case 'unit.unattempted':
+                degraded(`${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`, degradation.reason);
                 // What failed workers left is already recorded, with each failure (R20 of the fix pass).
-                return [{ kind: 'unit.unattempted', version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } }];
+                return { kind: 'unit.unattempted', version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
             }
           }));
           break;
+        }
         case 'launch': {
           const context: PhaseContext = {
             state,
