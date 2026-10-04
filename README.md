@@ -193,7 +193,11 @@ refusal, such as another engine holding the run, a runtime that does not
 qualify, or an active run that belongs to another worktree or runtime.
 A resumed run keeps the scope, policy and executable it pinned; only
 `--concurrency` and `--budget-usd` apply to each invocation, and
-`--check` and `--no-check` until the checks are planned. `deep-review
+`--check` and `--no-check` until the checks are planned. Until then
+they are not recorded, so every invocation must give them again: a
+resume that leaves one out drops it. The log names the kinds it can
+tell were dropped, those a flag settled when the survey answered, and
+the survey is asked again for them. `deep-review
 status` prints the fold of the active run, as text or `--json`;
 `deep-review abandon --reason <text>` closes an active or blocked run.
 The engine ships as one esbuild bundle, `engine/main.mjs`, in both

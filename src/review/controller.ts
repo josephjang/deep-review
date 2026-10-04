@@ -15,7 +15,7 @@ import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
 import { revisionMessageOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { conventionsKnown } from '../checkpoint/survey-state.ts';
+import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { PreflightError } from '../runtime/errors.ts';
@@ -47,7 +47,7 @@ import { nextStep, truncated, type DueCheck, type Live, type Unit } from './step
 import { surveyFailure, type SurveyInputs } from './survey.ts';
 import { snapshotIndexPlaceholder } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
-import { blockerActions, checkKinds, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckPhase, type Phase } from './vocabulary.ts';
+import { blockerActions, checkKinds, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved only when the run it acts
@@ -651,7 +651,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * which prompts every worker got; the flags that apply per invocation are
  * checked as a new run's are, and the model flags, which do not apply,
  * are named as ignored, as are the check flags once the checks are
- * planned; the pinned executable, not the command's, must still qualify.
+ * planned; before then, a fix run is told the check flags must be given
+ * again, and the kinds it can tell an earlier invocation's flags settled
+ * and this one's do not are named; the pinned executable, not the
+ * command's, must still qualify.
  */
 async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
   const runId = run.id;
@@ -668,8 +671,32 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
   if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored`);
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
-  if (pinned.fix && checkFlags && (run.review?.fix?.checks.planned ?? null) !== null) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
+  const planned = (run.review?.fix?.checks.planned ?? null) !== null;
+  if (pinned.fix && checkFlags && planned) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
+  if (pinned.fix && !planned) {
+    // The flags are not on the ledger until the plan records them, so an invocation that omits one an earlier invocation gave drops it.
+    context.log(`run ${runId} has not planned its checks yet; --check and --no-check apply to each invocation until it does, so give again every one an earlier invocation gave`);
+    const unsettled = droppedSinceSurvey(run.review?.survey ?? null, fix);
+    if (unsettled.length > 0) {
+      context.log(`run ${runId}: its survey was asked with --check or --no-check settling ${unsettled.join(', ')}, which this invocation leaves unsettled, so the survey is asked again for ${unsettled.length === 1 ? 'it' : 'them'}; give those flags again to keep them`);
+    }
+  }
   await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
+}
+
+/**
+ * The kinds a flag settled when the survey's last answer was asked for,
+ * and which this invocation's flags leave unsettled. The flags of an
+ * invocation are recorded only with the plan, but a fix run's answer
+ * chooses a check for exactly the kinds no flag settled (R8 of the
+ * repository survey), so a kind it has no check for was settled by a flag
+ * then. None while the survey has not answered, or for a run that does
+ * not fix.
+ */
+function droppedSinceSurvey(survey: SurveyState | null, flags: CheckFlags | null): CheckKind[] {
+  const checks = survey === null ? null : (lastSurvey(survey)?.checks ?? null);
+  if (checks === null) return [];
+  return checkKinds.filter((kind) => !checks.some((check) => check.kind === kind) && (flags === null || !isSettled(flags, kind)));
 }
 
 /** Preflight the executable and return its version, or refuse with `runtime-unqualified`; `runId` names the configured run that pinned it, or is null for a new run. */

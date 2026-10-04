@@ -27544,8 +27544,21 @@ async function resumePinned(run2, pinned, context) {
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
   if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ", --check and --no-check are" : " is"} ignored`);
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
-  if (pinned.fix && checkFlags && (run2.review?.fix?.checks.planned ?? null) !== null) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
+  const planned = (run2.review?.fix?.checks.planned ?? null) !== null;
+  if (pinned.fix && checkFlags && planned) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
+  if (pinned.fix && !planned) {
+    context.log(`run ${runId} has not planned its checks yet; --check and --no-check apply to each invocation until it does, so give again every one an earlier invocation gave`);
+    const unsettled = droppedSinceSurvey(run2.review?.survey ?? null, fix);
+    if (unsettled.length > 0) {
+      context.log(`run ${runId}: its survey was asked with --check or --no-check settling ${unsettled.join(", ")}, which this invocation leaves unsettled, so the survey is asked again for ${unsettled.length === 1 ? "it" : "them"}; give those flags again to keep them`);
+    }
+  }
   await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
+}
+function droppedSinceSurvey(survey, flags) {
+  const checks = survey === null ? null : lastSurvey(survey)?.checks ?? null;
+  if (checks === null) return [];
+  return checkKinds.filter((kind) => !checks.some((check2) => check2.kind === kind) && (flags === null || !isSettled(flags, kind)));
 }
 async function qualify2(adapter, executable, executableArgs, context, runId) {
   try {
