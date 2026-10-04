@@ -195,7 +195,9 @@ and line is kept and marked unlocated, never dropped. A blocked
 run exits 2 with the blocker and its action on stderr, and so does a
 refusal, such as another engine holding the run, a runtime that does not
 qualify, or an active run that belongs to another worktree or runtime.
-A resumed run keeps the scope, policy and executable it pinned; only
+A resumed run keeps the scope, policy, executable and Codex Windows
+sandbox it pinned, and refuses a `--codex-windows-sandbox` naming
+another; only
 `--concurrency` and `--budget-usd` apply to each invocation, and
 `--check` and `--no-check` until the checks are planned. Until then
 they are not recorded, so every invocation must give them again: a
@@ -272,6 +274,36 @@ failures are new is the worker's reading; the engine parses no output. In the fi
 phases the run budget stops new launches instead of blocking the run:
 what was not launched is reported not attempted, and the run still
 reaches its report.
+
+On Windows a Codex run chooses how its workers are confined with
+`--codex-windows-sandbox`, else the policy's
+`runtimes.codex.windowsSandbox`, shipped as `unelevated`. The value is
+pinned on the run and named in the report's header; on another platform
+the flag is ignored with a warning. Each value needs and gives up
+something:
+
+- `unelevated` needs no setup, but a Node process there cannot start a
+  child whose output it captures, so a fixer or the repair worker cannot
+  run most build and test commands. A fix run under it warns at every
+  start, and its fixers and repair worker are told what cannot run and
+  to validate a fix by what does, recording it as `limited` otherwise;
+  the engine's own checks still run after them.
+- `elevated` runs every worker's commands as Codex's separate sandbox
+  user. It needs Codex's one-time elevated setup, which an administrator
+  approves, and package stores and tools under the operator's profile
+  that the sandbox user can read; the engine sets PowerShell's execution
+  policy for the worker's processes to `RemoteSigned`, so the `npm` and
+  `pnpm` shims start, unless `PSExecutionPolicyPreference` is set
+  already or a group policy overrides it.
+- `none` runs the workers that edit in no sandbox and leaves those that
+  only read under `unelevated`, since Codex has no tool list to hold a
+  reader. An editor then has an unconfined shell and the network, as a
+  Claude Code editor does, for the whole of its session, so `none` suits
+  a change the operator trusts, or a machine that is itself the
+  boundary, such as a container or a virtual machine.
+
+The engine sets up neither the machine nor its package stores. See
+`docs/changes/2026-10-04-codex-sandbox.md`.
 
 The report gains Fixes, Checks and Changed files, and beside it the
 engine writes a patch series, one patch per revision, rendered from the
