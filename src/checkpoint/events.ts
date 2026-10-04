@@ -1000,20 +1000,27 @@ export type UserRuleDecision = z.infer<typeof userRuleDecisionSchema>;
  * One kind's check as the surveyor chose it (R4, R11, R15): its command
  * with the file and text it took it from and whether that was stated or a
  * hint, and the tool it found missing; or no command, with the reason.
+ * Each is its own variant, so a command always carries its basis and
+ * source, and no command carries a reason and nothing else.
  */
-export const surveyedCheckSchema = z.strictObject({
-  kind: checkKindSchemaV3,
-  command: z.string().min(1).max(2000).nullable(),
-  basis: checkBaseSchemaV3.nullable(),
-  source: z.strictObject({ path: surveyPathSchema, quote: z.string().min(1).max(2000) }).nullable(),
-  missingTool: z.string().min(1).max(400).nullable(),
-  reason: z.string().min(1).max(1000).nullable(),
-}).superRefine((check, context) => {
-  const commanded = check.command !== null;
-  if (commanded !== (check.basis !== null) || commanded !== (check.source !== null)) context.addIssue({ code: 'custom', message: 'a command alone has a basis and a source', path: ['command'] });
-  if (check.missingTool !== null && !commanded) context.addIssue({ code: 'custom', message: 'a missing tool is named only for a command', path: ['missingTool'] });
-  if (!commanded && check.reason === null) context.addIssue({ code: 'custom', message: 'a kind with no command says why', path: ['reason'] });
-});
+export const surveyedCheckSchema = z.union([
+  z.strictObject({
+    kind: checkKindSchemaV3,
+    command: z.string().min(1).max(2000),
+    basis: checkBaseSchemaV3,
+    source: z.strictObject({ path: surveyPathSchema, quote: z.string().min(1).max(2000) }),
+    missingTool: z.string().min(1).max(400).nullable(),
+    reason: z.string().min(1).max(1000).nullable(),
+  }),
+  z.strictObject({
+    kind: checkKindSchemaV3,
+    command: z.null(),
+    basis: z.null(),
+    source: z.null(),
+    missingTool: z.null(),
+    reason: z.string().min(1).max(1000),
+  }),
+]);
 export type SurveyedCheck = z.infer<typeof surveyedCheckSchema>;
 
 /**
@@ -1072,20 +1079,22 @@ export type SurveyFailed = z.infer<typeof surveyFailedV1>;
  * repository survey): its command or none with the reason, who decided
  * (a flag, the survey, or nobody, when the survey found none), and for
  * the survey's command the file and text it came from and what it stood
- * on.
+ * on. The four shapes are the variants: a flag's command, a flag's drop
+ * with its reason, the survey's command with its source, and no command
+ * that nobody decided, with the survey's reason.
  */
-export const plannedCheckSchemaV2 = z.strictObject({
-  kind: checkKindSchemaV3,
-  command: z.string().min(1).nullable(),
-  origin: z.enum(vocabularyV3.checkOrigins),
-  reason: z.string().min(1).max(1000).nullable(),
-  source: z.strictObject({ path: surveyPathSchema, quote: z.string().min(1).max(2000), basis: checkBaseSchemaV3 }).nullable(),
-}).superRefine((check, context) => {
-  if ((check.command === null) !== (check.reason !== null)) context.addIssue({ code: 'custom', message: 'a reason is given exactly when the kind has no command', path: ['reason'] });
-  if ((check.origin === 'survey') !== (check.source !== null)) context.addIssue({ code: 'custom', message: 'a source is given exactly for the survey\'s command', path: ['source'] });
-  if (check.origin === 'survey' && check.command === null) context.addIssue({ code: 'custom', message: 'the survey\'s check has a command', path: ['command'] });
-  if (check.origin === 'none' && check.command !== null) context.addIssue({ code: 'custom', message: 'a check nobody decided has no command', path: ['command'] });
-});
+export const plannedCheckSchemaV2 = z.union([
+  z.strictObject({ kind: checkKindSchemaV3, command: z.string().min(1), origin: z.literal('flag'), reason: z.null(), source: z.null() }),
+  z.strictObject({ kind: checkKindSchemaV3, command: z.null(), origin: z.literal('flag'), reason: z.string().min(1).max(1000), source: z.null() }),
+  z.strictObject({
+    kind: checkKindSchemaV3,
+    command: z.string().min(1),
+    origin: z.literal('survey'),
+    reason: z.null(),
+    source: z.strictObject({ path: surveyPathSchema, quote: z.string().min(1).max(2000), basis: checkBaseSchemaV3 }),
+  }),
+  z.strictObject({ kind: checkKindSchemaV3, command: z.null(), origin: z.literal('none'), reason: z.string().min(1).max(1000), source: z.null() }),
+]);
 export type PlannedCheckV2 = z.infer<typeof plannedCheckSchemaV2>;
 
 /** The checks the run executes, one per kind in the order they run, planned when the survey phase completes (R6 of the repository survey). */

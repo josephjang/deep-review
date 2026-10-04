@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { checksPlannedV2, conventionSourceSchema, plannedCheckSchemaV2, surveyedCheckSchema, surveyFailedV1, surveyRecordedV1 } from '../../src/checkpoint/events.ts';
+import { checksPlannedV2, conventionSourceSchema, plannedCheckSchemaV2, surveyedCheckSchema, surveyFailedV1, surveyRecordedV1, type PlannedCheckV2, type SurveyedCheck } from '../../src/checkpoint/events.ts';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { conventionsKnown, lastSurvey } from '../../src/checkpoint/survey-state.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
@@ -178,5 +178,23 @@ describe('the survey\'s payloads', () => {
     assert.ok(!checksPlannedV2.safeParse({ checks: [...checks].reverse() }).success, 'out of run order');
     assert.ok(!checksPlannedV2.safeParse({ checks: checks.slice(1) }).success, 'a kind missing');
     assert.ok(!checksPlannedV2.safeParse({ ...plannedV2(), manager: 'npm' }).success, 'no package manager');
+  });
+
+  it('type each check shape as its own variant, so no reader needs an assertion or a fallback for a field the shape always has', () => {
+    // tsc checks the directives: each fails to compile unless the shape is impossible in the type, as it is in the schema.
+    // @ts-expect-error: a surveyed command always has its source
+    const sourceless: SurveyedCheck = { kind: 'lint', command: 'eslint .', basis: 'stated', source: null, missingTool: null, reason: null };
+    // @ts-expect-error: the survey's planned command always has its source
+    const unsourced: PlannedCheckV2 = { kind: 'test', command: 'npm test', origin: 'survey', reason: null, source: null };
+    // @ts-expect-error: a kind with no command always says why
+    const unexplained: PlannedCheckV2 = { kind: 'test', command: null, origin: 'none', reason: null, source: null };
+    assert.ok(!surveyedCheckSchema.safeParse(sourceless).success);
+    assert.ok(!plannedCheckSchemaV2.safeParse(unsourced).success);
+    assert.ok(!plannedCheckSchemaV2.safeParse(unexplained).success);
+    // Narrowing on the command reaches the fields with no assertion.
+    const planned = plannedCheckSchemaV2.parse({ kind: 'test', command: 'npm test', origin: 'survey', reason: null, source: { path: 'package.json', quote: 'q', basis: 'hint' } });
+    assert.equal(planned.origin === 'survey' ? planned.source.basis : null, 'hint');
+    const surveyed = surveyedCheckSchema.parse(surveyedCheck('build', null));
+    assert.equal(surveyed.command === null ? surveyed.reason : null, 'no build step');
   });
 });
