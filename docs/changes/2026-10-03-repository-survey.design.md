@@ -139,8 +139,12 @@ what the engine knows and the surveyor cannot see:
 - the changed paths, which the scope block already lists, so "applies
   to" can be judged against them.
 
-The surveyor's own prompt gets the scope block without the rules
-section, which does not exist yet.
+The surveyor's own prompt gets only the scope block's opening, the
+header and the table of changed files (`surveyScopeBlock`): no rules
+section, which does not exist yet, and no patch, which it does not
+read and which would cost up to 256 KiB on every launch and retry.
+Every later worker's block is that opening, the convention sources and
+the patch.
 
 ### Output schema and structural checks (R8)
 
@@ -159,7 +163,17 @@ whole (`StructuralCheckError`, so a failed attempt) when:
 
 - a `conventions` path with level `repository` is not a regular file
   inside the worktree, or one with level `user` is not a file the task
-  offered, or a path repeats;
+  offered, or a path repeats; a user-level path names an offered file
+  only when it is absolute, compared with every link followed, so a
+  relative one names none rather than whatever it would resolve to from
+  the directory the engine runs in;
+- a repository source named `AGENTS.md`, `CLAUDE.md` or
+  `CLAUDE.local.md` in a subdirectory has `appliesTo` null, or a glob
+  that, compared without regard to case, neither is that directory nor
+  names a path below it: such a file governs only the files at or below
+  it, and with no globs the scope block would present it as governing
+  the whole repository. Any other source may govern the whole
+  repository wherever it lives;
 - `userRules` does not cover the offered files once each, or disagrees
   with `conventions` on whether one is applied, or an applied one has no
   `grounds`; under `ignore` and `apply` no file is offered, so any
@@ -169,7 +183,17 @@ whole (`StructuralCheckError`, so a failed attempt) when:
 - a check has a command and no source or no basis, a source whose path
   is not a regular file in the worktree, no command and no reason, a
   `missingTool` without a command, or the basis `hint` with a command
-  the engine gave no hint for that kind.
+  the engine gave no hint for that kind;
+- a command is empty, holds a NUL character, which no shell runs, or
+  spans more than one line: `cmd.exe /d /s /c` runs only the first line
+  and `sh` judges only the last, so one line's exit code would decide
+  the check. The reason tells the retry to join the commands with `&&`.
+
+Every path is refused in these terms too when it holds a NUL or the
+file system cannot resolve it (denied, too long, a loop of links): the
+path came from the model, so it costs the attempt, never the run. A
+path into the git directory is refused as holding git's own data, not
+a file of the repository.
 
 The quote is not matched against the file. It is evidence for a reader,
 and a paraphrase is not a reason to pay for the survey twice.
@@ -282,9 +306,17 @@ The role's rule in `steps.ts` reads the run's mode:
   governs and what it applies to, or a sentence that the survey found
   none, or that the survey failed. The block is still rendered once per
   run, after the survey phase.
-- `conventionFiles` and `ancestorDirectories` are deleted. What stays in
-  `conventions.ts` is the list of user-level paths and the function that
-  says which exist.
+- `conventionFiles` and `ancestorDirectories` leave `conventions.ts`.
+  What stays there is the list of user-level paths and the function
+  that says which exist.
+- A run configured before the survey existed recorded no source. When
+  one resumes, its later workers' scope block lists the files the engine
+  that configured it listed, found as it found them: the user-level
+  ones that exist, then `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md`
+  in the root and every ancestor directory of a changed path, under the
+  old heading and in the old words, since its pinned role prompts expect
+  them (`presurveyRulesFiles` in `controller.ts`, with its own
+  `ancestorDirectories`).
 - The sources a run uses are the survey's, joined with the user-level
   files by the pinned policy: under `apply` the engine adds each that
   exists, with the reason "applied by policy"; under `ignore` none, with
@@ -461,7 +493,8 @@ suite already scripts workers with, then the gate by hand.
   a plan before a survey.
 - R7: the scope block of a triage worker lists the recorded sources, an
   empty list reads as none found, and the surveyor's own block has no
-  such section; the fixer task still carries the planned checks.
+  such section and no patch; the fixer task still carries the planned
+  checks.
 - R9: two failed attempts in a read-only run degrade, `CONVENTIONS` is
   in `anglesNotRun`, the run reaches a report; in a fix run they block
   with the action; a re-entry with all four kinds flagged goes on, and
@@ -520,12 +553,15 @@ cannot see. The engine reads `user.email` with the operator's own git
 configuration and counts how many of the last 200 commits on HEAD were
 authored with it; the task states the counts, or that no email is
 configured for the repository, and the fragment tells the surveyor not
-to look the identity up and never to take a commit's author for it. The
-address itself never reaches a prompt. Passing the address was rejected
-for that reason; telling the surveyor to run `git config` on its own
-was rejected because its environment does not hold the answer; raising
-the surveyor's effort was rejected as the fix, since the fact was
-missing, not the reasoning. Whether the counts are grounds stays the
+to look the identity up and never to take a commit's author for it. It
+reads them only for a task that states them, one that offers a
+user-level file, so a survey under `ignore` or `apply`, or on a machine
+with no such file, runs neither git command. The address itself never
+reaches a prompt. Passing the address was rejected for that reason;
+telling the surveyor to run `git config` on its own was rejected
+because its environment does not hold the answer; raising the
+surveyor's effort was rejected as the fix, since the fact was missing,
+not the reasoning. Whether the counts are grounds stays the
 surveyor's judgment (PD7).
 
 **TD15: A tool run through what provides it needs only that to
@@ -578,6 +614,11 @@ The commits, in order, and what each carries:
   codex-cli 0.160.0 lists first, in place of gpt-5.6-terra.
 - `7b92da7` the report's reason for checks phases that ran nothing
   when no kind has a command, which the no-`uv` gate run showed.
+
+The review of the pull request led to further commits after `7b92da7`,
+among them the refusals and the surveyor's scope block described above.
+The code they change is covered by unit tests added with it; the gate
+of R14 has not run again on them.
 
 The roles' hashes. `8505906` adds the surveyor, 5 fragments and 6908
 bytes, `d497c899f721d30d975dc5a7b8764a8a562d3535927ba694733b166c0b34a643`,
