@@ -134,11 +134,12 @@ export interface CodexProvider {
 /** How a Codex adapter is built. The user's own config is ignored, so anything a machine needs is chosen here. */
 export interface CodexOptions {
   /**
-   * Unelevated by default, so a machine without the elevated setup still
-   * runs workers, though a fixer there cannot run a Node toolchain's build
-   * or tests. Applied only on Windows. Which value becomes the default is
-   * decided after a gate under the other two:
-   * https://github.com/josephjang/deep-review/issues/10
+   * Unelevated by default, so a caller that builds the adapter and names
+   * nothing, such as the smoke script, keeps every worker confined on any
+   * machine, though a fixer there cannot run a Node toolchain's build or
+   * tests. Applied only on Windows. A review does not rely on this default:
+   * it passes the value the run pinned, from the flag or the policy, which
+   * ships `none` (D4 of docs/changes/2026-10-04-codex-sandbox.md).
    */
   readonly windowsSandbox?: WindowsSandbox;
   /** Codex's built-in OpenAI provider by default. */

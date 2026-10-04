@@ -222,8 +222,8 @@ describe('the per-invocation flags', () => {
 });
 
 describe('the Codex Windows sandbox (R1, R3 of the Codex sandbox)', () => {
-  it('is unelevated by default in the committed policy, named on the Codex entry alone', () => {
-    assert.equal(committed.runtimes.codex?.windowsSandbox, 'unelevated');
+  it('is none by default in the committed policy, named on the Codex entry alone (D4 of the Codex sandbox)', () => {
+    assert.equal(committed.runtimes.codex?.windowsSandbox, 'none');
     assert.equal(committed.runtimes.claude?.windowsSandbox, undefined);
   });
 
@@ -235,7 +235,7 @@ describe('the Codex Windows sandbox (R1, R3 of the Codex sandbox)', () => {
   });
 
   it('is the policy\'s value for a Codex run on Windows, and the flag\'s when it is given', () => {
-    assert.deepEqual(resolvePolicy(committed, roles, codexAdapter, {}, 'win32').codex, { windowsSandbox: 'unelevated' });
+    assert.deepEqual(resolvePolicy(committed, roles, codexAdapter, {}, 'win32').codex, { windowsSandbox: 'none' });
     const elevatedPolicy = parsePolicy(changed((copy) => { copy.runtimes.codex!.windowsSandbox = 'elevated'; }));
     assert.deepEqual(resolvePolicy(elevatedPolicy, roles, codexAdapter, {}, 'win32').codex, { windowsSandbox: 'elevated' });
     for (const codexWindowsSandbox of ['unelevated', 'elevated', 'none'] as const) {

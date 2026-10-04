@@ -23,7 +23,7 @@
   "survey": { "userRules": "judge" },
   "runtimes": {
     "claude": { "strong": "opus", "fast": "sonnet", "runBudgetUsd": 60 },
-    "codex": { "strong": "gpt-6-astra", "fast": "gpt-6.1-sol", "runBudgetUsd": null, "windowsSandbox": "unelevated" }
+    "codex": { "strong": "gpt-6-astra", "fast": "gpt-6.1-sol", "runBudgetUsd": null, "windowsSandbox": "none" }
   },
   "concurrency": 4
 }

@@ -46,8 +46,8 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
 
   it('pins the policy\'s value when the flag says nothing', async () => {
     await codex();
-    assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'unelevated' });
-    assert.deepEqual(built.at(-1), { codex: { windowsSandbox: 'unelevated' } });
+    assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'none' }, 'the committed policy ships none');
+    assert.deepEqual(built.at(-1), { codex: { windowsSandbox: 'none' } });
   });
 
   it('pins none on another platform and says the flag is ignored, so every worker runs as without it', async () => {
@@ -125,7 +125,7 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
   const editorPrompts = (): string[] => ['fixer fixes:c1-1', 'fixer repair:repair'].map((label) => box.promptOf(box.run(), label));
 
   it('warns before the first worker and tells the fixer and the repair worker what cannot run, while no reader is told', async () => {
-    const outcome = await box.fix('codex', { platform: 'win32' });
+    const outcome = await box.fix('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'unelevated' } });
     assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
     const runId = box.run().id;
     assert.deepEqual(warnings(), [unelevatedEditorsWarning(runId)], 'printed once');
@@ -140,8 +140,8 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
 
   it('warns again on each resume of such a run', async () => {
     box.script({ triage: { exit: 2 } });
-    assert.equal((await box.fix('codex', { platform: 'win32' })).kind, 'blocked');
-    assert.equal((await box.fix('codex', { platform: 'win32' })).kind, 'blocked');
+    assert.equal((await box.fix('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'unelevated' } })).kind, 'blocked');
+    assert.equal((await box.fix('codex', { platform: 'win32' })).kind, 'blocked', 'a resume without the flag keeps the pinned unelevated');
     assert.equal(warnings().length, 2);
   });
 
@@ -149,6 +149,7 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
   for (const [name, runtime, change] of [
     ['elevated', 'codex', { platform: 'win32', flags: { codexWindowsSandbox: 'elevated' } }],
     ['none', 'codex', { platform: 'win32', flags: { codexWindowsSandbox: 'none' } }],
+    ['the shipped default, which is none', 'codex', { platform: 'win32' }],
     ['Codex on another platform', 'codex', { platform: 'linux' }],
     ['Claude Code', 'claude', { platform: 'win32' }],
   ] as const) {
@@ -160,8 +161,9 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     });
   }
 
-  it('does not warn a read-only run, which has no editor', async () => {
-    assert.equal((await box.review('codex', { platform: 'win32' })).kind, 'report');
+  it('does not warn a read-only run under unelevated, which has no editor', async () => {
+    assert.equal((await box.review('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'unelevated' } })).kind, 'report');
+    assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'unelevated' });
     assert.deepEqual(warnings(), []);
   });
 });
