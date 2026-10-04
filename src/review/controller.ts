@@ -581,7 +581,7 @@ export function unelevatedEditorsWarning(runId: string): string {
  * sandbox it pinned, or none for a run that pins none (R2 of the Codex
  * sandbox), so a resumed run's workers are confined as its first ones were.
  */
-export function runtimeOptionsOf(configuration: Pick<ReviewConfiguration, 'codex'>): RuntimeOptions {
+function runtimeOptionsOf(configuration: Pick<ReviewConfiguration, 'codex'>): RuntimeOptions {
   return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };
 }
 
