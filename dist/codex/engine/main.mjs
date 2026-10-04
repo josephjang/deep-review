@@ -24762,7 +24762,9 @@ function checkSurveyedCheck(check2, context) {
     if (check2.source !== null || check2.basis !== null) throw new StructuralCheckError(`${what} has no command, so it has neither a source nor a basis`);
     return { ...check2, source: null };
   }
-  if (check2.command.trim() === "" || check2.command.includes("\0")) throw new StructuralCheckError(`${what}'s command is empty`);
+  if (check2.command.trim() === "") throw new StructuralCheckError(`${what}'s command is empty`);
+  if (check2.command.includes("\0")) throw new StructuralCheckError(`${what}'s command contains a NUL character, which no shell runs`);
+  if (/[\r\n]/.test(check2.command)) throw new StructuralCheckError(`${what}'s command spans more than one line, and cmd.exe runs only the first while sh judges only the last; join the commands on one line with &&`);
   if (check2.source === null || check2.basis === null) throw new StructuralCheckError(`${what} gives a command without ${check2.source === null ? "the file it took it from" : "its basis"}`);
   if (check2.basis === "hint") {
     const hint = context.inputs.hints.find((candidate) => candidate.kind === check2.kind)?.command ?? null;

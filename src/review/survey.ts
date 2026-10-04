@@ -159,7 +159,10 @@ function checkSurveyedCheck(check: SurveyorCheckOutput, context: SurveyCheckCont
     if (check.source !== null || check.basis !== null) throw new StructuralCheckError(`${what} has no command, so it has neither a source nor a basis`);
     return { ...check, source: null };
   }
-  if (check.command.trim() === '' || check.command.includes('\0')) throw new StructuralCheckError(`${what}'s command is empty`);
+  if (check.command.trim() === '') throw new StructuralCheckError(`${what}'s command is empty`);
+  if (check.command.includes('\0')) throw new StructuralCheckError(`${what}'s command contains a NUL character, which no shell runs`);
+  // cmd.exe runs only a command's first line and sh judges only its last, so one line's exit code alone would decide the check: a false pass.
+  if (/[\r\n]/.test(check.command)) throw new StructuralCheckError(`${what}'s command spans more than one line, and cmd.exe runs only the first while sh judges only the last; join the commands on one line with &&`);
   if (check.source === null || check.basis === null) throw new StructuralCheckError(`${what} gives a command without ${check.source === null ? 'the file it took it from' : 'its basis'}`);
   if (check.basis === 'hint') {
     const hint = context.inputs.hints.find((candidate) => candidate.kind === check.kind)?.command ?? null;
