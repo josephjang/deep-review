@@ -146,6 +146,13 @@ export function findActiveRun(checkpoint: Checkpoint): RunState | null {
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 const usd = (value: number | null): string => (value === null ? '' : `, ${value.toFixed(2)} USD`);
 
+/** A function that reads its value the first time it is called and returns that value after; a read that throws is tried again on the next call. */
+function once<T>(read: () => T): () => T {
+  // Boxed, so a value that is itself null or undefined is remembered too.
+  let memo: { readonly value: T } | null = null;
+  return (): T => (memo ??= { value: read() }).value;
+}
+
 /** A count of files, as the log names it. */
 const fileCount = (count: number): string => `${String(count)} file${count === 1 ? '' : 's'}`;
 
@@ -206,24 +213,34 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const { release, scopeRequest, configure } = opened;
   const inFlight = new Map<string, InFlight>();
   const checkFlags = options.fix ?? noCheckFlags;
-  let surveyed: SurveyInputs | null = null;
+  const userFiles = once(() => existingUserRulesFiles(options.home));
+  const hints = once(() => (state.review?.configuration.fix === true ? hintChecks(readRootManifests(options.worktree), unsettledKinds(checkFlags)) : []));
+  const authorship = once(() => reviewerAuthorship(options.worktree));
   /**
-   * What this invocation knows for the survey, read once, when the
-   * surveyor's task or its answer first needs it: the platform, the check
-   * flags, the user-level rules files that exist, in a fix run the
-   * manifest rules' hint for each kind no flag settles, and the reviewer's
-   * authorship of the recent history.
+   * What this invocation knows for the survey: the platform and the check
+   * flags, and three parts each read once, when first asked for. The
+   * user-level rules files that exist are read by the surveyor's task, the
+   * check of its answer and a run going on without the survey; in a fix
+   * run the manifest rules' hint for each kind no flag settles only by the
+   * task and the check; the reviewer's authorship of the recent history
+   * (two git commands) only by the task. So a run going on without its
+   * survey reads the user-level files alone, and a root manifest or a git
+   * history it cannot read does not stop it there.
    */
-  const surveyInputs = (): SurveyInputs => {
-    surveyed ??= {
-      platform: process.platform,
-      flags: checkFlags,
-      userFiles: existingUserRulesFiles(options.home),
-      hints: state.review?.configuration.fix === true ? hintChecks(readRootManifests(options.worktree), unsettledKinds(checkFlags)) : [],
-      authorship: reviewerAuthorship(options.worktree),
-    };
-    return surveyed;
+  const surveyed: SurveyInputs = {
+    platform: process.platform,
+    flags: checkFlags,
+    get userFiles() {
+      return userFiles();
+    },
+    get hints() {
+      return hints();
+    },
+    get authorship() {
+      return authorship();
+    },
   };
+  const surveyInputs = (): SurveyInputs => surveyed;
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
     const name = unitName(settled.unit.phase, settled.unit.key);

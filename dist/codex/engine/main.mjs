@@ -27168,6 +27168,10 @@ function findActiveRun(checkpoint) {
 }
 var seconds = (ms) => `${(ms / 1e3).toFixed(1)} s`;
 var usd3 = (value) => value === null ? "" : `, ${value.toFixed(2)} USD`;
+function once(read) {
+  let memo2 = null;
+  return () => (memo2 ??= { value: read() }).value;
+}
 var fileCount = (count2) => `${String(count2)} file${count2 === 1 ? "" : "s"}`;
 var revisionSummary = (revision) => {
   const files = fileCount(revision.files.length);
@@ -27204,17 +27208,23 @@ async function runReview(options2) {
   const { release, scopeRequest, configure: configure2 } = opened;
   const inFlight = /* @__PURE__ */ new Map();
   const checkFlags = options2.fix ?? noCheckFlags;
-  let surveyed = null;
-  const surveyInputs = () => {
-    surveyed ??= {
-      platform: process.platform,
-      flags: checkFlags,
-      userFiles: existingUserRulesFiles(options2.home),
-      hints: state.review?.configuration.fix === true ? hintChecks(readRootManifests(options2.worktree), unsettledKinds(checkFlags)) : [],
-      authorship: reviewerAuthorship(options2.worktree)
-    };
-    return surveyed;
+  const userFiles = once(() => existingUserRulesFiles(options2.home));
+  const hints = once(() => state.review?.configuration.fix === true ? hintChecks(readRootManifests(options2.worktree), unsettledKinds(checkFlags)) : []);
+  const authorship = once(() => reviewerAuthorship(options2.worktree));
+  const surveyed = {
+    platform: process.platform,
+    flags: checkFlags,
+    get userFiles() {
+      return userFiles();
+    },
+    get hints() {
+      return hints();
+    },
+    get authorship() {
+      return authorship();
+    }
   };
+  const surveyInputs = () => surveyed;
   const record2 = (settled2, startedAt) => {
     const name = unitName(settled2.unit.phase, settled2.unit.key);
     if ("error" in settled2) throw settled2.error;
