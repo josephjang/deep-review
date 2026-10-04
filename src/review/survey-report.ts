@@ -14,13 +14,17 @@ import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { conventionsKnown, type SurveyState } from '../checkpoint/survey-state.ts';
 import { inlineText, tableCell } from './markdown.ts';
 
-/** The surveyed command of a kind whose tool was missing, from the latest answer that named one, or null. */
+/**
+ * The surveyed command of a kind whose tool was missing, or null: read
+ * from the latest answer that names the kind, which is the survey the
+ * run's plan stands on for it. A re-survey leaves out a kind a flag
+ * already settled, so an older answer can be the latest to name it; an
+ * older answer that found the tool missing never outweighs a later one
+ * that found it present or found no command.
+ */
 function missingToolOf(survey: SurveyState, kind: PlannedCheck['kind']): SurveyedCheck | null {
-  for (const answer of [...survey.answers].reverse()) {
-    const entry = answer.checks?.find((check) => check.kind === kind && check.command !== null && check.missingTool !== null);
-    if (entry !== undefined) return entry;
-  }
-  return null;
+  const entry = survey.answers.findLast((answer) => answer.checks?.some((check) => check.kind === kind) === true)?.checks?.find((check) => check.kind === kind);
+  return entry === undefined || entry.command === null || entry.missingTool === null ? null : entry;
 }
 
 /** What the project defines for a kind whose tool was missing, as a phrase: its command, its source and the tool. */

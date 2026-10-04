@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import type { SurveyedCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { checkUnavailableBlocker } from '../../src/review/steps.ts';
@@ -140,5 +141,23 @@ describe('the Checks table of a surveyed run', () => {
     assert.equal(droppedByOperator(null, flagged(null)), null, 'a run configured before the survey');
     assert.equal(droppedByOperator({ ...survey, answers: [] }, flagged(null)), null, 'a kind dropped before any survey named it');
     assert.equal(unavailableCell(survey, { kind: 'test', command: null, origin: 'none', reason: 'no | tests', source: null }), 'not available (none: no \\| tests)');
+  });
+
+  it('reads what the project defines for a kind from the latest answer that names it, not an older one that found its tool missing', () => {
+    const answer = (checks: SurveyedCheck[]) => ({ workerId: worker(1), conventions: [], userRules: [], checks, note: '' });
+    const testMissing: SurveyedCheck = { kind: 'test', command: 'pytest', basis: 'stated', source: { path: 'tox.ini', quote: 'pytest' }, missingTool: 'pytest', reason: null };
+    // Answer 1 found ruff missing; the operator installed it, so answer 2 found lint runnable and the test tool missing.
+    const resurveyed = { ...survey, answers: [answer([missing]), answer([{ ...missing, missingTool: null }, testMissing])] };
+    assert.equal(checkSourceCell(resurveyed, flagged('uvx ruff check .')), '--check', 'the run\'s survey found lint runnable');
+    assert.equal(droppedByOperator(resurveyed, flagged(null)), null, 'a lint dropped by choice, not for a missing tool');
+    assert.equal(unavailableCell(resurveyed, flagged(null)), 'not available (flag: dropped by --no-check)');
+    // A flag settled lint before the re-survey, which left lint out: answer 1 is the latest that names it.
+    const settled = { ...survey, answers: [answer([missing]), answer([testMissing])] };
+    assert.equal(checkSourceCell(settled, flagged('uvx ruff check .')), '--check, in place of what the project defines `ruff check .` (pyproject.toml), ruff not found');
+    assert.equal(droppedByOperator(settled, flagged(null)), 'dropped by the operator; the project defines `ruff check .` (pyproject.toml), ruff not found');
+    // The latest answer that names lint found no command for it, so nothing the project defines was stood in for.
+    const none = { ...survey, answers: [answer([missing]), answer([{ ...missing, command: null, basis: null, source: null, missingTool: null, reason: 'no linter' }])] };
+    assert.equal(checkSourceCell(none, flagged('uvx ruff check .')), '--check');
+    assert.equal(droppedByOperator(none, flagged(null)), null);
   });
 });
