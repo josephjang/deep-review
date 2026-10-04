@@ -22482,8 +22482,7 @@ function killRoot(child, error62) {
 var preflightTimeoutMs = 1e4;
 var maxProbeOutputBytes = 4 * 1024 * 1024;
 function mentionsFlag(text2, flag) {
-  const escaped = flag.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`).test(text2);
+  return new RegExp(`(?<![\\w-])${RegExp.escape(flag)}(?![\\w-])`).test(text2);
 }
 function positiveLimit(name, value) {
   if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`The preflight ${name} must be a positive whole number, not ${String(value)}`);
@@ -23911,7 +23910,6 @@ var languageDefaults = [
   { marker: "pyproject.toml or pytest.ini", marks: (root) => root.files["pyproject.toml"] !== void 0 || root.files["pytest.ini"] !== void 0, commands: { test: "python -m pytest" } },
   { marker: "a .sln or .csproj file", marks: (root) => root.entries.some((name) => /\.(sln|csproj)$/i.test(name)), commands: { build: "dotnet build", test: "dotnet test --no-build" } }
 ];
-var escape = (text2) => text2.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 var linesOf = (text2) => text2.split(/\r?\n/);
 function taskfileHas(text2, kind) {
   const lines = linesOf(text2);
@@ -23923,7 +23921,7 @@ function taskfileHas(text2, kind) {
     const leading = /^[ \t]*/.exec(line)[0];
     if (leading.length === 0) return false;
     indent ??= leading;
-    if (leading === indent && new RegExp(`^${escape(indent)}${escape(kind)}:(\\s|$)`).test(line)) return true;
+    if (leading === indent && new RegExp(`^${RegExp.escape(indent)}${RegExp.escape(kind)}:(\\s|$)`).test(line)) return true;
   }
   return false;
 }
@@ -23934,7 +23932,7 @@ function makefileHas(text2, kind) {
   });
 }
 function justfileHas(text2, kind) {
-  return linesOf(text2).some((line) => new RegExp(`^@?${escape(kind)}(\\s[^:]*)?:(?!=)`).test(line));
+  return linesOf(text2).some((line) => new RegExp(`^@?${RegExp.escape(kind)}(\\s[^:]*)?:(?!=)`).test(line));
 }
 function packageScripts(text2) {
   if (text2 === void 0) return null;
