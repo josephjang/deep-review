@@ -287,4 +287,74 @@ readable; an install and a build were not run), `dotnet build`, and what
 
 ## Verification
 
-No checks have run yet.
+Implemented on 2026-10-04 on branch `plan-next-steps-review` in six
+commits after the proposal: `94b82ca` corrects the recorded cause (R8),
+`e0f900c` gives the Codex adapter `none` and the execution policy (R2,
+R4), `7d35d8f` pins the value on the run (R1, R3), `5682bf8` adds the
+warning and the task fragment (R5, R6), `5802cdd` the report's line (R7)
+and `6717a67` the README (R9). Issue #10's body had already been
+corrected on GitHub with the probed cause before the work began.
+
+Run on the author's Windows 11 machine, Node 26.10.0:
+
+- `npm run check` passes at `6717a67`: lint, typecheck and 1438 tests,
+  1419 passing and 19 skipped, the same platform cases that skipped
+  before this change. `npm run verify` matches both artifacts at every
+  commit that changed the engine; each of those commits carries its
+  rebuilt `dist/`.
+- No fragment under `roles/` and no file under `skill/` changed, so the
+  roles digest and every role's hash are what they were (D7). The
+  fixer's and the repair worker's tasks are byte for byte as before
+  unless the run's editors are under `unelevated`, which a test holds by
+  removing the fragment from such a task and comparing it with the
+  other.
+- Ledger: `review.configured@4` and fixture `schema-1-07`, whose
+  seventh run is a Codex fix run pinned to `none`. The sixth run of
+  `schema-1-06`, a Codex run configured at version 3, folds to
+  `unelevated` under the new engine, and the golden test now asserts
+  that of every older fixture's Codex run, and `null` of every other.
+- What the suite proves of each requirement: the adapter's command
+  lines and environment for every value, fresh and continued, on Windows
+  and elsewhere (R2, R4); the policy file's refusals and `resolvePolicy`
+  for every runtime, value and platform, and the command line's refusals
+  (R1); through the controller with the fake Codex, the value pinned
+  from the flag and from the policy, `null` off Windows and on Claude
+  Code, a resume with another value refused by name and with the same
+  or none accepted, a version 3 run resumed under `unelevated`, and the
+  workers launched on runtimes built with the pinned value (R1 to R3);
+  in a whole fix run, the warning before the first worker and again on
+  a resume, the fragment in the fixer's and the repair worker's prompts
+  and in no reader's, and neither under `elevated`, `none`, another
+  platform or Claude Code (R5, R6); the report's line for each value and
+  its absence (R7).
+
+Departures and choices the proposal did not state:
+
+- The controller takes a function that builds the runtimes rather than
+  a registry: it builds one with no option for the adapter that
+  resolves the policy, preflights the executable and reads usage, none
+  of which the sandbox changes, and one with the run's pinned value for
+  the workers, so a resume launches on what the run pinned however the
+  command was invoked.
+- Under `none` an editor gets no `sandbox_workspace_write.writable_roots`,
+  which has no meaning outside `workspace-write`, and the command keeps
+  `windows.sandbox="unelevated"`, as the probe that ran
+  `danger-full-access` had it.
+- An empty `PSExecutionPolicyPreference` is taken as unset and replaced,
+  since an empty value sets no policy.
+- A resume that passes the flag to a run that pinned none, because it was
+  configured off Windows, says the flag is ignored rather than refusing
+  it, as a new run off Windows does.
+- The fold cannot tell the platform a run was on, so a Codex run
+  configured at version 3 or earlier reads as `unelevated` on any
+  platform, as R3 says. The warning and the fragment ask the platform
+  too, so such a run resumed on macOS or Linux gets neither; its report
+  would still name `unelevated` in its header, which is accepted as a
+  case of runs already in flight when the engine is updated.
+- `review` takes a `platform` option, the process's by default, so the
+  suite exercises the Windows cases on every runner of CI.
+
+Not run: R10's acceptance. No real run under `elevated` or `none` has
+reached a report yet, and no run under `unelevated` has been recorded
+for the warning and the count of `EPERM` results, so the default (D4)
+cannot be decided yet.
