@@ -38,6 +38,17 @@ describe('renderReport', () => {
     assert.ok(report.endsWith('\n') && !report.endsWith('\n\n'));
   });
 
+  it('names the Codex Windows sandbox a Codex run on Windows pinned, after the runtime, and nothing for a run that pins none (R7 of the Codex sandbox)', () => {
+    const state = reported().fold();
+    const pinning = (codex: { windowsSandbox: 'unelevated' | 'elevated' | 'none' } | null): RunState => ({ ...state, review: { ...state.review!, configuration: { ...state.review!.configuration, runtime: 'codex', codex } } });
+    for (const [windowsSandbox, words] of [['unelevated', 'unelevated'], ['elevated', 'elevated'], ['none', 'none (workers that edit ran in no sandbox, workers that read under unelevated)']] as const) {
+      const report = renderReport(pinning({ windowsSandbox }), { engine: '0.0.0+dev', statistics });
+      assert.match(report, new RegExp(`^Runtime: codex [^\n]*\nCodex Windows sandbox: ${RegExp.escape(words)}\nModels: `, 'm'), windowsSandbox);
+    }
+    assert.doesNotMatch(renderReport(pinning(null), { engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Codex run off Windows');
+    assert.doesNotMatch(renderReport(state, { engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Claude Code run');
+  });
+
   it('says when no finding survived, lists the refuted, and names a run created by another engine', () => {
     const history = triaged().start('finders');
     for (const angle of finderAngles) history.add('candidates.recorded', { phase: 'finders', key: angle, workerId: worker(10 + finderAngles.indexOf(angle)), candidates: [], leads: null });

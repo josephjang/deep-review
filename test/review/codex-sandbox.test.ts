@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { unelevatedEditorsWarning, type ReviewOptions } from '../../src/review/controller.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
@@ -133,6 +134,8 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     assert.ok(firstWorker > box.logs.indexOf(warnings()[0]!), 'the warning comes before the first worker starts');
     for (const prompt of editorPrompts()) assert.ok(prompt.includes(unelevatedSandboxRule), prompt);
     for (const label of ['surveyor survey:survey', 'triage triage:SCAN', 'finder-RIPPLE finders:RIPPLE']) assert.ok(!box.promptOf(box.run(), label).includes(unelevatedSandboxRule), label);
+    // The report names the sandbox in its run section (R7).
+    if (outcome.kind === 'report') assert.match(readFileSync(outcome.reportPath, 'utf8'), /^Runtime: codex .*\nCodex Windows sandbox: unelevated$/m);
   });
 
   it('warns again on each resume of such a run', async () => {
