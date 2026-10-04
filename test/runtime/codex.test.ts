@@ -147,8 +147,45 @@ describe('Windows sandbox option', () => {
     assert.deepEqual(strip(elevated.command(invocation(), plan({ platform: 'win32' })).args), strip(codexAdapter.command(invocation(), plan({ platform: 'win32' })).args));
   });
 
-  it('refuses a sandbox Codex does not have', () => {
-    assert.throws(() => createCodexAdapter({ windowsSandbox: 'none' as never }), /Unknown Codex Windows sandbox "none"/);
+  it('refuses a sandbox Codex does not have, naming the three it does', () => {
+    assert.throws(() => createCodexAdapter({ windowsSandbox: 'full-access' as never }), /Unknown Codex Windows sandbox "full-access"; use unelevated, elevated, none$/);
+    assert.throws(() => createCodexAdapter({ windowsSandbox: '' as never }), /Unknown Codex Windows sandbox ""/);
+  });
+
+  describe('none', () => {
+    const none = createCodexAdapter({ windowsSandbox: 'none' });
+    const modeOf = (args: readonly string[]): string[] => args.filter((arg) => arg.startsWith('sandbox_mode=') || arg.startsWith('sandbox_workspace_write.'));
+
+    it('runs an editor on Windows in no sandbox, with no writable root, fresh and continued', () => {
+      const fresh = none.command(invocation({ access: 'edit' }), plan({ scratch, platform: 'win32' })).args;
+      const continued = none.command(invocation({ access: 'edit', resume: thread }), plan({ scratch, platform: 'win32', sessionId: thread, resume: thread })).args;
+      for (const args of [fresh, continued]) {
+        assert.deepEqual(modeOf(args), ['sandbox_mode="danger-full-access"']);
+        assert.deepEqual(sandboxOf(args), ['windows.sandbox="unelevated"']);
+      }
+    });
+
+    it('keeps a reader on Windows read-only under the unelevated sandbox, which needs no setup', () => {
+      const args = none.command(invocation(), plan({ scratch, platform: 'win32' })).args;
+      assert.deepEqual(modeOf(args), ['sandbox_mode="read-only"']);
+      assert.deepEqual(sandboxOf(args), ['windows.sandbox="unelevated"']);
+      assert.deepEqual(args, codexAdapter.command(invocation(), plan({ scratch, platform: 'win32' })).args, 'a reader runs exactly as under unelevated');
+    });
+
+    it('changes nothing on another platform: an editor stays in its workspace-write sandbox', () => {
+      for (const platform of ['linux', 'darwin'] as const) {
+        const editor = invocation({ access: 'edit' });
+        assert.deepEqual(none.command(editor, plan({ scratch, platform })).args, codexAdapter.command(editor, plan({ scratch, platform })).args, platform);
+        assert.deepEqual(modeOf(none.command(editor, plan({ scratch, platform })).args), ['sandbox_mode="workspace-write"', `sandbox_workspace_write.writable_roots=[${JSON.stringify(scratch)}]`]);
+      }
+    });
+
+    it('leaves the environment as unelevated does', () => {
+      const environment = { PATH: 'C:\\Windows', HOME: 'h' };
+      for (const access of ['edit', 'read-only'] as const) {
+        assert.deepEqual(none.command(invocation({ access }), plan({ scratch, platform: 'win32', environment })).environment, { HOME: 'h', Path: 'C:\\Windows' }, access);
+      }
+    });
   });
 
   it('is chosen through the default runtimes', () => {
@@ -328,6 +365,32 @@ describe('codexEnvironment', () => {
 
   it('is what the command runs with', () => {
     assert.deepEqual(codexAdapter.command(invocation(), plan({ platform: 'win32', environment: { PATH: 'a;b\\WindowsApps' } })).environment, { Path: 'a' });
+  });
+
+  describe('the execution policy under the elevated sandbox', () => {
+    it('is RemoteSigned for the worker\'s process tree on Windows, reader and editor alike', () => {
+      assert.deepEqual(codexEnvironment({ PATH: 'C:\\Windows', HOME: 'h' }, 'win32', 'elevated'), { HOME: 'h', Path: 'C:\\Windows', PSExecutionPolicyPreference: 'RemoteSigned' });
+      const elevated = createCodexAdapter({ windowsSandbox: 'elevated' });
+      for (const access of ['edit', 'read-only'] as const) {
+        assert.equal(elevated.command(invocation({ access }), plan({ scratch, platform: 'win32' })).environment.PSExecutionPolicyPreference, 'RemoteSigned', access);
+      }
+    });
+
+    it('keeps a policy the caller already sets, in any spelling', () => {
+      assert.deepEqual(codexEnvironment({ PSExecutionPolicyPreference: 'AllSigned' }, 'win32', 'elevated'), { Path: '', PSExecutionPolicyPreference: 'AllSigned' });
+      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: 'Bypass' }, 'win32', 'elevated'), { Path: '', psexecutionpolicypreference: 'Bypass' });
+    });
+
+    it('replaces an empty value, which sets no policy, and every other spelling with it', () => {
+      assert.deepEqual(codexEnvironment({ psexecutionpolicypreference: '' }, 'win32', 'elevated'), { Path: '', PSExecutionPolicyPreference: 'RemoteSigned' });
+    });
+
+    it('is not set under the other values, where the worker is the operator\'s own account, nor on another platform', () => {
+      for (const sandbox of ['unelevated', 'none'] as const) assert.equal(codexEnvironment({}, 'win32', sandbox).PSExecutionPolicyPreference, undefined, sandbox);
+      assert.equal(codexEnvironment({}, 'win32').PSExecutionPolicyPreference, undefined, 'unelevated by default');
+      assert.deepEqual(codexEnvironment({ HOME: '/h' }, 'linux', 'elevated'), { HOME: '/h' });
+      assert.equal(createCodexAdapter({ windowsSandbox: 'elevated' }).command(invocation(), plan({ platform: 'darwin' })).environment.PSExecutionPolicyPreference, undefined);
+    });
   });
 });
 

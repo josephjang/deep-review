@@ -92,8 +92,12 @@ listed beside it without changing it. A worker writes temporary files to
 its own scratch directory under the system's temporary directory, never
 into the reviewed tree or the git directory, and at a timeout its whole
 process tree is killed. On Windows, Codex workers use Codex's unelevated
-sandbox unless the adapter is built with `windowsSandbox: 'elevated'`,
-which needs Codex's one-time elevated setup on the machine.
+sandbox unless the adapter is built with another `windowsSandbox`:
+`elevated`, which needs Codex's one-time elevated setup on the machine
+and runs every worker with PowerShell's execution policy at
+`RemoteSigned` unless `PSExecutionPolicyPreference` is already set, or
+`none`, which runs a worker with edit access in no sandbox and every
+other worker read-only under the unelevated one.
 
 Workers never read the user's own Claude Code settings or Codex config,
 so credentials and providers kept only there are given to the adapters
@@ -356,7 +360,7 @@ npm run check     # lint, typecheck, test
 npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
-npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox elevated]   # real runtimes, by hand
+npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox unelevated|elevated|none]   # real runtimes, by hand
 npm run roles -- --output <dir>   # write every assembled role prompt to <dir> for reading
 npm run review -- review --runtime claude --last-commit [--fix]   # run the engine from the sources; also status, abandon and commit
 ```
