@@ -14,6 +14,13 @@ unelevated sandbox, the run says so at its start and their tasks say what
 cannot run. The recorded cause of the failure, which was wrong, is
 corrected wherever it is written.
 
+Amended on 2026-10-05 after a reduced gate (Verification): the shipped
+default is `none`, so a Codex fix run on Windows gives its editors no
+sandbox unless the operator asks for one (D4). Of the three values only
+`none` let the editors run the build and the tests with no hand on the
+run; `elevated` blocked the survey and broke tools for the sandbox user,
+and `unelevated` leaves a fixer to validate in one process.
+
 ## Problem
 
 On Codex for Windows no fixer or repair worker can run a repository's build
@@ -71,8 +78,10 @@ every machine has it.
 
 ## Non-Goals
 
-- No change of default in this change. The default is decided after the
-  gate (D4).
+- No change to the Codex adapter's own default. A caller that builds the
+  adapter itself, such as the smoke script, still gets `unelevated` when
+  it names nothing; only the policy's value, which `review` uses, is
+  `none` (D4).
 - No setting for macOS or Linux. Codex's sandboxes there let a worker run
   a build, so nothing has shown a need.
 - No sandbox setting for Claude Code. Its workers are held by a tool
@@ -94,7 +103,8 @@ every machine has it.
 
 - R1: `review` accepts `--codex-windows-sandbox <unelevated|elevated|none>`.
   Without the flag the value is the policy's `runtimes.codex.windowsSandbox`,
-  shipped as `unelevated`. With `--runtime claude` the flag is refused. On
+  shipped as `none` (amended 2026-10-05; first shipped as `unelevated`).
+  With `--runtime claude` the flag is refused. On
   another platform than Windows the flag is ignored with a warning and
   every worker runs as today.
 - R2: Under `unelevated` and `elevated`, every Codex worker of the run uses
@@ -176,19 +186,28 @@ every machine has it.
   anything a fixer wrote, or the change under review carried, runs then.
   What the sandbox adds on an editor is confinement during its session:
   no network and no write outside the worktree by the model's own
-  commands.
+  commands. On 2026-10-05 the author made it the default (D4), so the
+  same reasoning now stands for every Codex fix run on Windows that does
+  not ask for a sandbox.
 
-- **D4: The shipped default stays `unelevated` in this change and is
-  decided after the gate.** The author's position on 2026-10-04: the
-  default should become `elevated` or `none`, since a default under which
-  the build cannot run serves no fix run, and the elevated setup is not
-  on every machine, so `elevated` alone cannot be assumed. What the gate
-  must show before the choice: whether zod's toolchain runs under
-  `elevated` (R10), and what `codex exec` does under `elevated` on a
-  machine without the setup (fail, or fall back to `unelevated` as the
-  documentation says the interactive client does). A default of `none`
-  would make an unsandboxed editor the shipped behavior, which reverses
-  the opt-in of D3 and needs its own decision then.
+- **D4: The shipped default is `none`.** The author decided on
+  2026-10-05, after the reduced gate. Until then the default stayed
+  `unelevated`, with the author's position of 2026-10-04 that it should
+  become `elevated` or `none`: a default under which the build cannot
+  run serves no fix run, and the elevated setup is not on every machine.
+  The gate settled the choice. `none` was the one value whose run reached
+  a report with no hand on it while its editors ran the build and the
+  tests. `elevated` let them run, but as the sandbox user `where.exe`,
+  `os.userInfo()`, reads above the workspace and biome from a pnpm script
+  all failed, the survey blocked on a tool that was installed, and the
+  repair worker could not run the tests; and it needs a setup an
+  administrator approves. `unelevated` held to its warning and fragment,
+  but its fixers could not see a lint error the build then caught. This
+  makes an unsandboxed editor the shipped behavior, which the author
+  accepted on D3's grounds; an operator who wants an editor confined
+  passes `--codex-windows-sandbox unelevated` or `elevated`, or changes
+  the policy. What `codex exec` does under `elevated` on a machine
+  without the setup was not probed and no longer bears on the default.
 
 - **D5: A flag with a policy default, not policy alone.** `fixes.batchSize`
   and `survey.userRules` are policy because they describe how a review is
@@ -260,10 +279,12 @@ readable; an install and a build were not run), `dotnet build`, and what
 ## Risks
 
 - Risk: an unsandboxed editor that reads hostile text in the change under
-  review has a shell and the network. Accepted for a run that asks for
-  `none`; this is the exposure a Claude Code editor already has, the
-  README names it, and the drift check sees writes to the worktree only.
-  Not yet accepted as a default (D4).
+  review has a shell and the network. Accepted, as the default since
+  2026-10-05 (D4): this is the exposure a Claude Code editor already has,
+  the engine runs the repository's checks unsandboxed anyway, the README
+  names it beside its advice for an untrusted repository, and the drift
+  check sees writes to the worktree only. Writes outside the worktree and
+  network use by an editor are not detected.
 - Risk: a tool that asks who the user is fails under `elevated`
   (`os.userInfo()` throws). Not accepted blindly: R10's run on zod shows
   whether pnpm, vitest or esbuild do; a failure there is recorded and
@@ -420,5 +441,5 @@ What the runs showed:
   abandoned. With 1200 s nothing timed out but one fixer at 1800 s,
   whose snapshots kept its work (R20).
 
-Not settled: R10 as written, with the policy's models and every finding;
-and D4, for which the runs give the evidence above.
+Not settled: R10 as written, with the policy's models and every finding.
+D4 was decided on this evidence on 2026-10-05: the default is `none`.
