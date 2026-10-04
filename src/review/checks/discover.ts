@@ -46,8 +46,27 @@ export interface CheckFlags {
 
 export const noCheckFlags: CheckFlags = { commands: {}, dropped: [] };
 
+/**
+ * What the flags say about one kind (R5 of the repository survey): no
+ * command when `--no-check` drops it, which wins over a `--check` naming
+ * it; else the command `--check` names; or null when no flag settles it.
+ * The one place that order is written, for every reader of the flags.
+ */
+export function flagSetting(flags: CheckFlags, kind: CheckKind): { readonly command: string | null } | null {
+  if (flags.dropped.includes(kind)) return { command: null };
+  const command = flags.commands[kind];
+  return command === undefined ? null : { command };
+}
+
 /** Whether a flag settles the kind, naming its command or dropping it (R5 of the repository survey). */
-export const isSettled = (flags: CheckFlags, kind: CheckKind): boolean => flags.dropped.includes(kind) || flags.commands[kind] !== undefined;
+export const isSettled = (flags: CheckFlags, kind: CheckKind): boolean => flagSetting(flags, kind) !== null;
+
+/** The kinds a flag settles, in the order the checks run, each with the flag's command, or null for one it drops. */
+export const settledKinds = (flags: CheckFlags): { readonly kind: CheckKind; readonly command: string | null }[] =>
+  checkKinds.flatMap((kind) => {
+    const setting = flagSetting(flags, kind);
+    return setting === null ? [] : [{ kind, command: setting.command }];
+  });
 
 /** The kinds no flag settles, in the order the checks run: the ones the surveyor chooses. */
 export const unsettledKinds = (flags: CheckFlags): CheckKind[] => checkKinds.filter((kind) => !isSettled(flags, kind));

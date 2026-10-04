@@ -9,7 +9,7 @@
 import { isAbsolute, join } from 'node:path';
 import type { ConventionSource, PlannedCheckV2, SurveyedCheck, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
 import { canonicalPath, isFile, isInside } from '../paths.ts';
-import { isSettled, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
+import { flagSetting, isSettled, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { StructuralCheckError } from './errors.ts';
 import { requireNoNul, resolveReportedPath, resolvingPath } from './fix-answer.ts';
@@ -232,13 +232,9 @@ export function resolveChecks(answer: Pick<SurveyRecorded, 'checks'> | null, fla
   const unavailable: UnavailableCheck[] = [];
   const uncovered: CheckKind[] = [];
   for (const kind of checkKinds) {
-    if (flags.dropped.includes(kind)) {
-      checks.push({ kind, command: null, origin: 'flag', reason: droppedReason, source: null });
-      continue;
-    }
-    const flagged = flags.commands[kind];
-    if (flagged !== undefined) {
-      checks.push({ kind, command: flagged, origin: 'flag', reason: null, source: null });
+    const flagged = flagSetting(flags, kind);
+    if (flagged !== null) {
+      checks.push(flagged.command === null ? { kind, command: null, origin: 'flag', reason: droppedReason, source: null } : { kind, command: flagged.command, origin: 'flag', reason: null, source: null });
       continue;
     }
     const surveyed = answer?.checks?.find((check) => check.kind === kind);

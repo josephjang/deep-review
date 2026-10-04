@@ -39,13 +39,13 @@ import {
   type TriageOutput,
   type VerifierOutput,
 } from './schemas.ts';
-import { isSettled, unsettledKinds } from './checks/discover.ts';
+import { settledKinds, unsettledKinds } from './checks/discover.ts';
 import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey.ts';
 import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
 import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
-import { candidateIdPrefix, checkKinds, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, the survey's inputs, and for an editing unit its scratch and snapshot command. */
 export interface PhaseContext {
@@ -227,7 +227,7 @@ function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
   return surveyTask({
     platform: inputs.platform,
     fix,
-    settled: fix ? checkKinds.filter((kind) => isSettled(inputs.flags, kind)).map((kind) => ({ kind, command: inputs.flags.dropped.includes(kind) ? null : (inputs.flags.commands[kind] ?? null) })) : [],
+    settled: fix ? settledKinds(inputs.flags) : [],
     unsettled,
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
