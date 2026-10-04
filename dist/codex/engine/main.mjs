@@ -26087,8 +26087,11 @@ function invocationFlagProblem(flags) {
   if (budgetUsd !== void 0 && !(Number.isFinite(budgetUsd) && budgetUsd > 0)) return `--budget-usd must be a positive number, not ${String(budgetUsd)}`;
   return null;
 }
+function pinnedWindowsSandbox(configuration, platform) {
+  return platform === "win32" ? configuration.codex?.windowsSandbox ?? null : null;
+}
 function editorsUnderUnelevatedSandbox(configuration, platform) {
-  return configuration.fix && platform === "win32" && configuration.codex?.windowsSandbox === "unelevated";
+  return configuration.fix && pinnedWindowsSandbox(configuration, platform) === "unelevated";
 }
 function refuseInvocationFlags(adapter, flags) {
   if (flags.budgetUsd !== void 0 && !adapter.capabilities.costInUsd) {
@@ -26677,7 +26680,7 @@ function surveyTaskOf(review2, inputs) {
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),
     policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0,
-    elevatedSandbox: inputs.platform === "win32" && review2.configuration.codex?.windowsSandbox === "elevated",
+    elevatedSandbox: pinnedWindowsSandbox(review2.configuration, inputs.platform) === "elevated",
     get authorship() {
       return inputs.authorship;
     }

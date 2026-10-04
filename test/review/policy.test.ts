@@ -11,7 +11,7 @@ import { codexAdapter, windowsSandboxes } from '../../src/runtime/codex.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
 import { codexWindowsSandboxesV4, limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2, reviewConfiguredV3, reviewConfiguredV4 } from '../../src/checkpoint/events.ts';
 import { maxTimeoutMs } from '../../src/runtime/contract.ts';
-import { codexWindowsSandboxFlagProblem, editorsUnderUnelevatedSandbox, invocationFlagProblem, maxBatchSize, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
+import { codexWindowsSandboxFlagProblem, editorsUnderUnelevatedSandbox, invocationFlagProblem, maxBatchSize, maxConcurrency, pinnedWindowsSandbox, refuseInvocationFlags } from '../../src/review/policy.ts';
 import { configurationV1 } from '../helpers/review-history.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
@@ -264,6 +264,15 @@ describe('the Codex Windows sandbox (R1, R3 of the Codex sandbox)', () => {
       assert.equal(codexWindowsSandboxFlagProblem('codex', near), `--codex-windows-sandbox must be one of unelevated, elevated, none, not ${JSON.stringify(near)}`, near);
     }
     assert.equal(codexWindowsSandboxFlagProblem('claude', 'nope'), '--codex-windows-sandbox must be one of unelevated, elevated, none, not "nope"', 'the value is named before the runtime');
+  });
+
+  it('reads a run\'s pinned Windows sandbox only on Windows, where it confines the workers (R3 of the Codex sandbox)', () => {
+    for (const windowsSandbox of windowsSandboxes) assert.equal(pinnedWindowsSandbox({ codex: { windowsSandbox } }, 'win32'), windowsSandbox, windowsSandbox);
+    assert.equal(pinnedWindowsSandbox({ codex: null }, 'win32'), null, 'a Claude Code run, or a Codex run configured off Windows');
+    // A Codex run configured before the value was pinned folds to unelevated wherever it ran, so the value off Windows confines nothing.
+    for (const platform of ['linux', 'darwin'] as const) {
+      for (const windowsSandbox of windowsSandboxes) assert.equal(pinnedWindowsSandbox({ codex: { windowsSandbox } }, platform), null, `${windowsSandbox} on ${platform}`);
+    }
   });
 
   it('holds a run\'s editors to the unelevated sandbox only in a fix run on Windows that pins it (R5, R6 of the Codex sandbox)', () => {
