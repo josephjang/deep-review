@@ -14,13 +14,17 @@ import type { Phase } from './vocabulary.ts';
 /** The most bytes of patch that go inline in a prompt (TD3); above it the prompt names the frozen patch's path. */
 export const inlinePatchLimitBytes = 256 * 1024;
 
-/** What the scope block is rendered from. */
-export interface ScopeBlockInput {
+/** What the surveyor's scope block is rendered from: the run's scope, and where its frozen states are. */
+export interface ScopeBlockBase {
   readonly worktree: string;
   readonly scope: ScopeState;
   readonly evidence: Pick<EvidenceStore, 'pathOf' | 'read'>;
-  /** What the run knows of its convention sources, or null for the surveyor's own block, which has no such section since the survey has not answered (R7 of the repository survey). */
-  readonly conventions: ConventionsKnown | null;
+}
+
+/** What the scope block of every worker after the survey is rendered from. */
+export interface ScopeBlockInput extends ScopeBlockBase {
+  /** What the run knows of its convention sources (R7 of the repository survey). */
+  readonly conventions: ConventionsKnown;
 }
 
 /** One convention source as a line of the scope block: its path, its level, what it governs and what it applies to. */
@@ -77,12 +81,11 @@ export function describePatch(scope: ScopeState, evidence: Pick<EvidenceStore, '
 }
 
 /**
- * The scope block every worker of a run receives: the repository, base,
- * head and mode; a table of the changed files with the frozen before state
- * by path and the after state in the worktree; the convention sources the
- * survey named, a section the surveyor's own block lacks; and the patch.
+ * The opening every scope block shares: the repository, base, head and
+ * mode, and a table of the changed files with the frozen before state by
+ * path and the after state in the worktree.
  */
-export function scopeBlock(input: ScopeBlockInput): string {
+function scopeHeader(input: ScopeBlockBase): string[] {
   const { scope, evidence } = input;
   const rows = scope.files.map((file) => {
     const after = file.after === null ? 'deleted' : 'read the file in the worktree';
@@ -103,11 +106,35 @@ export function scopeBlock(input: ScopeBlockInput): string {
     '| Path | Status | Before | After |',
     '|---|---|---|---|',
     ...rows,
+  ];
+}
+
+/**
+ * The surveyor's scope block (R7, TD10 of the repository survey): the
+ * shared opening alone. It has no convention sources, which the survey is
+ * there to name, and no patch: the surveyor judges what a source applies
+ * to by the changed paths, and the diff, up to `inlinePatchLimitBytes` of
+ * it, would be paid for on every surveyor launch and never read.
+ */
+export function surveyScopeBlock(input: ScopeBlockBase): string {
+  return scopeHeader(input).join('\n');
+}
+
+/**
+ * The scope block every worker after the survey receives: the shared
+ * opening, the convention sources the run knows of, and the patch.
+ */
+export function scopeBlock(input: ScopeBlockInput): string {
+  return [
+    ...scopeHeader(input),
     '',
-    ...(input.conventions === null ? [] : ['### Convention sources', '', conventionsSection(input.conventions), '']),
+    '### Convention sources',
+    '',
+    conventionsSection(input.conventions),
+    '',
     '### Patch',
     '',
-    describePatch(scope, evidence),
+    describePatch(input.scope, input.evidence),
   ].join('\n');
 }
 

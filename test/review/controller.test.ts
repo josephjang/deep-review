@@ -180,6 +180,9 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.doesNotMatch(surveyor, /### Convention sources/);
     assert.match(surveyor, /^Kinds to choose: none; this run does not fix/m);
     assert.match(surveyor, /\| src\/gone\.ts \| deleted \| .* \| deleted \|/);
+    // It judges a source's reach by the changed paths, so it is given no patch; every later worker is.
+    assert.doesNotMatch(surveyor, /### Patch/);
+    assert.doesNotMatch(surveyor, /```diff\n/);
     assert.ok(box.logs.includes(`run ${state.id}: convention source AGENTS.md (repository): how globs are quoted`), box.logs.join('\n'));
     assert.match(ripple, /\| src\/gone\.ts \| deleted \| .* \| deleted \|/);
     assert.match(ripple, /```diff\n/);

@@ -38,7 +38,7 @@ import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } fro
 import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
-import { scopeBlock } from './prompts.ts';
+import { scopeBlock, surveyScopeBlock } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
@@ -275,13 +275,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     const blocks: { survey?: string; rest?: string } = {};
     /**
      * The scope block a phase's workers receive, each rendered once: the
-     * surveyor's has no convention sources, which the survey is there to
-     * name; every later worker's lists the sources the survey recorded, so
-     * it is rendered after the survey phase (R7, TD10 of the repository
-     * survey).
+     * surveyor's has neither the convention sources, which the survey is
+     * there to name, nor the patch, which it does not read; every later
+     * worker's lists the sources the survey recorded, so it is rendered
+     * after the survey phase, and carries the patch (R7, TD10 of the
+     * repository survey).
      */
     const scopeBlockFor = (phase: Phase): string => {
-      if (phase === 'survey') return (blocks.survey ??= scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions: null }));
+      if (phase === 'survey') return (blocks.survey ??= surveyScopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence }));
       if (blocks.rest === undefined) {
         const survey = state.review!.phases.survey.status;
         if (survey !== 'completed' && survey !== 'degraded' && survey !== 'skipped') throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
