@@ -14,6 +14,7 @@ import { until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
 import { describeRun } from '../../src/review/status.ts';
+import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
 import { ReviewSandbox } from '../helpers/review-sandbox.ts';
@@ -277,6 +278,25 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(state.review!.phases.survey.status, 'degraded');
     assert.match(state.review!.survey!.failure!.reason, /^the survey blocked, /);
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
+    assert.equal(box.logs.filter((line) => line.startsWith('phase survey: going on without the survey: the survey blocked, ')).length, 1, box.logs.join('\n'));
+    assert.ok(box.logs.includes(`run ${state.id}: survey: no convention source`), box.logs.join('\n'));
+  });
+
+  it('records and logs a run going on without its survey the same way in a read-only review as in a fix run, the user-level files decided by the policy alone (R3, R9 of the repository survey)', async () => {
+    const userFile = join(box.home, '.claude', 'CLAUDE.md');
+    write(box.home, '.claude/CLAUDE.md', '# the reviewer\'s rules\n');
+    box.script({ surveyor: { exit: 2 } });
+    report(await box.review('claude'));
+    const state = box.run();
+    assert.equal(state.review!.phases.survey.status, 'degraded');
+    const failed = box.events(state.id).filter(([kind]) => kind === 'survey.failed');
+    assert.equal(failed.length, 1);
+    assert.deepEqual(failed[0]![1].userRules, [{ path: userFile, applied: false, reason: policyWords.unjudged }]);
+    const going = box.logs.filter((line) => line.startsWith('phase survey: going on without the survey: '));
+    assert.deepEqual(going, [`phase survey: going on without the survey: ${state.review!.survey!.failure!.reason}`]);
+    assert.match(going[0]!, /: 2 attempts did not complete: /);
+    assert.ok(box.logs.includes(`run ${state.id}: survey: no convention source`), box.logs.join('\n'));
+    assert.ok(box.logs.includes(`run ${state.id}: user-level rules ${userFile}: not applied, ${policyWords.unjudged}`), box.logs.join('\n'));
   });
 
   it('blocks on the run budget before a launch, and completes when run again with a higher --budget-usd', async () => {
