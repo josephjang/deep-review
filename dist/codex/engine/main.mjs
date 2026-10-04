@@ -26768,7 +26768,10 @@ function conventionsSection2(review2) {
     for (const rule of userRules) lines.push(`- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`);
   }
   const answers = survey.answers;
-  if (answers.length > 1) lines.push("", `The survey answered ${String(answers.length)} times, a run blocked on a check this machine could not run in between; the last answer is shown.`);
+  if (answers.length > 1) {
+    const blocked = survey.lastBlock?.code === "check-unavailable" ? "; it last blocked on a check this machine could not run, and" : ";";
+    lines.push("", `The survey answered ${String(answers.length)} times${blocked} the last answer is shown.`);
+  }
   const note = answers.at(-1)?.note.trim() ?? "";
   if (note !== "") lines.push("", `Surveyor's note: ${inlineText(note)}`);
   return lines;
