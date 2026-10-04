@@ -7,6 +7,13 @@
  * after the run went on without one, checks on a run that does not fix
  * or none on one that does, a user-level decision the pinned policy
  * rules out, and a repository path that is not one.
+ *
+ * The survey's rules on its own phase events are not here: reopening its
+ * unit when a blocked survey is entered again, allowing a
+ * `check-unavailable` blocker only for the survey, and keeping its
+ * `lastBlock` live in `review-fold.ts`'s `phaseStarted` and
+ * `phaseFinished`, the reducers every version of `phase.started` and
+ * `phase.finished` shares, so a later version keeps them too.
  */
 import { singleUnitKey } from '../review/vocabulary.ts';
 import type { ConventionSource, SurveyFailed, SurveyRecorded, UserRuleDecision } from './events.ts';
