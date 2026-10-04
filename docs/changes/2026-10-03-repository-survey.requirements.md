@@ -372,3 +372,13 @@ contributing guide.
   guide is prose, not a rule list. The finder's precision-first rule
   (quote the rule and the line) is what holds this, and the gate's
   reports are read for findings that quote no rule.
+- **A rules file the survey leaves out governs nothing in the run.** The
+  `CONVENTIONS` finder and its verifier hold to the listed sources and
+  the files those import or link to (R7), a fixer is told that a rules
+  file the scope block does not list is not one to keep, and no engine
+  code looks for a rules file by name (R11). So a subdirectory's rules
+  file the surveyor missed is not checked, and no fixer is held to it.
+  Accepted by the author: the surveyor is told to look in every
+  directory between the root and a changed path, and the log and the
+  report's Conventions section (R10) list what it named, so a reader
+  can see what was left out.
