@@ -85,6 +85,22 @@ export function surveyTask(input: SurveyTaskInput): string {
   ].join('\n');
 }
 
+/**
+ * Text as a Markdown code span the text cannot close, the CommonMark way:
+ * a delimiter one backtick longer than the longest run the text holds,
+ * and a space inside each end when the text starts or ends with a
+ * backtick, which would otherwise join the delimiter, or starts and ends
+ * with a space, of which a renderer strips one from each end.
+ */
+export function codeSpan(text: string): string {
+  let longest = 0;
+  for (const run of text.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
+  const delimiter = '`'.repeat(longest + 1);
+  const padded = text.startsWith('`') || text.endsWith('`') || (text.startsWith(' ') && text.endsWith(' ') && text.trim() !== '');
+  const pad = padded ? ' ' : '';
+  return `${delimiter}${pad}${text}${pad}${delimiter}`;
+}
+
 /** The checks part of a fix run's survey task. */
 function fixChecks(input: SurveyTaskInput): string[] {
   const { shell, lookup } = shellOf(input.platform);
@@ -92,11 +108,11 @@ function fixChecks(input: SurveyTaskInput): string[] {
     ? []
     : [
         'Settled by the operator\'s flags, which you leave out of `checks`:',
-        ...input.settled.map((entry) => (entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: \`${entry.command}\` (--check)`)),
+        ...input.settled.map((entry) => (entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`)),
         '',
       ];
   if (input.unsettled.length === 0) return [kindsToChooseLine(input), '', ...settled, 'Every kind is settled, so return `checks` empty.'];
-  const hints = input.hints.map((hint) => (hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: \`${hint.command}\` (${hint.reading})`));
+  const hints = input.hints.map((hint) => (hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`));
   return [
     kindsToChooseLine(input),
     '',

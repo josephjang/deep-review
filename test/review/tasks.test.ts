@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, sweepTask, triageTask, verifierTask, type FixerTaskInput } from '../../src/review/tasks.ts';
+import { codeSpan, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, verifierTask, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -30,6 +30,55 @@ describe('describeLocation', () => {
     assert.equal(describeLocation(candidate('SCAN-1', 'SCAN')), 'src/a.ts:4');
     assert.equal(describeLocation(outside), 'src/caller.ts:12 (outside the change: an unchanged file of the repository)', 'the canonical path, not the finder\'s spelling');
     assert.equal(describeLocation(unlocated), 'C:\\x\\b.ts:9 (unlocated: no file of the repository has this path and line)');
+  });
+});
+
+describe('codeSpan', () => {
+  it('quotes plain text in single backticks', () => {
+    assert.equal(codeSpan('npm run lint'), '`npm run lint`');
+  });
+
+  it('uses a delimiter one backtick longer than the longest run inside, so the text cannot close the span', () => {
+    assert.equal(codeSpan('echo `date` now'), '``echo `date` now``');
+    assert.equal(codeSpan('a ``b`` c'), '```a ``b`` c```');
+  });
+
+  it('pads with a space a text that starts or ends with a backtick, which would otherwise join the delimiter', () => {
+    assert.equal(codeSpan('`x'), '`` `x ``');
+    assert.equal(codeSpan('echo `date`'), '`` echo `date` ``');
+  });
+
+  it('pads a text that both starts and ends with a space, which a renderer would otherwise strip', () => {
+    assert.equal(codeSpan(' x '), '`  x  `');
+    assert.equal(codeSpan(' x'), '` x`', 'a space at one end only is kept as it is');
+  });
+});
+
+describe('the survey task', () => {
+  const input: SurveyTaskInput = {
+    platform: 'linux',
+    fix: true,
+    settled: [],
+    unsettled: ['lint', 'test'],
+    hints: [
+      { kind: 'lint', command: 'npm run lint', rule: 'package', reading: 'the package.json script `lint` through npm, by package-lock.json' },
+      { kind: 'test', command: null, rule: 'none', reading: 'no rule names it' },
+    ],
+    offered: [],
+    policySettlesUserRules: true,
+    authorship: { identity: 'unset' },
+  };
+
+  it('quotes each --check command in a code span the command cannot close, and names a dropped kind', () => {
+    const task = surveyTask({ ...input, settled: [{ kind: 'build', command: 'echo `git rev-parse HEAD` && make' }, { kind: 'typecheck', command: null }] });
+    assert.match(task, /^- build: ``echo `git rev-parse HEAD` && make`` \(--check\)$/m);
+    assert.match(task, /^- typecheck: dropped by --no-check$/m);
+  });
+
+  it('quotes each hint\'s command in a code span, and keeps its reading as prose', () => {
+    const task = surveyTask(input);
+    assert.match(task, /^- lint: `npm run lint` \(the package\.json script `lint` through npm, by package-lock\.json\)$/m);
+    assert.match(task, /^- test: none \(no rule names it\)$/m);
   });
 });
 
