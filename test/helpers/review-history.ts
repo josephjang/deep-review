@@ -274,6 +274,10 @@ export function withFixPass(history: History, batchSize = 4): History {
   return fixed;
 }
 
+/** A run configured with the fix pass at version 2, before the survey existed, with no plan of checks recorded yet. */
+export const configuredFixBeforeSurvey = (batchSize = 4): History =>
+  new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', { ...configurationV1, fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize } }, 2);
+
 /** A check's run as `check.ran` records it: passed, failed, timed out, not started, or skipped because build did not pass. */
 export function checkRun(phase: string, kind: string, outcome = 'passed', attempt = 1): Record<string, unknown> {
   const command = plannedChecks.checks.find((check) => check.kind === kind)?.command ?? 'none';
