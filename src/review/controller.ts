@@ -567,10 +567,13 @@ async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: 
  * The warning a fix run whose editors work in Codex's unelevated Windows
  * sandbox prints at the start of every invocation (R5 of the Codex
  * sandbox): what its editors cannot run, and the two settings a run can
- * be started with instead.
+ * be started with instead. The run is configured before the warning, on
+ * its first invocation as on a resume, and a resume refuses a sandbox
+ * other than the pinned one (`resumePinned`), so the warning says the
+ * run must be abandoned before another sandbox can apply.
  */
 export function unelevatedEditorsWarning(runId: string): string {
-  return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; a run started with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox, can run them`;
+  return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
 }
 
 /**
