@@ -24493,11 +24493,25 @@ function existingUserRulesFiles(home = homedir()) {
   return userConventionFiles.map((relative3) => join15(home, ...relative3.split("/"))).filter(isFile);
 }
 var authorshipWindow = 200;
+function mailmapAddress(output2) {
+  const address = /<([^<>]*)>\s*$/.exec(output2.trim())?.[1]?.trim().toLowerCase();
+  return address === void 0 || address === "" ? null : address;
+}
+function canonicalEmail(worktree, email3) {
+  let output2;
+  try {
+    output2 = gitText(worktree, ["check-mailmap", `<${email3}>`]);
+  } catch {
+    return email3;
+  }
+  return mailmapAddress(output2) ?? email3;
+}
 function reviewerAuthorship(worktree) {
   const email3 = gitText(worktree, ["config", "--get", "user.email"], { okExitCodes: [1] }).trim().toLowerCase();
   if (email3 === "") return { identity: "unset" };
-  const authors = gitText(worktree, ["log", `-${String(authorshipWindow)}`, "--no-show-signature", "--format=%ae", "HEAD", "--"]).split(/\r?\n/).filter((line) => line.length > 0);
-  return { identity: "set", commits: authors.length, byReviewer: authors.filter((author) => author.trim().toLowerCase() === email3).length };
+  const reviewer = canonicalEmail(worktree, email3);
+  const authors = gitText(worktree, ["log", `-${String(authorshipWindow)}`, "--no-show-signature", "--format=%aE", "HEAD", "--"]).split(/\r?\n/).filter((line) => line.length > 0);
+  return { identity: "set", commits: authors.length, byReviewer: authors.filter((author) => author.trim().toLowerCase() === reviewer).length };
 }
 
 // src/review/survey.ts
@@ -26219,7 +26233,7 @@ ${body}
 function authorshipLine(authorship) {
   const preamble = "What the reviewer's git configuration, which your own shell does not see, says of this repository's history:";
   if (authorship.identity === "unset") return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
-  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email.`;
+  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email or with an address the repository's \`.mailmap\` gives as the reviewer's.`;
 }
 var kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
 function shellOf(platform) {

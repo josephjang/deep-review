@@ -126,7 +126,7 @@ describe('the surveyor\'s task', () => {
     // The reviewer's authorship is the engine's fact, in counts: the surveyor's shell cannot see the git identity, and is never given the address.
     assert.match(judged, /^What the reviewer's git configuration, which your own shell does not see, says of this repository's history: no `user\.email` is configured for it, so no commit here can be attributed to the reviewer\.$/m);
     const authored = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: inputs({ userFiles: files, authorship: { identity: 'set', commits: 200, byReviewer: 187 } }) });
-    assert.match(authored, /says of this repository's history: 187 of the last 200 commits on HEAD were authored with the reviewer's email\.$/m);
+    assert.match(authored, /says of this repository's history: 187 of the last 200 commits on HEAD were authored with the reviewer's email or with an address the repository's `\.mailmap` gives as the reviewer's\.$/m);
     assert.doesNotMatch(authored, /@/, 'no address reaches the task');
     for (const userRules of ['apply', 'ignore'] as const) {
       const settled = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured({ survey: { userRules } }).review(), { survey: inputs({ userFiles: files }) });
@@ -137,7 +137,7 @@ describe('the surveyor\'s task', () => {
   });
 
   it('reads the reviewer\'s authorship only for a task that offers a user-level file, which is the only one that prints it', () => {
-    // The authorship costs two git commands, so a task that never prints it must not ask for it.
+    // The authorship costs three git commands, so a task that never prints it must not ask for it.
     let reads = 0;
     const counted = (change: Partial<SurveyInputs>): SurveyInputs => ({
       ...noSurveyInputs,
@@ -158,7 +158,7 @@ describe('the surveyor\'s task', () => {
     taskFor(unit('survey', 'survey', 'surveyor'), surveyConfiguredFix().review(), { survey: counted({}) });
     assert.equal(reads, 0, 'a fix run offering no file');
     const judged = taskFor(unit('survey', 'survey', 'surveyor'), surveyConfigured().review(), { survey: counted({ userFiles: files }) });
-    assert.match(judged, /says of this repository's history: 2 of the last 3 commits on HEAD were authored with the reviewer's email\.$/m);
+    assert.match(judged, /says of this repository's history: 2 of the last 3 commits on HEAD were authored with the reviewer's email or with an address the repository's `\.mailmap` gives as the reviewer's\.$/m);
     assert.equal(reads, 1, 'judge offers the file and prints the authorship');
   });
 

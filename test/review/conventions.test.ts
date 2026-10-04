@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existingUserRulesFiles, reviewerAuthorship, userConventionFiles } from '../../src/review/conventions.ts';
+import { existingUserRulesFiles, mailmapAddress, reviewerAuthorship, userConventionFiles } from '../../src/review/conventions.ts';
 import { commitAll, git as repoGit, repositoryWith, write as writeFile } from '../helpers/repository.ts';
 
 describe('existingUserRulesFiles', () => {
@@ -66,7 +66,7 @@ describe('reviewerAuthorship', () => {
     writeFile(repo, 'd.txt', 'd\n');
     commitAll(repo, 'by the configured identity');
     // The helper's first commit is test@example.invalid's, then the reviewer's, a maintainer's, and the configured identity's.
-    assert.deepEqual(reviewerAuthorship(repo), { identity: 'set', commits: 4, byReviewer: 2 });
+    assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 4, byReviewer: 2 });
   });
 
   /**
@@ -89,6 +89,36 @@ describe('reviewerAuthorship', () => {
     const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
     gitIn(repo, 'config', '--unset-all', 'user.email');
     assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'unset' });
+  });
+
+  it('counts an address the repository\'s .mailmap gives as the reviewer\'s, whichever of the two is configured', () => {
+    // The reviewer commits at work and at home; the repository's own .mailmap says both addresses are one person's.
+    const repo = repositoryWith(join(sandbox, 'repo'), { '.mailmap': 'Rev <Home@Example.invalid> <work@example.invalid>\n' });
+    commitBy(repo, 'home@example.invalid', 'b.txt');
+    commitBy(repo, 'WORK@example.invalid', 'c.txt');
+    commitBy(repo, 'maintainer@example.invalid', 'd.txt');
+    // The helper's first commit is test@example.invalid's, then one at home, one at work and a maintainer's.
+    gitIn(repo, 'config', 'user.email', 'work@example.invalid');
+    assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 4, byReviewer: 2 });
+    gitIn(repo, 'config', 'user.email', 'home@example.invalid');
+    assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 4, byReviewer: 2 });
+  });
+
+  it('counts only the configured address when the repository has no .mailmap', () => {
+    const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
+    commitBy(repo, 'home@example.invalid', 'b.txt');
+    commitBy(repo, 'work@example.invalid', 'c.txt');
+    gitIn(repo, 'config', 'user.email', 'work@example.invalid');
+    assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 3, byReviewer: 1 });
+  });
+
+  it('compares a name-keyed .mailmap entry the configured address alone does not match as the configured address', () => {
+    // An entry keyed on name and address maps only a commit with both, so the bare configured address stays itself.
+    const repo = repositoryWith(join(sandbox, 'repo'), { '.mailmap': 'Rev <home@example.invalid> Work Name <work@example.invalid>\n' });
+    commitBy(repo, 'work@example.invalid', 'b.txt');
+    gitIn(repo, 'config', 'user.email', 'work@example.invalid');
+    // The commit's author is named Someone, so the entry maps neither it nor the configured address.
+    assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 2, byReviewer: 1 });
   });
 
   it('reads HEAD as the revision when the repository tracks a file named HEAD', () => {
@@ -120,5 +150,22 @@ describe('reviewerAuthorship', () => {
       assert.ok(repoGit(repo, 'log', '--format=%ae', 'HEAD', '--').split(/\r?\n/).length > 2);
       assert.deepEqual(reviewerAuthorship(repo), { identity: 'set', commits: 2, byReviewer: 2 });
     });
+  });
+});
+
+describe('mailmapAddress', () => {
+  it('reads the address of a mapped contact and of an unmapped one, lowercased', () => {
+    assert.equal(mailmapAddress('Rev <Home@Example.invalid>\n'), 'home@example.invalid');
+    assert.equal(mailmapAddress('<work@example.invalid>\r\n'), 'work@example.invalid');
+  });
+
+  it('reads the last address when the name itself holds angle brackets', () => {
+    assert.equal(mailmapAddress('A <b> C <home@example.invalid>\n'), 'home@example.invalid');
+  });
+
+  it('yields none for output with no address, so the configured one is compared', () => {
+    assert.equal(mailmapAddress(''), null);
+    assert.equal(mailmapAddress('<>\n'), null);
+    assert.equal(mailmapAddress('home@example.invalid\n'), null);
   });
 });

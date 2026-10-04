@@ -552,13 +552,21 @@ counts.** The fragment named commits by the person `git config
 user.email` names as grounds, which asks the surveyor for a fact it
 cannot see. The engine reads `user.email` with the operator's own git
 configuration and counts how many of the last 200 commits on HEAD were
-authored with it; the task states the counts, or that no email is
-configured for the repository, and the fragment tells the surveyor not
-to look the identity up and never to take a commit's author for it. It
-reads them only for a task that states them, one that offers a
-user-level file, so a survey under `ignore` or `apply`, or on a machine
-with no such file, runs neither git command. The address itself never
-reaches a prompt. Passing the address was rejected for that reason;
+authored with it or with an address the repository's `.mailmap` gives
+as the reviewer's: `git check-mailmap` turns the configured address into
+the one the mailmap gives, and the log compares each commit's author as
+the mailmap gives it (`%aE`), so a reviewer who commits under two
+addresses the repository declares as one person is counted under both.
+When `git check-mailmap` fails or prints no address, the configured
+address is compared as it is. The task states the counts, or that no
+email is configured for the repository, and the fragment tells the
+surveyor not to look the identity up and never to take a commit's
+author for it. It reads them only for a task that states them, one
+that offers a user-level file, so a survey under `ignore` or `apply`,
+or on a machine with no such file, runs none of these git commands.
+The address itself never reaches a prompt. Matching on `user.name` as
+well was rejected: names collide, and that is the misattribution the
+counts exist to prevent. Passing the address was rejected for that reason;
 telling the surveyor to run `git config` on its own was rejected
 because its environment does not hold the answer; raising the
 surveyor's effort was rejected as the fix, since the fact was missing,

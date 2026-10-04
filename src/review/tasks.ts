@@ -36,7 +36,7 @@ export interface SurveyTaskInput {
 function authorshipLine(authorship: ReviewerAuthorship): string {
   const preamble = 'What the reviewer\'s git configuration, which your own shell does not see, says of this repository\'s history:';
   if (authorship.identity === 'unset') return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
-  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email.`;
+  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email or with an address the repository's \`.mailmap\` gives as the reviewer's.`;
 }
 
 /** The line a survey task opens its checks with, which names the kinds to choose, or that the run does not fix. */
