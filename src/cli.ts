@@ -205,7 +205,7 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
   for (const flag of Object.keys(values) as (keyof Values)[]) {
     if (values[flag] !== undefined && !allowed[command]!.includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
-  // A fixer's snapshot runs inside its sandbox, where a process may start no other, so it asks git nothing when the engine's manifest names the worktree (R23).
+  // A fixer's snapshot runs inside its sandbox, where a Node process may not start one whose output it captures, so it asks git nothing when the engine's manifest names the worktree (R23).
   if (command === 'snapshot') return snapshot(values, io);
   const location = locateCheckpoint(values.repo === undefined ? io.cwd : resolve(io.cwd, values.repo));
   switch (command) {

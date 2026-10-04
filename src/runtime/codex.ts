@@ -110,9 +110,10 @@ export interface CodexProvider {
 export interface CodexOptions {
   /**
    * Unelevated by default, so a machine without the elevated setup still
-   * runs workers. Under it no process a worker's process starts may start
-   * another, so a fixer cannot run a repository's build or tests, and
-   * `review` cannot choose elevated yet:
+   * runs workers. Under it a process cannot create a named pipe, through
+   * which Node gives a child its piped stdio, so a Node process cannot
+   * start a child whose output it captures and a fixer cannot run a Node
+   * toolchain's build or tests; and `review` cannot choose elevated yet:
    * https://github.com/josephjang/deep-review/issues/10
    */
   readonly windowsSandbox?: WindowsSandbox;
