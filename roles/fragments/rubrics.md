@@ -114,16 +114,17 @@ to keep the finding; otherwise REFUTE.
 finder already quoted.
 
 - **CONFIRMED** — the cited file is a convention source the scope block
-  lists, it genuinely governs the changed file (the paths it applies to,
-  when it names any, cover that file) AND the quoted line breaks the
-  quoted rule. Both quotes present and accurate.
+  lists, or a file such a source imports or links to, it genuinely
+  governs the changed file (the paths its source applies to, when it
+  names any, cover that file) AND the quoted line breaks the quoted rule.
+  Both quotes present and accurate.
 - **PLAUSIBLE** — the rule governs and the line looks like a violation, but
   whether it actually breaks the rule turns on a reading the verifier can't
   settle alone. State the ambiguity.
-- **REFUTED** — the cited file is not a listed convention source or
-  doesn't govern this file, the line doesn't actually violate the rule, or
-  the "rule" is the finder's own style preference rather than something a
-  listed source states.
+- **REFUTED** — the cited file is neither a listed convention source nor
+  a file one imports or links to, or doesn't govern this file, the line
+  doesn't actually violate the rule, or the "rule" is the finder's own
+  style preference rather than something a listed source states.
 
 ### All rubrics — verify before you judge
 
