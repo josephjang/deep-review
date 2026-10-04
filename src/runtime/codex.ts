@@ -1,6 +1,6 @@
 import { emptyUsageSummary, maxLineBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
-import { spellingsOf, withoutVariables } from './environment.ts';
+import { pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { finiteNumber, isObject } from './json.ts';
 
 /** Flags of the top-level command. */
@@ -68,25 +68,50 @@ function underWindowsApps(directory: string): boolean {
 }
 
 /**
+ * How Codex workers are confined on Windows. `unelevated` runs every
+ * worker's commands under a restricted token of the operator's account and
+ * works on any machine, but a process there cannot create a named pipe,
+ * through which Node gives a child its piped stdio, so a Node process
+ * cannot start a child whose output it captures. `elevated` runs them as a
+ * separate sandbox user and needs Codex's one-time elevated setup on the
+ * machine. `none` runs a worker with edit access in no sandbox at all and
+ * every other worker read-only under `unelevated`: Codex has no tool
+ * allowlist, so its sandbox is the only thing that keeps a reader from
+ * writing.
+ */
+export const windowsSandboxes = ['unelevated', 'elevated', 'none'] as const;
+export type WindowsSandbox = (typeof windowsSandboxes)[number];
+
+/**
+ * The PowerShell execution policy an elevated worker's process tree runs
+ * under. As the sandbox user, Windows PowerShell refuses every `.ps1` shim
+ * (`npm`, `pnpm`, `npx`), most likely because a user with no policy of its
+ * own gets the Windows default, `Restricted`. The variable sets the policy
+ * for one process tree only and changes nothing on the machine, and a
+ * machine or group policy still overrides it.
+ */
+export const elevatedExecutionPolicy = { name: 'PSExecutionPolicyPreference', value: 'RemoteSigned' } as const;
+
+/**
  * The caller's environment, with every spelling of PATH merged into one on
  * Windows and directories under WindowsApps removed: Codex runs tools under a
  * restricted token that cannot launch the Store's app-execution aliases.
+ * Under the elevated sandbox the PowerShell execution policy is set too,
+ * unless the caller already sets it to something; under the others the
+ * worker runs as the operator's own account, whose policy is the operator's.
  */
-export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
+export function codexEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform, windowsSandbox: WindowsSandbox = 'unelevated'): NodeJS.ProcessEnv {
   if (platform !== 'win32') return { ...environment };
   const directories = spellingsOf(environment, 'PATH', platform)
     .flatMap(([, value]) => (value ?? '').split(';'))
     .filter((directory) => directory.length > 0 && !underWindowsApps(directory));
-  return { ...withoutVariables(environment, ['PATH'], platform), Path: directories.join(';') };
+  const adjusted = { ...withoutVariables(environment, ['PATH'], platform), Path: directories.join(';') };
+  if (windowsSandbox !== 'elevated') return adjusted;
+  // An empty value sets no policy, so it is replaced, every other spelling with it.
+  const { name, value } = elevatedExecutionPolicy;
+  const given = spellingsOf(adjusted, name, platform).some(([, set]) => set !== undefined && set !== '');
+  return given ? adjusted : pinVariables(adjusted, { [name]: value }, platform);
 }
-
-/**
- * The Windows sandbox Codex runs commands in. `unelevated` is a restricted
- * token and works on any machine; `elevated` runs commands as a separate
- * sandbox user and needs Codex's one-time elevated setup on the machine.
- */
-export const windowsSandboxes = ['unelevated', 'elevated'] as const;
-export type WindowsSandbox = (typeof windowsSandboxes)[number];
 
 /**
  * A model provider other than Codex's built-in OpenAI one, written as an
@@ -110,10 +135,9 @@ export interface CodexProvider {
 export interface CodexOptions {
   /**
    * Unelevated by default, so a machine without the elevated setup still
-   * runs workers. Under it a process cannot create a named pipe, through
-   * which Node gives a child its piped stdio, so a Node process cannot
-   * start a child whose output it captures and a fixer cannot run a Node
-   * toolchain's build or tests; and `review` cannot choose elevated yet:
+   * runs workers, though a fixer there cannot run a Node toolchain's build
+   * or tests. Applied only on Windows. Which value becomes the default is
+   * decided after a gate under the other two:
    * https://github.com/josephjang/deep-review/issues/10
    */
   readonly windowsSandbox?: WindowsSandbox;
@@ -184,21 +208,35 @@ export function providerConfig(provider: CodexProvider): string[] {
 }
 
 /**
+ * The `sandbox_mode` a worker runs under: `read-only` for a reader and
+ * `workspace-write` for an editor, except that on Windows under `none` an
+ * editor runs in no sandbox, `danger-full-access`. A reader keeps its
+ * sandbox under every value, and no other platform has a `none`.
+ */
+function sandboxMode(invocation: Invocation, platform: NodeJS.Platform, windowsSandbox: WindowsSandbox): 'read-only' | 'workspace-write' | 'danger-full-access' {
+  if (invocation.access !== 'edit') return 'read-only';
+  return platform === 'win32' && windowsSandbox === 'none' ? 'danger-full-access' : 'workspace-write';
+}
+
+/**
  * The Codex command line for one worker. `windowsSandbox` is the adapter's
- * choice, applied only on Windows; `provider`, when there is one, is chosen
- * for a fresh worker and a continuation alike.
+ * choice, applied only on Windows: Codex's own Windows sandbox for every
+ * worker, `unelevated` for the readers under `none`, and the environment
+ * the adapter adjusts for it. `provider`, when there is one, is chosen for
+ * a fresh worker and a continuation alike.
  */
 export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox, provider: CodexProvider | null = null): WorkerCommand {
-  const writable = invocation.access === 'edit' && plan.scratch !== null ? [plan.scratch] : [];
+  const mode = sandboxMode(invocation, plan.platform, windowsSandbox);
+  // A read-only sandbox writes nowhere and no sandbox needs no root, so only a confined editor is given the scratch directory.
+  const writable = mode === 'workspace-write' && plan.scratch !== null ? [plan.scratch] : [];
   const options = [
     '--ignore-user-config',
     '--strict-config',
     '--ignore-rules',
     '--skip-git-repo-check',
-    '--config', `sandbox_mode=${tomlString(invocation.access === 'edit' ? 'workspace-write' : 'read-only')}`,
-    // A read-only sandbox writes nowhere, so only an editor is given the scratch directory.
+    '--config', `sandbox_mode=${tomlString(mode)}`,
     ...(writable.length === 0 ? [] : ['--config', `sandbox_workspace_write.writable_roots=[${writable.map(tomlString).join(',')}]`]),
-    ...(plan.platform === 'win32' ? ['--config', `windows.sandbox=${tomlString(windowsSandbox)}`] : []),
+    ...(plan.platform === 'win32' ? ['--config', `windows.sandbox=${tomlString(windowsSandbox === 'none' ? 'unelevated' : windowsSandbox)}`] : []),
     ...isolation.flatMap((setting) => ['--config', setting]),
     ...(provider === null ? [] : providerConfig(provider)).flatMap((setting) => ['--config', setting]),
     '--model', invocation.model,
@@ -208,7 +246,7 @@ export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSa
     '--output-last-message', plan.finalMessageFile,
   ];
   return {
-    environment: codexEnvironment(plan.environment, plan.platform),
+    environment: codexEnvironment(plan.environment, plan.platform, windowsSandbox),
     // `-` reads the prompt from stdin; a continuation names its session just before it.
     args: ['--ask-for-approval', 'never', 'exec', ...(plan.resume === null ? [...options, '-'] : ['resume', ...options, plan.resume, '-'])],
   };
@@ -460,7 +498,7 @@ export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
   const unknown = unknownKeys(given, codexOptionKeys);
   if (unknown.length > 0) throw new Error(`Unknown Codex option ${JSON.stringify(unknown[0])}; use ${codexOptionKeys.join(' or ')}`);
   const windowsSandbox = options.windowsSandbox ?? 'unelevated';
-  if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(' or ')}`);
+  if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(', ')}`);
   const provider = options.provider === undefined ? null : checkedProvider(options.provider);
   return {
     ...codexRuntime,

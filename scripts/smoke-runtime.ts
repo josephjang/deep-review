@@ -1,7 +1,7 @@
 // Run real workers through each installed runtime CLI and print what every
 // receipt says (R12). It calls real models, costs money and needs each CLI to
 // be signed in, so it is run by hand, never by `npm run check`:
-//   npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox elevated]
+//   npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox unelevated|elevated|none]
 // Either runtime may be left out. Per runtime there are three workers:
 //   first         read-only, asked to create probe.txt in the repository with its shell
 //   continuation  the first one's session continued, asked the same again
@@ -44,7 +44,7 @@ const { values } = parseArgs({
 if (values.claude === undefined && values.codex === undefined) throw new Error('Name at least one runtime: --claude <path> and/or --codex <path>');
 if (values.codex !== undefined && values['codex-model'] === undefined) throw new Error('--codex needs --codex-model; Codex has no model this script can assume');
 const windowsSandbox = values['codex-windows-sandbox'] as WindowsSandbox;
-if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`--codex-windows-sandbox must be ${windowsSandboxes.join(' or ')}`);
+if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`--codex-windows-sandbox must be one of ${windowsSandboxes.join(', ')}`);
 const effort = effortSchema.parse(values.effort);
 const runtimes = defaultRuntimes({ codex: { windowsSandbox } });
 

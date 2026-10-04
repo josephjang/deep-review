@@ -22866,12 +22866,17 @@ function tomlString(value) {
 function underWindowsApps(directory) {
   return directory.replaceAll('"', "").split(/[\\/]/).some((segment) => segment.toLowerCase() === "windowsapps");
 }
-function codexEnvironment(environment, platform) {
+var windowsSandboxes = ["unelevated", "elevated", "none"];
+var elevatedExecutionPolicy = { name: "PSExecutionPolicyPreference", value: "RemoteSigned" };
+function codexEnvironment(environment, platform, windowsSandbox = "unelevated") {
   if (platform !== "win32") return { ...environment };
-  const directories = spellingsOf(environment, "PATH", platform).flatMap(([, value]) => (value ?? "").split(";")).filter((directory) => directory.length > 0 && !underWindowsApps(directory));
-  return { ...withoutVariables(environment, ["PATH"], platform), Path: directories.join(";") };
+  const directories = spellingsOf(environment, "PATH", platform).flatMap(([, value2]) => (value2 ?? "").split(";")).filter((directory) => directory.length > 0 && !underWindowsApps(directory));
+  const adjusted = { ...withoutVariables(environment, ["PATH"], platform), Path: directories.join(";") };
+  if (windowsSandbox !== "elevated") return adjusted;
+  const { name, value } = elevatedExecutionPolicy;
+  const given = spellingsOf(adjusted, name, platform).some(([, set2]) => set2 !== void 0 && set2 !== "");
+  return given ? adjusted : pinVariables(adjusted, { [name]: value }, platform);
 }
-var windowsSandboxes = ["unelevated", "elevated"];
 var codexOptionKeys = ["windowsSandbox", "provider"];
 var codexProviderKeys = ["id", "baseUrl", "envKey", "queryParams"];
 function unknownKeys(value, known) {
@@ -22916,18 +22921,22 @@ function providerConfig(provider) {
     ...params === null ? [] : [`${entry}.query_params={${params.map(([name, value]) => `${tomlString(name)}=${tomlString(value)}`).join(",")}}`]
   ];
 }
+function sandboxMode(invocation, platform, windowsSandbox) {
+  if (invocation.access !== "edit") return "read-only";
+  return platform === "win32" && windowsSandbox === "none" ? "danger-full-access" : "workspace-write";
+}
 function codexCommand(invocation, plan, windowsSandbox, provider = null) {
-  const writable = invocation.access === "edit" && plan.scratch !== null ? [plan.scratch] : [];
+  const mode = sandboxMode(invocation, plan.platform, windowsSandbox);
+  const writable = mode === "workspace-write" && plan.scratch !== null ? [plan.scratch] : [];
   const options2 = [
     "--ignore-user-config",
     "--strict-config",
     "--ignore-rules",
     "--skip-git-repo-check",
     "--config",
-    `sandbox_mode=${tomlString(invocation.access === "edit" ? "workspace-write" : "read-only")}`,
-    // A read-only sandbox writes nowhere, so only an editor is given the scratch directory.
+    `sandbox_mode=${tomlString(mode)}`,
     ...writable.length === 0 ? [] : ["--config", `sandbox_workspace_write.writable_roots=[${writable.map(tomlString).join(",")}]`],
-    ...plan.platform === "win32" ? ["--config", `windows.sandbox=${tomlString(windowsSandbox)}`] : [],
+    ...plan.platform === "win32" ? ["--config", `windows.sandbox=${tomlString(windowsSandbox === "none" ? "unelevated" : windowsSandbox)}`] : [],
     ...isolation.flatMap((setting) => ["--config", setting]),
     ...(provider === null ? [] : providerConfig(provider)).flatMap((setting) => ["--config", setting]),
     "--model",
@@ -22941,7 +22950,7 @@ function codexCommand(invocation, plan, windowsSandbox, provider = null) {
     plan.finalMessageFile
   ];
   return {
-    environment: codexEnvironment(plan.environment, plan.platform),
+    environment: codexEnvironment(plan.environment, plan.platform, windowsSandbox),
     // `-` reads the prompt from stdin; a continuation names its session just before it.
     args: ["--ask-for-approval", "never", "exec", ...plan.resume === null ? [...options2, "-"] : ["resume", ...options2, plan.resume, "-"]]
   };
@@ -23094,7 +23103,7 @@ function createCodexAdapter(options2 = {}) {
   const unknown2 = unknownKeys(given, codexOptionKeys);
   if (unknown2.length > 0) throw new Error(`Unknown Codex option ${JSON.stringify(unknown2[0])}; use ${codexOptionKeys.join(" or ")}`);
   const windowsSandbox = options2.windowsSandbox ?? "unelevated";
-  if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(" or ")}`);
+  if (!windowsSandboxes.includes(windowsSandbox)) throw new Error(`Unknown Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(", ")}`);
   const provider = options2.provider === void 0 ? null : checkedProvider(options2.provider);
   return {
     ...codexRuntime,
