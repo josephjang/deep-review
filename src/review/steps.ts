@@ -296,12 +296,15 @@ const usd = (value: number): string => value.toFixed(2);
 /**
  * The blocker a phase finishes with when a unit failed twice under a
  * blocking role, or with a worker lost with its engine among its
- * failures. The survey of a fix run names the flags that let the run go
- * on without it (R9 of the repository survey).
+ * failures. A survey whose role blocks instead of degrading, the survey
+ * of a fix run (`degradationOf`), names the flags that let the run go on
+ * without it (R9 of the repository survey); an interrupted read-only
+ * survey, which only blocks for the interruption, does not, since flags
+ * settle nothing there.
  */
-export function workerFailedBlocker(unit: Unit, state: UnitState | undefined, fixing = false): Blocker {
+export function workerFailedBlocker(review: ReviewState, unit: Unit, state: UnitState | undefined): Blocker {
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ', a worker lost with its engine among the failures' : ''}: `;
-  const action = unit.phase === 'survey' && fixing ? surveyWorkerFailedAction : blockerActions['worker-failed'];
+  const action = unit.phase === 'survey' && degradationOf(review, unit) === null ? surveyWorkerFailedAction : blockerActions['worker-failed'];
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
 
@@ -480,7 +483,7 @@ export function nextStep(review: ReviewState, live: Live): Step {
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
   const blocking = spent.find((unit) => exhaustedOutcome(review, unit, states[unit.key]) === null);
-  if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(blocking, states[blocking.key], review.fix !== null) };
+  if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(review, blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));
   if (launchable.length > 0) {
     const { concurrency, runBudgetUsd } = review.limits;
