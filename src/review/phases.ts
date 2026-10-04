@@ -355,6 +355,11 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
   return rankedFindings(review, findings).map((entry) => entry.finding);
 }
 
+/** What recording a contribution needs: the revision context, and for the survey what the invocation knew when it launched the surveyor. */
+export interface ContributionContext extends RevisionContext {
+  readonly survey: () => SurveyInputs;
+}
+
 /**
  * The events a unit's receipt becomes. A receipt that did not complete, or
  * whose answer fails a structural check, is a failed attempt with the
@@ -363,11 +368,6 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
  * or for an editing unit its recorded answer and the revisions of the
  * tree it made.
  */
-/** What recording a contribution needs: the revision context, and for the survey what the invocation knew when it launched the surveyor. */
-export interface ContributionContext extends RevisionContext {
-  readonly survey: () => SurveyInputs;
-}
-
 export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: ContributionContext): NewEvent[] {
   if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context);
   const review = requireReview(context.state);

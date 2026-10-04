@@ -240,6 +240,14 @@ export interface UnavailableCheck {
   readonly missingTool: string;
 }
 
+/** The plan `resolveChecks` lays out: the checks it settles, the kinds whose tool is missing, and the kinds nobody answered. */
+export interface ResolvedChecks {
+  /** One per kind no flag or survey leaves open, in the order the kinds run; the whole plan when the other two are empty. */
+  readonly checks: readonly PlannedCheckV2[];
+  readonly unavailable: readonly UnavailableCheck[];
+  readonly uncovered: readonly CheckKind[];
+}
+
 /**
  * The checks of the flags and a survey, kind by kind (R5, R6, R15 of the
  * repository survey): a `--no-check` drops a kind and a `--check` names
@@ -249,13 +257,6 @@ export interface UnavailableCheck {
  * a flag nor the survey answered is uncovered: the survey was asked when
  * a flag, which this invocation no longer gives, settled it.
  */
-export interface ResolvedChecks {
-  /** One per kind no flag or survey leaves open, in the order the kinds run; the whole plan when the other two are empty. */
-  readonly checks: readonly PlannedCheckV2[];
-  readonly unavailable: readonly UnavailableCheck[];
-  readonly uncovered: readonly CheckKind[];
-}
-
 export function resolveChecks(answer: Pick<SurveyRecorded, 'checks'> | null, flags: CheckFlags): ResolvedChecks {
   const checks: PlannedCheckV2[] = [];
   const unavailable: UnavailableCheck[] = [];
