@@ -11,7 +11,7 @@ import { codexAdapter, windowsSandboxes } from '../../src/runtime/codex.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
 import { codexWindowsSandboxesV4, limitsChangedV1, reviewConfiguredV1, reviewConfiguredV2, reviewConfiguredV3, reviewConfiguredV4 } from '../../src/checkpoint/events.ts';
 import { maxTimeoutMs } from '../../src/runtime/contract.ts';
-import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxBatchSize, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
+import { codexWindowsSandboxFlagProblem, editorsUnderUnelevatedSandbox, invocationFlagProblem, maxBatchSize, maxConcurrency, refuseInvocationFlags } from '../../src/review/policy.ts';
 import { configurationV1 } from '../helpers/review-history.ts';
 
 const roles = assembleRoles(repositoryRolesRoot());
@@ -257,6 +257,16 @@ describe('the Codex Windows sandbox (R1, R3 of the Codex sandbox)', () => {
     assert.equal(codexWindowsSandboxFlagProblem('claude', undefined), null, 'no flag, no problem');
     assert.equal(codexWindowsSandboxFlagProblem('codex', 'none'), null);
     assert.equal(codexWindowsSandboxFlagProblem('claude', 'nope'), '--codex-windows-sandbox must be one of unelevated, elevated, none, not "nope"', 'the value is named before the runtime');
+  });
+
+  it('holds a run\'s editors to the unelevated sandbox only in a fix run on Windows that pins it (R5, R6 of the Codex sandbox)', () => {
+    const unelevated = { windowsSandbox: 'unelevated' as const };
+    assert.equal(editorsUnderUnelevatedSandbox({ fix: true, codex: unelevated }, 'win32'), true);
+    assert.equal(editorsUnderUnelevatedSandbox({ fix: false, codex: unelevated }, 'win32'), false, 'a read-only run has no editor');
+    for (const windowsSandbox of ['elevated', 'none'] as const) assert.equal(editorsUnderUnelevatedSandbox({ fix: true, codex: { windowsSandbox } }, 'win32'), false, windowsSandbox);
+    assert.equal(editorsUnderUnelevatedSandbox({ fix: true, codex: null }, 'win32'), false, 'a Claude Code run');
+    // A Codex run configured before the value was pinned folds to unelevated wherever it ran.
+    for (const platform of ['linux', 'darwin'] as const) assert.equal(editorsUnderUnelevatedSandbox({ fix: true, codex: unelevated }, platform), false, platform);
   });
 
   it('refuses a Codex entry that names none when the policy was not parsed, rather than guessing one', () => {

@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { effortSchema, type PinnedRole } from '../checkpoint/events.ts';
+import { effortSchema, type PinnedRole, type ReviewConfiguration } from '../checkpoint/events.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { codexRuntimeName, windowsSandboxes, type WindowsSandbox } from '../runtime/codex.ts';
 import { maxBudgetUsd, maxTimeoutMs } from '../runtime/contract.ts';
@@ -159,6 +159,18 @@ export function invocationFlagProblem(flags: Pick<PolicyFlags, 'concurrency' | '
   }
   if (budgetUsd !== undefined && !(Number.isFinite(budgetUsd) && budgetUsd > 0)) return `--budget-usd must be a positive number, not ${String(budgetUsd)}`;
   return null;
+}
+
+/**
+ * Whether a run's editors work in Codex's unelevated Windows sandbox,
+ * where a Node process cannot start a child whose output it captures, so
+ * they cannot run most build and test commands (R5, R6 of the Codex
+ * sandbox): a fix run on Windows that pins `unelevated`. The platform is
+ * asked as well as the pinned value, since a Codex run configured before
+ * the value was pinned folds to `unelevated` wherever it ran.
+ */
+export function editorsUnderUnelevatedSandbox(configuration: Pick<ReviewConfiguration, 'fix' | 'codex'>, platform: NodeJS.Platform): boolean {
+  return configuration.fix && platform === 'win32' && configuration.codex?.windowsSandbox === 'unelevated';
 }
 
 /**

@@ -69,6 +69,7 @@ describe('invocationFor', () => {
     evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' },
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
+    unelevatedEditors: false,
   });
 
   it('builds a read-only invocation with a shell from the pinned role, labelled with its unit, prompt composed from the role and task', () => {

@@ -26078,6 +26078,9 @@ function invocationFlagProblem(flags) {
   if (budgetUsd !== void 0 && !(Number.isFinite(budgetUsd) && budgetUsd > 0)) return `--budget-usd must be a positive number, not ${String(budgetUsd)}`;
   return null;
 }
+function editorsUnderUnelevatedSandbox(configuration, platform) {
+  return configuration.fix && platform === "win32" && configuration.codex?.windowsSandbox === "unelevated";
+}
 function refuseInvocationFlags(adapter, flags) {
   if (flags.budgetUsd !== void 0 && !adapter.capabilities.costInUsd) {
     throw new InvalidPolicyError(`--budget-usd does not apply to runtime ${adapter.name}, which reports no cost in USD; the run has no budget there`);
@@ -26430,6 +26433,7 @@ function snapshotBlock(command, unit) {
 }
 var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, null for a deferred or blocked one, and null for an already-applied one unless this task asks for its message; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 var scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
+var unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
 function earlierWork(unit, unfinished) {
   const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
   if (unfinished.length === 0) return warning;
@@ -26469,6 +26473,7 @@ function fixerTask(input2) {
     "",
     checksBlock(input2.checks, input2.baselineFailures),
     "",
+    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
     snapshotBlock(input2.snapshotCommand, "finding"),
     "",
     ...input2.mayHoldWork ? [earlierWork("finding", input2.unfinished), ""] : [],
@@ -26512,6 +26517,7 @@ function repairTask(input2) {
     "",
     checksBlock(input2.allChecks),
     "",
+    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
     snapshotBlock(input2.snapshotCommand, "check"),
     "",
     ...input2.mayHoldWork ? [earlierWork("check", input2.unfinished), ""] : [],
@@ -26609,6 +26615,7 @@ function fixerTaskOf(unit, review2, editing, evidence) {
     othersOwned: clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
     checks: review2.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
+    unelevatedSandbox: editing.unelevatedSandbox,
     mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, [...earlier, ...inSecondRound ? plan.batches : []].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review2, "fixes", unit.key),
     baselineFailures: baselineFailuresOf(review2, evidence)
@@ -26645,7 +26652,7 @@ function repairTaskOf(review2, editing, evidence) {
   });
   const owned = fixesRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
-  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
+  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
 }
 function surveyTaskOf(review2, inputs) {
   const setting = review2.configuration.survey.userRules;
@@ -26715,7 +26722,7 @@ function invocationFor(unit, context) {
   if (role === void 0) throw new Error(`No assembled prompt for role ${unit.role}`);
   const policy = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join22(scratch, snapshotsDirectoryName)) };
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join22(scratch, snapshotsDirectoryName)), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === "survey" ? context.survey() : null;
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
   return {
@@ -27360,6 +27367,8 @@ async function runReview(options2) {
     }
     const configuration = state.review.configuration;
     const runtimes = options2.runtimes(runtimeOptionsOf(configuration));
+    const unelevatedEditors = editorsUnderUnelevatedSandbox(configuration, platform);
+    if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, options2.worktree, content.match, log);
     state = reenterPhase(checkpoint, state, log);
@@ -27477,7 +27486,8 @@ async function runReview(options2) {
             survey: surveyInputs,
             evidence: checkpoint.evidence,
             newScratch: () => join23(scratchBase, randomUUID4()),
-            snapshotCommand: (into) => snapshotCommandFor(engineEntry, into)
+            snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
+            unelevatedEditors
           };
           for (const unit of step.units) {
             const invocation = invocationFor(unit, context);
@@ -27541,6 +27551,9 @@ async function nextSettled(inFlight) {
   const entry = inFlight.get(name);
   inFlight.delete(name);
   return { settled: settled2, startedAt: entry.startedAt };
+}
+function unelevatedEditorsWarning(runId) {
+  return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; a run started with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox, can run them`;
 }
 function runtimeOptionsOf(configuration) {
   return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };

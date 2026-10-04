@@ -270,6 +270,14 @@ const answerFields = (unit: 'finding' | 'check'): string =>
 const scratchRule = 'Write logs and every other temporary file under your scratch directory, never in the repository.';
 
 /**
+ * What an editor in Codex's unelevated Windows sandbox is told it cannot
+ * run, and how it validates instead (R6 of the Codex sandbox). Added to
+ * the task, not to a role prompt, and only for such an editor, so no
+ * other run's prompts change.
+ */
+export const unelevatedSandboxRule = 'Your shell runs in Codex\'s unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.';
+
+/**
  * The warning a fixer gets when the tree may already hold part of its
  * work, naming the ids an earlier attempt of the unit left recorded edits
  * for (R20 of the fix pass), whose commits take the message the fixer
@@ -332,6 +340,8 @@ export interface FixerTaskInput {
   readonly unfinished: readonly string[];
   /** The checks that failed before any fixer edited the tree (R24). */
   readonly baselineFailures: readonly BaselineFailure[];
+  /** Whether the fixer runs in Codex's unelevated Windows sandbox, so its task says what cannot run there (R6 of the Codex sandbox). */
+  readonly unelevatedSandbox: boolean;
 }
 
 const fileList = (files: readonly string[]): string => (files.length === 0 ? '(none)' : files.map((file) => `- ${file}`).join('\n'));
@@ -374,6 +384,7 @@ export function fixerTask(input: FixerTaskInput): string {
     '',
     checksBlock(input.checks, input.baselineFailures),
     '',
+    ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
     snapshotBlock(input.snapshotCommand, 'finding'),
     '',
     ...(input.mayHoldWork ? [earlierWork('finding', input.unfinished), ''] : []),
@@ -410,6 +421,8 @@ export interface RepairTaskInput {
   readonly mayHoldWork: boolean;
   /** The checks an earlier attempt of the repair left recorded edits for. */
   readonly unfinished: readonly string[];
+  /** Whether the repair worker runs in Codex's unelevated Windows sandbox, so its task says what cannot run there (R6 of the Codex sandbox). */
+  readonly unelevatedSandbox: boolean;
 }
 
 /** One stream's tail, fenced so the output cannot close the fence. */
@@ -451,6 +464,7 @@ export function repairTask(input: RepairTaskInput): string {
     '',
     checksBlock(input.allChecks),
     '',
+    ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
     snapshotBlock(input.snapshotCommand, 'check'),
     '',
     ...(input.mayHoldWork ? [earlierWork('check', input.unfinished), ''] : []),

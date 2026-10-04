@@ -39,7 +39,7 @@ import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
-import { readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
+import { editorsUnderUnelevatedSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
@@ -329,6 +329,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     const configuration = state.review!.configuration;
     // The runtimes the workers launch on, with the options the run pinned, however long ago it was configured.
     const runtimes = options.runtimes(runtimeOptionsOf(configuration));
+    // Said before the first worker of every invocation, so the operator knows before paying for a fix run whose editors cannot run the build (R5 of the Codex sandbox).
+    const unelevatedEditors = editorsUnderUnelevatedSandbox(configuration, platform);
+    if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, options.worktree, content.match, log);
     state = reenterPhase(checkpoint, state, log);
@@ -475,6 +478,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             evidence: checkpoint.evidence,
             newScratch: () => join(scratchBase, randomUUID()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
+            unelevatedEditors,
           };
           for (const unit of step.units) {
             const invocation = invocationFor(unit, context);
@@ -557,6 +561,16 @@ async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: 
   const entry = inFlight.get(name)!;
   inFlight.delete(name);
   return { settled, startedAt: entry.startedAt };
+}
+
+/**
+ * The warning a fix run whose editors work in Codex's unelevated Windows
+ * sandbox prints at the start of every invocation (R5 of the Codex
+ * sandbox): what its editors cannot run, and the two settings a run can
+ * be started with instead.
+ */
+export function unelevatedEditorsWarning(runId: string): string {
+  return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; a run started with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox, can run them`;
 }
 
 /**
