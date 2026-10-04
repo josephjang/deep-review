@@ -13,7 +13,7 @@ import { isSettled, unsettledKinds, type CheckFlags, type CheckHint } from './ch
 import type { ReviewerAuthorship } from './conventions.ts';
 import { StructuralCheckError } from './errors.ts';
 import { requireNoNul, resolveReportedPath, resolvingPath } from './fix-answer.ts';
-import type { RepoLookup } from './locations.ts';
+import { normalizeFileName, type RepoLookup } from './locations.ts';
 import type { SurveyorCheckOutput, SurveyorOutput } from './schemas.ts';
 import { checkKinds, type CheckKind, type UserRulesSetting } from './vocabulary.ts';
 
@@ -107,6 +107,35 @@ function offeredFile(offered: readonly string[], raw: string, what: string): str
   return offered.find((path) => resolvingPath(what, raw, () => canonicalPath(path)) === named) ?? null;
 }
 
+/**
+ * The rules files a coding assistant reads as governing the directory that
+ * holds them and everything below it, and nothing else. Any other source,
+ * such as `docs/contributing.md`, may govern the whole repository wherever
+ * it lives, so only the surveyor can say what it applies to.
+ */
+const directoryRulesFiles: ReadonlySet<string> = new Set(['AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md']);
+
+/**
+ * Refuse a rules file in a subdirectory that the answer lets govern more
+ * than the files at or below it (R8): with no paths it applies to, the
+ * scope block would present it as governing the whole repository. Its
+ * globs are compared by their leading directory, without regard to case,
+ * so a spelling the file system accepts is never refused.
+ */
+function requireDirectoryScope(path: string, appliesTo: readonly string[] | null): void {
+  const slash = path.lastIndexOf('/');
+  if (slash < 0 || !directoryRulesFiles.has(path.slice(slash + 1))) return;
+  const directory = path.slice(0, slash);
+  const reason = `The convention source ${JSON.stringify(path)} is a rules file in ${directory}, which governs only the files at or below it`;
+  if (appliesTo === null) throw new StructuralCheckError(`${reason}, and names no paths it applies to; name them, such as ${directory}/**`);
+  const below = (glob: string): boolean => {
+    const [name, prefix] = [normalizeFileName(glob).toLowerCase(), directory.toLowerCase()];
+    return name === prefix || name.startsWith(`${prefix}/`);
+  };
+  const beyond = appliesTo.filter((glob) => !below(glob));
+  if (beyond.length > 0) throw new StructuralCheckError(`${reason}, and applies beyond it to ${beyond.map((glob) => JSON.stringify(glob)).join(', ')}`);
+}
+
 /** Refuse the second of two entries with one key. */
 function requireOnce(keys: readonly string[], what: string): void {
   const seen = new Set<string>();
@@ -122,7 +151,9 @@ function checkConventions(output: SurveyorOutput, context: SurveyCheckContext): 
   const conventions = output.conventions.map((source): ConventionSource => {
     if (source.level === 'repository') {
       if (source.grounds !== null) throw new StructuralCheckError(`The repository source ${JSON.stringify(source.path)} states grounds, which only a user-level source does`);
-      return { ...source, path: repositoryFile(context, source.path, 'The convention source') };
+      const path = repositoryFile(context, source.path, 'The convention source');
+      requireDirectoryScope(path, source.appliesTo);
+      return { ...source, path };
     }
     const path = offeredFile(offered, source.path, 'The user-level source');
     if (path === null) throw new StructuralCheckError(`The user-level source ${JSON.stringify(source.path)} is not a file the task offered${offered.length === 0 ? '; it offered none' : ''}`);
@@ -175,7 +206,8 @@ function checkSurveyedCheck(check: SurveyorCheckOutput, context: SurveyCheckCont
 /**
  * The surveyor's answer as the ledger records it, less the worker id, or
  * a `StructuralCheckError` that fails the attempt (R8): every path a
- * regular file of the repository or an offered user-level file, no
+ * regular file of the repository or an offered user-level file, a
+ * rules file in a subdirectory applied to no more than its directory, no
  * source or decision twice, every offered file decided once and listed
  * exactly when applied; in a fix run one check for each kind no flag
  * settles, and in a run without one no checks.

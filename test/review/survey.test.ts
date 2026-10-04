@@ -117,6 +117,16 @@ describe('checkSurveyAnswer', () => {
     refuses(answer({ userRules: [{ path: userFile, applied: false, reason: 'r' }], conventions: [{ path: 'docs/rules.md', level: 'repository', governs: 'g', appliesTo: null, grounds: null }] }), context(), /^The convention source "docs\/rules\.md" leads outside the repository$/);
   });
 
+  it('holds a rules file in a subdirectory to the files at or below it, and lets any other source govern the whole repository', () => {
+    const source = (path: string, appliesTo: string[] | null): SurveyorOutput['conventions'][number] => ({ path, level: 'repository', governs: 'g', appliesTo, grounds: null });
+    const decided = { userRules: [{ path: userFile, applied: false, reason: 'r' }] };
+    const accepted = checkSurveyAnswer(answer({ ...decided, conventions: [source('AGENTS.md', null), source('docs/contributing.md', null), source('src/AGENTS.md', ['src/**', './src/lib/*.ts', 'SRC/deep']), source('src/deep/CLAUDE.local.md', ['src/deep/**'])] }), context());
+    assert.deepEqual(accepted.conventions.map((entry) => [entry.path, entry.appliesTo]), [['AGENTS.md', null], ['docs/contributing.md', null], ['src/AGENTS.md', ['src/**', './src/lib/*.ts', 'SRC/deep']], ['src/deep/CLAUDE.local.md', ['src/deep/**']]]);
+    refuses(answer({ ...decided, conventions: [source('src/AGENTS.md', null)] }), context(), /^The convention source "src\/AGENTS\.md" is a rules file in src, which governs only the files at or below it, and names no paths it applies to; name them, such as src\/\*\*$/);
+    refuses(answer({ ...decided, conventions: [source('src\\deep\\CLAUDE.local.md', null)] }), context(), /rules file in src\/deep, which governs only the files at or below it/);
+    refuses(answer({ ...decided, conventions: [source('src/AGENTS.md', ['src/**', '**/*.ts', 'srcs/**'])] }), context(), /^The convention source "src\/AGENTS\.md" is a rules file in src, which governs only the files at or below it, and applies beyond it to "\*\*\/\*\.ts", "srcs\/\*\*"$/);
+  });
+
   it('holds the user-level decisions under judge to the offered files: each decided once, listed exactly when applied, with grounds', () => {
     const listed = { path: userFile, level: 'user' as const, governs: 'g', appliesTo: null, grounds: 'imported' };
     refuses(answer(), context(), /decides nothing about the offered user-level file/);
