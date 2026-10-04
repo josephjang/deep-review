@@ -26,7 +26,7 @@ describe('checkSurveyAnswer', () => {
   beforeEach(() => {
     sandbox = mkdtempSync(join(tmpdir(), 'deep-review-survey-'));
     worktree = join(sandbox, 'repo');
-    for (const path of ['AGENTS.md', 'docs/contributing.md', '.github/workflows/ci.yml', 'src/AGENTS.md', 'src/deep/CLAUDE.local.md', 'package.json', '.git/config']) {
+    for (const path of ['AGENTS.md', 'docs/contributing.md', '.github/workflows/ci.yml', '.claude/CLAUDE.md', 'src/AGENTS.md', 'src/deep/CLAUDE.local.md', 'package.json', '.git/config']) {
       mkdirSync(join(worktree, ...path.split('/').slice(0, -1)), { recursive: true });
       writeFileSync(join(worktree, ...path.split('/')), `# ${path}\n`);
     }
@@ -117,14 +117,12 @@ describe('checkSurveyAnswer', () => {
     refuses(answer({ userRules: [{ path: userFile, applied: false, reason: 'r' }], conventions: [{ path: 'docs/rules.md', level: 'repository', governs: 'g', appliesTo: null, grounds: null }] }), context(), /^The convention source "docs\/rules\.md" leads outside the repository$/);
   });
 
-  it('holds a rules file in a subdirectory to the files at or below it, and lets any other source govern the whole repository', () => {
+  it('leaves what a source applies to to the surveyor: a rules file in a subdirectory may govern the whole repository (R11)', () => {
+    // Claude Code reads .claude/CLAUDE.md as project-wide memory, and a root source may import a nested one; only the surveyor can tell.
     const source = (path: string, appliesTo: string[] | null): SurveyorOutput['conventions'][number] => ({ path, level: 'repository', governs: 'g', appliesTo, grounds: null });
     const decided = { userRules: [{ path: userFile, applied: false, reason: 'r' }] };
-    const accepted = checkSurveyAnswer(answer({ ...decided, conventions: [source('AGENTS.md', null), source('docs/contributing.md', null), source('src/AGENTS.md', ['src/**', './src/lib/*.ts', 'SRC/deep']), source('src/deep/CLAUDE.local.md', ['src/deep/**'])] }), context());
-    assert.deepEqual(accepted.conventions.map((entry) => [entry.path, entry.appliesTo]), [['AGENTS.md', null], ['docs/contributing.md', null], ['src/AGENTS.md', ['src/**', './src/lib/*.ts', 'SRC/deep']], ['src/deep/CLAUDE.local.md', ['src/deep/**']]]);
-    refuses(answer({ ...decided, conventions: [source('src/AGENTS.md', null)] }), context(), /^The convention source "src\/AGENTS\.md" is a rules file in src, which governs only the files at or below it, and names no paths it applies to; name them, such as src\/\*\*$/);
-    refuses(answer({ ...decided, conventions: [source('src\\deep\\CLAUDE.local.md', null)] }), context(), /rules file in src\/deep, which governs only the files at or below it/);
-    refuses(answer({ ...decided, conventions: [source('src/AGENTS.md', ['src/**', '**/*.ts', 'srcs/**'])] }), context(), /^The convention source "src\/AGENTS\.md" is a rules file in src, which governs only the files at or below it, and applies beyond it to "\*\*\/\*\.ts", "srcs\/\*\*"$/);
+    const checked = checkSurveyAnswer(answer({ ...decided, conventions: [source('.claude/CLAUDE.md', null), source('src/deep/CLAUDE.local.md', null), source('src/AGENTS.md', ['**/*.ts'])] }), context());
+    assert.deepEqual(checked.conventions.map((entry) => [entry.path, entry.appliesTo]), [['.claude/CLAUDE.md', null], ['src/deep/CLAUDE.local.md', null], ['src/AGENTS.md', ['**/*.ts']]]);
   });
 
   it('holds the user-level decisions under judge to the offered files: each decided once, listed exactly when applied, with grounds', () => {

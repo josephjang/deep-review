@@ -158,9 +158,7 @@ contributing guide.
 - **R8: An answer the engine cannot use is refused whole.** A convention
   source or a command's source that is not a regular file inside the
   repository (or one of the user-level files the engine offered, named
-  by its absolute path), a rules file for coding assistants in a
-  subdirectory said to govern more than the files at or below it, a
-  command for a kind a flag settled, a missing kind, or a command that
+  by its absolute path), a command for a kind a flag settled, a missing kind, or a command that
   is empty, spans more than one line or holds a NUL character fails the
   attempt, and the surveyor gets its one fresh retry as every role
   does. So does a path the file system cannot resolve: an odd path from
@@ -192,13 +190,12 @@ contributing guide.
   whether it was stated or taken from a hint, and the report shows
   which. No command reaches the checks without passing through the
   surveyor's answer or a flag. Lock files of two package managers are no
-  longer refused: the hint says they are ambiguous. No engine code
-  chooses a run's convention sources by file name, apart from the
-  user-level two of R3. Two places still name `AGENTS.md`, `CLAUDE.md`
-  and `CLAUDE.local.md`: R8's check, which holds one in a subdirectory
-  to that directory, and a run configured before the survey existed,
-  which on resuming lists them as the engine that configured it did
-  (R12).
+  longer refused: the hint says they are ambiguous. No engine code lists
+  rules files by name, apart from the user-level two of R3: which files
+  are sources, and what each applies to, is the surveyor's answer. The
+  one exception is a run configured before the survey existed, which on
+  resuming lists `AGENTS.md`, `CLAUDE.md` and `CLAUDE.local.md` as the
+  engine that configured it did (R12).
 - **R12: An older ledger still opens and folds.** A run recorded before
   this change, with its checks planned by rule and no survey, folds
   under the new engine as it did. Events whose payload changes get a new

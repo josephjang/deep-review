@@ -167,13 +167,6 @@ whole (`StructuralCheckError`, so a failed attempt) when:
   only when it is absolute, compared with every link followed, so a
   relative one names none rather than whatever it would resolve to from
   the directory the engine runs in;
-- a repository source named `AGENTS.md`, `CLAUDE.md` or
-  `CLAUDE.local.md` in a subdirectory has `appliesTo` null, or a glob
-  that, compared without regard to case, neither is that directory nor
-  names a path below it: such a file governs only the files at or below
-  it, and with no globs the scope block would present it as governing
-  the whole repository. Any other source may govern the whole
-  repository wherever it lives;
 - `userRules` does not cover the offered files once each, or disagrees
   with `conventions` on whether one is applied, or an applied one has no
   `grounds`; under `ignore` and `apply` no file is offered, so any
