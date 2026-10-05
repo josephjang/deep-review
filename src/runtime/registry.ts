@@ -12,7 +12,7 @@ const namePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
  * flag, the role policy entry's `windowsSandbox`, and the ledger's `codex`
  * field of `review.configured@4` with the options pinned from it; the
  * frozen ledger schema and its fold spell the name as a literal, since they
- * cannot consult an adapter. The Codex sandbox proposal records why.
+ * cannot consult an adapter. TD5 of the Codex sandbox design records why.
  */
 export class RuntimeRegistry {
   readonly #adapters = new Map<string, RuntimeAdapter>();
