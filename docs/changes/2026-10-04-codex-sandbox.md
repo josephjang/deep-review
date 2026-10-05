@@ -122,7 +122,11 @@ every machine has it.
 - R4: Under `elevated` the Codex adapter sets
   `PSExecutionPolicyPreference=RemoteSigned` in the worker's environment
   unless the variable is already set. Under `unelevated` and for an
-  unsandboxed editor the environment is as today.
+  unsandboxed editor the environment is as today. (Amended 2026-10-05.)
+  That holds except for the search path, which R11 spells `PATH` under
+  every value, so no value leaves a worker's environment exactly as it
+  was; the execution policy is still set only under `elevated`, and
+  there in one spelling (see the departures under Verification).
 - R5: When a fix run's value is `unelevated`, `review` prints one warning
   before the first worker starts: editors cannot run tools that start
   processes through Node, which includes most build and test commands,
