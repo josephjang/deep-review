@@ -254,11 +254,14 @@ const unsurveyed = { survey: { userRules: 'apply' as const } };
 
 /**
  * The Codex Windows sandbox of a run whose configuration predates version
- * 4: the engine ran every Codex worker under the unelevated one then, and
- * no worker of another runtime under any (R3 of the Codex sandbox). The
- * fold cannot tell the platform the run was on, so a Codex run recorded
- * elsewhere reads as unelevated too, which the adapter applies only on
- * Windows.
+ * 4 (R3 of the Codex sandbox): unelevated for a Codex run, the adapter's
+ * default and the one `deep-review review` ran its workers under then,
+ * and none for a run of another runtime. The ledger did not record the
+ * sandbox, so a run a library caller started on an adapter built with
+ * the elevated one reads as unelevated too. Nor can the fold tell the
+ * platform the run was on, so a Codex run recorded elsewhere reads as
+ * unelevated as well, which the adapter and `pinnedWindowsSandbox` apply
+ * only on Windows.
  */
 const unpinnedCodex = (runtime: string): Pick<ReviewConfiguration, 'codex'> => ({ codex: runtime === 'codex' ? { windowsSandbox: 'unelevated' } : null });
 
