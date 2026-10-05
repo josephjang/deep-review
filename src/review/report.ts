@@ -8,7 +8,7 @@
  * and Changed files (fix-report.ts), Refuted at verification, Statistics
  * and Limitations.
  */
-import type { ScopeState, Spend } from '../checkpoint/events.ts';
+import type { ReviewConfiguration, ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
@@ -18,10 +18,12 @@ import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
-import type { WindowsSandbox } from '../runtime/codex.ts';
+
+/** A Codex Windows sandbox as the ledger records it, which the report renders from rather than from the adapter's vocabulary. */
+type PinnedWindowsSandbox = NonNullable<ReviewConfiguration['codex']>['windowsSandbox'];
 
 /** How the header names the Codex Windows sandbox a run pinned; `none` says what it means for each kind of worker, since it differs. */
-const codexSandboxWords: Readonly<Record<WindowsSandbox, string>> = {
+const codexSandboxWords: Readonly<Record<PinnedWindowsSandbox, string>> = {
   unelevated: 'unelevated',
   elevated: 'elevated',
   none: 'none (workers that edit ran in no sandbox, workers that read under unelevated)',
