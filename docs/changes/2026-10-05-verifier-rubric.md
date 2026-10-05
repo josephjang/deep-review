@@ -238,8 +238,9 @@ wording of the rubric can change that; it is named under Non-Goals.
   unchanged byte for byte, and every test that pins that section or the
   place of the rubric below `lead-verify.md` passes unchanged.
 - R9: One commit changes what the two fragments say and nothing else
-  under `roles/`, carries the tests of R3, R5, R6 and R7, each checked
-  to fail on the fragments as they are today, and the rebuilt `dist/`,
+  under `roles/`, carries the tests of R3, R5, R6 and R7 and one that
+  holds the text to the shape R1, R2 and R4 give it, each checked to
+  fail on the fragments as they are today, and the rebuilt `dist/`,
   whose copy of `roles/` changes with them. `npm run check` and
   `npm run verify` pass. The seven roles whose prompt and hash change
   are recorded under Verification.
@@ -401,7 +402,7 @@ wording of the rubric can change that; it is named under Non-Goals.
   over what was already read. The title stays because
   `step3-verdicts.md` names it.
 
-- **D13: Unified form.** The technical side is two fragments, four
+- **D13: Unified form.** The technical side is two fragments, six
   tests and a rebuild. What needs room is the evidence, and it has it
   under Verification.
 
@@ -648,16 +649,15 @@ both reviews had started and before any verdict of theirs was compared.
   the recorded prompts do: the verifiers that refuted `FOOTGUNS-4`
   probed it with a local name and saw no difference, and the
   adjudicator found one with a module-level function; `SCAN-7` is the
-  comment that D14 was then decided on. Both keep pytest `DESIGN-10`, as every
-  sample does, Codex as a narrowed claim sent to a fixer. Claude Code
-  alone drops hono
-  `DUPLICATION-8` and `DUPLICATION-1`, two design candidates their
-  adjudicators called close. Codex alone holds hono `DUPLICATION-2` for
-  the author. Both hold hono `ALTITUDE-1` for the author, naming a
-  change a caller could observe, where the adjudicator saw no decision
-  to make; with it the new text holds 4 candidates on Claude Code and 2
-  on Codex that are labeled as needing no decision, against 2 and 3,
-  and none, under the recorded prompts.
+  comment that D14 was then decided on. Both keep pytest `DESIGN-10`,
+  as every sample does, Codex as a narrowed claim sent to a fixer.
+  Claude Code alone drops hono `DUPLICATION-8` and `DUPLICATION-1`, two
+  design candidates their adjudicators called close. Codex alone holds
+  hono `DUPLICATION-2` for the author. Both hold hono `ALTITUDE-1` for
+  the author, naming a change a caller could observe, where the
+  adjudicator saw no decision to make; with it the new text holds 4
+  candidates on Claude Code and 2 on Codex that are labeled as needing
+  no decision, against 2 and 3, and none, under the recorded prompts.
 - **The author's note.** Claude Code's evidence carries
   `Needs the author:` on 13 of the 38 candidates it keeps: on 4 of the
   10 correctness candidates labeled as the author's and on none of the
@@ -673,8 +673,84 @@ both reviews had started and before any verdict of theirs was compared.
   once the limit had reset, and the replay now names every group pass
   that went unverified and exits 1.
 
-Not run yet. The fragments are not in `roles/`: nothing under `roles/`,
-`dist/` or `test/` has changed for this proposal, so R1 to R9 are open,
-and `npm run check` and `npm run verify` have not run against the new
-text. R11 has not run. The paragraph of D14 has not been written into
-the text or replayed.
+The change as committed, checked on 2026-10-06 on the same machine, Node
+26.10.0, against `72d4326`.
+
+- **The fragments (R1, R8).** `roles/fragments/rubrics.md` is 12731
+  bytes, 207 lines, SHA-256
+  `d200332f95a86431c3151c022195de0abe992ad2518c96ab2e6f5c28fe9747bc`.
+  With the seven lines of D14's paragraph and the blank line after them
+  taken out it is byte for byte the measured third rewrite
+  (`3aa303c8`, above); the comparison was made on the file as written
+  into `roles/`. `lead-verify.md` is the measured fragment
+  (`d4229b89`). The three grade definitions of the `CONVENTIONS`
+  rubric, 974 bytes, are those of `72d4326`.
+- **The tests (R2 to R7, R9).** Six are new. Two, beside the routing
+  tests, hold R3: every angle is named in the first lines of exactly
+  one rubric, and what those lines say of `CONFIRMED` and `PLAUSIBLE`
+  is what `routeOf` does for each angle named. Four, among the role
+  pins, hold the order of the sections and the shape of the two graded
+  rubrics (R1, R2, R4); the limit of the evidence line, by parsing with
+  `verifierOutputSchema` an answer at the limit and one a character
+  past it (R5); the four rules of R6; and the absence of the postures
+  from all twenty-one prompts (R7). All six fail on the fragments of
+  `72d4326` and pass on the new ones. No test that existed changed,
+  and those that pin the `CONVENTIONS` section and the rubric's place
+  below `lead-verify.md` pass as they were (R8).
+- **Check and build (R9).** `npm run check` passes: lint, typecheck
+  and 1529 tests, of which 1510 pass and 19 skip, the same 19 as before
+  the change. `npm run build` changed two files in each of
+  `dist/claude` and `dist/codex`, the copies of the two fragments
+  under `engine/roles/fragments/`, and nothing else, and
+  `npm run verify` matches both. Seven prompts changed, each by 3630
+  bytes, and the other fourteen are those of `72d4326`:
+
+  | Role | Bytes at `72d4326` | Bytes | SHA-256 |
+  |---|---|---|---|
+  | triage | 24750 | 28380 | `dafaf2d3c57eecc2e0765c0dbf26cf29c8fee3157ca17e6dac9c4e63202c8e8f` |
+  | finder-SCAN | 12805 | 16435 | `3ad8478160c971c8c6dc6af9240729e6ad9c7583af92e3201a7e904922911e50` |
+  | deduplication | 15951 | 19581 | `7571c485b9c9a57d7179db0d1f0f3fa55b6bd9580bb283ead85907dd01326688` |
+  | verifier | 15951 | 19581 | `7571c485b9c9a57d7179db0d1f0f3fa55b6bd9580bb283ead85907dd01326688` |
+  | sweep | 23245 | 26875 | `0fe7434981737dacc9d3689747d372869824b89c56cb8666b3266a305f00fe88` |
+  | merge-rank | 13615 | 17245 | `7a891d802927250b0802b624eea3a88c129c1bd11bd6d2b78266062c2fdcb99e` |
+  | test-assessment | 29053 | 32683 | `bd82379c64406c8a37b262153bbb72124b00ad9753429336ef625db26ce61951` |
+
+- **Whole reviews (R11).** One read-only review on each runtime under
+  the new roles, of the two changes of R10, so that each stands beside
+  the review of the same change under the roles of `a79010f`. Both
+  reached a report with every worker completed at its first attempt, no
+  angle left out and no group unverified.
+
+  | | pytest on Claude Code, before | after | hono on Codex, before | after |
+  |---|---|---|---|---|
+  | Candidates from the triage | 7 | 11 | 4 | 4 |
+  | Candidates from the nine finders | 41 | 41 | 22 | 22 |
+  | Candidates from the sweep | 1 | 3 | 3 | 1 |
+  | Candidates verified, after deduplication | 21 | 32 | 26 | 21 |
+  | C / P / R | 12 / 5 / 4 | 23 / 7 / 2 | 20 / 6 / 0 | 9 / 9 / 3 |
+  | Findings ranked | 12 | 16 | 24 | 18 |
+  | Workers | 19 | 23 | 22 | 21 |
+  | Cost, time | 6.18 USD, 10 min | 8.59 USD, 12 min | 16 min | 11 min |
+
+  Two runs of the finders never return the same candidates, so the two
+  columns of a review are not the same candidates graded twice, and
+  none of the new ones is labeled. What the table can say is that no
+  phase broke and none collapsed: the nine finders, which do not carry
+  the rubric, returned as many candidates as before, and the triage
+  and the sweep, which do, returned more on one review and as many or
+  fewer on the other. On Codex the verdicts moved as the replay of R10
+  said they would. On Claude Code the verifier confirmed 23 of 32 and
+  refuted 2, where it had confirmed 12 of 21 and refuted 4; the replay
+  of R10 graded those 21 as before under the third rewrite, so the
+  difference lies in the candidates or in the paragraph of D14, and
+  this run cannot tell which. Its verifiers cost 3.09 USD for 8 groups,
+  where 5 groups had cost 1.53.
+- **A first look at D14.** In the review on Claude Code three
+  candidates say that a statement about the code is false: a sentence
+  of the changelog entry, a comment and a docstring, all three from the
+  triage and all three confirmed. The earlier review of the same change
+  had one, `SCAN-7`, refuted. The review of hono on Codex has none.
+
+Not run. The paragraph of D14 has not been replayed on recorded
+candidates or scored against labels, by the author's decision to measure
+it later; `SCAN-7` of the pytest review is the first case for it.

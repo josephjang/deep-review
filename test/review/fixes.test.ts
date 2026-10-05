@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
 import { batchesOf, planFixes, planSecondRound, routeOf, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
 import type { ReportFinding } from '../../src/review/state.ts';
 import { angles, type Angle, type Verdict } from '../../src/review/vocabulary.ts';
+import { fragmentsDirectoryName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
 /** A candidate located at `file`, or unlocated when `file` is null with `raw` as the finder spelled it. */
 function candidate(id: string, angle: Angle, file: string | null, raw = file ?? 'nowhere.ts'): CandidateState {
@@ -42,6 +45,52 @@ describe('routeOf', () => {
   it('routes by the primary\'s angle, not a member\'s', () => {
     assert.equal(routeOf(finding(candidate('DESIGN-1', 'DESIGN', 'a.ts'), 'PLAUSIBLE', [candidate('RIPPLE-1', 'RIPPLE', 'a.ts')])), 'held');
     assert.equal(routeOf(finding(candidate('RIPPLE-1', 'RIPPLE', 'a.ts'), 'PLAUSIBLE', [candidate('DESIGN-1', 'DESIGN', 'a.ts')])), 'fixer');
+  });
+});
+
+describe('what the rubrics say a grade does next (R3 of the verifier rubric)', () => {
+  const text = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
+
+  /**
+   * Each rubric the verifier grades by: its heading, where it says a
+   * `CONFIRMED` and a `PLAUSIBLE` candidate go, and the words that say so.
+   * The engine routes by `routeOf` alone, so the words are true only while
+   * `routeOf` agrees for every angle the rubric names.
+   */
+  const rubrics = [
+    { heading: '### Rubric for the correctness & cost angles', confirmed: 'fixer', plausible: 'fixer', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
+    { heading: '### Rubric for the design & cleanup angles', confirmed: 'fixer', plausible: 'held', says: 'CONFIRMED is applied by a fixer without asking. PLAUSIBLE is put to the author as a question.' },
+    { heading: '### Rubric for the CONVENTIONS angle', confirmed: 'fixer', plausible: 'fixer', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
+  ] as const;
+
+  /** A rubric's first paragraph on one line: the text under its heading, up to the first blank line. */
+  const opening = (heading: string): string => {
+    const start = text.indexOf(`${heading}\n\n`);
+    assert.notEqual(start, -1, `no rubric is headed "${heading}"`);
+    const body = text.slice(start + heading.length + 2);
+    return body.slice(0, body.indexOf('\n\n')).replace(/\s+/g, ' ');
+  };
+
+  /** The angles a paragraph names, each in backticks. */
+  const namedIn = (paragraph: string): Angle[] => angles.filter((angle) => paragraph.includes(`\`${angle}\``));
+
+  it('names every angle in the first lines of exactly one rubric', () => {
+    const named = rubrics.flatMap(({ heading }) => namedIn(opening(heading)));
+    assert.deepEqual([...named].sort(), [...angles].sort());
+  });
+
+  it('says where CONFIRMED and PLAUSIBLE lead and that REFUTED removes, and routeOf leads there for every angle the rubric names', () => {
+    for (const { heading, confirmed, plausible, says } of rubrics) {
+      const paragraph = opening(heading);
+      assert.ok(paragraph.includes(says), `${heading}: its first lines do not say "${says}"`);
+      assert.match(paragraph, /REFUTED removes (the candidate|it)\./, heading);
+      const named = namedIn(paragraph);
+      assert.ok(named.length > 0, `${heading} names no angle`);
+      for (const angle of named) {
+        assert.equal(routeOf(finding(candidate('X-1', angle, 'a.ts'), 'CONFIRMED')), confirmed, `${heading}: CONFIRMED ${angle}`);
+        assert.equal(routeOf(finding(candidate('X-1', angle, 'a.ts'), 'PLAUSIBLE')), plausible, `${heading}: PLAUSIBLE ${angle}`);
+      }
+    }
   });
 });
 

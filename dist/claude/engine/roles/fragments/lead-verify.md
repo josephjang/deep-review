@@ -4,8 +4,7 @@ design. Use the rubric matching each candidate's angle, and return exactly
 one verdict per candidate plus one line of evidence citing the lines that
 justify it.
 
-**CONFIRMED, PLAUSIBLE and REFUTED are routing labels, not confidence
-levels.** REFUTED is the only one that deletes a finding, and the split
-between the other two decides whether the fix is applied without asking or
-the question is put to the author. Read them below as instructions about
-what happens next, not as how sure you feel.
+**CONFIRMED, PLAUSIBLE and REFUTED say what happens next, not how sure
+you feel.** REFUTED is the only one that removes a candidate. What the
+other two do differs by rubric, and each rubric says so in its first
+lines.

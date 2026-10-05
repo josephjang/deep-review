@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { fixerOutputSchema, surveyorCheckSchema, surveyorOutputSchema } from '../../src/review/schemas.ts';
-import { fixStatuses, validationMethods } from '../../src/review/vocabulary.ts';
+import { fixerOutputSchema, surveyorCheckSchema, surveyorOutputSchema, verifierOutputSchema } from '../../src/review/schemas.ts';
+import { fixStatuses, validationMethods, verdicts } from '../../src/review/vocabulary.ts';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
 /** Every role the engine knows, in manifest order: the surveyor, the ten finder angles and the phase roles around them. */
@@ -355,6 +355,85 @@ describe('the repository\'s roles/', () => {
     assert.match(verifier.prompt, /the candidate is marked `outside the change`/);
     assert.match(verifier.prompt, /whose file names no file of the\s+repository, or whose line lies past that\s+file's end, is kept and marked `unlocated`/);
     assert.doesNotMatch(verifier.prompt, /matches no\s+changed path/);
+  });
+
+  it('gives the rules every rubric shares first, then each rubric as checks, grades and what separates them (R1, R2, R4 of the verifier rubric)', () => {
+    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
+    // The first section keeps the name the auditor's verdicts call the gate by, whatever stands between its two halves.
+    const headings = [...rubric.matchAll(/^### (.+)$/gm)].map((match) => match[1]!);
+    const expected = [/^All rubrics .+ verify before you judge$/, /^Rubric for the correctness & cost angles$/, /^Rubric for the design & cleanup angles$/, /^Rubric for the CONVENTIONS angle$/];
+    assert.equal(headings.length, expected.length, headings.join(' | '));
+    expected.forEach((pattern, index) => assert.match(headings[index]!, pattern));
+
+    const between = (from: string, to: string): string => rubric.slice(rubric.indexOf(from), rubric.indexOf(to));
+    // What every table relies on: the claim as written and how it may be narrowed, the check against the candidate, answers from the code.
+    const shared = between('### All rubrics', '### Rubric for the correctness & cost angles').replace(/\s+/g, ' ');
+    for (const rule of [
+      '**Grade the claim as written.**',
+      'open the evidence line with `Narrowed to:` and the statement',
+      'It never replaces the problem',
+      '**Try to break it before you grade it.**',
+      'Every table has an `Against` check',
+      '**Answer from the code.**',
+      'say which check and grade PLAUSIBLE',
+    ]) assert.ok(shared.includes(rule), `the shared rules do not say "${rule}"`);
+
+    const graded: readonly [name: string, text: string][] = [
+      ['correctness & cost', between('### Rubric for the correctness & cost angles', '### Rubric for the design & cleanup angles')],
+      ['design & cleanup', between('### Rubric for the design & cleanup angles', '### Rubric for the CONVENTIONS angle')],
+    ];
+    for (const [name, text] of graded) {
+      assert.match(text, /^\| Check \| Question \| How to answer \|$/m, `${name}: no table of checks`);
+      assert.match(text, /^\| Against \|/m, `${name}: no check against the candidate`);
+      assert.match(text, /^\| Grade \|.+\|$/m, `${name}: no table of grades`);
+      for (const verdict of verdicts) assert.match(text, new RegExp(`^\\| ${verdict} \\|`, 'm'), `${name}: no row for ${verdict}`);
+      assert.match(text, /^What separates the grades:$/m, `${name}: no statement of what separates the grades`);
+      assert.match(text, /^Each side of each line:$/m, `${name}: no examples on each side`);
+    }
+  });
+
+  it('states the evidence line\'s limit as the verifier\'s answer schema has it (R5 of the verifier rubric)', () => {
+    // An answer whose evidence is longer fails its schema and costs the group one of its two attempts, so the rubric's number must be the schema's.
+    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8').replace(/\s+/g, ' ');
+    const stated = /It holds at most (\d+) characters/.exec(rubric);
+    assert.ok(stated, 'the rubric states no limit for the evidence line');
+    const limit = Number(stated[1]);
+    const answer = (length: number): unknown => ({ verdicts: [{ index: 0, verdict: 'CONFIRMED', evidence: 'x'.repeat(length) }] });
+    assert.equal(verifierOutputSchema.safeParse(answer(limit)).success, true, `the schema refuses ${String(limit)} characters`);
+    assert.equal(verifierOutputSchema.safeParse(answer(limit + 1)).success, false, `the schema accepts ${String(limit + 1)} characters`);
+    // The form the line takes: the answers in the table's order, closed by the one that separates the grade from its neighbour.
+    assert.ok(rubric.includes('ends with the one answer that separates the grade from the neighbouring one: `Not CONFIRMED: ...`, `Not REFUTED: ...`'));
+    assert.ok(rubric.includes('add `Needs the author:` and the choice. That note never changes the grade.'));
+  });
+
+  it('answers in the correctness rubric the four questions the author decided (R6 of the verifier rubric)', () => {
+    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
+    const correctness = rubric.slice(rubric.indexOf('### Rubric for the correctness & cost angles'), rubric.indexOf('### Rubric for the design & cleanup angles')).replace(/\s+/g, ' ');
+    // An intended behavior that a candidate calls wrong stays, for the author (D7).
+    assert.ok(correctness.includes('**Deliberate is not refuted.**'));
+    assert.ok(correctness.includes('the candidate stays: it may be saying the intent is wrong, and that is the author\'s to decide'));
+    // A published library's public interface has callers outside the repository; code only the repository calls does not (D8).
+    assert.ok(correctness.includes('In a library published for others to use, a public interface has callers outside the repository'));
+    assert.ok(correctness.includes('In code only this repository calls, a state none of its callers produces is REFUTED'));
+    // Refuting takes an established fact, never an argument (D9).
+    assert.ok(correctness.includes('**Refuting takes a fact you established**'));
+    assert.ok(correctness.includes('An argument that the effect ought to be harmless or the cost ought to be small is not that fact: grade PLAUSIBLE'));
+    // A comment that is false about the code is a wrong result, though nothing fails when the code runs (D14).
+    assert.ok(correctness.includes('**A false comment is a wrong result.**'));
+    assert.ok(correctness.includes('the user is the reader and the wrong result is the false statement'));
+    assert.ok(correctness.includes('It is REFUTED when the statement is true of those lines, or is only less exact than it could be and says nothing false.'));
+  });
+
+  it('states no posture toward a grade in any prompt, and sends the verifier to each rubric for what its grades do (R7 of the verifier rubric)', () => {
+    // A posture ("PLAUSIBLE by default") and a table that disagree on a candidate leave the choice to the reader; each boundary is a named check instead.
+    for (const role of roles) {
+      const prompt = role.prompt.replace(/\s+/g, ' ');
+      for (const posture of ['PLAUSIBLE by default', 'Do not default to PLAUSIBLE', 'never quietly dropped']) assert.ok(!prompt.includes(posture), `${role.key} says "${posture}"`);
+      // True of the design rubric only: for every other angle both grades go to a fixer (routeOf).
+      assert.ok(!prompt.includes('the split between the other two decides whether the fix is applied without asking'), role.key);
+    }
+    const leadVerify = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'lead-verify.md'), 'utf8').replace(/\s+/g, ' ');
+    assert.ok(leadVerify.includes('What the other two do differs by rubric, and each rubric says so in its first lines.'));
   });
 
   it('names no mechanism of one runtime in any prompt', () => {
