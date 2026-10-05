@@ -75,6 +75,15 @@ export interface ReviewOptions {
    * pinned option changes; and once the run is configured, with the
    * options its configuration names, for the runtimes its workers launch
    * on: `defaultRuntimes` for the engine's own.
+   *
+   * The function must build the runtimes with the options it is given. A
+   * caller with options of its own merges them in rather than replacing
+   * them, as `(pinned) => defaultRuntimes({ ...pinned, codex: { ...pinned.codex, provider } })`
+   * does. TypeScript also accepts a function that takes no argument, but
+   * one such as `() => defaultRuntimes({ codex: { provider } })` drops the
+   * pinned `windowsSandbox`, so its Codex workers run under the adapter's
+   * default `unelevated` while the ledger and the report name the pinned
+   * value. Nothing here can tell: an adapter does not say how it confines.
    */
   readonly runtimes: (options: RuntimeOptions) => RuntimeRegistry;
   readonly runtime: string;

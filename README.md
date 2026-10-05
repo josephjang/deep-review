@@ -91,13 +91,16 @@ schema, stdout, stderr and the answer are evidence. The outcome is
 listed beside it without changing it. A worker writes temporary files to
 its own scratch directory under the system's temporary directory, never
 into the reviewed tree or the git directory, and at a timeout its whole
-process tree is killed. On Windows, Codex workers use Codex's unelevated
-sandbox unless the adapter is built with another `windowsSandbox`:
-`elevated`, which needs Codex's one-time elevated setup on the machine
-and runs every worker with PowerShell's execution policy at
-`RemoteSigned` unless `PSExecutionPolicyPreference` is already set, or
-`none`, which runs a worker with edit access in no sandbox and every
-other worker read-only under the unelevated one.
+process tree is killed. On Windows, the Codex adapter confines its
+workers by the `windowsSandbox` it is built with: `unelevated`, Codex's
+unelevated sandbox; `elevated`, which needs Codex's one-time elevated
+setup on the machine and runs every worker with PowerShell's execution
+policy at `RemoteSigned` unless `PSExecutionPolicyPreference` is already
+set; or `none`, which runs a worker with edit access in no sandbox and
+every other worker read-only under the unelevated one. An adapter built
+with none named uses `unelevated`, but a review always builds it with
+the value its run pinned, which is `none` unless the flag or the policy
+names another (see the fix pass below).
 
 Workers never read the user's own Claude Code settings or Codex config,
 so credentials and providers kept only there are given to the adapters
@@ -109,7 +112,19 @@ a Codex `provider` is `{ id, baseUrl, envKey?, queryParams? }`, with the
 API key in the inherited variable `envKey` names. Anything else is
 refused by name, and neither can change the pinned effort. The ledger
 does not record them, so a continuation runs with whatever options its
-caller builds the runtimes with. See
+caller builds the runtimes with. A review takes its runtimes as a
+function, which it calls with the options its run pinned, such as
+`{ codex: { windowsSandbox } }`, and which must build them with those
+options, merging in its own rather than replacing them:
+
+```ts
+runtimes: (pinned) => defaultRuntimes({ ...pinned, codex: { ...pinned.codex, provider } }),
+```
+
+A function that ignores its argument, such as
+`() => defaultRuntimes({ codex: { provider } })`, still type-checks,
+but its Codex workers fall back to `unelevated` while the ledger and the
+report name the pinned value. See
 `docs/changes/2026-09-27-runtime-adapter.requirements.md` and its design.
 
 ## The role prompts
@@ -297,7 +312,9 @@ warning. Each value needs and gives up something:
   `pnpm` shims start, unless `PSExecutionPolicyPreference` is set
   already or a group policy overrides it, and its surveyor looks tools
   up with PowerShell's `Get-Command`, since `where.exe` finds nothing as
-  that user. Two limits come from Codex and have no fix on this side:
+  that user, and then as `.\<tool>` for a script in the repository root
+  such as `gradlew.bat`, which `Get-Command` does not look in by itself
+  but `cmd.exe` runs. Two limits come from Codex and have no fix on this side:
   Codex logs the sandbox user on without a profile, so `os.userInfo()`
   throws and every tool that calls it, `tsx` among them, fails
   ([openai/codex#42753](https://github.com/openai/codex/issues/42753));
