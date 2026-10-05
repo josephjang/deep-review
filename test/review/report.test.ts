@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
-import { configured, ranked, reference, reported, statistics, triaged, worker } from '../helpers/review-history.ts';
+import { configurationV3, configured, History, ranked, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -51,6 +51,12 @@ describe('renderReport', () => {
     }
     assert.doesNotMatch(renderReport(pinning(null), { engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Codex run off Windows');
     assert.doesNotMatch(renderReport(state, { engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Claude Code run');
+  });
+
+  it('names the unelevated sandbox for a Codex run configured before the setting existed only when its worktree is on Windows (R3, R7 of the Codex sandbox)', () => {
+    const codexAt = (worktree: string): string => renderReport(new History().add('run.created', { worktree }).add('scope.captured', scope).add('review.configured', { ...configurationV3, runtime: 'codex', runBudgetUsd: null }, 3).fold(), { engine: '0.0.0+dev', statistics });
+    assert.doesNotMatch(codexAt('/home/me/repo'), /Windows sandbox/, 'a run off Windows names no Windows sandbox');
+    for (const worktree of ['C:\\repo', '\\\\server\\share\\repo']) assert.match(codexAt(worktree), /^Runtime: codex [^\n]*\nCodex Windows sandbox: unelevated\nModels: /m, worktree);
   });
 
   it('says when no finding survived, lists the refuted, and names a run created by another engine', () => {

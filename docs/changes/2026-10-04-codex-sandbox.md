@@ -118,7 +118,13 @@ every machine has it.
   the platform is not Windows. A resume uses the recorded value; a resume
   that passes the flag with a different value is refused by name, as other
   pinned settings are. A run configured at version 3 or earlier folds to
-  `unelevated`.
+  `unelevated`. (Amended 2026-10-05.) That holds for a Codex run on
+  Windows only: the fold reads the platform from the worktree
+  `run.created` recorded, resolved, so a Codex run whose worktree is
+  rooted at `/` folds to `null`, as a version 4 run off Windows records,
+  and any other worktree (a drive letter, a UNC share, or a relative
+  path a library caller passed) folds to `unelevated`. A run of another
+  runtime folds to `null` wherever it ran.
 - R4: Under `elevated` the Codex adapter sets
   `PSExecutionPolicyPreference=RemoteSigned` in the worker's environment
   unless the variable is already set. Under `unelevated` and for an
@@ -448,6 +454,12 @@ Run on the author's Windows 11 machine, Node 26.10.0:
   `schema-1-06`, a Codex run configured at version 3, folds to
   `unelevated` under the new engine, and the golden test now asserts
   that of every older fixture's Codex run, and `null` of every other.
+  (Amended 2026-10-05.) Since the fold reads the platform from the
+  worktree (R3), that sixth run, recorded at `/fixture/unsurveyed`,
+  folds to `null`, and so does the same run in `schema-1-07`, which was
+  regenerated with nothing else changed; the golden test asserts
+  `unelevated` of an older fixture's Codex run only when its worktree is
+  not rooted at `/`, and the fold's own tests hold the Windows shapes.
 - What the suite proves of each requirement: the adapter's command
   lines and environment for every value, fresh and continued, on Windows
   and elsewhere (R2, R4); the policy file's refusals and `resolvePolicy`
@@ -504,7 +516,16 @@ Departures and choices the proposal did not state:
   after the update, relaunches its workers under `unelevated`, and on
   Windows refuses `--codex-windows-sandbox elevated` as another value
   than the pinned one; abandoning it and starting again is the way to
-  keep `elevated`.
+  keep `elevated`. (Amended 2026-10-05, after review.) The first
+  sentence of this item was wrong: `run.created` records the worktree
+  resolved, rooted at `/` on macOS and Linux and at a drive letter or a
+  UNC share on Windows, so the fold does read the platform from it (R3).
+  A Codex run configured at version 3 or earlier off Windows folds to
+  `null`, and its report names no Windows sandbox in its header; the
+  accepted case of a report naming `unelevated` for a run made on macOS
+  or Linux no longer arises. A relative worktree, which only a library
+  caller could record, is read as Windows, the platform where a wrong
+  `null` would drop a sandbox the run had.
 - `review` takes a `platform` option, the process's by default, so the
   suite exercises the Windows cases on every runner of CI. (Amended
   2026-10-05.) The launcher builds each worker's command and environment

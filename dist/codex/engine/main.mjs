@@ -20983,11 +20983,11 @@ function configure(state, payload, event, surveyed) {
   return withReview(state, review2, event);
 }
 var unsurveyed = { survey: { userRules: "apply" } };
-var unpinnedCodex = (runtime) => ({ codex: runtime === "codex" ? { windowsSandbox: "unelevated" } : null });
+var unpinnedCodex = (runtime, worktree) => ({ codex: runtime === "codex" && !worktree.startsWith("/") ? { windowsSandbox: "unelevated" } : null });
 var configured = (state, payload, event) => configure(state, payload, event, true);
-var configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime) }, event, true);
-var configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
-var configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
+var configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? "") }, event, true);
+var configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? "") }, event, false);
+var configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? "") }, event, false);
 var limitsChanged = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   if (review2.report !== null) throw invalid(event, "changes its limits after its report");

@@ -254,28 +254,31 @@ const unsurveyed = { survey: { userRules: 'apply' as const } };
 
 /**
  * The Codex Windows sandbox of a run whose configuration predates version
- * 4 (R3 of the Codex sandbox): unelevated for a Codex run, the adapter's
- * default and the one `deep-review review` ran its workers under then,
- * and none for a run of another runtime. The ledger did not record the
- * sandbox, so a run a library caller started on an adapter built with
- * the elevated one reads as unelevated too. Nor can the fold tell the
- * platform the run was on, so a Codex run recorded elsewhere reads as
- * unelevated as well, which the adapter and `pinnedWindowsSandbox` apply
- * only on Windows.
+ * 4 (R3 of the Codex sandbox): unelevated for a Codex run on Windows, the
+ * adapter's default and the one `deep-review review` ran its workers
+ * under then, and none for a Codex run elsewhere, where the adapter
+ * applies no Windows sandbox, or a run of another runtime. The ledger did
+ * not record the platform, so the fold reads it from the run's
+ * `worktree`, which `run.created` records resolved: a path rooted at `/`
+ * is a run off Windows, and anything else (a drive letter, a UNC share,
+ * or a relative path a library caller passed on Windows) reads as
+ * Windows. Nor did the ledger record the sandbox, so a run a library
+ * caller started on an adapter built with the elevated one reads as
+ * unelevated too.
  */
-const unpinnedCodex = (runtime: string): Pick<ReviewConfiguration, 'codex'> => ({ codex: runtime === 'codex' ? { windowsSandbox: 'unelevated' } : null });
+const unpinnedCodex = (runtime: string, worktree: string): Pick<ReviewConfiguration, 'codex'> => ({ codex: runtime === 'codex' && !worktree.startsWith('/') ? { windowsSandbox: 'unelevated' } : null });
 
 /** Version 4 of the configuration: a run that is surveyed and pins its Codex Windows sandbox. */
 const configured: Reducer<ReviewConfiguration> = (state, payload, event) => configure(state, payload, event, true);
 
 /** Version 3 of the configuration, recorded before the Codex Windows sandbox was pinned: a run that is surveyed. */
-const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime) }, event, true);
+const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, true);
 
 /** Version 2 of the configuration, recorded before the survey existed: a run whose survey is skipped. */
-const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
+const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, false);
 
 /** Version 1 of the configuration, recorded before the fix pass existed: a run without it, and without the survey. */
-const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime) }, event, false);
+const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, false);
 
 /** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
 const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
