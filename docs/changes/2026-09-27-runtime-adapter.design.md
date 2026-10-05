@@ -122,6 +122,12 @@ adapter that reads a stream by line never needs it as one text.
 exactly one result: an answer, a budget stop with its reason, or a
 failure with its reason, so no adapter can report an answer and an error
 at once.
+(Amended 2026-10-05, by the Codex sandbox change,
+`2026-10-04-codex-sandbox.md`.) The plan also carries `runtimeOptions`,
+what a run pinned for the worker's runtime, which the launcher takes
+from its `pinned` option by the adapter's name and the adapter applies
+over the options it was built with: today the Codex Windows sandbox,
+which the Codex adapter validates and Claude Code's ignores.
 `src/runtime/registry.ts` maps a name to its adapter and throws on a
 duplicate registration; `src/runtime/runtimes.ts` registers the two the
 engine ships, `src/runtime/claude.ts` and `src/runtime/codex.ts`.

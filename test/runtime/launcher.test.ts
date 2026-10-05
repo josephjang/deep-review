@@ -747,6 +747,53 @@ describe('runWorker', () => {
       assert.equal(box.recorded().environment.TMPDIR, scratch.replaceAll('\\', '/'), "Git Bash's spelling on Windows");
     });
   });
+
+  describe('the options a run pinned', () => {
+    /** The `windows.sandbox` settings on the command line the fake last recorded. */
+    const windowsSandboxArgs = (): string[] => box.recorded().argv.filter((arg) => arg.startsWith('windows.sandbox='));
+    /** Each launch's runtime and the `runtimeOptions` its plan carried, in order. */
+    let handed: [string, unknown][];
+    const spying = (adapter: RuntimeAdapter, name = adapter.name): RuntimeAdapter => ({
+      ...adapter,
+      name,
+      command: (invocation, plan) => {
+        handed.push([name, plan.runtimeOptions]);
+        return adapter.command(invocation, plan);
+      },
+    });
+    beforeEach(() => {
+      handed = [];
+    });
+
+    it('hands each adapter its own entry, by name, and null when there is none', async () => {
+      const runtimes = new RuntimeRegistry([spying(claudeAdapter), spying(codexAdapter)]);
+      const pinned = { codex: { windowsSandbox: 'elevated' } } as const;
+      await box.run(box.codex(), {}, { runtimes, pinned, platform: 'win32' });
+      await box.run(box.claude(), {}, { runtimes, pinned, platform: 'win32' });
+      await box.run(box.codex(), {}, { runtimes, platform: 'win32' });
+      assert.deepEqual(handed, [['codex', { windowsSandbox: 'elevated' }], ['claude', null], ['codex', null]]);
+    });
+
+    it('launches a Codex worker under the pinned sandbox over the one its adapter was built with', async () => {
+      // The engine's default Codex adapter is built unelevated.
+      await box.run(box.codex(), {}, { pinned: { codex: { windowsSandbox: 'elevated' } }, platform: 'win32' });
+      assert.deepEqual(windowsSandboxArgs(), ['windows.sandbox="elevated"']);
+      await box.run(box.codex(), {}, { pinned: {}, platform: 'win32' });
+      assert.deepEqual(windowsSandboxArgs(), ['windows.sandbox="unelevated"'], 'the adapter\'s own when the run pins none');
+    });
+
+    it('hands nothing an object inherits to a runtime named after it', async () => {
+      const runtimes = new RuntimeRegistry([spying(claudeAdapter, 'constructor')]);
+      await box.run(box.claude({ runtime: 'constructor' }), {}, { runtimes, pinned: {} });
+      assert.deepEqual(handed, [['constructor', null]]);
+    });
+
+    it('launches nothing when the adapter refuses its pinned entry', async () => {
+      const pinned = { codex: { windowsSandbox: 'sandboxed' } } as unknown as { codex: { windowsSandbox: 'none' } };
+      await assert.rejects(box.run(box.codex(), {}, { pinned, platform: 'win32' }), /Unknown pinned Codex Windows sandbox "sandboxed"/);
+      assert.ok(box.untouched(), 'nothing recorded, frozen or created');
+    });
+  });
 });
 
 describe('workerVerdict', () => {

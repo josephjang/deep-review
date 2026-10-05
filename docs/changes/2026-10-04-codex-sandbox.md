@@ -473,7 +473,11 @@ Run on the author's Windows 11 machine, Node 26.10.0:
   a resume, the fragment in the fixer's and the repair worker's prompts
   and in no reader's, and neither under `elevated`, `none`, another
   platform or Claude Code (R5, R6); the report's line for each value and
-  its absence (R7).
+  its absence (R7). (Amended 2026-10-05, after review.) Since the
+  runtimes are a registry again (see the first departure below), the
+  suite proves instead that every worker is launched with the pinned
+  value, including over runtimes the caller built with another, and
+  that the Codex adapter refuses a pinned value it does not understand.
 
 Departures and choices the proposal did not state:
 
@@ -482,7 +486,24 @@ Departures and choices the proposal did not state:
   resolves the policy, preflights the executable and reads usage, none
   of which the sandbox changes, and one with the run's pinned value for
   the workers, so a resume launches on what the run pinned however the
-  command was invoked.
+  command was invoked. (Amended 2026-10-05, after review.) That choice
+  is reversed. A function that took no argument still type-checked, and
+  its Codex workers ran under the adapter's default `unelevated` while
+  the ledger, the report and the warning named the pinned value; nothing
+  in the engine could tell. `ReviewOptions.runtimes` is a
+  `RuntimeRegistry` again, as before this change, and the controller
+  passes what the run pinned to every launch instead: `runWorker` takes
+  a `pinned` option, a `PinnedRuntimeOptions` keyed by runtime name, and
+  hands each adapter its own entry as `LaunchPlan.runtimeOptions`. The
+  Codex adapter applies a pinned `windowsSandbox` over the one it was
+  built with and refuses an entry it does not understand before the
+  worker runs, so the sandbox the ledger names is the one every worker
+  runs under whatever registry the caller passes. The accepted cost: the
+  sandbox now has two binding times, the adapter's construction default
+  for a caller that launches workers itself and the run's pin for a
+  review, and the plan carries a value only its own adapter reads. The
+  provider and the Claude Code settings stay construction options, since
+  the ledger records neither.
 - Under `none` an editor gets no `sandbox_workspace_write.writable_roots`,
   which has no meaning outside `workspace-write`, and the command keeps
   `windows.sandbox="unelevated"`, as the probe that ran

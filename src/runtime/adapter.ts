@@ -84,6 +84,16 @@ export interface LaunchPlan {
   readonly platform: NodeJS.Platform;
   /** The caller's environment, which the adapter adjusts for its runtime. */
   readonly environment: NodeJS.ProcessEnv;
+  /**
+   * The run's pinned options for this runtime, its entry of
+   * `PinnedRuntimeOptions`, applied over the adapter's own for this launch
+   * only; null or absent when the run pins none. Untyped here because each
+   * runtime's shape is its own: an adapter a run can pin options for
+   * validates its entry and refuses one it does not understand, rather than
+   * run its worker otherwise than the ledger says; one with nothing to pin,
+   * such as Claude Code's, ignores it.
+   */
+  readonly runtimeOptions?: unknown;
 }
 
 /** The runtime's part of a command line: what follows the executable and its literal arguments, and the environment. */

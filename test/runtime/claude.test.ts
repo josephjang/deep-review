@@ -238,6 +238,13 @@ describe('Claude settings option', () => {
     assert.ok(runtimes.get('codex').command({ ...invocation(), runtime: 'codex', effort: 'high' }, plan({ platform: 'win32' })).args.includes('windows.sandbox="elevated"'));
     assert.throws(() => defaultRuntimes({ claude: { settings: { hooks: {} } as never } }), /unknown key "hooks"/);
   });
+
+  it('ignores the options a plan pins, since a run pins nothing for Claude Code', () => {
+    for (const platform of ['win32', 'linux'] as const) {
+      const own = claudeAdapter.command(invocation(), plan({ platform }));
+      for (const runtimeOptions of [null, { windowsSandbox: 'elevated' }, 'anything']) assert.deepEqual(claudeAdapter.command(invocation(), plan({ platform, runtimeOptions })), own, platform);
+    }
+  });
 });
 
 describe('claudeEnvironment', () => {

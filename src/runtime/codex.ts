@@ -168,9 +168,10 @@ export interface CodexOptions {
    * Unelevated by default, so a caller that builds the adapter and names
    * nothing, such as the smoke script, keeps every worker confined on any
    * machine, though a fixer there cannot run a Node toolchain's build or
-   * tests. Applied only on Windows. A review does not rely on this default:
-   * it passes the value the run pinned, from the flag or the policy, which
-   * ships `none` (D4 of docs/changes/2026-10-04-codex-sandbox.md).
+   * tests. Applied only on Windows, and only to a launch whose plan pins no
+   * sandbox: a review pins the value its run recorded, from the flag or the
+   * policy, which ships `none` (D4 of docs/changes/2026-10-04-codex-sandbox.md),
+   * on every launch as `LaunchPlan.runtimeOptions`, and that wins over this.
    */
   readonly windowsSandbox?: WindowsSandbox;
   /** Codex's built-in OpenAI provider by default. */
@@ -249,7 +250,7 @@ interface Confinement {
 }
 
 /**
- * How the adapter's `windowsSandbox` confines one worker, every value's
+ * How a worker's Windows sandbox confines it, every value's
  * meaning in one place. A reader runs `read-only` and an editor
  * `workspace-write` with the scratch directory writable, under the
  * chosen Windows sandbox on Windows and under none elsewhere. `none`
@@ -267,9 +268,10 @@ function confinementOf(invocation: Invocation, plan: Pick<LaunchPlan, 'platform'
 }
 
 /**
- * The Codex command line for one worker. `windowsSandbox` is the adapter's
- * choice, applied only on Windows, as `confinementOf` reads it, and the
- * environment the adapter adjusts for it. `provider`, when there is one,
+ * The Codex command line for one worker. `windowsSandbox` is the one the
+ * worker runs under, the run's pin or else the adapter's own, applied only
+ * on Windows, as `confinementOf` reads it, and the environment the adapter
+ * adjusts for it. `provider`, when there is one,
  * is chosen for a fresh worker and a continuation alike.
  */
 export function codexCommand(invocation: Invocation, plan: LaunchPlan, windowsSandbox: WindowsSandbox, provider: CodexProvider | null = null): WorkerCommand {
@@ -547,8 +549,29 @@ export function createCodexAdapter(options: CodexOptions = {}): RuntimeAdapter {
   const provider = options.provider === undefined ? null : checkedProvider(options.provider);
   return {
     ...codexRuntime,
-    command: (invocation, plan) => codexCommand(invocation, plan, windowsSandbox, provider),
+    // The sandbox the run pinned, when it pinned one, wins over the one the adapter was built with.
+    command: (invocation, plan) => codexCommand(invocation, plan, launchSandbox(plan.runtimeOptions) ?? windowsSandbox, provider),
   };
+}
+
+const pinnedCodexKeys: readonly string[] = ['windowsSandbox'];
+
+/**
+ * The Windows sandbox a run pinned for one launch, from the plan's
+ * `runtimeOptions`, or null when it pinned none. A value that is not an
+ * object holding at most a known `windowsSandbox` is refused, before the
+ * worker runs, rather than ignored: the worker would otherwise run under
+ * the adapter's own sandbox while the ledger names another.
+ */
+function launchSandbox(value: unknown): WindowsSandbox | null {
+  if (value === undefined || value === null) return null;
+  if (!isObject(value)) throw new Error(`Pinned Codex options must be an object, not ${Array.isArray(value) ? 'an array' : typeof value}`);
+  const unknown = unknownKeys(value, pinnedCodexKeys);
+  if (unknown.length > 0) throw new Error(`Unknown pinned Codex option ${JSON.stringify(unknown[0])}; a run pins only ${pinnedCodexKeys.join(', ')}`);
+  const { windowsSandbox } = value;
+  if (windowsSandbox === undefined) return null;
+  if (!isWindowsSandbox(windowsSandbox)) throw new Error(`Unknown pinned Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(', ')}`);
+  return windowsSandbox;
 }
 
 /** The name the Codex adapter registers under, which a review's Codex-only settings are keyed by. */

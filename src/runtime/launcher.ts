@@ -14,7 +14,7 @@ import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts'
 import { preflight } from './preflight.ts';
 import { notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
-import { defaultRuntimes } from './runtimes.ts';
+import { defaultRuntimes, type PinnedRuntimeOptions } from './runtimes.ts';
 import { checkpointScratchKey, chooseScratch, defaultScratchRoot } from './scratch.ts';
 
 /** Longest error text the ledger records; the full story is in the frozen stdout and stderr. */
@@ -80,6 +80,12 @@ export interface RunWorkerOptions {
    * The spawn and the kill stay this process's whatever it names.
    */
   readonly platform?: NodeJS.Platform;
+  /**
+   * What the run pinned for each runtime; none by default. The worker's
+   * adapter gets its own entry as `LaunchPlan.runtimeOptions`, applied over
+   * the options it was built with.
+   */
+  readonly pinned?: PinnedRuntimeOptions;
 }
 
 /**
@@ -127,6 +133,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     finalMessageFile: join(io, 'final-message'),
     platform: options.platform ?? process.platform,
     environment: inherited,
+    runtimeOptions: pinnedFor(options.pinned, adapter.name),
   };
   const command = adapter.command(invocation, plan);
   const environment = workerEnvironment(command.environment, scratch, plan.platform);
@@ -234,6 +241,16 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
  */
 function qualify(adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv): Promise<string> {
   return preflight(adapter, invocation.executable, invocation.executableArgs, environment);
+}
+
+/**
+ * The entry `pinned` holds for the runtime named, or null when it holds
+ * none. Only an own entry counts, so a runtime named after something every
+ * object inherits, such as `constructor`, is not handed that.
+ */
+function pinnedFor(pinned: PinnedRuntimeOptions | undefined, runtime: string): unknown {
+  if (pinned === undefined || !Object.hasOwn(pinned, runtime)) return null;
+  return (pinned as Readonly<Record<string, unknown>>)[runtime] ?? null;
 }
 
 /** Refuse, by name, anything the invocation needs that the runtime cannot do (R2, TD4). */

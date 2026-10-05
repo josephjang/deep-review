@@ -314,8 +314,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
     const outcome = await runReview({
       checkpoint,
       worktree,
-      // Built again with the Codex Windows sandbox the run pins, for the runtimes its workers launch on.
-      runtimes: defaultRuntimes,
+      runtimes,
       runtime,
       // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned.
       executable: () => resolveExecutable(values.executable ?? runtime, io.environment, process.platform, io.cwd),
