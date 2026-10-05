@@ -366,7 +366,10 @@ gate, as `CodexSandboxOffline`:
   Rebuilt under `C:\Users\Public`, a directory the user cannot list made
   `where.exe` and Node's `readdirSync` of it fail, and a grant of
   `(S,RD,X,RA)` on that directory alone made both work, while a file in
-  it stayed unreadable.
+  it stayed unreadable. (Amended 2026-10-05, after review.) The five
+  folders named are not the whole grant: the last probe below found it
+  on every folder directly under the profile except `.ssh` and
+  `.config`, added when the elevated sandbox starts.
 - `Get-Command -CommandType Application <tool>` in Windows PowerShell
   finds `pnpm.cmd`, `node` and `git` with exit code 0 and a missing tool
   with 1, under `elevated` and `unelevated` alike.
@@ -382,6 +385,15 @@ gate, as `CodexSandboxOffline`:
   while `pnpm format:check`, a script, passes; launched with the parent's
   search path spelled `PATH` alone, the child sees one variable and
   `pnpm exec biome --version` prints its version.
+- (Probed 2026-10-05 after review, codex-cli 0.160.0.) Starting `codex
+  sandbox -c 'sandbox_mode="read-only"' -c 'windows.sandbox="elevated"'`
+  added `CodexSandboxUsers:(OI)(CI)(RX)` to `C:\Users\<user>\.cargo`, a
+  folder made for the probe, and `Get-Command -CommandType Application`
+  then found a tool in it as `CodexSandboxOffline`; another new folder
+  under the profile behaved the same. After the probe every folder
+  directly under the profile carried that grant except `.ssh` and
+  `.config`, and the profile folder itself carried none. The grants
+  outlast the sandbox; how many of them predate the probe is not known.
 
 ## Risks
 
@@ -411,7 +423,18 @@ gate, as `CodexSandboxOffline`:
   that judges a name by a file on PATH, which the operator's PATH can
   satisfy with a WindowsApps alias the worker's drops, such as the
   `python` stub that only points at the Store when no Python is
-  installed.
+  installed. (Amended 2026-10-05, after review.) `~\.cargo\bin` was a
+  wrong example. On codex-cli 0.160.0, starting the elevated sandbox
+  grants `CodexSandboxUsers` read and execute on every folder directly
+  under the operator's profile except `.ssh` and `.config`, `.cargo`
+  and a newly made folder among them (see Evidence), so the surveyor
+  finds a tool there. What still blocks the survey with
+  `check-unavailable` though the engine could run the check is, under
+  `elevated`, a tool under one of those protected folders or in the
+  profile folder itself, and under every value, a tool reachable only
+  through a WindowsApps alias, which every worker's search path drops
+  (see the next risk). The workers cannot run those tools either. The
+  surveyor's answer stands, and `--check` remains the way past it.
 - Risk: (Added 2026-10-05, after review.) An editor that `none` runs in
   no sandbox loses the WindowsApps directories from its search path too,
   though it could launch what they hold, because R4 keeps its
