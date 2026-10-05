@@ -74,6 +74,12 @@ export interface RunWorkerOptions {
   readonly qualify?: (adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv) => Promise<string>;
   /** Where a worker's scratch directory is created when the invocation names none; `defaultScratchRoot()` by default. */
   readonly scratchRoot?: string;
+  /**
+   * The platform the worker's command and environment are built for: this
+   * process's by default, the one the worker runs on; another is a test's.
+   * The spawn and the kill stay this process's whatever it names.
+   */
+  readonly platform?: NodeJS.Platform;
 }
 
 /**
@@ -119,7 +125,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     schema,
     schemaFile: join(io, 'schema.json'),
     finalMessageFile: join(io, 'final-message'),
-    platform: process.platform,
+    platform: options.platform ?? process.platform,
     environment: inherited,
   };
   const command = adapter.command(invocation, plan);

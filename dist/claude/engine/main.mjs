@@ -23279,7 +23279,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     schema,
     schemaFile: join10(io, "schema.json"),
     finalMessageFile: join10(io, "final-message"),
-    platform: process.platform,
+    platform: options2.platform ?? process.platform,
     environment: inherited
   };
   const command = adapter.command(invocation, plan);
@@ -27515,7 +27515,7 @@ async function runReview(options2) {
             if (invocation.scratch !== void 0) prepareSnapshots(join23(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes, environment, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
+            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes, environment, platform, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise: promise2 });
           }
           break;

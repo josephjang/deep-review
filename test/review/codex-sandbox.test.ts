@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { findActiveRun, unelevatedEditorsWarning, type ReviewOptions } from '../../src/review/controller.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
@@ -137,6 +138,21 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     assert.equal(box.run().id, runId, 'the same run resumed');
     assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'elevated' }, 'the pin stands for a later resume on Windows');
     assert.ok(box.logs.includes(`--codex-windows-sandbox applies on Windows only; it is ignored on darwin, where every Codex worker of run ${runId} runs as without it`), box.logs.join('\n'));
+  });
+
+  /** The `windows.sandbox` settings on the command line of the last worker the fake recorded. */
+  const windowsSandboxArgs = (recordFile: string): string[] => (JSON.parse(readFileSync(recordFile, 'utf8')) as { argv: string[] }).argv.filter((arg) => arg.startsWith('windows.sandbox='));
+
+  it('builds the command of a worker for the platform the run is configured for: none named off Windows, whatever the host', async () => {
+    const recordFile = join(box.directory, 'record.json');
+    await box.review('codex', { runtimes, platform: 'linux' }, { FAKE_RECORD: recordFile });
+    assert.deepEqual(windowsSandboxArgs(recordFile), []);
+  });
+
+  it('builds the command of a worker for the platform the run is configured for: the pinned sandbox on Windows, whatever the host', async () => {
+    const recordFile = join(box.directory, 'record.json');
+    await box.review('codex', { runtimes, platform: 'win32', flags: { codexWindowsSandbox: 'elevated' } }, { FAKE_RECORD: recordFile });
+    assert.deepEqual(windowsSandboxArgs(recordFile), ['windows.sandbox="elevated"']);
   });
 });
 
