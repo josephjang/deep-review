@@ -78,10 +78,18 @@ describe('the survey task', () => {
   it('looks a tool up with Get-Command in place of where.exe under the elevated sandbox, and changes nothing else (R12 of the Codex sandbox)', () => {
     const plain = surveyTask({ ...input, platform: 'win32' });
     const elevated = surveyTask({ ...input, platform: 'win32', elevatedSandbox: true });
-    const lookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
+    const lookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` and, when that fails, the same with `.\\<tool>`, since `cmd.exe` also runs a script in the repository root such as `gradlew.bat`, where `Get-Command` does not look (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
     assert.equal(elevated, plain.replace('`where.exe <tool>`', lookup), 'the lookup is the one difference');
     assert.notEqual(elevated, plain);
     assert.equal(surveyTask({ ...input, elevatedSandbox: true }), surveyTask(input), 'off Windows there is no elevated sandbox to look around');
+  });
+
+  it('has the elevated surveyor look in the repository root too, where cmd.exe finds a script and Get-Command does not', () => {
+    // Probed on Windows 11 with zzprobe.bat in the current directory: `Get-Command -CommandType Application zzprobe`
+    // exits 1, the same with `.\zzprobe` exits 0 naming zzprobe.bat, and `cmd.exe /d /s /c zzprobe` runs it.
+    const elevated = surveyTask({ ...input, platform: 'win32', elevatedSandbox: true });
+    assert.match(elevated, /Application <tool>"` and, when that fails, the same with `\.\\<tool>`, since `cmd\.exe` also runs a script in the repository root/);
+    assert.doesNotMatch(surveyTask({ ...input, platform: 'win32' }), /repository root such as/, 'where.exe looks in the current directory itself');
   });
 
   it('quotes each --check command in a code span the command cannot close, and names a dropped kind', () => {

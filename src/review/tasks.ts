@@ -54,8 +54,11 @@ export const kindsToChooseLine = (input: Pick<SurveyTaskInput, 'fix' | 'unsettle
  * `where.exe` (R12 of the Codex sandbox): PowerShell's `Get-Command`
  * limited to applications, which finds what `cmd.exe` would run through
  * PATH and PATHEXT, and exits 1 when nothing is found, as the sandbox user.
+ * It does not search the current directory, which `cmd.exe` does first,
+ * so a script in the repository root such as `gradlew.bat` is looked up
+ * again as `.\<tool>`, which Get-Command resolves through PATHEXT there.
  */
-const elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
+const elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` and, when that fails, the same with `.\\<tool>`, since `cmd.exe` also runs a script in the repository root such as `gradlew.bat`, where `Get-Command` does not look (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
 
 /** How a check reaches its shell on a platform, and how a name is looked up as that shell resolves it, as the surveyor's sandbox lets it. */
 function shellOf(platform: NodeJS.Platform, elevatedSandbox: boolean): { readonly shell: string; readonly lookup: string } {
