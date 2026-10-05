@@ -459,7 +459,14 @@ Departures and choices the proposal did not state:
   fragment, and its resume takes any value of the flag with the note
   that it is ignored; its report would still name `unelevated` in its
   header, which is accepted as a case of runs already in flight when the
-  engine is updated.
+  engine is updated. (Amended 2026-10-05.) `unelevated` is what
+  `deep-review review` ran such a run under, but not necessarily what a
+  library caller did: the adapter could be built with `elevated` before
+  this change, and the ledger did not record it. Such a run, resumed
+  after the update, relaunches its workers under `unelevated`, and on
+  Windows refuses `--codex-windows-sandbox elevated` as another value
+  than the pinned one; abandoning it and starting again is the way to
+  keep `elevated`.
 - `review` takes a `platform` option, the process's by default, so the
   suite exercises the Windows cases on every runner of CI.
 
