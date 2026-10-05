@@ -324,7 +324,7 @@ warning. Each value needs and gives up something:
   `elevated`.
 
 The engine sets up neither the machine nor its package stores. See
-`docs/changes/2026-10-04-codex-sandbox.md`.
+`docs/changes/2026-10-04-codex-sandbox.requirements.md`.
 
 The report gains Fixes, Checks and Changed files, and beside it the
 engine writes a patch series, one patch per revision, rendered from the

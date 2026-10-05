@@ -170,8 +170,9 @@ export interface CodexOptions {
    * machine, though a fixer there cannot run a Node toolchain's build or
    * tests. Applied only on Windows, and only to a launch whose plan pins no
    * sandbox: a review pins the value its run recorded, from the flag or the
-   * policy, which ships `none` (D4 of docs/changes/2026-10-04-codex-sandbox.md),
-   * on every launch as `LaunchPlan.runtimeOptions`, and that wins over this.
+   * policy, which ships `none` (D4 of
+   * docs/changes/2026-10-04-codex-sandbox.requirements.md), on every launch
+   * as `LaunchPlan.runtimeOptions`, and that wins over this.
    */
   readonly windowsSandbox?: WindowsSandbox;
   /** Codex's built-in OpenAI provider by default. */
