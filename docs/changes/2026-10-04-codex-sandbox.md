@@ -139,7 +139,12 @@ every machine has it.
   probe, a test file run in one process) and recorded as `limited` with
   that reason otherwise; and that the engine runs the checks afterwards.
   In every other case the task does not carry it, and the prompts of
-  those runs keep their hashes.
+  those runs keep their hashes. (Amended 2026-10-05.) The fragment names
+  how a test file stays in one process, with the test runner's option
+  against a child per file and `node --test --test-isolation=none
+  <file>` as the example: by default `node --test <file>` runs the file
+  as a child through captured stdio (on Node 26.10 it sees
+  `NODE_TEST_CONTEXT=child-v8`), the spawn that fails there.
 - R7: The report's run section names the value for a Codex run on Windows.
 - R8: The cause is corrected where it is written: the comment on
   `windowsSandbox` in `src/runtime/codex.ts`, the README's sentence in the
