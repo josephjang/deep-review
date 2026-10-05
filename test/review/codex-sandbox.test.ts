@@ -93,9 +93,10 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     assert.deepEqual(built, [{}, {}], 'its workers launch with no sandbox option on Windows too');
   });
 
-  it('resumes a Codex run configured before the setting existed under the unelevated sandbox', async () => {
+  // Only a Windows worktree reads as a run on Windows, so the older run this stands in for exists only on a Windows host.
+  it('resumes a Codex run configured on Windows before the setting existed under the unelevated sandbox', { skip: process.platform !== 'win32' && 'only a Windows worktree folds to the unelevated sandbox' }, async () => {
     await codex({ flags: { codexWindowsSandbox: 'none' } });
-    // Stand in for an older engine: the same configuration at version 3, without the setting, on a run of its own.
+    // Stand in for an older engine on Windows: the same configuration at version 3, without the setting, on a run of its own.
     const pinned = { ...configured() };
     delete pinned.codex;
     const first = box.run();
@@ -112,7 +113,7 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
 
   it('names the flag as ignored, not refused, on the resume off Windows of a Codex run configured before the setting existed', async () => {
     await codex({ platform: 'linux' });
-    // Stand in for an older engine off Windows: the same configuration at version 3, without the setting, which folds to unelevated on any platform.
+    // Stand in for an older engine: the same configuration at version 3, without the setting, which folds to unelevated from a Windows worktree and to none from one rooted at /.
     const pinned = { ...configured() };
     delete pinned.codex;
     const first = box.run();
@@ -120,7 +121,7 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     const older = box.checkpoint.createRun({ worktree: box.repo });
     const captured = captureScope(box.checkpoint, older.id, { paths: [] });
     box.checkpoint.append(older.id, captured.lastSequence, [{ kind: 'review.configured', version: 3, payload: pinned }]);
-    assert.deepEqual(box.checkpoint.fold(older.id).review!.configuration.codex, { windowsSandbox: 'unelevated' }, 'the fold cannot tell the platform the run was on');
+    assert.deepEqual(box.checkpoint.fold(older.id).review!.configuration.codex, box.repo.startsWith('/') ? null : { windowsSandbox: 'unelevated' }, 'the fold reads the platform from the recorded worktree');
     for (const sandbox of ['none', 'elevated', 'unelevated'] as const) {
       const before = box.checkpoint.fold(older.id).lastSequence;
       assert.equal((await codex({ platform: 'linux', flags: { codexWindowsSandbox: sandbox } })).kind, 'blocked', sandbox);
@@ -128,7 +129,7 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     }
     const ignored = `--codex-windows-sandbox applies on Windows only; it is ignored on linux, where every Codex worker of run ${older.id} runs as without it`;
     assert.equal(box.logs.filter((line) => line === ignored).length, 3, box.logs.join('\n'));
-    assert.ok(!box.logs.some((line) => line.includes('pins no Codex Windows sandbox')), 'the run pinned one; it does not apply here');
+    assert.ok(!box.logs.some((line) => line.includes('pins no Codex Windows sandbox')), 'off Windows the flag is ignored for what the run pinned, not refused or named as a missing pin');
   });
 
   it('names the flag as ignored on the resume off Windows of a run configured on Windows', async () => {

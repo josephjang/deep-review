@@ -25,8 +25,8 @@ describe('the review fold', () => {
     assert.equal(review.report, null);
   });
 
-  it('folds the Codex Windows sandbox version 4 pinned, and reads an earlier Codex run as unelevated and any other run as pinning none (R3 of the Codex sandbox)', () => {
-    const configuredAt = (version: number, payload: Record<string, unknown>): ReviewState => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', payload, version).review();
+  it('folds the Codex Windows sandbox version 4 pinned, and reads an earlier Codex run on Windows as unelevated and any other run as pinning none (R3 of the Codex sandbox)', () => {
+    const configuredAt = (version: number, payload: Record<string, unknown>, worktree = 'C:\\w'): ReviewState => new History().add('run.created', { worktree }).add('scope.captured', scope).add('review.configured', payload, version).review();
     const codexV1 = { ...configurationV1, runtime: 'codex', runBudgetUsd: null };
     const codexV2 = { ...codexV1, fix: false, checks: null, fixes: null };
     const codexV3 = { ...codexV2, survey: { userRules: 'judge' } };
@@ -36,13 +36,17 @@ describe('the review fold', () => {
       assert.equal(review.phases.survey.status, 'pending', 'a version 4 run is surveyed');
     }
     assert.equal(configuredAt(4, { ...codexV3, codex: null }).configuration.codex, null, 'a Codex run off Windows');
-    const unelevated = { windowsSandbox: 'unelevated' };
-    assert.deepEqual(configuredAt(3, codexV3).configuration.codex, unelevated);
     assert.equal(configuredAt(3, codexV3).phases.survey.status, 'pending', 'a version 3 run is still surveyed');
-    assert.deepEqual(configuredAt(2, codexV2).configuration.codex, unelevated);
-    assert.deepEqual(configuredAt(1, codexV1).configuration.codex, unelevated);
-    for (const [version, payload] of [[1, configurationV1], [2, { ...configurationV1, fix: false, checks: null, fixes: null }], [3, { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' } }]] as const) {
-      assert.equal(configuredAt(version, payload).configuration.codex, null, `a Claude Code run at version ${String(version)}`);
+    // The ledger before version 4 records no platform: the fold reads it from the resolved worktree, where a path rooted at / is a run off Windows.
+    const unelevated = { windowsSandbox: 'unelevated' };
+    const claudeV2 = { ...configurationV1, fix: false, checks: null, fixes: null };
+    const legacy = [[1, codexV1, configurationV1], [2, codexV2, claudeV2], [3, codexV3, { ...claudeV2, survey: { userRules: 'judge' } }]] as const;
+    for (const [worktree, windows] of [['/w', false], ['C:\\w', true], ['\\\\srv\\share\\w', true]] as const) {
+      for (const [version, codex, claude] of legacy) {
+        const at = `version ${String(version)} run at ${worktree}`;
+        assert.deepEqual(configuredAt(version, codex, worktree).configuration.codex, windows ? unelevated : null, `a Codex ${at}`);
+        assert.equal(configuredAt(version, claude, worktree).configuration.codex, null, `a Claude Code ${at}`);
+      }
     }
   });
 

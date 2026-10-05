@@ -652,7 +652,9 @@ try {
     }, 3);
   });
   // A sixth run, read-only and left active, on Codex and configured at
-  // version 3, so it reads as a run under the unelevated Windows sandbox:
+  // version 3 from a worktree rooted at /, so it reads as a run off
+  // Windows that pins no Windows sandbox (a Windows worktree would read
+  // as one under the unelevated sandbox):
   // its policy applies the reviewer's own rules, its surveyor fails twice,
   // and the run goes on without the survey, the policy's file its one
   // convention source, so CONVENTIONS still runs.

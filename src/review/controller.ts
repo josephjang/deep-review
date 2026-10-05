@@ -726,7 +726,7 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
   }
   refuseInvocationFlags(context.adapter, context.flags);
   // How the run's workers are confined is pinned at configuration (R3 of the Codex sandbox): a resume asking for another confinement is refused, not silently given the pinned one.
-  // Off Windows no sandbox applies whatever the run pinned, so the flag is ignored there as a new run's is (R1); that includes a Codex run configured at version 3 or earlier, which folds to unelevated on any platform.
+  // Off Windows no sandbox applies whatever the run pinned, so the flag is ignored there as a new run's is (R1); that includes a Codex run configured at version 3 or earlier from a Windows worktree, which folds to unelevated.
   const sandbox = context.flags.codexWindowsSandbox;
   if (sandbox !== undefined) {
     const applied = pinnedWindowsSandbox(pinned, context.platform);
