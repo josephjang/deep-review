@@ -934,11 +934,12 @@ export const reviewConfiguredV4 = z.strictObject({
  * The configuration as the fold holds it, whichever version recorded it:
  * version 1 reads as a run without the fix pass; versions 1 and 2 as runs
  * that applied the reviewer's own rules, which the engine did when they
- * were recorded; and versions 1 to 3 of a Codex run as one under the
- * unelevated Windows sandbox, the adapter's default and the one
- * `deep-review review` ran then. A library caller could have built the
- * adapter with the elevated one; the ledger did not record which, so such
- * a run reads as unelevated too.
+ * were recorded; and versions 1 to 3 of a Codex run on Windows as one
+ * under the unelevated Windows sandbox, the adapter's default and the one
+ * `deep-review review` ran then, while one off Windows, whose recorded
+ * worktree is rooted at `/`, pins none. A library caller could have built
+ * the adapter with the elevated one; the ledger did not record which, so
+ * such a run reads as unelevated too.
  */
 export type ReviewConfiguration = z.infer<typeof reviewConfiguredV4>;
 

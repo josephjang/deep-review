@@ -6498,9 +6498,7 @@
           "survey": {
             "userRules": "apply"
           },
-          "codex": {
-            "windowsSandbox": "unelevated"
-          }
+          "codex": null
         },
         "limits": {
           "concurrency": 2,

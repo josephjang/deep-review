@@ -106,10 +106,11 @@ describe('golden checkpoints', () => {
             assert.deepEqual(review.configuration.survey, { userRules: 'apply' }, `${name} run ${String(index)} configuration.survey`);
             assert.equal(review.phases.survey.status, 'skipped', `${name} run ${String(index)} survey phase`);
           }
-          // A configuration recorded before the Codex Windows sandbox was pinned reads as unelevated for a Codex run, the only sandbox the engine used then, and as none for another runtime (R3 of the Codex sandbox).
+          // A configuration recorded before the Codex Windows sandbox was pinned reads as unelevated for a Codex run on Windows, the only sandbox the engine used there then, and as none for a Codex run whose worktree is rooted at / or for another runtime (R3 of the Codex sandbox).
           const recordedConfiguration = (recorded as { review?: { configuration?: object } | null }).review?.configuration;
           if (review !== null && recordedConfiguration !== undefined && !('codex' in recordedConfiguration)) {
-            assert.deepEqual(review.configuration.codex, review.configuration.runtime === 'codex' ? { windowsSandbox: 'unelevated' } : null, `${name} run ${String(index)} configuration.codex`);
+            const onWindows = !runs[index]!.worktree.startsWith('/');
+            assert.deepEqual(review.configuration.codex, review.configuration.runtime === 'codex' && onWindows ? { windowsSandbox: 'unelevated' } : null, `${name} run ${String(index)} configuration.codex`);
           }
         }
       }

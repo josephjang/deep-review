@@ -165,8 +165,10 @@ export function invocationFlagProblem(flags: Pick<PolicyFlags, 'concurrency' | '
  * The Windows sandbox that confines a run's workers on `platform` (R3 of
  * the Codex sandbox): the value the run pinned on Windows, and null on
  * another platform or for a run that pins none. The platform is asked as
- * well as the pinned value, since a Codex run configured before the value
- * was pinned folds to `unelevated` wherever it ran. Every question about
+ * well as the pinned value, since a run configured on Windows may be
+ * resumed elsewhere, where no Windows sandbox applies, and a run whose
+ * worktree is not rooted at `/` folds a configuration recorded before the
+ * value was pinned to `unelevated`. Every question about
  * how a run's workers are confined goes through this, so none can leave
  * the platform out.
  */
