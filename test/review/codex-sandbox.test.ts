@@ -241,7 +241,7 @@ describe('the surveyor of an elevated run (R12 of the Codex sandbox)', { timeout
 
   it('is told to look tools up with Get-Command, not where.exe', async () => {
     assert.equal((await box.review('codex', { platform: 'win32', fix: threeSettled, flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
-    assert.match(surveyorPrompt(), /, with `powershell\.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` \(not `where\.exe`/);
+    assert.match(surveyorPrompt(), /, with `powershell\.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` and, when that fails, the same with `\.\\<tool>`, since `cmd\.exe` also runs a script in the repository root[^\n]* \(not `where\.exe`/);
     assert.doesNotMatch(surveyorPrompt(), /with `where\.exe <tool>`/);
   });
 

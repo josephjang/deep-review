@@ -172,6 +172,15 @@ every machine has it.
   `where.exe`, which finds nothing as the sandbox user under a directory
   whose ancestors that user cannot list, such as anything in the
   operator's profile. Every other run's surveyor task is unchanged.
+  (Amended 2026-10-05.) `Get-Command` does not search the current
+  directory, which `cmd.exe` does before PATH, so when the lookup fails
+  the task has the surveyor try `.\<tool>` too: a check that starts with
+  a script in the repository root, such as `gradlew.bat`, `mvnw.cmd` or
+  `build.cmd`, is then not reported missing and does not block the
+  survey with `check-unavailable`. Like `where.exe`, the lookup does not
+  heed `NoDefaultCurrentDirectoryInExePath`, which keeps `cmd.exe` out of
+  the current directory when set; that gap is every value's, not
+  `elevated`'s.
 
 ## Decisions
 
@@ -346,6 +355,13 @@ gate, as `CodexSandboxOffline`:
 - `Get-Command -CommandType Application <tool>` in Windows PowerShell
   finds `pnpm.cmd`, `node` and `git` with exit code 0 and a missing tool
   with 1, under `elevated` and `unelevated` alike.
+- (Probed 2026-10-05 as the operator, in Windows PowerShell on Windows
+  11.) With `zzprobe.bat` in the current directory and not on PATH,
+  `Get-Command -CommandType Application zzprobe` exits 1, the same with
+  `.\zzprobe` exits 0 naming `zzprobe.bat`, `where.exe zzprobe` finds it,
+  and `cmd.exe /d /s /c zzprobe` runs it. With
+  `NoDefaultCurrentDirectoryInExePath=1`, `where.exe` still finds it and
+  `cmd.exe` does not.
 - The worker's process sees both `PATH` and `Path`. `pnpm exec biome
   --version` and `pnpm exec vitest --version` fail with "not recognized"
   while `pnpm format:check`, a script, passes; launched with the parent's
