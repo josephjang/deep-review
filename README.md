@@ -39,8 +39,10 @@ src/roles/               assembling each role's prompt from roles/
 src/review/              the review: policy, schemas, prompts, planner, controller, report, the survey's check of
                          its answer, and the fix pass's routing, expected tree, snapshots, patches and commit command
 src/review/checks/       the fix pass's checks: the manifest rules that hint the surveyor, running one
+src/replay/              replaying a recorded run's verifiers: the recorded prompt, the samples, their summary,
+                         and their score against labels
 src/cli.ts               the deep-review command: review, status, abandon, commit, snapshot
-scripts/                 build, fixture and smoke entry points
+scripts/                 build, fixture, smoke, replay and replay score entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
 test/fixtures/reports/   the report renderer's snapshots
@@ -417,6 +419,8 @@ npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   
 npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox unelevated|elevated|none]   # real runtimes, by hand
 npm run roles -- --output <dir>   # write every assembled role prompt to <dir> for reading
 npm run review -- review --runtime claude --last-commit [--fix]   # run the engine from the sources; also status, abandon and commit
+npm run replay -- --checkpoint <dir> --run <id> --tree <dir> --output <dir> --runtime <claude|codex>   # a recorded run's verifiers again, real runtimes, by hand
+npm run replay-score -- --results <results.json> --labels <labels.json>   # the replay's samples against labels; calls no model
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the
@@ -449,6 +453,48 @@ an effort level the runtime lacks, fails its runtime without stopping
 the other. It calls real models and costs real money (each Claude worker
 is capped at $0.50), and it keeps its temporary repository and checkpoint
 so every receipt can be read afterwards.
+
+`npm run replay` measures the verifier on what a real run recorded. It
+reads one run from a checkpoint, takes every verification group the run
+planned, and sends each the prompt its verifier was sent then to a fresh
+verifier on the runtime named, in a clean checkout of the commit the run
+reviewed. The prompt differs from the recorded bytes only in the
+repository's path, the directory its frozen blobs are read from and the
+launcher's scratch note. Each pass over the groups is a sample, kept in
+`results.json` beside the verdicts the run recorded; `summary.md` counts
+how every pair of samples agrees, by verdict and by what the verdict does
+to the candidate taken alone (to a fixer, held, dropped), and lists the
+candidates they disagree on with each sample's evidence. A later replay
+into the same output directory adds its samples, so the recorded runtime
+again says how stable a verdict is, and another runtime says how it
+judges the same candidates. `--role-text current` puts this checkout's
+verifier prompt in place of the recorded one, which measures an edit to
+the rubric without a whole run. A tree that is not the reviewed commit,
+unchanged, is refused. The checkpoint is only read, but give the replay a
+copy, placed at `<tree>/.git/deep-review-checkpoint` where the run
+recorded it, so the frozen blobs stay inside the worker's working
+directory as they were then; the replay records its own workers in a
+checkpoint under the output directory. It calls real models and costs
+real money: `--budget-usd` stops new launches at a spend, and
+`--dry-run` writes every prompt and launches nothing. A group whose
+verifier gives no verdicts in either attempt is recorded unverified, as
+a review records it, and the command then names every such group pass
+and exits 1: a sample that holds one, because a verifier timed out twice
+or the runtime reached a usage limit partway through, is not a pass over
+every candidate and must not be scored as one.
+
+Agreement says how alike two samples are, not which is right.
+`npm run replay-score` scores the samples against labels: a file, written
+by whoever adjudicated the candidates and never by the engine, that says
+of each labeled candidate whether its claim is real (`yes`, `no` or
+`unsure`) and, for a real one, whether acting on it needs no decision
+(`apply`) or one the author owns (`ask`), with the basis. A label asks
+for an outcome, dropped, to a fixer or held, and the score counts where a
+sample's verdict leads elsewhere: kept though not real, dropped though
+real, sent to a fixer though the author should be asked, held though it
+should be applied, over all labeled candidates and per class of angle. A
+candidate labeled `unsure` scores no sample. It reads the two files,
+calls no model and writes only what `--output` names.
 
 Never edit `dist/` by hand. See `AGENTS.md`.
 

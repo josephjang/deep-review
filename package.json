@@ -13,6 +13,8 @@
     "golden": "node scripts/golden-checkpoint.ts",
     "smoke": "node scripts/smoke-runtime.ts",
     "roles": "node scripts/roles.ts",
+    "replay": "node scripts/replay-verifier.ts",
+    "replay-score": "node scripts/score-replay.ts",
     "review": "node src/cli.ts",
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
