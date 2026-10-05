@@ -87,7 +87,13 @@ export interface ReviewOptions {
    */
   readonly runtimes: (options: RuntimeOptions) => RuntimeRegistry;
   readonly runtime: string;
-  /** The platform a run is configured for, which decides whether it pins a Codex Windows sandbox; this process's by default, the one its workers run on. */
+  /**
+   * The platform a run is configured for, which decides whether it pins a
+   * Codex Windows sandbox, and the one every worker's command and
+   * environment are built for; this process's by default, the one its
+   * workers run on. Another is a test's: the workers still spawn on this
+   * process's.
+   */
   readonly platform?: NodeJS.Platform;
   /**
    * The executable a run not yet configured pins: its path, or a function
@@ -495,7 +501,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes, environment, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
+            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes, environment, platform, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
               .then((receipt): Settled => ({ unit, receipt }), (error: unknown): Settled => ({ unit, error }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise });
           }
