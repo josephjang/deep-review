@@ -412,6 +412,22 @@ gate, as `CodexSandboxOffline`:
   satisfy with a WindowsApps alias the worker's drops, such as the
   `python` stub that only points at the Store when no Python is
   installed.
+- Risk: (Added 2026-10-05, after review.) An editor that `none` runs in
+  no sandbox loses the WindowsApps directories from its search path too,
+  though it could launch what they hold, because R4 keeps its
+  environment as it was. So a tool reachable only through a Store
+  app-execution alias, such as Python installed from the Store or
+  winget, runs for the engine's checks, which run as the operator, but
+  not for the fixer, which records its validation as `limited`.
+  Accepted, so that every worker gets one search path and one shell:
+  Windows PowerShell 5.1 where PowerShell 7 came from the Store
+  (`docs/reports/2026-10-03-fixer-time-and-cost.md` notes the adapter
+  dropping WindowsApps there), the shell every run of R10's and D4's
+  gate used, and the Store's `python` stub stays out of every worker's
+  reach. Keeping WindowsApps for unsandboxed editors alone was left out:
+  it would give one run's workers two shells, the surveyor, a reader,
+  would still lose the alias and block the survey, and no real run has
+  tried it.
 - Risk: `PSExecutionPolicyPreference` is overridden by a group policy, so
   the shims stay refused on a managed machine. Accepted; the worker's
   output shows the refusal and `none` remains.
