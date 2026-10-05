@@ -39,7 +39,7 @@ import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
-import { editorsUnderUnelevatedSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
+import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
@@ -697,10 +697,11 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * are named as ignored, as are the check flags once the checks are
  * planned; before then, a fix run is told the check flags must be given
  * again, and the kinds it can tell an earlier invocation's flags settled
- * and this one's do not are named; a `--codex-windows-sandbox` other than
- * the pinned value is refused, and one a run off Windows pinned none for
- * is named as ignored; the pinned executable, not the command's, must
- * still qualify.
+ * and this one's do not are named; a `--codex-windows-sandbox` is named
+ * as ignored when the run resumes off Windows, whatever it pinned, or
+ * pinned none because it was configured off Windows, and is refused when
+ * it names another value than the pinned one; the pinned executable, not
+ * the command's, must still qualify.
  */
 async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
   const runId = run.id;
@@ -710,10 +711,17 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
   }
   refuseInvocationFlags(context.adapter, context.flags);
   // How the run's workers are confined is pinned at configuration (R3 of the Codex sandbox): a resume asking for another confinement is refused, not silently given the pinned one.
+  // Off Windows no sandbox applies whatever the run pinned, so the flag is ignored there as a new run's is (R1); that includes a Codex run configured at version 3 or earlier, which folds to unelevated on any platform.
   const sandbox = context.flags.codexWindowsSandbox;
-  if (sandbox !== undefined && pinned.codex === null) context.log(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`);
-  if (sandbox !== undefined && pinned.codex !== null && sandbox !== pinned.codex.windowsSandbox) {
-    throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${pinned.codex.windowsSandbox}, not ${sandbox}; run it with --codex-windows-sandbox ${pinned.codex.windowsSandbox} or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+  if (sandbox !== undefined) {
+    const applied = pinnedWindowsSandbox(pinned, context.platform);
+    if (context.platform !== 'win32') {
+      context.log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker of run ${runId} runs as without it`);
+    } else if (applied === null) {
+      context.log(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`);
+    } else if (sandbox !== applied) {
+      throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${applied}, not ${sandbox}; run it with --codex-windows-sandbox ${applied} or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+    }
   }
   if (context.flags.strongModel !== undefined || context.flags.fastModel !== undefined) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
