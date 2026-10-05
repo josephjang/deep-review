@@ -291,7 +291,7 @@ const scratchRule = 'Write logs and every other temporary file under your scratc
  * the task, not to a role prompt, and only for such an editor, so no
  * other run's prompts change.
  */
-export const unelevatedSandboxRule = 'Your shell runs in Codex\'s unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.';
+export const unelevatedSandboxRule = 'Your shell runs in Codex\'s unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.';
 
 /**
  * The warning a fixer gets when the tree may already hold part of its
