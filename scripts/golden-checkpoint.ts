@@ -349,8 +349,10 @@ try {
       statistics: { phases: reviewVocabularyV1.phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase], unreportedPerPhase[phase]) })), total: spend(18, 5), budgetApplied: true },
     });
   });
-  // A fourth run through the fix pass, every event recorded at the version
-  // the engine now writes: a review whose plan holds one held finding and
+  // A fourth run through the fix pass, every event at the version the
+  // engine wrote before the survey arrived, the configuration at version
+  // 2, which reads as a Claude Code run with no survey and no Codex Windows
+  // sandbox: a review whose plan holds one held finding and
   // two clusters, one of three findings run as three batches of one, its
   // second batch timing out after one snapshot, whose edits are recorded
   // with the failure and verified by the retry, its third not attempted
