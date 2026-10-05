@@ -23133,8 +23133,20 @@ function createCodexAdapter(options2 = {}) {
   const provider = options2.provider === void 0 ? null : checkedProvider(options2.provider);
   return {
     ...codexRuntime,
-    command: (invocation, plan) => codexCommand(invocation, plan, windowsSandbox, provider)
+    // The sandbox the run pinned, when it pinned one, wins over the one the adapter was built with.
+    command: (invocation, plan) => codexCommand(invocation, plan, launchSandbox(plan.runtimeOptions) ?? windowsSandbox, provider)
   };
+}
+var pinnedCodexKeys = ["windowsSandbox"];
+function launchSandbox(value) {
+  if (value === void 0 || value === null) return null;
+  if (!isObject2(value)) throw new Error(`Pinned Codex options must be an object, not ${Array.isArray(value) ? "an array" : typeof value}`);
+  const unknown2 = unknownKeys(value, pinnedCodexKeys);
+  if (unknown2.length > 0) throw new Error(`Unknown pinned Codex option ${JSON.stringify(unknown2[0])}; a run pins only ${pinnedCodexKeys.join(", ")}`);
+  const { windowsSandbox } = value;
+  if (windowsSandbox === void 0) return null;
+  if (!isWindowsSandbox(windowsSandbox)) throw new Error(`Unknown pinned Codex Windows sandbox ${JSON.stringify(windowsSandbox)}; use ${windowsSandboxes.join(", ")}`);
+  return windowsSandbox;
 }
 var codexRuntimeName = "codex";
 var codexRuntime = {
@@ -23280,7 +23292,8 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     schemaFile: join10(io, "schema.json"),
     finalMessageFile: join10(io, "final-message"),
     platform: options2.platform ?? process.platform,
-    environment: inherited
+    environment: inherited,
+    runtimeOptions: pinnedFor(options2.pinned, adapter.name)
   };
   const command = adapter.command(invocation, plan);
   const environment = workerEnvironment(command.environment, scratch, plan.platform);
@@ -23361,6 +23374,10 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
 }
 function qualify(adapter, invocation, environment) {
   return preflight(adapter, invocation.executable, invocation.executableArgs, environment);
+}
+function pinnedFor(pinned, runtime) {
+  if (pinned === void 0 || !Object.hasOwn(pinned, runtime)) return null;
+  return pinned[runtime] ?? null;
 }
 function refuseMissingCapabilities(adapter, invocation) {
   const { capabilities } = adapter;
@@ -27320,7 +27337,7 @@ async function runReview(options2) {
   });
   const environment = options2.environment ?? process.env;
   const platform = options2.platform ?? process.platform;
-  const adapter = options2.runtimes({}).get(options2.runtime);
+  const adapter = options2.runtimes.get(options2.runtime);
   const roles = assembleRoles(options2.rolesRoot);
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
   const { checkpoint } = options2;
@@ -27387,7 +27404,7 @@ async function runReview(options2) {
       log(`run ${runId}: configured for ${configure2.runtime} ${configure2.version}, models ${configure2.models.strong} and ${configure2.models.fast}${configure2.fix ? ", with the fix pass" : ""}${configure2.codex === null ? "" : `, Codex Windows sandbox ${configure2.codex.windowsSandbox}`}; the reviewer's own rules: ${configure2.survey.userRules}`);
     }
     const configuration = state.review.configuration;
-    const runtimes = options2.runtimes(runtimeOptionsOf(configuration));
+    const pinned = pinnedRuntimeOptionsOf(configuration);
     const unelevatedEditors = editorsUnderUnelevatedSandbox(configuration, platform);
     if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
@@ -27515,7 +27532,7 @@ async function runReview(options2) {
             if (invocation.scratch !== void 0) prepareSnapshots(join23(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes, environment, platform, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
+            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, pinned, environment, platform, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise: promise2 });
           }
           break;
@@ -27576,7 +27593,7 @@ async function nextSettled(inFlight) {
 function unelevatedEditorsWarning(runId) {
   return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
 }
-function runtimeOptionsOf(configuration) {
+function pinnedRuntimeOptionsOf(configuration) {
   return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };
 }
 async function openRun(context) {
@@ -28238,8 +28255,7 @@ async function review(values, io, root, worktree) {
     const outcome = await runReview({
       checkpoint,
       worktree,
-      // Built again with the Codex Windows sandbox the run pins, for the runtimes its workers launch on.
-      runtimes: defaultRuntimes,
+      runtimes,
       runtime,
       // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned.
       executable: () => resolveExecutable(values.executable ?? runtime, io.environment, process.platform, io.cwd),

@@ -6,19 +6,20 @@ import { findActiveRun, unelevatedEditorsWarning, type ReviewOptions } from '../
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { unelevatedSandboxRule } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
-import type { RuntimeRegistry } from '../../src/runtime/registry.ts';
-import { defaultRuntimes, type RuntimeOptions } from '../../src/runtime/runtimes.ts';
+import type { RuntimeAdapter } from '../../src/runtime/adapter.ts';
+import { RuntimeRegistry } from '../../src/runtime/registry.ts';
+import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { fixerAnswer } from '../helpers/fake-runtime.ts';
 import { fakeCheckCommand, ReviewSandbox } from '../helpers/review-sandbox.ts';
 
 describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', { timeout: 600_000 }, () => {
   let box: ReviewSandbox;
-  /** Every set of options the controller built the runtimes with, in order. */
-  let built: RuntimeOptions[];
+  /** Every launch's runtime and the pinned options its plan handed the adapter, in order. */
+  let launched: { runtime: string; options: unknown }[];
   beforeEach(() => {
     box = new ReviewSandbox();
-    built = [];
+    launched = [];
     // The triage fails twice, so each invocation stops after the survey with the run still active.
     box.script({ triage: { exit: 2 } });
   });
@@ -26,42 +27,54 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     box.close();
   });
 
-  const runtimes = (options: RuntimeOptions): RuntimeRegistry => {
-    built.push(options);
-    return defaultRuntimes(options);
+  /** The engine's runtimes, each command recording what the launch's plan pinned before the adapter builds it. */
+  const spying = (adapter: RuntimeAdapter): RuntimeAdapter => ({
+    ...adapter,
+    command: (invocation, plan) => {
+      launched.push({ runtime: adapter.name, options: plan.runtimeOptions });
+      return adapter.command(invocation, plan);
+    },
+  });
+  const runtimes = new RuntimeRegistry(defaultRuntimes().names().map((name) => spying(defaultRuntimes().get(name))));
+  /** The distinct pinned options the launches since the last reset were handed, in the order first seen; at least one worker launched. */
+  const launchedWith = (): unknown[] => {
+    assert.ok(launched.length > 0, 'a worker launched');
+    return [...new Set(launched.map((launch) => JSON.stringify(launch.options)))].map((text): unknown => JSON.parse(text));
   };
   /** A Codex review through the spying runtimes, on the platform given, Windows by default. */
   const codex = (change: Partial<ReviewOptions> = {}): ReturnType<ReviewSandbox['review']> => box.review('codex', { runtimes, platform: 'win32', ...change });
   const configured = (): Record<string, unknown> => box.events(box.run().id).find(([kind]) => kind === 'review.configured')![1];
   const versionOfConfiguration = (): number => box.checkpoint.ledger.events(box.run().id).find((event) => event.kind === 'review.configured')!.version;
 
-  it('pins the flag\'s sandbox on a Codex run on Windows, and launches its workers on runtimes built with it', async () => {
+  it('pins the flag\'s sandbox on a Codex run on Windows, and launches every worker with it', async () => {
     const outcome = await codex({ flags: { codexWindowsSandbox: 'elevated' } });
     assert.equal(outcome.kind, 'blocked', JSON.stringify(outcome));
     assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'elevated' });
     assert.deepEqual(configured().codex, { windowsSandbox: 'elevated' }, 'recorded on the ledger');
     assert.equal(versionOfConfiguration(), 4);
-    assert.deepEqual(built, [{}, { codex: { windowsSandbox: 'elevated' } }], 'the policy and the preflight read an adapter no option changes, the workers launch on the pinned one');
+    assert.deepEqual(launchedWith(), [{ windowsSandbox: 'elevated' }], 'every worker launches with the pinned sandbox');
+    assert.ok(launched.every((launch) => launch.runtime === 'codex'));
     assert.ok(box.logs.some((line) => /^run [0-9a-f-]+: configured for codex .*, Codex Windows sandbox elevated; the reviewer's own rules: judge$/.test(line)), box.logs.join('\n'));
   });
 
   it('pins the policy\'s value when the flag says nothing', async () => {
     await codex();
     assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'none' }, 'the committed policy ships none');
-    assert.deepEqual(built.at(-1), { codex: { windowsSandbox: 'none' } });
+    assert.deepEqual(launchedWith(), [{ windowsSandbox: 'none' }]);
   });
 
   it('pins none on another platform and says the flag is ignored, so every worker runs as without it', async () => {
     await codex({ platform: 'linux', flags: { codexWindowsSandbox: 'none' } });
     assert.equal(box.run().review!.configuration.codex, null);
-    assert.deepEqual(built, [{}, {}]);
+    assert.deepEqual(launchedWith(), [null], 'no worker is handed a sandbox');
     assert.ok(box.logs.includes('--codex-windows-sandbox applies on Windows only; it is ignored on linux, where every Codex worker runs as without it'), box.logs.join('\n'));
   });
 
   it('pins none for a Claude Code run, and refuses the flag there', async () => {
     await box.review('claude', { runtimes, platform: 'win32' });
     assert.equal(box.run().review!.configuration.codex, null);
-    assert.deepEqual(built, [{}, {}]);
+    assert.deepEqual(launchedWith(), [null], 'no worker is handed a sandbox');
+    assert.ok(launched.every((launch) => launch.runtime === 'claude'));
     await assert.rejects(box.review('claude', { runtimes, platform: 'win32', flags: { codexWindowsSandbox: 'none' } }), (error: unknown) => error instanceof InvalidPolicyError && error.message === '--codex-windows-sandbox applies only to runtime codex, not claude');
   });
 
@@ -72,12 +85,12 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     await assert.rejects(codex({ flags: { codexWindowsSandbox: 'none' } }), (error: unknown) => error instanceof ReviewRefusedError
       && error.message === `run ${runId} is pinned to the Codex Windows sandbox elevated, not none; run it with --codex-windows-sandbox elevated or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
     assert.equal(box.run().lastSequence, sequence, 'the refusal recorded nothing');
-    built = [];
+    launched = [];
     assert.equal((await codex({ flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
     assert.equal((await codex()).kind, 'blocked');
     assert.equal(box.run().id, runId, 'the same run resumed');
     assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'elevated' });
-    assert.deepEqual(built, [{}, { codex: { windowsSandbox: 'elevated' } }, {}, { codex: { windowsSandbox: 'elevated' } }], 'each resume launches on the pinned sandbox');
+    assert.deepEqual(launchedWith(), [{ windowsSandbox: 'elevated' }], 'each resume launches every worker with the pinned sandbox, flag or none');
   });
 
   it('names the flag as ignored on the resume of a run configured off Windows, there and on Windows', async () => {
@@ -85,12 +98,12 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     const runId = box.run().id;
     assert.equal((await codex({ platform: 'linux', flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
     assert.ok(box.logs.includes(`--codex-windows-sandbox applies on Windows only; it is ignored on linux, where every Codex worker of run ${runId} runs as without it`), box.logs.join('\n'));
-    built = [];
+    launched = [];
     assert.equal((await codex({ flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
     assert.equal(box.run().id, runId, 'the same run resumed');
     assert.equal(box.run().review!.configuration.codex, null);
     assert.ok(box.logs.includes(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`), box.logs.join('\n'));
-    assert.deepEqual(built, [{}, {}], 'its workers launch with no sandbox option on Windows too');
+    assert.deepEqual(launchedWith(), [null], 'its workers launch with no sandbox pinned on Windows too');
   });
 
   // Only a Windows worktree reads as a run on Windows, so the older run this stands in for exists only on a Windows host.
@@ -104,11 +117,11 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     const older = box.checkpoint.createRun({ worktree: box.repo });
     const captured = captureScope(box.checkpoint, older.id, { paths: [] });
     box.checkpoint.append(older.id, captured.lastSequence, [{ kind: 'review.configured', version: 3, payload: pinned }]);
-    built = [];
+    launched = [];
     await assert.rejects(codex({ flags: { codexWindowsSandbox: 'none' } }), (error: unknown) => error instanceof ReviewRefusedError && /is pinned to the Codex Windows sandbox unelevated, not none/.test(error.message));
     await codex();
     assert.deepEqual(box.checkpoint.fold(older.id).review!.configuration.codex, { windowsSandbox: 'unelevated' });
-    assert.deepEqual(built.at(-1), { codex: { windowsSandbox: 'unelevated' } });
+    assert.deepEqual(launchedWith(), [{ windowsSandbox: 'unelevated' }], 'the refused resume launched nothing, and the accepted one launched with the folded sandbox');
   });
 
   it('names the flag as ignored, not refused, on the resume off Windows of a Codex run configured before the setting existed', async () => {
@@ -154,6 +167,14 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     const recordFile = join(box.directory, 'record.json');
     await box.review('codex', { runtimes, platform: 'win32', flags: { codexWindowsSandbox: 'elevated' } }, { FAKE_RECORD: recordFile });
     assert.deepEqual(windowsSandboxArgs(recordFile), ['windows.sandbox="elevated"']);
+  });
+
+  it('launches every worker with the pinned sandbox over the one the caller built the runtimes with', async () => {
+    const recordFile = join(box.directory, 'record.json');
+    const builtUnelevated = defaultRuntimes({ codex: { windowsSandbox: 'unelevated' } });
+    await box.review('codex', { runtimes: builtUnelevated, platform: 'win32', flags: { codexWindowsSandbox: 'elevated' } }, { FAKE_RECORD: recordFile });
+    assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'elevated' });
+    assert.deepEqual(windowsSandboxArgs(recordFile), ['windows.sandbox="elevated"'], 'the pin wins over the construction default');
   });
 });
 
