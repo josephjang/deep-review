@@ -25,7 +25,13 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    user that the engine's workers will edit the working tree, that it
    runs the check commands it chose from the repository, and that the
    run commits nothing. Without such a request, do not pass `--fix`: the
-   review then edits nothing and runs no check.
+   review then edits nothing and runs no check. With `--fix` on Windows,
+   also tell the user that the workers that edit run with no sandbox and
+   with network access unless the user names
+   `--codex-windows-sandbox unelevated`, under which they cannot run most
+   build and test commands, or `--codex-windows-sandbox elevated`, which
+   needs Codex's elevated setup; pass that flag only when the user names
+   it.
 3. Run this from the repository, with the longest timeout you can, and
    wait for it to exit. `engine/main.mjs` is in this skill's directory,
    the one that holds this SKILL.md:
