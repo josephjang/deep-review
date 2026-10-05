@@ -98,9 +98,10 @@ setup on the machine and runs every worker with PowerShell's execution
 policy at `RemoteSigned` unless `PSExecutionPolicyPreference` is already
 set; or `none`, which runs a worker with edit access in no sandbox and
 every other worker read-only under the unelevated one. An adapter built
-with none named uses `unelevated`, but a review always builds it with
-the value its run pinned, which is `none` unless the flag or the policy
-names another (see the fix pass below).
+with none named uses `unelevated`, but a review launches every Codex
+worker under the value its run pinned, whatever the adapter was built
+with; that value is `none` unless the flag or the policy names another
+(see the fix pass below).
 
 Workers never read the user's own Claude Code settings or Codex config,
 so credentials and providers kept only there are given to the adapters
@@ -112,19 +113,7 @@ a Codex `provider` is `{ id, baseUrl, envKey?, queryParams? }`, with the
 API key in the inherited variable `envKey` names. Anything else is
 refused by name, and neither can change the pinned effort. The ledger
 does not record them, so a continuation runs with whatever options its
-caller builds the runtimes with. A review takes its runtimes as a
-function, which it calls with the options its run pinned, such as
-`{ codex: { windowsSandbox } }`, and which must build them with those
-options, merging in its own rather than replacing them:
-
-```ts
-runtimes: (pinned) => defaultRuntimes({ ...pinned, codex: { ...pinned.codex, provider } }),
-```
-
-A function that ignores its argument, such as
-`() => defaultRuntimes({ codex: { provider } })`, still type-checks,
-but its Codex workers fall back to `unelevated` while the ledger and the
-report name the pinned value. See
+caller builds the runtimes with. See
 `docs/changes/2026-09-27-runtime-adapter.requirements.md` and its design.
 
 ## The role prompts

@@ -4,7 +4,7 @@
  * R1 to R3 of the Codex sandbox): find or create the run, take its lock,
  * record the workers a previous engine lost, then loop over fold, plan,
  * execute and append until the report is written or the run blocks. It
- * launches workers on the runtimes built for what the run pinned, plans the
+ * launches workers with the runtime options the run pinned, plans the
  * checks when the survey completes, runs them one at a time, and records
  * every edit as a revision of the tree. Every fact the planner needs is an
  * event, or this invocation's check flags, so a resumed run continues
@@ -23,7 +23,7 @@ import { PreflightError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
-import type { RuntimeOptions } from '../runtime/runtimes.ts';
+import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
@@ -69,23 +69,13 @@ export interface ReviewOptions {
   /** The worktree the review runs in; workers use it as their working directory. */
   readonly worktree: string;
   /**
-   * The runtimes, built for the options a run pinned (R2 of the Codex
-   * sandbox). Called once with none, for the adapter that resolves the
-   * policy, preflights the executable and reads usage, none of which a
-   * pinned option changes; and once the run is configured, with the
-   * options its configuration names, for the runtimes its workers launch
-   * on: `defaultRuntimes` for the engine's own.
-   *
-   * The function must build the runtimes with the options it is given. A
-   * caller with options of its own merges them in rather than replacing
-   * them, as `(pinned) => defaultRuntimes({ ...pinned, codex: { ...pinned.codex, provider } })`
-   * does. TypeScript also accepts a function that takes no argument, but
-   * one such as `() => defaultRuntimes({ codex: { provider } })` drops the
-   * pinned `windowsSandbox`, so its Codex workers run under the adapter's
-   * default `unelevated` while the ledger and the report name the pinned
-   * value. Nothing here can tell: an adapter does not say how it confines.
+   * The runtimes the run's workers launch on: `defaultRuntimes()` for the
+   * engine's own, built with whatever options the caller needs, such as a
+   * provider. What the run pinned, such as the Codex Windows sandbox, is
+   * passed to every launch and wins over the options the runtimes were
+   * built with (R2 of the Codex sandbox).
    */
-  readonly runtimes: (options: RuntimeOptions) => RuntimeRegistry;
+  readonly runtimes: RuntimeRegistry;
   readonly runtime: string;
   /**
    * The platform a run is configured for, which decides whether it pins a
@@ -257,8 +247,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   });
   const environment = options.environment ?? process.env;
   const platform = options.platform ?? process.platform;
-  // No pinned option changes what this adapter is asked: its capabilities, its qualification and its reading of usage.
-  const adapter = options.runtimes({}).get(options.runtime);
+  const adapter = options.runtimes.get(options.runtime);
   const roles = assembleRoles(options.rolesRoot);
   const rolesByKey = new Map(roles.map((role) => [role.key, role]));
 
@@ -342,8 +331,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}${configure.fix ? ', with the fix pass' : ''}${configure.codex === null ? '' : `, Codex Windows sandbox ${configure.codex.windowsSandbox}`}; the reviewer's own rules: ${configure.survey.userRules}`);
     }
     const configuration = state.review!.configuration;
-    // The runtimes the workers launch on, with the options the run pinned, however long ago it was configured.
-    const runtimes = options.runtimes(runtimeOptionsOf(configuration));
+    // What every worker launches with, from what the run pinned, however long ago it was configured.
+    const pinned = pinnedRuntimeOptionsOf(configuration);
     // Said before the first worker of every invocation, so the operator knows before paying for a fix run whose editors cannot run the build (R5 of the Codex sandbox).
     const unelevatedEditors = editorsUnderUnelevatedSandbox(configuration, platform);
     if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
@@ -501,7 +490,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes, environment, platform, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
+            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes: options.runtimes, pinned, environment, platform, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
               .then((receipt): Settled => ({ unit, receipt }), (error: unknown): Settled => ({ unit, error }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise });
           }
@@ -592,11 +581,12 @@ export function unelevatedEditorsWarning(runId: string): string {
 }
 
 /**
- * The runtime options a run's configuration names: the Codex Windows
- * sandbox it pinned, or none for a run that pins none (R2 of the Codex
- * sandbox), so a resumed run's workers are confined as its first ones were.
+ * The runtime options a run's configuration pins: the Codex Windows
+ * sandbox, or none for a run that pins none (R2 of the Codex sandbox),
+ * passed to every launch so a resumed run's workers are confined as its
+ * first ones were, whatever runtimes the caller passed.
  */
-function runtimeOptionsOf(configuration: Pick<ReviewConfiguration, 'codex'>): RuntimeOptions {
+function pinnedRuntimeOptionsOf(configuration: Pick<ReviewConfiguration, 'codex'>): PinnedRuntimeOptions {
   return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };
 }
 

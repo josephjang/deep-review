@@ -224,6 +224,59 @@ describe('Windows sandbox option', () => {
     }
   });
 
+  describe('the sandbox a run pins for one launch', () => {
+    const modeOf = (args: readonly string[]): string[] => args.filter((arg) => arg.startsWith('sandbox_mode='));
+
+    it('wins over the one the adapter was built with, for the command line and the environment, fresh and continued', () => {
+      const unelevated = createCodexAdapter({ windowsSandbox: 'unelevated' });
+      const elevated = createCodexAdapter({ windowsSandbox: 'elevated' });
+      const launches: [Invocation, LaunchPlan][] = [
+        [invocation({ access: 'edit' }), plan({ scratch, platform: 'win32' })],
+        [invocation({ access: 'edit', resume: thread }), plan({ scratch, platform: 'win32', sessionId: thread, resume: thread })],
+      ];
+      for (const [given, planned] of launches) {
+        const pinned = unelevated.command(given, { ...planned, runtimeOptions: { windowsSandbox: 'elevated' } });
+        assert.deepEqual(pinned, elevated.command(given, planned), 'exactly as an adapter built elevated');
+        assert.deepEqual(sandboxOf(pinned.args), ['windows.sandbox="elevated"']);
+        assert.equal(pinned.environment.PSExecutionPolicyPreference, 'RemoteSigned');
+      }
+      const editor = elevated.command(invocation({ access: 'edit' }), plan({ scratch, platform: 'win32', runtimeOptions: { windowsSandbox: 'none' } }));
+      assert.deepEqual(modeOf(editor.args), ['sandbox_mode="danger-full-access"'], 'a pinned none frees the editor of an adapter built elevated');
+      assert.equal(editor.environment.PSExecutionPolicyPreference, undefined);
+    });
+
+    it('leaves the adapter\'s own when the plan pins none', () => {
+      const elevated = createCodexAdapter({ windowsSandbox: 'elevated' });
+      const own = elevated.command(invocation(), plan({ platform: 'win32' }));
+      assert.deepEqual(sandboxOf(own.args), ['windows.sandbox="elevated"']);
+      for (const runtimeOptions of [null, undefined, {}, { windowsSandbox: undefined }]) {
+        assert.deepEqual(elevated.command(invocation(), plan({ platform: 'win32', runtimeOptions })), own, String(JSON.stringify(runtimeOptions)));
+      }
+    });
+
+    it('applies on Windows only, as the adapter\'s own does', () => {
+      assert.deepEqual(sandboxOf(codexAdapter.command(invocation(), plan({ platform: 'linux', runtimeOptions: { windowsSandbox: 'elevated' } })).args), []);
+    });
+
+    it('refuses an entry it does not understand rather than run under another sandbox than the run pinned', () => {
+      const refusals: [unknown, RegExp][] = [
+        ['elevated', /^Error: Pinned Codex options must be an object, not string$/],
+        [['elevated'], /^Error: Pinned Codex options must be an object, not an array$/],
+        [0, /^Error: Pinned Codex options must be an object, not number$/],
+        [{ windowsSandbox: 'full-access' }, /^Error: Unknown pinned Codex Windows sandbox "full-access"; use unelevated, elevated, none$/],
+        [{ windowsSandbox: null }, /^Error: Unknown pinned Codex Windows sandbox null;/],
+        [{ windowsSandbox: 'Elevated' }, /^Error: Unknown pinned Codex Windows sandbox "Elevated";/],
+        [{ windowsSandbox: 'none', provider: { id: 'p', baseUrl: 'https://p' } }, /^Error: Unknown pinned Codex option "provider"; a run pins only windowsSandbox$/],
+      ];
+      for (const [runtimeOptions, message] of refusals) {
+        // Off Windows too, where it would change nothing: a malformed pin is the caller's mistake on any host.
+        for (const platform of ['win32', 'linux'] as const) {
+          assert.throws(() => codexAdapter.command(invocation(), plan({ platform, runtimeOptions })), message, `${platform} ${String(JSON.stringify(runtimeOptions))}`);
+        }
+      }
+    });
+  });
+
   it('is chosen through the default runtimes', () => {
     const codex = defaultRuntimes({ codex: { windowsSandbox: 'elevated' } }).get('codex');
     assert.deepEqual(sandboxOf(codex.command(invocation(), plan({ platform: 'win32' })).args), ['windows.sandbox="elevated"']);
