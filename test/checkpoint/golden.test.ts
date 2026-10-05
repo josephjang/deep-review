@@ -23,6 +23,14 @@ const fixtures = readdirSync(fixturesRoot)
     return Number(schemaA) - Number(schemaB) || Number(serialA) - Number(serialB);
   });
 
+/** The fixture directory to write after `newest` for a ledger at `schema`: the next serial, at the width `newest` spells it. */
+function nextFixtureName(newest: string, schema: number): string {
+  const match = fixturePattern.exec(newest);
+  assert.ok(match !== null, `${newest} is a fixture directory`);
+  const serial = match[2]!;
+  return `schema-${String(schema)}-${String(Number(serial) + 1).padStart(serial.length, '0')}`;
+}
+
 interface Expected {
   readonly runs: RunState[];
   readonly evidence: ArtifactReference[];
@@ -121,11 +129,20 @@ describe('golden checkpoints', () => {
   it('matches the newest fixture\'s identity, so a schema or registry change needs a new fixture', () => {
     const newest = fixtures.at(-1)!;
     const recorded = JSON.parse(readFileSync(join(fixturesRoot, newest, 'identity.json'), 'utf8')) as CheckpointIdentity;
+    const current = checkpointIdentity();
     assert.deepEqual(
-      checkpointIdentity(),
+      current,
       recorded,
-      `The ledger DDL or the event registry changed since ${newest} was written. Run \`npm run golden -- --output test/fixtures/checkpoints/schema-<n>\` and commit the result.`,
+      `The ledger DDL or the event registry changed since ${newest} was written. Run \`npm run golden -- --output test/fixtures/checkpoints/${nextFixtureName(newest, current.schema)}\` and commit the result.`,
     );
+  });
+
+  it('names the fixture to write next with the next serial, which the fixture pattern reads', () => {
+    for (const [newest, schema, next] of [['schema-1-07', 1, 'schema-1-08'], ['schema-1-09', 1, 'schema-1-10'], ['schema-1-07', 2, 'schema-2-08'], ['schema-2-99', 2, 'schema-2-100']] as const) {
+      const name = nextFixtureName(newest, schema);
+      assert.equal(name, next);
+      assert.match(name, fixturePattern);
+    }
   });
 
   it('is what the golden script writes', () => {
