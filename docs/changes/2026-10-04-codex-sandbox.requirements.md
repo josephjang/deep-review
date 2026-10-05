@@ -2,6 +2,16 @@
 
 Technical part: [2026-10-04-codex-sandbox.design.md](2026-10-04-codex-sandbox.design.md).
 
+(Added 2026-10-05, after review.) This proposal was written on
+2026-10-04 as one Unified file, `2026-10-04-codex-sandbox.md`, and split
+into these two files after review, since the change adds a ledger event
+version, changes the runtime interface and the policy file, and
+respells the worker's search path, the cases `AGENTS.md` gives the Split
+form for. This file keeps the Unified file's product text, its
+decisions now under Product Decisions; the design holds its Evidence,
+as Context, and its Verification, beside the technical part written at
+the split.
+
 ## Summary
 
 Let a run choose how its Codex workers are confined on Windows, so that a
@@ -134,8 +144,7 @@ every machine has it.
   That holds except for the search path, which R11 spells `PATH` under
   every value, so no value leaves a worker's environment exactly as it
   was; the execution policy is still set only under `elevated`, and
-  there in one spelling (see the departures under Verification in the
-  design).
+  there in one spelling (see TD9 in the design).
 - R5: When a fix run's value is `unelevated`, `review` prints one warning
   before the first worker starts: editors cannot run tools that start
   processes through Node, which includes most build and test commands,
