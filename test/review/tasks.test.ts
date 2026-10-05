@@ -258,7 +258,9 @@ describe('the fixer\'s task', () => {
     assert.doesNotMatch(plain, /unelevated|EPERM/);
     assert.equal(held, plain.replace('\n\nAfter finishing each finding', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each finding`), 'the rule is the one difference, a paragraph after the checks');
     assert.match(unelevatedSandboxRule, /a Node process cannot start a child whose output it captures: the build, the tests and package scripts .* fail there with `EPERM`/);
-    assert.match(unelevatedSandboxRule, /such as a direct `node` probe or one test file run in a single process; when nothing that runs can show it, record the validation as `limited` with that reason./);
+    // `node --test <file>` runs the file as a child through captured stdio by default (NODE_TEST_CONTEXT=child-v8 on Node 26.10),
+    // the very spawn that fails there, so the rule names the option that keeps it in one process.
+    assert.match(unelevatedSandboxRule, /such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason./);
     assert.match(unelevatedSandboxRule, /The engine runs the checks itself after you return.$/);
   });
 
