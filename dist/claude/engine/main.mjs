@@ -27641,9 +27641,15 @@ async function resumePinned(run2, pinned, context) {
   }
   refuseInvocationFlags(context.adapter, context.flags);
   const sandbox = context.flags.codexWindowsSandbox;
-  if (sandbox !== void 0 && pinned.codex === null) context.log(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`);
-  if (sandbox !== void 0 && pinned.codex !== null && sandbox !== pinned.codex.windowsSandbox) {
-    throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${pinned.codex.windowsSandbox}, not ${sandbox}; run it with --codex-windows-sandbox ${pinned.codex.windowsSandbox} or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+  if (sandbox !== void 0) {
+    const applied = pinnedWindowsSandbox(pinned, context.platform);
+    if (context.platform !== "win32") {
+      context.log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker of run ${runId} runs as without it`);
+    } else if (applied === null) {
+      context.log(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`);
+    } else if (sandbox !== applied) {
+      throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${applied}, not ${sandbox}; run it with --codex-windows-sandbox ${applied} or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+    }
   }
   if (context.flags.strongModel !== void 0 || context.flags.fastModel !== void 0) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);

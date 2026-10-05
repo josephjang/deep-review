@@ -79,12 +79,17 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     assert.deepEqual(built, [{}, { codex: { windowsSandbox: 'elevated' } }, {}, { codex: { windowsSandbox: 'elevated' } }], 'each resume launches on the pinned sandbox');
   });
 
-  it('names the flag as ignored on the resume of a run configured off Windows', async () => {
+  it('names the flag as ignored on the resume of a run configured off Windows, there and on Windows', async () => {
     await codex({ platform: 'linux' });
     const runId = box.run().id;
-    await codex({ platform: 'linux', flags: { codexWindowsSandbox: 'elevated' } });
+    assert.equal((await codex({ platform: 'linux', flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
+    assert.ok(box.logs.includes(`--codex-windows-sandbox applies on Windows only; it is ignored on linux, where every Codex worker of run ${runId} runs as without it`), box.logs.join('\n'));
+    built = [];
+    assert.equal((await codex({ flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
+    assert.equal(box.run().id, runId, 'the same run resumed');
     assert.equal(box.run().review!.configuration.codex, null);
     assert.ok(box.logs.includes(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`), box.logs.join('\n'));
+    assert.deepEqual(built, [{}, {}], 'its workers launch with no sandbox option on Windows too');
   });
 
   it('resumes a Codex run configured before the setting existed under the unelevated sandbox', async () => {
@@ -102,6 +107,36 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     await codex();
     assert.deepEqual(box.checkpoint.fold(older.id).review!.configuration.codex, { windowsSandbox: 'unelevated' });
     assert.deepEqual(built.at(-1), { codex: { windowsSandbox: 'unelevated' } });
+  });
+
+  it('names the flag as ignored, not refused, on the resume off Windows of a Codex run configured before the setting existed', async () => {
+    await codex({ platform: 'linux' });
+    // Stand in for an older engine off Windows: the same configuration at version 3, without the setting, which folds to unelevated on any platform.
+    const pinned = { ...configured() };
+    delete pinned.codex;
+    const first = box.run();
+    box.checkpoint.append(first.id, first.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
+    const older = box.checkpoint.createRun({ worktree: box.repo });
+    const captured = captureScope(box.checkpoint, older.id, { paths: [] });
+    box.checkpoint.append(older.id, captured.lastSequence, [{ kind: 'review.configured', version: 3, payload: pinned }]);
+    assert.deepEqual(box.checkpoint.fold(older.id).review!.configuration.codex, { windowsSandbox: 'unelevated' }, 'the fold cannot tell the platform the run was on');
+    for (const sandbox of ['none', 'elevated', 'unelevated'] as const) {
+      const before = box.checkpoint.fold(older.id).lastSequence;
+      assert.equal((await codex({ platform: 'linux', flags: { codexWindowsSandbox: sandbox } })).kind, 'blocked', sandbox);
+      assert.ok(box.checkpoint.fold(older.id).lastSequence > before, `the older run resumed under ${sandbox}`);
+    }
+    const ignored = `--codex-windows-sandbox applies on Windows only; it is ignored on linux, where every Codex worker of run ${older.id} runs as without it`;
+    assert.equal(box.logs.filter((line) => line === ignored).length, 3, box.logs.join('\n'));
+    assert.ok(!box.logs.some((line) => line.includes('pins no Codex Windows sandbox')), 'the run pinned one; it does not apply here');
+  });
+
+  it('names the flag as ignored on the resume off Windows of a run configured on Windows', async () => {
+    await codex({ flags: { codexWindowsSandbox: 'elevated' } });
+    const runId = box.run().id;
+    assert.equal((await codex({ platform: 'darwin', flags: { codexWindowsSandbox: 'none' } })).kind, 'blocked');
+    assert.equal(box.run().id, runId, 'the same run resumed');
+    assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'elevated' }, 'the pin stands for a later resume on Windows');
+    assert.ok(box.logs.includes(`--codex-windows-sandbox applies on Windows only; it is ignored on darwin, where every Codex worker of run ${runId} runs as without it`), box.logs.join('\n'));
   });
 });
 

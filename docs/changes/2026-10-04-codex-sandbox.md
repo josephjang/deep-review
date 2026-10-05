@@ -447,13 +447,19 @@ Departures and choices the proposal did not state:
   empty one, with no policy pinned.
 - A resume that passes the flag to a run that pinned none, because it was
   configured off Windows, says the flag is ignored rather than refusing
-  it, as a new run off Windows does.
+  it, as a new run off Windows does. (Amended 2026-10-05.) So does a
+  resume off Windows of any run, whatever it pinned: no sandbox applies
+  there, so a flag naming another value than the pinned one is named as
+  ignored, not refused, as R1 has it for a new run.
 - The fold cannot tell the platform a run was on, so a Codex run
   configured at version 3 or earlier reads as `unelevated` on any
-  platform, as R3 says. The warning and the fragment ask the platform
-  too, so such a run resumed on macOS or Linux gets neither; its report
-  would still name `unelevated` in its header, which is accepted as a
-  case of runs already in flight when the engine is updated.
+  platform, as R3 says. The warning, the fragment and, since the
+  amendment above, the resume's check of the flag ask the platform too,
+  so such a run resumed on macOS or Linux gets neither warning nor
+  fragment, and its resume takes any value of the flag with the note
+  that it is ignored; its report would still name `unelevated` in its
+  header, which is accepted as a case of runs already in flight when the
+  engine is updated.
 - `review` takes a `platform` option, the process's by default, so the
   suite exercises the Windows cases on every runner of CI.
 
