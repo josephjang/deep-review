@@ -123,7 +123,7 @@ exactly one result: an answer, a budget stop with its reason, or a
 failure with its reason, so no adapter can report an answer and an error
 at once.
 (Amended 2026-10-05, by the Codex sandbox change,
-`2026-10-04-codex-sandbox.md`.) The plan also carries `runtimeOptions`,
+`2026-10-04-codex-sandbox.design.md`.) The plan also carries `runtimeOptions`,
 what a run pinned for the worker's runtime, which the launcher takes
 from its `pinned` option by the adapter's name and the adapter applies
 over the options it was built with: today the Codex Windows sandbox,

@@ -257,8 +257,8 @@ what it takes, and how to check it.
   output it captures; processes started with stdio `inherit` or a file
   run. The build, the tests and package scripts fail all the same, so
   the lever holds with that cause, and
-  `docs/changes/2026-10-04-codex-sandbox.md` takes it up (R6) beside a
-  setting that lets the build run.
+  `docs/changes/2026-10-04-codex-sandbox.requirements.md` takes it up
+  (R6) beside a setting that lets the build run.
 
 ### 3. Leave the reviewed diff out of the fixer prompt
 
