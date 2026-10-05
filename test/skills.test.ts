@@ -74,6 +74,18 @@ describe('the skill texts', () => {
     assert.match(read('skill/claude/skills/deep-review/SKILL.md'), new RegExp(`--budget-usd <usd>\` only when the\\s+user names a run budget; the default is ${String(runBudgetUsd)} USD\\.`));
   });
 
+  it('tells a Codex fix run on Windows that its editors are unsandboxed, and offers the sandbox only when the user names it', () => {
+    const codex = read('skill/codex/SKILL.md');
+    // The shipped windowsSandbox is none: the editing workers run with no sandbox and network access.
+    assert.match(codex, /With `--fix` on Windows,\s+also tell the user that the workers that edit run with no sandbox and\s+with network access/);
+    // Each offered value carries its cost, so the user chooses knowing it.
+    assert.match(codex, /`--codex-windows-sandbox unelevated`, under which they cannot run most\s+build and test commands/);
+    assert.match(codex, /`--codex-windows-sandbox elevated`, which\s+needs Codex's elevated setup/);
+    assert.match(codex, /pass that flag only when the user names\s+it/);
+    // The engine refuses --codex-windows-sandbox with --runtime claude, so the Claude skill must never offer it.
+    assert.doesNotMatch(read('skill/claude/skills/deep-review/SKILL.md'), /codex-windows-sandbox|windowsSandbox/);
+  });
+
   it('describes the plugin as carrying the engine, in the plugin and the marketplace alike, and no longer as editing nothing', () => {
     for (const path of ['skill/claude/.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'skill/claude/skills/deep-review/SKILL.md', 'skill/codex/SKILL.md', 'skill/codex/agents/openai.yaml']) {
       const text = read(path);
