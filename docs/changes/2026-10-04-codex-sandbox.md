@@ -555,6 +555,26 @@ Departures and choices the proposal did not state:
   decided by one value; before, a run configured for Linux on a Windows
   host pinned no sandbox but launched its Codex workers under
   `windows.sandbox="unelevated"`. The spawn and the kill stay the host's.
+- (Added 2026-10-05, after review.) TD2 of the runtime adapter design
+  (R10 of its requirements) says nothing outside an adapter's module
+  branches on a runtime's name. This change makes one exception: a
+  review's Codex-only settings are keyed by the Codex runtime's name,
+  `codexRuntimeName`. The policy file requires a `windowsSandbox` on the
+  `codex` entry and refuses one on any other, `--codex-windows-sandbox`
+  is refused with any other runtime, `resolvePolicy` pins a sandbox only
+  for Codex, the controller passes the pin under the `codex` key, and
+  `review.configured@4` accepts a `codex` field other than `null` only
+  from a Codex run, while the fold tells a Codex run configured before
+  version 4 by the same name. The reasons: R1 and R3 name Codex in each
+  of those places, and the frozen ledger schema and its fold cannot
+  consult an adapter, since a newer engine must read an old ledger
+  whatever adapters it registers, so they spell `'codex'` as a literal.
+  Giving adapters a Windows sandbox capability for the policy and the
+  flag to ask was rejected: it adds a library-facing surface for a
+  setting one adapter has, under names that are Codex's anyway, and the
+  ledger's literal would stay. A third runtime is still one module and
+  one registration, and touches none of these. `src/runtime/registry.ts`
+  states the exception.
 
 ### Gate, reduced (2026-10-04 to 10-05)
 
