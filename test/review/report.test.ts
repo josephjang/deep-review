@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { configured, ranked, reference, reported, statistics, triaged, worker } from '../helpers/review-history.ts';
@@ -40,8 +41,11 @@ describe('renderReport', () => {
 
   it('names the Codex Windows sandbox a Codex run on Windows pinned, after the runtime, and nothing for a run that pins none (R7 of the Codex sandbox)', () => {
     const state = reported().fold();
-    const pinning = (codex: { windowsSandbox: 'unelevated' | 'elevated' | 'none' } | null): RunState => ({ ...state, review: { ...state.review!, configuration: { ...state.review!.configuration, runtime: 'codex', codex } } });
-    for (const [windowsSandbox, words] of [['unelevated', 'unelevated'], ['elevated', 'elevated'], ['none', 'none (workers that edit ran in no sandbox, workers that read under unelevated)']] as const) {
+    const pinning = (codex: ReviewConfiguration['codex']): RunState => ({ ...state, review: { ...state.review!, configuration: { ...state.review!.configuration, runtime: 'codex', codex } } });
+    const expected = { unelevated: 'unelevated', elevated: 'elevated', none: 'none (workers that edit ran in no sandbox, workers that read under unelevated)' };
+    assert.deepEqual(Object.keys(expected).sort(), [...codexWindowsSandboxesV4].sort(), 'every value the ledger can record is rendered');
+    for (const windowsSandbox of codexWindowsSandboxesV4) {
+      const words = expected[windowsSandbox];
       const report = renderReport(pinning({ windowsSandbox }), { engine: '0.0.0+dev', statistics });
       assert.match(report, new RegExp(`^Runtime: codex [^\n]*\nCodex Windows sandbox: ${RegExp.escape(words)}\nModels: `, 'm'), windowsSandbox);
     }
