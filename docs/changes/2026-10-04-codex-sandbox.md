@@ -388,7 +388,20 @@ gate, as `CodexSandboxOffline`:
   weighs on D4.
 - Risk: the sandbox user cannot read a package store or a tool installed
   under the operator's profile on some machine. Accepted; the README says
-  what must be readable, and the failure names the path.
+  what must be readable, and the failure names the path. (Amended
+  2026-10-05.) The surveyor looks tools up as that user while the engine
+  runs the checks as the operator, so a check whose tool only the
+  operator can read, such as one under `~\.cargo\bin`, blocks the survey
+  with `check-unavailable` naming the tool, not a path, though the check
+  would have run. The block's own action is the way past it: `--check
+  <kind>=<command>` settles the kind, and the engine runs it as the
+  operator. Having the engine look a missing tool up again as the
+  operator before it blocks was left out: it would overrule the
+  surveyor's recorded word (R15 of the repository survey) with a lookup
+  that judges a name by a file on PATH, which the operator's PATH can
+  satisfy with a WindowsApps alias the worker's drops, such as the
+  `python` stub that only points at the Store when no Python is
+  installed.
 - Risk: `PSExecutionPolicyPreference` is overridden by a group policy, so
   the shims stay refused on a managed machine. Accepted; the worker's
   output shows the refusal and `none` remains.
