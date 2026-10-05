@@ -506,7 +506,13 @@ Departures and choices the proposal did not state:
   than the pinned one; abandoning it and starting again is the way to
   keep `elevated`.
 - `review` takes a `platform` option, the process's by default, so the
-  suite exercises the Windows cases on every runner of CI.
+  suite exercises the Windows cases on every runner of CI. (Amended
+  2026-10-05.) The launcher builds each worker's command and environment
+  for that platform too, through a `platform` option of `runWorker`, so
+  the sandbox a run pins and the one its workers are confined by are
+  decided by one value; before, a run configured for Linux on a Windows
+  host pinned no sandbox but launched its Codex workers under
+  `windows.sandbox="unelevated"`. The spawn and the kill stay the host's.
 
 ### Gate, reduced (2026-10-04 to 10-05)
 

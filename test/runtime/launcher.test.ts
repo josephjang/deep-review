@@ -726,6 +726,27 @@ describe('runWorker', () => {
       await assert.rejects(runWorker(box.checkpoint, other.id, box.claude(), { environment: baseEnvironment }), /is not a directory/);
     });
   });
+
+  describe('the platform a worker is built for', () => {
+    /** The `windows.sandbox` settings on the command line the fake last recorded. */
+    const windowsSandboxArgs = (): string[] => box.recorded().argv.filter((arg) => arg.startsWith('windows.sandbox='));
+
+    it('builds the command for the platform it is given, whatever the host', async () => {
+      await box.run(box.codex(), {}, { platform: 'linux' });
+      assert.deepEqual(windowsSandboxArgs(), [], 'no Windows sandbox off Windows');
+      await box.run(box.codex(), {}, { platform: 'win32' });
+      assert.deepEqual(windowsSandboxArgs(), ['windows.sandbox="unelevated"'], "the adapter's default on Windows");
+    });
+
+    it('builds the environment for the platform it is given, whatever the host', async () => {
+      // A backslash in the name, so the Windows spelling differs from the path on every host.
+      const scratch = join(box.directory, 'given\\scratch');
+      await box.run(box.claude({ scratch }), {}, { platform: 'linux' });
+      assert.equal(box.recorded().environment.TMPDIR, scratch, 'a backslash is an ordinary character off Windows');
+      await box.run(box.claude({ scratch }), {}, { platform: 'win32' });
+      assert.equal(box.recorded().environment.TMPDIR, scratch.replaceAll('\\', '/'), "Git Bash's spelling on Windows");
+    });
+  });
 });
 
 describe('workerVerdict', () => {
