@@ -234,7 +234,8 @@ function existingResults(output: string, state: RunState, groups: readonly Repla
 
 /** What taking samples needs, settled before the first launch. */
 interface SamplingPlan {
-  readonly options: ReplayOptions;
+  /** The options sampling reads; the tree, the output and the model are the resolved ones below, never the options'. */
+  readonly options: Pick<ReplayOptions, 'executable' | 'executableArgs' | 'roleText' | 'repeat' | 'budgetUsd' | 'log' | 'environment' | 'scratchRoot'>;
   /** The recorded run. */
   readonly state: RunState;
   readonly tree: string;
