@@ -6,7 +6,7 @@
 // agree. It calls real models, costs money and needs the runtime's CLI
 // signed in, so it is run by hand, never by `npm run check`:
 //   npm run replay -- --checkpoint <dir> --run <id> --tree <dir> --output <dir> --runtime <claude|codex>
-//     [--repeat 1] [--role-text recorded|current] [--model <name>] [--effort <level>] [--executable <path>]
+//     [--repeat 1] [--role-text recorded|current] [--model <name>] [--effort <level>] [--executable <path>] [--executable-arg <arg>]...
 //     [--concurrency <n>] [--budget-usd <n>] [--group <phase>:<id>]... [--roles <dir>] [--dry-run]
 // --checkpoint is a `deep-review-checkpoint` directory, best a copy of the
 // one the run was recorded in: it is only read, but opening a ledger may
@@ -17,8 +17,11 @@
 // current puts the verifier prompt of --roles (this checkout's roles/ by
 // default) in place of the recorded one, which is how a changed prompt is
 // measured. --budget-usd stops new launches once the replay's workers have
-// spent that much, on a runtime that reports cost. --dry-run writes every
-// prompt under <output>/prompts and launches nothing.
+// spent that much, on a runtime that reports cost. --executable-arg goes
+// before the runtime's own arguments, as in a review: for an npm install,
+// --executable names the node binary and --executable-arg the CLI's entry
+// script. --dry-run writes every prompt under <output>/prompts and
+// launches nothing.
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -39,6 +42,7 @@ const { values } = parseArgs({
     output: { type: 'string' },
     runtime: { type: 'string' },
     executable: { type: 'string' },
+    'executable-arg': { type: 'string', multiple: true },
     'role-text': { type: 'string', default: 'recorded' },
     repeat: { type: 'string', default: '1' },
     concurrency: { type: 'string' },
@@ -93,6 +97,7 @@ try {
     output,
     runtime,
     executable: resolveExecutable(values.executable ?? runtime),
+    executableArgs: values['executable-arg'] ?? [],
     rolesRoot: values.roles === undefined ? repositoryRolesRoot() : resolve(values.roles),
     roleText: roleText as RoleTextChoice,
     repeat: wholeNumber('repeat', 1) ?? 1,
