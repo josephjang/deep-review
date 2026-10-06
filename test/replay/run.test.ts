@@ -320,4 +320,20 @@ describe('replayVerifier', () => {
     writeFileSync(join(output, resultsFileName), JSON.stringify({ ...results, source: { ...results.source, runId: 'another-run' } }));
     await assert.rejects(replay([], { output }), /holds the replay of run another-run, not of /);
   });
+
+  it('refuses results that hold none of a replayable group\'s candidates, before launching a worker', async () => {
+    const output = newOutput();
+    box.script({});
+    const { results } = await replay([], { output, groups: ['verification:g1'] });
+    // As if the results were written from a copy of the run taken before it planned g2.
+    writeFileSync(join(output, resultsFileName), JSON.stringify({ ...results, candidates: results.candidates.filter((candidate) => candidate.group !== 'g2') }));
+    await assert.rejects(replay([], { output }), (error: unknown) => {
+      assert.ok(error instanceof ReplayRefusedError);
+      assert.match(error.message, /holds no candidate DESIGN-1 of verification:g2, which run .* can replay now; give this replay another output directory$/);
+      return true;
+    });
+    await assert.rejects(replay([], { output, dryRun: true }), /holds no candidate DESIGN-1 of verification:g2/);
+    assert.equal(replayedPrompts(output).length, 1);
+    assert.equal(existsSync(join(output, promptsDirectoryName)), false);
+  });
 });

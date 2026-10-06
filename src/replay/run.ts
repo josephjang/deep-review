@@ -196,12 +196,21 @@ function holdOutput(output: string): ReleaseLock {
   }
 }
 
-/** The results of an output directory, or null when it holds none yet; results of another run are refused. */
-function existingResults(output: string, state: RunState): ReplayResults | null {
+/**
+ * The results of an output directory, or null when it holds none yet.
+ * Results of another run are refused, and so are results missing a
+ * candidate of the groups to replay, as results taken from a copy of the
+ * run before it planned or launched their verifiers are: the samples could
+ * not keep those verdicts, so they are refused before any worker is paid.
+ */
+function existingResults(output: string, state: RunState, groups: readonly ReplayableGroup[]): ReplayResults | null {
   const path = join(output, resultsFileName);
   if (!existsSync(path)) return null;
   const results = parseResults(readFileSync(path, 'utf8'));
   if (results.source.runId !== state.id) throw new ReplayRefusedError(`${path} holds the replay of run ${results.source.runId}, not of ${state.id}; give each run its own output directory`);
+  const held = new Set(results.candidates.map((candidate) => candidate.id));
+  const missing = groups.flatMap((group) => group.candidates.filter((candidate) => !held.has(candidate.id)).map((candidate) => ({ id: candidate.id, group: groupKey(group) })));
+  if (missing.length > 0) throw new ReplayRefusedError(`${path} holds no candidate ${missing.map((candidate) => candidate.id).join(', ')} of ${[...new Set(missing.map((candidate) => candidate.group))].join(', ')}, which run ${state.id} can replay now; give this replay another output directory`);
   return results;
 }
 
@@ -409,7 +418,7 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
   /** The SHA-256 of the role prompt a composed prompt opens with. */
   const rolePromptHash = (prompt: string): string => sha256Hex(Buffer.from(splitRoleText(prompt).roleText, 'utf8'));
   const startingResults = (): ReplayResults =>
-    existingResults(output, state) ??
+    existingResults(output, state, groups) ??
     recordedResults(state, replayable, {
       spend: spendOfWorkers(state, runtimes.get(replayable[0]!.launch.runtime), sourceVerifiers),
       rolePromptSha256: rolePromptHash(source.evidence.read(replayable[0]!.launch.prompt).toString('utf8')),
@@ -419,6 +428,8 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
   if (unreplayable.length > 0) log(`not replayable, since the run launched no verifier for them: ${unreplayable.join(', ')}`);
 
   if (options.dryRun === true) {
+    // Read first, so results a replay would refuse are refused before any prompt is written.
+    const results = startingResults();
     const directory = join(output, promptsDirectoryName);
     mkdirSync(directory, { recursive: true });
     for (const group of groups) {
@@ -426,7 +437,7 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
       writeWhole(path, prompts.get(groupKey(group))!);
       log(`dry run: ${groupKey(group)}, ${String(group.candidates.length)} candidates, prompt ${String(Buffer.byteLength(prompts.get(groupKey(group))!, 'utf8'))} bytes at ${path}`);
     }
-    return { results: startingResults(), samples: [], unreplayable, notLaunched: [], unverified: [], unjudged: [], treeChanges: [], spend: { workers: 0, seconds: 0, costUsd: adapter.capabilities.costInUsd ? 0 : null } };
+    return { results, samples: [], unreplayable, notLaunched: [], unverified: [], unjudged: [], treeChanges: [], spend: { workers: 0, seconds: 0, costUsd: adapter.capabilities.costInUsd ? 0 : null } };
   }
 
   mkdirSync(output, { recursive: true });
