@@ -119,6 +119,14 @@ describe('a replay\'s prompt', () => {
     }
   });
 
+  it('reads a recorded store on Windows or POSIX, whichever host replays it', () => {
+    const sha256 = 'a'.repeat(64);
+    for (const prefix of ['C:\\Users\\x\\repo\\.git\\deep-review-checkpoint\\artifacts\\', '/home/x/repo/.git/deep-review-checkpoint/artifacts/']) {
+      const prompt = `x\n## Scope\n\nRepository: /recorded/repo\n| src/a.ts | modified | ${prefix}${sha256} | read the file in the worktree |\n`;
+      assert.equal(recordedStorePrefix(prompt, [{ sha256 }]), prefix);
+    }
+  });
+
   it('rewrites the path of a patch too large to carry', () => {
     const scope = scopeWith(Buffer.alloc(inlinePatchLimitBytes + 1, 'x'));
     const prompt = composed(scope, '/recorded/repo');

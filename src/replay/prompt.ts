@@ -7,7 +7,7 @@
  * with the role prompt replaced by another. Nothing else changes, so a
  * replayed verifier judges exactly what the recorded one was asked.
  */
-import { isAbsolute } from 'node:path';
+import { posix, win32 } from 'node:path';
 import { composePrompt } from '../runtime/launcher.ts';
 import { ReplayRefusedError } from './errors.ts';
 
@@ -50,6 +50,9 @@ const taskAnchor = '\n## Task\n\nRole: ';
 const blobPathIntroductions = ['| ', 'Read it at: '] as const;
 
 const hasLineBreak = (text: string): boolean => /[\r\n]/.test(text);
+
+/** Whether a recorded path is absolute on the host that recorded it, which need not be the one replaying it. */
+const isRecordedAbsolute = (path: string): boolean => posix.isAbsolute(path) || win32.isAbsolute(path);
 
 /**
  * The prompt an invocation carried, from the bytes its launch froze: those
@@ -113,7 +116,7 @@ function storePrefixIn(scope: string, blobs: readonly Pick<FrozenBlob, 'sha256'>
       return found === -1 ? -1 : found + introduction.length;
     }));
     const prefix = start === -1 ? '' : scope.slice(start, at);
-    if (prefix.length === 0 || hasLineBreak(prefix) || !/[\\/]$/.test(prefix) || !isAbsolute(prefix)) {
+    if (prefix.length === 0 || hasLineBreak(prefix) || !/[\\/]$/.test(prefix) || !isRecordedAbsolute(prefix)) {
       throw new ReplayRefusedError(`The recorded prompt names the frozen blob ${sha256}, but not under a directory that can be read from it: ${JSON.stringify(prefix)}`);
     }
     return prefix;
