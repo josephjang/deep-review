@@ -73,8 +73,8 @@ The three verdicts, exactly one per finding:
   tradeoffs — for a refactor, give explicit PROS (what gets easier / stops
   drifting / becomes mechanically safe) and CONS (blast radius, regression
   surface, test-coverage gaps, indirection cost) — and recommend one with a
-  reason. Per the *"verify before you judge"* gate, route a refactor here only
-  once you've confirmed it is feasible (an unworkable target is REFUTE); carry
+  reason. Route a refactor here only once you've confirmed it is feasible, by
+  sketching its concrete target (an unworkable target is REFUTE); carry
   that confirmed target into the options + "how to apply" so the chosen path is
   mechanical, not a fresh design problem.
 

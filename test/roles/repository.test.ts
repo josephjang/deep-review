@@ -436,6 +436,20 @@ describe('the repository\'s roles/', () => {
     assert.ok(leadVerify.includes('What the other two do differs by rubric, and each rubric says so in its first lines.'));
   });
 
+  it('cites to the rubric\'s "verify before you judge" gate no feasibility rule the gate does not state', () => {
+    // The auditor's prompt does not carry the rubric, so its verdicts state the feasibility rule themselves; a sentence crediting it to the gate would be false.
+    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
+    const gate = rubric.slice(rubric.indexOf('### All rubrics'), rubric.indexOf('### Rubric for the correctness & cost angles'));
+    assert.doesNotMatch(gate, /feasib/i);
+    const auditor = roles.find((role) => role.key === 'auditor')!;
+    assert.ok(!auditor.fragments.some((fragment) => fragment.name === 'rubrics.md'));
+    const prompt = auditor.prompt.replace(/\s+/g, ' ');
+    const citing = prompt.split(/(?<=\.) /).filter((sentence) => sentence.includes('"verify before you judge"'));
+    assert.ok(citing.length > 0, 'the auditor no longer names the gate');
+    for (const sentence of citing) assert.doesNotMatch(sentence, /feasib/i, sentence);
+    assert.ok(prompt.includes('Route a refactor here only once you\'ve confirmed it is feasible, by sketching its concrete target (an unworkable target is REFUTE)'));
+  });
+
   it('names no mechanism of one runtime in any prompt', () => {
     const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);
