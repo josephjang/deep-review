@@ -68,9 +68,9 @@ describe('scripts/replay-verifier.ts', () => {
 
   it('exits 1 when the budget kept a group pass from launching, as the sample is not a pass over every candidate', () => {
     box.script({ 'verifier:verification:g1': { ...verdictsOf('CONFIRMED', 'REFUTED'), costUsd: 0.75 }, 'verifier:verification:g2': { ...verdictsOf('PLAUSIBLE'), costUsd: 0.75 } });
-    const { result } = replay('--repeat', '2', '--budget-usd', '1');
+    const { result } = replay('--repeat', '2', '--budget-usd', '1', '--concurrency', '1');
 
-    // Two workers spend 1.50 USD, so neither group of claude-2 is launched; every verifier that ran answered.
+    // One launch at a time, two workers spend 1.50 USD, so neither group of claude-2 is launched; every verifier that ran answered.
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /^not launched at the budget: claude-2 verification:g1, claude-2 verification:g2$/m);
     assert.doesNotMatch(result.stdout, /no verdicts in any attempt/);

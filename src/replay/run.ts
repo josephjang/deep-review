@@ -302,7 +302,8 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
   const unverified: string[] = [];
   // What a launch the launcher refused threw; a list, since the workers of the pool report into it from their own turns.
   const refusals: unknown[] = [];
-  let version: string | null = null;
+  // The CLI version each sample's first worker was launched on, by sample; a sample no worker ran in has none.
+  const versionOf = new Map<string, string>();
 
   /** One attempt of a group in a sample: its verdicts by candidate id, or why it gave none. */
   const attempt = async ({ sample, group }: SamplingUnit): Promise<Map<string, SampledVerdict> | string> => {
@@ -328,7 +329,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
       ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }),
     });
     workersOf.get(sample)!.add(receipt.workerId);
-    version ??= receipt.runtime.version;
+    if (!versionOf.has(sample)) versionOf.set(sample, receipt.runtime.version);
     if (receipt.outcome !== 'completed') return `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`;
     const answer = receipt.output as VerifierOutput;
     try {
@@ -380,7 +381,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
   await Promise.all(Array.from({ length: Math.max(1, Math.min(settings.concurrency, units.length)) }, worker));
 
   const final = replay.fold(run.id);
-  for (const name of samples) results = withSpend(results, name, spendOfWorkers(final, adapter, workersOf.get(name)!), version);
+  for (const name of samples) results = withSpend(results, name, spendOfWorkers(final, adapter, workersOf.get(name)!), versionOf.get(name) ?? null);
   persist();
   if (refusals.length > 0) throw refusals[0];
 

@@ -216,7 +216,8 @@ describe('replayVerifier', () => {
   it('stops launching at the budget and says which group passes were not launched', async () => {
     box.script({ verifier: { costUsd: 0.75 } });
     const logs: string[] = [];
-    const outcome = await replay(logs, { output: newOutput(), repeat: 2, budgetUsd: 1 });
+    const output = newOutput();
+    const outcome = await replay(logs, { output, repeat: 2, budgetUsd: 1 });
 
     // Two workers spend 1.50 USD, which reaches the budget before the third launch.
     assert.equal(outcome.spend.workers, 2);
@@ -224,6 +225,11 @@ describe('replayVerifier', () => {
     assert.deepEqual(outcome.notLaunched, ['claude-2 verification:g1', 'claude-2 verification:g2']);
     assert.deepEqual(outcome.results.candidates.map((candidate) => Object.keys(candidate.samples)), [[recordedSampleName, 'claude-1'], [recordedSampleName, 'claude-1'], [recordedSampleName, 'claude-1']]);
     assert.deepEqual(outcome.results.samples.map((sample) => sample.spend?.workers), [2, 2, 0]);
+    // The sample whose workers were launched names their CLI; the one no worker ran in names none.
+    const [, launched, notRun] = outcome.results.samples;
+    assert.equal(typeof launched!.version, 'string');
+    assert.equal(notRun!.version, null);
+    assert.match(readFileSync(join(output, summaryFileName), 'utf8'), /^\| claude-2 \| claude \| .* \| not launched \| 0 \|/m);
   });
 
   it('replays in a clean checkout elsewhere, with only the repository line of the prompt changed', async () => {
