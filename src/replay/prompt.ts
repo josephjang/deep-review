@@ -66,11 +66,20 @@ export function withoutScratchNote(recorded: string, scratch: string | null): st
   return recorded.slice(0, recorded.length - note.length);
 }
 
-/** Where the path of the scope block's repository line starts and ends in a prompt. */
-function repositorySpan(prompt: string): { readonly start: number; readonly end: number } {
+/**
+ * Where a prompt's scope block starts: at its repository line. Every
+ * search for what the scope block names starts here, so that a
+ * candidate's text, which comes before it, is neither read nor rewritten.
+ */
+function scopeStart(prompt: string): number {
   const at = prompt.lastIndexOf(repositoryAnchor);
   if (at === -1) throw new ReplayRefusedError('The recorded prompt has no scope block naming its repository');
-  const start = at + repositoryAnchor.length;
+  return at;
+}
+
+/** Where the path of the scope block's repository line starts and ends in a prompt. */
+function repositorySpan(prompt: string): { readonly start: number; readonly end: number } {
+  const start = scopeStart(prompt) + repositoryAnchor.length;
   const end = prompt.indexOf('\n', start);
   if (end === -1) throw new ReplayRefusedError('The recorded prompt ends inside the line naming its repository');
   return { start, end };
@@ -90,21 +99,26 @@ export function withRepository(prompt: string, tree: string): string {
 }
 
 /**
- * The directory, with its closing separator, that a recorded prompt names
- * the frozen blobs of `blobs` under, read from the first of them the
- * prompt names; null when it names none, as a scope of added files with an
- * inline patch does. The directory is whatever stands between the blob's
- * hash and what the engine writes before a blob's path.
+ * The directory, with its closing separator, that a recorded prompt's
+ * scope block names the frozen blobs of `blobs` under, read from the first
+ * of them the scope block names; null when it names none, as a scope of
+ * added files with an inline patch does. The directory is whatever stands
+ * between the blob's hash and what the engine writes before a blob's path.
  */
 export function recordedStorePrefix(prompt: string, blobs: readonly Pick<FrozenBlob, 'sha256'>[]): string | null {
+  return storePrefixIn(prompt.slice(scopeStart(prompt)), blobs);
+}
+
+/** `recordedStorePrefix` for the text of a scope block, from its repository line on. */
+function storePrefixIn(scope: string, blobs: readonly Pick<FrozenBlob, 'sha256'>[]): string | null {
   for (const { sha256 } of blobs) {
-    const at = prompt.indexOf(sha256);
+    const at = scope.indexOf(sha256);
     if (at === -1) continue;
     const start = Math.max(...blobPathIntroductions.map((introduction) => {
-      const found = prompt.lastIndexOf(introduction, at);
+      const found = scope.lastIndexOf(introduction, at);
       return found === -1 ? -1 : found + introduction.length;
     }));
-    const prefix = start === -1 ? '' : prompt.slice(start, at);
+    const prefix = start === -1 ? '' : scope.slice(start, at);
     if (prefix.length === 0 || hasLineBreak(prefix) || !/[\\/]$/.test(prefix) || !isAbsolute(prefix)) {
       throw new ReplayRefusedError(`The recorded prompt names the frozen blob ${sha256}, but not under a directory that can be read from it: ${JSON.stringify(prefix)}`);
     }
@@ -114,20 +128,23 @@ export function recordedStorePrefix(prompt: string, blobs: readonly Pick<FrozenB
 }
 
 /**
- * The prompt with every frozen blob it names read from the store the
- * replay holds, each at the path `blobs` gives. Refused when the prompt
- * names, under its recorded store, a blob `blobs` does not hold: the
- * replayed worker would be sent to a file the replay cannot vouch for.
+ * The prompt with every frozen blob its scope block names read from the
+ * store the replay holds, each at the path `blobs` gives. Refused when the
+ * scope block names, under its recorded store, a blob `blobs` does not
+ * hold: the replayed worker would be sent to a file the replay cannot
+ * vouch for.
  */
 export function withStore(prompt: string, blobs: readonly FrozenBlob[]): string {
-  const prefix = recordedStorePrefix(prompt, blobs);
+  const at = scopeStart(prompt);
+  const scope = prompt.slice(at);
+  const prefix = storePrefixIn(scope, blobs);
   if (prefix === null) return prompt;
   const paths = new Map(blobs.map((blob) => [blob.sha256, blob.path]));
   for (const path of paths.values()) {
     // A cell of the scope block's table is written with its pipes escaped and its line breaks folded; a path with either would not read back as itself.
     if (path.includes('|') || hasLineBreak(path)) throw new ReplayRefusedError(`A frozen blob's path must hold no pipe and no line break: ${JSON.stringify(path)}`);
   }
-  return prompt.replaceAll(new RegExp(`${RegExp.escape(prefix)}([0-9a-f]{64})`, 'g'), (_named, sha256: string) => {
+  return prompt.slice(0, at) + scope.replaceAll(new RegExp(`${RegExp.escape(prefix)}([0-9a-f]{64})`, 'g'), (_named, sha256: string) => {
     const path = paths.get(sha256);
     if (path === undefined) throw new ReplayRefusedError(`The recorded prompt names the frozen blob ${sha256}, which the recorded scope does not hold`);
     return path;

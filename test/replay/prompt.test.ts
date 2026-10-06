@@ -106,6 +106,21 @@ describe('a replay\'s prompt', () => {
     assert.equal(withStore(prompt, blobsOf(scope, recordedStore)), prompt);
   });
 
+  it('reads and rewrites only the blobs the scope block names, not those a candidate\'s text quotes', () => {
+    const scope = scopeWith('a patch\n');
+    const before = scope.files[0]!.before;
+    assert.ok(before !== null && 'blob' in before);
+    const quoted = recordedStore.pathOf(before.blob);
+    for (const detail of [`the patch at ${quoted} is stale`, `blob ${before.blob.sha256} is stale`, `see | ${quoted}`]) {
+      const task = `Group g1.\n\n[0] SCAN-1 (SCAN) at src/a.ts:2\n    summary: a\n    detail: ${detail}`;
+      const prompt = composed(scope, '/recorded/repo', 'You are the verifier.\n', task);
+      assert.equal(recordedStorePrefix(prompt, blobsOf(scope)), `${recordedStore.root}${sep}`);
+      const rewritten = withStore(prompt, blobsOf(scope));
+      assert.ok(rewritten.includes(`    detail: ${detail}\n`), rewritten);
+      assert.ok(rewritten.includes(`| src/a.ts | modified | ${replayStore.pathOf(before.blob)} | read the file in the worktree |`), rewritten);
+    }
+  });
+
   it('rewrites the path of a patch too large to carry', () => {
     const scope = scopeWith(Buffer.alloc(inlinePatchLimitBytes + 1, 'x'));
     const prompt = composed(scope, '/recorded/repo');
@@ -149,10 +164,12 @@ describe('a replay\'s prompt', () => {
     const known = [first!, ...rest].filter((blob) => blob.sha256 !== before[1]);
     assert.throws(() => withStore(prompt, known), refused(new RegExp(`names the frozen blob ${before[1]!}, which the recorded scope does not hold`)));
     assert.throws(() => withStore(prompt, blobsOf(scope).map((blob) => ({ ...blob, path: `${blob.path}|x` }))), refused(/must hold no pipe and no line break/));
-    const bare = `| src/a.ts | modified | ${before[0]!} | read the file in the worktree |`;
+    const scoped = (text: string): string => `x\n## Scope\n\nRepository: /recorded/repo\n${text}`;
+    const bare = scoped(`| src/a.ts | modified | ${before[0]!} | read the file in the worktree |`);
     assert.throws(() => recordedStorePrefix(bare, [{ sha256: before[0]! }]), refused(/but not under a directory that can be read from it: ""/));
-    assert.throws(() => recordedStorePrefix(`${before[0]!} at the very start`, [{ sha256: before[0]! }]), refused(/not under a directory/));
-    assert.throws(() => recordedStorePrefix(`| relative/dir/${before[0]!} |`, [{ sha256: before[0]! }]), refused(/not under a directory that can be read from it: "relative\/dir\/"/));
+    assert.throws(() => recordedStorePrefix(scoped(`${before[0]!} at the very start`), [{ sha256: before[0]! }]), refused(/not under a directory/));
+    assert.throws(() => recordedStorePrefix(scoped(`| relative/dir/${before[0]!} |`), [{ sha256: before[0]! }]), refused(/not under a directory that can be read from it: "relative\/dir\/"/));
+    assert.throws(() => recordedStorePrefix(`| /a/${before[0]!} |`, [{ sha256: before[0]! }]), refused(/has no scope block naming its repository/));
   });
 
   it('splits a composed prompt at its task section and puts another role prompt in place of the recorded one', () => {
