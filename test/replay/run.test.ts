@@ -292,6 +292,20 @@ describe('replayVerifier', () => {
     assert.equal(existsSync(output), false);
   });
 
+  it('refuses an output directory inside the tree, before anything is written', async () => {
+    for (const output of [join(box.repo, 'replay-out'), join(box.repo, 'nested', 'replay-out'), box.repo]) {
+      await assert.rejects(replay([], { output }), (error: unknown) => {
+        assert.ok(error instanceof ReplayRefusedError);
+        assert.match(error.message, /^The output directory .* is inside the tree .*, where the workers would read the samples and the replay's own files would read as changes to the tree; give it an output directory outside the tree$/);
+        return true;
+      });
+    }
+    await assert.rejects(replay([], { output: join(box.repo, 'replay-out'), dryRun: true }), /is inside the tree/);
+    assert.equal(existsSync(join(box.repo, 'replay-out')), false);
+    assert.equal(existsSync(join(box.repo, 'nested')), false);
+    assert.equal(existsSync(join(box.repo, resultsFileName)), false);
+  });
+
   it('refuses a replay into an output directory another replay holds, and runs once it is released', async () => {
     const output = newOutput();
     const release = acquireStartLock(join(output, replayCheckpointDirectoryName));

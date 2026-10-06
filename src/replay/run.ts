@@ -12,8 +12,8 @@
  * checkpoint of its own under the output directory, and calls real models
  * when given a real runtime.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { Effort, WorkerLaunch } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -130,6 +130,23 @@ interface VerifierSettings {
   readonly budgetUsd: number | null;
   readonly pinned: PinnedRuntimeOptions;
   readonly concurrency: number;
+}
+
+/** A path as the file system names it: the real path of its nearest existing ancestor, with the parts not created yet joined on. */
+function canonicalPath(path: string): string {
+  const missing: string[] = [];
+  let existing = resolve(path);
+  for (let parent = dirname(existing); !existsSync(existing) && parent !== existing; parent = dirname(existing)) {
+    missing.unshift(basename(existing));
+    existing = parent;
+  }
+  return join(realpathSync.native(existing), ...missing);
+}
+
+/** Whether `path` is `directory` or lies under it. */
+function isWithin(directory: string, path: string): boolean {
+  const relation = relative(directory, path);
+  return relation === '' || (relation !== '..' && !relation.startsWith(`..${sep}`) && !isAbsolute(relation));
 }
 
 /** What differs between a tree and the scope a run captured: a head that moved, a scope file that changed, a change outside the scope. */
@@ -378,10 +395,11 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
 /**
  * Replay the verifiers of a recorded run and return what the samples say.
  * In order: read the run and the groups it launched a verifier for; refuse
- * a tree that is not the reviewed commit, unchanged; build every group's
- * prompt; then, unless this is a dry run, hold the output directory and
- * take `repeat` samples (`takeSamples`), added to the results the
- * directory already holds. Nothing is written before the tree and every
+ * a tree that is not the reviewed commit, unchanged, and an output
+ * directory inside that tree; build every group's prompt; then, unless
+ * this is a dry run, hold the output directory and take `repeat` samples
+ * (`takeSamples`), added to the results the directory already holds.
+ * Nothing is written before the tree, the output directory and every
  * prompt have passed.
  */
 export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutcome> {
@@ -402,6 +420,8 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
   const tree = locateCheckpoint(options.tree).worktree;
   const differences = treeDifferences(state, tree);
   if (differences.length > 0) throw new ReplayRefusedError(`${tree} is not the tree run ${state.id} reviewed: ${differences.join('; ')}`);
+  const output = resolve(options.output);
+  if (isWithin(tree, canonicalPath(output))) throw new ReplayRefusedError(`The output directory ${output} is inside the tree ${tree}, where the workers would read the samples and the replay's own files would read as changes to the tree; give it an output directory outside the tree`);
 
   const runtimes = options.runtimes ?? defaultRuntimes();
   const adapter = runtimes.get(options.runtime);
@@ -412,7 +432,6 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
   const blobs: FrozenBlob[] = collectArtifactReferences(scope).map((reference) => ({ sha256: reference.sha256, path: source.evidence.pathOf(reference) }));
   const prompts = new Map(groups.map((group) => [groupKey(group), replayPrompt(source.evidence.read(group.launch.prompt).toString('utf8'), { scratch: group.launch.scratch, tree, blobs, roleText })]));
 
-  const output = resolve(options.output);
   const sourceVerifiers = new Set(Object.values(state.workers).filter((worker) => parseUnitLabel(worker.launch.label)?.role === verifierRole).map((worker) => worker.launch.workerId));
   /** The results the output directory holds, or the recorded sample alone when it holds none. */
   /** The SHA-256 of the role prompt a composed prompt opens with. */

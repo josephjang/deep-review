@@ -470,7 +470,8 @@ again says how stable a verdict is, and another runtime says how it
 judges the same candidates. `--role-text current` puts this checkout's
 verifier prompt in place of the recorded one, which measures an edit to
 the rubric without a whole run. A tree that is not the reviewed commit,
-unchanged, is refused. The checkpoint is only read, but give the replay a
+unchanged, is refused, and so is an output directory inside the tree,
+where the workers would read the samples. The checkpoint is only read, but give the replay a
 copy, placed at `<tree>/.git/deep-review-checkpoint` where the run
 recorded it, so the frozen blobs stay inside the worker's working
 directory as they were then; the replay records its own workers in a
