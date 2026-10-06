@@ -176,6 +176,17 @@ export function withSpend(results: ReplayResults, sample: string, spend: SampleS
   return { ...results, samples: results.samples.map((existing) => (existing.name === sample ? { ...existing, spend, version } : existing)) };
 }
 
+/**
+ * The verdict a sample's verifier gave a candidate, or undefined when the
+ * sample did not reach it or its verifier failed twice: the PLAUSIBLE a
+ * run records then is no judgment, so it neither agrees nor disagrees
+ * with another sample and scores against no label.
+ */
+export function judgedVerdict(candidate: Pick<ReplayCandidate, 'samples'>, sample: string): SampledVerdict | undefined {
+  const given = candidate.samples[sample];
+  return given === undefined || given.unverified ? undefined : given;
+}
+
 /** Results read back from their file; refused by name when the text is not results this engine wrote. */
 export function parseResults(text: string): ReplayResults {
   let value: unknown;
@@ -213,7 +224,7 @@ export function countsOf(results: Pick<ReplayResults, 'candidates'>, sample: str
 
 /** How two samples agree over the candidates both judged. */
 export interface Agreement {
-  /** The candidates both samples gave a verdict. */
+  /** The candidates both samples gave a verdict, an unverified one not counting as one. */
   readonly compared: number;
   readonly sameVerdict: number;
   readonly sameOutcome: number;
@@ -227,7 +238,7 @@ export function agreementOf(results: Pick<ReplayResults, 'candidates'>, first: s
   let sameVerdict = 0;
   let sameOutcome = 0;
   for (const candidate of results.candidates) {
-    const [a, b] = [candidate.samples[first], candidate.samples[second]];
+    const [a, b] = [judgedVerdict(candidate, first), judgedVerdict(candidate, second)];
     if (a === undefined || b === undefined) continue;
     compared += 1;
     matrix[a.verdict][b.verdict] += 1;
@@ -237,9 +248,9 @@ export function agreementOf(results: Pick<ReplayResults, 'candidates'>, first: s
   return { compared, sameVerdict, sameOutcome, matrix };
 }
 
-/** The candidates at least two samples gave different verdicts, in the results' order. */
+/** The candidates at least two samples gave different verdicts, unverified ones left out, in the results' order. */
 export function disagreements(results: Pick<ReplayResults, 'candidates'>): ReplayCandidate[] {
-  return results.candidates.filter((candidate) => new Set(Object.values(candidate.samples).map((verdict) => verdict.verdict)).size > 1);
+  return results.candidates.filter((candidate) => new Set(Object.keys(candidate.samples).map((sample) => judgedVerdict(candidate, sample)?.verdict).filter((verdict) => verdict !== undefined)).size > 1);
 }
 
 /** A share of a whole as text: `7 of 9 (78%)`, or `none` of an empty whole. */
@@ -259,7 +270,7 @@ export function renderSummary(results: ReplayResults): string {
     `Source: a ${source.runtime} run recorded by engine ${inlineText(source.engine)}, mode ${source.mode} at head ${source.head}, in ${inlineText(source.worktree)}.`,
     `Candidates: ${String(results.candidates.length)} in ${String(new Set(results.candidates.map((candidate) => `${candidate.phase}:${candidate.group}`)).size)} verification groups.`,
     '',
-    'An outcome is what a verdict does to the candidate taken alone: refuted and dropped, sent to a fixer, or held for the author. A run routes merged findings, so a merged candidate may take another route there.',
+    'An outcome is what a verdict does to the candidate taken alone: refuted and dropped, sent to a fixer, or held for the author. A run routes merged findings, so a merged candidate may take another route there. An unverified candidate carries PLAUSIBLE with no verifier\'s judgment, so it is counted below but compared with no other sample.',
     '',
     '## Samples',
     '',

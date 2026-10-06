@@ -493,7 +493,9 @@ for an outcome, dropped, to a fixer or held, and the score counts where a
 sample's verdict leads elsewhere: kept though not real, dropped though
 real, sent to a fixer though the author should be asked, held though it
 should be applied, over all labeled candidates and per class of angle. A
-candidate labeled `unsure` scores no sample. It reads the two files,
+candidate labeled `unsure` scores no sample. The PLAUSIBLE an unverified
+candidate carries is no verifier's judgment, so it scores nothing for
+its sample, and `summary.md` compares it with no other sample. It reads the two files,
 calls no model and writes only what `--output` names.
 
 Never edit `dist/` by hand. See `AGENTS.md`.

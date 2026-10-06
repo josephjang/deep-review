@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { inlineText, tableCell } from '../review/markdown.ts';
 import { angleClasses, candidateIdSchema, type AngleClass } from '../review/vocabulary.ts';
 import { ReplayRefusedError } from './errors.ts';
-import type { Outcome, ReplayCandidate, ReplayResults } from './samples.ts';
+import { judgedVerdict, type Outcome, type ReplayCandidate, type ReplayResults } from './samples.ts';
 
 /**
  * Whether a candidate's claim holds. `yes`: the failure it describes can
@@ -79,7 +79,7 @@ export function labeledOutcome(label: Pick<Label, 'real' | 'disposition'>): Outc
 
 /** How one sample's verdicts stand against the labels. */
 export interface SampleScore {
-  /** The labeled candidates the sample judged, those labeled unsure left out. */
+  /** The labeled candidates the sample judged, those labeled unsure or unverified under the sample left out. */
   readonly scored: number;
   /** Of those, the ones labeled not real, and how many of them the sample kept. */
   readonly unreal: number;
@@ -108,7 +108,7 @@ function labeledCandidates(results: Pick<ReplayResults, 'source' | 'candidates'>
 export function scoreOf(results: Pick<ReplayResults, 'source' | 'candidates'>, labels: Labels, sample: string, angleClass: AngleClass | null = null): SampleScore {
   const score = { scored: 0, unreal: 0, keptUnreal: 0, real: 0, droppedReal: 0, fixedUnasked: 0, heldNeedlessly: 0, rightOutcome: 0 };
   for (const { candidate, label } of labeledCandidates(results, labels)) {
-    const given = candidate.samples[sample];
+    const given = judgedVerdict(candidate, sample);
     const wanted = labeledOutcome(label);
     if (given === undefined || wanted === null || (angleClass !== null && angleClasses[candidate.angle] !== angleClass)) continue;
     score.scored += 1;
@@ -155,7 +155,7 @@ export function renderScores(results: ReplayResults, labels: Labels): string {
     '',
     `Labeled: ${String(labeled.length)} of ${String(results.candidates.length)} candidates; ${String(count('yes'))} real, ${String(count('no'))} not real, ${String(count('unsure'))} unsure and not scored.`,
     '',
-    'A label asks for an outcome: a candidate that is not real dropped, a real one sent to a fixer when it needs no decision, held when the author should be asked. An outcome is what a sample\'s verdict does to the candidate taken alone.',
+    'A label asks for an outcome: a candidate that is not real dropped, a real one sent to a fixer when it needs no decision, held when the author should be asked. An outcome is what a sample\'s verdict does to the candidate taken alone. A candidate whose verifier failed twice under a sample carries PLAUSIBLE with no judgment and is not scored for that sample.',
     '',
     '## Every labeled candidate',
     '',
@@ -173,7 +173,7 @@ export function renderScores(results: ReplayResults, labels: Labels): string {
     for (const sample of results.samples) {
       const given = candidate.samples[sample.name];
       if (given === undefined) continue;
-      const mark = wanted === null ? '' : given.outcome === wanted ? '' : ' (not the labeled outcome)';
+      const mark = given.unverified ? ': its verifier failed twice, not scored' : wanted === null || given.outcome === wanted ? '' : ' (not the labeled outcome)';
       lines.push(`- ${sample.name}: ${given.verdict}, ${outcomeWords[given.outcome]}${mark}`);
     }
   }

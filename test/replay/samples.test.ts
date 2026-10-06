@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
 import { isReplayable, recordedGroups } from '../../src/replay/recorded.ts';
-import { agreementOf, countsOf, disagreements, nextSampleName, outcomeOf, parseResults, recordedResults, recordedSampleName, renderSummary, sampledVerdict, withSample, withSpend, withVerdicts, type ReplayResults, type ReplaySample, type SampledVerdict } from '../../src/replay/samples.ts';
+import { agreementOf, countsOf, disagreements, judgedVerdict, nextSampleName, outcomeOf, parseResults, recordedResults, recordedSampleName, renderSummary, sampledVerdict, withSample, withSpend, withVerdicts, type ReplayResults, type ReplaySample, type SampledVerdict } from '../../src/replay/samples.ts';
 import type { Verdict } from '../../src/review/vocabulary.ts';
 import { twiceVerified } from '../helpers/replay-history.ts';
 import { worker } from '../helpers/review-history.ts';
@@ -134,12 +134,12 @@ describe('how samples agree', () => {
 
   it('compares two samples over the candidates both judged, by verdict and by outcome', () => {
     const results = replayed();
-    // SWEEP-2 has no claude-1 verdict and is left out. SCAN-1 agrees; RIPPLE-1 goes from dropped to a fixer; SWEEP-1 from held to a fixer.
+    // SWEEP-2 has no claude-1 verdict, and SWEEP-1's recorded verifier failed twice, so both are left out. SCAN-1 agrees; RIPPLE-1 goes from dropped to a fixer.
     assert.deepEqual(agreementOf(results, recordedSampleName, 'claude-1'), {
-      compared: 3,
+      compared: 2,
       sameVerdict: 1,
       sameOutcome: 1,
-      matrix: { CONFIRMED: { CONFIRMED: 1, PLAUSIBLE: 0, REFUTED: 0 }, PLAUSIBLE: { CONFIRMED: 1, PLAUSIBLE: 0, REFUTED: 0 }, REFUTED: { CONFIRMED: 0, PLAUSIBLE: 1, REFUTED: 0 } },
+      matrix: { CONFIRMED: { CONFIRMED: 1, PLAUSIBLE: 0, REFUTED: 0 }, PLAUSIBLE: { CONFIRMED: 0, PLAUSIBLE: 0, REFUTED: 0 }, REFUTED: { CONFIRMED: 0, PLAUSIBLE: 1, REFUTED: 0 } },
     });
     // A verdict can change while the outcome stays: a correctness candidate goes to a fixer confirmed or plausible.
     const kept = withVerdicts(withSample(results, replaySample('claude-2')), 'claude-2', new Map([given('SCAN-1', 'PLAUSIBLE')]));
@@ -149,8 +149,22 @@ describe('how samples agree', () => {
   });
 
   it('lists the candidates two samples gave different verdicts', () => {
-    assert.deepEqual(disagreements(replayed()).map((candidate) => candidate.id), ['RIPPLE-1', 'SWEEP-1']);
+    // SWEEP-1's recorded PLAUSIBLE is no verdict, so claude-1 confirming it is no disagreement.
+    assert.deepEqual(disagreements(replayed()).map((candidate) => candidate.id), ['RIPPLE-1']);
     assert.deepEqual(disagreements(recorded()), []);
+    const split = withVerdicts(withSample(replayed(), replaySample('claude-2')), 'claude-2', new Map([given('SWEEP-1', 'REFUTED')]));
+    assert.deepEqual(disagreements(split).map((candidate) => candidate.id), ['RIPPLE-1', 'SWEEP-1']);
+  });
+
+  it('takes an unverified candidate for a verdict nowhere but in the counts', () => {
+    // Both samples carry SWEEP-2 PLAUSIBLE to a fixer, but the recorded verifier gave no verdict, so the two agree on nothing.
+    const unjudged = withVerdicts(withSample(recorded(), replaySample('claude-1')), 'claude-1', new Map([given('SWEEP-2', 'PLAUSIBLE')]));
+    assert.deepEqual(agreementOf(unjudged, recordedSampleName, 'claude-1').compared, 0);
+    assert.deepEqual(agreementOf(unjudged, 'claude-1', recordedSampleName).compared, 0);
+    assert.equal(countsOf(unjudged, recordedSampleName).unverified, 2);
+    assert.equal(judgedVerdict(unjudged.candidates.find((candidate) => candidate.id === 'SWEEP-2')!, recordedSampleName), undefined);
+    assert.equal(judgedVerdict(unjudged.candidates.find((candidate) => candidate.id === 'SWEEP-2')!, 'claude-1')?.verdict, 'PLAUSIBLE');
+    assert.equal(judgedVerdict(unjudged.candidates.find((candidate) => candidate.id === 'SCAN-1')!, 'claude-1'), undefined);
   });
 });
 
@@ -164,18 +178,18 @@ describe('renderSummary', () => {
     assert.ok(summary.includes([
       '### recorded and claude-1',
       '',
-      'Same verdict: 1 of 3 (33%). Same outcome: 1 of 3 (33%).',
+      'Same verdict: 1 of 2 (50%). Same outcome: 1 of 2 (50%).',
       '',
       '| recorded \\ claude-1 | CONFIRMED | PLAUSIBLE | REFUTED |',
       '|---|---|---|---|',
       '| CONFIRMED | 1 | 0 | 0 |',
-      '| PLAUSIBLE | 1 | 0 | 0 |',
+      '| PLAUSIBLE | 0 | 0 | 0 |',
       '| REFUTED | 0 | 1 | 0 |',
     ].join('\n')), summary);
     assert.ok(summary.includes([
       '## Candidates the samples disagree on',
       '',
-      '2 of 4 candidates.',
+      '1 of 4 candidates.',
       '',
       '### RIPPLE-1 (RIPPLE) at src/a.ts:4',
       '',
@@ -183,16 +197,21 @@ describe('renderSummary', () => {
       '',
       '- recorded: REFUTED, dropped: the caller checks first',
       '- claude-1: PLAUSIBLE, to a fixer: PLAUSIBLE for RIPPLE-1',
-      '',
+    ].join('\n')), summary);
+    assert.ok(summary.endsWith('- claude-1: PLAUSIBLE, to a fixer: PLAUSIBLE for RIPPLE-1\n'), summary);
+
+    // A candidate two other samples dispute lists the unverified one too, as such.
+    const split = renderSummary(withVerdicts(withSample(results, replaySample('claude-2')), 'claude-2', new Map([given('SWEEP-1', 'REFUTED')])));
+    assert.ok(split.endsWith([
       '### SWEEP-1 (DESIGN) at C:\\elsewhere\\b.ts:9 (unlocated: no file of the repository has this path and line)',
       '',
       'SWEEP-1 summary',
       '',
       '- recorded: PLAUSIBLE, held: its verifier failed twice',
       '- claude-1: CONFIRMED, to a fixer: CONFIRMED for SWEEP-1',
+      '- claude-2: REFUTED, dropped: REFUTED for SWEEP-1',
       '',
-    ].join('\n')), summary);
-    assert.ok(summary.endsWith('- claude-1: CONFIRMED, to a fixer: CONFIRMED for SWEEP-1\n'), summary);
+    ].join('\n')), split);
   });
 
   it('says so when there is one sample, when a sample is unfinished, and when no candidate is disputed', () => {
