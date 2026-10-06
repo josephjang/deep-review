@@ -117,9 +117,13 @@ try {
   } else {
     const cost = outcome.spend.costUsd === null ? 'no cost reported' : `${outcome.spend.costUsd.toFixed(2)} USD`;
     console.log(`samples ${outcome.samples.join(', ')}: ${String(outcome.spend.workers)} workers, ${String(outcome.spend.seconds)} s, ${cost}`);
-    if (outcome.notLaunched.length > 0) console.log(`not launched at the budget: ${outcome.notLaunched.join(', ')}`);
+    // A group pass the budget stopped or no attempt answered leaves its sample short of a pass over every candidate; the exit code says so, so nobody scores it as one unread.
+    if (outcome.notLaunched.length > 0) {
+      console.log(`not launched at the budget: ${outcome.notLaunched.join(', ')}`);
+      process.exitCode = 1;
+    }
     if (outcome.unverified.length > 0) {
-      // Kept in the results, marked unverified; the exit code says a sample is not a pass over every candidate, so nobody scores it as one unread.
+      // Kept in the results, marked unverified.
       console.log(`no verdicts in any attempt: ${outcome.unverified.join(', ')}`);
       process.exitCode = 1;
     }

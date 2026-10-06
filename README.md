@@ -470,7 +470,8 @@ again says how stable a verdict is, and another runtime says how it
 judges the same candidates. `--role-text current` puts this checkout's
 verifier prompt in place of the recorded one, which measures an edit to
 the rubric without a whole run. A tree that is not the reviewed commit,
-unchanged, is refused. The checkpoint is only read, but give the replay a
+unchanged, is refused, and so is an output directory inside the tree,
+where the workers would read the samples. The checkpoint is only read, but give the replay a
 copy, placed at `<tree>/.git/deep-review-checkpoint` where the run
 recorded it, so the frozen blobs stay inside the worker's working
 directory as they were then; the replay records its own workers in a
@@ -481,7 +482,9 @@ verifier gives no verdicts in either attempt is recorded unverified, as
 a review records it, and the command then names every such group pass
 and exits 1: a sample that holds one, because a verifier timed out twice
 or the runtime reached a usage limit partway through, is not a pass over
-every candidate and must not be scored as one.
+every candidate and must not be scored as one. A group pass `--budget-usd`
+kept from launching leaves its sample short the same way, so the command
+names it too and exits 1.
 
 Agreement says how alike two samples are, not which is right.
 `npm run replay-score` scores the samples against labels: a file, written
