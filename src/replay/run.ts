@@ -244,9 +244,8 @@ interface SamplingPlan {
   readonly runtimes: RuntimeRegistry;
   readonly adapter: RuntimeAdapter;
   readonly settings: VerifierSettings;
-  readonly groups: readonly ReplayableGroup[];
-  /** Each group's prompt, by `groupKey`. */
-  readonly prompts: ReadonlyMap<string, string>;
+  /** The groups to replay, each with its prompt. */
+  readonly groups: readonly PromptedGroup[];
   /** The SHA-256 of the role prompt those prompts open with. */
   readonly rolePromptSha256: string;
   /** The results the samples are added to. */
@@ -255,10 +254,15 @@ interface SamplingPlan {
   readonly replay: Checkpoint;
 }
 
-/** One group's pass in one sample. */
-interface SamplingUnit {
-  readonly sample: string;
+/** A group to replay, with the prompt its verifiers are sent. */
+interface PromptedGroup {
   readonly group: ReplayableGroup;
+  readonly prompt: string;
+}
+
+/** One group's pass in one sample. */
+interface SamplingUnit extends PromptedGroup {
+  readonly sample: string;
 }
 
 /**
@@ -271,7 +275,7 @@ interface SamplingUnit {
  * already running have settled.
  */
 async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'results' | 'samples' | 'notLaunched' | 'unverified' | 'unjudged' | 'treeChanges' | 'spend'>> {
-  const { options, state, tree, output, adapter, settings, groups, prompts, replay } = plan;
+  const { options, state, tree, output, adapter, settings, groups, replay } = plan;
   const { log } = options;
   let results = plan.results;
   const persist = (): void => {
@@ -289,7 +293,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
     results = withSample(results, { name, origin: 'replay', runtime: adapter.name, model: settings.model, effort: settings.effort, roleText: options.roleText, rolePromptSha256: plan.rolePromptSha256, version: null, spend: null });
     samples.push(name);
     workersOf.set(name, new Set());
-    for (const group of groups) units.push({ sample: name, group });
+    for (const prompted of groups) units.push({ sample: name, ...prompted });
   }
   persist();
 
@@ -308,7 +312,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
   const versionOf = new Map<string, string>();
 
   /** One attempt of a group in a sample: its verdicts by candidate id, or why it gave none. */
-  const attempt = async ({ sample, group }: SamplingUnit): Promise<Map<string, SampledVerdict> | string> => {
+  const attempt = async ({ sample, group, prompt }: SamplingUnit): Promise<Map<string, SampledVerdict> | string> => {
     const invocation: InvocationInput = {
       runtime: adapter.name,
       executable: options.executable,
@@ -317,7 +321,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
       effort: settings.effort,
       access: 'read-only',
       shell: true,
-      prompt: prompts.get(groupKey(group))!,
+      prompt,
       outputSchema: verifierOutputSchema,
       timeoutMs: settings.timeoutMs,
       ...(settings.budgetUsd === null ? {} : { budgetUsd: settings.budgetUsd }),
@@ -444,7 +448,7 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
   const roleText = options.roleText === 'current' ? roles.find((role) => role.key === verifierRole)?.prompt ?? null : null;
   if (options.roleText === 'current' && roleText === null) throw new ReplayRefusedError(`The roles directory ${options.rolesRoot} assembles no ${verifierRole} role`);
   const blobs: FrozenBlob[] = collectArtifactReferences(scope).map((reference) => ({ sha256: reference.sha256, path: source.evidence.pathOf(reference) }));
-  const prompts = new Map(groups.map((group) => [groupKey(group), replayPrompt(source.evidence.read(group.launch.prompt).toString('utf8'), { scratch: group.launch.scratch, tree, blobs, roleText })]));
+  const prompted: PromptedGroup[] = groups.map((group) => ({ group, prompt: replayPrompt(source.evidence.read(group.launch.prompt).toString('utf8'), { scratch: group.launch.scratch, tree, blobs, roleText }) }));
 
   const sourceVerifiers = new Set(Object.values(state.workers).filter((worker) => parseUnitLabel(worker.launch.label)?.role === verifierRole).map((worker) => worker.launch.workerId));
   /** The SHA-256 of the role prompt a composed prompt opens with. */
@@ -465,10 +469,10 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
     const results = startingResults();
     const directory = join(output, promptsDirectoryName);
     mkdirSync(directory, { recursive: true });
-    for (const group of groups) {
+    for (const { group, prompt } of prompted) {
       const path = join(directory, `${group.phase}-${group.id}.md`);
-      writeWhole(path, prompts.get(groupKey(group))!);
-      log(`dry run: ${groupKey(group)}, ${String(group.candidates.length)} candidates, prompt ${String(Buffer.byteLength(prompts.get(groupKey(group))!, 'utf8'))} bytes at ${path}`);
+      writeWhole(path, prompt);
+      log(`dry run: ${groupKey(group)}, ${String(group.candidates.length)} candidates, prompt ${String(Buffer.byteLength(prompt, 'utf8'))} bytes at ${path}`);
     }
     return { results, samples: [], unreplayable, notLaunched: [], unverified: [], unjudged: [], treeChanges: [], spend: { workers: 0, seconds: 0, costUsd: adapter.capabilities.costInUsd ? 0 : null } };
   }
@@ -480,7 +484,7 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
     const results = startingResults();
     const replay = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: options.engine });
     try {
-      return { unreplayable, ...(await takeSamples({ options, state, tree, output, platform, runtimes, adapter, settings, groups, prompts, rolePromptSha256: rolePromptHash(prompts.get(groupKey(groups[0]!))!), results, replay })) };
+      return { unreplayable, ...(await takeSamples({ options, state, tree, output, platform, runtimes, adapter, settings, groups: prompted, rolePromptSha256: rolePromptHash(prompted[0]!.prompt), results, replay })) };
     } finally {
       replay.close();
     }
