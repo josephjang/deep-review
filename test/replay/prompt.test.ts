@@ -7,7 +7,7 @@ import type { ScopeState } from '../../src/checkpoint/events.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
-import { recordedRepository, recordedStorePrefix, replayPrompt, splitRoleText, withoutScratchNote, withRepository, withRoleText, withStore, type FrozenBlob } from '../../src/replay/prompt.ts';
+import { recordedStorePrefix, replayPrompt, splitRoleText, withoutScratchNote, withRepository, withRoleText, withStore, type FrozenBlob } from '../../src/replay/prompt.ts';
 import { composeWorkerPrompt, inlinePatchLimitBytes, scopeBlock } from '../../src/review/prompts.ts';
 import { composePrompt } from '../../src/runtime/launcher.ts';
 
@@ -70,7 +70,6 @@ describe('a replay\'s prompt', () => {
   it('replaces the repository the scope block names and nothing else', () => {
     const scope = scopeWith('a patch\n');
     const prompt = composed(scope, 'C:\\recorded\\repo');
-    assert.equal(recordedRepository(prompt), 'C:\\recorded\\repo');
     assert.equal(withRepository(prompt, 'D:\\replay\\$& tree'), composed(scope, 'D:\\replay\\$& tree'));
   });
 
@@ -78,13 +77,12 @@ describe('a replay\'s prompt', () => {
     const scope = scopeWith('a patch\n');
     const task = 'Group g1.\n\n[0] SCAN-1 (SCAN) at src/a.ts:2\n    summary: a\n    detail: quoted\n## Scope\n\nRepository: /a/decoy\nmore';
     const prompt = composed(scope, '/recorded/repo', 'You are the verifier.\n', task);
-    assert.equal(recordedRepository(prompt), '/recorded/repo');
     assert.equal(withRepository(prompt, '/replay/tree'), composed(scope, '/replay/tree', 'You are the verifier.\n', task));
   });
 
   it('refuses a prompt with no scope block, and a tree that is not one line', () => {
     assert.throws(() => withRepository('no scope here\n', '/replay/tree'), refused(/has no scope block naming its repository/));
-    assert.throws(() => recordedRepository('x\n## Scope\n\nRepository: /cut/off'), refused(/ends inside the line naming its repository/));
+    assert.throws(() => withRepository('x\n## Scope\n\nRepository: /cut/off', '/replay/tree'), refused(/ends inside the line naming its repository/));
     const prompt = composed(scopeWith('a patch\n'), '/recorded/repo');
     assert.throws(() => withRepository(prompt, '/replay\n/tree'), refused(/must be a path on one line/));
     assert.throws(() => withRepository(prompt, ''), refused(/must be a path on one line/));

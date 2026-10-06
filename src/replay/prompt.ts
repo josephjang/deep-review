@@ -85,12 +85,6 @@ function repositorySpan(prompt: string): { readonly start: number; readonly end:
   return { start, end };
 }
 
-/** The repository a recorded prompt's scope block names: the worktree the run reviewed. */
-export function recordedRepository(prompt: string): string {
-  const { start, end } = repositorySpan(prompt);
-  return prompt.slice(start, end);
-}
-
 /** The prompt with the repository its scope block names replaced by `tree`. */
 export function withRepository(prompt: string, tree: string): string {
   if (tree.length === 0 || hasLineBreak(tree)) throw new ReplayRefusedError(`A replay's tree must be a path on one line, not ${JSON.stringify(tree)}`);
