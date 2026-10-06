@@ -436,9 +436,9 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
   const prompts = new Map(groups.map((group) => [groupKey(group), replayPrompt(source.evidence.read(group.launch.prompt).toString('utf8'), { scratch: group.launch.scratch, tree, blobs, roleText })]));
 
   const sourceVerifiers = new Set(Object.values(state.workers).filter((worker) => parseUnitLabel(worker.launch.label)?.role === verifierRole).map((worker) => worker.launch.workerId));
-  /** The results the output directory holds, or the recorded sample alone when it holds none. */
   /** The SHA-256 of the role prompt a composed prompt opens with. */
   const rolePromptHash = (prompt: string): string => sha256Hex(Buffer.from(splitRoleText(prompt).roleText, 'utf8'));
+  /** The results the output directory holds, or the recorded sample alone when it holds none. */
   const startingResults = (): ReplayResults =>
     existingResults(output, state, groups) ??
     recordedResults(state, replayable, {
