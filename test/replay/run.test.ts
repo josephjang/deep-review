@@ -352,6 +352,9 @@ describe('replayVerifier', () => {
     const { results } = await replay([], { output, groups: ['verification:g2'] });
     writeFileSync(join(output, resultsFileName), JSON.stringify({ ...results, source: { ...results.source, runId: 'another-run' } }));
     await assert.rejects(replay([], { output }), /holds the replay of run another-run, not of /);
+    // A dry run is refused too, before it writes a prompt over the other run's.
+    await assert.rejects(replay([], { output, dryRun: true }), /holds the replay of run another-run, not of /);
+    assert.equal(existsSync(join(output, promptsDirectoryName)), false);
   });
 
   it('refuses results that hold none of a replayable group\'s candidates, before launching a worker', async () => {
