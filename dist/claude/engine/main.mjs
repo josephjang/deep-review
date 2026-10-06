@@ -25167,7 +25167,7 @@ function mergedResolution(candidates) {
   const resolutions = candidates.map(resolutionOf).filter((resolution) => resolution !== null);
   const verdict = resolutions.some((resolution) => resolution.verdict === "CONFIRMED") ? "CONFIRMED" : "PLAUSIBLE";
   const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
-  const evidence = resolutions.find((resolution) => resolution.evidence !== null)?.evidence ?? null;
+  const evidence = resolutions.find((resolution) => resolution.verdict === verdict && resolution.evidence !== null)?.evidence ?? null;
   return { verdict, unverified, evidence };
 }
 var idParts = (id) => {

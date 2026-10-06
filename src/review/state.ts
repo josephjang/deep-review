@@ -87,12 +87,16 @@ export interface ReportFinding {
   readonly resolution: Resolution;
 }
 
-/** The merged resolution of a finding: CONFIRMED when any candidate is, unverified only when every candidate is; the primary's evidence, else the first member's. */
+/**
+ * The merged resolution of a finding: CONFIRMED when any candidate is, unverified only when every candidate is;
+ * the evidence of the first candidate, primary first, that carries the merged verdict, so a CONFIRMED finding
+ * never shows a PLAUSIBLE member's 'Not CONFIRMED' line and keeps the confirming member's narrowed claim.
+ */
 export function mergedResolution(candidates: readonly CandidateState[]): Resolution {
   const resolutions = candidates.map(resolutionOf).filter((resolution): resolution is Resolution => resolution !== null);
   const verdict: Verdict = resolutions.some((resolution) => resolution.verdict === 'CONFIRMED') ? 'CONFIRMED' : 'PLAUSIBLE';
   const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
-  const evidence = resolutions.find((resolution) => resolution.evidence !== null)?.evidence ?? null;
+  const evidence = resolutions.find((resolution) => resolution.verdict === verdict && resolution.evidence !== null)?.evidence ?? null;
   return { verdict, unverified, evidence };
 }
 

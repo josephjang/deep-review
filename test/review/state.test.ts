@@ -65,9 +65,14 @@ describe('the working list and resolutions', () => {
 
 describe('mergedResolution and the ranking order', () => {
   it('escalates to CONFIRMED when any member is, and is unverified only when every member is', () => {
-    assert.deepEqual(mergedResolution([plausible('A-1', 'SCAN'), confirmed('A-2', 'SCAN')]), { verdict: 'CONFIRMED', unverified: false, evidence: 'A-1 evidence' });
+    assert.deepEqual(mergedResolution([confirmed('A-1', 'SCAN'), plausible('A-2', 'SCAN')]), { verdict: 'CONFIRMED', unverified: false, evidence: 'A-1 evidence' });
     assert.deepEqual(mergedResolution([unverifiedOne('A-1', 'SCAN'), unverifiedOne('A-2', 'SCAN')]), { verdict: 'PLAUSIBLE', unverified: true, evidence: null });
     assert.deepEqual(mergedResolution([unverifiedOne('A-1', 'SCAN'), plausible('A-2', 'SCAN')]), { verdict: 'PLAUSIBLE', unverified: false, evidence: 'A-2 evidence' });
+    assert.deepEqual(mergedResolution([plausible('A-1', 'SCAN'), plausible('A-2', 'SCAN')]), { verdict: 'PLAUSIBLE', unverified: false, evidence: 'A-1 evidence' });
+  });
+
+  it('takes the evidence of a CONFIRMED member over a PLAUSIBLE primary, so the verdict and its evidence agree', () => {
+    assert.deepEqual(mergedResolution([plausible('A-1', 'SCAN'), unverifiedOne('A-2', 'SCAN'), confirmed('A-3', 'SCAN'), confirmed('A-4', 'SCAN')]), { verdict: 'CONFIRMED', unverified: false, evidence: 'A-3 evidence' });
   });
 
   const finding = (id: string, severity: 'critical' | 'major' | 'minor', primary: CandidateState): ReportFinding => ({
