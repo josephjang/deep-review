@@ -482,7 +482,9 @@ verifier gives no verdicts in either attempt is recorded unverified, as
 a review records it, and the command then names every such group pass
 and exits 1: a sample that holds one, because a verifier timed out twice
 or the runtime reached a usage limit partway through, is not a pass over
-every candidate and must not be scored as one.
+every candidate and must not be scored as one. A group pass `--budget-usd`
+kept from launching leaves its sample short the same way, so the command
+names it too and exits 1.
 
 Agreement says how alike two samples are, not which is right.
 `npm run replay-score` scores the samples against labels: a file, written

@@ -292,9 +292,11 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
   persist();
 
   const budgetUsd = options.budgetUsd ?? null;
+  // With no budget there is nothing to weigh, so the replay's run is not folded before every attempt.
   const overBudget = (): boolean => {
+    if (budgetUsd === null) return false;
     const spent = budgetSpendOf(replay.fold(run.id), adapter).usd;
-    return budgetUsd !== null && spent !== null && spent >= budgetUsd;
+    return spent !== null && spent >= budgetUsd;
   };
   const notLaunched: string[] = [];
   const unverified: string[] = [];
