@@ -16,7 +16,7 @@ import { parseInvocation } from '../../src/runtime/contract.ts';
 import { runWorker, withPinnedSession, withUnrecordableSessions, workerVerdict, type Verdict, type WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { notStarted, type ProcessResult } from '../../src/runtime/process.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
-import { answerSchema, baseEnvironment, fixedIds, freshThread, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
+import { answerSchema, baseEnvironment, fixedIds, freshThread, hermeticEnvironment, isAlive, LauncherSandbox, until, waitForPid } from '../helpers/launcher.ts';
 import { createRepository } from '../helpers/repository.ts';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -894,5 +894,22 @@ describe('withPinnedSession', () => {
     assert.deepEqual(withPinnedSession('pinned', ['pinned']), ['pinned']);
     assert.deepEqual(withPinnedSession('pinned', ['other', 'pinned', 'other']), ['pinned', 'other']);
     assert.deepEqual(withPinnedSession(null, ['a', 'a', 'b']), ['a', 'b']);
+  });
+});
+
+describe('hermeticEnvironment', () => {
+  it('drops every CLAUDE variable the shell or an enclosing session sets, any spelling, so the Claude fake records only what the test gives it', () => {
+    const shell = { CLAUDE_PLUGIN_ROOT: '/plugin', CLAUDE_JOB_DIR: '/job', claude_config_dir: '/config', CLAUDECODE: '1', PATH: '/bin' };
+    for (const platform of ['win32', 'linux'] as const) assert.deepEqual(hermeticEnvironment(shell, platform), { PATH: '/bin' }, platform);
+  });
+
+  it('still drops the fakes\' steering and the thinking overrides, and keeps everything else', () => {
+    const shell = { FAKE_OUTPUT: '{}', fake_hang: '1', MAX_THINKING_TOKENS: '1024', HOME: '/home', ANTHROPIC_BASE_URL: 'https://gateway.invalid' };
+    assert.deepEqual(hermeticEnvironment(shell, 'linux'), { HOME: '/home', ANTHROPIC_BASE_URL: 'https://gateway.invalid' });
+    assert.deepEqual(hermeticEnvironment({}, 'linux'), {});
+  });
+
+  it('leaves no CLAUDE variable of this process in the base environment', () => {
+    assert.deepEqual(Object.keys(baseEnvironment).filter((name) => name.toUpperCase().startsWith('CLAUDE')), []);
   });
 });

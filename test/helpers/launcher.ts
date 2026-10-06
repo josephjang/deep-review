@@ -17,14 +17,24 @@ export { freshThread } from './fake-runtime.ts';
 export const answerSchema = z.strictObject({ answer: z.string() });
 
 /**
- * This process's environment without anything that would steer a fake or
- * be refused by an adapter, so a developer's shell cannot change a result.
+ * An environment without anything that would steer a fake or be refused
+ * by an adapter, so a developer's shell cannot change a result. Every
+ * CLAUDE* variable goes too, whatever its spelling: the Claude fake
+ * records each one it receives (FAKE_CLAUDE_ENV), and the shell running
+ * the tests can hold ones the adapter passes through, such as
+ * CLAUDE_PLUGIN_ROOT or the CLAUDE_JOB_DIR of a newer Claude Code session.
  */
-export const baseEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(withoutVariables(process.env, thinkingOverrides, process.platform)).filter(
-    ([name]) => !name.toUpperCase().startsWith('FAKE_'),
-  ),
-);
+export function hermeticEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(withoutVariables(environment, thinkingOverrides, platform)).filter(([name]) => {
+      const upper = name.toUpperCase();
+      return !upper.startsWith('FAKE_') && !upper.startsWith('CLAUDE');
+    }),
+  );
+}
+
+/** This process's environment, made hermetic. */
+export const baseEnvironment: NodeJS.ProcessEnv = hermeticEnvironment(process.env, process.platform);
 
 /** What a fake wrote to FAKE_RECORD. */
 export interface Recorded {
