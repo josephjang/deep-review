@@ -25,7 +25,8 @@ import type { ReplayableGroup } from './recorded.ts';
 export const outcomes = ['fixer', 'held', 'dropped'] as const;
 export type Outcome = (typeof outcomes)[number];
 
-const outcomeWords: Readonly<Record<Outcome, string>> = { fixer: 'to a fixer', held: 'held', dropped: 'dropped' };
+/** Each outcome as the summary and the scores word it. */
+export const outcomeWords: Readonly<Record<Outcome, string>> = { fixer: 'to a fixer', held: 'held', dropped: 'dropped' };
 
 /** Which role prompt a sample's verifiers were given: the one the run recorded, or the one in the roles directory now. */
 export const roleTextChoices = ['recorded', 'current'] as const;

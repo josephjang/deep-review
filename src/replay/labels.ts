@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { inlineText, tableCell } from '../review/markdown.ts';
 import { angleClasses, candidateIdSchema, type AngleClass } from '../review/vocabulary.ts';
 import { ReplayRefusedError } from './errors.ts';
-import { judgedVerdict, type Outcome, type ReplayCandidate, type ReplayResults } from './samples.ts';
+import { judgedVerdict, outcomeWords, type Outcome, type ReplayCandidate, type ReplayResults } from './samples.ts';
 
 /**
  * Whether a candidate's claim holds. `yes`: the failure it describes can
@@ -125,8 +125,6 @@ export function scoreOf(results: Pick<ReplayResults, 'source' | 'candidates'>, l
   }
   return score;
 }
-
-const outcomeWords: Readonly<Record<Outcome, string>> = { fixer: 'to a fixer', held: 'held', dropped: 'dropped' };
 
 /** One table of every sample's score over the labeled candidates of a class of angle, or of both. */
 function scoreTable(results: ReplayResults, labels: Labels, angleClass: AngleClass | null): string[] {
