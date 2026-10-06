@@ -98,15 +98,16 @@ export interface ReplayOutcome {
   readonly samples: readonly string[];
   /** The groups of the run no verifier was ever launched for, which cannot be replayed. */
   readonly unreplayable: readonly string[];
-  /** The group passes not launched because the budget was reached, as `<sample> <phase>:<group id>`. */
+  /** The group passes not launched because the budget was reached before their first attempt, as `<sample> <phase>:<group id>`. */
   readonly notLaunched: readonly string[];
   /**
    * The group passes in which no attempt gave verdicts, as
    * `<sample> <phase>:<group id>`: their candidates carry an unverified
    * `PLAUSIBLE` in the results, as a review would record them. A sample
    * that holds one is not a pass over every candidate, whatever the cause:
-   * a verifier that timed out twice, or a runtime that began refusing
-   * workers at a usage limit partway through.
+   * a verifier that timed out twice, one that failed once with the budget
+   * reached before its retry, or a runtime that began refusing workers at
+   * a usage limit partway through.
    */
   readonly unverified: readonly string[];
   /**
@@ -344,15 +345,20 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
     }));
   };
 
-  /** A group's pass in a sample: up to `attemptsPerGroup` attempts, then unverified; nothing once the budget is reached. */
+  /**
+   * A group's pass in a sample: up to `attemptsPerGroup` attempts, then
+   * unverified. Nothing is launched when the budget is reached before the
+   * first attempt; reached after a failed one, the pass gets no retry and
+   * is unverified, since a worker of it ran and was paid for.
+   */
   const runUnit = async (unit: SamplingUnit): Promise<void> => {
     const name = `${unit.sample} ${groupKey(unit.group)}`;
+    if (overBudget()) {
+      notLaunched.push(name);
+      log(`${name}: not launched, the budget of ${String(budgetUsd)} USD is reached`);
+      return;
+    }
     for (let number = 1; number <= attemptsPerGroup; number += 1) {
-      if (overBudget()) {
-        notLaunched.push(name);
-        log(`${name}: not launched, the budget of ${String(budgetUsd)} USD is reached`);
-        return;
-      }
       const answered = await attempt(unit);
       if (typeof answered !== 'string') {
         results = withVerdicts(results, unit.sample, answered);
@@ -361,6 +367,10 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
         return;
       }
       log(`${name}: attempt ${String(number)} of ${String(attemptsPerGroup)} gave no verdicts (${answered})`);
+      if (number < attemptsPerGroup && overBudget()) {
+        log(`${name}: no retry, the budget of ${String(budgetUsd)} USD is reached`);
+        break;
+      }
     }
     results = withVerdicts(results, unit.sample, new Map(unit.group.candidates.map((candidate) => [candidate.id, sampledVerdict(candidate, { verdict: 'PLAUSIBLE', unverified: true, evidence: null }, null)])));
     persist();

@@ -232,6 +232,19 @@ describe('replayVerifier', () => {
     assert.match(readFileSync(join(output, summaryFileName), 'utf8'), /^\| claude-2 \| claude \| .* \| not launched \| 0 \|/m);
   });
 
+  it('records a group pass unverified, not unlaunched, when the budget is reached after its first attempt failed', async () => {
+    box.script({ verifier: { malformed: true, costUsd: 1 } });
+    const logs: string[] = [];
+    const outcome = await replay(logs, { output: newOutput(), groups: ['verification:g2'], budgetUsd: 1 });
+
+    // The failed attempt spent the whole budget, so the pass gets no retry; but a worker of it ran, so it was launched.
+    assert.equal(outcome.spend.workers, 1);
+    assert.deepEqual(outcome.notLaunched, []);
+    assert.deepEqual(outcome.unverified, ['claude-1 verification:g2']);
+    assert.deepEqual(outcome.results.candidates.map((candidate) => candidate.samples['claude-1']?.unverified), [undefined, undefined, true]);
+    assert.ok(logs.includes('claude-1 verification:g2: no retry, the budget of 1 USD is reached'), logs.join('\n'));
+  });
+
   it('replays in a clean checkout elsewhere, with only the repository line of the prompt changed', async () => {
     const tree = join(box.directory, 'elsewhere');
     // The sandbox's repository checks out as committed, whatever this machine's core.autocrlf; so must its clone, or its bytes are not the reviewed ones.

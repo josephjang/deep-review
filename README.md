@@ -480,7 +480,8 @@ working directory as they were then; the replay records its own workers in a
 checkpoint under the output directory. It calls real models and costs
 real money: `--budget-usd` stops new launches at a spend, and
 `--dry-run` writes every prompt and launches nothing. A group whose
-verifier gives no verdicts in either attempt is recorded unverified, as
+verifier gives no verdicts in either attempt, or in the first when the
+budget is reached before the retry, is recorded unverified, as
 a review records it, and the command then names every such group pass
 and exits 1: a sample that holds one, because a verifier timed out twice
 or the runtime reached a usage limit partway through, is not a pass over
