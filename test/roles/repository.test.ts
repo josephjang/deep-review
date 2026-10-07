@@ -204,6 +204,14 @@ describe('the repository\'s roles/', () => {
     assert.match(decider.prompt, /you do not grade it again/);
   });
 
+  it('lets a fixer defer for a fact the decision did not see, and no longer for a design call or a public interface the decision weighed (R12 of the decision step)', () => {
+    const fixer = roles.find((role) => role.key === 'fixer')!.prompt.replace(/\s+/g, ' ');
+    assert.ok(fixer.includes('- The decision you were given did not see a fact you found; name it.'));
+    assert.ok(!fixer.includes('genuinely ambiguous and need a human design call'));
+    assert.ok(!fixer.includes('crosses a public API boundary'));
+    assert.ok(fixer.includes('No tests cover the area and the change would alter observable behavior.'), 'the other criteria stay');
+  });
+
   it('names in the decider\'s rubric every decision and exactly the leave reasons the engine records, so the prompt and the schema cannot drift apart (R3 of the decision step)', () => {
     const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'decider-rubric.md'), 'utf8');
     for (const kind of decisionKinds) assert.match(rubric, new RegExp(`^\\| \`${kind}\` \\|`, 'm'), kind);
