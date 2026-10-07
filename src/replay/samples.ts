@@ -8,19 +8,18 @@
 import { z } from 'zod';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState } from '../checkpoint/review-fold.ts';
-import { routeOf } from '../review/fixes.ts';
 import { inlineText, paragraphText, tableCell } from '../review/markdown.ts';
 import { resolutionOf, type Resolution } from '../review/state.ts';
 import { describeLocation } from '../review/tasks.ts';
-import { angleSchema, candidateIdSchema, groupIdSchema, verdicts, verdictSchema, verificationPhaseSchema, type Verdict } from '../review/vocabulary.ts';
+import { angleClasses, angleSchema, candidateIdSchema, groupIdSchema, verdicts, verdictSchema, verificationPhaseSchema, type Verdict } from '../review/vocabulary.ts';
 import { ReplayRefusedError } from './errors.ts';
 import type { ReplayableGroup } from './recorded.ts';
 
 /**
  * What a verdict does to a candidate judged alone: refuted and dropped
  * from the working list, sent to a fixer, or held for the author
- * (`routeOf`). A run routes merged findings, so this is the route a
- * candidate would take if no other were merged with it.
+ * (`verdictOutcome`). A run routes merged findings by the decision made
+ * for each, so this is the verdict's own outcome, not a route the run took.
  */
 export const outcomes = ['fixer', 'held', 'dropped'] as const;
 export type Outcome = (typeof outcomes)[number];
@@ -109,14 +108,25 @@ const resultsSchema = z.strictObject({
 });
 export type ReplayResults = z.infer<typeof resultsSchema>;
 
-/** What a verdict does to the candidate it judges, taken alone. */
-export function outcomeOf(candidate: CandidateState, resolution: Resolution): Outcome {
-  return resolution.verdict === 'REFUTED' ? 'dropped' : routeOf({ primary: candidate, resolution });
+/**
+ * The outcome a verdict alone gives a candidate, the one the labels are
+ * scored against (`labeledOutcome`): REFUTED drops it, CONFIRMED sends it
+ * to a fixer, and PLAUSIBLE sends a candidate of a correctness angle or
+ * `CONVENTIONS` to a fixer and holds one of a design angle for the author,
+ * as the fix pass routed a finding by its verdict and angle before the
+ * decision step. A run now routes a finding by the decision made for it,
+ * which a verifier replay does not make, so this stays the verdict's own
+ * outcome; the unverified mark changes nothing.
+ */
+export function verdictOutcome(candidate: Pick<CandidateState, 'angle'>, resolution: Resolution): Outcome {
+  if (resolution.verdict === 'REFUTED') return 'dropped';
+  if (resolution.verdict === 'CONFIRMED') return 'fixer';
+  return angleClasses[candidate.angle] === 'correctness' ? 'fixer' : 'held';
 }
 
 /** A candidate's verdict as a sample holds it. */
 export function sampledVerdict(candidate: CandidateState, resolution: Resolution, workerId: string | null): SampledVerdict {
-  return { verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, outcome: outcomeOf(candidate, resolution), workerId };
+  return { verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, outcome: verdictOutcome(candidate, resolution), workerId };
 }
 
 /**

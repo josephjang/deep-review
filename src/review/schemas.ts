@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -65,6 +65,38 @@ export const mergeRankOutputSchema = z.strictObject({
   findings: z.array(z.strictObject({ primary: index, members: z.array(index), severity: severitySchema, summary: z.string().min(1).max(400), reason: z.string().min(1).max(2000) })),
 });
 export type MergeRankOutput = z.infer<typeof mergeRankOutputSchema>;
+
+/**
+ * What the decider returns (R3 of the decision step): per ranked finding,
+ * by the index the task gave it, the decision, one sentence of grounds,
+ * and the one part its decision names, the other two null: the approach a
+ * fixer applies and the options rejected; the reason a finding is left,
+ * and the index of the finding that supersedes it; or one question, its
+ * options each with its cost, the rule that would settle it for good and
+ * whether it edits the code, and the indexes of the option recommended and
+ * the default applied, with where the decider looked. A fix alone may
+ * name the rule it departs from. `checkDecisions` holds the parts to the
+ * decision and the indexes to the task.
+ */
+const decisionText = (max: number) => z.string().min(1).max(max);
+export const deciderOutputSchema = z.strictObject({
+  decisions: z.array(z.strictObject({
+    index,
+    decision: decisionKindSchema,
+    grounds: decisionText(1000),
+    fix: z.strictObject({ approach: decisionText(2000), rejected: z.array(z.strictObject({ option: decisionText(400), reason: decisionText(400) })).max(4) }).nullable(),
+    leave: z.strictObject({ reason: leaveReasonSchema, supersededBy: index.nullable() }).nullable(),
+    ask: z.strictObject({
+      question: decisionText(400),
+      options: z.array(z.strictObject({ option: decisionText(400), cost: decisionText(400), rule: decisionText(400), edits: z.boolean() })).min(2).max(4),
+      recommended: index,
+      applied: index,
+      searched: z.array(decisionText(400)).min(1).max(10),
+    }).nullable(),
+    departure: z.strictObject({ rule: decisionText(400), source: decisionText(400), reason: decisionText(1000) }).nullable(),
+  })),
+});
+export type DeciderOutput = z.infer<typeof deciderOutputSchema>;
 
 /** A repository path as a fixer reports it; the engine resolves it against the worktree. */
 const reportedPath = z.string().min(1).max(1000);
@@ -189,6 +221,8 @@ export function outputSchemaOf(role: ReviewRole): z.ZodType {
       return sweepOutputSchema;
     case 'merge-rank':
       return mergeRankOutputSchema;
+    case 'decider':
+      return deciderOutputSchema;
     case 'fixer':
       return fixerOutputSchema;
   }
@@ -251,4 +285,43 @@ export function checkMergeRank(output: MergeRankOutput, count: number): void {
   }
   const missing = missingIndexes(seen, count);
   if (missing.length > 0) throw new StructuralCheckError(`The ranking leaves out index ${missing.map(String).join(', ')} of the ${String(count)} candidates on the working list`);
+}
+
+/**
+ * Refuse a decider answer that does not decide each finding of the task
+ * once, that gives a decision any part but its own or lacks it, that
+ * departs from a rule on anything but a fix, that recommends or applies
+ * an option the question does not offer, or that leaves a finding as
+ * superseded without naming another finding it decides `fix`, or names
+ * one for another reason.
+ */
+export function checkDecisions(output: DeciderOutput, count: number): void {
+  const seen = new Set<number>();
+  const kindOf = new Map(output.decisions.map((entry) => [entry.index, entry.decision]));
+  for (const entry of output.decisions) {
+    const what = `Decision [${String(entry.index)}]`;
+    if (entry.index >= count) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count - 1)}]`);
+    if (seen.has(entry.index)) throw new StructuralCheckError(`${what} is given twice`);
+    seen.add(entry.index);
+    for (const kind of decisionKinds) {
+      if ((entry.decision === kind) !== (entry[kind] !== null)) {
+        throw new StructuralCheckError(entry.decision === kind ? `${what} is ${kind} and has no \`${kind}\`` : `${what} is ${entry.decision} and carries \`${kind}\`, which only a ${kind} decision does`);
+      }
+    }
+    if (entry.departure !== null && entry.decision !== 'fix') throw new StructuralCheckError(`${what} is ${entry.decision} and departs from a rule, which only a fix does`);
+    if (entry.ask !== null) {
+      const options = entry.ask.options.length;
+      for (const [name, value] of [['recommends', entry.ask.recommended], ['applies', entry.ask.applied]] as const) {
+        if (value >= options) throw new StructuralCheckError(`${what} ${name} option ${String(value)}, but its question offers options 0 to ${String(options - 1)}`);
+      }
+    }
+    if (entry.leave !== null) {
+      const by = entry.leave.supersededBy;
+      if (entry.leave.reason === 'superseded' && by === null) throw new StructuralCheckError(`${what} is superseded and names no finding that supersedes it`);
+      if (entry.leave.reason !== 'superseded' && by !== null) throw new StructuralCheckError(`${what} is left as ${entry.leave.reason} and names a superseding finding, which only a superseded one does`);
+      if (by !== null && (by === entry.index || by >= count || kindOf.get(by) !== 'fix')) throw new StructuralCheckError(`${what} is superseded by [${String(by)}], which is not another finding of the task decided fix`);
+    }
+  }
+  const missing = missingIndexes(seen, count);
+  if (missing.length > 0) throw new StructuralCheckError(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(', ')} of the ${String(count)} the task gave`);
 }

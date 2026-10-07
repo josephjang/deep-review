@@ -7,7 +7,7 @@ import { fixLimitations } from '../../src/review/fix-report.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { checkRun, fixPlan, fixRun, fixStatistics, mergeRanked, reference, reported, statistics, withFixPass, worker } from '../helpers/review-history.ts';
+import { askDecision, checkRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, reference, reported, statistics, withFixPass, worker } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/fix.md');
 const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evidence/${blob.sha256.slice(0, 8)}`;
@@ -92,6 +92,38 @@ describe('the report of a fix run', () => {
     const report = renderReport(reported().fold(), { engine: '0.0.0+dev', statistics });
     for (const heading of ['## Fixes', '## Checks', '## Changed files']) assert.ok(!report.includes(heading), heading);
     assert.doesNotMatch(report, /^Fix pass:/m);
+  });
+});
+
+describe('the report of a fix run with the decision step (R8 of the decision step)', () => {
+  const render = (state: RunState): string => renderReport(state, { engine: '0.0.0+dev', statistics: fixStatistics, fix: { evidencePath, patches } });
+
+  it('says of a finding no fixer saw that the decision left it, with the reason, and counts it so in the header', () => {
+    const report = render(decidedOf(fixRun()).fold());
+    assert.match(report, /^### 2\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, outside the change, and not a regression\. See Decisions\.$/m);
+    assert.match(report, /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 left by decision, 0 asked, kept as is; 3 patches; the edits are in the working tree, uncommitted$/m);
+    assert.doesNotMatch(report, /held for the author/);
+  });
+
+  it('says of an ask whose default keeps the code that no fixer saw it and the author is asked', () => {
+    const report = render(decidedOf(fixRun(), [decisions[0], askDecision('SWEEP-1', false)]).fold());
+    assert.match(report, /^### 2\. SWEEP-1 asked, kept as is\n\nNo fixer saw it: the decision step asks the author, and its default keeps the code as it is\. See Decisions\.$/m);
+    assert.match(report, /0 left by decision, 1 asked, kept as is;/);
+  });
+
+  it('names the superseding finding of a finding left as superseded', () => {
+    const superseded = { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } };
+    assert.match(render(decidedOf(fixRun(), [decisions[0], superseded]).fold()), /^No fixer saw it: the decision step left it, superseded by RIPPLE-1\. See Decisions\.$/m);
+  });
+});
+
+describe('status of a fix run with the decision step', () => {
+  it('counts the decisions, and words the findings no fixer sees as decided, not as held', () => {
+    const history = decidedOf(fixRun()).add('report.written', { report: reference('e', 2048), statistics: fixStatistics, patches: [reference('1'), reference('2'), reference('3')] }, 2).finish('report');
+    const described = describeRun(history.fold(), claudeAdapter, evidencePath);
+    assert.ok(described.lines.includes('Decisions: 1 to fix, 1 to leave, 0 to ask the author'), described.lines.join('\n'));
+    assert.ok(described.lines.includes('Fix pass: c1-1 answered; 1 no fixer sees, as decided'), described.lines.join('\n'));
+    assert.deepEqual((described.json as { decisions: unknown }).decisions, { fix: 1, leave: 1, ask: 0 });
   });
 });
 

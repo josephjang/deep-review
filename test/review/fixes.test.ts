@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { routeOfDecision, type RoutedDecision } from '../../src/checkpoint/fix-state.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { batchesOf, planFixes, planSecondRound, routeOf, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
+import { batchesOf, planFixes, planSecondRound, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
 import type { ReportFinding } from '../../src/review/state.ts';
 import { angles, type Angle, type Verdict } from '../../src/review/vocabulary.ts';
 import { fragmentsDirectoryName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
@@ -27,24 +28,43 @@ function finding(primary: CandidateState, verdict: Verdict = 'CONFIRMED', member
   };
 }
 
-describe('routeOf', () => {
-  it('sends every CONFIRMED finding to a fixer, whatever its angle', () => {
-    for (const angle of angles) assert.equal(routeOf(finding(candidate('X-1', angle, 'a.ts'), 'CONFIRMED')), 'fixer', angle);
+/** An ask whose default, option 0, edits the code or keeps it as it is. */
+const ask = (id: string, edits: boolean): RoutedDecision => ({
+  id,
+  decision: 'ask',
+  ask: {
+    question: 'which?',
+    options: [{ option: 'the default', cost: 'c', rule: 'r', edits }, { option: 'the other', cost: 'c', rule: 'r', edits: true }],
+    recommended: 1,
+    applied: 0,
+    searched: ['docs'],
+  },
+});
+
+/** A decision of `kind` for each finding, `fix` unless `kinds` names another; an ask's default edits. */
+function decide(findings: readonly ReportFinding[], kinds: Readonly<Record<string, 'fix' | 'leave' | 'ask'>> = {}): RoutedDecision[] {
+  return findings.map((entry) => {
+    const kind = kinds[entry.finding.id] ?? 'fix';
+    return kind === 'ask' ? ask(entry.finding.id, true) : { id: entry.finding.id, decision: kind, ask: null };
+  });
+}
+
+describe('routeOfDecision (R6 of the decision step)', () => {
+  it('sends a fix to a fixer and holds a leave', () => {
+    assert.equal(routeOfDecision({ id: 'X-1', decision: 'fix', ask: null }), 'fixer');
+    assert.equal(routeOfDecision({ id: 'X-1', decision: 'leave', ask: null }), 'held');
   });
 
-  it('sends a PLAUSIBLE finding of a correctness, cost or CONVENTIONS angle to a fixer, and holds a PLAUSIBLE design finding for the author', () => {
-    const held = ['DESIGN', 'DUPLICATION', 'ALTITUDE'];
-    for (const angle of angles) assert.equal(routeOf(finding(candidate('X-1', angle, 'a.ts'), 'PLAUSIBLE')), held.includes(angle) ? 'held' : 'fixer', angle);
+  it('sends an ask to a fixer when the default it applies edits the code, and holds it when the default keeps the code as it is', () => {
+    assert.equal(routeOfDecision(ask('X-1', true)), 'fixer');
+    assert.equal(routeOfDecision(ask('X-1', false)), 'held');
+    const second = ask('X-1', false);
+    assert.equal(routeOfDecision({ ...second, ask: { ...second.ask!, applied: 1 } }), 'fixer', 'the applied option decides, not the first');
   });
 
-  it('routes an unverified finding as its verdict and angle say, the mark changing nothing', () => {
-    assert.equal(routeOf(finding(candidate('X-1', 'FOOTGUNS', 'a.ts'), 'PLAUSIBLE', [], true)), 'fixer');
-    assert.equal(routeOf(finding(candidate('X-1', 'ALTITUDE', 'a.ts'), 'PLAUSIBLE', [], true)), 'held');
-  });
-
-  it('routes by the primary\'s angle, not a member\'s', () => {
-    assert.equal(routeOf(finding(candidate('DESIGN-1', 'DESIGN', 'a.ts'), 'PLAUSIBLE', [candidate('RIPPLE-1', 'RIPPLE', 'a.ts')])), 'held');
-    assert.equal(routeOf(finding(candidate('RIPPLE-1', 'RIPPLE', 'a.ts'), 'PLAUSIBLE', [candidate('DESIGN-1', 'DESIGN', 'a.ts')])), 'fixer');
+  it('refuses an ask that applies an option it does not offer', () => {
+    const outside = ask('X-1', true);
+    assert.throws(() => routeOfDecision({ ...outside, ask: { ...outside.ask!, applied: 2 } }), /The ask decided for X-1 applies no option it offers/);
   });
 });
 
@@ -52,15 +72,15 @@ describe('what the rubrics say a grade does next (R3 of the verifier rubric)', (
   const text = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
 
   /**
-   * Each rubric the verifier grades by: its heading, where it says a
-   * `CONFIRMED` and a `PLAUSIBLE` candidate go, and the words that say so.
-   * The engine routes by `routeOf` alone, so the words are true only while
-   * `routeOf` agrees for every angle the rubric names.
+   * Each rubric the verifier grades by: its heading, and the words that
+   * say where a `CONFIRMED` and a `PLAUSIBLE` candidate go. A finding is
+   * routed by the decision made for it (`routeOfDecision`), not by its
+   * verdict, so the words are held to the rubric's text alone.
    */
   const rubrics = [
-    { heading: '### Rubric for the correctness & cost angles', confirmed: 'fixer', plausible: 'fixer', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
-    { heading: '### Rubric for the design & cleanup angles', confirmed: 'fixer', plausible: 'held', says: 'CONFIRMED is applied by a fixer without asking. PLAUSIBLE is put to the author as a question.' },
-    { heading: '### Rubric for the CONVENTIONS angle', confirmed: 'fixer', plausible: 'fixer', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
+    { heading: '### Rubric for the correctness & cost angles', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
+    { heading: '### Rubric for the design & cleanup angles', says: 'CONFIRMED is applied by a fixer without asking. PLAUSIBLE is put to the author as a question.' },
+    { heading: '### Rubric for the CONVENTIONS angle', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
   ] as const;
 
   /** A rubric's first paragraph on one line: the text under its heading, up to the first blank line. */
@@ -79,23 +99,18 @@ describe('what the rubrics say a grade does next (R3 of the verifier rubric)', (
     assert.deepEqual([...named].sort(), [...angles].sort());
   });
 
-  it('says where CONFIRMED and PLAUSIBLE lead and that REFUTED removes, and routeOf leads there for every angle the rubric names', () => {
-    for (const { heading, confirmed, plausible, says } of rubrics) {
+  it('says where CONFIRMED and PLAUSIBLE lead and that REFUTED removes, and names an angle', () => {
+    for (const { heading, says } of rubrics) {
       const paragraph = opening(heading);
       assert.ok(paragraph.includes(says), `${heading}: its first lines do not say "${says}"`);
       assert.match(paragraph, /REFUTED removes (the candidate|it)\./, heading);
-      const named = namedIn(paragraph);
-      assert.ok(named.length > 0, `${heading} names no angle`);
-      for (const angle of named) {
-        assert.equal(routeOf(finding(candidate('X-1', angle, 'a.ts'), 'CONFIRMED')), confirmed, `${heading}: CONFIRMED ${angle}`);
-        assert.equal(routeOf(finding(candidate('X-1', angle, 'a.ts'), 'PLAUSIBLE')), plausible, `${heading}: PLAUSIBLE ${angle}`);
-      }
+      assert.ok(namedIn(paragraph).length > 0, `${heading} names no angle`);
     }
   });
 });
 
-/** The plan in batches of four, the policy's default. */
-const planOf = (findings: readonly ReportFinding[]): FixPlan => planFixes(findings, 4);
+/** The plan in batches of four, the policy's default, every finding decided `fix` unless `kinds` names another decision. */
+const planOf = (findings: readonly ReportFinding[], kinds: Readonly<Record<string, 'fix' | 'leave' | 'ask'>> = {}): FixPlan => planFixes(findings, decide(findings, kinds), 4);
 
 describe('planFixes', () => {
   it('plans nothing for no finding', () => {
@@ -108,7 +123,7 @@ describe('planFixes', () => {
       finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE'),
       finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts')),
       finding(candidate('RIPPLE-2', 'RIPPLE', 'src/a.ts'), 'PLAUSIBLE'),
-    ]);
+    ], { 'DESIGN-1': 'leave' });
     assert.deepEqual(plan.routes, [{ id: 'SCAN-1', route: 'fixer' }, { id: 'DESIGN-1', route: 'held' }, { id: 'RIPPLE-1', route: 'fixer' }, { id: 'RIPPLE-2', route: 'fixer' }]);
     assert.deepEqual(plan.clusters, [
       { id: 'c1', findingIds: ['SCAN-1', 'RIPPLE-2'], files: ['src/a.ts'] },
@@ -179,11 +194,34 @@ describe('planFixes', () => {
       finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE', [candidate('ALTITUDE-1', 'ALTITUDE', 'src/b.ts')]),
       finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),
       finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts')),
-    ]);
+    ], { 'DESIGN-1': 'leave' });
     assert.deepEqual(plan.clusters, [
       { id: 'c1', findingIds: ['SCAN-1'], files: ['src/a.ts'] },
       { id: 'c2', findingIds: ['RIPPLE-1'], files: ['src/b.ts'] },
     ]);
+  });
+
+  it('routes by the decision alone: a PLAUSIBLE design finding decided fix goes to a fixer, a CONFIRMED defect decided leave is held, the unverified mark changes nothing', () => {
+    const findings = [
+      finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE', [], true),
+      finding(candidate('SCAN-1', 'SCAN', 'src/b.ts'), 'CONFIRMED'),
+    ];
+    const plan = planOf(findings, { 'SCAN-1': 'leave' });
+    assert.deepEqual(plan.routes, [{ id: 'DESIGN-1', route: 'fixer' }, { id: 'SCAN-1', route: 'held' }]);
+    assert.deepEqual(plan.clusters, [{ id: 'c1', findingIds: ['DESIGN-1'], files: ['src/a.ts'] }]);
+  });
+
+  it('clusters an ask whose default edits as a fix, and holds one whose default keeps the code', () => {
+    const findings = [finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE'), finding(candidate('ALTITUDE-1', 'ALTITUDE', 'src/b.ts'), 'PLAUSIBLE')];
+    const plan = planFixes(findings, [ask('DESIGN-1', true), ask('ALTITUDE-1', false)], 4);
+    assert.deepEqual(plan.routes, [{ id: 'DESIGN-1', route: 'fixer' }, { id: 'ALTITUDE-1', route: 'held' }]);
+    assert.deepEqual(plan.batches, [{ key: 'c1-1', cluster: 'c1', findingIds: ['DESIGN-1'] }]);
+  });
+
+  it('refuses a finding with no decision, and plans nothing from decisions alone', () => {
+    const findings = [finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')), finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts'))];
+    assert.throws(() => planFixes(findings, decide(findings.slice(0, 1)), 4), /Finding RIPPLE-1 has no decision to route it by/);
+    assert.deepEqual(planFixes([], decide(findings), 4), { routes: [], clusters: [], batches: [] }, 'a decision for no ranked finding routes nothing');
   });
 });
 
@@ -220,13 +258,14 @@ describe('batches', () => {
   });
 
   it('plans the batches with the clusters, every fixer-routed finding in exactly one, none for a held finding', () => {
-    const plan = planFixes([
+    const findings = [
       finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),
       finding(candidate('DESIGN-1', 'DESIGN', 'src/a.ts'), 'PLAUSIBLE'),
       finding(candidate('RIPPLE-1', 'RIPPLE', 'src/b.ts')),
       finding(candidate('RIPPLE-2', 'RIPPLE', 'src/a.ts')),
       finding(candidate('FOOTGUNS-1', 'FOOTGUNS', 'src/a.ts')),
-    ], 2);
+    ];
+    const plan = planFixes(findings, decide(findings, { 'DESIGN-1': 'leave' }), 2);
     assert.deepEqual(plan.batches, [
       { key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1', 'RIPPLE-2'] },
       { key: 'c2-1', cluster: 'c2', findingIds: ['RIPPLE-1'] },

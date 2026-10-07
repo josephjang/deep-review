@@ -930,25 +930,11 @@ export const reviewConfiguredV4 = z.strictObject({
   message: 'only a Codex run pins a Codex Windows sandbox',
   path: ['codex'],
 });
-/**
- * The configuration as the fold holds it, whichever version recorded it:
- * version 1 reads as a run without the fix pass; versions 1 and 2 as runs
- * that applied the reviewer's own rules, which the engine did when they
- * were recorded; and versions 1 to 3 of a Codex run on Windows as one
- * under the unelevated Windows sandbox, the adapter's default and the one
- * `deep-review review` ran then, while one off Windows, whose recorded
- * worktree is rooted at `/`, pins none. A library caller could have built
- * the adapter with the elevated one; the ledger did not record which, so
- * such a run reads as unelevated too.
- */
-export type ReviewConfiguration = z.infer<typeof reviewConfiguredV4>;
-
 /** `phase.started` over the fifteen phases. */
 export const phaseStartedV3 = z.strictObject({
   phase: phaseSchemaV3,
   attempt: z.number().int().min(1),
 });
-export type PhaseStarted = z.infer<typeof phaseStartedV3>;
 
 /** `phase.finished` over the fifteen phases, with the blocker codes of version 3. */
 export const phaseFinishedV3 = z.strictObject({
@@ -960,7 +946,6 @@ export const phaseFinishedV3 = z.strictObject({
   message: 'a blocker is present exactly when the outcome is blocked',
   path: ['blocker'],
 });
-export type PhaseFinished = z.infer<typeof phaseFinishedV3>;
 
 /** `worktree.checked` over the fifteen phases. */
 export const worktreeCheckedV3 = z.strictObject({
@@ -970,7 +955,6 @@ export const worktreeCheckedV3 = z.strictObject({
   message: 'drifted exactly when some file differs or HEAD moved',
   path: ['drifted'],
 });
-export type WorktreeCheckV3 = z.infer<typeof worktreeCheckedV3>;
 
 /** `attempt.failed` over the fifteen phases. */
 export const attemptFailedV3 = z.strictObject({
@@ -979,7 +963,6 @@ export const attemptFailedV3 = z.strictObject({
   workerId: z.uuid(),
   reason: recordedTextSchema,
 });
-export type AttemptFailed = z.infer<typeof attemptFailedV3>;
 
 /** `worker.lost` over the fifteen phases. */
 export const workerLostV3 = z.strictObject({
@@ -991,7 +974,6 @@ export const workerLostV3 = z.strictObject({
   message: 'a lost worker names both its phase and its unit key, or neither',
   path: ['key'],
 });
-export type WorkerLost = z.infer<typeof workerLostV3>;
 
 /** `report.written` over the fifteen phases: the statistics gain the survey's row. */
 export const reportWrittenV3 = z.strictObject({
@@ -1003,8 +985,6 @@ export const reportWrittenV3 = z.strictObject({
   }),
   patches: z.array(artifactReferenceSchema).max(2000),
 });
-/** The report as the fold holds it: version 1 reads as a report with no patch. */
-export type ReportWritten = z.infer<typeof reportWrittenV3>;
 
 /** A repository-relative path with forward slashes, or an absolute path for a user-level file, as the survey's events record them. */
 const surveyPathSchema = z.string().min(1).max(1000);
@@ -1146,6 +1126,168 @@ export const checksPlannedV2 = z.strictObject({
 });
 export type ChecksPlannedV2 = z.infer<typeof checksPlannedV2>;
 
+/**
+ * The vocabulary version 4 of the review events records, and version 1 of
+ * the decision step's events (R1, R3, R10 of the decision step): the
+ * sixteen phases, with `decision` after merge and rank; what a decision
+ * makes of a finding; and why a finding is left. Frozen here for the
+ * reason `reviewVocabularyV1` is: a test holds it equal to today's
+ * vocabulary.
+ */
+export const reviewVocabularyV4 = {
+  phases: [
+    'survey',
+    'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+    'decision',
+    'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+    'report',
+  ],
+  decisionKinds: ['fix', 'leave', 'ask'],
+  leaveReasons: ['outside-change-not-regression', 'superseded', 'intended'],
+} as const;
+
+const vocabularyV4 = reviewVocabularyV4;
+const phaseSchemaV4 = z.enum(vocabularyV4.phases);
+
+/**
+ * `review.configured` of a run with the decision step (R10 of the
+ * decision step): version 4's payload, unchanged. The version alone says
+ * the run decides its findings, as version 3 said the run was surveyed; a
+ * run configured at version 4 or earlier records its decision phase as
+ * skipped.
+ */
+export const reviewConfiguredV5 = reviewConfiguredV4;
+/**
+ * The configuration as the fold holds it, whichever version recorded it:
+ * version 1 reads as a run without the fix pass; versions 1 and 2 as runs
+ * that applied the reviewer's own rules, which the engine did when they
+ * were recorded; and versions 1 to 3 of a Codex run on Windows as one
+ * under the unelevated Windows sandbox, the adapter's default and the one
+ * `deep-review review` ran then, while one off Windows, whose recorded
+ * worktree is rooted at `/`, pins none. A library caller could have built
+ * the adapter with the elevated one; the ledger did not record which, so
+ * such a run reads as unelevated too.
+ */
+export type ReviewConfiguration = z.infer<typeof reviewConfiguredV5>;
+
+/** `phase.started` over the sixteen phases. */
+export const phaseStartedV4 = z.strictObject({
+  phase: phaseSchemaV4,
+  attempt: z.number().int().min(1),
+});
+export type PhaseStarted = z.infer<typeof phaseStartedV4>;
+
+/** `phase.finished` over the sixteen phases, with the blocker codes of version 3, which the decision step does not widen. */
+export const phaseFinishedV4 = z.strictObject({
+  phase: phaseSchemaV4,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV3.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+export type PhaseFinished = z.infer<typeof phaseFinishedV4>;
+
+/** `worktree.checked` over the sixteen phases. */
+export const worktreeCheckedV4 = z.strictObject({
+  ...worktreeCheckedV2.shape,
+  phase: phaseSchemaV4,
+}).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
+  message: 'drifted exactly when some file differs or HEAD moved',
+  path: ['drifted'],
+});
+export type WorktreeCheckV4 = z.infer<typeof worktreeCheckedV4>;
+
+/** `attempt.failed` over the sixteen phases. */
+export const attemptFailedV4 = z.strictObject({
+  phase: phaseSchemaV4,
+  key: unitKeySchema,
+  workerId: z.uuid(),
+  reason: recordedTextSchema,
+});
+export type AttemptFailed = z.infer<typeof attemptFailedV4>;
+
+/** `worker.lost` over the sixteen phases. */
+export const workerLostV4 = z.strictObject({
+  workerId: z.uuid(),
+  phase: phaseSchemaV4.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: z.string().min(1).max(1000),
+}).refine((lost) => (lost.phase === null) === (lost.key === null), {
+  message: 'a lost worker names both its phase and its unit key, or neither',
+  path: ['key'],
+});
+export type WorkerLost = z.infer<typeof workerLostV4>;
+
+/** `report.written` over the sixteen phases: the statistics gain the decision's row. */
+export const reportWrittenV4 = z.strictObject({
+  report: artifactReferenceSchema,
+  statistics: z.strictObject({
+    phases: z.array(spendSchema.extend({ phase: phaseSchemaV4 })),
+    total: spendSchema,
+    budgetApplied: z.boolean(),
+  }),
+  patches: z.array(artifactReferenceSchema).max(2000),
+});
+/** The report as the fold holds it: version 1 reads as a report with no patch. */
+export type ReportWritten = z.infer<typeof reportWrittenV4>;
+
+const decisionText = (max: number) => z.string().min(1).max(max);
+
+/**
+ * One finding as the decider decided it (R3 of the decision step), by
+ * the finding's primary candidate id: what it makes of the finding, one
+ * sentence of grounds, and the one part its decision names, the other two
+ * null. A `fix` is the approach a fixer applies and the options rejected;
+ * a `leave` is its reason, and for `superseded` the finding whose fix
+ * removes this one; an `ask` is one question, its options each with its
+ * cost, the rule a convention source would state for it and whether it
+ * edits the code, and the indexes of the option recommended and the
+ * default applied, with where the decider looked. A `fix` alone may
+ * depart from a rule, naming it, its source and why.
+ */
+export const recordedDecisionSchema = z.strictObject({
+  id: candidateIdSchema,
+  decision: z.enum(vocabularyV4.decisionKinds),
+  grounds: decisionText(1000),
+  fix: z.strictObject({
+    approach: decisionText(2000),
+    rejected: z.array(z.strictObject({ option: decisionText(400), reason: decisionText(400) })).max(4),
+  }).nullable(),
+  leave: z.strictObject({ reason: z.enum(vocabularyV4.leaveReasons), supersededBy: candidateIdSchema.nullable() }).nullable(),
+  ask: z.strictObject({
+    question: decisionText(400),
+    options: z.array(z.strictObject({ option: decisionText(400), cost: decisionText(400), rule: decisionText(400), edits: z.boolean() })).min(2).max(4),
+    recommended: z.number().int().min(0),
+    applied: z.number().int().min(0),
+    searched: z.array(decisionText(400)).min(1).max(10),
+  }).nullable(),
+  departure: z.strictObject({ rule: decisionText(400), source: decisionText(400), reason: decisionText(1000) }).nullable(),
+}).superRefine((decided, context) => {
+  for (const kind of vocabularyV4.decisionKinds) {
+    if ((decided.decision === kind) !== (decided[kind] !== null)) context.addIssue({ code: 'custom', message: `a ${decided.decision} decision carries \`${decided.decision}\` and no other part`, path: [kind] });
+  }
+  if (decided.departure !== null && decided.decision !== 'fix') context.addIssue({ code: 'custom', message: 'only a fix departs from a rule', path: ['departure'] });
+  if (decided.ask !== null && (decided.ask.recommended >= decided.ask.options.length || decided.ask.applied >= decided.ask.options.length)) {
+    context.addIssue({ code: 'custom', message: 'the recommended and the applied option are among the options', path: ['ask'] });
+  }
+  if (decided.leave !== null && (decided.leave.reason === 'superseded') !== (decided.leave.supersededBy !== null)) {
+    context.addIssue({ code: 'custom', message: 'a superseded finding names the finding that supersedes it, and no other left finding names one', path: ['leave', 'supersededBy'] });
+  }
+});
+export type RecordedDecision = z.infer<typeof recordedDecisionSchema>;
+
+/** The decider's decisions, one per ranked finding, in the engine's order (R2, R3 of the decision step). */
+export const decisionsRecordedV1 = z.strictObject({
+  workerId: z.uuid(),
+  decisions: z.array(recordedDecisionSchema).min(1),
+}).refine((recorded) => new Set(recorded.decisions.map((decided) => decided.id)).size === recorded.decisions.length, {
+  message: 'each finding is decided once',
+  path: ['decisions'],
+});
+export type DecisionsRecorded = z.infer<typeof decisionsRecordedV1>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -1153,21 +1295,21 @@ export const eventRegistry = defineRegistry({
   'scope.captured': { 1: { schema: scopeCapturedV1 } },
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
-  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 } },
+  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
-  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 } },
-  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 } },
+  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 } },
+  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 } },
-  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 } },
+  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
   'verdicts.recorded': { 1: { schema: verdictsRecordedV1 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
-  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 } },
+  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
   'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
   'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 } },
@@ -1178,6 +1320,7 @@ export const eventRegistry = defineRegistry({
   'commits.created': { 1: { schema: commitsCreatedV1 } },
   'survey.recorded': { 1: { schema: surveyRecordedV1 } },
   'survey.failed': { 1: { schema: surveyFailedV1 } },
+  'decisions.recorded': { 1: { schema: decisionsRecordedV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

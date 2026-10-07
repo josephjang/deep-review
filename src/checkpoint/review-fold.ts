@@ -27,6 +27,7 @@ import type {
   AttemptFailed,
   Blocker,
   CandidatesRecorded,
+  DecisionsRecorded,
   DeduplicationRecorded,
   FrozenFile,
   GroupUnverified,
@@ -36,6 +37,7 @@ import type {
   RankedFinding,
   RankingRecorded,
   RecordedCandidate,
+  RecordedDecision,
   ReportWritten,
   ReportWrittenV1,
   ReviewConfiguration,
@@ -46,7 +48,7 @@ import type {
   VerdictsRecorded,
   VerificationPlanned,
   WorktreeCheckV1,
-  WorktreeCheckV3,
+  WorktreeCheckV4,
 } from './events.ts';
 import { emptyFixState, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
@@ -55,7 +57,8 @@ import { emptySurveyState, surveyBlocker, type SurveyState } from './survey-stat
 /**
  * A phase's status; `skipped` is set at configuration and never started:
  * a fix phase of a run configured without the fix pass (TD9 of the fix
- * pass), and the survey of a run configured before the survey existed.
+ * pass), the survey of a run configured before the survey existed, and
+ * the decision of a run configured before the decision step existed.
  */
 export type PhaseStatus = 'pending' | 'running' | 'completed' | 'degraded' | 'blocked' | 'skipped';
 
@@ -113,8 +116,8 @@ export function rawLocation(candidate: Pick<RecordedCandidate, 'rawFile' | 'rawL
  * attempt's first, else before an answer; it recorded no head, no strays
  * and not the expected state of a file, which its files then lack.
  */
-export interface WorktreeCheckState extends Omit<WorktreeCheckV3, 'files'> {
-  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV3['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
+export interface WorktreeCheckState extends Omit<WorktreeCheckV4, 'files'> {
+  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV4['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
 }
 
 export interface ReviewState {
@@ -138,6 +141,13 @@ export interface ReviewState {
   /** The groups whose verifier failed twice, by verification phase and then by group id, with the reason. */
   readonly unverifiedGroups: Readonly<Record<VerificationPhase, Readonly<Record<string, string>>>>;
   readonly ranking: readonly RankedFinding[] | null;
+  /**
+   * The decider's decisions, one per ranked finding in the ranking's order,
+   * or null until the decision phase records them; null for good in a run
+   * configured before the decision step, whose decision phase is skipped,
+   * and in one whose ranking holds no finding, which has nothing to decide.
+   */
+  readonly decisions: readonly RecordedDecision[] | null;
   readonly report: ReportWritten | null;
   /** The fix pass's state, or null for a run configured without it, including every run recorded before it existed. */
   readonly fix: FixState | null;
@@ -219,15 +229,16 @@ export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, ke
 
 /**
  * The run is configured for review. A run without the fix pass records its
- * five phases skipped, and a run configured before the survey existed its
- * survey, so the phase list is one rule for every run (TD9 of the fix
- * pass); a run with either starts its state of it empty.
+ * five phases skipped, a run configured before the survey existed its
+ * survey, and one configured before the decision step its decision, so
+ * the phase list is one rule for every run (TD9 of the fix pass); a run
+ * with the fix pass or the survey starts its state of it empty.
  */
-function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, surveyed: boolean): RunState {
+function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, surveyed: boolean, decided: boolean): RunState {
   if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, 'is configured for review before its scope is captured');
   if (state.review !== null) throw invalid(event, 'is configured for review twice');
-  const skipped = new Set<Phase>([...(payload.fix ? [] : fixPhases), ...(surveyed ? [] : ['survey' as const])]);
+  const skipped = new Set<Phase>([...(payload.fix ? [] : fixPhases), ...(surveyed ? [] : ['survey' as const]), ...(decided ? [] : ['decision' as const])]);
   const review: ReviewState = {
     configuration: payload,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
@@ -242,6 +253,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     plans: Object.fromEntries(verificationPhases.map((phase) => [phase, null])) as Record<VerificationPhase, null>,
     unverifiedGroups: Object.fromEntries(verificationPhases.map((phase) => [phase, {}])) as Record<VerificationPhase, Record<string, string>>,
     ranking: null,
+    decisions: null,
     report: null,
     fix: payload.fix ? emptyFixState() : null,
     survey: surveyed ? emptySurveyState() : null,
@@ -268,17 +280,20 @@ const unsurveyed = { survey: { userRules: 'apply' as const } };
  */
 const unpinnedCodex = (runtime: string, worktree: string): Pick<ReviewConfiguration, 'codex'> => ({ codex: runtime === 'codex' && !worktree.startsWith('/') ? { windowsSandbox: 'unelevated' } : null });
 
-/** Version 4 of the configuration: a run that is surveyed and pins its Codex Windows sandbox. */
-const configured: Reducer<ReviewConfiguration> = (state, payload, event) => configure(state, payload, event, true);
+/** Version 5 of the configuration: a run that is surveyed, pins its Codex Windows sandbox, and decides its findings. */
+const configured: Reducer<ReviewConfiguration> = (state, payload, event) => configure(state, payload, event, true, true);
+
+/** Version 4 of the configuration, recorded before the decision step existed: a run that is surveyed and pins its Codex Windows sandbox, whose decision is skipped. */
+const configuredV4: Reducer<ReviewConfiguration> = (state, payload, event) => configure(state, payload, event, true, false);
 
 /** Version 3 of the configuration, recorded before the Codex Windows sandbox was pinned: a run that is surveyed. */
-const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, true);
+const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, true, false);
 
 /** Version 2 of the configuration, recorded before the survey existed: a run whose survey is skipped. */
-const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, false);
+const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, false, false);
 
 /** Version 1 of the configuration, recorded before the fix pass existed: a run without it, and without the survey. */
-const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, false);
+const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? '') }, event, false, false);
 
 /** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
 const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
@@ -304,11 +319,18 @@ function withFreshAttempts(review: ReviewState, drafts: FoldDrafts, phase: Phase
   return units;
 }
 
+/** Why a run skips a phase, which only its configuration decides (`configure`). */
+function skipReason(phase: Phase): string {
+  if (phase === 'survey') return 'it was configured before the survey existed';
+  if (phase === 'decision') return 'it was configured before the decision step existed';
+  return 'it was configured without the fix pass';
+}
+
 const phaseStarted: Reducer<PhaseStarted> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   const phase = review.phases[payload.phase];
   if (phase.status === 'completed' || phase.status === 'degraded') throw invalid(event, `starts phase ${payload.phase} again after it ${phase.status}`);
-  if (phase.status === 'skipped') throw invalid(event, `starts phase ${payload.phase}, which a run without the fix pass skips`);
+  if (phase.status === 'skipped') throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase)}`);
   if (payload.attempt !== phase.attempt + 1) throw invalid(event, `starts phase ${payload.phase} at attempt ${String(payload.attempt)} after attempt ${String(phase.attempt)}`);
   for (const earlier of phases.slice(0, phases.indexOf(payload.phase))) {
     const status = review.phases[earlier].status;
@@ -490,6 +512,33 @@ const rankingRecorded: Reducer<RankingRecorded> = (state, payload, event, drafts
   return withReview(current, { ...review, ranking: payload.findings, units: answered(review, drafts, unit, payload.workerId) }, event);
 };
 
+/**
+ * The decider's decisions (R2, R3 of the decision step): once, while the
+ * decision phase runs, from its one unit, and exactly one per ranked
+ * finding. A finding left as superseded names another finding, decided
+ * `fix`, whose fix removes it.
+ */
+const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, drafts) => {
+  const { current, review } = requireReview(state, event);
+  requireRunning(review, event, 'decision');
+  if (review.decisions !== null) throw invalid(event, 'records its decisions twice');
+  const unit: UnitRef = { phase: 'decision', key: singleUnitKey('decision') };
+  requireUnanswered(review, event, unit);
+  const ranked = (review.ranking ?? []).map((finding) => finding.id);
+  const decided = payload.decisions.map((decision) => decision.id);
+  if (decided.length !== ranked.length || !ranked.every((id) => decided.includes(id))) {
+    throw invalid(event, `decides [${decided.join(', ')}], which is not every ranked finding [${ranked.join(', ')}] once`);
+  }
+  const kindOf = new Map(payload.decisions.map((decision) => [decision.id, decision.decision]));
+  for (const decision of payload.decisions) {
+    const by = decision.leave?.supersededBy ?? null;
+    if (by !== null && (by === decision.id || kindOf.get(by) !== 'fix')) throw invalid(event, `leaves ${decision.id} as superseded by ${by}, which is not another finding decided fix`);
+  }
+  // Held in the ranking's order, so every reader lists them as the findings are listed.
+  const decisions = ranked.map((id) => payload.decisions.find((decision) => decision.id === id)!);
+  return withReview(current, { ...review, decisions, units: answered(review, drafts, unit, payload.workerId) }, event);
+};
+
 const reportWritten: Reducer<ReportWritten> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, 'report');
@@ -508,30 +557,37 @@ export const reviewReducers = {
   'review.configured@1': configuredV1,
   'review.configured@2': configuredV2,
   'review.configured@3': configuredV3,
-  'review.configured@4': configured,
+  'review.configured@4': configuredV4,
+  'review.configured@5': configured,
   'limits.changed@1': limitsChanged,
   'phase.started@1': phaseStarted,
   'phase.started@2': phaseStarted,
   'phase.started@3': phaseStarted,
+  'phase.started@4': phaseStarted,
   'phase.finished@1': phaseFinished,
   'phase.finished@2': phaseFinished,
   'phase.finished@3': phaseFinished,
+  'phase.finished@4': phaseFinished,
   'worktree.checked@1': worktreeCheckedV1,
   'worktree.checked@2': worktreeChecked,
   'worktree.checked@3': worktreeChecked,
+  'worktree.checked@4': worktreeChecked,
   'candidates.recorded@1': candidatesRecorded,
   'attempt.failed@1': attemptFailed,
   'attempt.failed@2': attemptFailed,
   'attempt.failed@3': attemptFailed,
+  'attempt.failed@4': attemptFailed,
   'angle.failed@1': angleFailed,
   'deduplication.recorded@1': deduplicationRecorded,
   'verification.planned@1': verificationPlanned,
   'verdicts.recorded@1': verdictsRecorded,
   'group.unverified@1': groupUnverified,
   'ranking.recorded@1': rankingRecorded,
+  'decisions.recorded@1': decisionsRecorded,
   'report.written@1': reportWrittenV1,
   'report.written@2': reportWritten,
   'report.written@3': reportWritten,
+  'report.written@4': reportWritten,
 } as const;
 
 /** Whether the unit `key` of `phase` has contributed: a worker's answer is recorded for it. */

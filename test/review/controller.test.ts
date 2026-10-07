@@ -18,7 +18,7 @@ import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/re
 import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
-import type { Script } from '../helpers/fake-runtime.ts';
+import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { fakeCheckCommand, ReviewSandbox } from '../helpers/review-sandbox.ts';
 import { write } from '../helpers/repository.ts';
 
@@ -61,6 +61,8 @@ const fullScript: Script = {
     { primary: 0, members: [1], severity: 'major', summary: 'parse dereferences null; also at the unlocated caller', reason: 'one root cause' },
     { primary: 2, members: [], severity: 'minor', summary: 'duplicate call', reason: 'a cleanup' },
   ] } },
+  // RIPPLE-1 is decided fix; SWEEP-1 asks the author, keeping the code by default.
+  decider: { output: deciderAnswer([{}, { decision: 'ask', edits: false }]) },
 };
 
 /** A worker launch as another writer appends it, its prompt and schema frozen in the checkpoint's evidence store, which the append verifies. */
@@ -126,13 +128,13 @@ describe('runReview', { timeout: 600_000 }, () => {
     const text = report(outcome);
     const state = box.run();
     assert.equal(state.review?.report !== null, true);
-    // A run without --fix surveys first, skips the five phases of the fix pass, and has no fix state.
-    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    // A run without --fix surveys first, decides its findings, skips the five phases of the fix pass, and has no fix state.
+    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
     assert.equal(state.review!.fix, null);
     assert.equal(state.review!.configuration.fix, false);
-    // Workers: survey 1, triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1.
+    // Workers: survey 1, triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1, decider 1.
     const workers = Object.values(state.workers);
-    assert.equal(workers.length, 18);
+    assert.equal(workers.length, 19);
     assert.ok(workers.every((worker) => worker.status === 'finished'));
     const labels = workers.map((worker) => worker.launch.label);
     assert.equal(labels.filter((label) => label === 'finder-WRAPPERS finders:WRAPPERS').length, 2, 'the malformed WRAPPERS answer was retried once');
@@ -144,9 +146,9 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(order.every((position) => position >= 0), 'every phase it runs started');
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
     assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && (fixPhases as readonly string[]).includes(payload.phase as string)), 'no phase of the fix pass started');
-    assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 10);
-    // The engine writes only the third version of each kind that carries a phase, and the fourth of the configuration.
-    const written: Record<string, number> = { 'review.configured': 4, 'phase.started': 3, 'phase.finished': 3, 'worktree.checked': 3, 'attempt.failed': 3, 'report.written': 3 };
+    assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 11);
+    // The engine writes only the fourth version of each kind that carries a phase, and the fifth of the configuration.
+    const written: Record<string, number> = { 'review.configured': 5, 'phase.started': 4, 'phase.finished': 4, 'worktree.checked': 4, 'attempt.failed': 4, 'report.written': 4 };
     assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => event.kind in written && event.version !== written[event.kind]).map((event) => `${event.kind}@${String(event.version)}`), []);
     assert.ok(kinds.includes('review.configured'));
     // The survey is recorded once, and a read-only run plans no check.
@@ -164,13 +166,27 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(candidates['SCAN-2']!.verdict?.verdict, 'REFUTED');
     assert.equal(candidates['SWEEP-1']!.angle, 'DUPLICATION');
     assert.deepEqual(state.review!.ranking?.map((finding) => [finding.id, finding.members, finding.severity]), [['RIPPLE-1', ['RIPPLE-2'], 'major'], ['SWEEP-1', [], 'minor']]);
+    // The decisions, by finding, in the ranking's order, and the decider's task numbered them so (R2, R3, R10 of the decision step).
+    assert.deepEqual(state.review!.decisions?.map((decision) => [decision.id, decision.decision]), [['RIPPLE-1', 'fix'], ['SWEEP-1', 'ask']]);
+    const decider = box.promptOf(state, 'decider decision:decision');
+    assert.match(decider, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: parse dereferences null; also at the unlocated caller\n {4}merge and rank: one root cause\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:2: CONFIRMED\n[\s\S]* {8}evidence: line 2 dereferences text with !\n {4}- RIPPLE-2 \(RIPPLE\) at src\/nowhere\.ts:1 \(unlocated[^\n]*\): PLAUSIBLE\n/m);
+    assert.ok(workers.some((worker) => worker.launch.label === 'decider decision:decision' && worker.launch.access === 'read-only' && worker.launch.shell), 'one decider, read-only with a shell');
+    assert.ok(box.logs.includes('worker decider decision:decision: decided 1 to fix, 0 to leave, 1 to ask the author'), box.logs.join('\n'));
     // The report.
     assert.match(text, /^# Deep review report\n/);
     assert.match(text, /^\| RIPPLE \| run \| callers of parse\(\) \|$/m);
     assert.match(text, /^### 1\. \[major\] CONFIRMED  RIPPLE-1 \(also RIPPLE-2\)  src\/a\.ts:2$/m);
     assert.match(text, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/b\.ts:1$/m);
+    // A read-only run says what it decided right after the header, and under each finding (R8 of the decision step).
+    assert.match(text, /^Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 1 refuted at verification\n\n## Decisions\n\nBefore any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author\./m);
+    assert.match(text, /^### Questions for the author\n\n[^\n]*\n\n- \[ \] 2\. SWEEP-1: fake question for \[1\]\?\n  - Applied: fake default \(no edit\)$/m);
+    assert.match(text, /^### To fix\n\n- 1\. RIPPLE-1: fake approach for \[0\] Grounds: fake grounds for \[0\]$/m);
+    assert.match(text, /^Decision: fix: fake grounds for \[0\]$/m);
+    assert.match(text, /^Decision: ask the author, applying fake default \(no edit\); see Decisions: fake grounds for \[1\]$/m);
+    assert.doesNotMatch(text, /^## Fixes$/m, 'a read-only run has no fix pass to report');
     assert.match(text, /## Refuted at verification\n\n- SCAN-2 \(SCAN\)  src\/a\.ts:6  other\(\) passes null\n  Evidence: other\(\) is never called/);
-    assert.match(text, /^\| Total \| 18 \| /m);
+    assert.match(text, /^\| Total \| 19 \| /m);
+    assert.match(text, /^\| decision \| 1 \| /m);
     assert.match(text, /^\| survey \| 1 \| /m);
     assert.match(text, /- Run budget: 60\.00 USD/);
     assert.match(text, /- Unlocated candidates.*RIPPLE-2 \(src\/nowhere\.ts:1\)/);
@@ -266,6 +282,56 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(state.review!.blocker, null);
     assert.equal(box.checkpoint.listRuns().length, 1, 'the same run continued');
     assert.ok(box.logs.some((line) => /^phase triage: re-entered \(attempt 2\), clearing the worker-failed blocker$/.test(line)));
+  });
+
+  it('blocks with worker-failed when the decider fails twice, with no degrade, and running again decides and completes (R9 of the decision step)', async () => {
+    box.script({ ...fullScript, decider: { exit: 2 } });
+    const blocked = await box.review('claude');
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'worker-failed' && blocked.blocker.phase === 'decision', JSON.stringify(blocked));
+    assert.match(blocked.kind === 'blocked' ? blocked.blocker.detail : '', /^the decider worker for decision:decision failed twice/);
+    const failed = box.run();
+    assert.equal(failed.review!.phases.decision.status, 'blocked');
+    assert.equal(failed.review!.decisions, null, 'nothing is decided, and nothing is reported');
+    assert.equal(Object.values(failed.workers).filter((worker) => worker.launch.label === 'decider decision:decision').length, 2);
+    box.script(fullScript);
+    const text = report(await box.review('claude'));
+    const decided = box.run();
+    assert.deepEqual(decided.review!.phases.decision, { status: 'completed', attempt: 2 });
+    assert.deepEqual(decided.review!.decisions?.map((decision) => decision.decision), ['fix', 'ask']);
+    assert.match(text, /^## Decisions$/m);
+  });
+
+  it('decides nothing and launches no decider for a run whose ranking holds no finding', async () => {
+    box.script({});
+    report(await box.review('claude'));
+    const state = box.run();
+    assert.deepEqual(state.review!.phases.decision, { status: 'completed', attempt: 1 });
+    assert.equal(state.review!.decisions, null);
+    assert.ok(!Object.values(state.workers).some((worker) => worker.launch.label === 'decider decision:decision'));
+  });
+
+  it('refuses to resume a fix run configured before the decision step that has not planned its fixes, before anything is recorded, even with its own roles (R6 of the decision step)', async () => {
+    // A run of this engine gives the configuration such a run pinned: the same one, recorded at version 4.
+    box.script({ triage: { exit: 2 } });
+    const first = await box.fix('claude');
+    assert.ok(first.kind === 'blocked', JSON.stringify(first));
+    const pinned = box.events(first.runId).find(([kind]) => kind === 'review.configured')![1];
+    box.checkpoint.append(first.runId, box.checkpoint.fold(first.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
+    const older = box.checkpoint.createRun({ worktree: box.repo });
+    const captured = captureScope(box.checkpoint, older.id, { paths: [] });
+    box.checkpoint.append(older.id, captured.lastSequence, [{ kind: 'review.configured', version: 4, payload: pinned }]);
+    assert.equal(box.checkpoint.fold(older.id).review!.phases.decision.status, 'skipped', 'the run predates the decision step');
+    const before = box.checkpoint.fold(older.id).lastSequence;
+    await assert.rejects(box.fix('claude'), (error: unknown) => error instanceof ReviewRefusedError && new RegExp(`^run ${older.id} was configured before the decision step, which a fix run now routes its findings by, and has not planned its fixes; abandon it with \`deep-review abandon --run ${older.id} --reason <text>\` and start a new run$`).test(error.message));
+    assert.equal(box.checkpoint.fold(older.id).lastSequence, before, 'nothing is recorded');
+    // The same run without --fix pinned is a read-only review, which resumes and reads as it did.
+    box.checkpoint.append(older.id, before, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'refused' } }]);
+    const readOnly = box.checkpoint.createRun({ worktree: box.repo });
+    box.checkpoint.append(readOnly.id, captureScope(box.checkpoint, readOnly.id, { paths: [] }).lastSequence, [{ kind: 'review.configured', version: 4, payload: { ...pinned, fix: false, checks: null, fixes: null } }]);
+    box.script({});
+    const text = report(await box.review('claude'));
+    assert.equal(box.checkpoint.fold(readOnly.id).review!.phases.decision.status, 'skipped');
+    assert.doesNotMatch(text, /^## Decisions$/m);
   });
 
   it('goes on without a fix run\'s failed survey on flags alone, reading only the user-level files, so a git history it cannot read does not stop it (R9 of the repository survey)', async () => {
@@ -469,8 +535,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 3 });
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'triage triage:SCAN').length, 2, 'the triage is launched once more');
     assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'attempt.failed'), []);
-    // The survey's one check; triage attempt 1 has its clean check at the start and the drifted one before its answer; attempts 2 and 3 one each; eight more phases.
-    assert.match(text, /- Worktree checks: 13, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
+    // The survey's one check; triage attempt 1 has its clean check at the start and the drifted one before its answer; attempts 2 and 3 one each; nine more phases, the decision among them.
+    assert.match(text, /- Worktree checks: 14, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
   });
 
   it('sets aside a finder\'s answer when a scope file changes while it runs, lets the others settle, and relaunches it without using an attempt', async () => {

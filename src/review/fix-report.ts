@@ -6,18 +6,25 @@
  * and the lines Limitations gains. A run without the fix pass has none
  * of these, and its report renders as it did before the fix pass existed.
  */
-import type { CheckRan, FixedFinding, TreeRevised } from '../checkpoint/events.ts';
+import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { allBatches, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
+import { leftAs } from './decision-report.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, droppedByOperator, unavailableCell } from './survey-report.ts';
 import { checkPhases, repairUnitKey, type CheckPhase } from './vocabulary.ts';
 
-/** What became of one ranked finding, as the report names it. */
-export type FindingOutcome = 'applied' | 'already applied' | 'deferred' | 'blocked' | 'not attempted' | 'held for the author';
+/**
+ * What became of one ranked finding, as the report names it: a fixer's
+ * status, or why no fixer answered for it. A finding no fixer saw was
+ * left by its decision, or asked of the author with a default that keeps
+ * the code as it is; in a run configured before the decision step, which
+ * routed by verdict and angle, it was held for the author.
+ */
+export type FindingOutcome = 'applied' | 'already applied' | 'deferred' | 'blocked' | 'not attempted' | 'left by decision' | 'asked, kept as is' | 'held for the author';
 
 const statusWords: Readonly<Record<FixedFinding['status'], FindingOutcome>> = {
   applied: 'applied',
@@ -30,6 +37,8 @@ const statusWords: Readonly<Record<FixedFinding['status'], FindingOutcome>> = {
 interface FindingFate {
   readonly id: string;
   readonly outcome: FindingOutcome;
+  /** The decision that kept a held finding from every fixer, or null for a finding a fixer was given, and for a held one of a run configured before the decision step. */
+  readonly decision: RecordedDecision | null;
   /** The batch that held it, whose key names its cluster, or null for a held finding. */
   readonly batch: PlannedBatch | null;
   readonly answer: FixedFinding | null;
@@ -41,9 +50,25 @@ interface FindingFate {
   readonly secondRoundSkipped: string | null;
 }
 
-function fateOf(fix: FixState, id: string): FindingFate {
+/**
+ * Why no fixer saw a held finding: its decision left it, or asked the
+ * author with a default that edits nothing; a run configured before the
+ * decision step held it for the author by its verdict and angle. A held
+ * finding decided `fix` is a plan the engine cannot have made.
+ */
+function heldOutcome(decision: RecordedDecision | null): FindingOutcome {
+  if (decision === null) return 'held for the author';
+  if (decision.decision === 'leave') return 'left by decision';
+  if (decision.decision === 'ask') return 'asked, kept as is';
+  throw new Error(`Finding ${decision.id} is decided fix but held from every fixer`);
+}
+
+function fateOf(review: ReviewState, fix: FixState, id: string): FindingFate {
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? 'fixer';
-  if (route === 'held') return { id, outcome: 'held for the author', batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null };
+  if (route === 'held') {
+    const decision = review.decisions?.find((candidate) => candidate.id === id) ?? null;
+    return { id, outcome: heldOutcome(decision), decision, batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null };
+  }
   const second = fix.secondRound?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const firstBlockedOn = fix.secondRound?.blocked.find((entry) => entry.id === id)?.requiredFiles ?? null;
   const last = lastAnswerOf(fix, id);
@@ -51,11 +76,11 @@ function fateOf(fix: FixState, id: string): FindingFate {
     const batch = allBatches(fix).find((candidate) => candidate.key === last.batch) ?? null;
     const answeredInSecond = second !== null && last.batch === second.key;
     const secondRoundSkipped = second !== null && !answeredInSecond ? notAttemptedNote(fix, 'fixes', second.key) : null;
-    return { id, outcome: statusWords[last.finding.status], batch, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped };
+    return { id, outcome: statusWords[last.finding.status], decision: null, batch, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped };
   }
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const reason = (batch === null ? null : notAttemptedNote(fix, 'fixes', batch.key)) ?? 'no fixer answered for it';
-  return { id, outcome: 'not attempted', batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null };
+  return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null };
 }
 
 /** The 1-based numbers of the patches whose revisions hold a finding (or, for the repair, a check kind). */
@@ -68,6 +93,8 @@ const patchNote = (numbers: readonly number[]): string => (numbers.length === 0 
 /** The lines one finding's fate prints under its heading. */
 function fateLines(fix: FixState, fate: FindingFate): string[] {
   if (fate.outcome === 'held for the author') return ['A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it.'];
+  if (fate.outcome === 'left by decision' && fate.decision?.leave != null) return [`No fixer saw it: the decision step left it, ${leftAs(fate.decision.leave)}. See Decisions.`];
+  if (fate.outcome === 'asked, kept as is') return ['No fixer saw it: the decision step asks the author, and its default keeps the code as it is. See Decisions.'];
   const lines: string[] = [];
   if (fate.answer !== null) {
     lines.push(`Note: ${inlineText(fate.answer.note)}`);
@@ -101,7 +128,7 @@ function answerLines(fix: FixState): string[] {
 function fixesSection(review: ReviewState, fix: FixState): string[] {
   const findings = rankedFindings(review);
   const blocks = findings.flatMap((entry, index) => {
-    const fate = fateOf(fix, entry.finding.id);
+    const fate = fateOf(review, fix, entry.finding.id);
     return [`### ${String(index + 1)}. ${entry.finding.id} ${fate.outcome}`, '', ...fateLines(fix, fate), ''];
   });
   const repair = fix.answers.repair[repairUnitKey];
@@ -214,12 +241,18 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
   return [fixesSection(review, fix), checksSection(fix, review.survey, evidencePath), changedFilesSection(fix, patches)];
 }
 
-/** The header's line for a fix run: how many findings each outcome took, and that the edits are uncommitted. */
+/**
+ * The header's line for a fix run: how many findings each outcome took,
+ * and that the edits are uncommitted. A run with the decision step counts
+ * the findings its decisions kept from every fixer; one configured before
+ * the step counts those it held for the author, as its report did then.
+ */
 export function fixHeaderLine(review: ReviewState): string | null {
   const fix = review.fix;
   if (fix === null) return null;
-  const outcomes = rankedFindings(review).map((entry) => fateOf(fix, entry.finding.id).outcome);
-  const counts = (['applied', 'already applied', 'deferred', 'blocked', 'not attempted', 'held for the author'] as const).map((outcome) => `${String(outcomes.filter((candidate) => candidate === outcome).length)} ${outcome}`);
+  const outcomes = rankedFindings(review).map((entry) => fateOf(review, fix, entry.finding.id).outcome);
+  const held: readonly FindingOutcome[] = review.phases.decision.status === 'skipped' ? ['held for the author'] : ['left by decision', 'asked, kept as is'];
+  const counts = (['applied', 'already applied', 'deferred', 'blocked', 'not attempted', ...held] as const).map((outcome) => `${String(outcomes.filter((candidate) => candidate === outcome).length)} ${outcome}`);
   return `Fix pass: ${counts.join(', ')}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? '' : 'es'}; the edits are in the working tree, uncommitted`;
 }
 

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { describeRun } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { configured, History, launch, reported, triaged, worker } from '../helpers/review-history.ts';
+import { askDecision, configured, decidedOf, decisions, History, launch, mergeRanked, reported, triaged, worker } from '../helpers/review-history.ts';
 
 /** An evidence path that names the reference, so a test sees which one was asked for. */
 const evidencePath = (reference: { sha256: string; bytes: number }): string => `/evidence/${reference.sha256.slice(0, 8)}-${String(reference.bytes)}`;
@@ -19,7 +19,7 @@ describe('describeRun', () => {
       'Workers: 0 running, 0 finished, 0 lost',
       'Spend: none',
     ]);
-    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, fix: null, patches: [], commits: null, review: null });
+    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, decisions: null, fix: null, patches: [], commits: null, review: null });
   });
 
   it('names the reason of an abandoned run on its first line', () => {
@@ -94,6 +94,15 @@ describe('describeRun', () => {
     assert.equal(described.lines.at(-1), `Report: /evidence/${'e'.repeat(8)}-2048`);
     assert.ok(!described.lines.some((line) => line.startsWith('Blocker: ')));
     assert.equal(described.json.report, `/evidence/${'e'.repeat(8)}-2048`);
+    assert.ok(!described.lines.some((line) => line.startsWith('Decisions: ')), 'a run configured before the decision step decided nothing');
+    assert.equal(described.json.decisions, null);
+  });
+
+  it('counts the decisions of a read-only run once they are recorded, after its report (R8 of the decision step)', () => {
+    const described = describeRun(decidedOf(reported(), [decisions[0], askDecision('SWEEP-1', false)]).fold(), claudeAdapter, evidencePath);
+    assert.equal(described.lines.at(-1), 'Decisions: 1 to fix, 0 to leave, 1 to ask the author');
+    assert.deepEqual(described.json.decisions, { fix: 1, leave: 0, ask: 1 });
+    assert.equal(describeRun(decidedOf(mergeRanked(), null).fold(), claudeAdapter, evidencePath).json.decisions, null, 'none while the decision has not run');
   });
 });
 

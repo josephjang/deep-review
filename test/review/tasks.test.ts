@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { codeSpan, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -171,6 +171,21 @@ describe('the task texts', () => {
     assert.doesNotMatch(task, /Order most severe first/, 'the worker is not asked for an order the engine discards');
     assert.match(mergeRankTask([{ candidate: candidate('A-1', 'SCAN'), verdict: 'PLAUSIBLE', unverified: false, evidence: 'e' }]), /1 finding, numbered/);
   });
+
+  it('numbers the decider\'s findings in rank order, each with every candidate\'s own verdict and evidence, and asks for one decision per index (R2, R3 of the decision step)', () => {
+    const member = (id: string, angle: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', evidence: string | null, unverified = false) => ({ id, angle, location: `src/a.ts:${id.length}`, summary: `${id} summary`, detail: `${id} detail`, verdict, unverified, evidence });
+    const task = deciderTask([
+      { id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', summary: 'parse dereferences null, also at line 7', reason: 'one root cause', candidates: [member('RIPPLE-1', 'RIPPLE', 'CONFIRMED', 'line 4'), member('ALTITUDE-2', 'ALTITUDE', 'PLAUSIBLE', 'Needs the author: where to guard')] },
+      { id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', summary: 'a helper', reason: 'one improvement', candidates: [member('SWEEP-1', 'DESIGN', 'PLAUSIBLE', null, true)] },
+    ]);
+    assert.match(task, /^The review's 2 findings, numbered \[0\] to \[1\], each with every candidate merged into it, its verdict and its verifier's evidence\. Decide each one as your role prompt defines it: `fix`, `leave` or `ask`\.$/m);
+    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: parse dereferences null, also at line 7\n {4}merge and rank: one root cause\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:8: CONFIRMED\n {8}summary: RIPPLE-1 summary\n {8}detail: RIPPLE-1 detail\n {8}evidence: line 4\n {4}- ALTITUDE-2 \(ALTITUDE\) at src\/a\.ts:10: PLAUSIBLE\n {8}summary: ALTITUDE-2 summary\n {8}detail: ALTITUDE-2 detail\n {8}evidence: Needs the author: where to guard$/m);
+    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE: a helper\n {4}merge and rank: one improvement\n {4}- SWEEP-1 \(DESIGN\) primary at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the verifier of its group failed twice$/m);
+    assert.match(task, /`leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise\./);
+    assert.match(task, /the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer\./);
+    assert.match(task, /`departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing\. Every index appears exactly once\. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing\.$/);
+    assert.match(deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'PLAUSIBLE', summary: 's', reason: 'r', candidates: [member('A-1', 'SCAN', 'PLAUSIBLE', 'e')] }]), /^The review's 1 finding, numbered \[0\] to \[0\]/);
+  });
 });
 
 describe('the fixer\'s task', () => {
@@ -180,8 +195,22 @@ describe('the fixer\'s task', () => {
     batch: 'c1-2',
     secondRound: false,
     findings: [
-      { id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'parse dereferences null', detail: 'other() passes null', evidence: 'line 4 uses text!', reason: 'one root cause', also: ['SWEEP-2 at src/a.ts:7'], firstRound: null },
-      { id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 's', detail: 'd', evidence: null, reason: 'r', also: [], firstRound: null },
+      {
+        id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'parse dereferences null', detail: 'other() passes null', evidence: 'line 4 uses text!', reason: 'one root cause',
+        members: [{ id: 'SWEEP-2', angle: 'ALTITUDE', location: 'src/a.ts:7', summary: 'guard once', detail: 'one guard serves both sites', verdict: 'PLAUSIBLE', unverified: false, evidence: 'Needs the author: guard in parse or in each caller' }],
+        decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' } },
+        supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing' }],
+        firstRound: null,
+      },
+      {
+        id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 's', detail: 'd', evidence: null, reason: 'r', members: [],
+        decision: {
+          id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
+          ask: { question: 'Should b log?', options: [{ option: 'log once', cost: 'c', rule: 'r', edits: true }, { option: 'stay quiet', cost: 'c', rule: 'r', edits: false }, { option: 'log always', cost: 'c', rule: 'r', edits: true }], recommended: 1, applied: 0, searched: ['docs'] },
+        },
+        supersedes: [],
+        firstRound: null,
+      },
     ],
     earlier: [],
     owned: ['src/a.ts'],
@@ -202,8 +231,29 @@ describe('the fixer\'s task', () => {
   it('numbers the batch\'s findings with everything the fixer judges by', () => {
     const task = fixerTask(input);
     assert.match(task, /^Cluster c1, batch c1-2: 2 findings, numbered \[0\] to \[1\], in the order to apply them\.$/m);
-    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED \(RIPPLE\) at src\/a\.ts:4\n {4}summary: parse dereferences null\n {4}detail: other\(\) passes null\n {4}evidence: line 4 uses text!\n {4}reason: one root cause\n {4}also at: SWEEP-2 at src\/a\.ts:7$/m);
-    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE \(unverified\) \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*\n {4}summary: s\n {4}detail: d\n {4}evidence: none; the verifier of its group failed twice\n {4}reason: r$/m);
+    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED \(RIPPLE\) at src\/a\.ts:4\n {4}summary: parse dereferences null\n {4}detail: other\(\) passes null\n {4}evidence: line 4 uses text!\n {4}reason: one root cause\n/m);
+    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE \(unverified\) \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*\n {4}summary: s\n {4}detail: d\n {4}evidence: none; the verifier of its group failed twice\n {4}reason: r\n/m);
+  });
+
+  it('gives each merged candidate its own verdict and evidence, not only where it is (R7 of the decision step)', () => {
+    assert.match(fixerTask(input), /^ {4}reason: one root cause\n {4}merged: SWEEP-2 \(ALTITUDE\) at src\/a\.ts:7: PLAUSIBLE\n {8}summary: guard once\n {8}detail: one guard serves both sites\n {8}evidence: Needs the author: guard in parse or in each caller\n/m);
+  });
+
+  it('tells the fixer what was decided for each finding: the approach, what was rejected, a rule departed from, and an ask\'s default and question (R7 of the decision step)', () => {
+    const task = fixerTask(input);
+    assert.match(task, /^ {4}decided: fix\. the changelog says parse accepts null\n {8}approach: guard in parse\n {8}rejected: guard in each caller \(two copies of one rule\)\n {8}departs from: parse trusts its callers \(src\/a\.ts:2\): other\(\) is a caller it never trusted$/m);
+    assert.match(task, /^ {4}decided: ask the author, applying a default now\. nothing states it\n {8}apply: log once\n {8}the question the author answers later: Should b log\? The other options: stay quiet; log always$/m);
+    assert.match(task, /Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later\. Defer a finding only for a fact the decision did not see, and name that fact in `note`\. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`\./);
+  });
+
+  it('names a finding left as superseded under the finding whose fix removes it, so the fixer checks it is gone', () => {
+    assert.match(fixerTask(input), /^ {8}departs from: [^\n]*\n {4}removes also: SCAN-3 at src\/a\.ts:9: the guard is missing \(left because this fix removes it, and given to no fixer: check it is gone\)$/m);
+    assert.doesNotMatch(fixerTask({ ...input, findings: input.findings.map((finding) => ({ ...finding, supersedes: [] })) }), /removes also/);
+  });
+
+  it('says nothing of decisions to a fixer of a run configured before the decision step, whose findings have none', () => {
+    const task = fixerTask({ ...input, findings: input.findings.map((finding) => ({ ...finding, decision: null })) });
+    assert.doesNotMatch(task, /decided:|Each finding carries what was decided/);
   });
 
   it('states the ownership rule with both file lists', () => {

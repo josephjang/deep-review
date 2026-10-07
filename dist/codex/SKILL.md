@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Deep review of a change by the deep-review engine, a Node program installed with this skill. It runs the SCAN triage, nine more finder angles, deduplication, verification, a gap sweep and a merge-and-rank pass, and writes a Markdown report; when the user asks, its own workers also apply the fixes and it runs the project's checks, committing nothing. Use only when the user asks for $deep-review by name.
+description: Deep review of a change by the deep-review engine, a Node program installed with this skill. It runs the SCAN triage, nine more finder angles, deduplication, verification, a gap sweep, a merge-and-rank pass and a decision pass, and writes a Markdown report; when the user asks, its own workers also apply the fixes and it runs the project's checks, committing nothing. Use only when the user asks for $deep-review by name.
 ---
 
 The deep-review engine reviews the change; you run one command, wait for

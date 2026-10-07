@@ -3,15 +3,17 @@
  * of the Codex sandbox):
  * Markdown rendered by the engine from the fold alone, so two engines
  * render the same report from the same ledger and no model rewrites a
- * finding. Sections in order: the header, Angles, for a surveyed run
+ * finding. Sections in order: the header, for a run with the decision
+ * step Decisions (decision-report.ts), Angles, for a surveyed run
  * Conventions (survey-report.ts), Findings, for a fix run Fixes, Checks
  * and Changed files (fix-report.ts), Refuted at verification, Statistics
  * and Limitations.
  */
-import type { ReviewConfiguration, ScopeState, Spend } from '../checkpoint/events.ts';
+import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
+import { decisionLine, decisionsSection } from './decision-report.ts';
 import { fixHeaderLine, fixLimitations, fixSections } from './fix-report.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
@@ -68,7 +70,8 @@ function angleRow(review: ReviewState, angle: Angle): string {
   return `| ${angle} | ${status} | ${lead === null ? 'none' : tableCell(lead)} |`;
 }
 
-function findingBlock(position: number, entry: ReportFinding): string {
+/** A finding's block under Findings, closed in a run with the decision step by the decision made for it. */
+function findingBlock(position: number, entry: ReportFinding, decision: RecordedDecision | null): string {
   const { finding, primary, members, resolution } = entry;
   const also = members.length === 0 ? '' : ` (also ${members.map((member) => member.id).join(', ')})`;
   const lines = [
@@ -81,6 +84,7 @@ function findingBlock(position: number, entry: ReportFinding): string {
     `Angle: ${[primary, ...members].map((candidate) => candidate.angle).filter((angle, index, all) => all.indexOf(angle) === index).join(', ')}`,
   ];
   if (members.length > 0) lines.push(`Also at: ${members.map((member) => `${member.id} ${shortLocation(member)}${marks(member, false)}`).join('; ')}`);
+  if (decision !== null) lines.push(decisionLine(decision));
   return lines.join('\n');
 }
 
@@ -206,13 +210,16 @@ export function renderReport(state: RunState, input: ReportInput): string {
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
     ...[fixHeaderLine(review)].filter((line) => line !== null),
   ];
+  // A run with the decision step says what it decided right after the header; one configured before the step has no such section.
+  const decisions = decisionsSection(review);
+  const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const anglesSection = ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has no such section.
   const conventions = conventionsReportSection(review);
   const findingsSection = [
     '## Findings',
     '',
-    ...(findings.length === 0 ? ['No finding survived verification.'] : findings.flatMap((entry, index) => [findingBlock(index + 1, entry), ''])),
+    ...(findings.length === 0 ? ['No finding survived verification.'] : findings.flatMap((entry, index) => [findingBlock(index + 1, entry, decidedFor.get(entry.finding.id) ?? null), ''])),
   ];
   const refutedSection = [
     '## Refuted at verification',
@@ -223,6 +230,6 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const limitationsSection = ['## Limitations', '', ...limitations(scope, review, input)];
   // A fix run's sections follow its findings; a run without the fix pass has none.
   const fixed = input.fix === undefined ? [] : fixSections(state, input.fix.evidencePath, input.fix.patches);
-  return [header, anglesSection, ...(conventions === null ? [] : [conventions]), findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
+  return [header, ...(decisions === null ? [] : [decisions]), anglesSection, ...(conventions === null ? [] : [conventions]), findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
 }
 

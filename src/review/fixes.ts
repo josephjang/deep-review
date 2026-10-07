@@ -1,27 +1,22 @@
 /**
  * Which ranked findings go to a fixer, and how they are split among fixers
- * (R2, R3, R18, R21 of the fix pass): a finding is routed by its merged
- * verdict and its primary's angle, as the rubric says; the fixer-routed
- * ones are clustered one per file, a merged finding kept whole, so that no
- * file is owned by two clusters; each cluster's findings are cut into
- * batches, one fixer each, run one after another; and once that round has
- * settled, the findings blocked only on other clusters' files are planned
- * again as a second round. Pure over the ranked list and the answers; each
- * plan is recorded once and resumed from the ledger.
+ * (R3, R18, R21 of the fix pass; R6 of the decision step): a finding is
+ * routed by the decision the run recorded for it; the fixer-routed ones
+ * are clustered one per file, a merged finding kept whole, so that no file
+ * is owned by two clusters; each cluster's findings are cut into batches,
+ * one fixer each, run one after another; and once that round has settled,
+ * the findings blocked only on other clusters' files are planned again as
+ * a second round. Pure over the ranked list, the decisions and the
+ * answers; each plan is recorded once and resumed from the ledger.
  */
-import type { FixedFinding } from '../checkpoint/events.ts';
+import type { FixedFinding, FixesPlanned } from '../checkpoint/events.ts';
+import { routeOfDecision, type RoutedDecision } from '../checkpoint/fix-state.ts';
 import type { CandidateState } from '../checkpoint/review-fold.ts';
 import { unlocatedSpellingIn } from './grouping.ts';
 import type { ReportFinding } from './state.ts';
-import { angleClasses } from './vocabulary.ts';
 
-/** Where a finding goes: to a fixer, or held for the author with no fixer seeing it. */
-export type Route = 'fixer' | 'held';
-
-export interface PlannedRoute {
-  readonly id: string;
-  readonly route: Route;
-}
+/** One ranked finding's route, as `fixes.planned@1` records it: `fixer`, or `held`, which no fixer sees. */
+export type PlannedRoute = FixesPlanned['routes'][number];
 
 /** The findings that share files, in rank order, and the files their fixers own. */
 export interface PlannedCluster {
@@ -49,18 +44,6 @@ export interface FixPlan {
 }
 
 /**
- * A finding's route (R2): a CONFIRMED finding goes to a fixer, and so does
- * a PLAUSIBLE one whose primary is from a correctness or cost angle or
- * `CONVENTIONS`; a PLAUSIBLE design finding (`DESIGN`, `DUPLICATION`,
- * `ALTITUDE`) is held for the author. The unverified mark changes nothing,
- * as the rubric says.
- */
-export function routeOf(entry: Pick<ReportFinding, 'primary' | 'resolution'>): Route {
-  if (entry.resolution.verdict === 'CONFIRMED') return 'fixer';
-  return angleClasses[entry.primary.angle] === 'correctness' ? 'fixer' : 'held';
-}
-
-/**
  * A finding's key for one of its candidates: the repository path a
  * located one owns, or the spelling an unlocated one groups under, which
  * owns nothing. The NUL no path holds keeps the two kinds apart.
@@ -71,19 +54,28 @@ const unlocatedKey = (spelling: string): string => `unlocated\0${spelling}`;
 const ownedPath = (key: string): string | null => (key.startsWith('located\0') ? key.slice('located\0'.length) : null);
 
 /**
- * Route the ranked findings and cluster the fixer-routed ones (R3). Each
- * finding's keys are the canonical file of its primary and of every member
- * that is located, and the spelling of every unlocated one, folded as
- * verification grouping folds it; clusters are the connected components of
- * findings over shared keys, so a merged finding across two files pulls
- * every finding of both into one cluster. `findings` must be in rank
- * order, which then orders the clusters by their best finding and each
- * cluster's findings within it. Each cluster's findings are then cut, in
- * that order, into batches of at most `batchSize` (`batchesOf`).
+ * Route the ranked findings by their decisions and cluster the
+ * fixer-routed ones (R3). Every finding must have a decision, as the
+ * decision phase records one per ranked finding; a finding with none is a
+ * plan the engine cannot make, and throws. Each finding's keys are the
+ * canonical file of its primary and of every member that is located, and
+ * the spelling of every unlocated one, folded as verification grouping
+ * folds it; clusters are the connected components of findings over shared
+ * keys, so a merged finding across two files pulls every finding of both
+ * into one cluster. `findings` must be in rank order, which then orders
+ * the clusters by their best finding and each cluster's findings within
+ * it. Each cluster's findings are then cut, in that order, into batches of
+ * at most `batchSize` (`batchesOf`).
  */
-export function planFixes(findings: readonly ReportFinding[], batchSize: number): FixPlan {
-  const routes = findings.map((entry): PlannedRoute => ({ id: entry.finding.id, route: routeOf(entry) }));
-  const routed = findings.filter((entry) => routeOf(entry) === 'fixer');
+export function planFixes(findings: readonly ReportFinding[], decisions: readonly RoutedDecision[], batchSize: number): FixPlan {
+  const decided = new Map(decisions.map((decision) => [decision.id, decision]));
+  const routes = findings.map((entry): PlannedRoute => {
+    const decision = decided.get(entry.finding.id);
+    if (decision === undefined) throw new Error(`Finding ${entry.finding.id} has no decision to route it by`);
+    return { id: entry.finding.id, route: routeOfDecision(decision) };
+  });
+  const toFixer = new Set(routes.filter((route) => route.route === 'fixer').map((route) => route.id));
+  const routed = findings.filter((entry) => toFixer.has(entry.finding.id));
   const candidatesOf = (entry: ReportFinding): readonly CandidateState[] => [entry.primary, ...entry.members];
   const spelling = unlocatedSpellingIn(routed.flatMap(candidatesOf));
   const keysOf = (entry: ReportFinding): string[] => [...new Set(candidatesOf(entry).map((candidate) => (candidate.located && candidate.file !== null ? locatedKey(candidate.file) : unlocatedKey(spelling(candidate)))))];

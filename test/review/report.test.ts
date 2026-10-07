@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
-import { configurationV3, configured, History, ranked, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
+import { askDecision, configurationV3, configured, decidedOf, decisions, History, ranked, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -202,5 +202,58 @@ describe('renderReport', () => {
   it('refuses a run without a review', () => {
     const state = configured().fold();
     assert.throws(() => renderReport({ ...state, review: null }, { engine: 'e', statistics }), /Run run-1 has no review to report on/);
+  });
+});
+
+describe('the Decisions section (R8 of the decision step)', () => {
+  const render = (state: RunState): string => renderReport(state, { engine: '0.0.0+dev', statistics });
+  const departing = { ...decisions[0], departure: { rule: 'parse trusts its callers', source: 'src/a.ts:1', reason: 'the comment came with a caller that is gone' } };
+
+  it('follows the header and comes before Angles, counting the decisions and the fixes that depart from a rule', () => {
+    const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
+    const order = ['\nFindings: ', '\n## Decisions\n', '\n## Angles\n'].map((marker) => report.indexOf(marker));
+    assert.ok(order.every((position) => position > 0) && order[0]! < order[1]! && order[1]! < order[2]!, JSON.stringify(order));
+    assert.match(report, /^Before any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author; 1 fix departs from a rule the repository states\. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left\.$/m);
+  });
+
+  it('lists each question as a checklist item, with the default applied, the option recommended, every option\'s cost and rule, where the decider looked and why', () => {
+    const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
+    assert.match(report, /^### Questions for the author\n\nNone of these held the run up: each has a default, applied as written, and an answer is needed only to go another way\. Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone\.\n\n- \[ \] 2\. SWEEP-1: Should parse accept an empty input\?\n  - Applied: keep accepting it \(no edit\)\n  - Recommended: accept it and return an empty result\n  - Option 1: keep accepting it\. Costs: callers that pass one now see the change\. Rule: parse rejects an empty input\n  - Option 2: accept it and return an empty result\. Costs: an empty input passes silently\. Rule: parse accepts an empty input\n  - Looked in: the change's commit message; README\.md; test\/a\.test\.ts\n  - Grounds: nothing in the repository states which behavior is meant$/m);
+  });
+
+  it('lists each finding to fix with its approach, the options rejected and the rule it departs from, and each finding left with its reason', () => {
+    const fixed = render(decidedOf(reported(), [departing, { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } }]).fold());
+    assert.match(fixed, /^### To fix\n\n- 1\. RIPPLE-1: guard the null once, before parse reads it Grounds: parse reads the null on an empty input, at lines 4 and 7\n  - Rejected: catch the throw in each caller: leaves the null in parse\n  - Departs from: parse trusts its callers \(src\/a\.ts:1\): the comment came with a caller that is gone$/m);
+    assert.match(fixed, /^### Left\n\n- 2\. SWEEP-1, superseded by RIPPLE-1: the helper would edit only lines the change does not touch$/m);
+    assert.doesNotMatch(fixed, /### Questions for the author/, 'no question, no heading');
+    assert.match(render(decidedOf(reported()).fold()), /^- 2\. SWEEP-1, outside the change, and not a regression: /m);
+  });
+
+  it('closes each finding\'s block with its decision', () => {
+    const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', true)]).fold());
+    assert.match(report, /^### 1\. \[major\] CONFIRMED  RIPPLE-1[^\n]*\n[\s\S]*?Also at: SWEEP-2 src\/a\.ts:7\nDecision: fix, departing from a rule: parse reads the null on an empty input, at lines 4 and 7$/m);
+    assert.match(report, /^Decision: ask the author, applying reject it with an error; see Decisions: nothing in the repository states which behavior is meant$/m);
+    assert.match(render(decidedOf(reported()).fold()), /^Decision: left, outside the change, and not a regression: the helper would edit only lines the change does not touch$/m);
+  });
+
+  it('ends an option and its cost with one stop, whether or not the decider wrote one', () => {
+    const asked = askDecision('SWEEP-1', false) as { ask: { options: { option: string; cost: string }[] } };
+    const stopped = { ...asked, ask: { ...asked.ask, options: asked.ask.options.map((option) => ({ ...option, option: `${option.option}.`, cost: `${option.cost}?` })) } };
+    const report = render(decidedOf(reported(), [decisions[0], stopped]).fold());
+    assert.match(report, /^ {2}- Option 1: keep accepting it\. Costs: callers that pass one now see the change\? Rule: /m);
+    assert.doesNotMatch(report, /\.\. |\?\. /);
+  });
+
+  it('keeps a decider\'s text on its own line whatever it holds, so it cannot open a heading or a list item', () => {
+    const hostile = { ...askDecision('SWEEP-1', false), grounds: 'first line\n## Not a heading\n- not an item' };
+    const report = render(decidedOf(reported(), [decisions[0], hostile]).fold());
+    assert.doesNotMatch(report, /^## Not a heading$/m);
+    assert.match(report, /Grounds: first line ## Not a heading - not an item$/m);
+  });
+
+  it('is absent from a run configured before the decision step, and from one that ranked nothing', () => {
+    assert.doesNotMatch(render(reported().fold()), /Decisions|^Decision: /m);
+    const nothing = decidedOf(reported()).fold();
+    assert.doesNotMatch(render({ ...nothing, review: { ...nothing.review!, ranking: [], decisions: null } }), /## Decisions/);
   });
 });

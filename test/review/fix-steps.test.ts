@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { noCheckFlags } from '../../src/review/checks/discover.ts';
-import { nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
-import { baselined, checkRun, checksPhase, configured, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
+import { fixPlanOf, nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
+import { askDecision, baselined, checkRun, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -11,6 +11,14 @@ describe('nextStep in the fix pass', () => {
   it('passes over the five skipped phases of a run without the fix pass, and starts the baseline of one with it', () => {
     assert.deepEqual(nextStep(mergeRanked().review(), idle), { kind: 'start-phase', phase: 'report', attempt: 1 });
     assert.deepEqual(nextStep(withFixPass(mergeRanked()).review(), idle), { kind: 'start-phase', phase: 'baseline-checks', attempt: 1 });
+  });
+
+  it('passes over the skipped decision of a run configured before the decision step, and decides a later run\'s findings before its report or its baseline, fix or not (R1 of the decision step)', () => {
+    for (const fix of [false, true]) {
+      const ranked = (): ReturnType<typeof mergeRanked> => (fix ? withFixPass(mergeRanked()) : mergeRanked());
+      assert.deepEqual(nextStep(decidedOf(ranked(), null).review(), idle), { kind: 'start-phase', phase: 'decision', attempt: 1 }, `fix ${String(fix)}`);
+      assert.deepEqual(nextStep(decidedOf(ranked()).review(), idle), { kind: 'start-phase', phase: fix ? 'baseline-checks' : 'report', attempt: 1 }, `fix ${String(fix)}, decided`);
+    }
   });
 
   it('runs the available checks one at a time, build first, passing over a kind with no command, then finishes the phase', () => {
@@ -41,12 +49,25 @@ describe('nextStep in the fix pass', () => {
     assert.deepEqual(nextStep(history.review(), idle), { kind: 'run-check', phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', command: 'npm run lint', skip: null } });
   });
 
-  it('plans the fixes from the ranked findings, then launches one fixer per cluster, and awaits it', () => {
-    const running = baselined().start('fixes');
-    assert.deepEqual(nextStep(running.review(), idle), { kind: 'plan-fixes', plan: fixPlan });
+  it('plans the fixes from the ranked findings and their decisions, then launches one fixer per cluster, and awaits it', () => {
+    const running = checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks').start('fixes');
+    assert.deepEqual(nextStep(running.review(), idle), { kind: 'plan-fixes', plan: fixPlan }, 'RIPPLE-1 decided fix, SWEEP-1 left');
     running.add('fixes.planned', fixPlan);
     assert.deepEqual(nextStep(running.review(), idle), { kind: 'launch', units: [{ phase: 'fixes', key: 'c1-1', role: 'fixer' }] });
     assert.deepEqual(nextStep(running.review(), live({ running: new Set(['fixes:c1-1']) })), { kind: 'await' });
+  });
+
+  it('plans a fixer for an ask whose default edits, and an empty plan for a run that ranked nothing', () => {
+    const asked = checksPhase(decidedOf(withFixPass(mergeRanked()), [decisions[0], askDecision('SWEEP-1', true)]), 'baseline-checks').start('fixes');
+    const step = nextStep(asked.review(), idle);
+    assert.equal(step.kind, 'plan-fixes');
+    assert.deepEqual(step.kind === 'plan-fixes' ? step.plan.routes : null, [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }]);
+    // A run whose ranking holds no finding launches no decider and records no decision: its plan is empty.
+    assert.deepEqual(fixPlanOf({ ...decidedOf(withFixPass(mergeRanked()), null).review(), ranking: [] }), { routes: [], clusters: [], batches: [] });
+  });
+
+  it('cannot plan the fixes of a run configured before the decision step, which has no decision to route by and is refused before it resumes', () => {
+    assert.throws(() => nextStep(baselined().start('fixes').review(), idle), /A fix plan routes each finding by its decision, and the run recorded none/);
   });
 
   it('launches a cluster\'s batches one after another, the next once the one before is answered or not attempted', () => {

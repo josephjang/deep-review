@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { fixerOutputSchema, surveyorCheckSchema, surveyorOutputSchema, verifierOutputSchema } from '../../src/review/schemas.ts';
-import { fixStatuses, validationMethods, verdicts } from '../../src/review/vocabulary.ts';
+import { decisionKinds, fixStatuses, leaveReasons, validationMethods, verdicts } from '../../src/review/vocabulary.ts';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
 /** Every role the engine knows, in manifest order: the surveyor, the ten finder angles and the phase roles around them. */
@@ -202,6 +202,16 @@ describe('the repository\'s roles/', () => {
     assert.match(decider.prompt, /return exactly one\s+decision per finding in the requested shape, with no preamble and no\s+commentary/);
     assert.match(decider.prompt, /You edit nothing: probe in\s+your scratch directory, never in the repository/);
     assert.match(decider.prompt, /you do not grade it again/);
+  });
+
+  it('names in the decider\'s rubric every decision and exactly the leave reasons the engine records, so the prompt and the schema cannot drift apart (R3 of the decision step)', () => {
+    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'decider-rubric.md'), 'utf8');
+    for (const kind of decisionKinds) assert.match(rubric, new RegExp(`^\\| \`${kind}\` \\|`, 'm'), kind);
+    assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), [...leaveReasons]);
+    assert.match(rubric, /The reasons a finding is left, and no others:/);
+    // An ask never stops the run, and its default is what a fixer applies (R4 of the decision step).
+    assert.match(rubric, /An `ask` never stops the run\. A fix worker applies the default you name\s+now/);
+    assert.match(rubric, /\*\*The default is the option easiest to take back\*\*/);
   });
 
   /**
@@ -438,7 +448,7 @@ describe('the repository\'s roles/', () => {
     for (const role of roles) {
       const prompt = role.prompt.replace(/\s+/g, ' ');
       for (const posture of ['PLAUSIBLE by default', 'Do not default to PLAUSIBLE', 'never quietly dropped']) assert.ok(!prompt.includes(posture), `${role.key} says "${posture}"`);
-      // True of the design rubric only: for every other angle both grades go to a fixer (routeOf).
+      // True of the design rubric only: for every other angle both grades went to a fixer.
       assert.ok(!prompt.includes('the split between the other two decides whether the fix is applied without asking'), role.key);
     }
     const leadVerify = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'lead-verify.md'), 'utf8').replace(/\s+/g, ' ');

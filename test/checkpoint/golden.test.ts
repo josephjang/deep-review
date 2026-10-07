@@ -106,6 +106,11 @@ describe('golden checkpoints', () => {
             assert.deepEqual(review.configuration.survey, { userRules: 'apply' }, `${name} run ${String(index)} configuration.survey`);
             assert.equal(review.phases.survey.status, 'skipped', `${name} run ${String(index)} survey phase`);
           }
+          // A review recorded before the decision step existed reads as one that skipped it and decided nothing (R10 of the decision step).
+          if (review !== null && !('decisions' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.equal(review.decisions, null, `${name} run ${String(index)} decisions`);
+            assert.equal(review.phases.decision.status, 'skipped', `${name} run ${String(index)} decision phase`);
+          }
           // A configuration recorded before the Codex Windows sandbox was pinned reads as unelevated for a Codex run on Windows, the only sandbox the engine used there then, and as none for a Codex run whose worktree is rooted at / or for another runtime (R3 of the Codex sandbox).
           const recordedConfiguration = (recorded as { review?: { configuration?: object } | null }).review?.configuration;
           if (review !== null && recordedConfiguration !== undefined && !('codex' in recordedConfiguration)) {

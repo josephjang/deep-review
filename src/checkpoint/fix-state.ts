@@ -7,7 +7,7 @@
  * next from them. The questions below are answered from this state alone.
  */
 import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlannedV1, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, ChecksPlannedV1, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
 
 /**
  * One kind's check as the fold holds a plan, whichever version recorded
@@ -190,4 +190,29 @@ export function notAttemptedNote(fix: FixState, phase: EditingPhase, key: string
 /** Whether a unit of an editing phase is settled as not attempted, after two failures or at the run budget. */
 export function isNotAttempted(fix: FixState, phase: EditingPhase, key: string): boolean {
   return Object.hasOwn(fix.notAttempted[phase], key);
+}
+
+/** What routing reads of a finding's decision: which finding, what was decided, and for an ask the default it applies. */
+export type RoutedDecision = Pick<RecordedDecision, 'id' | 'decision' | 'ask'>;
+
+/**
+ * A finding's route by its decision (R6 of the decision step), the one
+ * rule the planner plans by and the fold holds a recorded plan to: a
+ * `fix` goes to a fixer, and so does an `ask` whose applied default edits
+ * the code, which the fixer applies while the question waits for the
+ * author; a `leave`, and an `ask` whose default keeps the code as it is,
+ * are `held`, and no fixer sees them.
+ */
+export function routeOfDecision(decision: RoutedDecision): FixesPlanned['routes'][number]['route'] {
+  switch (decision.decision) {
+    case 'fix':
+      return 'fixer';
+    case 'leave':
+      return 'held';
+    case 'ask': {
+      const applied = decision.ask?.options[decision.ask.applied];
+      if (applied === undefined) throw new Error(`The ask decided for ${decision.id} applies no option it offers`);
+      return applied.edits ? 'fixer' : 'held';
+    }
+  }
 }

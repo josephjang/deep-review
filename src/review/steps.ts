@@ -97,12 +97,20 @@ export function groupsOf(review: ReviewState, phase: VerificationPhase): readonl
   return review.plans[phase] ?? planGroups(workingList(review, phase));
 }
 
-/** The fix plan: the recorded one, or the one the ranked findings give in batches of the pinned size. */
+/**
+ * The fix plan: the recorded one, or the one the ranked findings and their
+ * decisions give in batches of the pinned size (R6 of the decision step).
+ * A run whose ranking holds findings but no decision cannot be planned: a
+ * fix run configured before the decision step is refused before it
+ * resumes (`resumePinned`), so this is never reached from a ledger.
+ */
 export function fixPlanOf(review: ReviewState): FixPlan {
   if (review.fix?.plan !== null && review.fix?.plan !== undefined) return review.fix.plan;
   const batchSize = review.configuration.fixes?.batchSize;
   if (batchSize === undefined) throw new Error('A fix plan needs the batch size a fixing run pins');
-  return planFixes(rankedFindings(review), batchSize);
+  const findings = rankedFindings(review);
+  if (findings.length > 0 && review.decisions === null) throw new Error('A fix plan routes each finding by its decision, and the run recorded none');
+  return planFixes(findings, review.decisions ?? [], batchSize);
 }
 
 /** The second round's plan (R21 of the fix pass): the one the first round's answers give, in batches of the pinned size; the first round must be planned. */
@@ -133,6 +141,8 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
       return single('sweep');
     case 'merge-rank':
       return mergeRankInput(review).length > 0 ? single('merge-rank') : [];
+    case 'decision':
+      return rankedFindings(review).length > 0 ? single('decider') : [];
     case 'fixes':
       return [...fixPlanOf(review).batches, ...(review.fix?.secondRound?.batches ?? [])].map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
     case 'repair':
@@ -206,7 +216,9 @@ function listWithin(items: readonly string[], limit: number): string {
  * of the fix pass; R9, PD6 of the repository survey): a finder's angle is
  * not run, a verifier's group is unverified, a fixer's batch is not
  * attempted, and a read-only review goes on without its survey. Null for
- * every other role, and for the survey of a fix run, which goes on only
+ * every other role, the decider among them, since no fixer may act on a
+ * finding nobody decided (R9 of the decision step), and for the survey of
+ * a fix run, which goes on only
  * with checks: its second failure blocks the run instead, unless this
  * invocation's flags settle every kind, when `surveyStep` plans their
  * checks and records the run going on without it. The one place the role's rule lives: a unit degrades exactly
@@ -231,6 +243,7 @@ function degradationOf(review: ReviewState, unit: Unit): DegradationTarget | nul
     case 'sweep':
     case 'sweep-deduplication':
     case 'merge-rank':
+    case 'decision':
     case 'baseline-checks':
     case 'checks':
     case 'repair-checks':

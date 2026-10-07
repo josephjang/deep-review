@@ -7,7 +7,7 @@ import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { policyFileName } from '../../src/review/policy.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
+import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { until } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
 import { ReviewSandbox } from '../helpers/review-sandbox.ts';
@@ -20,15 +20,16 @@ const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DE
 
 /**
  * A review whose triage finds one defect in src/a.ts and one in src/b.ts,
- * both PLAUSIBLE from SCAN, a correctness angle, so each routes to a
- * fixer, and whose sweep adds a PLAUSIBLE DESIGN finding in src/a.ts,
- * which is held for the author. Ranked, the plan is c1 owning src/a.ts
- * with SCAN-1 and c2 owning src/b.ts with SCAN-2, one batch each, c1-1
- * and c2-1.
+ * both PLAUSIBLE from SCAN, which the decider decides to fix, and whose
+ * sweep adds a PLAUSIBLE DESIGN finding in src/a.ts, which it leaves as
+ * outside the change, so no fixer sees it. Ranked SCAN-1, SCAN-2,
+ * SWEEP-1, the plan is c1 owning src/a.ts with SCAN-1 and c2 owning
+ * src/b.ts with SCAN-2, one batch each, c1-1 and c2-1.
  */
 const reviewScript: Script = {
   triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
   sweep: { output: { candidates: [{ ...found('src/a.ts', 5, 'other() would read better inlined'), angle: 'DESIGN' }] } },
+  decider: { output: deciderAnswer([{}, {}, { decision: 'leave' }]) },
 };
 
 /** The fixed bytes each fixer writes. */
@@ -68,10 +69,10 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(Object.fromEntries(Object.entries(review.phases).map(([phase, value]) => [phase, value.status])), {
       survey: 'completed', triage: 'completed', finders: 'completed', deduplication: 'completed', verification: 'completed', sweep: 'completed', 'sweep-deduplication': 'completed', 'sweep-verification': 'completed', 'merge-rank': 'completed',
-      'baseline-checks': 'completed', fixes: 'completed', checks: 'completed', repair: 'completed', 'repair-checks': 'completed', report: 'completed',
+      decision: 'completed', 'baseline-checks': 'completed', fixes: 'completed', checks: 'completed', repair: 'completed', 'repair-checks': 'completed', report: 'completed',
     });
     const fix = review.fix!;
-    // Routing and clustering (R2, R3).
+    // Routing by decision and clustering (R6 of the decision step; R3).
     assert.deepEqual(fix.plan, {
       routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'SCAN-2', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }],
       clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SCAN-2'], files: ['src/b.ts'] }],
@@ -92,12 +93,14 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       ['fixes', 'fix', ['SCAN-1'], 'fix(a): Return 0 for a null text', ['src/a.ts modified', 'test/a.test.ts created']],
       ['fixes', 'fix', ['SCAN-2'], 'fix(b): Import parse', ['src/b.ts modified']],
     ]);
-    // The held design finding never reached a fixer (R2).
+    // The design finding the decision left never reached a fixer (R6 of the decision step), and each fixer was told its finding's decision (R7).
     const c1 = promptOf(state, 'fixer fixes:c1-1');
     assert.match(c1, /^Cluster c1, batch c1-1: 1 finding, numbered \[0\] to \[0\]/m);
     assert.doesNotMatch(c1, /Findings of this cluster that earlier batches worked/, 'a cluster\'s first batch has none before it');
     assert.match(c1, /^\[0\] SCAN-1 \[minor\] PLAUSIBLE \(SCAN\) at src\/a\.ts:2$/m);
     assert.doesNotMatch(c1, /SWEEP-1/);
+    assert.match(c1, /^ {4}decided: fix\. fake grounds for \[0\]\n {8}approach: fake approach for \[0\]\n {8}rejected: fake alternative for \[0\] \(fake reason it was rejected\)$/m);
+    assert.match(c1, /Defer a finding only for a fact the decision did not see/);
     assert.match(c1, /- src\/b\.ts \(c2\)/, 'the other cluster\'s files are named as not to be edited');
     assert.match(c1, /^ {4}node ".*cli\.ts" snapshot --finding <index> --into ".*snapshots"$/m);
     assert.doesNotMatch(c1, /may already hold part of this work/);
@@ -108,9 +111,10 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(review.checks.every((check) => !check.drifted), JSON.stringify(review.checks.filter((check) => check.drifted)));
     // One patch per revision (R13), and the report says what the fix pass did.
     assert.equal(review.report!.patches.length, 2);
-    assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 2 patches; the edits are in the working tree, uncommitted$/m);
+    assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 left by decision, 0 asked, kept as is; 2 patches; the edits are in the working tree, uncommitted$/m);
     assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nCluster: c1, batch c1-1 \(src\/a\.ts\); patch \d$/m);
-    assert.match(text, /^### 3\. SWEEP-1 held for the author$/m);
+    assert.match(text, /^### 3\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, outside the change, and not a regression\. See Decisions\.$/m);
+    assert.match(text, /^## Decisions\n\nBefore any fix, the decision step decided each finding: 2 to fix, 1 to leave, 0 to ask the author\./m);
     // The flags named every check, so each row's source is --check, where a check the survey chose names its file.
     assert.match(text, /^\| build \| ".*fake-check\.mjs" build \| --check \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
     assert.match(text, /^## Conventions\n\nThe survey found no file that states conventions/m);
@@ -193,7 +197,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.doesNotMatch(second, /may already hold part of this work/, 'the first batch\'s revision is no warning to the second');
     assert.deepEqual(Object.entries(fix.answers.fixes).map(([key, answer]) => [key, answer.findings.map((finding) => finding.status)]), [['c1-1', ['applied']], ['c1-2', ['already-applied']]]);
     assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind === 'fix' ? revision.source.key : null, revision.change.findings]), [['c1-1', ['SCAN-1']]]);
-    assert.ok(describeRun(state, claudeAdapter, (reference) => reference.sha256).lines.includes('Fix pass: c1-1 answered, c1-2 answered; 0 held for the author'));
+    assert.ok(describeRun(state, claudeAdapter, (reference) => reference.sha256).lines.includes('Fix pass: c1-1 answered, c1-2 answered; 0 no fixer sees, as decided'));
   });
 
   it('stops launching fixers once the run budget is reached, reports what it did not attempt, and completes instead of blocking (R19)', async () => {
@@ -215,7 +219,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(box.logs.some((line) => /^phase fixes: c1-2 not attempted \(budget\): spent/.test(line)), box.logs.join('\n'));
     // The report says what the budget left undone; the checks still ran on the fixed tree.
     assert.match(text, /^### 2\. SCAN-2 not attempted\n\nNot attempted: the run budget was reached first: spent 5\.\d\d USD of the 1\.00 USD run budget/m);
-    assert.match(text, /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 1 not attempted, 0 held for the author;/m);
+    assert.match(text, /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 1 not attempted, 0 left by decision, 0 asked, kept as is;/m);
     assert.equal(fix.checks.runs.checks.length > 0, true);
   });
 

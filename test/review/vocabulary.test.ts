@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, angleSchema, candidateIdPrefix, checkKinds, checkPhases, clusterIdSchema, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -27,14 +27,14 @@ describe('roleOfAngle', () => {
 });
 
 describe('the review roles', () => {
-  it('are the surveyor, the triage, the nine finders in launch order, then the roles of the later phases and the fix pass\'s fixer, each once', () => {
-    assert.deepEqual(reviewRoles, ['surveyor', 'triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
+  it('are the surveyor, the triage, the nine finders in launch order, then the roles of the later phases, the decider and the fix pass\'s fixer, each once', () => {
+    assert.deepEqual(reviewRoles, ['surveyor', 'triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer']);
     assert.equal(new Set(reviewRoles).size, reviewRoles.length, 'no role is listed twice');
   });
 
   it('name the nine finders, and only them, as finder roles', () => {
     assert.deepEqual(reviewRoles.filter(isFinderRole), finderAngles.map((angle) => `finder-${angle}`));
-    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['surveyor', 'triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer']);
+    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['surveyor', 'triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer']);
   });
 });
 
@@ -42,7 +42,7 @@ describe('singleUnitKey', () => {
   it('is SCAN for the triage and the phase name for every other phase with one worker', () => {
     assert.equal(singleUnitKey('triage'), triageUnitKey);
     assert.equal(triageUnitKey, 'SCAN');
-    for (const phase of ['survey', 'sweep', 'deduplication', 'sweep-deduplication', 'merge-rank'] as const) assert.equal(singleUnitKey(phase), phase);
+    for (const phase of ['survey', 'sweep', 'deduplication', 'sweep-deduplication', 'merge-rank', 'decision'] as const) assert.equal(singleUnitKey(phase), phase);
   });
 });
 
@@ -54,10 +54,23 @@ describe('candidateIdPrefix', () => {
   });
 });
 
+describe('the decisions', () => {
+  it('make a finding one of fix, leave and ask, and leave one for one of three reasons', () => {
+    assert.deepEqual(decisionKinds, ['fix', 'leave', 'ask']);
+    assert.deepEqual(leaveReasons, ['outside-change-not-regression', 'superseded', 'intended']);
+  });
+});
+
 describe('the phases', () => {
-  it('are the survey, the read-only phases, the five of the fix pass, then the report', () => {
-    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'report']);
-    assert.deepEqual(fixPhases, phases.slice(9, 14));
+  it('are the survey, the read-only phases, the decision, the five of the fix pass, then the report', () => {
+    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'report']);
+    assert.deepEqual(fixPhases, phases.slice(10, 15));
+  });
+
+  it('put the decision after merge and rank and before the fix pass, in no group of phases: it runs no check, edits nothing, and records no candidate, deduplication or verdict', () => {
+    assert.equal(phases.indexOf('decision'), phases.indexOf('merge-rank') + 1);
+    assert.equal(phases.indexOf('decision'), phases.indexOf('baseline-checks') - 1);
+    for (const group of [fixPhases, checkPhases, editingPhases, candidatePhases, deduplicationPhases, verificationPhases]) assert.ok(!(group as readonly string[]).includes('decision'), group.join(', '));
   });
 
   it('split the fix pass into the phases that run checks and the phases that edit', () => {

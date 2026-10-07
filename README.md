@@ -13,7 +13,9 @@ runtime adapter that runs one model worker on Claude Code or Codex, the
 role prompts those workers are given, the read-only review: one
 command that runs a change through the triage, nine more finder
 angles, deduplication, verification, a gap sweep and a merge-and-rank
-pass and writes a Markdown report, editing nothing; the fix pass,
+pass and writes a Markdown report, editing nothing; the decision step,
+which decides of every finding whether to fix it, leave it or ask the
+author, applying a default while the question waits; the fix pass,
 which on request carries that review on to apply the fixes through
 its own workers and run the project's checks, committing nothing until
 a person asks; and the repository survey, which begins every run by
@@ -37,7 +39,8 @@ src/scope/               capturing the reviewed change from git and comparing th
 src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
 src/roles/               assembling each role's prompt from roles/
 src/review/              the review: policy, schemas, prompts, planner, controller, report, the survey's check of
-                         its answer, and the fix pass's routing, expected tree, snapshots, patches and commit command
+                         its answer, the decision step's report, and the fix pass's routing, expected tree, snapshots,
+                         patches and commit command
 src/review/checks/       the fix pass's checks: the manifest rules that hint the surveyor, running one
 src/replay/              replaying a recorded run's verifiers: the recorded prompt, the samples, their summary,
                          and their score against labels
@@ -121,8 +124,8 @@ caller builds the runtimes with. See
 ## The role prompts
 
 A worker runs in a role: the surveyor, the `SCAN` triage, one of the
-ten finder angles, the verifier, the sweep, the fixer, the auditor and
-the rest, twenty-one in all. Each role's prompt is assembled from the fragments
+ten finder angles, the verifier, the sweep, the decider, the fixer, the
+auditor and the rest, twenty-two in all. Each role's prompt is assembled from the fragments
 under `roles/fragments/` in the order `roles/manifest.json` lists for
 it, joined with one blank line. The manifest is the only place
 composition is declared, and every fragment is held to a few invariants
@@ -140,8 +143,8 @@ that the engine's narration of a review is not its task. The read-only
 review then rewrote the four fragments that narrate the phases for the
 engine's workers, in a commit of its own, and the `angle-decision` role
 left the manifest. Which model tier, effort, budget and timeout a role
-runs with is declared in `roles/policy.json` for the sixteen roles a
-review runs, the surveyor and the fixer among them; what each must
+runs with is declared in `roles/policy.json` for the seventeen roles a
+review runs, the surveyor, the decider and the fixer among them; what each must
 return is the output schema of the phase that runs it. `npm run roles -- --output <dir>`
 writes every assembled prompt for reading to a new directory outside
 `roles/`. See `docs/changes/2026-09-27-role-prompts.md`.
@@ -156,8 +159,8 @@ survey); the `SCAN` triage, which also returns
 one lead per other angle; the nine other finder angles in parallel, each
 given its lead; deduplication; one verifier per group of candidates in
 one file; a gap sweep told which angles did not run; the sweep's own
-deduplication and verification; merge and rank; the report. Every angle
-runs on every review. Before each phase, and before each answer is
+deduplication and verification; merge and rank; the decision (see The
+decision step); the report. Every angle runs on every review. Before each phase, and before each answer is
 recorded, the worktree is compared with the captured scope, and a
 difference blocks the run until the tree is restored; an answer that
 arrives after the difference is set aside, neither recorded nor counted
@@ -174,8 +177,8 @@ budget and a timeout. A worker that does not complete, or whose answer
 fails its schema or a structural check, is run once more as a fresh
 worker; a second failure degrades by role: a finder's angle is recorded
 as not run, a verifier's group as unverified with its candidates
-`PLAUSIBLE` and marked, and the triage, deduplication, sweep and
-merge-rank block the run; the survey degrades a read-only review and
+`PLAUSIBLE` and marked, and the triage, deduplication, sweep,
+merge-rank and decider block the run; the survey degrades a read-only review and
 blocks a fix run, unless that run's flags settle every check. A worker
 lost when the engine stops uses an attempt too, but a unit whose
 attempts run out with a lost worker among them blocks the run whatever
@@ -191,10 +194,10 @@ settle a check the machine cannot run, or abandon.
 
 The report is Markdown rendered by the engine into the evidence store;
 the command prints its path as the last line of stdout and exits 0. Its
-sections are the header, Angles, Conventions, Findings (most severe first, with the
-merged ids, verdict, evidence and the outside-the-change, unlocated and
-unverified marks), Refuted at verification, Statistics per phase and
-Limitations. A finding's location is matched to a file of the
+sections are the header, Decisions, Angles, Conventions, Findings (most severe first, with the
+merged ids, verdict, evidence, the outside-the-change, unlocated and
+unverified marks, and the decision made), Refuted at verification,
+Statistics per phase and Limitations. A finding's location is matched to a file of the
 repository: one the change touches, or an unchanged file such as a
 caller, marked outside the change; a location that names no such file
 and line is kept and marked unlocated, never dropped. A blocked
@@ -219,19 +222,51 @@ artifacts, with a sidecar holding its version and hash and a copy of
 See `docs/changes/2026-09-27-read-only-review.requirements.md` and its
 design.
 
+## The decision step
+
+Every run configured since the decision step, `--fix` or not, runs a
+`decision` phase after merge and rank: one `decider` worker, read-only
+with a shell, is given every ranked finding with each candidate merged
+into it and that candidate's own verdict and evidence, and decides each
+finding whole. It grades nothing again. A finding is decided `fix`,
+with the approach a fixer applies and the options rejected; `leave`,
+for one of three reasons and no other (acting on it would edit only
+code outside the change, which neither caused nor worsened it; another
+finding's fix removes it; or the repository states the behavior on
+purpose and the rule's reason reaches the case); or `ask`, one question
+the repository cannot answer, with its options, what each costs, the
+rule a convention source would state for it, the option recommended and
+the default applied, which is the option easiest to take back. An ask
+never stops the run. A choice is settled by the change's stated intent,
+then the repository's stated contract, then for a regression the
+behavior before the change, then keeping what was there; the order is a
+presumption the decider may rebut, with the rule's own reason found
+first and a fact, not a preference, against it, and a departure is
+named on the decision. A run with no finding launches no decider; a
+decider that fails twice blocks the run with `worker-failed`, since no
+fixer may act on a finding nobody decided. The report opens with a
+Decisions section: the questions as a checklist, the findings to fix
+with their approach and any rule departed from, and the findings left
+with their reason. A run configured before the decision step records
+the phase as skipped and reads as it did. See
+`docs/changes/2026-10-08-decision-step.requirements.md` and its design.
+
 ## The fix pass
 
-`deep-review review --fix` runs five more phases between merge and rank
+`deep-review review --fix` runs five more phases between the decision
 and the report: baseline checks, fixes, checks, repair and repair
 checks. A run without `--fix` records them as skipped and is the
 read-only review exactly. Whether a run fixes is pinned when it is
 configured, and which checks it runs when its survey completes; a
 resumed run keeps both and says when the command asks otherwise.
 
-Every ranked finding is routed by its merged verdict and its primary's
-angle: a `CONFIRMED` finding, or a `PLAUSIBLE` one from a correctness
-angle or `CONVENTIONS`, goes to a fixer; a `PLAUSIBLE` finding from
-`DESIGN`, `DUPLICATION` or `ALTITUDE` is held for the author. The
+Every ranked finding is routed by its decision: a finding decided `fix`,
+and one decided `ask` whose default edits the code, goes to a fixer,
+which is told the decision and each merged candidate's verdict and
+evidence and applies it; a finding left, and an ask whose default keeps
+the code as it is, goes to no fixer. A fix run configured before the
+decision step, which routed by verdict and angle, is refused before it
+plans its fixes and must be abandoned. The
 fixer-routed findings are clustered one per file, a merged finding kept
 whole, so no file is owned by two clusters. Each cluster's findings go
 in batches of the policy's `fixes.batchSize`, four by default, to
@@ -496,7 +531,9 @@ of each labeled candidate whether its claim is real (`yes`, `no` or
 `unsure`) and, for a real one, whether acting on it needs no decision
 (`apply`) or one the author owns (`ask`), with the basis. A label asks
 for an outcome, dropped, to a fixer or held, and the score counts where a
-sample's verdict leads elsewhere: kept though not real, dropped though
+sample's verdict alone leads elsewhere, as the fix pass routed a finding
+by its verdict and angle before the decision step (a verifier replay
+makes no decision): kept though not real, dropped though
 real, sent to a fixer though the author should be asked, held though it
 should be applied, over all labeled candidates and per class of angle. A
 candidate labeled `unsure` scores no sample. The PLAUSIBLE an unverified

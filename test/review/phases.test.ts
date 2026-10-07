@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { attemptFailedV3, eventRegistry } from '../../src/checkpoint/events.ts';
+import { attemptFailedV4, eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { noCheckFlags } from '../../src/review/checks/discover.ts';
@@ -15,7 +15,8 @@ import type { Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { configuration, configured, found, ranked, surveyConfigured, surveyConfiguredFix, swept, triaged, verified } from '../helpers/review-history.ts';
+import { deciderAnswer } from '../helpers/fake-runtime.ts';
+import { configuration, configured, decidedOf, found, mergeRanked, ranked, surveyConfigured, surveyConfiguredFix, swept, triaged, verified } from '../helpers/review-history.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
 const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerReceipt => ({
@@ -54,6 +55,12 @@ describe('taskFor', () => {
     assert.match(taskFor(unit('merge-rank', 'merge-rank', 'merge-rank'), swept().review()), /3 findings, numbered \[0\] to \[2\][\s\S]*\[0\] RIPPLE-1[\s\S]*verdict: CONFIRMED[\s\S]*\[1\] SWEEP-1[\s\S]*verdict: PLAUSIBLE \(unverified\)/);
     assert.throws(() => taskFor(unit('report', 'report', 'merge-rank'), ranked().review()), /no worker/);
     assert.throws(() => groupCandidates(verified().review(), 'verification', 'g9'), /no planned group g9/);
+  });
+
+  it('gives the decider every ranked finding in rank order, each with every candidate\'s own verdict and evidence (R2 of the decision step)', () => {
+    const task = taskFor(unit('decision', 'decision', 'decider'), decidedOf(mergeRanked(), null).start('decision').review());
+    assert.match(task, /^The review's 2 findings, numbered \[0\] to \[1\]/);
+    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: null dereference\n {4}merge and rank: same root cause at lines 4 and 7\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:4: CONFIRMED\n[\s\S]* {8}evidence: line 4 dereferences null\n {4}- SWEEP-2 \(SCAN\) at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the verifier of its group failed twice\n\[1\] SWEEP-1 \[minor\] PLAUSIBLE: extract the helper\n/m);
   });
 });
 
@@ -211,12 +218,12 @@ describe('contributionOf', () => {
 
   it('records a failed attempt for a receipt that did not complete, with the outcome and error', () => {
     const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'timeout', error: 'The worker ran past its timeout' }), triaged().fold(), worktree);
-    assert.deepEqual(event, { kind: 'attempt.failed', version: 3, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
+    assert.deepEqual(event, { kind: 'attempt.failed', version: 4, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
   });
 
   it('cuts a failed attempt\'s reason to what the ledger records, marking the cut', () => {
     const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'failed', error: 'e'.repeat(4000) }), triaged().fold(), worktree);
-    const payload = attemptFailedV3.parse(event.payload);
+    const payload = attemptFailedV4.parse(event.payload);
     assert.equal(payload.reason.length, 4000);
     assert.match(payload.reason, /^failed: e+ \[truncated\]$/);
   });
@@ -285,5 +292,28 @@ describe('contributionOf', () => {
       { primary: 0, members: [2], severity: 'major', summary: 'null', reason: 'r' },
     ] }), swept().fold(), worktree);
     assert.deepEqual((ranking.payload as { findings: { id: string; members: string[] }[] }).findings.map((finding) => [finding.id, finding.members]), [['RIPPLE-1', ['SWEEP-2']], ['SWEEP-1', []]]);
+  });
+
+  it('records the decider\'s answer under decisions.recorded@1, each index resolved to the finding it numbered and a superseding index to its finding, in rank order (R10 of the decision step)', () => {
+    const state = decidedOf(mergeRanked(), null).start('decision').fold();
+    const answer = deciderAnswer([{ decision: 'leave', reason: 'superseded', supersededBy: 1 }, { departs: true }]) as { decisions: unknown[] };
+    const event = contribution(unit('decision', 'decision', 'decider'), receipt({ decisions: [...answer.decisions].reverse() }), state, worktree);
+    assert.equal(event.kind, 'decisions.recorded');
+    assert.equal(event.version, 1);
+    assert.ok(lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success === true, JSON.stringify(event.payload));
+    const decided = (event.payload as { decisions: { id: string; decision: string; leave: unknown; departure: unknown }[] }).decisions;
+    assert.deepEqual(decided.map((decision) => [decision.id, decision.decision]), [['RIPPLE-1', 'leave'], ['SWEEP-1', 'fix']]);
+    assert.deepEqual(decided[0]!.leave, { reason: 'superseded', supersededBy: 'SWEEP-1' });
+    assert.notEqual(decided[1]!.departure, null);
+    assert.ok(!('index' in decided[0]!), 'the ledger records ids, never the task\'s indexes');
+  });
+
+  it('turns a decider answer the structural check refuses into a failed attempt naming the check', () => {
+    const state = decidedOf(mergeRanked(), null).start('decision').fold();
+    const short = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{}])), state, worktree);
+    assert.equal(short.kind, 'attempt.failed');
+    assert.match((short.payload as { reason: string }).reason, /^structural check: The answer leaves out finding \[1\] of the 2 the task gave$/);
+    const superseded = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ decision: 'leave', reason: 'superseded', supersededBy: 1 }, { decision: 'ask' }])), state, worktree);
+    assert.match((superseded.payload as { reason: string }).reason, /^structural check: Decision \[0\] is superseded by \[1\], which is not another finding of the task decided fix$/);
   });
 });

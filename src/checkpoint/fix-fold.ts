@@ -1,8 +1,9 @@
 /**
  * The reducers of the fix pass's events (R3, R5, R6, R9, R12, R17, R18 of
  * the fix pass), registered by `fold.ts` beside the review's. Each refuses
- * a history the engine could not have written: a second plan, or a plan
- * of checks the survey did not give, a batch out
+ * a history the engine could not have written: a second plan, a plan of
+ * routes the findings' decisions do not give (R6 of the decision step), a
+ * plan of checks the survey did not give, a batch out
  * of its cluster's order or over the pinned size, a run of a
  * check whose phase is not running, two runs of one kind in a phase, an
  * answer for a unit that does not exist, a revision no answer or check
@@ -10,7 +11,7 @@
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, CommitsCreated, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, clusterOfBatch, firstRoundSettled, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundClusters, type ChecksPlanned, type FixState } from './fix-state.ts';
+import { batchOf, clusterOfBatch, firstRoundSettled, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundClusters, routeOfDecision, type ChecksPlanned, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -84,6 +85,14 @@ const fixesPlanned: Reducer<FixesPlanned> = (state, payload, event) => {
   const routed = payload.routes.map((route) => route.id);
   if (new Set(routed).size !== routed.length || routed.length !== ranked.length || !ranked.every((id) => routed.includes(id))) {
     throw invalid(event, `routes [${routed.join(', ')}], which is not every ranked finding [${ranked.join(', ')}] once`);
+  }
+  // A run with the decision step routes each finding by its recorded decision (R6 of the decision step); one configured before it routed by verdict and angle, which this fold does not recompute.
+  if (review.phases.decision.status !== 'skipped') {
+    if (ranked.length > 0 && review.decisions === null) throw invalid(event, 'plans its fixes before its findings are decided');
+    for (const route of payload.routes) {
+      const decision = review.decisions?.find((candidate) => candidate.id === route.id);
+      if (decision !== undefined && routeOfDecision(decision) !== route.route) throw invalid(event, `routes ${route.id} ${route.route}, which its ${decision.decision} decision does not`);
+    }
   }
   const toFixer = new Set(payload.routes.filter((route) => route.route === 'fixer').map((route) => route.id));
   const clustered = new Set<string>();

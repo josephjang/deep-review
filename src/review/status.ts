@@ -3,7 +3,8 @@
  * review): its status, worktree, runtime and models, the phase it is in,
  * its workers, its spend against the run budget in force, what the budget
  * check counts when that differs from the reported spend, its blocker with
- * the operator's action, its report, and for a fix run (R13 of the fix
+ * the operator's action, its report, what its decision step decided
+ * (R8 of the decision step), and for a fix run (R13 of the fix
  * pass) its batches, its checks, its patches and its commits, as text
  * lines and as JSON.
  */
@@ -14,7 +15,7 @@ import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
 import { currentPhase, reviewStatus } from './state.ts';
-import { checkPhases } from './vocabulary.ts';
+import { checkPhases, decisionKinds, type DecisionKind } from './vocabulary.ts';
 
 /** What `status` prints about a run, as text lines and as a JSON value. */
 export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string): { lines: string[]; json: Record<string, unknown> } {
@@ -33,6 +34,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
   const patches = (review?.report?.patches ?? []).map(evidencePath);
   const fix = review === null ? null : fixStatus(state, review);
+  const decisions = review === null ? null : decisionCounts(review);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
@@ -45,12 +47,20 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(budgetCheckLine === null ? [] : [budgetCheckLine]),
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
     ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
+    ...(decisions === null ? [] : [`Decisions: ${String(decisions.fix)} to fix, ${String(decisions.leave)} to leave, ${String(decisions.ask)} to ask the author`]),
     ...(fix === null ? [] : fix.lines),
     ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
     ...(review?.fix?.commits === null || review?.fix?.commits === undefined ? [] : [`Commits: ${String(review.fix.commits.commits.length)} created, ${review.fix.commits.from} to ${review.fix.commits.to}`]),
   ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? null, review };
+  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, decisions, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? null, review };
   return { lines, json };
+}
+
+/** How many findings the decision step decided each way (R8 of the decision step), or null while it has recorded none. */
+function decisionCounts(review: ReviewState): Readonly<Record<DecisionKind, number>> | null {
+  const decisions = review.decisions;
+  if (decisions === null) return null;
+  return Object.fromEntries(decisionKinds.map((kind) => [kind, decisions.filter((decision) => decision.decision === kind).length])) as Record<DecisionKind, number>;
 }
 
 /** A fixer batch's state as `status` names it: no worker yet, one running, its answer recorded, or not attempted after two failures. */
@@ -68,13 +78,15 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
     return { key: batch.key, cluster: batch.cluster, state: batchState, findings: batch.findingIds };
   });
   const held = (fix.plan?.routes ?? []).filter((route) => route.route === 'held').map((route) => route.id);
+  // A run with the decision step keeps a finding from every fixer by its decision; one configured before it held a finding for the author by verdict and angle.
+  const heldWords = review.phases.decision.status === 'skipped' ? 'held for the author' : 'no fixer sees, as decided';
   const checks = (fix.checks.planned?.checks ?? []).map((check) => ({
     kind: check.kind,
     command: check.command,
     outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check.kind)?.outcome ?? null])),
   }));
   const lines = [
-    fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${batches.length === 0 ? 'no batch' : batches.map((batch) => `${batch.key} ${batch.state}`).join(', ')}; ${String(held.length)} held for the author`,
+    fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${batches.length === 0 ? 'no batch' : batches.map((batch) => `${batch.key} ${batch.state}`).join(', ')}; ${String(held.length)} ${heldWords}`,
     ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : checkPhases.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}`).join(', ')}`),
   ];
   return { lines, json: { clusters, batches, held, checks, revisions: fix.revisions.length } };

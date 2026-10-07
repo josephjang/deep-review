@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
 import { isReplayable, recordedGroups } from '../../src/replay/recorded.ts';
-import { agreementOf, countsOf, disagreements, judgedVerdict, nextSampleName, outcomeOf, parseResults, recordedResults, recordedSampleName, renderSummary, sampledVerdict, withSample, withSpend, withVerdicts, type ReplayResults, type ReplaySample, type SampledVerdict } from '../../src/replay/samples.ts';
+import { agreementOf, countsOf, disagreements, judgedVerdict, nextSampleName, verdictOutcome, parseResults, recordedResults, recordedSampleName, renderSummary, sampledVerdict, withSample, withSpend, withVerdicts, type ReplayResults, type ReplaySample, type SampledVerdict } from '../../src/replay/samples.ts';
 import type { Verdict } from '../../src/review/vocabulary.ts';
 import { twiceVerified } from '../helpers/replay-history.ts';
 import { worker } from '../helpers/review-history.ts';
@@ -34,16 +34,16 @@ const given = (id: string, verdict: Verdict, evidence = `${verdict} for ${id}`):
 /** The recorded results with one replay sample that confirms SCAN-1, finds RIPPLE-1 plausible, confirms the design candidate and leaves SWEEP-2 unjudged. */
 const replayed = (): ReplayResults => withVerdicts(withSample(recorded(), replaySample('claude-1')), 'claude-1', new Map([given('SCAN-1', 'CONFIRMED'), given('RIPPLE-1', 'PLAUSIBLE'), given('SWEEP-1', 'CONFIRMED')]));
 
-describe('outcomeOf', () => {
+describe('verdictOutcome', () => {
   it('drops a refuted candidate, sends a confirmed one to a fixer whatever its angle, and holds a plausible design one', () => {
-    const outcome = (id: string, verdict: Verdict, unverified = false): string => outcomeOf(candidateOf(id), { verdict, unverified, evidence: null });
+    const outcome = (id: string, verdict: Verdict, unverified = false): string => verdictOutcome(candidateOf(id), { verdict, unverified, evidence: null });
     assert.equal(outcome('SCAN-1', 'REFUTED'), 'dropped');
     assert.equal(outcome('SWEEP-1', 'REFUTED'), 'dropped');
     assert.equal(outcome('SCAN-1', 'CONFIRMED'), 'fixer');
     assert.equal(outcome('SWEEP-1', 'CONFIRMED'), 'fixer');
     assert.equal(outcome('SCAN-1', 'PLAUSIBLE'), 'fixer');
     assert.equal(outcome('SWEEP-1', 'PLAUSIBLE'), 'held');
-    // The unverified mark changes no route, as a run routes it.
+    // The unverified mark changes no outcome, as it changed no route when the verdict routed a finding.
     assert.equal(outcome('SWEEP-1', 'PLAUSIBLE', true), 'held');
     assert.equal(outcome('SWEEP-2', 'PLAUSIBLE', true), 'fixer');
   });

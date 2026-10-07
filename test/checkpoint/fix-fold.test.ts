@@ -4,12 +4,16 @@ import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { failedAtBaseline, fixesRevisedPaths, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
+import { fixPlanOf } from '../../src/review/steps.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
 import {
+  askDecision,
   baselined,
   checkRun,
   checksPhase,
   configured,
+  decidedOf,
+  decisions,
   endCheck,
   fixAnswer,
   fixed,
@@ -251,6 +255,37 @@ describe('the fix fold', () => {
     }
     assert.throws(() => complete().add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).fold(), /creates its commits twice/);
   });
+});
+
+describe('the fix plan of a run with the decision step (R6 of the decision step)', () => {
+  /** A decided fix run through its baseline, its fixes phase started and not planned. */
+  const decidedFixes = (decided: readonly unknown[] | null = decisions): History => checksPhase(decidedOf(withFixPass(mergeRanked()), decided), 'baseline-checks').start('fixes');
+  const askBoth = (edits: boolean): unknown[] => [decisions[0], askDecision('SWEEP-1', edits)];
+
+  it('folds the plan the planner makes from the decisions: a fix and an ask whose default edits to a fixer, a leave and an ask that keeps the code held', () => {
+    for (const decided of [decisions, askBoth(true), askBoth(false)]) {
+      const history = decidedFixes(decided);
+      const plan = fixPlanOf(history.review());
+      assert.deepEqual(history.add('fixes.planned', plan).review().fix?.plan, plan);
+    }
+    assert.deepEqual(fixPlanOf(decidedFixes().review()).routes, [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }], 'the leave');
+    assert.deepEqual(fixPlanOf(decidedFixes(askBoth(true)).review()).routes, [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }], 'the ask whose default edits');
+    assert.deepEqual(fixPlanOf(decidedFixes(askBoth(false)).review()).routes, [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }], 'the ask whose default keeps the code');
+  });
+
+  const toFixer = { routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }], clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: [] }], batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }] };
+  const invalid: [name: string, build: () => History, message: RegExp][] = [
+    ['a left finding routed to a fixer', () => decidedFixes().add('fixes.planned', toFixer), /routes SWEEP-1 fixer, which its leave decision does not/],
+    ['a finding decided fix held', () => decidedFixes().add('fixes.planned', { routes: [{ id: 'RIPPLE-1', route: 'held' }, { id: 'SWEEP-1', route: 'held' }], clusters: [], batches: [] }), /routes RIPPLE-1 held, which its fix decision does not/],
+    ['an ask whose default keeps the code routed to a fixer', () => decidedFixes(askBoth(false)).add('fixes.planned', toFixer), /routes SWEEP-1 fixer, which its ask decision does not/],
+    ['an ask whose default edits held', () => decidedFixes(askBoth(true)).add('fixes.planned', fixPlan), /routes SWEEP-1 held, which its ask decision does not/],
+    ['a plan of findings no decision was recorded for', () => checksPhase(decidedOf(withFixPass(mergeRanked()), null).start('decision').finish('decision'), 'baseline-checks').start('fixes').add('fixes.planned', fixPlan), /plans its fixes before its findings are decided/],
+  ];
+  for (const [name, build, message] of invalid) {
+    it(`refuses ${name}`, () => {
+      assert.throws(() => build().fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), name);
+    });
+  }
 });
 
 describe('the versions of the events that carry a phase', () => {

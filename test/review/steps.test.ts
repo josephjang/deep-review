@@ -6,7 +6,7 @@ import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { noCheckFlags } from '../../src/review/checks/discover.ts';
 import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step, type Unit } from '../../src/review/steps.ts';
 import { finderAngles, phases, unitName, type Phase } from '../../src/review/vocabulary.ts';
-import { candidate, configured, type History, finding, found, leads, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { candidate, configured, decidedOf, type History, finding, found, leads, mergeRanked, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 /** What the budget check counted: `usd`, with `charged` workers at their caps and `lost` ones named. */
 const counted = (usd: number, charged = 0, lost = 0): { usd: number; charged: number; lost: number } => ({ usd, charged, lost });
@@ -33,6 +33,17 @@ describe('unitsOf', () => {
     assert.deepEqual(unitsOf(swept().review(), 'sweep-deduplication'), [{ phase: 'sweep-deduplication', key: 'sweep-deduplication', role: 'deduplication' }]);
     assert.deepEqual(unitsOf(swept().review(), 'merge-rank'), [{ phase: 'merge-rank', key: 'merge-rank', role: 'merge-rank' }]);
     assert.deepEqual(unitsOf(configured().review(), 'merge-rank'), []);
+  });
+
+  it('gives the decision one decider when the ranking holds a finding, and none when it holds none (R1 of the decision step)', () => {
+    assert.deepEqual(unitsOf(decidedOf(mergeRanked(), null).review(), 'decision'), [{ phase: 'decision', key: 'decision', role: 'decider' }]);
+    assert.deepEqual(unitsOf({ ...decidedOf(mergeRanked(), null).review(), ranking: [] }, 'decision'), []);
+    assert.deepEqual(unitsOf(configured().review(), 'decision'), [], 'no ranking yet');
+  });
+
+  it('finishes a decision with no finding to decide without a worker', () => {
+    const nothing = { ...decidedOf(mergeRanked(), null).start('decision').review(), ranking: [] };
+    assert.deepEqual(nextStep(nothing, idle), { kind: 'finish-phase', phase: 'decision', attempt: 1, outcome: 'completed', blocker: null });
   });
 
   it('gives verification one unit per planned group, from the recorded plan when there is one and from the working list otherwise', () => {
@@ -202,6 +213,24 @@ describe('nextStep', () => {
     void ({ phase: 'triage', key: 'SCAN', role: 'triage', degrades: true } satisfies Unit);
   });
 
+  it('blocks the run when the decider fails twice, with no degrade: no fixer acts on a finding nobody decided (R9 of the decision step)', () => {
+    const failed = decidedOf(mergeRanked(), null).start('decision')
+      .add('attempt.failed', { phase: 'decision', key: 'decision', workerId: worker(90), reason: 'first' }, 4)
+      .add('attempt.failed', { phase: 'decision', key: 'decision', workerId: worker(91), reason: 'second' }, 4)
+      .review();
+    const step = nextStep(failed, idle);
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'worker-failed', JSON.stringify(step));
+    assert.match(step.kind === 'finish-phase' ? step.blocker!.detail : '', /^the decider worker for decision:decision failed twice: 2 attempts did not complete: first; second$/);
+    assert.deepEqual(nextStep(failed, live({ running: new Set(['decision:decision']) })), { kind: 'await' }, 'nothing finishes while a worker is in flight');
+  });
+
+  it('blocks the decision at the run budget, as every reading phase does', () => {
+    const running = decidedOf(mergeRanked(), null).start('decision').review();
+    const step = nextStep(running, live(spent(31)));
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'budget', JSON.stringify(step));
+    assert.deepEqual(nextStep(running, idle), { kind: 'launch', units: [{ phase: 'decision', key: 'decision', role: 'decider' }] });
+  });
+
   it('blocks the run when any blocking role fails twice: the deduplications, the sweep and merge-rank as well as the triage', () => {
     const failedTwice = (history: History, phase: Phase): ReviewState => history.start(phase)
       .add('attempt.failed', { phase, key: phase, workerId: worker(90), reason: 'first' })
@@ -359,7 +388,20 @@ describe('nextStep', () => {
     }
     assert.ok(!kinds.has('blocked') && !kinds.has('await'), [...kinds].join(', '));
     assert.deepEqual([...kinds].sort(), ['check-worktree', 'complete', 'degrade', 'finish-phase', 'launch', 'plan-verification', 'start-phase', 'write-report']);
-    assert.equal(phases.length, 15, 'the walk covers a run without the fix pass and the survey; the fix phases are walked by the fix planner tests, and the survey by the survey planner tests');
+    assert.equal(phases.length, 16, 'the walk covers a run without the fix pass, the survey and the decision; the fix phases are walked by the fix planner tests, the survey by the survey planner tests, and the decision by the walk below');
+  });
+
+  it('gives a step at every prefix of a whole run with the survey and the decision, launching the decider once the ranking is recorded', () => {
+    const history = decidedOf(reported());
+    const launched: Step[] = [];
+    for (let length = 3; length <= history.events.length; length += 1) {
+      const review = foldRun(history.events.slice(0, length)).review;
+      if (review === null) continue;
+      const step = nextStep(review, idle);
+      assert.ok(step.kind !== 'blocked' && step.kind !== 'await', `${String(length)}: ${step.kind}`);
+      if (step.kind === 'launch' && step.units.some((unit) => unit.phase === 'decision')) launched.push(step);
+    }
+    assert.deepEqual(launched.at(-1), { kind: 'launch', units: [{ phase: 'decision', key: 'decision', role: 'decider' }] });
   });
 });
 

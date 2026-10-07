@@ -49,11 +49,11 @@ export function roleOfAngle(angle: Angle): 'triage' | FinderRole {
 
 /**
  * The roles a review runs, in phase order: the survey's `surveyor`, every
- * angle's role, the later read-only phases', and the fix pass's `fixer`,
- * which runs the fixes and the repair. The role policy must name exactly
- * these.
+ * angle's role, the later read-only phases', the decision step's
+ * `decider`, and the fix pass's `fixer`, which runs the fixes and the
+ * repair. The role policy must name exactly these.
  */
-export const reviewRoles = ['surveyor', ...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'fixer'] as const;
+export const reviewRoles = ['surveyor', ...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer'] as const;
 export type ReviewRole = (typeof reviewRoles)[number];
 
 /** Whether a review role is one of the nine finders'. */
@@ -61,9 +61,11 @@ export const isFinderRole = (role: ReviewRole): role is FinderRole => role.start
 
 /**
  * The phases of a review, in the order they run (R2 of the read-only
- * review, R1 of the fix pass, R1 of the repository survey): the survey,
- * which a run configured before it existed records as skipped, the
- * read-only phases, then the five of the fix pass, which a run without
+ * review, R1 of the fix pass, R1 of the repository survey, R1 of the
+ * decision step): the survey, which a run configured before it existed
+ * records as skipped, the read-only phases, the decision, which a run
+ * configured before it existed records as skipped and every later run
+ * runs, `--fix` or not, then the five of the fix pass, which a run without
  * `--fix` records as skipped, then `report`, a phase with no worker that
  * is started so the worktree check before the report has a phase to
  * block, and finished when the report is written.
@@ -71,6 +73,7 @@ export const isFinderRole = (role: ReviewRole): role is FinderRole => role.start
 export const phases = [
   'survey',
   'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+  'decision',
   'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
   'report',
 ] as const;
@@ -230,6 +233,26 @@ export const suiteResultSchema = z.enum(suiteResults);
 export const verdicts = ['CONFIRMED', 'PLAUSIBLE', 'REFUTED'] as const;
 export const verdictSchema = z.enum(verdicts);
 export type Verdict = z.infer<typeof verdictSchema>;
+
+/**
+ * What the decision step makes of a ranked finding (R3 of the decision
+ * step): a fixer applies it the way the decider chose, it is left with a
+ * stated reason, or the author is asked one question while a fixer
+ * applies the default the decider named.
+ */
+export const decisionKinds = ['fix', 'leave', 'ask'] as const;
+export const decisionKindSchema = z.enum(decisionKinds);
+export type DecisionKind = z.infer<typeof decisionKindSchema>;
+
+/**
+ * Why a finding is left, and no other reason (R3 of the decision step):
+ * acting on it would edit only code outside the change, which did not
+ * cause or worsen it; another finding's fix removes it; or the repository
+ * states the behavior on purpose and the rule's reason reaches the case.
+ */
+export const leaveReasons = ['outside-change-not-regression', 'superseded', 'intended'] as const;
+export const leaveReasonSchema = z.enum(leaveReasons);
+export type LeaveReason = z.infer<typeof leaveReasonSchema>;
 
 /** The severities merge-rank assigns, most severe first. */
 export const severities = ['critical', 'major', 'minor'] as const;

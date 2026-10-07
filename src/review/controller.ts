@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, CheckRan, DecisionsRecorded, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
 import { revisionMessageOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -308,7 +308,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       const found = findDrift(state, options.worktree, content.match);
       if (drifted(found)) {
         log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-        state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 3, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found) }]);
+        state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 4, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found) }]);
         return;
       }
     }
@@ -317,6 +317,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
       if (event.kind === 'tree.revised') log(`worker ${settled.unit.role} ${name}: ${revisionSummary(event.payload as TreeRevised)}`);
       if (event.kind === 'survey.recorded') for (const line of surveyLines(runId, event.payload as SurveyRecorded)) log(line);
+      if (event.kind === 'decisions.recorded') log(`worker ${settled.unit.role} ${name}: ${decisionCounts(event.payload as DecisionsRecorded)}`);
     }
     state = append(checkpoint, state, events);
   };
@@ -327,7 +328,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     if (configure !== null) {
       // The checks are planned when the survey completes, not here (R6 of the repository survey).
-      state = append(checkpoint, state, [{ kind: 'review.configured', version: 4, payload: configure }]);
+      state = append(checkpoint, state, [{ kind: 'review.configured', version: 5, payload: configure }]);
       log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}${configure.fix ? ', with the fix pass' : ''}${configure.codex === null ? '' : `, Codex Windows sandbox ${configure.codex.windowsSandbox}`}; the reviewer's own rules: ${configure.survey.userRules}`);
     }
     const configuration = state.review!.configuration;
@@ -414,14 +415,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report) };
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)})`);
-          state = append(checkpoint, state, [{ kind: 'phase.started', version: 3, payload: { phase: step.phase, attempt: step.attempt } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.started', version: 4, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case 'check-worktree': {
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
           const check = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check)}`);
           if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}`);
-          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 3, payload: check }]);
+          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 4, payload: check }]);
           break;
         }
         case 'plan-verification':
@@ -430,7 +431,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         case 'plan-fixes': {
           const held = step.plan.routes.filter((route) => route.route === 'held').length;
-          log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? '' : 's'} in ${String(step.plan.batches.length)} batch${step.plan.batches.length === 1 ? '' : 'es'} planned, ${String(held)} finding${held === 1 ? '' : 's'} held for the author`);
+          log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? '' : 's'} in ${String(step.plan.batches.length)} batch${step.plan.batches.length === 1 ? '' : 'es'} planned; ${String(held)} finding${held === 1 ? '' : 's'} no fixer sees, as decided`);
           state = append(checkpoint, state, [{ kind: 'fixes.planned', version: 1, payload: step.plan }]);
           break;
         }
@@ -503,7 +504,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
         case 'finish-phase':
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? '' : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: 'phase.finished', version: 3, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.finished', version: 4, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case 'write-report': {
           // One patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass).
@@ -514,8 +515,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
           state = append(checkpoint, state, [
-            { kind: 'report.written', version: 3, payload: { report, statistics, patches } },
-            { kind: 'phase.finished', version: 3, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
+            { kind: 'report.written', version: 4, payload: { report, statistics, patches } },
+            { kind: 'phase.finished', version: 4, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
           break;
@@ -556,6 +557,12 @@ function refusalOf(error: unknown, pinned: { readonly runId: string; readonly ex
   if (!(error instanceof PreflightError)) return error;
   const action = pinned === null ? blockerActions['runtime-unqualified'] : pinnedRuntimeAction(pinned.runId, pinned.executable);
   return new ReviewRefusedError(`${error.message}; ${action}`, 'runtime-unqualified');
+}
+
+/** What a decider decided, counted by decision, as the log says it. */
+function decisionCounts(recorded: DecisionsRecorded): string {
+  const count = (kind: DecisionsRecorded['decisions'][number]['decision']): number => recorded.decisions.filter((decision) => decision.decision === kind).length;
+  return `decided ${String(count('fix'))} to fix, ${String(count('leave'))} to leave, ${String(count('ask'))} to ask the author`;
 }
 
 /** The first worker in flight to settle, taken off the map, with the time it started. */
@@ -695,7 +702,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
 }
 
 /**
- * Hold a configured run to what it pinned before it resumes: the role
+ * Hold a configured run to what it pinned before it resumes: a fix run
+ * configured before the decision step that has not planned its fixes is
+ * refused first, since it has no decision to route them by and no roles
+ * make it one (R6 of the decision step); the role
  * prompts it ran must still digest as pinned, so the report's digest says
  * which prompts every worker got; the flags that apply per invocation are
  * checked as a new run's are, and the model flags, which do not apply,
@@ -710,6 +720,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  */
 async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
   const runId = run.id;
+  // A fix run routes its findings by their decisions (R6 of the decision step); one configured before the decision step has none to route by, so it cannot go on to plan its fixes, whatever roles it is given.
+  if (pinned.fix && run.review?.phases.decision.status === 'skipped' && (run.review.fix?.plan ?? null) === null) {
+    throw new ReviewRefusedError(`run ${runId} was configured before the decision step, which a fix run now routes its findings by, and has not planned its fixes; abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run`);
+  }
   const digest = rolesDigest(context.roles);
   if (digest !== pinned.rolesDigest) {
     throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
@@ -821,7 +835,7 @@ function recordLostWorkers(checkpoint: Checkpoint, state: RunState, worktree: st
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === 'running')) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    const lost: NewEvent = { kind: 'worker.lost', version: 3, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const lost: NewEvent = { kind: 'worker.lost', version: 4, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
     const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence, match }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
     if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? '' : 's'}`);
     state = append(checkpoint, state, [lost, ...edits]);
@@ -836,5 +850,5 @@ function reenterPhase(checkpoint: Checkpoint, state: RunState, log: (line: strin
   if (phase === null) return state;
   const attempt = review.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}`);
-  return append(checkpoint, state, [{ kind: 'phase.started', version: 3, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: 'phase.started', version: 4, payload: { phase, attempt } }]);
 }

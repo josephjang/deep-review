@@ -3,19 +3,20 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { History, candidate, configuration, configurationV1, configured, finding, found, launch, leads, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { History, askDecision, candidate, configuration, configurationV1, configured, decidedOf, decisions, finding, found, launch, leads, mergeRanked, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
     const before = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).fold();
     assert.equal(before.review, null);
     const review = configured().review();
-    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped, and without the survey, which did not exist yet.
+    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped, and without the survey and the decision step, which did not exist yet.
     assert.deepEqual(review.configuration, configuration);
     assert.equal(review.configuration.fix, false);
     assert.equal(review.fix, null);
     assert.deepEqual(review.limits, { concurrency: 4, runBudgetUsd: 30 }, 'the limits in force start as the pinned ones');
-    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: (fixPhases as readonly string[]).includes(phase) || phase === 'survey' ? 'skipped' : 'pending', attempt: 0 }])));
+    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: (fixPhases as readonly string[]).includes(phase) || phase === 'survey' || phase === 'decision' ? 'skipped' : 'pending', attempt: 0 }])));
+    assert.equal(review.decisions, null);
     assert.equal(review.survey, null);
     assert.equal(review.blocker, null);
     assert.deepEqual(review.candidates, {});
@@ -155,7 +156,37 @@ describe('the review fold', () => {
     const review = reported().review();
     assert.deepEqual(review.ranking, ranking);
     assert.deepEqual(review.report, { report: reference('e', 2048), statistics, patches: [] }, 'version 1 of the report reads as one with no patch');
-    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+  });
+
+  it('runs the decision of a run configured at version 5, and skips it at version 4 and earlier, whatever else the run does (R10 of the decision step)', () => {
+    const configuredAt = (version: number, payload: Record<string, unknown>): ReviewState => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', payload, version).review();
+    const v4 = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' }, codex: null };
+    for (const fix of [false, true]) {
+      const payload = fix ? { ...v4, fix, checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 } } : v4;
+      const decided = configuredAt(5, payload);
+      assert.equal(decided.phases.decision.status, 'pending', `a version 5 run, fix ${String(fix)}`);
+      assert.equal(decided.phases.survey.status, 'pending', 'a version 5 run is surveyed');
+      assert.equal(decided.decisions, null, 'nothing is decided at configuration');
+      assert.deepEqual(decided.configuration, payload, 'version 5 records version 4\'s payload, unchanged');
+      assert.equal(configuredAt(4, payload).phases.decision.status, 'skipped', `a version 4 run, fix ${String(fix)}`);
+    }
+    assert.equal(configuredAt(3, { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' } }).phases.decision.status, 'skipped');
+  });
+
+  it('folds the decisions in the ranking\'s order, answers the decision\'s unit, and completes the phase', () => {
+    const review = decidedOf(reported(), [...decisions].reverse()).review();
+    assert.deepEqual(review.decisions, decisions, 'held in the order the ranking lists the findings, whatever order they were recorded in');
+    assert.deepEqual(review.phases.decision, { status: 'completed', attempt: 1 });
+    assert.deepEqual(review.units.decision, { decision: { answeredBy: worker(45), failures: [] } });
+    assert.equal(isAnswered(review, 'decision', 'decision'), true);
+  });
+
+  it('keeps a superseded finding\'s link to the finding decided fix that removes it, and an ask\'s question whole', () => {
+    const superseded = { ...decisions[1]!, leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } };
+    assert.deepEqual(decidedOf(reported(), [decisions[0]!, superseded]).review().decisions?.[1]?.leave, { reason: 'superseded', supersededBy: 'RIPPLE-1' });
+    const asked = askDecision('SWEEP-1', false);
+    assert.deepEqual(decidedOf(reported(), [decisions[0]!, asked]).review().decisions?.[1], asked);
   });
 
   it('records a blocker on a blocked finish and clears it, with the phase\'s failures, on the next start', () => {
@@ -323,6 +354,16 @@ describe('the review fold', () => {
     ['losing a worker twice', () => configured().add('worker.launched', launch(worker(9), 'x')).add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'r' }).add('worker.lost', { workerId: worker(9), phase: null, key: null, reason: 'r' }), /after it was lost/],
     ['a lost worker naming a phase without a key', () => configured().add('worker.launched', launch(worker(9), 'x')).add('worker.lost', { workerId: worker(9), phase: 'finders', key: null, reason: 'r' }), /both its phase and its unit key, or neither/],
     ['a lost worker with a unit before review is configured', () => new History().add('run.created', { worktree: '/w' }).add('worker.launched', launch(worker(9), 'x')).add('worker.lost', { workerId: worker(9), phase: 'finders', key: 'RIPPLE', reason: 'r' }), /before review.configured/],
+    ['starting the decision of a run configured before the decision step', () => mergeRanked().start('decision'), /starts phase decision, which this run skips: it was configured before the decision step existed/],
+    ['starting the fix pass of a run configured without it', () => mergeRanked().start('baseline-checks'), /starts phase baseline-checks, which this run skips: it was configured without the fix pass/],
+    ['starting the report of a run with the decision step before its decision', () => decidedOf(mergeRanked(), null).start('report'), /starts phase report while phase decision is pending/],
+    ['decisions before the decision phase runs', () => decidedOf(mergeRanked(), null).add('decisions.recorded', { workerId: worker(45), decisions }), /for phase decision while it is pending/],
+    ['decisions recorded twice', () => decidedOf(mergeRanked(), null).start('decision').add('decisions.recorded', { workerId: worker(45), decisions }).add('decisions.recorded', { workerId: worker(46), decisions }), /records its decisions twice/],
+    ['decisions that leave a ranked finding out', () => decidedOf(mergeRanked(), null).start('decision').add('decisions.recorded', { workerId: worker(45), decisions: [decisions[0]] }), /decides \[RIPPLE-1\], which is not every ranked finding \[RIPPLE-1, SWEEP-1\] once/],
+    ['decisions for a finding the ranking does not hold', () => decidedOf(mergeRanked(), null).start('decision').add('decisions.recorded', { workerId: worker(45), decisions: [decisions[0], { ...decisions[1], id: 'SWEEP-2' }] }), /decides \[RIPPLE-1, SWEEP-2\]/],
+    ['a finding decided twice', () => decidedOf(mergeRanked(), null).start('decision').add('decisions.recorded', { workerId: worker(45), decisions: [decisions[0], decisions[0], decisions[1]] }), /each finding is decided once/],
+    ['a finding superseded by one left', () => decidedOf(mergeRanked(), null).start('decision').add('decisions.recorded', { workerId: worker(45), decisions: [{ ...decisions[0], decision: 'leave', fix: null, leave: { reason: 'intended', supersededBy: null } }, { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } }] }), /superseded by RIPPLE-1, which is not another finding decided fix/],
+    ['a finding superseded by itself', () => decidedOf(mergeRanked(), null).start('decision').add('decisions.recorded', { workerId: worker(45), decisions: [decisions[0], { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'SWEEP-1' } }] }), /superseded by SWEEP-1/],
   ];
   for (const [name, build, message] of invalid) {
     it(`refuses ${name}`, () => {

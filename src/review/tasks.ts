@@ -7,7 +7,7 @@
  */
 import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import type { Lead } from '../checkpoint/events.ts';
+import type { Lead, RecordedDecision } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { fenceFor } from './prompts.ts';
@@ -305,10 +305,26 @@ function earlierWork(unit: 'finding' | 'check', unfinished: readonly string[]): 
   return `${warning} An earlier attempt left edits for ${unfinished.join(', ')}, recorded as that attempt's work; for each of these you report \`already-applied\`, give the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
 
+/** A candidate as a task names it beside the others of its finding: what it claims, where, and what its verifier said of it alone. */
+export interface TaskCandidate {
+  readonly id: string;
+  readonly angle: string;
+  /** Where it points, as `describeLocation` writes it. */
+  readonly location: string;
+  readonly summary: string;
+  readonly detail: string;
+  /** Its own verdict, PLAUSIBLE when its group went unverified. */
+  readonly verdict: Verdict;
+  readonly unverified: boolean;
+  /** Its verifier's evidence line, or null when its group went unverified. */
+  readonly evidence: string | null;
+}
+
 /** A finding as a fixer's task gives it. */
 export interface FixerTaskFinding {
   readonly id: string;
   readonly severity: Severity;
+  /** The merged verdict: CONFIRMED when any candidate of the finding is. */
   readonly verdict: Verdict;
   readonly unverified: boolean;
   readonly angle: string;
@@ -316,12 +332,16 @@ export interface FixerTaskFinding {
   readonly location: string;
   readonly summary: string;
   readonly detail: string;
-  /** The verifier's evidence line, or null when its group went unverified. */
+  /** The primary candidate's own evidence line, or null when its group went unverified. */
   readonly evidence: string | null;
   /** Merge-rank's reason for the finding. */
   readonly reason: string;
-  /** The candidates merged into it, each as `<id> at <location>`. */
-  readonly also: readonly string[];
+  /** The candidates merged into it, each with its own verdict and evidence (R7 of the decision step). */
+  readonly members: readonly TaskCandidate[];
+  /** What the decision step decided for it, which the fixer applies; null for a run configured before the decision step, whose plan predates it. */
+  readonly decision: RecordedDecision | null;
+  /** The findings left as superseded by this one, which no fixer is given and this fix must remove too (R7 of the decision step). */
+  readonly supersedes: readonly Pick<TaskCandidate, 'id' | 'location' | 'summary'>[];
   /** For a second-round finding, what the first round said: its blocked note and the files it needed (R21 of the fix pass); null in the first round. */
   readonly firstRound: { readonly note: string; readonly requiredFiles: readonly string[] } | null;
 }
@@ -362,24 +382,72 @@ export interface FixerTaskInput {
 
 const fileList = (files: readonly string[]): string => (files.length === 0 ? '(none)' : files.map((file) => `- ${file}`).join('\n'));
 
+/** A candidate's verdict as a task prints it. */
+const verdictWords = (candidate: Pick<TaskCandidate, 'verdict' | 'unverified'>): string => `${candidate.verdict}${candidate.unverified ? ' (unverified)' : ''}`;
+
+/** The evidence line a task prints for a candidate, saying so when its verifier gave none. */
+const evidenceWords = (evidence: string | null): string => evidence ?? 'none; the verifier of its group failed twice';
+
+/** A merged candidate under its finding in a fixer's task: its claim, its verdict and its evidence. */
+function memberLines(member: TaskCandidate): string[] {
+  return [
+    `    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`,
+    `        summary: ${member.summary}`,
+    `        detail: ${member.detail}`,
+    `        evidence: ${evidenceWords(member.evidence)}`,
+  ];
+}
+
+/** What a fixer is told was decided for a finding (R7 of the decision step): the approach, or the default an ask applied, with the grounds, what was rejected and any rule departed from. */
+function decidedLines(decision: RecordedDecision): string[] {
+  const departure = decision.departure === null ? [] : [`        departs from: ${decision.departure.rule} (${decision.departure.source}): ${decision.departure.reason}`];
+  if (decision.fix !== null) {
+    return [
+      `    decided: fix. ${decision.grounds}`,
+      `        approach: ${decision.fix.approach}`,
+      ...(decision.fix.rejected.length === 0 ? [] : [`        rejected: ${decision.fix.rejected.map((option) => `${option.option} (${option.reason})`).join('; ')}`]),
+      ...departure,
+    ];
+  }
+  if (decision.ask !== null) {
+    const { ask } = decision;
+    const applied = ask.options[ask.applied];
+    const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
+    return [
+      `    decided: ask the author, applying a default now. ${decision.grounds}`,
+      `        apply: ${applied?.option ?? 'the default the decision names'}`,
+      `        the question the author answers later: ${ask.question} The other options: ${others.join('; ')}`,
+    ];
+  }
+  // A left finding is held, and no fixer is given it.
+  return [`    decided: ${decision.decision}. ${decision.grounds}`];
+}
+
+/** What a fixer's task says of the decisions it carries: apply them, and when to depart from one. */
+const decidedRule = 'Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Defer a finding only for a fact the decision did not see, and name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message\'s `body`.';
+
 /** A fixer's task (R4, R18 of the fix pass): its batch's findings numbered in rank order, what the cluster's earlier batches did, the ownership rule with both file lists, the checks, the snapshot command and the answer it returns. */
 export function fixerTask(input: FixerTaskInput): string {
   const count = input.findings.length;
   const findings = input.findings.map((finding, index) => [
-    `[${String(index)}] ${finding.id} [${finding.severity}] ${finding.verdict}${finding.unverified ? ' (unverified)' : ''} (${finding.angle}) at ${finding.location}`,
+    `[${String(index)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.angle}) at ${finding.location}`,
     `    summary: ${finding.summary}`,
     `    detail: ${finding.detail}`,
-    `    evidence: ${finding.evidence ?? 'none; the verifier of its group failed twice'}`,
+    `    evidence: ${evidenceWords(finding.evidence)}`,
     `    reason: ${finding.reason}`,
-    ...(finding.also.length === 0 ? [] : [`    also at: ${finding.also.join('; ')}`]),
+    ...finding.members.flatMap(memberLines),
+    ...(finding.decision === null ? [] : decidedLines(finding.decision)),
+    ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
     ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(', ')}: ${finding.firstRound.note}`]),
   ].join('\n'));
+  const decided = input.findings.some((finding) => finding.decision !== null);
   const others = input.othersOwned.filter((cluster) => cluster.files.length > 0);
   return [
     `Cluster ${input.cluster}, batch ${input.batch}${input.secondRound ? ', in the second round' : ''}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
     '',
     ...findings,
     '',
+    ...(decided ? [decidedRule, ''] : []),
     ...(input.secondRound ? ['Each of these was blocked in the first round on files another cluster owned. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.', ''] : []),
     ...(input.earlier.length === 0
       ? []
@@ -487,6 +555,48 @@ export function repairTask(input: RepairTaskInput): string {
     `${answerFields('check')} The \`message\` of an applied check describes what the repair changed.`,
     '',
     scratchRule,
+  ].join('\n');
+}
+
+/** One finding as the decider's task gives it: its id, severity and merged verdict, merge-rank's summary and reason, and every candidate of it, primary first. */
+export interface DeciderTaskFinding {
+  readonly id: string;
+  readonly severity: Severity;
+  readonly verdict: Verdict;
+  readonly summary: string;
+  readonly reason: string;
+  /** The primary first, then the members, each with its own verdict and evidence. */
+  readonly candidates: readonly TaskCandidate[];
+}
+
+/** One candidate of a finding in the decider's task. */
+function deciderCandidateLines(candidate: TaskCandidate, primary: boolean): string[] {
+  return [
+    `    - ${candidate.id} (${candidate.angle})${primary ? ' primary' : ''} at ${candidate.location}: ${verdictWords(candidate)}`,
+    `        summary: ${candidate.summary}`,
+    `        detail: ${candidate.detail}`,
+    `        evidence: ${evidenceWords(candidate.evidence)}`,
+  ];
+}
+
+/**
+ * The decider's task (R2, R3 of the decision step): every ranked finding,
+ * numbered in rank order, each with every candidate merged into it and
+ * that candidate's own verdict and evidence, then the answer it returns.
+ */
+export function deciderTask(findings: readonly DeciderTaskFinding[]): string {
+  const count = findings.length;
+  const list = findings.map((finding, position) => [
+    `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
+    `    merge and rank: ${finding.reason}`,
+    ...finding.candidates.flatMap((candidate, at) => deciderCandidateLines(candidate, at === 0)),
+  ].join('\n'));
+  return [
+    `The review's ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
+    '',
+    ...list,
+    '',
+    'For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing.',
   ].join('\n');
 }
 

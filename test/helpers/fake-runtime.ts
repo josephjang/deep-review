@@ -97,8 +97,52 @@ export function defaultOutput(role: string, prompt: string): unknown {
   if (role === 'deduplication') return { groups: [] };
   if (role === 'verifier') return { verdicts: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]` })) };
   if (role === 'merge-rank') return { findings: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ primary: index, members: [], severity: 'minor', summary: `fake finding [${String(index)}]`, reason: 'fake reason' })) };
+  if (role === 'decider') return deciderAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
   if (role === 'fixer') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
   return { answer: 'ok' };
+}
+
+/**
+ * What a scripted decider decides of one finding: `fix` unless a kind is
+ * given; a `leave` with its reason and, when superseded, the index of the
+ * finding that supersedes it; an `ask` whose applied default edits the
+ * code unless `edits` says it keeps it.
+ */
+export interface DecidedFinding {
+  readonly decision?: 'fix' | 'leave' | 'ask';
+  readonly reason?: 'outside-change-not-regression' | 'superseded' | 'intended';
+  readonly supersededBy?: number;
+  readonly edits?: boolean;
+  readonly departs?: boolean;
+}
+
+/** A decider's answer with one decision per finding, by index, in the shape its output schema demands. */
+export function deciderAnswer(findings: readonly DecidedFinding[]): unknown {
+  return {
+    decisions: findings.map((finding, index) => {
+      const decision = finding.decision ?? 'fix';
+      return {
+        index,
+        decision,
+        grounds: `fake grounds for [${String(index)}]`,
+        fix: decision === 'fix' ? { approach: `fake approach for [${String(index)}]`, rejected: [{ option: `fake alternative for [${String(index)}]`, reason: 'fake reason it was rejected' }] } : null,
+        leave: decision === 'leave' ? { reason: finding.reason ?? 'outside-change-not-regression', supersededBy: finding.supersededBy ?? null } : null,
+        ask: decision === 'ask'
+          ? {
+              question: `fake question for [${String(index)}]?`,
+              options: [
+                { option: 'fake default', cost: 'fake cost of the default', rule: 'fake rule for the default', edits: finding.edits ?? true },
+                { option: 'fake other way', cost: 'fake cost of the other way', rule: 'fake rule for the other way', edits: true },
+              ],
+              recommended: 1,
+              applied: 0,
+              searched: ['fake place looked in'],
+            }
+          : null,
+        departure: finding.departs === true ? { rule: 'fake rule departed from', source: 'fake source', reason: 'fake reason the rule does not reach the case' } : null,
+      };
+    }),
+  };
 }
 
 /** What a scripted fixer says of one finding; every field but the ones given is a plain applied finding's. */

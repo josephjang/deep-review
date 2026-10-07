@@ -93,8 +93,8 @@ export const unlocated = (id: string, angle: string): Record<string, unknown> =>
 
 export const leads = finderAngles.map((angle) => ({ angle, lead: angle === 'RIPPLE' ? 'the callers of parse()' : null }));
 
-/** The lowest version of the events that carry a phase that can name it: 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
-const phaseVersion = (phase: string): 1 | 2 | 3 => (phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
+/** The lowest version of the events that carry a phase that can name it: 4 for the decision, 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
+const phaseVersion = (phase: string): 1 | 2 | 3 | 4 => (phase === 'decision' ? 4 : phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
 
 /** A history builder that numbers events as it goes, so a scenario reads as its event list. */
 export class History {
@@ -428,4 +428,81 @@ export function withSurvey(history: History, survey: (history: History) => Histo
     survey(surveyed);
   }
   return surveyed;
+}
+
+/** The commands a quiet survey of a fix run chooses, as `surveyedCheck` states them: the ones these histories run, npm's build, lint and test, and no typecheck. */
+const quietCommands: readonly (readonly [kind: string, command: string | null])[] = [['build', 'npm run build'], ['typecheck', null], ['lint', 'npm run lint'], ['test', 'npm run test']];
+
+/**
+ * A survey that names no convention source and, in a fix run, chooses
+ * `quietCommands` and plans them, so a surveyed fix run runs the checks
+ * the unsurveyed histories pinned.
+ */
+export const quietSurvey = (fix: boolean) => (history: History): History => {
+  history.start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(80), fix ? { checks: quietCommands.map(([kind, command]) => surveyedCheck(kind, command)) } : {}));
+  if (fix) {
+    history.add('checks.planned', {
+      checks: quietCommands.map(([kind, command]) => (command === null
+        ? { kind, command: null, origin: 'none', reason: `no ${kind} step`, source: null }
+        : { kind, command, origin: 'survey', reason: null, source: { path: '.github/workflows/ci.yml', quote: `run: ${command}`, basis: 'stated' } })),
+    }, 2);
+  }
+  return history.finish('survey');
+};
+
+/** The decisions of these histories: RIPPLE-1, CONFIRMED with SWEEP-2 merged in, to fix; SWEEP-1, a PLAUSIBLE design finding, left as outside the change. */
+export const decisions = [
+  { id: 'RIPPLE-1', decision: 'fix', grounds: 'parse reads the null on an empty input, at lines 4 and 7', fix: { approach: 'guard the null once, before parse reads it', rejected: [{ option: 'catch the throw in each caller', reason: 'leaves the null in parse' }] }, leave: null, ask: null, departure: null },
+  { id: 'SWEEP-1', decision: 'leave', grounds: 'the helper would edit only lines the change does not touch', fix: null, leave: { reason: 'outside-change-not-regression', supersededBy: null }, ask: null, departure: null },
+];
+
+/** An ask whose default edits the code (`edits`) or keeps it as it is. */
+export const askDecision = (id: string, edits: boolean): Record<string, unknown> => ({
+  id,
+  decision: 'ask',
+  grounds: 'nothing in the repository states which behavior is meant',
+  fix: null,
+  leave: null,
+  ask: {
+    question: 'Should parse accept an empty input?',
+    options: [
+      { option: edits ? 'reject it with an error' : 'keep accepting it', cost: 'callers that pass one now see the change', rule: 'parse rejects an empty input', edits },
+      { option: 'accept it and return an empty result', cost: 'an empty input passes silently', rule: 'parse accepts an empty input', edits: true },
+    ],
+    recommended: 1,
+    applied: 0,
+    searched: ['the change\'s commit message', 'README.md', 'test/a.test.ts'],
+  },
+  departure: null,
+});
+
+/**
+ * The same history with the decision step: configured at version 5, so
+ * its decision phase runs, and that phase's events after merge and rank,
+ * the decider deciding as `decided` says; with `decided` null, no decision
+ * phase event, for a history that stops before it. The history must be
+ * surveyed (`withSurvey`), since every run with the decision step is.
+ */
+export function withDecisions(history: History, decided: readonly unknown[] | null = decisions): History {
+  const result = new History();
+  for (const event of history.events) {
+    if (event.kind === 'review.configured') {
+      assert.ok(event.version >= 3, 'a run with the decision step is surveyed');
+      result.add('review.configured', { codex: null, ...(event.payload as object) }, 5);
+      continue;
+    }
+    result.add(event.kind, event.payload, event.version);
+    const finished = event.payload as { phase?: string; outcome?: string };
+    if (decided !== null && event.kind === 'phase.finished' && finished.phase === 'merge-rank' && finished.outcome !== 'blocked') {
+      result.start('decision').worker(45, 'decider decision:decision').add('decisions.recorded', { workerId: worker(45), decisions: decided }).finish('decision');
+    }
+  }
+  return result;
+}
+
+/** The history surveyed quietly and decided as `decided` says (`withDecisions`): a run as the engine now records one. */
+export function decidedOf(history: History, decided: readonly unknown[] | null = decisions): History {
+  const configuredEvent = history.events.find((event) => event.kind === 'review.configured');
+  const fix = (configuredEvent?.payload as { fix?: boolean } | undefined)?.fix === true;
+  return withDecisions(withSurvey(history, quietSurvey(fix)), decided);
 }

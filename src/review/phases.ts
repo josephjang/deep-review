@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { CandidatesRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, ReviewConfiguration, SurveyRecorded, TreeRevised, VerdictsRecorded } from '../checkpoint/events.ts';
+import type { CandidatesRecorded, DecisionsRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, RecordedDecision, ReviewConfiguration, SurveyRecorded, TreeRevised, VerdictsRecorded } from '../checkpoint/events.ts';
 import { failedAtBaseline, fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
@@ -25,12 +25,14 @@ import { pinnedRole, pinnedWindowsSandbox } from './policy.ts';
 import { composeWorkerPrompt } from './prompts.ts';
 import { snapshotsDirectoryName } from './snapshot.ts';
 import {
+  checkDecisions,
   checkDeduplication,
   checkMergeRank,
   checkTriageLeads,
   checkVerdicts,
   outputSchemaOf,
   type CandidateOutput,
+  type DeciderOutput,
   type DeduplicationOutput,
   type FinderOutput,
   type MergeRankOutput,
@@ -41,10 +43,10 @@ import {
 } from './schemas.ts';
 import { settledKinds, unsettledKinds } from './checks/discover.ts';
 import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey.ts';
-import { mergeRankInput, rankedFindings, refutedIn, survivors, type Resolved } from './state.ts';
+import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, type ReportFinding, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck } from './tasks.ts';
+import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type DeciderTaskFinding, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, the survey's inputs, and for an editing unit its scratch and snapshot command. */
@@ -125,7 +127,26 @@ function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'f
   });
 }
 
-/** A fixer's task over its batch, from the plan, the ranked findings and the pinned checks. */
+/** A candidate of a ranked finding as a task names it: its claim and location, and its own verdict and evidence. */
+function taskCandidate(candidate: CandidateState): TaskCandidate {
+  const resolution = resolutionOf(candidate);
+  if (resolution === null) throw new Error(`Candidate ${candidate.id} is ranked with no verdict and no unverified mark`);
+  return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence };
+}
+
+/** The ranked findings as the decider's task numbers them, in rank order, each with every candidate of it. */
+export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
+  return rankedFindings(review).map((entry): DeciderTaskFinding => ({
+    id: entry.finding.id,
+    severity: entry.finding.severity,
+    verdict: entry.resolution.verdict,
+    summary: entry.finding.summary,
+    reason: entry.finding.reason,
+    candidates: [entry.primary, ...entry.members].map(taskCandidate),
+  }));
+}
+
+/** A fixer's task over its batch, from the plan, the ranked findings, their decisions and the pinned checks. */
 function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'pathOf'>): string {
   const plan = fixPlanOf(review);
   const second = review.fix?.secondRound ?? null;
@@ -143,21 +164,28 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
   const firstRoundInFiles = inSecondRound ? plan.batches.filter((candidate) => plan.clusters.find((owner) => owner.id === candidate.cluster)?.files.some((path) => cluster.files.includes(path)) ?? false) : [];
   const blockedOn = new Map((second?.blocked ?? []).map((entry) => [entry.id, entry.requiredFiles]));
   const ranked = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
+  const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const findings = batch.findingIds.map((id): FixerTaskFinding => {
     const entry = ranked.get(id);
     if (entry === undefined) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
+    const primary = taskCandidate(entry.primary);
     return {
       id,
       severity: entry.finding.severity,
       verdict: entry.resolution.verdict,
       unverified: entry.resolution.unverified,
       angle: entry.primary.angle,
-      location: describeLocation(entry.primary),
+      location: primary.location,
       summary: entry.finding.summary,
       detail: entry.primary.detail,
-      evidence: entry.resolution.evidence,
+      evidence: primary.evidence,
       reason: entry.finding.reason,
-      also: entry.members.map((member) => `${member.id} at ${describeLocation(member)}`),
+      members: entry.members.map(taskCandidate),
+      decision: decidedFor(review, decided, id),
+      supersedes: (review.decisions ?? []).filter((decision) => decision.leave?.supersededBy === id).flatMap((decision) => {
+        const left = ranked.get(decision.id);
+        return left === undefined ? [] : [{ id: decision.id, location: describeLocation(left.primary), summary: left.finding.summary }];
+      }),
       firstRound: inSecondRound ? firstRoundBlock(review, plan.batches, id, blockedOn.get(id) ?? []) : null,
     };
   });
@@ -176,6 +204,18 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
     unfinished: unfinishedIds(review, 'fixes', unit.key),
     baselineFailures: baselineFailuresOf(review, evidence),
   });
+}
+
+/**
+ * The decision a fixer is told for a finding of its batch: the recorded
+ * one, or none in a run configured before the decision step, whose plan
+ * was made without decisions. A decided run that recorded none for a
+ * finding it gives a fixer is a plan the engine cannot have made.
+ */
+function decidedFor(review: ReviewState, decided: ReadonlyMap<string, RecordedDecision>, id: string): RecordedDecision | null {
+  const decision = decided.get(id) ?? null;
+  if (decision === null && review.phases.decision.status !== 'skipped') throw new Error(`Finding ${id} goes to a fixer with no decision recorded for it`);
+  return decision;
 }
 
 /** The checks that failed before any fixer edited the tree, with their frozen outputs' paths, as a fixer is told them (R24). */
@@ -276,6 +316,8 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       });
     case 'merge-rank':
       return mergeRankTask(mergeRankInput(review).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
+    case 'decision':
+      return deciderTask(deciderFindings(review));
     case 'fixes':
       if (evidence === null) throw new Error('The fixer task names the baseline checks\' frozen outputs and needs the evidence store');
       return fixerTaskOf(unit, review, requireEditing(), evidence);
@@ -326,7 +368,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
 
 /** The failed attempt a unit records for a receipt or a refused answer. */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
-  return { kind: 'attempt.failed', version: 3, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
+  return { kind: 'attempt.failed', version: 4, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
@@ -368,6 +410,20 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
   return rankedFindings(review, findings).map((entry) => entry.finding);
 }
 
+/**
+ * The decisions of a decider's answer, its indexes resolved to the ids of
+ * the findings its task numbered, in that order: the finding each decides,
+ * and the finding that supersedes one left as superseded.
+ */
+function orderedDecisions(output: DeciderOutput, findings: readonly ReportFinding[]): RecordedDecision[] {
+  const idAt = (position: number): string => findings[position]!.finding.id;
+  return [...output.decisions].sort((a, b) => a.index - b.index).map(({ index, leave, ...decided }): RecordedDecision => ({
+    id: idAt(index),
+    ...decided,
+    leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) },
+  }));
+}
+
 /** What recording a contribution needs: the revision context, and for the survey what the invocation knew when it launched the surveyor. */
 export interface ContributionContext extends RevisionContext {
   readonly survey: () => SurveyInputs;
@@ -404,7 +460,8 @@ type ContributionEvent =
   | { readonly kind: 'candidates.recorded'; readonly version: 1; readonly payload: CandidatesRecorded }
   | { readonly kind: 'deduplication.recorded'; readonly version: 1; readonly payload: DeduplicationRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
-  | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded };
+  | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
+  | { readonly kind: 'decisions.recorded'; readonly version: 1; readonly payload: DecisionsRecorded };
 
 /**
  * The contribution event of a completed unit whose answer passes its
@@ -459,6 +516,12 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
       const input = mergeRankInput(review);
       checkMergeRank(output, input.length);
       return { kind: 'ranking.recorded', version: 1, payload: { workerId: receipt.workerId, findings: orderedRanking(review, output, input) } };
+    }
+    case 'decision': {
+      const output = receipt.output as DeciderOutput;
+      const findings = rankedFindings(review);
+      checkDecisions(output, findings.length);
+      return { kind: 'decisions.recorded', version: 1, payload: { workerId: receipt.workerId, decisions: orderedDecisions(output, findings) } };
     }
     case 'fixes':
     case 'repair':

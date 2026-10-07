@@ -8,7 +8,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
-import { reviewVocabularyV1, reviewVocabularyV2, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
+import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
 import { finderAngles, phases, type Angle, type Phase } from '../src/review/vocabulary.ts';
@@ -57,9 +57,14 @@ class ReviewHistory {
     this.phaseAt(2, phase, body, outcome, check);
   }
 
-  /** The same at version 3, as the engine now writes them. */
+  /** The same at version 3, as the survey's engine wrote them. */
   phaseV3(phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
     this.phaseAt(3, phase, body, outcome, check);
+  }
+
+  /** The same at version 4, as the engine now writes them. */
+  phaseV4(phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+    this.phaseAt(4, phase, body, outcome, check);
   }
 
   /** Start a phase at its next attempt at version 3 with a clean check and finish it blocked, as a survey that blocks does. */
@@ -72,7 +77,7 @@ class ReviewHistory {
    * `version`, run `body`, optionally check the worktree again at the end,
    * and finish it: `completed` or `degraded`, or `blocked` on a blocker.
    */
-  phaseAt(version: 2 | 3, phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+  phaseAt(version: 2 | 3 | 4, phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
     const number = (this.#attempts[phase] ?? 0) + 1;
     this.#attempts[phase] = number;
     this.add('phase.started', { phase, attempt: number }, version);
@@ -644,10 +649,10 @@ try {
   surveyed.phaseV3('repair-checks', () => {});
   surveyed.phaseV3('report', () => {
     const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { survey: 1, triage: 1, finders: 9, deduplication: 0, verification: 0, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 0, 'baseline-checks': 0, fixes: 0, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
+    const workersPerPhase: Record<(typeof reviewVocabularyV3.phases)[number], number> = { survey: 1, triage: 1, finders: 9, deduplication: 0, verification: 0, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 0, 'baseline-checks': 0, fixes: 0, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
     surveyed.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a surveyed run\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' ? { seconds: 8 } : {}) })), total: spend(12), budgetApplied: true },
+      statistics: { phases: reviewVocabularyV3.phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' ? { seconds: 8 } : {}) })), total: spend(12), budgetApplied: true },
       patches: [],
     }, 3);
   });
@@ -688,8 +693,8 @@ try {
       userRules: [{ path: userRules, applied: true, reason: 'applied by the policy value apply' }],
     });
   }, 'degraded');
-  // A seventh run, configured at the version the engine now writes: a
-  // Codex fix run on Windows whose editors run in no sandbox, pinned with
+  // A seventh run, configured at version 4, as the engine wrote it when
+  // the Codex Windows sandbox arrived: a Codex fix run on Windows whose editors run in no sandbox, pinned with
   // --codex-windows-sandbox none; abandoned as its survey starts.
   const unsandboxedRun = checkpoint.createRun({ worktree: 'C:\\fixture\\unsandboxed' });
   const unsandboxed = new ReviewHistory(checkpoint, unsandboxedRun.id, checkpoint.append(unsandboxedRun.id, unsandboxedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
@@ -711,6 +716,167 @@ try {
   }, 4);
   unsandboxed.add('phase.started', { phase: 'survey', attempt: 1 }, 3);
   unsandboxed.add('run.abandoned', { reason: 'fixture run abandoned as its survey starts' });
+  // An eighth run, configured at the version the engine now writes and
+  // every event at the version it writes them: a Claude Code fix run with
+  // the decision step. Its review ranks three findings; the decider fixes
+  // the first, departing from a comment's rule, leaves the second as
+  // superseded by the first, and asks the author about the third with a
+  // default that keeps the code; the plan gives a fixer the first alone,
+  // which applies it; and the report is written with its one patch.
+  const decidedRun = checkpoint.createRun({ worktree: '/fixture/decided' });
+  const decided = new ReviewHistory(checkpoint, decidedRun.id, checkpoint.append(decidedRun.id, decidedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  decided.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.292',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: [
+      pinned('surveyor', 'strong', 'medium'),
+      pinned('triage', 'strong'),
+      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
+      pinned('deduplication', 'strong'),
+      pinned('verifier', 'strong'),
+      pinned('sweep', 'strong'),
+      pinned('merge-rank', 'strong'),
+      pinned('decider', 'strong', 'high', 1_800_000),
+      pinned('fixer', 'strong', 'high', 1_800_000),
+    ],
+    rolesDigest: '9'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 60,
+    fix: true,
+    checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 4 },
+    survey: { userRules: 'judge' },
+    codex: null,
+  }, 5);
+  const decidedChecks = { build: 'npm run build', test: 'npm test' };
+  decided.phaseV4('survey', () => {
+    decided.launch('401', 'surveyor survey:survey');
+    decided.finishWorker('401');
+    decided.add('survey.recorded', {
+      workerId: decided.id('401'),
+      conventions: [{ path: 'CONTRIBUTING.md', level: 'repository', governs: 'code style and tests', appliesTo: null, grounds: null }],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: decidedChecks.build, basis: 'stated', source: { path: 'CONTRIBUTING.md', quote: '`npm run build`' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'the build typechecks' },
+        { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no linter' },
+        { kind: 'test', command: decidedChecks.test, basis: 'stated', source: { path: 'CONTRIBUTING.md', quote: '`npm test`' }, missingTool: null, reason: null },
+      ],
+      note: '',
+    });
+    decided.add('checks.planned', { checks: [
+      { kind: 'build', command: decidedChecks.build, origin: 'survey', reason: null, source: { path: 'CONTRIBUTING.md', quote: '`npm run build`', basis: 'stated' } },
+      { kind: 'typecheck', command: null, origin: 'none', reason: 'the build typechecks', source: null },
+      { kind: 'lint', command: null, origin: 'none', reason: 'the project has no linter', source: null },
+      { kind: 'test', command: decidedChecks.test, origin: 'survey', reason: null, source: { path: 'CONTRIBUTING.md', quote: '`npm test`', basis: 'stated' } },
+    ] }, 2);
+  });
+  decided.phaseV4('triage', () => {
+    decided.launch('402', 'triage triage:SCAN');
+    decided.finishWorker('402');
+    decided.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: decided.id('402'), candidates: [decided.candidate('SCAN-1', 'SCAN', 1), decided.candidate('SCAN-2', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  decided.phaseV4('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = String(410 + finderAngles.indexOf(angle));
+      decided.launch(tag, `finder-${angle} finders:${angle}`);
+      decided.finishWorker(tag);
+      decided.add('candidates.recorded', { phase: 'finders', key: angle, workerId: decided.id(tag), candidates: angle === 'DESIGN' ? [decided.candidate('DESIGN-1', 'DESIGN', 1)] : [], leads: null });
+    }
+  });
+  decided.phaseV4('deduplication', () => {
+    decided.launch('420', 'deduplication deduplication:deduplication');
+    decided.finishWorker('420');
+    decided.add('deduplication.recorded', { phase: 'deduplication', workerId: decided.id('420'), groups: [] });
+  });
+  decided.phaseV4('verification', () => {
+    decided.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'SCAN-1', 'SCAN-2'] }] });
+    decided.launch('421', 'verifier verification:g1');
+    decided.finishWorker('421');
+    decided.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: decided.id('421'), verdicts: [
+      { id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'Not CONFIRMED: whether callers may see the helper is the author\'s. Needs the author: a public helper or a private one.' },
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives' },
+      { id: 'SCAN-2', verdict: 'CONFIRMED', evidence: 'line 1 never checks the guard SCAN-1 adds' },
+    ] });
+  });
+  decided.phaseV4('sweep', () => {
+    decided.launch('430', 'sweep sweep:sweep');
+    decided.finishWorker('430');
+    decided.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: decided.id('430'), candidates: [], leads: null });
+  });
+  decided.phaseV4('sweep-deduplication', () => {});
+  decided.phaseV4('sweep-verification', () => decided.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  decided.phaseV4('merge-rank', () => {
+    decided.launch('440', 'merge-rank merge-rank:merge-rank');
+    decided.finishWorker('440');
+    decided.add('ranking.recorded', { workerId: decided.id('440'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'SCAN-2', members: [], severity: 'minor', summary: 'changed() never checks its guard', reason: 'the guard is part of the fix' },
+      { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one helper reads better' },
+    ] });
+  });
+  decided.phaseV4('decision', () => {
+    decided.launch('445', 'decider decision:decision');
+    decided.finishWorker('445');
+    decided.add('decisions.recorded', { workerId: decided.id('445'), decisions: [
+      {
+        id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference, and the change means to accept one',
+        fix: { approach: 'guard the null in changed() before it is read, and drop the comment that says callers never pass one', rejected: [{ option: 'guard in every caller', reason: 'three copies of one rule' }] },
+        leave: null, ask: null,
+        departure: { rule: 'callers never pass null', source: 'src/changed.ts:1', reason: 'the comment came with a caller that is gone, and its reason does not reach the empty input' },
+      },
+      { id: 'SCAN-2', decision: 'leave', grounds: 'the guard SCAN-1 adds is the check SCAN-2 asks for', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-1' }, ask: null, departure: null },
+      {
+        id: 'DESIGN-1', decision: 'ask', grounds: 'nothing in the repository says whether the helper is public', fix: null, leave: null, departure: null,
+        ask: {
+          question: 'Should the extracted helper be exported?',
+          options: [
+            { option: 'keep the code as it is', cost: 'the two copies stay', rule: 'helpers stay inline until a third caller needs one', edits: false },
+            { option: 'extract a private helper', cost: 'one more function to read', rule: 'shared code moves to a private helper', edits: true },
+          ],
+          recommended: 1,
+          applied: 0,
+          searched: ['CONTRIBUTING.md', 'the change\'s commit message', 'test/changed.test.ts'],
+        },
+      },
+    ] });
+  });
+  decided.phaseV4('baseline-checks', () => {
+    decided.check('baseline-checks', 'build', decidedChecks.build, 'passed');
+    decided.check('baseline-checks', 'test', decidedChecks.test, 'passed');
+  });
+  decided.phaseV4('fixes', () => {
+    decided.add('fixes.planned', {
+      routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'SCAN-2', route: 'held' }, { id: 'DESIGN-1', route: 'held' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] }],
+    });
+    decided.launch('450', 'fixer fixes:c1-1');
+    decided.finishWorker('450');
+    decided.add('fix.recorded', { phase: 'fixes', key: 'c1-1', workerId: decided.id('450'), findings: [finding('SCAN-1', 'applied', ['src/changed.ts'], 'fix: Guard the null in changed()')], drift: [], tests: [], suite: { result: 'pass', command: decidedChecks.test, failures: '' }, violations: [] });
+    decided.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1-1', workerId: decided.id('450') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
+      { path: 'src/changed.ts', status: 'modified', before: decided.frozen('after\n'), beforeSymlink: false, symlink: false, after: decided.frozen('after; // guarded\n') },
+    ] });
+    decided.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
+  }, 'completed', { end: true });
+  decided.phaseV4('checks', () => {
+    decided.check('checks', 'build', decidedChecks.build, 'passed');
+    decided.check('checks', 'test', decidedChecks.test, 'passed');
+  });
+  decided.phaseV4('repair', () => {});
+  decided.phaseV4('repair-checks', () => {});
+  decided.phaseV4('report', () => {
+    const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+    const workersPerPhase: Record<Phase, number> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, decision: 1, 'baseline-checks': 0, fixes: 1, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
+    decided.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a decided run\n'),
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: spend(17), budgetApplied: true },
+      patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
+    }, 4);
+  });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

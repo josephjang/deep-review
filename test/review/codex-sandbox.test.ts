@@ -51,7 +51,7 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     assert.equal(outcome.kind, 'blocked', JSON.stringify(outcome));
     assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'elevated' });
     assert.deepEqual(configured().codex, { windowsSandbox: 'elevated' }, 'recorded on the ledger');
-    assert.equal(versionOfConfiguration(), 4);
+    assert.equal(versionOfConfiguration(), 5);
     assert.deepEqual(launchedWith(), [{ windowsSandbox: 'elevated' }], 'every worker launches with the pinned sandbox');
     assert.ok(launched.every((launch) => launch.runtime === 'codex'));
     assert.ok(box.logs.some((line) => /^run [0-9a-f-]+: configured for codex .*, Codex Windows sandbox elevated; the reviewer's own rules: judge$/.test(line)), box.logs.join('\n'));
