@@ -245,7 +245,140 @@ last paragraph of `lead-verify.md`; R12 replaces two defer criteria of
 
 ## Verification
 
-No checks have run yet.
+Run on the author's Windows 11 machine on 2026-10-08, Node 26.10.0, over
+the four commits that build the element after the proposal (`cf8f02f`):
+`b3869b1` (the decider's prompt), `cf51077` (the engine), `f02dee2`
+(R11) and `025290b` (R12). `npm run check` and `npm run verify` passed
+before each commit; the last ends at 1618 tests, 1599 passing and 19
+skipped, the platform-bound cases this machine always skips.
+Continuous integration on the three platforms runs when the pull
+request opens.
+
+### Step 0: the decider before the proposal (R13)
+
+Run on 2026-10-08, on the author's Windows 11 machine, by a scratch
+script beside the corpus
+(`projects\gate\notes\2026-10-08-decider-experiment\decide.ts`) that
+imported a frozen copy of the engine at `1811a86` and ran the
+`decider-brief.md` and `decider-rubric.md` this element commits, byte for
+byte. Input: the five replayed runs (zod `7daab352`, click `e0a1f834`,
+click-codex `e9755671`, pytest `64250a74`, hono `4e135100`), each
+finding's merges as recorded and each member's verdict and evidence from
+that runtime's rewrite-3 replay sample, refuted members dropped, as the
+2026-10-07 audit simulated them. Each worker decided a whole run; Claude
+Code (Opus, high) and Codex (gpt-6-astra, high), two samples each, and a
+third whole sample of which only the findings the first two split on
+are read.
+
+| | Claude | Codex |
+|---|---|---|
+| Workers answered, of launched | 15 of 15 | 15 of 15 |
+| Wall time per worker | 119 to 361 s | 187 to 777 s |
+| Cost per worker | 0.57 to 1.61 USD | not reported |
+
+Over the first two samples (20 run samples, 400 decisions): 223 fix
+(9 departing from a rule), 152 leave (72 outside the change, 44
+superseded, 36 intended), 25 ask, of which 22 applied a default that
+keeps the code.
+
+| Metric | Result |
+|---|---|
+| Asks per run sample | 1.25 on average; 4 of 20 above 2 |
+| Asks on a finding labeled `apply` (false alarms) | 0 |
+| Leaves for a reason other than `superseded` on a finding labeled `apply` | 0 |
+| Leaves as `superseded` on a finding labeled `apply` | 21, each naming a finding decided fix whose fix removes it; the fixer of that finding is now told to check it is gone (R7) |
+| Same decision kind in all four samples, of the 96 findings both runtimes decided | 64 |
+| Findings split between the samples of one runtime | Claude 15 of 97, Codex 7 of 103 |
+| Split findings, within a runtime or across, with an `ask` label | 17 of 32 (53 percent) |
+
+Of the 32 splits, 14 are only `fix` against `leave` as `superseded`,
+which changes no edit. A majority of three samples settles 27 of the 32
+within each runtime, but the runtimes' majorities differ on 21: Claude
+asks or leaves as intended where Codex fixes. The fold of R11 in the
+plan this proposal started from therefore did not qualify (PD9).
+
+The 51 findings labeled as the author's call were read against each
+label's basis, sample by sample: of the first two samples' 200 decisions
+on them, 185 applied the side easiest to take back and 15 committed to
+the author's side (Claude 5, Codex 10): fixes of behavior the change did
+not alter (pytest SCAN-6, hono SWEEP-1), widening a policy to untouched
+code (click-codex SWEEP-2), extending a fix to names a walrus does not
+rebind (pytest ALTITUDE-7, Codex), and replacing a design a commit
+states on purpose (zod EFFICIENCY-3, Codex, as a departure).
+
+The slowest worker, Codex over zod's 30 findings at 777 s, sets the
+decider's timeout at 1800 s.
+
+### The rubric's first lines (R11)
+
+The verifier was replayed with this element's `rubrics.md` and
+`lead-verify.md` (verifier prompt `12f0d323`) on the two validation
+runs, one sample per runtime, `--role-text current`, into the replay
+corpus beside the rewrite-3 samples (`210c2e4f`) the rubric's R10 was
+measured on. Two Claude samples a usage limit cut short were removed
+(`results.before-drop-*.json` keep them) and taken again.
+
+| | rewrite 3 (`codex-2`, `claude-2`) | this text (`codex-3`, `claude-3`) |
+|---|---|---|
+| Not real kept, Codex | 2 of 6 | 2 of 6 |
+| Real dropped, Claude | 4 of 41 | 4 of 41 |
+| Labeled outcome, both runtimes, of 94 | 57 | 60 |
+| Same outcome as rewrite 3, same runtime | | Codex 43 of 47, Claude 44 of 47 |
+| Codex and Claude on the same outcome, of 47 | 40 | 36 |
+
+The labeled counts are rewrite 3's, and each runtime gives the outcome
+it gave under rewrite 3 on 43 or 44 of 47 candidates, near what two
+samples of one text agree on. The agreement between runtimes is four
+lower, from one sample each; it is named, not taken as a change of
+grade, since no sentence of a grade table changed.
+
+### The gate (R14)
+
+Three runs of the engine from these sources: pytest #14447 read-only on
+Claude Code and hono #5513 read-only on Codex, in the replay corpus's
+trees, and pytest #14447 with `--fix` on Claude Code in a clone of its
+tree, from the plugin bundle `npm run build` makes. The two read-only
+runs ran on the tree before two defects they showed were fixed in
+`cf51077`: the decider named other findings by their index in its task
+(`[0]'s fix`), which means nothing in the report or to a fixer, and is
+now told to name them by id; and an option that ended with a stop was
+printed with two. The fix run ran on the final tree, and its decisions
+name findings by id.
+
+| | pytest, Claude | hono, Codex | pytest `--fix`, Claude |
+|---|---|---|---|
+| Run | `c45c7ec0` | `57a305c2` | `0faec159` |
+| Every phase completed, no unit degraded | yes | yes | yes |
+| Findings | 17 | 23 | 11 |
+| Decided fix, leave, ask | 10, 7, 0 | 10, 12, 1 | 6, 5, 0 |
+| Leaves by reason | 6 superseded, 1 intended | 10 outside the change, 2 intended | 5 superseded |
+| Departures | 0 | 0 | 0 |
+| The decider: seconds, USD | 136, 0.85 | 227, not reported | 215, 1.09 |
+| The run: workers, USD | 23, 9.25 | 23, not reported | 28, 12.73 |
+
+Questions per run: 0, 1 and 0, within the target of 2. The one question,
+on hono, keeps the code by default and was routed to no fixer. These
+reviews were made fresh, so no label covers their findings, and false
+alarms are not counted here; the experiment above counts them.
+
+The fix run's survey first blocked with `check-unavailable`: pytest
+states its checks through `tox`, which this machine lacks. Run again
+with `--no-check` for build, typecheck and lint and `--check` naming
+pytest on the assertion-rewriting suites, it went on with no new survey.
+Of the six findings decided fix, five were applied and one reported
+already applied, none deferred or blocked; one finding blocked on a file
+another cluster owned was applied in the second round; the test check
+passed before and after the fixes, and the repair had nothing to do.
+The five findings left as superseded each name the finding whose fix
+removes them, and that fixer was told to check them.
+
+Once in each pytest run the decider decided `fix` with an approach of
+no edit, to keep a test file's existing idiom; in the fix run the fixer
+reported it already applied, and nothing changed. Such a decision is a `leave` in
+substance, and costs one finding of a fixer's turn.
+
+No fix run before this one was made on pytest, so the share a fixer
+defers has no before to compare with on the same change: it was 0 of 6.
 
 ## Risks & Migration
 
@@ -257,3 +390,8 @@ No checks have run yet.
   measured on the verifier, not on the decider.
 - A merge that binds two findings sharing only a rule binds their
   decision (requirements, Risks).
+- A choice settled toward keeping the code can come back as `fix` with
+  no edit rather than `leave` (Verification, the gate); a fixer then
+  reports it already applied. The rubric names no leave reason for "the
+  surrounding code's shape is kept", and adding one is a rubric change
+  that is measured before it lands.
