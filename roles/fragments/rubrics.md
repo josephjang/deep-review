@@ -47,9 +47,9 @@ That note never changes the grade.
 ### Rubric for the correctness & cost angles
 
 Angles `SCAN`, `REMOVALS`, `RIPPLE`, `FOOTGUNS`, `WRAPPERS` and
-`EFFICIENCY`. CONFIRMED and PLAUSIBLE both send the candidate to a
-fixer, PLAUSIBLE telling it which condition is unsettled. REFUTED
-removes the candidate.
+`EFFICIENCY`. CONFIRMED and PLAUSIBLE both go to the decision step,
+PLAUSIBLE telling it which condition is unsettled. REFUTED removes the
+candidate.
 
 | Check | Question | How to answer |
 |---|---|---|
@@ -128,10 +128,11 @@ Each side of each line:
 
 ### Rubric for the design & cleanup angles
 
-Angles `DESIGN`, `DUPLICATION` and `ALTITUDE`. CONFIRMED is applied by a
-fixer without asking. PLAUSIBLE is put to the author as a question.
-REFUTED removes the candidate. The candidate's `value_statement` is the
-claim, and you are its filter.
+Angles `DESIGN`, `DUPLICATION` and `ALTITUDE`. CONFIRMED and PLAUSIBLE
+both go to the decision step, PLAUSIBLE telling it the scope or the
+choice that keeps the candidate from CONFIRMED. REFUTED removes the
+candidate. The candidate's `value_statement` is the claim, and you are
+its filter.
 
 | Check | Question | How to answer |
 |---|---|---|
@@ -182,8 +183,8 @@ Each side of each line:
 ### Rubric for the CONVENTIONS angle
 
 `CONVENTIONS` is precision-first, so the verifier mostly confirms what the
-finder already quoted. CONFIRMED and PLAUSIBLE both send the candidate
-to a fixer. REFUTED removes it.
+finder already quoted. CONFIRMED and PLAUSIBLE both go to the decision
+step. REFUTED removes it.
 
 - **CONFIRMED** — the cited file is a convention source the scope block
   lists, or a file such a source imports or links to, it genuinely

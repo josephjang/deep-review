@@ -448,11 +448,11 @@ describe('the repository\'s roles/', () => {
     for (const role of roles) {
       const prompt = role.prompt.replace(/\s+/g, ' ');
       for (const posture of ['PLAUSIBLE by default', 'Do not default to PLAUSIBLE', 'never quietly dropped']) assert.ok(!prompt.includes(posture), `${role.key} says "${posture}"`);
-      // True of the design rubric only: for every other angle both grades went to a fixer.
+      // Neither grade decides whether a fix is applied without asking: the decision step does (R11 of the decision step).
       assert.ok(!prompt.includes('the split between the other two decides whether the fix is applied without asking'), role.key);
     }
     const leadVerify = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'lead-verify.md'), 'utf8').replace(/\s+/g, ' ');
-    assert.ok(leadVerify.includes('What the other two do differs by rubric, and each rubric says so in its first lines.'));
+    assert.ok(leadVerify.includes('The other two go to the decision step, which decides what is done about the finding; each rubric says in its first lines what its PLAUSIBLE tells that step.'));
   });
 
   it('cites to the rubric\'s "verify before you judge" gate no feasibility rule the gate does not state', () => {

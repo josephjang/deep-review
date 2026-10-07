@@ -5,6 +5,7 @@ one verdict per candidate plus one line of evidence citing the lines that
 justify it.
 
 **CONFIRMED, PLAUSIBLE and REFUTED say what happens next, not how sure
-you feel.** REFUTED is the only one that removes a candidate. What the
-other two do differs by rubric, and each rubric says so in its first
-lines.
+you feel.** REFUTED is the only one that removes a candidate. The other
+two go to the decision step, which decides what is done about the
+finding; each rubric says in its first lines what its PLAUSIBLE tells
+that step.

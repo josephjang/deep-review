@@ -68,7 +68,7 @@ describe('routeOfDecision (R6 of the decision step)', () => {
   });
 });
 
-describe('what the rubrics say a grade does next (R3 of the verifier rubric)', () => {
+describe('what the rubrics say a grade does next (R3 of the verifier rubric, R11 of the decision step)', () => {
   const text = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
 
   /**
@@ -78,9 +78,9 @@ describe('what the rubrics say a grade does next (R3 of the verifier rubric)', (
    * verdict, so the words are held to the rubric's text alone.
    */
   const rubrics = [
-    { heading: '### Rubric for the correctness & cost angles', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
-    { heading: '### Rubric for the design & cleanup angles', says: 'CONFIRMED is applied by a fixer without asking. PLAUSIBLE is put to the author as a question.' },
-    { heading: '### Rubric for the CONVENTIONS angle', says: 'CONFIRMED and PLAUSIBLE both send the candidate to a fixer' },
+    { heading: '### Rubric for the correctness & cost angles', says: 'CONFIRMED and PLAUSIBLE both go to the decision step, PLAUSIBLE telling it which condition is unsettled.' },
+    { heading: '### Rubric for the design & cleanup angles', says: 'CONFIRMED and PLAUSIBLE both go to the decision step, PLAUSIBLE telling it the scope or the choice that keeps the candidate from CONFIRMED.' },
+    { heading: '### Rubric for the CONVENTIONS angle', says: 'CONFIRMED and PLAUSIBLE both go to the decision step.' },
   ] as const;
 
   /** A rubric's first paragraph on one line: the text under its heading, up to the first blank line. */
@@ -99,12 +99,13 @@ describe('what the rubrics say a grade does next (R3 of the verifier rubric)', (
     assert.deepEqual([...named].sort(), [...angles].sort());
   });
 
-  it('says where CONFIRMED and PLAUSIBLE lead and that REFUTED removes, and names an angle', () => {
+  it('names the decision step as where CONFIRMED and PLAUSIBLE go, says REFUTED removes, and names an angle', () => {
     for (const { heading, says } of rubrics) {
       const paragraph = opening(heading);
       assert.ok(paragraph.includes(says), `${heading}: its first lines do not say "${says}"`);
       assert.match(paragraph, /REFUTED removes (the candidate|it)\./, heading);
       assert.ok(namedIn(paragraph).length > 0, `${heading} names no angle`);
+      assert.doesNotMatch(paragraph, /to a fixer|to the author/, `${heading} still names where a grade went before the decision step`);
     }
   });
 });
