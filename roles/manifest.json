@@ -118,6 +118,13 @@
       "rubrics.md",
       "phase4-list.md"
     ],
+    "decider": [
+      "decider-brief.md",
+      "worker-scope.md",
+      "lead-verify.md",
+      "rubrics.md",
+      "decider-rubric.md"
+    ],
     "fixer": [
       "fixer-role.md",
       "fixer-brief.md",

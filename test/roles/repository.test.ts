@@ -15,14 +15,15 @@ const expectedRoles = [
   'finder-SCAN', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY',
   'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS',
   'deduplication', 'verifier', 'sweep', 'merge-rank',
+  'decider',
   'fixer', 'documentation', 'test-assessment', 'auditor', 'answer',
 ];
 
 /** The roles whose prompt opens with the lead reviewer's brief. */
 const leadRoles = ['triage', 'finder-SCAN', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'test-assessment'];
 
-/** The roles the read-only review runs: the surveyor, the triage (which runs `SCAN`), the nine other finders, and the four phase roles after them. */
-const reviewRoles = ['surveyor', 'triage', ...expectedRoles.filter((key) => key.startsWith('finder-') && key !== 'finder-SCAN'), 'deduplication', 'verifier', 'sweep', 'merge-rank'];
+/** The roles the read-only review runs: the surveyor, the triage (which runs `SCAN`), the nine other finders, the four phase roles after them, and the decider. */
+const reviewRoles = ['surveyor', 'triage', ...expectedRoles.filter((key) => key.startsWith('finder-') && key !== 'finder-SCAN'), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider'];
 
 describe('the repository\'s roles/', () => {
   const roles = assembleRoles(repositoryRolesRoot());
@@ -193,6 +194,14 @@ describe('the repository\'s roles/', () => {
     const leads = roles.filter((role) => role.fragments[0]!.name === 'lead-brief.md');
     assert.deepEqual(leads.map((role) => role.key), leadRoles);
     assert.deepEqual(leads.filter((role) => /Keep\s+the\s+mutation\s+within\s+your\s+ownership/i.test(role.prompt)).map((role) => role.key), []);
+  });
+
+  it('gives the decider its brief, the scope rule, the verifier\'s rubrics it reads the verdicts by, and its own rubric, in that order (R2 of the decision step)', () => {
+    const decider = roles.find((role) => role.key === 'decider')!;
+    assert.deepEqual(decider.fragments.map((fragment) => fragment.name), ['decider-brief.md', 'worker-scope.md', 'lead-verify.md', 'rubrics.md', 'decider-rubric.md']);
+    assert.match(decider.prompt, /return exactly one\s+decision per finding in the requested shape, with no preamble and no\s+commentary/);
+    assert.match(decider.prompt, /You edit nothing: probe in\s+your scratch directory, never in the repository/);
+    assert.match(decider.prompt, /you do not grade it again/);
   });
 
   /**
@@ -555,7 +564,7 @@ describe('scripts/roles.ts', () => {
     assert.equal(result.status, 0, result.stderr);
     const lines = result.stdout.trim().split('\n');
     assert.deepEqual(lines.slice(0, -1).map((line) => line.split('\t')[0]), expectedRoles);
-    assert.match(lines.at(-1)!, /^Wrote 21 prompts to /);
+    assert.match(lines.at(-1)!, /^Wrote 22 prompts to /);
     assert.deepEqual(readdirSync(output).sort(), expectedRoles.map((key) => `${key}.md`).sort());
     for (const role of assembleRoles(repositoryRolesRoot())) {
       assert.equal(readFileSync(join(output, `${role.key}.md`), 'utf8'), role.prompt, role.key);
