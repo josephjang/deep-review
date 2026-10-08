@@ -140,8 +140,9 @@ its own, not the merged one. `fixerTask` prints each member with its
 verdict and evidence, the decision's lines (approach, rejected options,
 departure; or the ask's default and question), the superseded findings
 to check, and, when any finding carries a decision, one paragraph on
-applying it, deferring only for an unseen fact, and saying which pinned
-test a fix changed. A finding of a run configured before the step has
+applying it, never deferring over a choice the decision made but only by
+the role prompt's criteria, naming an unseen fact, and saying which
+pinned test a fix changed. A finding of a run configured before the step has
 no decision and the task says nothing of decisions.
 
 ### Planner steps (R1, R9)

@@ -243,7 +243,9 @@ describe('the fixer\'s task', () => {
     const task = fixerTask(input);
     assert.match(task, /^ {4}decided: fix\. the changelog says parse accepts null\n {8}approach: guard in parse\n {8}rejected: guard in each caller \(two copies of one rule\)\n {8}departs from: parse trusts its callers \(src\/a\.ts:2\): other\(\) is a caller it never trusted$/m);
     assert.match(task, /^ {4}decided: ask the author, applying a default now\. nothing states it\n {8}apply: log once\n {8}the question the author answers later: Should b log\? The other options: stay quiet; log always$/m);
-    assert.match(task, /Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later\. Defer a finding only for a fact the decision did not see, and name that fact in `note`\. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`\./);
+    assert.match(task, /Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later\. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`\. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`\./);
+    // The role prompt's other defer criteria still hold, so the task does not narrow every defer to an unseen fact (R12 of the decision step).
+    assert.doesNotMatch(task, /Defer a finding only for a fact the decision did not see/);
   });
 
   it('names a finding left as superseded under the finding whose fix removes it, so the fixer checks it is gone', () => {

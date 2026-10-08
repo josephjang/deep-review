@@ -100,7 +100,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.match(c1, /^\[0\] SCAN-1 \[minor\] PLAUSIBLE \(SCAN\) at src\/a\.ts:2$/m);
     assert.doesNotMatch(c1, /SWEEP-1/);
     assert.match(c1, /^ {4}decided: fix\. fake grounds for \[0\]\n {8}approach: fake approach for \[0\]\n {8}rejected: fake alternative for \[0\] \(fake reason it was rejected\)$/m);
-    assert.match(c1, /Defer a finding only for a fact the decision did not see/);
+    assert.match(c1, /Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt/);
     assert.match(c1, /- src\/b\.ts \(c2\)/, 'the other cluster\'s files are named as not to be edited');
     assert.match(c1, /^ {4}node ".*cli\.ts" snapshot --finding <index> --into ".*snapshots"$/m);
     assert.doesNotMatch(c1, /may already hold part of this work/);

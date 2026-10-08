@@ -151,10 +151,12 @@ can be departed from when it is found wrong.
   gives each finding's decision (the approach and the options rejected,
   or the ask's question and the default to apply, and any rule departed
   from), every merged candidate's own verdict and evidence, and every
-  finding left as superseded by it, whose removal it checks. It defers a
-  finding only for a fact the decision did not see, and names it. A fix
-  that changes a behavior a test pins changes that test and says which
-  and why in the note and the commit message's body.
+  finding left as superseded by it, whose removal it checks. It never
+  defers a finding over a choice its decision made: it defers only by
+  the criteria its role prompt keeps (R12), and when the reason is a
+  fact the decision did not see, it names that fact. A fix that changes
+  a behavior a test pins changes that test and says which and why in the
+  note and the commit message's body.
 - **R8: The report and `status` show the decisions.** A Decisions
   section follows the header: a count of the decisions and of the fixes
   that depart from a rule; the questions for the author as a checklist,

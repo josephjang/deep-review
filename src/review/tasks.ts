@@ -423,8 +423,8 @@ function decidedLines(decision: RecordedDecision): string[] {
   return [`    decided: ${decision.decision}. ${decision.grounds}`];
 }
 
-/** What a fixer's task says of the decisions it carries: apply them, and when to depart from one. */
-const decidedRule = 'Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Defer a finding only for a fact the decision did not see, and name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message\'s `body`.';
+/** What a fixer's task says of the decisions it carries: apply them, and defer only by the role prompt's criteria, never over a choice the decision made (R7, R12 of the decision step). */
+const decidedRule = 'Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message\'s `body`.';
 
 /** A fixer's task (R4, R18 of the fix pass): its batch's findings numbered in rank order, what the cluster's earlier batches did, the ownership rule with both file lists, the checks, the snapshot command and the answer it returns. */
 export function fixerTask(input: FixerTaskInput): string {
