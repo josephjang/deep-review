@@ -237,8 +237,9 @@ export type Verdict = z.infer<typeof verdictSchema>;
 /**
  * What the decision step makes of a ranked finding (R3 of the decision
  * step): a fixer applies it the way the decider chose, it is left with a
- * stated reason, or the author is asked one question while a fixer
- * applies the default the decider named.
+ * stated reason, or the author is asked one question while the default
+ * the decider named stands. A fix run's fixer applies that default when
+ * it edits the code; one that keeps the code goes to no fixer.
  */
 export const decisionKinds = ['fix', 'leave', 'ask'] as const;
 export const decisionKindSchema = z.enum(decisionKinds);
