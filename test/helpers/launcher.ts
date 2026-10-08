@@ -23,7 +23,8 @@ export const answerSchema = z.strictObject({ answer: z.string() });
  * CLAUDE* variable goes too, whatever its spelling: the Claude fake
  * records each one it receives (FAKE_CLAUDE_ENV), and the shell running
  * the tests can hold ones the adapter passes through, such as
- * CLAUDE_PLUGIN_ROOT or the CLAUDE_JOB_DIR of a newer Claude Code session.
+ * CLAUDE_PLUGIN_ROOT, or one a newer Claude Code session sets that the
+ * adapter's hand-kept list of session markers lacks.
  * So do the git variables that name a repository (see git.ts), since the
  * engine a test starts with this environment runs git.
  */

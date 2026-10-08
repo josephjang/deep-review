@@ -22788,7 +22788,9 @@ var claudeSessionMarkers = [
   "CLAUDE_CODE_ENTRYPOINT",
   "CLAUDE_CODE_SSE_PORT",
   "CLAUDE_CODE_MESSAGING_SOCKET",
-  "CLAUDE_CODE_MESSAGING_TOKEN"
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_JOB_DIR",
+  "CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT"
 ];
 var claudeCredentialSettings = ["apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh", "proxyAuthHelper"];
 var reservedSettingsVariables = [

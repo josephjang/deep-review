@@ -550,6 +550,14 @@ describe('Claude Code worker through the launcher', () => {
     assert.equal(receipt.outcome, 'completed');
     assert.deepEqual(JSON.parse(readFileSync(seen, 'utf8')), { CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
   });
+
+  it('starts the worker without the job directory and the repaint setting a newer Claude Code session sets', async () => {
+    const seen = join(box.directory, 'claude-env.json');
+    const session = { CLAUDE_JOB_DIR: join(box.directory, 'jobs', '7d1108f6'), CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT: '1' };
+    const receipt = await box.run(box.claude({ effort: 'low' }), { ...session, FAKE_CLAUDE_ENV: seen });
+    assert.equal(receipt.outcome, 'completed');
+    assert.deepEqual(JSON.parse(readFileSync(seen, 'utf8')), { CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+  });
 });
 
 describe('truncateDetail', () => {

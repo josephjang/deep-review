@@ -35,13 +35,15 @@ export const thinkingOverrides = ['MAX_THINKING_TOKENS', 'CLAUDE_CODE_DISABLE_TH
  * itself a child session (which turns session persistence off in an
  * interactive child), to take the parent's entrypoint, to connect to the
  * parent's IDE and to join the parent's messaging socket with its token.
+ * `CLAUDE_JOB_DIR` names the parent's job directory, and
+ * `CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT` is a display setting of the
+ * parent's screen, which a worker in print mode does not draw.
  * A worker is a session of its own, so they are dropped, never refused:
  * refusing would stop every worker the engine starts from inside Claude
  * Code. The worker's CLI sets its own for the processes it starts.
  *
- * The list is kept by hand and a newer Claude Code sets variables it lacks
- * (`CLAUDE_JOB_DIR`, `CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT`), which a worker
- * then inherits: https://github.com/josephjang/deep-review/issues/15
+ * The list is kept by hand, so a newer Claude Code can set a variable it
+ * lacks, which a worker then inherits until the name is added here.
  */
 export const claudeSessionMarkers = [
   'CLAUDECODE',
@@ -56,6 +58,8 @@ export const claudeSessionMarkers = [
   'CLAUDE_CODE_SSE_PORT',
   'CLAUDE_CODE_MESSAGING_SOCKET',
   'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_JOB_DIR',
+  'CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT',
 ] as const;
 
 /**
