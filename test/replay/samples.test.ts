@@ -173,6 +173,8 @@ describe('renderSummary', () => {
     const results = withSpend(replayed(), 'claude-1', { workers: 2, seconds: 30.5, costUsd: 0.5 }, '2.1.289');
     const summary = renderSummary(results);
     assert.ok(summary.startsWith('# Verifier replay of run run-1\n\nSource: a claude run recorded by engine 0.0.0, mode worktree at head 2222222222222222222222222222222222222222, in /w.\nCandidates: 4 in 2 verification groups.\n'), summary);
+    // An outcome is the verdict's route before the decision step, which a run no longer takes.
+    assert.ok(summary.includes('An outcome is the route a verdict alone gave the candidate before the decision step, by verdict and angle: refuted and dropped, sent to a fixer, or held for the author. It is the rule the labels are scored against. A run now routes each merged finding by the decision made for it, which a replay does not make, so a candidate may take another route there.'), summary);
     assert.ok(summary.includes('| recorded | claude | opus | high | recorded aaaaaaaa | 2.1.283 | 4 | 12.5 | 1.50 |\n| claude-1 | claude | opus | high | recorded aaaaaaaa | 2.1.289 | 2 | 30.5 | 0.50 |\n'), summary);
     assert.ok(summary.includes('| recorded | 4 of 4 | 1 | 2 | 1 | 2 | 2 | 1 | 1 |\n| claude-1 | 3 of 4 | 2 | 1 | 0 | 0 | 3 | 0 | 0 |\n'), summary);
     assert.ok(summary.includes([

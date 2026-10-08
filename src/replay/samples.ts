@@ -281,7 +281,7 @@ export function renderSummary(results: ReplayResults): string {
     `Source: a ${source.runtime} run recorded by engine ${inlineText(source.engine)}, mode ${source.mode} at head ${source.head}, in ${inlineText(source.worktree)}.`,
     `Candidates: ${String(results.candidates.length)} in ${String(new Set(results.candidates.map((candidate) => `${candidate.phase}:${candidate.group}`)).size)} verification groups.`,
     '',
-    'An outcome is what a verdict does to the candidate taken alone: refuted and dropped, sent to a fixer, or held for the author. A run routes merged findings, so a merged candidate may take another route there. An unverified candidate carries PLAUSIBLE with no verifier\'s judgment, so it is counted below but compared with no other sample.',
+    'An outcome is the route a verdict alone gave the candidate before the decision step, by verdict and angle: refuted and dropped, sent to a fixer, or held for the author. It is the rule the labels are scored against. A run now routes each merged finding by the decision made for it, which a replay does not make, so a candidate may take another route there. An unverified candidate carries PLAUSIBLE with no verifier\'s judgment, so it is counted below but compared with no other sample.',
     '',
     '## Samples',
     '',
