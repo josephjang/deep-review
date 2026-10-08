@@ -24,7 +24,9 @@ export default tseslint.config(
     // A test's git must run through test/helpers/git.ts, which keeps the
     // variables that name another repository, such as the GIT_DIR of a
     // `git rebase --exec`, out of its environment. Any other spawn of git
-    // under test/ would inherit them.
+    // under test/ would inherit them. The rule flags a spawn whose first
+    // argument is the literal string git; one that names git any other way,
+    // through a variable, a template literal or a shell, passes it.
     files: ['test/**/*.ts', 'test/**/*.mjs'],
     ignores: ['test/helpers/git.ts'],
     rules: {
