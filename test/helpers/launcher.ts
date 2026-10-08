@@ -9,6 +9,7 @@ import type { InvocationInput } from '../../src/runtime/contract.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { runWorker, type RunWorkerOptions, type WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
+import { withoutRepositoryVariables } from './git.ts';
 
 export const fakeClaude = resolve(import.meta.dirname, 'fake-claude.ts');
 export const fakeCodex = resolve(import.meta.dirname, 'fake-codex.ts');
@@ -23,10 +24,12 @@ export const answerSchema = z.strictObject({ answer: z.string() });
  * records each one it receives (FAKE_CLAUDE_ENV), and the shell running
  * the tests can hold ones the adapter passes through, such as
  * CLAUDE_PLUGIN_ROOT or the CLAUDE_JOB_DIR of a newer Claude Code session.
+ * So do the git variables that name a repository (see git.ts), since the
+ * engine a test starts with this environment runs git.
  */
 export function hermeticEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
   return Object.fromEntries(
-    Object.entries(withoutVariables(environment, thinkingOverrides, platform)).filter(([name]) => {
+    Object.entries(withoutRepositoryVariables(withoutVariables(environment, thinkingOverrides, platform), platform)).filter(([name]) => {
       const upper = name.toUpperCase();
       return !upper.startsWith('FAKE_') && !upper.startsWith('CLAUDE');
     }),

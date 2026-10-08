@@ -16,7 +16,7 @@
     "replay": "node scripts/replay-verifier.ts",
     "replay-score": "node scripts/score-replay.ts",
     "review": "node src/cli.ts",
-    "test": "node --test \"test/**/*.test.ts\"",
+    "test": "node --import ./test/setup.ts --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check": "npm run lint && npm run typecheck && npm test"

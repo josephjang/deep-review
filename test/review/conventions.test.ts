@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { execFileSync } from 'node:child_process';
 import { existingUserRulesFiles, mailmapAddress, reviewerAuthorship, userConventionFiles } from '../../src/review/conventions.ts';
 import { commitAll, git as repoGit, repositoryWith, write as writeFile } from '../helpers/repository.ts';
 
@@ -48,19 +47,16 @@ describe('reviewerAuthorship', () => {
   });
   afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
 
-  const gitIn = (repo: string, ...args: string[]): void => {
-    execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
-  };
   /** A commit by another author, as a maintainer of the repository makes one. */
   const commitBy = (repo: string, email: string, path: string): void => {
     writeFile(repo, path, `${path}\n`);
-    gitIn(repo, 'add', '-A');
-    gitIn(repo, '-c', `user.email=${email}`, '-c', 'user.name=Someone', 'commit', '-q', '-m', path);
+    repoGit(repo, 'add', '-A');
+    repoGit(repo, '-c', `user.email=${email}`, '-c', 'user.name=Someone', 'commit', '-q', '-m', path);
   };
 
   it('counts the recent commits authored with the configured email, without regard to case', () => {
     const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
-    gitIn(repo, 'config', 'user.email', 'Reviewer@Example.invalid');
+    repoGit(repo, 'config', 'user.email', 'Reviewer@Example.invalid');
     commitBy(repo, 'reviewer@example.invalid', 'b.txt');
     commitBy(repo, 'maintainer@example.invalid', 'c.txt');
     writeFile(repo, 'd.txt', 'd\n');
@@ -87,7 +83,7 @@ describe('reviewerAuthorship', () => {
 
   it('says no identity is configured, and so attributes nothing, when user.email is unset for the repository', () => {
     const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
-    gitIn(repo, 'config', '--unset-all', 'user.email');
+    repoGit(repo, 'config', '--unset-all', 'user.email');
     assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'unset' });
   });
 
@@ -98,9 +94,9 @@ describe('reviewerAuthorship', () => {
     commitBy(repo, 'WORK@example.invalid', 'c.txt');
     commitBy(repo, 'maintainer@example.invalid', 'd.txt');
     // The helper's first commit is test@example.invalid's, then one at home, one at work and a maintainer's.
-    gitIn(repo, 'config', 'user.email', 'work@example.invalid');
+    repoGit(repo, 'config', 'user.email', 'work@example.invalid');
     assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 4, byReviewer: 2 });
-    gitIn(repo, 'config', 'user.email', 'home@example.invalid');
+    repoGit(repo, 'config', 'user.email', 'home@example.invalid');
     assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 4, byReviewer: 2 });
   });
 
@@ -108,7 +104,7 @@ describe('reviewerAuthorship', () => {
     const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': 'a\n' });
     commitBy(repo, 'home@example.invalid', 'b.txt');
     commitBy(repo, 'work@example.invalid', 'c.txt');
-    gitIn(repo, 'config', 'user.email', 'work@example.invalid');
+    repoGit(repo, 'config', 'user.email', 'work@example.invalid');
     assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 3, byReviewer: 1 });
   });
 
@@ -116,7 +112,7 @@ describe('reviewerAuthorship', () => {
     // An entry keyed on name and address maps only a commit with both, so the bare configured address stays itself.
     const repo = repositoryWith(join(sandbox, 'repo'), { '.mailmap': 'Rev <home@example.invalid> Work Name <work@example.invalid>\n' });
     commitBy(repo, 'work@example.invalid', 'b.txt');
-    gitIn(repo, 'config', 'user.email', 'work@example.invalid');
+    repoGit(repo, 'config', 'user.email', 'work@example.invalid');
     // The commit's author is named Someone, so the entry maps neither it nor the configured address.
     assert.deepEqual(withoutMachineGitConfig(() => reviewerAuthorship(repo)), { identity: 'set', commits: 2, byReviewer: 1 });
   });
@@ -143,8 +139,8 @@ describe('reviewerAuthorship', () => {
       'signed',
       '',
     ].join('\n'));
-    gitIn(repo, 'update-ref', 'refs/heads/main', repoGit(repo, 'hash-object', '-t', 'commit', '-w', signed));
-    gitIn(repo, 'config', 'log.showSignature', 'true');
+    repoGit(repo, 'update-ref', 'refs/heads/main', repoGit(repo, 'hash-object', '-t', 'commit', '-w', signed));
+    repoGit(repo, 'config', 'log.showSignature', 'true');
     withoutMachineGitConfig(() => {
       // The setting does reach a plain `git log`: it prints more lines than the two commits.
       assert.ok(repoGit(repo, 'log', '--format=%ae', 'HEAD', '--').split(/\r?\n/).length > 2);

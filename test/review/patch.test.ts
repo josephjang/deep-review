@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -114,7 +113,7 @@ describe('renderPatch', () => {
         writeFileSync(file, text);
         return file;
       });
-      execFileSync('git', ['am', '--keep-cr', '--whitespace=nowarn', ...files], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] });
+      git(repo, 'am', '--keep-cr', '--whitespace=nowarn', ...files);
       for (const [path, expected] of state) {
         const bytes = expected === null ? null : read((expected.frozen as { blob: { sha256: string; bytes: number } }).blob);
         if (bytes === null) assert.throws(() => readFileSync(join(repo, path)), /ENOENT/, path);
@@ -141,7 +140,7 @@ describe('a patch of a CRLF checkout rewritten to LF (R22)', () => {
     const origin = repositoryWith(join(directory, 'origin'), { 'a.txt': `${lines.join('\n')}\n` });
     const clone = (name: string, autocrlf: boolean): string => {
       const path = join(directory, name);
-      execFileSync('git', ['-c', `core.autocrlf=${String(autocrlf)}`, 'clone', '-q', origin, path], { stdio: ['ignore', 'pipe', 'pipe'] });
+      git(directory, '-c', `core.autocrlf=${String(autocrlf)}`, 'clone', '-q', origin, path);
       for (const [key, value] of [['core.autocrlf', String(autocrlf)], ['user.name', 'Test'], ['user.email', 'test@example.invalid']]) git(path, 'config', key!, value!);
       return path;
     };
@@ -162,7 +161,7 @@ describe('a patch of a CRLF checkout rewritten to LF (R22)', () => {
     writeFileSync(file, mail);
     for (const [name, autocrlf] of [['apply-lf', false], ['apply-crlf', true]] as const) {
       const target = clone(name, autocrlf);
-      execFileSync('git', ['am', '--keep-cr', '--whitespace=nowarn', file], { cwd: target, stdio: ['ignore', 'pipe', 'pipe'] });
+      git(target, 'am', '--keep-cr', '--whitespace=nowarn', file);
       assert.equal(git(target, 'show', 'HEAD:a.txt'), after.toString('utf8').trimEnd(), name);
       assert.equal(git(target, 'status', '--porcelain'), '', name);
     }
@@ -175,7 +174,7 @@ describe('gitBlobId', () => {
     try {
       const file = join(directory, 'x');
       writeFileSync(file, 'hello\r\n\0bytes');
-      assert.equal(gitBlobId(readFileSync(file), 'sha1'), execFileSync('git', ['hash-object', '--no-filters', file], { encoding: 'utf8' }).trim());
+      assert.equal(gitBlobId(readFileSync(file), 'sha1'), git(directory, 'hash-object', '--no-filters', file));
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

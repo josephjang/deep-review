@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +11,7 @@ import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { maxConcurrency, policyFileName } from '../../src/review/policy.ts';
+import { git } from '../helpers/git.ts';
 import { until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
@@ -340,8 +340,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     const blocked = await box.review('claude', { fix: halfFlagged });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'worker-failed' && blocked.blocker.phase === 'survey', JSON.stringify(blocked));
     // The reviewer's authorship, which only the surveyor's task tells, is read with `git log`, which now fails; the escape hatch needs none of it.
-    execFileSync('git', ['config', 'log.date', 'not-a-date-format'], { cwd: box.repo, stdio: 'ignore' });
-    assert.throws(() => execFileSync('git', ['log', '-1', 'HEAD', '--'], { cwd: box.repo, stdio: 'ignore' }), 'git log fails in the repository');
+    git(box.repo, 'config', 'log.date', 'not-a-date-format');
+    assert.throws(() => git(box.repo, 'log', '-1', 'HEAD', '--'), 'git log fails in the repository');
     box.script({});
     report(await box.fix('claude'));
     const state = box.run();
@@ -630,7 +630,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const runId = box.run().id;
     // A second worktree shares the checkpoint, which lives under the common git directory.
     const other = join(box.directory, 'other');
-    execFileSync('git', ['worktree', 'add', '--detach', other, 'HEAD'], { cwd: box.repo, stdio: 'ignore' });
+    git(box.repo, 'worktree', 'add', '--detach', other, 'HEAD');
     const otherRoot = realpathSync.native(other);
     box.script({});
     await assert.rejects(box.review('claude', { worktree: otherRoot }), (error: unknown) => error instanceof ReviewRefusedError && error.code === null

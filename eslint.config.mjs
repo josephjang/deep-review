@@ -20,4 +20,18 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // A test's git must run through test/helpers/git.ts, which keeps the
+    // variables that name another repository, such as the GIT_DIR of a
+    // `git rebase --exec`, out of its environment. Any other spawn of git
+    // under test/ would inherit them.
+    files: ['test/**/*.ts', 'test/**/*.mjs'],
+    ignores: ['test/helpers/git.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "CallExpression:matches([callee.name=/^(spawn|spawnSync|exec|execSync|execFile|execFileSync)$/], [callee.property.name=/^(spawn|spawnSync|exec|execSync|execFile|execFileSync)$/])[arguments.0.value=/^git(\\.exe)?(\\s|$)/i]",
+        message: 'Run git in tests through git() from test/helpers/git.ts, which keeps GIT_DIR and the other repository variables out of its environment.',
+      }],
+    },
+  },
 );

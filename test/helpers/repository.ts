@@ -1,15 +1,13 @@
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { git } from './git.ts';
 
 /**
- * Run git in a test repository and return its trimmed text output. The
- * environment is inherited, so a `GIT_DIR` set by `git rebase --exec` or a
- * hook makes git act on that repository instead of `cwd`:
- * https://github.com/josephjang/deep-review/issues/27
+ * Run git in a test repository and return its trimmed text output, without
+ * the variables that would make it act on another repository (see git.ts).
+ * Importing this module also deletes them from `process.env`.
  */
-export const git = (cwd: string, ...args: string[]): string =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+export { git };
 
 export interface RepositoryOptions {
   /** core.autocrlf for the repository; false unless a test asks for a CRLF checkout, whatever the machine's global setting. */
