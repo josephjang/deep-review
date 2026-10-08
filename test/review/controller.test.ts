@@ -11,7 +11,6 @@ import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { maxConcurrency, policyFileName } from '../../src/review/policy.ts';
-import { git } from '../helpers/git.ts';
 import { until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
@@ -20,7 +19,7 @@ import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { fakeCheckCommand, ReviewSandbox } from '../helpers/review-sandbox.ts';
-import { write } from '../helpers/repository.ts';
+import { git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
 const pinnedAction = (state: RunState): string => {

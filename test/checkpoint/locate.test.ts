@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { NotInRepositoryError } from '../../src/checkpoint/errors.ts';
 import { checkpointDirectoryName, locateCheckpoint } from '../../src/checkpoint/locate.ts';
-import { git } from '../helpers/git.ts';
+import { git } from '../helpers/repository.ts';
 
 /** A repository with one commit, so worktrees can be added. */
 const initRepository = (root: string): void => {
