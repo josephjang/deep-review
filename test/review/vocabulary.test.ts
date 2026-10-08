@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -58,6 +58,13 @@ describe('the decisions', () => {
   it('make a finding one of fix, leave and ask, and leave one for one of three reasons', () => {
     assert.deepEqual(decisionKinds, ['fix', 'leave', 'ask']);
     assert.deepEqual(leaveReasons, ['outside-change-not-regression', 'superseded', 'intended']);
+  });
+
+  it('count each kind once, a kind none was decided as zero, in the one phrase the log, status and the report share', () => {
+    const counts = decisionCounts([{ decision: 'ask' }, { decision: 'fix' }, { decision: 'ask' }]);
+    assert.deepEqual(counts, { fix: 1, leave: 0, ask: 2 });
+    assert.equal(decisionCountWords(counts), '1 to fix, 0 to leave, 2 to ask the author');
+    assert.equal(decisionCountWords(decisionCounts([])), '0 to fix, 0 to leave, 0 to ask the author');
   });
 });
 

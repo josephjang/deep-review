@@ -10,7 +10,7 @@ import type { RecordedDecision } from '../checkpoint/events.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { inlineText } from './markdown.ts';
 import { rankedFindings } from './state.ts';
-import type { LeaveReason } from './vocabulary.ts';
+import { decisionCounts, decisionCountWords, type LeaveReason } from './vocabulary.ts';
 
 /** Why a finding was left, as the report words it. */
 export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
@@ -96,7 +96,7 @@ export function decisionsSection(review: ReviewState): string[] | null {
   return [
     '## Decisions',
     '',
-    `Before any fix, the decision step decided each finding: ${String(of('fix').length)} to fix, ${String(of('leave').length)} to leave, ${String(of('ask').length)} to ask the author${departures === 0 ? '' : `; ${count(departures, 'fix departs', 'fixes depart')} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
+    `Before any fix, the decision step decided each finding: ${decisionCountWords(decisionCounts(numbered.map((entry) => entry.decision)))}${departures === 0 ? '' : `; ${count(departures, 'fix departs', 'fixes depart')} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
     ...(questions.length === 0 ? [] : ['', '### Questions for the author', '', `None of these held the run up: each has a default, and an answer is needed only to go another way. ${defaults} Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone.`, '', ...questions]),
     ...(fixes.length === 0 ? [] : ['', '### To fix', '', ...fixes]),
     ...(left.length === 0 ? [] : ['', '### Left', '', ...left]),

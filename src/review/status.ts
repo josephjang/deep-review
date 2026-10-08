@@ -15,7 +15,7 @@ import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
 import { currentPhase, reviewStatus } from './state.ts';
-import { checkPhases, decisionKinds, type DecisionKind } from './vocabulary.ts';
+import { checkPhases, decisionCounts, decisionCountWords } from './vocabulary.ts';
 
 /** What `status` prints about a run, as text lines and as a JSON value. */
 export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string): { lines: string[]; json: Record<string, unknown> } {
@@ -34,7 +34,8 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
   const patches = (review?.report?.patches ?? []).map(evidencePath);
   const fix = review === null ? null : fixStatus(state, review);
-  const decisions = review === null ? null : decisionCounts(review);
+  // How many findings the decision step decided each way (R8 of the decision step), or null while it has recorded none.
+  const decisions = review?.decisions === null || review?.decisions === undefined ? null : decisionCounts(review.decisions);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
@@ -47,20 +48,13 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(budgetCheckLine === null ? [] : [budgetCheckLine]),
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
     ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
-    ...(decisions === null ? [] : [`Decisions: ${String(decisions.fix)} to fix, ${String(decisions.leave)} to leave, ${String(decisions.ask)} to ask the author`]),
+    ...(decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`]),
     ...(fix === null ? [] : fix.lines),
     ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
     ...(review?.fix?.commits === null || review?.fix?.commits === undefined ? [] : [`Commits: ${String(review.fix.commits.commits.length)} created, ${review.fix.commits.from} to ${review.fix.commits.to}`]),
   ];
   const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, decisions, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? null, review };
   return { lines, json };
-}
-
-/** How many findings the decision step decided each way (R8 of the decision step), or null while it has recorded none. */
-function decisionCounts(review: ReviewState): Readonly<Record<DecisionKind, number>> | null {
-  const decisions = review.decisions;
-  if (decisions === null) return null;
-  return Object.fromEntries(decisionKinds.map((kind) => [kind, decisions.filter((decision) => decision.decision === kind).length])) as Record<DecisionKind, number>;
 }
 
 /** A fixer batch's state as `status` names it: no worker yet, one running, its answer recorded, or not attempted after two failures. */

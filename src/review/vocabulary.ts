@@ -245,6 +245,14 @@ export const decisionKinds = ['fix', 'leave', 'ask'] as const;
 export const decisionKindSchema = z.enum(decisionKinds);
 export type DecisionKind = z.infer<typeof decisionKindSchema>;
 
+/** How many of the decisions are of each kind (R8 of the decision step). */
+export function decisionCounts(decisions: readonly { readonly decision: DecisionKind }[]): Record<DecisionKind, number> {
+  return Object.fromEntries(decisionKinds.map((kind) => [kind, decisions.filter((entry) => entry.decision === kind).length])) as Record<DecisionKind, number>;
+}
+
+/** The counts of `decisionCounts` as the log, `status` and the report word them. */
+export const decisionCountWords = (counts: Readonly<Record<DecisionKind, number>>): string => `${String(counts.fix)} to fix, ${String(counts.leave)} to leave, ${String(counts.ask)} to ask the author`;
+
 /**
  * Why a finding is left, and no other reason (R3 of the decision step):
  * acting on it would edit only code outside the change, which did not

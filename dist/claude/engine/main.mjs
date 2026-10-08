@@ -20893,6 +20893,10 @@ var verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
 var verdictSchema2 = external_exports.enum(verdicts);
 var decisionKinds = ["fix", "leave", "ask"];
 var decisionKindSchema = external_exports.enum(decisionKinds);
+function decisionCounts(decisions) {
+  return Object.fromEntries(decisionKinds.map((kind) => [kind, decisions.filter((entry) => entry.decision === kind).length]));
+}
+var decisionCountWords = (counts) => `${String(counts.fix)} to fix, ${String(counts.leave)} to leave, ${String(counts.ask)} to ask the author`;
 var leaveReasons = ["outside-change-not-regression", "superseded", "intended"];
 var leaveReasonSchema = external_exports.enum(leaveReasons);
 var severities = ["critical", "major", "minor"];
@@ -27255,7 +27259,7 @@ function decisionsSection(review2) {
   return [
     "## Decisions",
     "",
-    `Before any fix, the decision step decided each finding: ${String(of("fix").length)} to fix, ${String(of("leave").length)} to leave, ${String(of("ask").length)} to ask the author${departures === 0 ? "" : `; ${count2(departures, "fix departs", "fixes depart")} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
+    `Before any fix, the decision step decided each finding: ${decisionCountWords(decisionCounts(numbered.map((entry) => entry.decision)))}${departures === 0 ? "" : `; ${count2(departures, "fix departs", "fixes depart")} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
     ...questions.length === 0 ? [] : ["", "### Questions for the author", "", `None of these held the run up: each has a default, and an answer is needed only to go another way. ${defaults} Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone.`, "", ...questions],
     ...fixes.length === 0 ? [] : ["", "### To fix", "", ...fixes],
     ...left.length === 0 ? [] : ["", "### Left", "", ...left]
@@ -27795,7 +27799,7 @@ async function runReview(options2) {
       if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
       if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: ${revisionSummary(event.payload)}`);
       if (event.kind === "survey.recorded") for (const line of surveyLines(runId, event.payload)) log(line);
-      if (event.kind === "decisions.recorded") log(`worker ${settled2.unit.role} ${name}: ${decisionCounts(event.payload)}`);
+      if (event.kind === "decisions.recorded") log(`worker ${settled2.unit.role} ${name}: decided ${decisionCountWords(decisionCounts(event.payload.decisions))}`);
     }
     state = append(checkpoint, state, events);
   };
@@ -27987,10 +27991,6 @@ function refusalOf(error62, pinned) {
   if (!(error62 instanceof PreflightError)) return error62;
   const action = pinned === null ? blockerActions["runtime-unqualified"] : pinnedRuntimeAction(pinned.runId, pinned.executable);
   return new ReviewRefusedError(`${error62.message}; ${action}`, "runtime-unqualified");
-}
-function decisionCounts(recorded) {
-  const count2 = (kind) => recorded.decisions.filter((decision) => decision.decision === kind).length;
-  return `decided ${String(count2("fix"))} to fix, ${String(count2("leave"))} to leave, ${String(count2("ask"))} to ask the author`;
 }
 async function nextSettled(inFlight) {
   const settled2 = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
@@ -28387,7 +28387,7 @@ function describeRun(state, adapter, evidencePath) {
   const reportPath = review2?.report === null || review2?.report === void 0 ? null : evidencePath(review2.report.report);
   const patches = (review2?.report?.patches ?? []).map(evidencePath);
   const fix = review2 === null ? null : fixStatus(state, review2);
-  const decisions = review2 === null ? null : decisionCounts2(review2);
+  const decisions = review2?.decisions === null || review2?.decisions === void 0 ? null : decisionCounts(review2.decisions);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
@@ -28398,18 +28398,13 @@ function describeRun(state, adapter, evidencePath) {
     ...budgetCheckLine === null ? [] : [budgetCheckLine],
     ...review2?.blocker === null || review2?.blocker === void 0 ? [] : [`Blocker: ${review2.blocker.code}: ${review2.blocker.detail}`, `Action: ${review2.blocker.action}`],
     ...reportPath === null ? [] : [`Report: ${reportPath}`],
-    ...decisions === null ? [] : [`Decisions: ${String(decisions.fix)} to fix, ${String(decisions.leave)} to leave, ${String(decisions.ask)} to ask the author`],
+    ...decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`],
     ...fix === null ? [] : fix.lines,
     ...patches.map((path, index2) => `Patch ${String(index2 + 1)}: ${path}`),
     ...review2?.fix?.commits === null || review2?.fix?.commits === void 0 ? [] : [`Commits: ${String(review2.fix.commits.commits.length)} created, ${review2.fix.commits.from} to ${review2.fix.commits.to}`]
   ];
   const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review2?.blocker ?? null, report: reportPath, decisions, fix: fix?.json ?? null, patches, commits: review2?.fix?.commits ?? null, review: review2 };
   return { lines, json: json2 };
-}
-function decisionCounts2(review2) {
-  const decisions = review2.decisions;
-  if (decisions === null) return null;
-  return Object.fromEntries(decisionKinds.map((kind) => [kind, decisions.filter((decision) => decision.decision === kind).length]));
 }
 function fixStatus(state, review2) {
   const fix = review2.fix;

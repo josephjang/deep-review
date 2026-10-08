@@ -49,7 +49,7 @@ import { nextStep, truncated, type DueCheck, type Live, type Unit } from './step
 import { surveyFailure, type SurveyInputs } from './survey.ts';
 import { snapshotIndexPlaceholder } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
-import { blockerActions, checkKinds, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
+import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved only when the run it acts
@@ -317,7 +317,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
       if (event.kind === 'tree.revised') log(`worker ${settled.unit.role} ${name}: ${revisionSummary(event.payload as TreeRevised)}`);
       if (event.kind === 'survey.recorded') for (const line of surveyLines(runId, event.payload as SurveyRecorded)) log(line);
-      if (event.kind === 'decisions.recorded') log(`worker ${settled.unit.role} ${name}: ${decisionCounts(event.payload as DecisionsRecorded)}`);
+      if (event.kind === 'decisions.recorded') log(`worker ${settled.unit.role} ${name}: decided ${decisionCountWords(decisionCounts((event.payload as DecisionsRecorded).decisions))}`);
     }
     state = append(checkpoint, state, events);
   };
@@ -557,12 +557,6 @@ function refusalOf(error: unknown, pinned: { readonly runId: string; readonly ex
   if (!(error instanceof PreflightError)) return error;
   const action = pinned === null ? blockerActions['runtime-unqualified'] : pinnedRuntimeAction(pinned.runId, pinned.executable);
   return new ReviewRefusedError(`${error.message}; ${action}`, 'runtime-unqualified');
-}
-
-/** What a decider decided, counted by decision, as the log says it. */
-function decisionCounts(recorded: DecisionsRecorded): string {
-  const count = (kind: DecisionsRecorded['decisions'][number]['decision']): number => recorded.decisions.filter((decision) => decision.decision === kind).length;
-  return `decided ${String(count('fix'))} to fix, ${String(count('leave'))} to leave, ${String(count('ask'))} to ask the author`;
 }
 
 /** The first worker in flight to settle, taken off the map, with the time it started. */
