@@ -410,13 +410,14 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
 
 /**
  * The decisions of a decider's answer, its indexes resolved to the ids of
- * the findings its task numbered, in that order: the finding each decides,
- * and the finding that supersedes one left as superseded. Each is parsed
- * into its kind's variant, whose parts `checkDecisions` has already held.
+ * the findings its task numbered: the finding each decides, and the finding
+ * that supersedes one left as superseded. Each is parsed into its kind's
+ * variant, whose parts `checkDecisions` has already held. They keep the
+ * answer's order; the fold holds them in the ranking's.
  */
-function orderedDecisions(output: DeciderOutput, findings: readonly ReportFinding[]): RecordedDecision[] {
+function recordedDecisions(output: DeciderOutput, findings: readonly ReportFinding[]): RecordedDecision[] {
   const idAt = (position: number): string => findings[position]!.finding.id;
-  return [...output.decisions].sort((a, b) => a.index - b.index).map(({ index, leave, ...decided }) => recordedDecisionSchema.parse({
+  return output.decisions.map(({ index, leave, ...decided }) => recordedDecisionSchema.parse({
     id: idAt(index),
     ...decided,
     leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) },
@@ -520,7 +521,7 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
       const output = receipt.output as DeciderOutput;
       const findings = rankedFindings(review);
       checkDecisions(output, findings.length);
-      return { kind: 'decisions.recorded', version: 1, payload: { workerId: receipt.workerId, decisions: orderedDecisions(output, findings) } };
+      return { kind: 'decisions.recorded', version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output, findings) } };
     }
     case 'fixes':
     case 'repair':

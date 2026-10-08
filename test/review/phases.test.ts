@@ -303,7 +303,7 @@ describe('contributionOf', () => {
     assert.deepEqual((ranking.payload as { findings: { id: string; members: string[] }[] }).findings.map((finding) => [finding.id, finding.members]), [['RIPPLE-1', ['SWEEP-2']], ['SWEEP-1', []]]);
   });
 
-  it('records the decider\'s answer under decisions.recorded@1, each index resolved to the finding it numbered and a superseding index to its finding, in rank order (R10 of the decision step)', () => {
+  it('records the decider\'s answer under decisions.recorded@1, each index resolved to the finding it numbered and a superseding index to its finding, in the answer\'s order (R10 of the decision step)', () => {
     const state = decidedOf(mergeRanked(), null).start('decision').fold();
     const answer = deciderAnswer([{ decision: 'leave', reason: 'superseded', supersededBy: 1 }, { departs: true }]) as { decisions: unknown[] };
     const event = contribution(unit('decision', 'decision', 'decider'), receipt({ decisions: [...answer.decisions].reverse() }), state, worktree);
@@ -311,9 +311,10 @@ describe('contributionOf', () => {
     assert.equal(event.version, 1);
     assert.ok(lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success === true, JSON.stringify(event.payload));
     const decided = (event.payload as { decisions: { id: string; decision: string; leave: unknown; departure: unknown }[] }).decisions;
-    assert.deepEqual(decided.map((decision) => [decision.id, decision.decision]), [['RIPPLE-1', 'leave'], ['SWEEP-1', 'fix']]);
-    assert.deepEqual(decided[0]!.leave, { reason: 'superseded', supersededBy: 'SWEEP-1' });
-    assert.notEqual(decided[1]!.departure, null);
+    // The fold holds them in the ranking's order, so the event keeps the decider's.
+    assert.deepEqual(decided.map((decision) => [decision.id, decision.decision]), [['SWEEP-1', 'fix'], ['RIPPLE-1', 'leave']]);
+    assert.deepEqual(decided[1]!.leave, { reason: 'superseded', supersededBy: 'SWEEP-1' });
+    assert.notEqual(decided[0]!.departure, null);
     assert.ok(!('index' in decided[0]!), 'the ledger records ids, never the task\'s indexes');
   });
 

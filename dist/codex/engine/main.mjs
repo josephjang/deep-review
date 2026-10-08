@@ -27102,9 +27102,9 @@ function orderedRanking(review2, output2, input2) {
   }));
   return rankedFindings(review2, findings).map((entry) => entry.finding);
 }
-function orderedDecisions(output2, findings) {
+function recordedDecisions(output2, findings) {
   const idAt = (position) => findings[position].finding.id;
-  return [...output2.decisions].sort((a, b) => a.index - b.index).map(({ index: index2, leave, ...decided }) => recordedDecisionSchema.parse({
+  return output2.decisions.map(({ index: index2, leave, ...decided }) => recordedDecisionSchema.parse({
     id: idAt(index2),
     ...decided,
     leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) }
@@ -27175,7 +27175,7 @@ function contributionEvent(unit, receipt, review2, context) {
       const output2 = receipt.output;
       const findings = rankedFindings(review2);
       checkDecisions(output2, findings.length);
-      return { kind: "decisions.recorded", version: 1, payload: { workerId: receipt.workerId, decisions: orderedDecisions(output2, findings) } };
+      return { kind: "decisions.recorded", version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output2, findings) } };
     }
     case "fixes":
     case "repair":
