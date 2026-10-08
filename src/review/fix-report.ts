@@ -132,7 +132,12 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
   return lines;
 }
 
-/** The fixers' own lines that nothing acts on yet (PD1): the documentation their edits made stale, and the tests they added. */
+/**
+ * The fixers' own lines that nothing acts on yet (PD1): the documentation
+ * their edits made stale, and the tests they added. Reconciling that
+ * documentation, including text one fix wrote and another made wrong, is
+ * tracked at https://github.com/josephjang/deep-review/issues/29
+ */
 function answerLines(fix: FixState): string[] {
   const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair)];
   const drift = answers.flatMap((answer) => answer.drift.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.what)} (${answer.key})`));
