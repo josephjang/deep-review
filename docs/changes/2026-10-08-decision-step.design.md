@@ -444,20 +444,31 @@ The first run's commits were set aside because 10 of its 23 failed
 edits files outside its cluster's own (tests, and a file a decision
 named), and the engine attributes what changed on disk to the finding
 that snapshots next, so edits of clusters running at once landed in each
-other's commits. A fixer's first attempt there was also refused for
-giving a blocked finding a commit message; its edits stayed and became
-two engine commits whose subjects, with a third fallback subject, lack
-the repository's commit form. These are defects of the fix pass, not of
-this element, and are recorded here as found.
+other's commits (#22). A fixer's first attempt there was also refused
+for giving a blocked finding a commit message (#26); its edits stayed
+and became two engine commits that took sibling clusters' test edits
+with them (#23), and whose subjects, with a third fallback subject, lack
+the repository's commit form (#9).
+
+These are not defects this element introduced. The fix pass accepted
+both risks on purpose: PD5 lets a fixer edit any file no cluster owns,
+and its Risks accept that a failed attempt's revision takes a sibling's
+edit of such a file. Its gates compared the final tree only, and this
+review is the first to check each commit alone. This element makes the
+risks likelier, though. Without `routeOf`, PLAUSIBLE design findings
+reach fixers: 20 of the first run's findings went to fixers where the old
+routing would have sent 15. And a decision's approach often names a file
+outside its finding, which sends fixers of different clusters to one
+unowned file, as SCAN-4's "Widen RoutedDecision (fix-state.ts)" did.
 
 With one fixer at a time no edit crossed clusters, and one commit of 17
 failed alone: SWEEP-1's snapshot held a test line its fixer corrected
-while applying SWEEP-2 in the same batch. That line was moved by hand
+while applying SWEEP-2 in the same batch (#24). That line was moved by hand
 into SWEEP-1's commit; every later commit's tree is unchanged and the
 last is byte for byte the engine's. Stopping the engine after the
 decision killed the baseline typecheck it had just started (exit 143);
-the engine recorded it failed and the resume did not run it again, so
-the second run's report says typecheck failed before the fixes. It
+the engine recorded it failed and the resume did not run it again (#25),
+so the second run's report says typecheck failed before the fixes. It
 passed on `75708ae` in the first run and in every commit check.
 
 The second run's 17 commits, `4dacf18` to `0f0209e`, each pass
@@ -471,7 +482,9 @@ final tree the ledgers of the three gate runs and the four runs beside
 them fold, as do the twelve runs this repository's own ledger holds;
 eight of those were started by this repository's test suite, whose git
 calls inherited a `GIT_DIR` that a `git rebase --exec` of the commit
-checks exported, and were abandoned.
+checks exported (#27), and were abandoned. The superseded finding's
+"No fixer saw it", which the first run fixed and the second did not, is
+left as found (#28).
 
 ## Risks & Migration
 
