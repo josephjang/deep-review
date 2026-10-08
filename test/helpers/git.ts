@@ -12,8 +12,11 @@
  * into every test process `npm test` starts, and the repository helpers
  * import it too, so a test file run on its own with `node --test` is
  * covered as well. `git` below also builds its environment without them,
- * whatever `process.env` holds by then. ESLint keeps every other git spawn
- * under test/ out (see eslint.config.mjs).
+ * whatever `process.env` holds by then. ESLint flags any other spawn under
+ * test/ that names git by a string literal (see eslint.config.mjs); one that
+ * names git any other way, through a variable, a template literal or a
+ * shell, is not caught, and only the deletion from `process.env` above
+ * covers it.
  */
 import { execFileSync } from 'node:child_process';
 import { comparable } from '../../src/runtime/environment.ts';
