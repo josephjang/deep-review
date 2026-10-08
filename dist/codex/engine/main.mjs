@@ -20987,17 +20987,19 @@ function notAttemptedNote(fix, phase, key) {
 function isNotAttempted(fix, phase, key) {
   return Object.hasOwn(fix.notAttempted[phase], key);
 }
+function appliedOptionOf(ask) {
+  const applied = ask.options[ask.applied];
+  if (applied === void 0) throw new Error(`An ask applies option ${String(ask.applied)} of the ${String(ask.options.length)} it offers`);
+  return applied;
+}
 function routeOfDecision(decision) {
   switch (decision.decision) {
     case "fix":
       return "fixer";
     case "leave":
       return "held";
-    case "ask": {
-      const applied = decision.ask.options[decision.ask.applied];
-      if (applied === void 0) throw new Error(`The ask decided for ${decision.id} applies no option it offers`);
-      return applied.edits ? "fixer" : "held";
-    }
+    case "ask":
+      return appliedOptionOf(decision.ask).edits ? "fixer" : "held";
   }
 }
 
@@ -26711,11 +26713,10 @@ function decidedLines(decision) {
     ];
   }
   const { ask } = decision;
-  const applied = ask.options[ask.applied];
   const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
   return [
     `    decided: ask the author, applying a default now. ${decision.grounds}`,
-    `        apply: ${applied?.option ?? "the default the decision names"}`,
+    `        apply: ${appliedOptionOf(ask).option}`,
     `        the question the author answers later: ${ask.question} The other options: ${others.join("; ")}`
   ];
 }
@@ -27206,7 +27207,7 @@ function optionAt(ask, position) {
   return option;
 }
 function defaultOption(ask) {
-  const chosen = optionAt(ask, ask.applied);
+  const chosen = appliedOptionOf(ask);
   return `${inlineText(chosen.option)}${chosen.edits ? "" : " (no edit)"}`;
 }
 function decisionLine(decision) {

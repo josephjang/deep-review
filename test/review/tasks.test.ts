@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerDecision, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -258,6 +258,13 @@ describe('the fixer\'s task', () => {
     assert.match(task, /Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later\. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`\. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`\./);
     // The role prompt's other defer criteria still hold, so the task does not narrow every defer to an unseen fact (R12 of the decision step).
     assert.doesNotMatch(task, /Defer a finding only for a fact the decision did not see/);
+  });
+
+  it('refuses an ask whose default is not among its options, as the planner and the report do, rather than telling the fixer to apply nothing named', () => {
+    const asked = input.findings[1]!;
+    const decision = asked.decision as Extract<FixerDecision, { decision: 'ask' }>;
+    const outside = { ...asked, decision: { ...decision, ask: { ...decision.ask, applied: 3 } } };
+    assert.throws(() => fixerTask({ ...input, findings: [outside] }), /^Error: An ask applies option 3 of the 3 it offers$/);
   });
 
   it('names a finding left as superseded under the finding whose fix removes it, so the fixer checks it is gone', () => {

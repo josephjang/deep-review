@@ -195,6 +195,16 @@ export function isNotAttempted(fix: FixState, phase: EditingPhase, key: string):
 /** What routing reads of a finding's decision: which finding, what was decided, and for an ask the default it applies; picked from each kind's variant, so an ask always carries its question. */
 export type RoutedDecision = RecordedDecision extends infer Decision ? (Decision extends RecordedDecision ? Pick<Decision, 'id' | 'decision' | 'ask'> : never) : never;
 
+/** An ask as a decision records it: its question, its options, and the indexes of the option recommended and the default applied. */
+export type DecidedAsk = Extract<RecordedDecision, { readonly decision: 'ask' }>['ask'];
+
+/** The option an ask applies as its default; the ledger holds its index among the options, so a missing one is a state the fold never holds. */
+export function appliedOptionOf(ask: DecidedAsk): DecidedAsk['options'][number] {
+  const applied = ask.options[ask.applied];
+  if (applied === undefined) throw new Error(`An ask applies option ${String(ask.applied)} of the ${String(ask.options.length)} it offers`);
+  return applied;
+}
+
 /**
  * A finding's route by its decision (R6 of the decision step), the one
  * rule the planner plans by and the fold holds a recorded plan to: a
@@ -209,10 +219,7 @@ export function routeOfDecision(decision: RoutedDecision): FixesPlanned['routes'
       return 'fixer';
     case 'leave':
       return 'held';
-    case 'ask': {
-      const applied = decision.ask.options[decision.ask.applied];
-      if (applied === undefined) throw new Error(`The ask decided for ${decision.id} applies no option it offers`);
-      return applied.edits ? 'fixer' : 'held';
-    }
+    case 'ask':
+      return appliedOptionOf(decision.ask).edits ? 'fixer' : 'held';
   }
 }

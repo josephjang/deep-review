@@ -5,7 +5,7 @@
  * index (TD4), and describes the same fields its output schema demands
  * (R4). The closing sentence is appended by the prompt composer.
  */
-import type { PlannedCheck } from '../checkpoint/fix-state.ts';
+import { appliedOptionOf, type PlannedCheck } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
 import type { Lead, RecordedDecision } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
@@ -410,11 +410,10 @@ function decidedLines(decision: FixerDecision): string[] {
     ];
   }
   const { ask } = decision;
-  const applied = ask.options[ask.applied];
   const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
   return [
     `    decided: ask the author, applying a default now. ${decision.grounds}`,
-    `        apply: ${applied?.option ?? 'the default the decision names'}`,
+    `        apply: ${appliedOptionOf(ask).option}`,
     `        the question the author answers later: ${ask.question} The other options: ${others.join('; ')}`,
   ];
 }

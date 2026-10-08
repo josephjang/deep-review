@@ -7,6 +7,7 @@
  * these, and its report renders as it did then.
  */
 import type { RecordedDecision } from '../checkpoint/events.ts';
+import { appliedOptionOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { inlineText } from './markdown.ts';
 import { rankedFindings } from './state.ts';
@@ -33,8 +34,6 @@ const sentence = (text: string): string => {
   return `${inline.replace(/[:,;]$/, '')}.`;
 };
 
-type DecidedAsk = NonNullable<RecordedDecision['ask']>;
-
 /** The option of an ask at a position the ledger holds among its options. */
 function optionAt(ask: DecidedAsk, position: number): DecidedAsk['options'][number] {
   const option = ask.options[position];
@@ -44,7 +43,7 @@ function optionAt(ask: DecidedAsk, position: number): DecidedAsk['options'][numb
 
 /** The option an ask takes as its default, and whether the default edits the code. */
 function defaultOption(ask: DecidedAsk): string {
-  const chosen = optionAt(ask, ask.applied);
+  const chosen = appliedOptionOf(ask);
   return `${inlineText(chosen.option)}${chosen.edits ? '' : ' (no edit)'}`;
 }
 

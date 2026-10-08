@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { routeOfDecision, type RoutedDecision } from '../../src/checkpoint/fix-state.ts';
+import { appliedOptionOf, routeOfDecision, type RoutedDecision } from '../../src/checkpoint/fix-state.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
 import { batchesOf, planFixes, planSecondRound, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
 import type { ReportFinding } from '../../src/review/state.ts';
@@ -64,7 +64,20 @@ describe('routeOfDecision (R6 of the decision step)', () => {
 
   it('refuses an ask that applies an option it does not offer', () => {
     const outside = ask('X-1', true);
-    assert.throws(() => routeOfDecision({ ...outside, ask: { ...outside.ask, applied: 2 } }), /The ask decided for X-1 applies no option it offers/);
+    assert.throws(() => routeOfDecision({ ...outside, ask: { ...outside.ask, applied: 2 } }), /An ask applies option 2 of the 2 it offers/);
+  });
+});
+
+describe('appliedOptionOf', () => {
+  it('gives the option an ask applies, by its index, not the first or the recommended', () => {
+    const { ask: decided } = ask('X-1', false);
+    assert.equal(appliedOptionOf(decided).option, 'the default');
+    assert.equal(appliedOptionOf({ ...decided, applied: 1 }).option, 'the other');
+  });
+
+  it('refuses an index past the options, the one failure every reader of an ask shares', () => {
+    const { ask: decided } = ask('X-1', true);
+    assert.throws(() => appliedOptionOf({ ...decided, applied: 2 }), /^Error: An ask applies option 2 of the 2 it offers$/);
   });
 });
 
