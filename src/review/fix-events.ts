@@ -166,7 +166,9 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
  * attempt did not make, and the files git ignores. A
  * worker with no scratch, or one the operating system cleaned, gives only
  * the last. The expected tree then holds the attempt's work, so the retry's
- * snapshots attribute only its own.
+ * snapshots attribute only its own. A shared unowned file a sibling unit
+ * is editing passes every filter, so its edits so far are attributed to
+ * this attempt: https://github.com/josephjang/deep-review/issues/23
  */
 export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): NewEvent[] {
   const { state, worktree, evidence } = context;

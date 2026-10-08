@@ -234,7 +234,13 @@ export interface RevisionSources {
  * whatever the fixer snapshotted. A finding with no snapshot, or whose
  * snapshot changed nothing, is carried into the next revision, which then
  * names it too; a path a snapshot does not list is taken from the next
- * reader that does.
+ * reader that does. A path no cluster owns holds whatever a fixer running
+ * at the same time had written to it by then, so concurrent clusters' edits
+ * of a shared file can land in each other's revisions:
+ * https://github.com/josephjang/deep-review/issues/22. Each snapshot is
+ * taken right after its finding, never checked, so one finding's revision
+ * can hold an edit a later finding of the batch corrects:
+ * https://github.com/josephjang/deep-review/issues/24
  */
 export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[], match: ExpectedMatch = rawMatch): FindingRevision[] {
   const state = new Map(expected);

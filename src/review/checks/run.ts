@@ -88,7 +88,12 @@ export interface CheckResult {
   readonly error: string | null;
 }
 
-/** The outcome a process result gives a check: 0 after an exit of its own passes, any other exit fails. */
+/**
+ * The outcome a process result gives a check: 0 after an exit of its own
+ * passes, any other exit fails. A check killed because the engine itself
+ * was being stopped fails too, and a resume does not run it again:
+ * https://github.com/josephjang/deep-review/issues/25
+ */
 export function checkOutcomeOf(result: ProcessResult): RunOutcome {
   switch (result.termination) {
     case 'not-started':

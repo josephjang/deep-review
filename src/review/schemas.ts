@@ -194,6 +194,7 @@ export function checkFixerAnswer(output: FixerOutput, count: number): void {
     seen.add(finding.index);
     if (finding.status === 'applied' && finding.message === null) throw new StructuralCheckError(`${what} is applied and has no commit message`);
     if ((finding.status === 'deferred' || finding.status === 'blocked') && finding.message !== null) {
+      // The output schema allows the message, so this refuses the whole answer after the work: https://github.com/josephjang/deep-review/issues/26
       throw new StructuralCheckError(`${what} is ${finding.status} and has a commit message, which only an applied or already-applied finding carries`);
     }
     if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith('.'))) {

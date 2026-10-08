@@ -91,7 +91,9 @@ function fateOf(review: ReviewState, fix: FixState, id: string): FindingFate {
 /**
  * The line of a finding left as superseded: the superseding finding's
  * outcome, since its fix was to remove this one, and when that fix did
- * not land, that this finding may still stand.
+ * not land, that this finding may still stand. "No fixer saw it" is not
+ * true of it, since the superseding finding's fixer is shown it:
+ * https://github.com/josephjang/deep-review/issues/28
  */
 function supersededLine(leave: NonNullable<RecordedDecision['leave']>, superseder: NonNullable<FindingFate['superseder']>): string {
   const outcome = superseder.outcome === 'not attempted' ? 'whose fix was not attempted' : `whose fixer reported it ${superseder.outcome}`;
