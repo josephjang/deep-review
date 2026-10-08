@@ -111,9 +111,22 @@ describe('the report of a fix run with the decision step (R8 of the decision ste
     assert.match(report, /0 left by decision, 1 asked, kept as is;/);
   });
 
-  it('names the superseding finding of a finding left as superseded', () => {
-    const superseded = { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } };
-    assert.match(render(decidedOf(fixRun(), [decisions[0], superseded]).fold()), /^No fixer saw it: the decision step left it, superseded by RIPPLE-1\. See Decisions\.$/m);
+  const superseded = { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } };
+
+  it('names the superseding finding of a finding left as superseded, and what its fixer reported', () => {
+    assert.match(render(decidedOf(fixRun(), [decisions[0], superseded]).fold()), /^No fixer saw it: the decision step left it, superseded by RIPPLE-1, whose fixer reported it applied\. See Decisions\.$/m);
+  });
+
+  it('says a superseded finding may still stand when its superseder\'s fixer deferred, or no fixer answered for it', () => {
+    const state = decidedOf(fixRun(), [decisions[0], superseded]).fold();
+    const fix = state.review!.fix!;
+    const answer = fix.answers.fixes['c1-1']!;
+    const withAnswers = (fixes: typeof fix.answers.fixes): RunState => ({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes } } } });
+    const deferred = render(withAnswers({ 'c1-1': { ...answer, findings: answer.findings.map((finding) => ({ ...finding, status: 'deferred' as const })) } }));
+    assert.match(deferred, /^### 2\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, superseded by RIPPLE-1, whose fixer reported it deferred\. Its removal depended on RIPPLE-1's fix, so this finding may still stand\. See Decisions\.$/m);
+    // The header still counts it as left by decision; the line above is what keeps the report from saying it was handled.
+    assert.match(deferred, /^Fix pass: 0 applied, 0 already applied, 1 deferred, 0 blocked, 0 not attempted, 1 left by decision, 0 asked, kept as is;/m);
+    assert.match(render(withAnswers({})), /^No fixer saw it: the decision step left it, superseded by RIPPLE-1, whose fix was not attempted\. Its removal depended on RIPPLE-1's fix, so this finding may still stand\. See Decisions\.$/m);
   });
 });
 

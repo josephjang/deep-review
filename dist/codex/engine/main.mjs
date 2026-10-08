@@ -27362,7 +27362,9 @@ function fateOf(review2, fix, id) {
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? "fixer";
   if (route === "held") {
     const decision = review2.decisions?.find((candidate) => candidate.id === id) ?? null;
-    return { id, outcome: heldOutcome(decision), decision, batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null };
+    const by = decision?.leave?.supersededBy ?? null;
+    const superseder = by === null ? null : { id: by, outcome: fateOf(review2, fix, by).outcome };
+    return { id, outcome: heldOutcome(decision), decision, batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null, superseder };
   }
   const second = fix.secondRound?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const firstBlockedOn = fix.secondRound?.blocked.find((entry) => entry.id === id)?.requiredFiles ?? null;
@@ -27371,11 +27373,16 @@ function fateOf(review2, fix, id) {
     const batch2 = allBatches(fix).find((candidate) => candidate.key === last.batch) ?? null;
     const answeredInSecond = second !== null && last.batch === second.key;
     const secondRoundSkipped = second !== null && !answeredInSecond ? notAttemptedNote(fix, "fixes", second.key) : null;
-    return { id, outcome: statusWords[last.finding.status], decision: null, batch: batch2, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped };
+    return { id, outcome: statusWords[last.finding.status], decision: null, batch: batch2, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped, superseder: null };
   }
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const reason = (batch === null ? null : notAttemptedNote(fix, "fixes", batch.key)) ?? "no fixer answered for it";
-  return { id, outcome: "not attempted", decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null };
+  return { id, outcome: "not attempted", decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null };
+}
+function supersededLine(leave, superseder) {
+  const outcome = superseder.outcome === "not attempted" ? "whose fix was not attempted" : `whose fixer reported it ${superseder.outcome}`;
+  const landed = superseder.outcome === "applied" || superseder.outcome === "already applied";
+  return `No fixer saw it: the decision step left it, ${leftAs(leave)}, ${outcome}.${landed ? "" : ` Its removal depended on ${superseder.id}'s fix, so this finding may still stand.`} See Decisions.`;
 }
 function patchesOf(fix, id, phase) {
   return fix.revisions.flatMap((revision, index2) => revision.phase === phase && revision.change.findings.includes(id) ? [index2 + 1] : []);
@@ -27383,6 +27390,7 @@ function patchesOf(fix, id, phase) {
 var patchNote = (numbers) => numbers.length === 0 ? "no patch" : `patch ${numbers.join(", ")}`;
 function fateLines(fix, fate) {
   if (fate.outcome === "held for the author") return ["A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it."];
+  if (fate.outcome === "left by decision" && fate.decision?.leave != null && fate.superseder !== null) return [supersededLine(fate.decision.leave, fate.superseder)];
   if (fate.outcome === "left by decision" && fate.decision?.leave != null) return [`No fixer saw it: the decision step left it, ${leftAs(fate.decision.leave)}. See Decisions.`];
   if (fate.outcome === "asked, kept as is") return ["No fixer saw it: the decision step asks the author, and its default keeps the code as it is. See Decisions."];
   const lines = [];
