@@ -50,6 +50,10 @@ a settled skip. The criteria:
 
 - No tests cover the area and the change would alter observable behavior.
 - The decision you were given did not see a fact you found; name it.
+- Your task gives you no decision, as a repair's does not, and the
+  semantics are genuinely ambiguous and need a human design call, or the
+  change crosses a public API boundary whose consumers you cannot audit
+  from this repo.
 - The finding is a genuine refactor that EITHER changes observable
   behavior the tests don't cover and you cannot pin with a new test, OR
   is a discretionary restructuring that expands beyond this change. An

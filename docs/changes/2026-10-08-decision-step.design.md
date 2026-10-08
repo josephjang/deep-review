@@ -183,7 +183,8 @@ engine into `dist/` in each commit that changes them.
 `decider-brief.md` and `decider-rubric.md` are the experiment's text,
 byte for byte. R11 rewrites the first lines of the three rubrics and the
 last paragraph of `lead-verify.md`; R12 replaces two defer criteria of
-`fixer-apply.md`. Each is its own commit.
+`fixer-apply.md` for a task that carries a decision and keeps them for
+one that carries none, as a repair's does not. Each is its own commit.
 
 ## Technical Decisions
 

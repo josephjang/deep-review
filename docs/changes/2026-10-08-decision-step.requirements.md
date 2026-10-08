@@ -189,10 +189,13 @@ can be departed from when it is found wrong.
   validation runs, one sample per runtime, and its outcomes stay within
   the variation the verifier rubric's R10 measured.
 - **R12: A fixer's defer is narrowed to what the decision did not
-  see.** The defer criteria "semantics genuinely ambiguous and need a
-  human design call" and "crosses a public API boundary" are replaced by
-  "the decision you were given did not see a fact you found"; the others
-  stay.
+  see.** For a fixer given a decision, the defer criteria "semantics
+  genuinely ambiguous and need a human design call" and "crosses a
+  public API boundary" are replaced by "the decision you were given did
+  not see a fact you found"; the others stay. A worker of the fixer role
+  given no decision, the repair worker and a fixer of a run configured
+  before the step, keeps those two criteria, since no decision made
+  those calls for it.
 - **R13: The step was measured before this proposal, and its numbers
   set its limits.** A draft decider ran over the five replayed runs, two
   samples per runtime and a third on the findings they split on (design,

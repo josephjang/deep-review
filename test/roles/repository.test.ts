@@ -204,11 +204,12 @@ describe('the repository\'s roles/', () => {
     assert.match(decider.prompt, /you do not grade it again/);
   });
 
-  it('lets a fixer defer for a fact the decision did not see, and no longer for a design call or a public interface the decision weighed (R12 of the decision step)', () => {
+  it('lets a fixer defer for a fact the decision did not see, and for a design call or a public interface only when its task gives no decision, as a repair\'s does not (R12 of the decision step)', () => {
     const fixer = roles.find((role) => role.key === 'fixer')!.prompt.replace(/\s+/g, ' ');
     assert.ok(fixer.includes('- The decision you were given did not see a fact you found; name it.'));
-    assert.ok(!fixer.includes('genuinely ambiguous and need a human design call'));
-    assert.ok(!fixer.includes('crosses a public API boundary'));
+    assert.ok(fixer.includes('- Your task gives you no decision, as a repair\'s does not, and the semantics are genuinely ambiguous and need a human design call, or the change crosses a public API boundary whose consumers you cannot audit from this repo.'));
+    assert.equal(fixer.split('genuinely ambiguous and need a human design call').length, 2, 'the design call is a criterion only for a task with no decision');
+    assert.equal(fixer.split('crosses a public API boundary').length, 2, 'the public interface is a criterion only for a task with no decision');
     assert.ok(fixer.includes('No tests cover the area and the change would alter observable behavior.'), 'the other criteria stay');
   });
 
