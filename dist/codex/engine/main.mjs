@@ -27218,15 +27218,15 @@ var sentence = (text2) => {
   const inline = inlineText(text2).trimEnd();
   return /[.!?]$/.test(inline) ? inline : `${inline}.`;
 };
-function appliedOption(ask) {
-  const applied = ask.options[ask.applied];
-  if (applied === void 0) throw new Error(`An ask applies option ${String(ask.applied)} of ${String(ask.options.length)}`);
-  return `${inlineText(applied.option)}${applied.edits ? "" : " (no edit)"}`;
+function defaultOption(ask) {
+  const chosen = ask.options[ask.applied];
+  if (chosen === void 0) throw new Error(`An ask defaults to option ${String(ask.applied)} of ${String(ask.options.length)}`);
+  return `${inlineText(chosen.option)}${chosen.edits ? "" : " (no edit)"}`;
 }
 function decisionLine(decision) {
   const grounds = inlineText(decision.grounds);
   if (decision.leave !== null) return `Decision: left, ${leftAs(decision.leave)}: ${grounds}`;
-  if (decision.ask !== null) return `Decision: ask the author, applying ${appliedOption(decision.ask)}; see Decisions: ${grounds}`;
+  if (decision.ask !== null) return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see Decisions: ${grounds}`;
   return `Decision: fix${decision.departure === null ? "" : ", departing from a rule"}: ${grounds}`;
 }
 function decisionsSection(review2) {
@@ -27246,7 +27246,7 @@ function decisionsSection(review2) {
     const ask = entry.decision.ask;
     return [
       `- [ ] ${label(entry)}: ${inlineText(ask.question)}`,
-      `  - Applied: ${appliedOption(ask)}`,
+      `  - Default: ${defaultOption(ask)}`,
       `  - Recommended: ${inlineText(ask.options[ask.recommended]?.option ?? "")}`,
       ...ask.options.map((option, position) => `  - Option ${String(position + 1)}: ${sentence(option.option)} Costs: ${sentence(option.cost)} Rule: ${inlineText(option.rule)}`),
       `  - Looked in: ${ask.searched.map(inlineText).join("; ")}`,
@@ -27263,11 +27263,12 @@ function decisionsSection(review2) {
   });
   const left = of("leave").map((entry) => `- ${label(entry)}, ${leftAs(entry.decision.leave)}: ${inlineText(entry.decision.grounds)}`);
   const count2 = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
+  const defaults = review2.fix === null ? "This run does not fix: no fixer ran, and the tree is unchanged." : "A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing.";
   return [
     "## Decisions",
     "",
     `Before any fix, the decision step decided each finding: ${String(of("fix").length)} to fix, ${String(of("leave").length)} to leave, ${String(of("ask").length)} to ask the author${departures === 0 ? "" : `; ${count2(departures, "fix departs", "fixes depart")} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
-    ...questions.length === 0 ? [] : ["", "### Questions for the author", "", "None of these held the run up: each has a default, applied as written, and an answer is needed only to go another way. Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone.", "", ...questions],
+    ...questions.length === 0 ? [] : ["", "### Questions for the author", "", `None of these held the run up: each has a default, and an answer is needed only to go another way. ${defaults} Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone.`, "", ...questions],
     ...fixes.length === 0 ? [] : ["", "### To fix", "", ...fixes],
     ...left.length === 0 ? [] : ["", "### Left", "", ...left]
   ];

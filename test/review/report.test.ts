@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
-import { askDecision, configurationV3, configured, decidedOf, decisions, History, ranked, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
+import { askDecision, configurationV3, configured, decidedOf, decisions, fixRun, History, ranked, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -216,9 +216,19 @@ describe('the Decisions section (R8 of the decision step)', () => {
     assert.match(report, /^Before any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author; 1 fix departs from a rule the repository states\. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left\.$/m);
   });
 
-  it('lists each question as a checklist item, with the default applied, the option recommended, every option\'s cost and rule, where the decider looked and why', () => {
+  it('lists each question as a checklist item, with its default, the option recommended, every option\'s cost and rule, where the decider looked and why', () => {
     const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
-    assert.match(report, /^### Questions for the author\n\nNone of these held the run up: each has a default, applied as written, and an answer is needed only to go another way\. Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone\.\n\n- \[ \] 2\. SWEEP-1: Should parse accept an empty input\?\n  - Applied: keep accepting it \(no edit\)\n  - Recommended: accept it and return an empty result\n  - Option 1: keep accepting it\. Costs: callers that pass one now see the change\. Rule: parse rejects an empty input\n  - Option 2: accept it and return an empty result\. Costs: an empty input passes silently\. Rule: parse accepts an empty input\n  - Looked in: the change's commit message; README\.md; test\/a\.test\.ts\n  - Grounds: nothing in the repository states which behavior is meant$/m);
+    assert.match(report, /^### Questions for the author\n\nNone of these held the run up: each has a default, and an answer is needed only to go another way\. This run does not fix: no fixer ran, and the tree is unchanged\. Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone\.\n\n- \[ \] 2\. SWEEP-1: Should parse accept an empty input\?\n  - Default: keep accepting it \(no edit\)\n  - Recommended: accept it and return an empty result\n  - Option 1: keep accepting it\. Costs: callers that pass one now see the change\. Rule: parse rejects an empty input\n  - Option 2: accept it and return an empty result\. Costs: an empty input passes silently\. Rule: parse accepts an empty input\n  - Looked in: the change's commit message; README\.md; test\/a\.test\.ts\n  - Grounds: nothing in the repository states which behavior is meant$/m);
+  });
+
+  it('says no question\'s default was applied, neither in a read-only run, which ran no fixer, nor in a fix run, whose Fixes says whether a fixer edited it', () => {
+    const readOnly = render(decidedOf(reported(), [decisions[0], askDecision('SWEEP-1', true)]).fold());
+    assert.match(readOnly, /^None of these held the run up: [^\n]*This run does not fix: no fixer ran, and the tree is unchanged\./m);
+    assert.match(readOnly, /^ {2}- Default: reject it with an error$/m);
+    const fixing = render(decidedOf(fixRun(), [decisions[0], askDecision('SWEEP-1', false)]).fold());
+    assert.match(fixing, /^None of these held the run up: [^\n]*A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing\./m);
+    assert.doesNotMatch(fixing, /no fixer ran/);
+    for (const report of [readOnly, fixing]) assert.doesNotMatch(report, /applied as written|^ {2}- Applied: |ask the author, applying /m);
   });
 
   it('lists each finding to fix with its approach, the options rejected and the rule it departs from, and each finding left with its reason', () => {
@@ -232,7 +242,7 @@ describe('the Decisions section (R8 of the decision step)', () => {
   it('closes each finding\'s block with its decision', () => {
     const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', true)]).fold());
     assert.match(report, /^### 1\. \[major\] CONFIRMED  RIPPLE-1[^\n]*\n[\s\S]*?Also at: SWEEP-2 src\/a\.ts:7\nDecision: fix, departing from a rule: parse reads the null on an empty input, at lines 4 and 7$/m);
-    assert.match(report, /^Decision: ask the author, applying reject it with an error; see Decisions: nothing in the repository states which behavior is meant$/m);
+    assert.match(report, /^Decision: ask the author, defaulting to reject it with an error; see Decisions: nothing in the repository states which behavior is meant$/m);
     assert.match(render(decidedOf(reported()).fold()), /^Decision: left, outside the change, and not a regression: the helper would edit only lines the change does not touch$/m);
   });
 
