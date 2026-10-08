@@ -16,6 +16,7 @@
  * under test/ out (see eslint.config.mjs).
  */
 import { execFileSync } from 'node:child_process';
+import { comparable } from '../../src/runtime/environment.ts';
 
 /**
  * Variables that name a repository, or part of one, or that carry settings
@@ -64,10 +65,9 @@ const repositoryVariablePrefixes: readonly string[] = ['GIT_CONFIG_KEY_', 'GIT_C
 
 /** Whether `name` is one of the repository variables, compared as the platform compares names: without case on Windows. */
 export function isRepositoryVariable(name: string, platform: NodeJS.Platform = process.platform): boolean {
-  const comparable = (text: string): string => (platform === 'win32' ? text.toUpperCase() : text);
-  const candidate = comparable(name);
-  return repositoryVariables.some((variable) => comparable(variable) === candidate)
-    || repositoryVariablePrefixes.some((prefix) => candidate.startsWith(comparable(prefix)));
+  const candidate = comparable(name, platform);
+  return repositoryVariables.some((variable) => comparable(variable, platform) === candidate)
+    || repositoryVariablePrefixes.some((prefix) => candidate.startsWith(comparable(prefix, platform)));
 }
 
 /** A copy of the environment without any repository variable. */

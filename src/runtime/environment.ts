@@ -12,7 +12,7 @@
  */
 
 /** The name as the platform compares it. */
-function comparable(name: string, platform: NodeJS.Platform): string {
+export function comparable(name: string, platform: NodeJS.Platform): string {
   return platform === 'win32' ? name.toUpperCase() : name;
 }
 
