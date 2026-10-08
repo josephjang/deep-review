@@ -60,7 +60,7 @@ describe('taskFor', () => {
   it('gives the decider every ranked finding in rank order, each with every candidate\'s own verdict and evidence (R2 of the decision step)', () => {
     const task = taskFor(unit('decision', 'decision', 'decider'), decidedOf(mergeRanked(), null).start('decision').review());
     assert.match(task, /^The review's 2 findings, numbered \[0\] to \[1\]/);
-    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: null dereference\n {4}merge and rank: same root cause at lines 4 and 7\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:4: CONFIRMED\n[\s\S]* {8}evidence: line 4 dereferences null\n {4}- SWEEP-2 \(SCAN\) at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the verifier of its group failed twice\n\[1\] SWEEP-1 \[minor\] PLAUSIBLE: extract the helper\n/m);
+    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: null dereference\n {4}merge and rank: same root cause at lines 4 and 7\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:4: CONFIRMED\n[\s\S]* {8}evidence: line 4 dereferences null\n {4}- SWEEP-2 \(SCAN\) at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the group's verifier failed twice\n\[1\] SWEEP-1 \[minor\] PLAUSIBLE: extract the helper\n/m);
   });
 });
 

@@ -180,7 +180,7 @@ describe('the task texts', () => {
     ]);
     assert.match(task, /^The review's 2 findings, numbered \[0\] to \[1\], each with every candidate merged into it, its verdict and its verifier's evidence\. Decide each one as your role prompt defines it: `fix`, `leave` or `ask`\.$/m);
     assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: parse dereferences null, also at line 7\n {4}merge and rank: one root cause\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:8: CONFIRMED\n {8}summary: RIPPLE-1 summary\n {8}detail: RIPPLE-1 detail\n {8}evidence: line 4\n {4}- ALTITUDE-2 \(ALTITUDE\) at src\/a\.ts:10: PLAUSIBLE\n {8}summary: ALTITUDE-2 summary\n {8}detail: ALTITUDE-2 detail\n {8}evidence: Needs the author: where to guard$/m);
-    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE: a helper\n {4}merge and rank: one improvement\n {4}- SWEEP-1 \(DESIGN\) primary at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the verifier of its group failed twice$/m);
+    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE: a helper\n {4}merge and rank: one improvement\n {4}- SWEEP-1 \(DESIGN\) primary at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the group's verifier failed twice$/m);
     assert.match(task, /`leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise\./);
     assert.match(task, /the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer\./);
     assert.match(task, /`departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing\. Every index appears exactly once\. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing\.$/);
@@ -232,7 +232,7 @@ describe('the fixer\'s task', () => {
     const task = fixerTask(input);
     assert.match(task, /^Cluster c1, batch c1-2: 2 findings, numbered \[0\] to \[1\], in the order to apply them\.$/m);
     assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED \(RIPPLE\) at src\/a\.ts:4\n {4}summary: parse dereferences null\n {4}detail: other\(\) passes null\n {4}evidence: line 4 uses text!\n {4}reason: one root cause\n/m);
-    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE \(unverified\) \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*\n {4}summary: s\n {4}detail: d\n {4}evidence: none; the verifier of its group failed twice\n {4}reason: r\n/m);
+    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE \(unverified\) \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*\n {4}summary: s\n {4}detail: d\n {4}evidence: none; the group's verifier failed twice\n {4}reason: r\n/m);
   });
 
   it('gives each merged candidate its own verdict and evidence, not only where it is (R7 of the decision step)', () => {

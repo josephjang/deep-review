@@ -26695,7 +26695,7 @@ function earlierWork(unit, unfinished) {
 }
 var fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
 var verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
-var evidenceWords = (evidence) => evidence ?? "none; the verifier of its group failed twice";
+var evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
 function candidateLines(head2, candidate) {
   return [
     head2,
@@ -26834,7 +26834,7 @@ function deciderTask(findings) {
 }
 function mergeRankTask(inputs) {
   const list = inputs.map(
-    ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdict}${unverified ? " (unverified)" : ""}`, `evidence: ${evidence ?? "none; the group's verifier failed twice"}`])
+    ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdictWords({ verdict, unverified })}`, `evidence: ${evidenceWords(evidence)}`])
   ).join("\n");
   return [
     `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? "" : "s"}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor), a \`summary\` that names the other sites when there are any, and a \`reason\`; a \`CONVENTIONS\` violation takes the severity of the rule it breaks. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,

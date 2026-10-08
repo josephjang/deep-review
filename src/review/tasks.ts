@@ -386,7 +386,7 @@ const fileList = (files: readonly string[]): string => (files.length === 0 ? '(n
 const verdictWords = (candidate: Pick<TaskCandidate, 'verdict' | 'unverified'>): string => `${candidate.verdict}${candidate.unverified ? ' (unverified)' : ''}`;
 
 /** The evidence line a task prints for a candidate, saying so when its verifier gave none. */
-const evidenceWords = (evidence: string | null): string => evidence ?? 'none; the verifier of its group failed twice';
+const evidenceWords = (evidence: string | null): string => evidence ?? 'none; the group\'s verifier failed twice';
 
 /** A candidate as a fixer's or the decider's task prints it: the header line it is given, then its claim and its evidence. */
 function candidateLines(head: string, candidate: TaskCandidate): string[] {
@@ -601,7 +601,7 @@ export interface RankInput {
 /** The merge-rank task over the numbered working list. */
 export function mergeRankTask(inputs: readonly RankInput[]): string {
   const list = inputs.map(({ candidate, verdict, unverified, evidence }, index) =>
-    candidateItem(index, candidate, [`verdict: ${verdict}${unverified ? ' (unverified)' : ''}`, `evidence: ${evidence ?? 'none; the group\'s verifier failed twice'}`]),
+    candidateItem(index, candidate, [`verdict: ${verdictWords({ verdict, unverified })}`, `evidence: ${evidenceWords(evidence)}`]),
   ).join('\n');
   return [
     `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? '' : 's'}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor), a \`summary\` that names the other sites when there are any, and a \`reason\`; a \`CONVENTIONS\` violation takes the severity of the rule it breaks. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,
