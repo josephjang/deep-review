@@ -27257,7 +27257,7 @@ function decisionsSection(review2) {
   const fixes = of("fix").flatMap((entry) => {
     const { fix, departure } = entry.decision;
     return [
-      `- ${label(entry)}: ${inlineText(fix.approach)} Grounds: ${inlineText(entry.decision.grounds)}`,
+      `- ${label(entry)}: ${sentence(fix.approach)} Grounds: ${inlineText(entry.decision.grounds)}`,
       ...fix.rejected.map((option) => `  - Rejected: ${inlineText(option.option)}: ${inlineText(option.reason)}`),
       ...departure === null ? [] : [`  - Departs from: ${inlineText(departure.rule)} (${inlineText(departure.source)}): ${inlineText(departure.reason)}`]
     ];

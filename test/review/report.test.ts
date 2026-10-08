@@ -233,9 +233,11 @@ describe('the Decisions section (R8 of the decision step)', () => {
 
   it('lists each finding to fix with its approach, the options rejected and the rule it departs from, and each finding left with its reason', () => {
     const fixed = render(decidedOf(reported(), [departing, { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } }]).fold());
-    assert.match(fixed, /^### To fix\n\n- 1\. RIPPLE-1: guard the null once, before parse reads it Grounds: parse reads the null on an empty input, at lines 4 and 7\n  - Rejected: catch the throw in each caller: leaves the null in parse\n  - Departs from: parse trusts its callers \(src\/a\.ts:1\): the comment came with a caller that is gone$/m);
+    assert.match(fixed, /^### To fix\n\n- 1\. RIPPLE-1: guard the null once, before parse reads it\. Grounds: parse reads the null on an empty input, at lines 4 and 7\n  - Rejected: catch the throw in each caller: leaves the null in parse\n  - Departs from: parse trusts its callers \(src\/a\.ts:1\): the comment came with a caller that is gone$/m);
     assert.match(fixed, /^### Left\n\n- 2\. SWEEP-1, superseded by RIPPLE-1: the helper would edit only lines the change does not touch$/m);
     assert.doesNotMatch(fixed, /### Questions for the author/, 'no question, no heading');
+    const stopped = { ...departing, fix: { ...decisions[0]!.fix, approach: 'guard the null once.' } };
+    assert.match(render(decidedOf(reported(), [stopped, decisions[1]]).fold()), /^- 1\. RIPPLE-1: guard the null once\. Grounds: /m, 'an approach with its own stop gets no second one');
     assert.match(render(decidedOf(reported()).fold()), /^- 2\. SWEEP-1, outside the change, and not a regression: /m);
   });
 
