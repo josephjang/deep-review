@@ -75,11 +75,9 @@ export function withoutRepositoryVariables(environment: NodeJS.ProcessEnv, platf
   return Object.fromEntries(Object.entries(environment).filter(([name]) => !isRepositoryVariable(name, platform)));
 }
 
-/** Delete every repository variable from `environment` in place; returns the names deleted. */
-export function deleteRepositoryVariables(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string[] {
-  const names = Object.keys(environment).filter((name) => isRepositoryVariable(name, platform));
-  for (const name of names) Reflect.deleteProperty(environment, name);
-  return names;
+/** Delete every repository variable from `environment` in place. */
+export function deleteRepositoryVariables(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): void {
+  for (const name of Object.keys(environment)) if (isRepositoryVariable(name, platform)) Reflect.deleteProperty(environment, name);
 }
 
 deleteRepositoryVariables(process.env);

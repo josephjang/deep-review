@@ -120,11 +120,12 @@ describe('the repository variables', () => {
     assert.equal(environment.GIT_DIR, '/elsewhere/.git');
   });
 
-  it('are deleted in place, naming each one deleted', () => {
+  it('are deleted in place', () => {
     const environment: NodeJS.ProcessEnv = { PATH: '/bin', GIT_DIR: '/elsewhere/.git', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.bare', GIT_CONFIG_VALUE_0: 'true' };
-    assert.deepEqual(deleteRepositoryVariables(environment, 'linux'), ['GIT_DIR', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']);
+    deleteRepositoryVariables(environment, 'linux');
     assert.deepEqual(environment, { PATH: '/bin' });
-    assert.deepEqual(deleteRepositoryVariables(environment, 'linux'), []);
+    deleteRepositoryVariables(environment, 'linux');
+    assert.deepEqual(environment, { PATH: '/bin' });
   });
 
   it('are absent from this test process', () => {
