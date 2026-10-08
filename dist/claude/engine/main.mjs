@@ -27216,7 +27216,8 @@ var leaveReasonWords = {
 var leftAs = (leave) => leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${leave.supersededBy}`;
 var sentence = (text2) => {
   const inline = inlineText(text2).trimEnd();
-  return /[.!?]$/.test(inline) ? inline : `${inline}.`;
+  if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
+  return `${inline.replace(/[:,;]$/, "")}.`;
 };
 function defaultOption(ask) {
   const chosen = ask.options[ask.applied];

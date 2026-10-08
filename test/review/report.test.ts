@@ -254,6 +254,15 @@ describe('the Decisions section (R8 of the decision step)', () => {
     assert.doesNotMatch(report, /\.\. |\?\. /);
   });
 
+  it('takes a stop before a closing bracket or quote as the end, and turns a trailing colon, comma or semicolon into the stop', () => {
+    const asked = askDecision('SWEEP-1', false) as { ask: { options: { option: string; cost: string }[] } };
+    const texts = [['Keep it (see README.)', 'uses "x."'], ['as follows:', 'one more,']] as const;
+    const marked = { ...asked, ask: { ...asked.ask, options: asked.ask.options.map((option, position) => ({ ...option, option: texts[position]![0], cost: texts[position]![1] })) } };
+    const report = render(decidedOf(reported(), [decisions[0], marked]).fold());
+    assert.match(report, /^ {2}- Option 1: Keep it \(see README\.\) Costs: uses "x\." Rule: /m);
+    assert.match(report, /^ {2}- Option 2: as follows\. Costs: one more\. Rule: /m);
+  });
+
   it('keeps a decider\'s text on its own line whatever it holds, so it cannot open a heading or a list item', () => {
     const hostile = { ...askDecision('SWEEP-1', false), grounds: 'first line\n## Not a heading\n- not an item' };
     const report = render(decidedOf(reported(), [decisions[0], hostile]).fold());

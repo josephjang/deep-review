@@ -22,10 +22,15 @@ export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
 /** The words for a left finding's reason, naming the finding that supersedes one. */
 export const leftAs = (leave: NonNullable<RecordedDecision['leave']>): string => (leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${leave.supersededBy}`);
 
-/** A decider's text as one sentence of a line: inline, ending with a full stop unless it ends with a mark of its own. */
+/**
+ * A decider's text as one sentence of a line: inline, ending with a full
+ * stop unless it ends with a mark of its own, closing brackets and quotes
+ * after it included; a trailing colon, comma or semicolon becomes the stop.
+ */
 const sentence = (text: string): string => {
   const inline = inlineText(text).trimEnd();
-  return /[.!?]$/.test(inline) ? inline : `${inline}.`;
+  if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
+  return `${inline.replace(/[:,;]$/, '')}.`;
 };
 
 /** The option an ask takes as its default, and whether the default edits the code. */
