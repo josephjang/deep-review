@@ -1271,7 +1271,12 @@ export const recordedDecisionSchema = z.discriminatedUnion('decision', [
 ]);
 export type RecordedDecision = z.infer<typeof recordedDecisionSchema>;
 
-/** The decider's decisions, one per ranked finding, in the engine's order (R2, R3 of the decision step). */
+/**
+ * The decider's decisions, one per ranked finding, in the order its answer
+ * gave them, or, as the first engine to write this event recorded them,
+ * sorted by the task's index; the fold holds them in the ranking's order
+ * either way (R2, R3 of the decision step).
+ */
 export const decisionsRecordedV1 = z.strictObject({
   workerId: z.uuid(),
   decisions: z.array(recordedDecisionSchema).min(1),
