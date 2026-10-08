@@ -167,8 +167,8 @@ a rebuild, and a file a decision named.
 - **A check per snapshot run by the engine.** The engine still runs the
   checks once before the fixes and once after; what a fixer runs between
   findings is its own judgment under its prompt (PD5).
-- **The interrupted check (#25).** Its own proposal, in the same pull
-  request.
+- **The interrupted check (#25).** Its own proposal, on its own branch
+  and pull request.
 - **The fallback commit subjects (#9) and the structural check that
   refused `c2-1`'s attempt (#26).** Separate issues; neither changes
   what a commit holds.
@@ -396,7 +396,8 @@ a rebuild, and a file a decision named.
 - **PD8: #25 is its own proposal.** It changes the checks phases'
   planner and reducer and nothing a fixer, a claim or a revision
   touches; folding it into this design would tie an unrelated gate to
-  it. Same branch and pull request, since both came from the same runs.
+  it. Its own branch and pull request too, so each is confirmed and
+  lands on its own, though both came from the same runs.
 
 ## Risks
 
