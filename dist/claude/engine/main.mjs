@@ -26696,12 +26696,12 @@ function earlierWork(unit, unfinished) {
 var fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
 var verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
 var evidenceWords = (evidence) => evidence ?? "none; the verifier of its group failed twice";
-function memberLines(member) {
+function candidateLines(head2, candidate) {
   return [
-    `    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`,
-    `        summary: ${member.summary}`,
-    `        detail: ${member.detail}`,
-    `        evidence: ${evidenceWords(member.evidence)}`
+    head2,
+    `        summary: ${candidate.summary}`,
+    `        detail: ${candidate.detail}`,
+    `        evidence: ${evidenceWords(candidate.evidence)}`
   ];
 }
 function decidedLines(decision) {
@@ -26735,7 +26735,7 @@ function fixerTask(input2) {
     `    detail: ${finding.detail}`,
     `    evidence: ${evidenceWords(finding.evidence)}`,
     `    reason: ${finding.reason}`,
-    ...finding.members.flatMap(memberLines),
+    ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...finding.decision === null ? [] : decidedLines(finding.decision),
     ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
     ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(", ")}: ${finding.firstRound.note}`]
@@ -26817,20 +26817,12 @@ function repairTask(input2) {
     scratchRule
   ].join("\n");
 }
-function deciderCandidateLines(candidate, primary) {
-  return [
-    `    - ${candidate.id} (${candidate.angle})${primary ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`,
-    `        summary: ${candidate.summary}`,
-    `        detail: ${candidate.detail}`,
-    `        evidence: ${evidenceWords(candidate.evidence)}`
-  ];
-}
 function deciderTask(findings) {
   const count2 = findings.length;
   const list = findings.map((finding, position) => [
     `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
     `    merge and rank: ${finding.reason}`,
-    ...finding.candidates.flatMap((candidate, at) => deciderCandidateLines(candidate, at === 0))
+    ...finding.candidates.flatMap((candidate, at) => candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`, candidate))
   ].join("\n"));
   return [
     `The review's ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,

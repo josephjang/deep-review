@@ -388,13 +388,13 @@ const verdictWords = (candidate: Pick<TaskCandidate, 'verdict' | 'unverified'>):
 /** The evidence line a task prints for a candidate, saying so when its verifier gave none. */
 const evidenceWords = (evidence: string | null): string => evidence ?? 'none; the verifier of its group failed twice';
 
-/** A merged candidate under its finding in a fixer's task: its claim, its verdict and its evidence. */
-function memberLines(member: TaskCandidate): string[] {
+/** A candidate as a fixer's or the decider's task prints it: the header line it is given, then its claim and its evidence. */
+function candidateLines(head: string, candidate: TaskCandidate): string[] {
   return [
-    `    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`,
-    `        summary: ${member.summary}`,
-    `        detail: ${member.detail}`,
-    `        evidence: ${evidenceWords(member.evidence)}`,
+    head,
+    `        summary: ${candidate.summary}`,
+    `        detail: ${candidate.detail}`,
+    `        evidence: ${evidenceWords(candidate.evidence)}`,
   ];
 }
 
@@ -435,7 +435,7 @@ export function fixerTask(input: FixerTaskInput): string {
     `    detail: ${finding.detail}`,
     `    evidence: ${evidenceWords(finding.evidence)}`,
     `    reason: ${finding.reason}`,
-    ...finding.members.flatMap(memberLines),
+    ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...(finding.decision === null ? [] : decidedLines(finding.decision)),
     ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
     ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(', ')}: ${finding.firstRound.note}`]),
@@ -569,16 +569,6 @@ export interface DeciderTaskFinding {
   readonly candidates: readonly TaskCandidate[];
 }
 
-/** One candidate of a finding in the decider's task. */
-function deciderCandidateLines(candidate: TaskCandidate, primary: boolean): string[] {
-  return [
-    `    - ${candidate.id} (${candidate.angle})${primary ? ' primary' : ''} at ${candidate.location}: ${verdictWords(candidate)}`,
-    `        summary: ${candidate.summary}`,
-    `        detail: ${candidate.detail}`,
-    `        evidence: ${evidenceWords(candidate.evidence)}`,
-  ];
-}
-
 /**
  * The decider's task (R2, R3 of the decision step): every ranked finding,
  * numbered in rank order, each with every candidate merged into it and
@@ -589,7 +579,7 @@ export function deciderTask(findings: readonly DeciderTaskFinding[]): string {
   const list = findings.map((finding, position) => [
     `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
     `    merge and rank: ${finding.reason}`,
-    ...finding.candidates.flatMap((candidate, at) => deciderCandidateLines(candidate, at === 0)),
+    ...finding.candidates.flatMap((candidate, at) => candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? ' primary' : ''} at ${candidate.location}: ${verdictWords(candidate)}`, candidate)),
   ].join('\n'));
   return [
     `The review's ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
