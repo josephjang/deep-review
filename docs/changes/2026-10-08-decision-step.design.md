@@ -134,10 +134,14 @@ digest is compared, so the operator is not first sent to `--roles`.
 
 ### Fixer task (R7)
 
-`FixerTaskFinding` loses `also` and gains `members` (each a
-`TaskCandidate`), `decision` and `supersedes`. The primary's evidence is
-its own, not the merged one. `fixerTask` prints each member with its
-verdict and evidence, the decision's lines (approach, rejected options,
+`FixerTaskFinding` loses `also` and its primary's loose angle, location,
+detail and evidence, and gains `primary` and `members` (each a
+`TaskCandidate`), `decision` and `supersedes`; its verdict, summary and
+reason stay the merged finding's. `fixerTask` prints the finding's
+merged verdict, summary and reason, then the primary and each member,
+each with its own verdict beside its own evidence, so a CONFIRMED
+finding never pairs its verdict with a PLAUSIBLE primary's evidence;
+then the decision's lines (approach, rejected options,
 departure; or the ask's default and question), the superseded findings
 to check, and, when any finding carries a decision, one paragraph on
 applying it, never deferring over a choice the decision made but only by

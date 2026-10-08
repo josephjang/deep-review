@@ -196,14 +196,17 @@ describe('the fixer\'s task', () => {
     secondRound: false,
     findings: [
       {
-        id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'parse dereferences null', detail: 'other() passes null', evidence: 'line 4 uses text!', reason: 'one root cause',
+        id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 'parse dereferences null', reason: 'one root cause',
+        primary: { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED', unverified: false, evidence: 'line 4 uses text!' },
         members: [{ id: 'SWEEP-2', angle: 'ALTITUDE', location: 'src/a.ts:7', summary: 'guard once', detail: 'one guard serves both sites', verdict: 'PLAUSIBLE', unverified: false, evidence: 'Needs the author: guard in parse or in each caller' }],
         decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' } },
         supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing' }],
         firstRound: null,
       },
       {
-        id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 's', detail: 'd', evidence: null, reason: 'r', members: [],
+        id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, summary: 's', reason: 'r',
+        primary: { id: 'SWEEP-1', angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 'own s', detail: 'd', verdict: 'PLAUSIBLE', unverified: true, evidence: null },
+        members: [],
         decision: {
           id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
           ask: { question: 'Should b log?', options: [{ option: 'log once', cost: 'c', rule: 'r', edits: true }, { option: 'stay quiet', cost: 'c', rule: 'r', edits: false }, { option: 'log always', cost: 'c', rule: 'r', edits: true }], recommended: 1, applied: 0, searched: ['docs'] },
@@ -231,12 +234,21 @@ describe('the fixer\'s task', () => {
   it('numbers the batch\'s findings with everything the fixer judges by', () => {
     const task = fixerTask(input);
     assert.match(task, /^Cluster c1, batch c1-2: 2 findings, numbered \[0\] to \[1\], in the order to apply them\.$/m);
-    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED \(RIPPLE\) at src\/a\.ts:4\n {4}summary: parse dereferences null\n {4}detail: other\(\) passes null\n {4}evidence: line 4 uses text!\n {4}reason: one root cause\n/m);
-    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE \(unverified\) \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*\n {4}summary: s\n {4}detail: d\n {4}evidence: none; the group's verifier failed twice\n {4}reason: r\n/m);
+    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED \(RIPPLE\) at src\/a\.ts:4\n {4}summary: parse dereferences null\n {4}reason: one root cause\n {4}primary: RIPPLE-1 \(RIPPLE\) at src\/a\.ts:4: CONFIRMED\n {8}summary: line 4 dereferences null\n {8}detail: other\(\) passes null\n {8}evidence: line 4 uses text!\n/m);
+    assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE \(unverified\) \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*\n {4}summary: s\n {4}reason: r\n {4}primary: SWEEP-1 \(SCAN\) at lib\/b\.ts:9 \(unlocated[^\n]*: PLAUSIBLE \(unverified\)\n {8}summary: own s\n {8}detail: d\n {8}evidence: none; the group's verifier failed twice\n/m);
+  });
+
+  it('prints a PLAUSIBLE primary\'s evidence under its own verdict, never under the finding\'s CONFIRMED one (R7 of the decision step)', () => {
+    const ripple = input.findings[0]!;
+    const plausible = { ...ripple.primary, verdict: 'PLAUSIBLE' as const, evidence: 'Not CONFIRMED: only one caller passes null' };
+    const confirming = { ...ripple.members[0]!, verdict: 'CONFIRMED' as const, evidence: 'line 7 passes null too' };
+    const task = fixerTask({ ...input, findings: [{ ...ripple, primary: plausible, members: [confirming] }] });
+    assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED \(RIPPLE\) at src\/a\.ts:4\n {4}summary: parse dereferences null\n {4}reason: one root cause\n {4}primary: RIPPLE-1 \(RIPPLE\) at src\/a\.ts:4: PLAUSIBLE\n {8}summary: line 4 dereferences null\n {8}detail: other\(\) passes null\n {8}evidence: Not CONFIRMED: only one caller passes null\n {4}merged: SWEEP-2 \(ALTITUDE\) at src\/a\.ts:7: CONFIRMED\n[\s\S]*? {8}evidence: line 7 passes null too\n/m);
+    assert.doesNotMatch(task, /^ {4}evidence:/m, 'no evidence line sits under the finding\'s merged verdict');
   });
 
   it('gives each merged candidate its own verdict and evidence, not only where it is (R7 of the decision step)', () => {
-    assert.match(fixerTask(input), /^ {4}reason: one root cause\n {4}merged: SWEEP-2 \(ALTITUDE\) at src\/a\.ts:7: PLAUSIBLE\n {8}summary: guard once\n {8}detail: one guard serves both sites\n {8}evidence: Needs the author: guard in parse or in each caller\n/m);
+    assert.match(fixerTask(input), /^ {8}evidence: line 4 uses text!\n {4}merged: SWEEP-2 \(ALTITUDE\) at src\/a\.ts:7: PLAUSIBLE\n {8}summary: guard once\n {8}detail: one guard serves both sites\n {8}evidence: Needs the author: guard in parse or in each caller\n/m);
   });
 
   it('tells the fixer what was decided for each finding: the approach, what was rejected, a rule departed from, and an ask\'s default and question (R7 of the decision step)', () => {

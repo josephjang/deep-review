@@ -26730,11 +26730,10 @@ var decidedRule = "Each finding carries what was decided for it before any fixer
 function fixerTask(input2) {
   const count2 = input2.findings.length;
   const findings = input2.findings.map((finding, index2) => [
-    `[${String(index2)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.angle}) at ${finding.location}`,
+    `[${String(index2)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.primary.angle}) at ${finding.primary.location}`,
     `    summary: ${finding.summary}`,
-    `    detail: ${finding.detail}`,
-    `    evidence: ${evidenceWords(finding.evidence)}`,
     `    reason: ${finding.reason}`,
+    ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...finding.decision === null ? [] : decidedLines(finding.decision),
     ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
@@ -26912,18 +26911,14 @@ function fixerTaskOf(unit, review2, editing, evidence) {
   const findings = batch.findingIds.map((id) => {
     const entry = ranked.get(id);
     if (entry === void 0) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
-    const primary = taskCandidate(entry.primary);
     return {
       id,
       severity: entry.finding.severity,
       verdict: entry.resolution.verdict,
       unverified: entry.resolution.unverified,
-      angle: entry.primary.angle,
-      location: primary.location,
       summary: entry.finding.summary,
-      detail: entry.primary.detail,
-      evidence: primary.evidence,
       reason: entry.finding.reason,
+      primary: taskCandidate(entry.primary),
       members: entry.members.map(taskCandidate),
       decision: decidedFor(review2, decided, id),
       supersedes: (review2.decisions ?? []).filter((decision) => decision.leave?.supersededBy === id).flatMap((decision) => {

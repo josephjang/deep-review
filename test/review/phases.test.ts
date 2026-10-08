@@ -11,12 +11,12 @@ import { noCheckFlags } from '../../src/review/checks/discover.ts';
 import { contributionOf, groupCandidates, invocationFor, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import type { SurveyInputs } from '../../src/review/survey.ts';
 import { outputSchemaOf } from '../../src/review/schemas.ts';
-import type { Unit } from '../../src/review/steps.ts';
+import { fixPlanOf, type Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
-import { configuration, configured, decidedOf, found, mergeRanked, ranked, surveyConfigured, surveyConfiguredFix, swept, triaged, verified } from '../helpers/review-history.ts';
+import { checksPhase, configuration, configured, decidedOf, decisions, found, mergeRanked, ranked, ranking, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withFixPass, worker } from '../helpers/review-history.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
 const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerReceipt => ({
@@ -61,6 +61,15 @@ describe('taskFor', () => {
     const task = taskFor(unit('decision', 'decision', 'decider'), decidedOf(mergeRanked(), null).start('decision').review());
     assert.match(task, /^The review's 2 findings, numbered \[0\] to \[1\]/);
     assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: null dereference\n {4}merge and rank: same root cause at lines 4 and 7\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:4: CONFIRMED\n[\s\S]* {8}evidence: line 4 dereferences null\n {4}- SWEEP-2 \(SCAN\) at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the group's verifier failed twice\n\[1\] SWEEP-1 \[minor\] PLAUSIBLE: extract the helper\n/m);
+  });
+
+  it('gives a fixer the primary with its own verdict beside its own evidence, never under the finding\'s merged verdict (R7 of the decision step)', () => {
+    // SWEEP-2, its group unverified, is the primary; RIPPLE-1, CONFIRMED, is merged into it, so the finding is CONFIRMED.
+    const rankedOnSweep = swept().start('merge-rank').worker(40, 'merge-rank merge-rank:merge-rank').add('ranking.recorded', { workerId: worker(40), findings: [{ id: 'SWEEP-2', members: ['RIPPLE-1'], severity: 'major', summary: 'null dereference', reason: 'same root cause at lines 7 and 4' }, ranking[1]] }).finish('merge-rank');
+    const history = checksPhase(decidedOf(withFixPass(rankedOnSweep), [{ ...decisions[0], id: 'SWEEP-2' }, decisions[1]]), 'baseline-checks').start('fixes');
+    history.add('fixes.planned', fixPlanOf(history.review()));
+    const task = taskFor(unit('fixes', 'c1-1', 'fixer'), history.review(), { editing: { snapshotCommand: 'snapshot', unelevatedSandbox: false }, evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' } });
+    assert.match(task, /^\[0\] SWEEP-2 \[major\] CONFIRMED \(SCAN\) at src\/a\.ts:7\n {4}summary: null dereference\n {4}reason: same root cause at lines 7 and 4\n {4}primary: SWEEP-2 \(SCAN\) at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n {8}summary: [^\n]*\n {8}detail: [^\n]*\n {8}evidence: none; the group's verifier failed twice\n {4}merged: RIPPLE-1 \(RIPPLE\) at src\/a\.ts:4: CONFIRMED\n {8}summary: [^\n]*\n {8}detail: [^\n]*\n {8}evidence: line 4 dereferences null\n/m);
   });
 });
 

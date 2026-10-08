@@ -168,18 +168,14 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
   const findings = batch.findingIds.map((id): FixerTaskFinding => {
     const entry = ranked.get(id);
     if (entry === undefined) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
-    const primary = taskCandidate(entry.primary);
     return {
       id,
       severity: entry.finding.severity,
       verdict: entry.resolution.verdict,
       unverified: entry.resolution.unverified,
-      angle: entry.primary.angle,
-      location: primary.location,
       summary: entry.finding.summary,
-      detail: entry.primary.detail,
-      evidence: primary.evidence,
       reason: entry.finding.reason,
+      primary: taskCandidate(entry.primary),
       members: entry.members.map(taskCandidate),
       decision: decidedFor(review, decided, id),
       supersedes: (review.decisions ?? []).filter((decision) => decision.leave?.supersededBy === id).flatMap((decision) => {

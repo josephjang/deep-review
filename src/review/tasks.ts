@@ -327,15 +327,12 @@ export interface FixerTaskFinding {
   /** The merged verdict: CONFIRMED when any candidate of the finding is. */
   readonly verdict: Verdict;
   readonly unverified: boolean;
-  readonly angle: string;
-  /** Where it points, as `describeLocation` writes it. */
-  readonly location: string;
+  /** Merge-rank's summary of the finding. */
   readonly summary: string;
-  readonly detail: string;
-  /** The primary candidate's own evidence line, or null when its group went unverified. */
-  readonly evidence: string | null;
   /** Merge-rank's reason for the finding. */
   readonly reason: string;
+  /** The primary candidate, with its own verdict beside its own evidence, so a CONFIRMED finding never pairs its verdict with a PLAUSIBLE primary's evidence. */
+  readonly primary: TaskCandidate;
   /** The candidates merged into it, each with its own verdict and evidence (R7 of the decision step). */
   readonly members: readonly TaskCandidate[];
   /** What the decision step decided for it, which the fixer applies; null for a run configured before the decision step, whose plan predates it. */
@@ -430,11 +427,10 @@ const decidedRule = 'Each finding carries what was decided for it before any fix
 export function fixerTask(input: FixerTaskInput): string {
   const count = input.findings.length;
   const findings = input.findings.map((finding, index) => [
-    `[${String(index)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.angle}) at ${finding.location}`,
+    `[${String(index)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.primary.angle}) at ${finding.primary.location}`,
     `    summary: ${finding.summary}`,
-    `    detail: ${finding.detail}`,
-    `    evidence: ${evidenceWords(finding.evidence)}`,
     `    reason: ${finding.reason}`,
+    ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...(finding.decision === null ? [] : decidedLines(finding.decision)),
     ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
