@@ -5,10 +5,9 @@ Once Phase 4's list is set, do these in order. None of them is optional.
 ### Step 1: Fix every non-refuted finding, as a fan-out
 
 Every legitimate finding gets fixed or put to the author. "Legitimate"
-means CONFIRMED or PLAUSIBLE after Phase 2, and the verdict decides the
-route. A PLAUSIBLE **design & cleanup** finding is, by its rubric,
-already adjudicated: a real improvement whose application is a judgment
-the author owns. Do not dispatch it to a fixer — the fixer could only
+means CONFIRMED or PLAUSIBLE after Phase 2. This step holds a PLAUSIBLE
+**design & cleanup** finding for the author: a real improvement whose
+application is a judgment the author owns. Do not dispatch it to a fixer — the fixer could only
 defer it back (a paid round-trip) or apply a should-ask restructuring
 unilaterally (worse). Hold every such finding for Step 3, whose audit
 takes them directly, alongside whatever the fixers defer. Everything
