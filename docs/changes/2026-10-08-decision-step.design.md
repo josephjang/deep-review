@@ -386,6 +386,93 @@ substance, and costs one finding of a fixer's turn.
 No fix run before this one was made on pytest, so the share a fixer
 defers has no before to compare with on the same change: it was 0 of 6.
 
+### Review by deep-review
+
+On 2026-10-08 the engine reviewed and fixed this element's own change,
+the commits above on `1811a86`, from the plugin bundle of `75708ae`
+(engine `0.0.0+bb59fc6c3412`), on Claude Code (Opus and Sonnet), run
+directly with the skill's command: `--from origin/main --to HEAD
+--merge-base --fix --budget-usd 120`. The scope was `src`, `roles`,
+`scripts`, `test/checkpoint`, `test/review`, `test/helpers`,
+`test/replay`, `test/roles`, `skill`, `.claude-plugin`, `README.md` and
+the two files of this proposal, 57 files; `dist/` and the golden fixture
+`schema-1-08` were left out, since both are built. The checks were named
+by flag: typecheck, lint and test as the npm scripts, and build dropped,
+because `npm run build` rewrites `dist/`, whose bytes would then become
+a revision of their own; `dist/` was rebuilt into each commit afterwards.
+The rubric reviewed here is the one reviewing, so a flaw of the decider's
+own rubric is the least likely thing this review finds.
+
+It ran twice. The first run's commits were not used (below); the second
+ran its review phases at the default concurrency, was stopped once the
+decision completed, and was resumed with `--concurrency 1`, so its fix
+pass launched one fixer at a time.
+
+| | First run | Second run |
+|---|---|---|
+| Run | `71ae22a2` | `8dbe23ad` |
+| Every angle ran, no unit degraded | yes | yes |
+| Findings (CONFIRMED, PLAUSIBLE); refuted at verification | 24 (10, 14); 11 | 24 (14, 10); 17 |
+| Decided fix, leave, ask | 20, 4, 0 | 18, 6, 0 |
+| Leaves by reason | 4 intended | 6 intended |
+| Departures | 1 | 2 |
+| The decider: seconds, USD | 546, 1.76 | 253, 1.43 |
+| Fixes applied, already applied, deferred, blocked, not attempted | 19, 1, 0, 0, 0 | 17, 1, 0, 0, 0 |
+| Checks after the fixes | all passed | all passed |
+| The run: workers, USD | 48, 37.86 | 47, 32.34 |
+| Engine commits that pass `npm run check` alone | 13 of 23 | 16 of 17 |
+
+Neither run asked the author anything, and in neither did the decider
+decide `fix` with no edit, the risk the gate above names. The one finding
+reported already applied in each had been applied within its own batch:
+by the batch's refused first attempt in the first run, and by its
+fixer's edit for another finding in the second.
+
+Nine findings sit at the same file and line in both runs. The decisions
+agree in kind on seven. They differ on `rubrics.md:132`, the unrun roles'
+fragments that still say the verdict routes a finding: left as intended
+in the first run, by the earlier elements' rule that an unrun role's
+fragments stay frozen, and fixed in the second, as a contradiction the
+change caused. At `fixer-apply.md:52` the first run decided one finding,
+the repair losing the two defer criteria, as fix with a departure from
+R12; the second split it into a finding left as intended (R12 narrows a
+decided fixer on purpose) and one fixed with the same departure, so the
+same edit landed both times.
+
+The first run's commits were set aside because 10 of its 23 failed
+`npm run check` alone, though the tree at the last one passed. A fixer
+edits files outside its cluster's own (tests, and a file a decision
+named), and the engine attributes what changed on disk to the finding
+that snapshots next, so edits of clusters running at once landed in each
+other's commits. A fixer's first attempt there was also refused for
+giving a blocked finding a commit message; its edits stayed and became
+two engine commits whose subjects, with a third fallback subject, lack
+the repository's commit form. These are defects of the fix pass, not of
+this element, and are recorded here as found.
+
+With one fixer at a time no edit crossed clusters, and one commit of 17
+failed alone: SWEEP-1's snapshot held a test line its fixer corrected
+while applying SWEEP-2 in the same batch. That line was moved by hand
+into SWEEP-1's commit; every later commit's tree is unchanged and the
+last is byte for byte the engine's. Stopping the engine after the
+decision killed the baseline typecheck it had just started (exit 143);
+the engine recorded it failed and the resume did not run it again, so
+the second run's report says typecheck failed before the fixes. It
+passed on `75708ae` in the first run and in every commit check.
+
+The second run's 17 commits, `4dacf18` to `0f0209e`, each pass
+`npm run check` and `npm run verify`. The fixes amended R7, R12 and this
+design's sections on the fixer task and the prompt fragments to say what
+they changed. Two passages the fixers reported stale and no fix updated
+were corrected by hand: R8's question "with the default applied", now
+"with its default", here, and the comment of `decisions.recorded@1`,
+which the recorded order no longer matched, in `d6f41ab`. Under the
+final tree the ledgers of the three gate runs and the four runs beside
+them fold, as do the twelve runs this repository's own ledger holds;
+eight of those were started by this repository's test suite, whose git
+calls inherited a `GIT_DIR` that a `git rebase --exec` of the commit
+checks exported, and were abandoned.
+
 ## Risks & Migration
 
 - A run configured before this change and still active resumes only

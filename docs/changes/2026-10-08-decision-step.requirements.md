@@ -160,7 +160,7 @@ can be departed from when it is found wrong.
 - **R8: The report and `status` show the decisions.** A Decisions
   section follows the header: a count of the decisions and of the fixes
   that depart from a rule; the questions for the author as a checklist,
-  each with the default applied, the option recommended, every option's
+  each with its default, the option recommended, every option's
   cost and rule, and where the decider looked; the findings to fix with
   their approach, rejected options and departures; and the findings left
   with their reason. Each finding under Findings closes with its
