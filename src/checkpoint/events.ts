@@ -1245,37 +1245,30 @@ const decisionText = (max: number) => z.string().min(1).max(max);
  * cost, the rule a convention source would state for it and whether it
  * edits the code, and the indexes of the option recommended and the
  * default applied, with where the decider looked. A `fix` alone may
- * depart from a rule, naming it, its source and why.
+ * depart from a rule, naming it, its source and why. Each kind is its own
+ * variant, so the type holds each part non-null exactly on its own kind.
  */
-export const recordedDecisionSchema = z.strictObject({
-  id: candidateIdSchema,
-  decision: z.enum(vocabularyV4.decisionKinds),
-  grounds: decisionText(1000),
-  fix: z.strictObject({
-    approach: decisionText(2000),
-    rejected: z.array(z.strictObject({ option: decisionText(400), reason: decisionText(400) })).max(4),
-  }).nullable(),
-  leave: z.strictObject({ reason: z.enum(vocabularyV4.leaveReasons), supersededBy: candidateIdSchema.nullable() }).nullable(),
-  ask: z.strictObject({
-    question: decisionText(400),
-    options: z.array(z.strictObject({ option: decisionText(400), cost: decisionText(400), rule: decisionText(400), edits: z.boolean() })).min(2).max(4),
-    recommended: z.number().int().min(0),
-    applied: z.number().int().min(0),
-    searched: z.array(decisionText(400)).min(1).max(10),
-  }).nullable(),
-  departure: z.strictObject({ rule: decisionText(400), source: decisionText(400), reason: decisionText(1000) }).nullable(),
-}).superRefine((decided, context) => {
-  for (const kind of vocabularyV4.decisionKinds) {
-    if ((decided.decision === kind) !== (decided[kind] !== null)) context.addIssue({ code: 'custom', message: `a ${decided.decision} decision carries \`${decided.decision}\` and no other part`, path: [kind] });
-  }
-  if (decided.departure !== null && decided.decision !== 'fix') context.addIssue({ code: 'custom', message: 'only a fix departs from a rule', path: ['departure'] });
-  if (decided.ask !== null && (decided.ask.recommended >= decided.ask.options.length || decided.ask.applied >= decided.ask.options.length)) {
-    context.addIssue({ code: 'custom', message: 'the recommended and the applied option are among the options', path: ['ask'] });
-  }
-  if (decided.leave !== null && (decided.leave.reason === 'superseded') !== (decided.leave.supersededBy !== null)) {
-    context.addIssue({ code: 'custom', message: 'a superseded finding names the finding that supersedes it, and no other left finding names one', path: ['leave', 'supersededBy'] });
-  }
+const decidedFix = z.strictObject({
+  approach: decisionText(2000),
+  rejected: z.array(z.strictObject({ option: decisionText(400), reason: decisionText(400) })).max(4),
 });
+const decidedLeave = z.strictObject({ reason: z.enum(vocabularyV4.leaveReasons), supersededBy: candidateIdSchema.nullable() }).refine((leave) => (leave.reason === 'superseded') === (leave.supersededBy !== null), {
+  message: 'a superseded finding names the finding that supersedes it, and no other left finding names one',
+  path: ['supersededBy'],
+});
+const decidedAsk = z.strictObject({
+  question: decisionText(400),
+  options: z.array(z.strictObject({ option: decisionText(400), cost: decisionText(400), rule: decisionText(400), edits: z.boolean() })).min(2).max(4),
+  recommended: z.number().int().min(0),
+  applied: z.number().int().min(0),
+  searched: z.array(decisionText(400)).min(1).max(10),
+}).refine((ask) => ask.recommended < ask.options.length && ask.applied < ask.options.length, { message: 'the recommended and the applied option are among the options' });
+const decidedDeparture = z.strictObject({ rule: decisionText(400), source: decisionText(400), reason: decisionText(1000) });
+export const recordedDecisionSchema = z.discriminatedUnion('decision', [
+  z.strictObject({ id: candidateIdSchema, decision: z.literal('fix'), grounds: decisionText(1000), fix: decidedFix, leave: z.null(), ask: z.null(), departure: decidedDeparture.nullable() }),
+  z.strictObject({ id: candidateIdSchema, decision: z.literal('leave'), grounds: decisionText(1000), fix: z.null(), leave: decidedLeave, ask: z.null(), departure: z.null() }),
+  z.strictObject({ id: candidateIdSchema, decision: z.literal('ask'), grounds: decisionText(1000), fix: z.null(), leave: z.null(), ask: decidedAsk, departure: z.null() }),
+]);
 export type RecordedDecision = z.infer<typeof recordedDecisionSchema>;
 
 /** The decider's decisions, one per ranked finding, in the engine's order (R2, R3 of the decision step). */

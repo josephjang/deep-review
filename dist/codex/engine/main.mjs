@@ -20728,35 +20728,27 @@ var reportWrittenV4 = external_exports.strictObject({
   patches: external_exports.array(artifactReferenceSchema).max(2e3)
 });
 var decisionText = (max) => external_exports.string().min(1).max(max);
-var recordedDecisionSchema = external_exports.strictObject({
-  id: candidateIdSchema,
-  decision: external_exports.enum(vocabularyV4.decisionKinds),
-  grounds: decisionText(1e3),
-  fix: external_exports.strictObject({
-    approach: decisionText(2e3),
-    rejected: external_exports.array(external_exports.strictObject({ option: decisionText(400), reason: decisionText(400) })).max(4)
-  }).nullable(),
-  leave: external_exports.strictObject({ reason: external_exports.enum(vocabularyV4.leaveReasons), supersededBy: candidateIdSchema.nullable() }).nullable(),
-  ask: external_exports.strictObject({
-    question: decisionText(400),
-    options: external_exports.array(external_exports.strictObject({ option: decisionText(400), cost: decisionText(400), rule: decisionText(400), edits: external_exports.boolean() })).min(2).max(4),
-    recommended: external_exports.number().int().min(0),
-    applied: external_exports.number().int().min(0),
-    searched: external_exports.array(decisionText(400)).min(1).max(10)
-  }).nullable(),
-  departure: external_exports.strictObject({ rule: decisionText(400), source: decisionText(400), reason: decisionText(1e3) }).nullable()
-}).superRefine((decided, context) => {
-  for (const kind of vocabularyV4.decisionKinds) {
-    if (decided.decision === kind !== (decided[kind] !== null)) context.addIssue({ code: "custom", message: `a ${decided.decision} decision carries \`${decided.decision}\` and no other part`, path: [kind] });
-  }
-  if (decided.departure !== null && decided.decision !== "fix") context.addIssue({ code: "custom", message: "only a fix departs from a rule", path: ["departure"] });
-  if (decided.ask !== null && (decided.ask.recommended >= decided.ask.options.length || decided.ask.applied >= decided.ask.options.length)) {
-    context.addIssue({ code: "custom", message: "the recommended and the applied option are among the options", path: ["ask"] });
-  }
-  if (decided.leave !== null && decided.leave.reason === "superseded" !== (decided.leave.supersededBy !== null)) {
-    context.addIssue({ code: "custom", message: "a superseded finding names the finding that supersedes it, and no other left finding names one", path: ["leave", "supersededBy"] });
-  }
+var decidedFix = external_exports.strictObject({
+  approach: decisionText(2e3),
+  rejected: external_exports.array(external_exports.strictObject({ option: decisionText(400), reason: decisionText(400) })).max(4)
 });
+var decidedLeave = external_exports.strictObject({ reason: external_exports.enum(vocabularyV4.leaveReasons), supersededBy: candidateIdSchema.nullable() }).refine((leave) => leave.reason === "superseded" === (leave.supersededBy !== null), {
+  message: "a superseded finding names the finding that supersedes it, and no other left finding names one",
+  path: ["supersededBy"]
+});
+var decidedAsk = external_exports.strictObject({
+  question: decisionText(400),
+  options: external_exports.array(external_exports.strictObject({ option: decisionText(400), cost: decisionText(400), rule: decisionText(400), edits: external_exports.boolean() })).min(2).max(4),
+  recommended: external_exports.number().int().min(0),
+  applied: external_exports.number().int().min(0),
+  searched: external_exports.array(decisionText(400)).min(1).max(10)
+}).refine((ask) => ask.recommended < ask.options.length && ask.applied < ask.options.length, { message: "the recommended and the applied option are among the options" });
+var decidedDeparture = external_exports.strictObject({ rule: decisionText(400), source: decisionText(400), reason: decisionText(1e3) });
+var recordedDecisionSchema = external_exports.discriminatedUnion("decision", [
+  external_exports.strictObject({ id: candidateIdSchema, decision: external_exports.literal("fix"), grounds: decisionText(1e3), fix: decidedFix, leave: external_exports.null(), ask: external_exports.null(), departure: decidedDeparture.nullable() }),
+  external_exports.strictObject({ id: candidateIdSchema, decision: external_exports.literal("leave"), grounds: decisionText(1e3), fix: external_exports.null(), leave: decidedLeave, ask: external_exports.null(), departure: external_exports.null() }),
+  external_exports.strictObject({ id: candidateIdSchema, decision: external_exports.literal("ask"), grounds: decisionText(1e3), fix: external_exports.null(), leave: external_exports.null(), ask: decidedAsk, departure: external_exports.null() })
+]);
 var decisionsRecordedV1 = external_exports.strictObject({
   workerId: external_exports.uuid(),
   decisions: external_exports.array(recordedDecisionSchema).min(1)
@@ -21002,7 +20994,7 @@ function routeOfDecision(decision) {
     case "leave":
       return "held";
     case "ask": {
-      const applied = decision.ask?.options[decision.ask.applied];
+      const applied = decision.ask.options[decision.ask.applied];
       if (applied === void 0) throw new Error(`The ask decided for ${decision.id} applies no option it offers`);
       return applied.edits ? "fixer" : "held";
     }
@@ -26709,26 +26701,23 @@ function candidateLines(head2, candidate) {
   ];
 }
 function decidedLines(decision) {
-  const departure = decision.departure === null ? [] : [`        departs from: ${decision.departure.rule} (${decision.departure.source}): ${decision.departure.reason}`];
-  if (decision.fix !== null) {
+  if (decision.decision === "fix") {
+    const { fix, departure } = decision;
     return [
       `    decided: fix. ${decision.grounds}`,
-      `        approach: ${decision.fix.approach}`,
-      ...decision.fix.rejected.length === 0 ? [] : [`        rejected: ${decision.fix.rejected.map((option) => `${option.option} (${option.reason})`).join("; ")}`],
-      ...departure
+      `        approach: ${fix.approach}`,
+      ...fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join("; ")}`],
+      ...departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`]
     ];
   }
-  if (decision.ask !== null) {
-    const { ask } = decision;
-    const applied = ask.options[ask.applied];
-    const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
-    return [
-      `    decided: ask the author, applying a default now. ${decision.grounds}`,
-      `        apply: ${applied?.option ?? "the default the decision names"}`,
-      `        the question the author answers later: ${ask.question} The other options: ${others.join("; ")}`
-    ];
-  }
-  return [`    decided: ${decision.decision}. ${decision.grounds}`];
+  const { ask } = decision;
+  const applied = ask.options[ask.applied];
+  const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
+  return [
+    `    decided: ask the author, applying a default now. ${decision.grounds}`,
+    `        apply: ${applied?.option ?? "the default the decision names"}`,
+    `        the question the author answers later: ${ask.question} The other options: ${others.join("; ")}`
+  ];
 }
 var decidedRule = "Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`.";
 function fixerTask(input2) {
@@ -26951,6 +26940,7 @@ function fixerTaskOf(unit, review2, editing, evidence) {
 function decidedFor(review2, decided, id) {
   const decision = decided.get(id) ?? null;
   if (decision === null && review2.phases.decision.status !== "skipped") throw new Error(`Finding ${id} goes to a fixer with no decision recorded for it`);
+  if (decision?.decision === "leave") throw new Error(`Finding ${id} goes to a fixer though its decision leaves it`);
   return decision;
 }
 function baselineFailuresOf(review2, evidence) {
@@ -27114,7 +27104,7 @@ function orderedRanking(review2, output2, input2) {
 }
 function orderedDecisions(output2, findings) {
   const idAt = (position) => findings[position].finding.id;
-  return [...output2.decisions].sort((a, b) => a.index - b.index).map(({ index: index2, leave, ...decided }) => ({
+  return [...output2.decisions].sort((a, b) => a.index - b.index).map(({ index: index2, leave, ...decided }) => recordedDecisionSchema.parse({
     id: idAt(index2),
     ...decided,
     leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) }
@@ -27210,16 +27200,25 @@ var sentence = (text2) => {
   if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
   return `${inline.replace(/[:,;]$/, "")}.`;
 };
+function optionAt(ask, position) {
+  const option = ask.options[position];
+  if (option === void 0) throw new Error(`An ask names option ${String(position)} of ${String(ask.options.length)}`);
+  return option;
+}
 function defaultOption(ask) {
-  const chosen = ask.options[ask.applied];
-  if (chosen === void 0) throw new Error(`An ask defaults to option ${String(ask.applied)} of ${String(ask.options.length)}`);
+  const chosen = optionAt(ask, ask.applied);
   return `${inlineText(chosen.option)}${chosen.edits ? "" : " (no edit)"}`;
 }
 function decisionLine(decision) {
   const grounds = inlineText(decision.grounds);
-  if (decision.leave !== null) return `Decision: left, ${leftAs(decision.leave)}: ${grounds}`;
-  if (decision.ask !== null) return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see Decisions: ${grounds}`;
-  return `Decision: fix${decision.departure === null ? "" : ", departing from a rule"}: ${grounds}`;
+  switch (decision.decision) {
+    case "leave":
+      return `Decision: left, ${leftAs(decision.leave)}: ${grounds}`;
+    case "ask":
+      return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see Decisions: ${grounds}`;
+    case "fix":
+      return `Decision: fix${decision.departure === null ? "" : ", departing from a rule"}: ${grounds}`;
+  }
 }
 function decisionsSection(review2) {
   if (review2.phases.decision.status === "skipped") return null;
@@ -27231,29 +27230,32 @@ function decisionsSection(review2) {
     const decision = decidedFor2.get(entry.finding.id);
     return decision === void 0 ? [] : [{ number: index2 + 1, decision }];
   });
-  const of = (kind) => numbered.filter((entry) => entry.decision.decision === kind);
   const departures = numbered.filter((entry) => entry.decision.departure !== null).length;
   const label = (entry) => `${String(entry.number)}\\. ${entry.decision.id}`;
-  const questions = of("ask").flatMap((entry) => {
-    const ask = entry.decision.ask;
+  const questions = numbered.flatMap((entry) => {
+    const { decision } = entry;
+    if (decision.decision !== "ask") return [];
+    const { ask } = decision;
     return [
       `- [ ] ${label(entry)}: ${inlineText(ask.question)}`,
       `  - Default: ${defaultOption(ask)}`,
-      `  - Recommended: ${inlineText(ask.options[ask.recommended]?.option ?? "")}`,
+      `  - Recommended: ${inlineText(optionAt(ask, ask.recommended).option)}`,
       ...ask.options.map((option, position) => `  - Option ${String(position + 1)}: ${sentence(option.option)} Costs: ${sentence(option.cost)} Rule: ${inlineText(option.rule)}`),
       `  - Looked in: ${ask.searched.map(inlineText).join("; ")}`,
-      `  - Grounds: ${inlineText(entry.decision.grounds)}`
+      `  - Grounds: ${inlineText(decision.grounds)}`
     ];
   });
-  const fixes = of("fix").flatMap((entry) => {
-    const { fix, departure } = entry.decision;
+  const fixes = numbered.flatMap((entry) => {
+    const { decision } = entry;
+    if (decision.decision !== "fix") return [];
+    const { fix, departure } = decision;
     return [
-      `- ${label(entry)}: ${sentence(fix.approach)} Grounds: ${inlineText(entry.decision.grounds)}`,
+      `- ${label(entry)}: ${sentence(fix.approach)} Grounds: ${inlineText(decision.grounds)}`,
       ...fix.rejected.map((option) => `  - Rejected: ${inlineText(option.option)}: ${inlineText(option.reason)}`),
       ...departure === null ? [] : [`  - Departs from: ${inlineText(departure.rule)} (${inlineText(departure.source)}): ${inlineText(departure.reason)}`]
     ];
   });
-  const left = of("leave").map((entry) => `- ${label(entry)}, ${leftAs(entry.decision.leave)}: ${inlineText(entry.decision.grounds)}`);
+  const left = numbered.flatMap(({ number: number5, decision }) => decision.decision === "leave" ? [`- ${label({ number: number5, decision })}, ${leftAs(decision.leave)}: ${inlineText(decision.grounds)}`] : []);
   const count2 = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
   const defaults = review2.fix === null ? "This run does not fix: no fixer ran, and the tree is unchanged." : "A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing.";
   return [
@@ -27383,8 +27385,8 @@ function patchesOf(fix, id, phase) {
 var patchNote = (numbers) => numbers.length === 0 ? "no patch" : `patch ${numbers.join(", ")}`;
 function fateLines(fix, fate) {
   if (fate.outcome === "held for the author") return ["A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it."];
-  if (fate.outcome === "left by decision" && fate.decision?.leave != null && fate.superseder !== null) return [supersededLine(fate.decision.leave, fate.superseder)];
-  if (fate.outcome === "left by decision" && fate.decision?.leave != null) return [`No fixer saw it: the decision step left it, ${leftAs(fate.decision.leave)}. See Decisions.`];
+  if (fate.outcome === "left by decision" && fate.decision?.decision === "leave" && fate.superseder !== null) return [supersededLine(fate.decision.leave, fate.superseder)];
+  if (fate.outcome === "left by decision" && fate.decision?.decision === "leave") return [`No fixer saw it: the decision step left it, ${leftAs(fate.decision.leave)}. See Decisions.`];
   if (fate.outcome === "asked, kept as is") return ["No fixer saw it: the decision step asks the author, and its default keeps the code as it is. See Decisions."];
   const lines = [];
   if (fate.answer !== null) {

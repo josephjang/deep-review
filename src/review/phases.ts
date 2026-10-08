@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { CandidatesRecorded, DecisionsRecorded, DeduplicationRecorded, Lead, PinnedRole, RankedFinding, RankingRecorded, RecordedCandidate, RecordedDecision, ReviewConfiguration, SurveyRecorded, TreeRevised, VerdictsRecorded } from '../checkpoint/events.ts';
+import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { failedAtBaseline, fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
@@ -46,7 +46,7 @@ import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey
 import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, type ReportFinding, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type DeciderTaskFinding, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
+import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, the survey's inputs, and for an editing unit its scratch and snapshot command. */
@@ -206,11 +206,13 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
  * The decision a fixer is told for a finding of its batch: the recorded
  * one, or none in a run configured before the decision step, whose plan
  * was made without decisions. A decided run that recorded none for a
- * finding it gives a fixer is a plan the engine cannot have made.
+ * finding it gives a fixer, or left it, is a plan the engine cannot have
+ * made.
  */
-function decidedFor(review: ReviewState, decided: ReadonlyMap<string, RecordedDecision>, id: string): RecordedDecision | null {
+function decidedFor(review: ReviewState, decided: ReadonlyMap<string, RecordedDecision>, id: string): FixerDecision | null {
   const decision = decided.get(id) ?? null;
   if (decision === null && review.phases.decision.status !== 'skipped') throw new Error(`Finding ${id} goes to a fixer with no decision recorded for it`);
+  if (decision?.decision === 'leave') throw new Error(`Finding ${id} goes to a fixer though its decision leaves it`);
   return decision;
 }
 
@@ -409,11 +411,12 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
 /**
  * The decisions of a decider's answer, its indexes resolved to the ids of
  * the findings its task numbered, in that order: the finding each decides,
- * and the finding that supersedes one left as superseded.
+ * and the finding that supersedes one left as superseded. Each is parsed
+ * into its kind's variant, whose parts `checkDecisions` has already held.
  */
 function orderedDecisions(output: DeciderOutput, findings: readonly ReportFinding[]): RecordedDecision[] {
   const idAt = (position: number): string => findings[position]!.finding.id;
-  return [...output.decisions].sort((a, b) => a.index - b.index).map(({ index, leave, ...decided }): RecordedDecision => ({
+  return [...output.decisions].sort((a, b) => a.index - b.index).map(({ index, leave, ...decided }) => recordedDecisionSchema.parse({
     id: idAt(index),
     ...decided,
     leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) },

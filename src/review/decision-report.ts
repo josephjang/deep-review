@@ -33,19 +33,32 @@ const sentence = (text: string): string => {
   return `${inline.replace(/[:,;]$/, '')}.`;
 };
 
+type DecidedAsk = NonNullable<RecordedDecision['ask']>;
+
+/** The option of an ask at a position the ledger holds among its options. */
+function optionAt(ask: DecidedAsk, position: number): DecidedAsk['options'][number] {
+  const option = ask.options[position];
+  if (option === undefined) throw new Error(`An ask names option ${String(position)} of ${String(ask.options.length)}`);
+  return option;
+}
+
 /** The option an ask takes as its default, and whether the default edits the code. */
-function defaultOption(ask: NonNullable<RecordedDecision['ask']>): string {
-  const chosen = ask.options[ask.applied];
-  if (chosen === undefined) throw new Error(`An ask defaults to option ${String(ask.applied)} of ${String(ask.options.length)}`);
+function defaultOption(ask: DecidedAsk): string {
+  const chosen = optionAt(ask, ask.applied);
   return `${inlineText(chosen.option)}${chosen.edits ? '' : ' (no edit)'}`;
 }
 
 /** A finding's decision as one line of its block under Findings: what was decided and on what grounds. */
 export function decisionLine(decision: RecordedDecision): string {
   const grounds = inlineText(decision.grounds);
-  if (decision.leave !== null) return `Decision: left, ${leftAs(decision.leave)}: ${grounds}`;
-  if (decision.ask !== null) return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see Decisions: ${grounds}`;
-  return `Decision: fix${decision.departure === null ? '' : ', departing from a rule'}: ${grounds}`;
+  switch (decision.decision) {
+    case 'leave':
+      return `Decision: left, ${leftAs(decision.leave)}: ${grounds}`;
+    case 'ask':
+      return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see Decisions: ${grounds}`;
+    case 'fix':
+      return `Decision: fix${decision.departure === null ? '' : ', departing from a rule'}: ${grounds}`;
+  }
 }
 
 /**
@@ -66,31 +79,34 @@ export function decisionsSection(review: ReviewState): string[] | null {
     const decision = decidedFor.get(entry.finding.id);
     return decision === undefined ? [] : [{ number: index + 1, decision }];
   });
-  const of = (kind: RecordedDecision['decision']): typeof numbered => numbered.filter((entry) => entry.decision.decision === kind);
   const departures = numbered.filter((entry) => entry.decision.departure !== null).length;
   // The stop after the number is escaped, as paragraphText escapes it, so `- 1. ID` cannot open an ordered list inside its bullet.
   const label = (entry: (typeof numbered)[number]): string => `${String(entry.number)}\\. ${entry.decision.id}`;
 
-  const questions = of('ask').flatMap((entry) => {
-    const ask = entry.decision.ask!;
+  const questions = numbered.flatMap((entry) => {
+    const { decision } = entry;
+    if (decision.decision !== 'ask') return [];
+    const { ask } = decision;
     return [
       `- [ ] ${label(entry)}: ${inlineText(ask.question)}`,
       `  - Default: ${defaultOption(ask)}`,
-      `  - Recommended: ${inlineText(ask.options[ask.recommended]?.option ?? '')}`,
+      `  - Recommended: ${inlineText(optionAt(ask, ask.recommended).option)}`,
       ...ask.options.map((option, position) => `  - Option ${String(position + 1)}: ${sentence(option.option)} Costs: ${sentence(option.cost)} Rule: ${inlineText(option.rule)}`),
       `  - Looked in: ${ask.searched.map(inlineText).join('; ')}`,
-      `  - Grounds: ${inlineText(entry.decision.grounds)}`,
+      `  - Grounds: ${inlineText(decision.grounds)}`,
     ];
   });
-  const fixes = of('fix').flatMap((entry) => {
-    const { fix, departure } = entry.decision;
+  const fixes = numbered.flatMap((entry) => {
+    const { decision } = entry;
+    if (decision.decision !== 'fix') return [];
+    const { fix, departure } = decision;
     return [
-      `- ${label(entry)}: ${sentence(fix!.approach)} Grounds: ${inlineText(entry.decision.grounds)}`,
-      ...fix!.rejected.map((option) => `  - Rejected: ${inlineText(option.option)}: ${inlineText(option.reason)}`),
+      `- ${label(entry)}: ${sentence(fix.approach)} Grounds: ${inlineText(decision.grounds)}`,
+      ...fix.rejected.map((option) => `  - Rejected: ${inlineText(option.option)}: ${inlineText(option.reason)}`),
       ...(departure === null ? [] : [`  - Departs from: ${inlineText(departure.rule)} (${inlineText(departure.source)}): ${inlineText(departure.reason)}`]),
     ];
   });
-  const left = of('leave').map((entry) => `- ${label(entry)}, ${leftAs(entry.decision.leave!)}: ${inlineText(entry.decision.grounds)}`);
+  const left = numbered.flatMap(({ number, decision }) => (decision.decision === 'leave' ? [`- ${label({ number, decision })}, ${leftAs(decision.leave)}: ${inlineText(decision.grounds)}`] : []));
   const count = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
   const defaults = review.fix === null ? 'This run does not fix: no fixer ran, and the tree is unchanged.' : 'A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing.';
   return [

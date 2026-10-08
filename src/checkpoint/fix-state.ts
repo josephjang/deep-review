@@ -192,8 +192,8 @@ export function isNotAttempted(fix: FixState, phase: EditingPhase, key: string):
   return Object.hasOwn(fix.notAttempted[phase], key);
 }
 
-/** What routing reads of a finding's decision: which finding, what was decided, and for an ask the default it applies. */
-export type RoutedDecision = Pick<RecordedDecision, 'id' | 'decision' | 'ask'>;
+/** What routing reads of a finding's decision: which finding, what was decided, and for an ask the default it applies; picked from each kind's variant, so an ask always carries its question. */
+export type RoutedDecision = RecordedDecision extends infer Decision ? (Decision extends RecordedDecision ? Pick<Decision, 'id' | 'decision' | 'ask'> : never) : never;
 
 /**
  * A finding's route by its decision (R6 of the decision step), the one
@@ -210,7 +210,7 @@ export function routeOfDecision(decision: RoutedDecision): FixesPlanned['routes'
     case 'leave':
       return 'held';
     case 'ask': {
-      const applied = decision.ask?.options[decision.ask.applied];
+      const applied = decision.ask.options[decision.ask.applied];
       if (applied === undefined) throw new Error(`The ask decided for ${decision.id} applies no option it offers`);
       return applied.edits ? 'fixer' : 'held';
     }

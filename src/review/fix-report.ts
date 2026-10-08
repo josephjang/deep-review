@@ -109,8 +109,8 @@ const patchNote = (numbers: readonly number[]): string => (numbers.length === 0 
 /** The lines one finding's fate prints under its heading. */
 function fateLines(fix: FixState, fate: FindingFate): string[] {
   if (fate.outcome === 'held for the author') return ['A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it.'];
-  if (fate.outcome === 'left by decision' && fate.decision?.leave != null && fate.superseder !== null) return [supersededLine(fate.decision.leave, fate.superseder)];
-  if (fate.outcome === 'left by decision' && fate.decision?.leave != null) return [`No fixer saw it: the decision step left it, ${leftAs(fate.decision.leave)}. See Decisions.`];
+  if (fate.outcome === 'left by decision' && fate.decision?.decision === 'leave' && fate.superseder !== null) return [supersededLine(fate.decision.leave, fate.superseder)];
+  if (fate.outcome === 'left by decision' && fate.decision?.decision === 'leave') return [`No fixer saw it: the decision step left it, ${leftAs(fate.decision.leave)}. See Decisions.`];
   if (fate.outcome === 'asked, kept as is') return ['No fixer saw it: the decision step asks the author, and its default keeps the code as it is. See Decisions.'];
   const lines: string[] = [];
   if (fate.answer !== null) {

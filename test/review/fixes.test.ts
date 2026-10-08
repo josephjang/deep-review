@@ -29,7 +29,7 @@ function finding(primary: CandidateState, verdict: Verdict = 'CONFIRMED', member
 }
 
 /** An ask whose default, option 0, edits the code or keeps it as it is. */
-const ask = (id: string, edits: boolean): RoutedDecision => ({
+const ask = (id: string, edits: boolean): Extract<RoutedDecision, { decision: 'ask' }> => ({
   id,
   decision: 'ask',
   ask: {
@@ -59,12 +59,12 @@ describe('routeOfDecision (R6 of the decision step)', () => {
     assert.equal(routeOfDecision(ask('X-1', true)), 'fixer');
     assert.equal(routeOfDecision(ask('X-1', false)), 'held');
     const second = ask('X-1', false);
-    assert.equal(routeOfDecision({ ...second, ask: { ...second.ask!, applied: 1 } }), 'fixer', 'the applied option decides, not the first');
+    assert.equal(routeOfDecision({ ...second, ask: { ...second.ask, applied: 1 } }), 'fixer', 'the applied option decides, not the first');
   });
 
   it('refuses an ask that applies an option it does not offer', () => {
     const outside = ask('X-1', true);
-    assert.throws(() => routeOfDecision({ ...outside, ask: { ...outside.ask!, applied: 2 } }), /The ask decided for X-1 applies no option it offers/);
+    assert.throws(() => routeOfDecision({ ...outside, ask: { ...outside.ask, applied: 2 } }), /The ask decided for X-1 applies no option it offers/);
   });
 });
 

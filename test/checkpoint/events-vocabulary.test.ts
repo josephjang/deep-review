@@ -19,6 +19,7 @@ import {
   phaseStartedV2,
   phaseStartedV3,
   phaseStartedV4,
+  recordedDecisionSchema,
   recordedTextLengthV1,
   reportWrittenV2,
   reportWrittenV3,
@@ -330,7 +331,13 @@ describe('decisions.recorded@1', () => {
     assert.equal(accepts({ ...ask, ask: null }), false, 'an ask without its question');
     assert.equal(accepts({ ...leave, leave: null }), false, 'a leave without its reason');
     assert.equal(accepts({ ...ask, departure: { rule: 'r', source: 's', reason: 'r' } }), false, 'an ask that departs');
+    assert.equal(accepts({ ...leave, departure: { rule: 'r', source: 's', reason: 'r' } }), false, 'a leave that departs');
+    assert.equal(accepts({ ...ask, decision: 'defer' }), false, 'a kind the vocabulary does not have');
     assert.equal(accepts(), false, 'no decision at all');
+  });
+
+  it('is one variant per decision kind of the frozen vocabulary, so each part is non-null exactly on its own kind', () => {
+    assert.deepEqual(recordedDecisionSchema.options.map((variant) => variant.shape.decision.value), [...reviewVocabularyV4.decisionKinds]);
   });
 
   it('refuses an ask that recommends or applies an option it does not offer, or offers fewer than two', () => {

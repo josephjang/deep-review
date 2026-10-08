@@ -320,6 +320,9 @@ export interface TaskCandidate {
   readonly evidence: string | null;
 }
 
+/** A decision a fixer is given: a fix, or an ask whose default it applies; a finding left goes to no fixer. */
+export type FixerDecision = Exclude<RecordedDecision, { readonly decision: 'leave' }>;
+
 /** A finding as a fixer's task gives it. */
 export interface FixerTaskFinding {
   readonly id: string;
@@ -336,7 +339,7 @@ export interface FixerTaskFinding {
   /** The candidates merged into it, each with its own verdict and evidence (R7 of the decision step). */
   readonly members: readonly TaskCandidate[];
   /** What the decision step decided for it, which the fixer applies; null for a run configured before the decision step, whose plan predates it. */
-  readonly decision: RecordedDecision | null;
+  readonly decision: FixerDecision | null;
   /** The findings left as superseded by this one, which no fixer is given and this fix must remove too (R7 of the decision step). */
   readonly supersedes: readonly Pick<TaskCandidate, 'id' | 'location' | 'summary'>[];
   /** For a second-round finding, what the first round said: its blocked note and the files it needed (R21 of the fix pass); null in the first round. */
@@ -396,28 +399,24 @@ function candidateLines(head: string, candidate: TaskCandidate): string[] {
 }
 
 /** What a fixer is told was decided for a finding (R7 of the decision step): the approach, or the default an ask applied, with the grounds, what was rejected and any rule departed from. */
-function decidedLines(decision: RecordedDecision): string[] {
-  const departure = decision.departure === null ? [] : [`        departs from: ${decision.departure.rule} (${decision.departure.source}): ${decision.departure.reason}`];
-  if (decision.fix !== null) {
+function decidedLines(decision: FixerDecision): string[] {
+  if (decision.decision === 'fix') {
+    const { fix, departure } = decision;
     return [
       `    decided: fix. ${decision.grounds}`,
-      `        approach: ${decision.fix.approach}`,
-      ...(decision.fix.rejected.length === 0 ? [] : [`        rejected: ${decision.fix.rejected.map((option) => `${option.option} (${option.reason})`).join('; ')}`]),
-      ...departure,
+      `        approach: ${fix.approach}`,
+      ...(fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join('; ')}`]),
+      ...(departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`]),
     ];
   }
-  if (decision.ask !== null) {
-    const { ask } = decision;
-    const applied = ask.options[ask.applied];
-    const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
-    return [
-      `    decided: ask the author, applying a default now. ${decision.grounds}`,
-      `        apply: ${applied?.option ?? 'the default the decision names'}`,
-      `        the question the author answers later: ${ask.question} The other options: ${others.join('; ')}`,
-    ];
-  }
-  // A left finding is held, and no fixer is given it.
-  return [`    decided: ${decision.decision}. ${decision.grounds}`];
+  const { ask } = decision;
+  const applied = ask.options[ask.applied];
+  const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
+  return [
+    `    decided: ask the author, applying a default now. ${decision.grounds}`,
+    `        apply: ${applied?.option ?? 'the default the decision names'}`,
+    `        the question the author answers later: ${ask.question} The other options: ${others.join('; ')}`,
+  ];
 }
 
 /** What a fixer's task says of the decisions it carries: apply them, and defer only by the role prompt's criteria, never over a choice the decision made (R7, R12 of the decision step). */
