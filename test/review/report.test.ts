@@ -218,7 +218,7 @@ describe('the Decisions section (R8 of the decision step)', () => {
 
   it('lists each question as a checklist item, with its default, the option recommended, every option\'s cost and rule, where the decider looked and why', () => {
     const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
-    assert.match(report, /^### Questions for the author\n\nNone of these held the run up: each has a default, and an answer is needed only to go another way\. This run does not fix: no fixer ran, and the tree is unchanged\. Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone\.\n\n- \[ \] 2\. SWEEP-1: Should parse accept an empty input\?\n  - Default: keep accepting it \(no edit\)\n  - Recommended: accept it and return an empty result\n  - Option 1: keep accepting it\. Costs: callers that pass one now see the change\. Rule: parse rejects an empty input\n  - Option 2: accept it and return an empty result\. Costs: an empty input passes silently\. Rule: parse accepts an empty input\n  - Looked in: the change's commit message; README\.md; test\/a\.test\.ts\n  - Grounds: nothing in the repository states which behavior is meant$/m);
+    assert.match(report, /^### Questions for the author\n\nNone of these held the run up: each has a default, and an answer is needed only to go another way\. This run does not fix: no fixer ran, and the tree is unchanged\. Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone\.\n\n- \[ \] 2\\\. SWEEP-1: Should parse accept an empty input\?\n  - Default: keep accepting it \(no edit\)\n  - Recommended: accept it and return an empty result\n  - Option 1: keep accepting it\. Costs: callers that pass one now see the change\. Rule: parse rejects an empty input\n  - Option 2: accept it and return an empty result\. Costs: an empty input passes silently\. Rule: parse accepts an empty input\n  - Looked in: the change's commit message; README\.md; test\/a\.test\.ts\n  - Grounds: nothing in the repository states which behavior is meant$/m);
   });
 
   it('says no question\'s default was applied, neither in a read-only run, which ran no fixer, nor in a fix run, whose Fixes says whether a fixer edited it', () => {
@@ -233,12 +233,12 @@ describe('the Decisions section (R8 of the decision step)', () => {
 
   it('lists each finding to fix with its approach, the options rejected and the rule it departs from, and each finding left with its reason', () => {
     const fixed = render(decidedOf(reported(), [departing, { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } }]).fold());
-    assert.match(fixed, /^### To fix\n\n- 1\. RIPPLE-1: guard the null once, before parse reads it\. Grounds: parse reads the null on an empty input, at lines 4 and 7\n  - Rejected: catch the throw in each caller: leaves the null in parse\n  - Departs from: parse trusts its callers \(src\/a\.ts:1\): the comment came with a caller that is gone$/m);
-    assert.match(fixed, /^### Left\n\n- 2\. SWEEP-1, superseded by RIPPLE-1: the helper would edit only lines the change does not touch$/m);
+    assert.match(fixed, /^### To fix\n\n- 1\\\. RIPPLE-1: guard the null once, before parse reads it\. Grounds: parse reads the null on an empty input, at lines 4 and 7\n  - Rejected: catch the throw in each caller: leaves the null in parse\n  - Departs from: parse trusts its callers \(src\/a\.ts:1\): the comment came with a caller that is gone$/m);
+    assert.match(fixed, /^### Left\n\n- 2\\\. SWEEP-1, superseded by RIPPLE-1: the helper would edit only lines the change does not touch$/m);
     assert.doesNotMatch(fixed, /### Questions for the author/, 'no question, no heading');
     const stopped = { ...departing, fix: { ...decisions[0]!.fix, approach: 'guard the null once.' } };
-    assert.match(render(decidedOf(reported(), [stopped, decisions[1]]).fold()), /^- 1\. RIPPLE-1: guard the null once\. Grounds: /m, 'an approach with its own stop gets no second one');
-    assert.match(render(decidedOf(reported()).fold()), /^- 2\. SWEEP-1, outside the change, and not a regression: /m);
+    assert.match(render(decidedOf(reported(), [stopped, decisions[1]]).fold()), /^- 1\\\. RIPPLE-1: guard the null once\. Grounds: /m, 'an approach with its own stop gets no second one');
+    assert.match(render(decidedOf(reported()).fold()), /^- 2\\\. SWEEP-1, outside the change, and not a regression: /m);
   });
 
   it('closes each finding\'s block with its decision', () => {

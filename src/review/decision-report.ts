@@ -68,7 +68,8 @@ export function decisionsSection(review: ReviewState): string[] | null {
   });
   const of = (kind: RecordedDecision['decision']): typeof numbered => numbered.filter((entry) => entry.decision.decision === kind);
   const departures = numbered.filter((entry) => entry.decision.departure !== null).length;
-  const label = (entry: (typeof numbered)[number]): string => `${String(entry.number)}. ${entry.decision.id}`;
+  // The stop after the number is escaped, as paragraphText escapes it, so `- 1. ID` cannot open an ordered list inside its bullet.
+  const label = (entry: (typeof numbered)[number]): string => `${String(entry.number)}\\. ${entry.decision.id}`;
 
   const questions = of('ask').flatMap((entry) => {
     const ask = entry.decision.ask!;

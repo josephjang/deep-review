@@ -179,8 +179,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(text, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/b\.ts:1$/m);
     // A read-only run says what it decided right after the header, and under each finding (R8 of the decision step).
     assert.match(text, /^Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 1 refuted at verification\n\n## Decisions\n\nBefore any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author\./m);
-    assert.match(text, /^### Questions for the author\n\n[^\n]*\n\n- \[ \] 2\. SWEEP-1: fake question for \[1\]\?\n  - Default: fake default \(no edit\)$/m);
-    assert.match(text, /^### To fix\n\n- 1\. RIPPLE-1: fake approach for \[0\]\. Grounds: fake grounds for \[0\]$/m);
+    assert.match(text, /^### Questions for the author\n\n[^\n]*\n\n- \[ \] 2\\\. SWEEP-1: fake question for \[1\]\?\n  - Default: fake default \(no edit\)$/m);
+    assert.match(text, /^### To fix\n\n- 1\\\. RIPPLE-1: fake approach for \[0\]\. Grounds: fake grounds for \[0\]$/m);
     assert.match(text, /^Decision: fix: fake grounds for \[0\]$/m);
     assert.match(text, /^Decision: ask the author, defaulting to fake default \(no edit\); see Decisions: fake grounds for \[1\]$/m);
     assert.doesNotMatch(text, /^## Fixes$/m, 'a read-only run has no fix pass to report');

@@ -27242,7 +27242,7 @@ function decisionsSection(review2) {
   });
   const of = (kind) => numbered.filter((entry) => entry.decision.decision === kind);
   const departures = numbered.filter((entry) => entry.decision.departure !== null).length;
-  const label = (entry) => `${String(entry.number)}. ${entry.decision.id}`;
+  const label = (entry) => `${String(entry.number)}\\. ${entry.decision.id}`;
   const questions = of("ask").flatMap((entry) => {
     const ask = entry.decision.ask;
     return [
