@@ -80,7 +80,7 @@ export function readManifest(into: string): SnapshotManifest | null {
 }
 
 /** A path's size and time from `lstat`, or null for no entry, a directory, or a path through a file. */
-function statOf(worktree: string, path: string): [number, number] | null {
+export function statOf(worktree: string, path: string): [number, number] | null {
   let stat;
   try {
     stat = lstatSync(join(worktree, ...path.split('/')), { throwIfNoEntry: false });
@@ -209,6 +209,41 @@ export function snapshotPaths(into: string, count: number): string[] {
   return [...paths].sort();
 }
 
+/** Write a manifest into a directory, creating it. */
+export function writeManifest(into: string, manifest: SnapshotManifest): void {
+  mkdirSync(into, { recursive: true });
+  writeFileSync(join(into, snapshotManifestFileName), `${JSON.stringify(manifest)}\n`);
+}
+
+/**
+ * The tracked files whose size or time differ from the manifest's, or
+ * that are gone, sorted: what changed since it was taken among the files
+ * it lists, and nothing it does not list, so a file new since is not one
+ * (PD9 of commit series integrity). Reads the file system only.
+ */
+export function changedListed(manifest: SnapshotManifest): string[] {
+  return Object.entries(manifest.files)
+    .filter(([path, before]) => {
+      const now = statOf(manifest.worktree, path);
+      return before === null ? now !== null : now === null || before[0] !== now[0] || before[1] !== now[1];
+    })
+    .map(([path]) => path)
+    .sort();
+}
+
+/**
+ * Write the manifest a check that may write the tree is compared with
+ * after it runs (PD9 of commit series integrity): every tracked file with
+ * its size and time, taken just before the check, into `into`, never the
+ * worktree; and return it.
+ */
+export function prepareCheckManifest(into: string, worktree: string): SnapshotManifest {
+  const files = Object.fromEntries(gitApi.trackedFiles(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
+  const manifest: SnapshotManifest = { worktree, expected: [], files, ignored: [] };
+  writeManifest(into, manifest);
+  return manifest;
+}
+
 /**
  * Write the manifest every snapshot under `into` compares with, from
  * outside the worker's sandbox (TD20): the worktree, the paths the run
@@ -216,8 +251,6 @@ export function snapshotPaths(into: string, count: number): string[] {
  * git does not ignore with its size and time, and what git ignores.
  */
 export function prepareSnapshots(into: string, worktree: string, expected: Iterable<string>): void {
-  mkdirSync(into, { recursive: true });
   const files = Object.fromEntries(gitApi.filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
-  const manifest: SnapshotManifest = { worktree, expected: [...new Set(expected)].sort(), files, ignored: gitApi.ignoredEntries(worktree) };
-  writeFileSync(join(into, snapshotManifestFileName), `${JSON.stringify(manifest)}\n`);
+  writeManifest(into, { worktree, expected: [...new Set(expected)].sort(), files, ignored: gitApi.ignoredEntries(worktree) });
 }

@@ -319,6 +319,16 @@ export function fixLimitations(review: ReviewState): string[] {
   for (const answer of Object.values(fix.answers.fixes)) {
     for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, ${holder(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
   }
+  // A path a fixer's revision holds that a later check rewrote: a generated file the fixer kept, which the check's tail revision overwrites, or a fix the check reformatted (R7, PD9 of commit series integrity).
+  fix.revisions.forEach((revision, index) => {
+    if (revision.source.kind !== 'fix') return;
+    const { key } = revision.source;
+    const later = fix.revisions.slice(index + 1).filter((candidate) => candidate.source.kind === 'check');
+    for (const file of revision.files) {
+      const check = later.find((candidate) => candidate.files.some((rewritten) => rewritten.path === file.path));
+      if (check !== undefined && check.source.kind === 'check') lines.push(`- Rewritten by a later check: ${inlineText(file.path)}, in ${key}'s revision of ${revision.change.findings.join(', ')}, by the ${check.source.check} check in ${check.phase}; a generated file the fixer kept, or a fix the check reformatted.`);
+    }
+  });
   for (const claim of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim.path)} by ${claim.key}, edited before it was claimed (R6 of commit series integrity).`);
   for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lost.holder === null ? 'which no batch of the round has' : `to ${lost.holder}`}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
   const strays = [...new Set(review.checks.flatMap((check) => check.strays))].sort();

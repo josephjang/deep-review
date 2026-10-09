@@ -6,7 +6,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { prepareSnapshots, readManifest, readSnapshot, snapshotListingSchema, takeSnapshot } from '../../src/review/snapshot.ts';
+import { changedListed, prepareCheckManifest, prepareSnapshots, readManifest, readSnapshot, snapshotListingSchema, takeSnapshot } from '../../src/review/snapshot.ts';
+import { trackedFiles } from '../../src/scope/git.ts';
 import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
 import { git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
@@ -141,6 +142,27 @@ describe('snapshots', () => {
     writeFileSync(join(directory, 'scratch', 'outside.txt'), 'x');
     writeFileSync(join(into, '0.json'), JSON.stringify({ finding: 0, paths: { '../../outside.txt': { sha256: sha256Hex(Buffer.from('x')), size: 1, symlink: false } } }));
     assert.equal(readSnapshot(into, 0)!('../../outside.txt'), undefined);
+  });
+
+  describe('the manifest of a check that may write the tree (PD9 of commit series integrity)', () => {
+    it('lists every tracked file and nothing git does not track, and writes itself outside the worktree', () => {
+      write(repo, 'untracked.ts', 'u\n');
+      write(repo, 'ignored.log', 'i\n');
+      const checks = join(directory, 'scratch', 'run', 'checks', 'checks-build');
+      const manifest = prepareCheckManifest(checks, repo);
+      assert.deepEqual(Object.keys(manifest.files), ['.gitignore', 'src/a.ts', 'src/b.ts', 'src/back.ts']);
+      assert.deepEqual(readManifest(checks), manifest);
+      assert.deepEqual(trackedFiles(repo), ['.gitignore', 'src/a.ts', 'src/b.ts', 'src/back.ts']);
+    });
+
+    it('names a tracked file changed or deleted since, and neither a file new since nor one left alone', () => {
+      write(repo, 'src/back.ts', 'changed before the check\n');
+      const manifest = prepareCheckManifest(join(directory, 'scratch', 'check'), repo);
+      write(repo, 'src/a.ts', 'rewritten by the check, longer\n');
+      remove(repo, 'src/b.ts');
+      write(repo, 'dist/new.js', 'new\n');
+      assert.deepEqual(changedListed(manifest), ['src/a.ts', 'src/b.ts']);
+    });
   });
 
   describe('deep-review snapshot', () => {

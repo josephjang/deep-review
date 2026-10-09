@@ -21,7 +21,7 @@ import { expectedTreeOf } from './drift.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
-import { readSnapshot, snapshotPaths, snapshotsDirectoryName } from './snapshot.ts';
+import { changedListed, readSnapshot, snapshotPaths, snapshotsDirectoryName, type SnapshotManifest } from './snapshot.ts';
 import * as gitApi from '../scope/git.ts';
 import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
@@ -242,15 +242,22 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
 }
 
 /**
- * The revision of what a check wrote to the files the run expects, or
- * null when it wrote none (TD6): a formatter in `lint`, a generator in
- * `build` or a snapshot updater in `test` is not drift, and the revision
- * names the check.
+ * The revision of what a check wrote, or null when it wrote nothing (TD6
+ * of the fix pass; PD9 of commit series integrity): a formatter in
+ * `lint`, a generator in `build` or a snapshot updater in `test` is not
+ * drift, and the revision names the check. It covers the files the run
+ * expects and every tracked file whose size or time differs from
+ * `manifest`, taken just before the check, so a generated tree outside the
+ * scope is recorded, and committed at the series' tail, rather than left
+ * changed in the worktree; a file new since the check is not listed, and
+ * a file changed before it and left alone is not either. The state before
+ * a path the run expects nothing of is the scope's head's. Without a
+ * manifest, the expected files alone.
  */
-export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string): NewEvent | null {
+export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys(), context.match);
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...(manifest === null ? [] : changedListed(manifest))], context.match);
   if (files.length === 0) return null;
   const payload: TreeRevised = {
     phase,

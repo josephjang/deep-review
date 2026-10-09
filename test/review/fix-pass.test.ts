@@ -778,6 +778,42 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     });
   });
 
+  it('records a check\'s rewrite of tracked files outside the change as its revision at the series\' tail, and names a generated file a fixer kept (PD9 of commit series integrity)', async () => {
+    // A built tree, tracked and committed before the change under review, so it is outside the scope.
+    git(box.repo, 'reset', '-q', '--mixed', 'HEAD~1');
+    write(box.repo, 'dist/a.js', 'a\n');
+    write(box.repo, 'dist/b.js', 'b\n');
+    git(box.repo, 'add', 'dist');
+    git(box.repo, 'commit', '-q', '-m', 'build');
+    git(box.repo, 'add', '-A');
+    git(box.repo, 'commit', '-q', '-m', 'the change under review');
+    // The build passes at baseline and rebuilds both files after the fixes.
+    box.checks({ build: ['pass', { write: { 'dist/a.js': 'rebuilt a\n', 'dist/b.js': 'rebuilt b\n' } }] });
+    box.script({
+      ...reviewScript,
+      // c1 runs a build that rewrites dist/a.js and restores it before its snapshot, as its prompt asks; c2 keeps its build's dist/b.js and reports it.
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'dist/a.js': 'fixer build a\n' } }, { writes: { 'dist/a.js': 'a\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB, 'dist/b.js': 'fixer build b\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['dist/b.js', 'src/b.ts'], subject: 'fix(b): Import parse' }]) },
+    });
+    const text = report(await box.fix('claude'));
+    const state = box.run();
+    const revisions = state.review!.fix!.revisions;
+    assert.deepEqual(revisions.map((revision) => [revision.phase, revision.source.kind === 'check' ? revision.source.check : revision.source.key, revision.files.map((file) => `${file.path} ${file.status}`)]).sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1)), [
+      ['checks', 'build', ['dist/a.js modified', 'dist/b.js modified']],
+      ['fixes', 'c1-1', ['src/a.ts modified']],
+      ['fixes', 'c2-1', ['dist/b.js modified', 'src/b.ts modified']],
+    ]);
+    assert.equal(revisions.at(-1)!.source.kind, 'check', 'the check\'s rewrite is the last revision');
+    assert.ok(box.logs.includes('check build (checks): rewrote 2 files, 1 of them outside what the run expects; recorded as its revision'), box.logs.join('\n'));
+    assert.match(text, /^- Rewritten by a later check: dist\/b\.js, in c2-1's revision of SCAN-2, by the build check in checks; a generated file the fixer kept, or a fix the check reformatted\.$/m);
+    assert.doesNotMatch(text, /Rewritten by a later check: dist\/a\.js/, 'a file the fixer restored is in no revision of its own');
+    assert.ok(state.review!.checks.every((check) => !check.drifted));
+    // The commit command commits the rebuilt tree last.
+    commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
+    assert.equal(git(box.repo, 'log', '--format=%s', '-1'), 'chore: apply the build check\'s rewrite');
+    assert.equal(git(box.repo, 'show', 'HEAD:dist/a.js'), 'rebuilt a');
+  });
+
   it('records a check that rewrites a file the run expects as a revision attributed to the check, not drift', async () => {
     box.checks({ lint: [{ write: { 'src/a.ts': 'export const formatted = true;\n' } }, 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });

@@ -190,6 +190,11 @@ export function changedAgainstHead(repo: string): string[] {
   return [...new Set([...changed, ...untracked])].sort();
 }
 
+/** Every file git tracks, once each, sorted: what a check that writes the tree can rewrite and the commit series can carry (PD9 of commit series integrity). */
+export function trackedFiles(repo: string): string[] {
+  return [...new Set(records(gitText(repo, ['ls-files', '-z', '--cached'])))].sort();
+}
+
 /** Every file git does not ignore, tracked or untracked, once each, sorted. */
 export function filesNotIgnored(repo: string): string[] {
   return [...new Set(records(gitText(repo, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'])))].sort();
