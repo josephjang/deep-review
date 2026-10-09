@@ -21,7 +21,7 @@
  * marker.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, type Stats } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { z } from 'zod';
 import { createFileExclusive, writeFileAtomic } from '../atomic-write.ts';
@@ -131,24 +131,44 @@ export function normalizeClaimPath(raw: string): string {
 /** A name with the case of its ASCII letters flipped: each has one letter of the other case, which every file system that folds case folds back, where `ß` uppercases to `SS`. */
 const flipCase = (text: string): string => text.replaceAll(/[A-Za-z]/g, (letter) => (letter <= 'Z' ? letter.toLowerCase() : letter.toUpperCase()));
 
-/** Whether two names in one directory are one entry, compared by device and inode; false when the second does not exist. */
-function sameEntry(directory: string, name: string, other: string): boolean {
-  const first = statSync(join(directory, name), { bigint: true, throwIfNoEntry: false });
-  const second = statSync(join(directory, other), { bigint: true, throwIfNoEntry: false });
-  return first !== undefined && second !== undefined && first.dev === second.dev && first.ino === second.ino;
+/** What the case probe asks of the file system; tests stand in for one whose entries all report inode 0. */
+export interface CaseProbeFileSystem {
+  readonly list: (directory: string) => readonly string[];
+  readonly stat: (path: string) => Stats | undefined;
+}
+
+const caseProbeFileSystem: CaseProbeFileSystem = {
+  list: (directory) => readdirSync(directory),
+  stat: (path) => statSync(path, { throwIfNoEntry: false }),
+};
+
+/**
+ * Whether `name`, listed in `listing` of `directory`, is also found by its
+ * flipped spelling, so the file system folds case. A listing that holds
+ * both spellings has two entries, which no file system that folds case
+ * holds; the entries' inodes are never compared, since some volumes report
+ * 0 for every one.
+ */
+function foldsCase(fs: CaseProbeFileSystem, directory: string, listing: readonly string[], name: string): boolean {
+  const flipped = flipCase(name);
+  if (listing.includes(name) && listing.includes(flipped)) return false;
+  return fs.stat(join(directory, flipped)) !== undefined;
 }
 
 /**
  * Whether the worktree's file system folds case: the worktree root looked
  * up with the case of its last segment's ASCII letters flipped, or, when
  * that segment has none, the first entry under the root that has one (`.git`
- * always does). Where nothing can be probed, the platform's default.
+ * always does). Where nothing can be probed, the platform's default. One
+ * answer for the whole worktree (TD4), though Windows can make a single
+ * directory case-sensitive.
  */
-export function caseInsensitiveFileSystem(worktree: string): boolean {
+export function caseInsensitiveFileSystem(worktree: string, fs: CaseProbeFileSystem = caseProbeFileSystem): boolean {
   const name = basename(worktree);
-  if (flipCase(name) !== name) return sameEntry(dirname(worktree), name, flipCase(name));
-  const entry = readdirSync(worktree).find((candidate) => flipCase(candidate) !== candidate);
-  if (entry !== undefined) return sameEntry(worktree, entry, flipCase(entry));
+  if (flipCase(name) !== name) return foldsCase(fs, dirname(worktree), fs.list(dirname(worktree)), name);
+  const listing = fs.list(worktree);
+  const entry = listing.find((candidate) => flipCase(candidate) !== candidate);
+  if (entry !== undefined) return foldsCase(fs, worktree, listing, entry);
   return process.platform === 'win32' || process.platform === 'darwin';
 }
 

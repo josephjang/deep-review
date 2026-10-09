@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -239,6 +239,19 @@ describe('claims', () => {
     const unflippable = join(directory, 'ßß');
     mkdirSync(join(unflippable, 'Sub'), { recursive: true });
     assert.equal(caseInsensitiveFileSystem(unflippable), existsSync(join(directory, 'pROBE.TXT')), 'and a root with no ASCII letter through an entry under it');
+  });
+
+  it('tells two entries whose spellings differ in case from one, on a volume that reports inode 0 for every entry', () => {
+    // FAT, exFAT and some network and FUSE mounts report 0 for every inode, so two distinct entries compare equal by device and inode.
+    const noInode = Object.assign(statSync(directory), { dev: 0, ino: 0 });
+    const volume = (listing: readonly string[], found: boolean) => ({ list: () => listing, stat: () => (found ? noInode : undefined) });
+    const root = join(directory, 'Repo');
+    assert.equal(caseInsensitiveFileSystem(root, volume(['Repo', 'rEPO'], true)), false, 'both spellings listed are two entries, so case is kept');
+    assert.equal(caseInsensitiveFileSystem(root, volume(['Repo'], true)), true, 'one listed and the other found is one entry, so case is folded');
+    assert.equal(caseInsensitiveFileSystem(root, volume(['Repo'], false)), false);
+    const uncased = join(directory, '1234');
+    assert.equal(caseInsensitiveFileSystem(uncased, volume(['.git', '.GIT'], true)), false, 'and the same through an entry under a root with no cased letter');
+    assert.equal(caseInsensitiveFileSystem(uncased, volume(['1', '.git'], true)), true);
   });
 
   describe('deep-review claim', () => {

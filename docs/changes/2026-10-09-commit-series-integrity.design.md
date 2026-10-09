@@ -548,7 +548,12 @@ readable, and no kind the corpus holds changes shape here.
   two spellings that differ in case aim at one name and the exclusive
   create settles their race by itself; the command never reads another
   marker's path, and a marker whose path does not hash to its name is
-  read as one not yet whole. See Verification, Implementation.) A path spelled otherwise
+  read as one not yet whole. See Verification, Implementation.) The
+  probe tells one entry from two by the directory's listing, which
+  holds both spellings only when they are two entries, not by device
+  and inode, which some volumes report as 0 for every entry; a
+  directory Windows makes case-sensitive on its own still takes the
+  worktree's one answer (2026-10-10, review). A path spelled otherwise
   by a fixer still makes a marker under that spelling; at the answer
   the engine resolves the answer's paths through `resolveReportedPath`
   as today and reads the markers through the same lookup, so one file
