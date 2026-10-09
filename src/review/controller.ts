@@ -580,7 +580,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
  * operator's action; any other error as it is. The action depends on
  * whether the executable was pinned: `pinned` names the configured run and
  * its executable, or is null for a run not yet configured, whose
- * `--executable` still applies.
+ * `--executable` still applies. A probe that only ran past its timeout is
+ * refused the same way, with the reinstall action, although nothing showed
+ * the executable stopped qualifying:
+ * https://github.com/josephjang/deep-review/issues/34
  */
 function refusalOf(error: unknown, pinned: { readonly runId: string; readonly executable: string } | null): unknown {
   if (!(error instanceof PreflightError)) return error;
