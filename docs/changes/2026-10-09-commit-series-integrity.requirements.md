@@ -268,9 +268,15 @@ a rebuild, and a file a decision named.
   it was given that finish quickly, such as a typecheck and a lint, on
   what the finding touched, and corrects within the finding what they
   show, so that a later finding's work never has to repair an earlier
-  finding's commit. The full suite stays at the end of the batch. Which
-  of the checks are quick is the fixer's judgment; the engine runs no
-  check per snapshot. A generator's output is not the fixer's fix: when
+  finding's commit. A failure the checks show in a file the fixer does
+  not hold is a sibling's work in flight, not its own: the fixer leaves
+  it and reads past it, and runs the lint over the files it changed
+  where the tool allows, since the typecheck reads the whole tree
+  (added 2026-10-09, review F6, from run `71ae22a2`, where `c8-1` had
+  to filter `c2`'s half-made `fix-report.ts` out of its typecheck
+  output by its own judgment). The full suite stays at the end of the
+  batch. Which of the checks are quick is the fixer's judgment; the
+  engine runs no check per snapshot. A generator's output is not the fixer's fix: when
   a build, an install or a test it ran rewrote generated files, the
   fixer restores them to their launch state before the snapshot, and
   reports a generated file only when changing it is the fix, as a

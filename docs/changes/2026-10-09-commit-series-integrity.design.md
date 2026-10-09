@@ -266,6 +266,12 @@ launch. `fixerTask` prints, in place of the two ownership lists:
   is partial. Report every file you edit or create under the finding it
   served."
 
+The checks block's sentence on baseline failures, "A failure that
+output does not show is yours, even when an earlier batch's tree
+already had it", gains "unless it lies in a file you do not hold, which
+is a sibling's work in flight" (F6), since under concurrency a failure
+the baseline did not show may be a sibling's half-made edit.
+
 The repair's task is unchanged: the repair is its phase's only unit and
 owns every revised path (TD8 of the fix pass).
 
@@ -380,7 +386,10 @@ Three text commits, each recording the roles' hashes in Verification:
    gives that finish quickly, such as a typecheck and a lint, on what
    the finding touched, and correct within the finding what they show,
    since each snapshot becomes a commit the repository must accept on
-   its own; the full suite stays at the end. The same paragraph says
+   its own; the full suite stays at the end; and a failure in a file
+   you do not hold is a sibling's work in flight, not yours, to leave
+   and read past, with the lint scoped to the files you changed where
+   the tool allows (R7, F6). The same paragraph says
    that a generator's output is not the fix: restore what a build, an
    install or a test rewrote before the snapshot, report a generated
    file only when changing it is the fix, and run a tool that writes
@@ -551,8 +560,10 @@ readable, and no kind the corpus holds changes shape here.
   alone, and lists no file new since the check (PD9).
 - `test/review/tasks.test.ts`: the task lists owned and claimed files
   apart, names a sibling's claim with its cluster, quotes the claim
-  command on a line of its own with the placeholder, and says a refused
-  claim blocks the finding; the repair's task is unchanged.
+  command on a line of its own with the placeholder, says a refused
+  claim blocks the finding, and excepts a file the fixer does not hold
+  from the baseline-failure sentence (F6); the repair's task is
+  unchanged.
 - `test/review/fix-pass.test.ts`, whole runs on the fakes: two clusters
   run at once, the first scripted fixer claims a shared test file and
   edits it, the second is refused, reports its finding blocked on it and
@@ -602,7 +613,8 @@ readable, and no kind the corpus holds changes shape here.
   of a message on a blocked finding is inverted.
 - `test/roles/repository.test.ts`: the claim sentences in every fixer
   role, the claim-before-the-finding paragraph, the quick-checks
-  sentence and the generator sentence in `fixer-apply.md`, the message
+  sentence, the sibling-failure sentence and the generator sentence in
+  `fixer-apply.md`, the message
   sentence in `fixer-report.md`, and the old "any file no cluster owns"
   and "null for a deferred or blocked one" sentences gone from wherever
   they were pinned.
