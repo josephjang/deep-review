@@ -360,8 +360,13 @@ export interface FixerTaskFinding {
   readonly decision: FixerDecision | null;
   /** The findings left as superseded by this one, which no fixer is given and this fix must remove too (R7 of the decision step). */
   readonly supersedes: readonly Pick<TaskCandidate, 'id' | 'location' | 'summary'>[];
-  /** For a second-round finding, what the first round said: its blocked note and the files it needed (R21 of the fix pass); null in the first round. */
-  readonly firstRound: { readonly note: string; readonly requiredFiles: readonly string[] } | null;
+  /**
+   * For a second-round finding, what the first round said: its blocked
+   * note and the files it needed (R21 of the fix pass), each with the
+   * cluster that had claimed it, or null for one another cluster owned
+   * (R4 of commit series integrity); null in the first round.
+   */
+  readonly firstRound: { readonly note: string; readonly requiredFiles: readonly { readonly path: string; readonly claimedBy: string | null }[] } | null;
 }
 
 /** A finding an earlier batch of the same cluster worked, as a later batch is told it. */
@@ -454,7 +459,7 @@ export function fixerTask(input: FixerTaskInput): string {
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...(finding.decision === null ? [] : decidedLines(finding.decision)),
     ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
-    ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(', ')}: ${finding.firstRound.note}`]),
+    ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file) => (file.claimedBy === null ? file.path : `${file.path} (which ${file.claimedBy} had claimed)`)).join(', ')}: ${finding.firstRound.note}`]),
   ].join('\n'));
   const decided = input.findings.some((finding) => finding.decision !== null);
   const others = input.othersHeld.filter((cluster) => cluster.files.length > 0);
@@ -465,7 +470,7 @@ export function fixerTask(input: FixerTaskInput): string {
     ...findings,
     '',
     ...(decided ? [decidedRule, ''] : []),
-    ...(input.secondRound ? ['Each of these was blocked in the first round on files another cluster owned. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.', ''] : []),
+    ...(input.secondRound ? ['Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.', ''] : []),
     ...(input.earlier.length === 0
       ? []
       : [
