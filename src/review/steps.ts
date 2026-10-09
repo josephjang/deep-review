@@ -283,7 +283,7 @@ function degraded(review: ReviewState, unit: Unit): boolean {
  * while its claims directory was removed (R12 of commit series
  * integrity). Either is an interruption, not the unit failing.
  */
-const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.fault === 'environment') ?? false;
+const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.cause !== 'unit') ?? false;
 
 /**
  * What a unit out of attempts records, or null when it blocks its phase
@@ -325,7 +325,8 @@ const usd = (value: number): string => value.toFixed(2);
  * settle nothing there.
  */
 export function workerFailedBlocker(review: ReviewState, unit: Unit, state: UnitState | undefined): Blocker {
-  const interruption = state?.failures.some((failure) => failure.lost) === true ? ', a worker lost with its engine among the failures' : interrupted(state) ? ', an attempt whose claims directory was removed among the failures' : '';
+  const causes = new Set(state?.failures.map((failure) => failure.cause));
+  const interruption = causes.has('lost') ? ', a worker lost with its engine among the failures' : causes.has('environment') ? ', an attempt whose claims directory was removed among the failures' : '';
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
   const action = unit.phase === 'survey' && degradationOf(review, unit) === null ? surveyWorkerFailedAction : blockerActions['worker-failed'];
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };

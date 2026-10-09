@@ -408,7 +408,7 @@ describe('nextStep', () => {
 describe('the blockers', () => {
   it('name the operator action for a failed worker and a drift', () => {
     const unit = { phase: 'triage' as const, key: 'SCAN', role: 'triage' as const };
-    const blocker = workerFailedBlocker(configured().review(), unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false, fault: 'unit' }, { workerId: worker(2), reason: 'y', lost: false, fault: 'unit' }] });
+    const blocker = workerFailedBlocker(configured().review(), unit, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', cause: 'unit' }, { workerId: worker(2), reason: 'y', cause: 'unit' }] });
     assert.equal(blocker.code, 'worker-failed');
     assert.match(blocker.action, /two fresh attempts/);
     const drift = driftBlocker({ files: [{ path: 'a.ts', outcome: 'modified' }, { path: 'b.ts', outcome: 'deleted' }], head: null }, idle.evidencePath);
@@ -442,7 +442,7 @@ describe('truncated', () => {
 describe('the recorded reasons and details', () => {
   // attempt.failed records a reason of up to 4000 characters, so two of them overflow a reason that quotes both.
   const long = (fill: string): string => fill.repeat(4000);
-  const twoLongFailures: UnitState = { answeredBy: null, failures: [{ workerId: worker(1), reason: long('x'), lost: false, fault: 'unit' }, { workerId: worker(2), reason: long('y'), lost: false, fault: 'unit' }] };
+  const twoLongFailures: UnitState = { answeredBy: null, failures: [{ workerId: worker(1), reason: long('x'), cause: 'unit' }, { workerId: worker(2), reason: long('y'), cause: 'unit' }] };
 
   it('fit an angle.failed and a group.unverified however long the failures were, and still quote each one', () => {
     const finders = triaged().start('finders')
@@ -474,7 +474,7 @@ describe('the recorded reasons and details', () => {
   });
 
   it('keep short failures whole', () => {
-    const blocker = workerFailedBlocker(configured().review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', lost: false, fault: 'unit' }, { workerId: worker(2), reason: 'y', lost: false, fault: 'unit' }] });
+    const blocker = workerFailedBlocker(configured().review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [{ workerId: worker(1), reason: 'x', cause: 'unit' }, { workerId: worker(2), reason: 'y', cause: 'unit' }] });
     assert.equal(blocker.detail, 'the triage worker for triage:SCAN failed twice: 2 attempts did not complete: x; y');
   });
 
@@ -486,7 +486,7 @@ describe('the recorded reasons and details', () => {
   });
 
   it('fit a worker-failed blocker when a lost worker added a third failure', () => {
-    const blocker = workerFailedBlocker(configured().review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z'), lost: true, fault: 'environment' }] });
+    const blocker = workerFailedBlocker(configured().review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, { answeredBy: null, failures: [...twoLongFailures.failures, { workerId: worker(3), reason: long('z'), cause: 'lost' }] });
     blockerSchema.parse(blocker);
     assert.match(blocker.detail, /3 attempts did not complete: x+ \[truncated\]; y+ \[truncated\]; z+ \[truncated\]$/);
   });

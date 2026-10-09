@@ -77,20 +77,22 @@ export interface UnitState {
   readonly failures: readonly UnitFailure[];
 }
 
-/** One attempt of a unit that did not contribute: its worker, why, whether the worker was lost rather than seen to fail, and whose fault the failure was. */
+/**
+ * Why an attempt of a unit did not contribute: `unit`, a worker that
+ * failed or answered what the engine refused; `environment`, a unit that
+ * ran while its claims directory was removed (R12 of commit series
+ * integrity); or `lost`, a worker lost with the engine that ran it
+ * (`worker.lost`), which nothing observed failing. The first two are the
+ * fault `attempt.failed` records; before version 5 it records none, which
+ * reads as `unit`.
+ */
+export type FailureCause = AttemptFault | 'lost';
+
+/** One attempt of a unit that did not contribute: its worker, why, and its cause. */
 export interface UnitFailure {
   readonly workerId: string;
   readonly reason: string;
-  /** True for a worker lost with the engine that ran it (`worker.lost`), false for one recorded failing (`attempt.failed`). */
-  readonly lost: boolean;
-  /**
-   * The unit's own, a worker that failed or answered what the engine
-   * refused, or its environment's, a worker lost with its engine or a unit
-   * that ran while its claims directory was removed (R12 of commit series
-   * integrity), which counts against no attempt. `attempt.failed` before
-   * version 5 records none and reads as the unit's.
-   */
-  readonly fault: AttemptFault;
+  readonly cause: FailureCause;
 }
 
 /** A candidate as recorded, with the phase and worker it came from and what later phases decided about it. */
@@ -421,7 +423,7 @@ const attemptFailed: Reducer<Omit<AttemptFailed, 'fault'> & { readonly fault?: A
   const fault = payload.fault ?? 'unit';
   // Only the fixes phase has a claims directory to lose, the one environment fault an attempt records.
   if (fault === 'environment' && payload.phase !== 'fixes') throw invalid(event, `fails ${unitName(payload.phase, payload.key)} for its environment, which only a fixes-phase unit records`);
-  return withReview(current, withFailure(review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false, fault }), event);
+  return withReview(current, withFailure(review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, cause: fault }), event);
 };
 
 const angleFailed: Reducer<AngleFailed> = (state, payload, event) => {

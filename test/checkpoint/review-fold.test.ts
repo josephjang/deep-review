@@ -68,34 +68,34 @@ describe('the review fold', () => {
     assert.deepEqual(review.units.finders.FOOTGUNS, {
       answeredBy: null,
       failures: [
-        { workerId: worker(3), reason: 'failed: The answer does not match the output schema', lost: false, fault: 'unit' },
-        { workerId: worker(4), reason: 'timeout: The worker ran past its timeout', lost: false, fault: 'unit' },
+        { workerId: worker(3), reason: 'failed: The answer does not match the output schema', cause: 'unit' },
+        { workerId: worker(4), reason: 'timeout: The worker ran past its timeout', cause: 'unit' },
       ],
     });
-    assert.deepEqual(review.units.finders.WRAPPERS, { answeredBy: worker(10 + finderAngles.indexOf('WRAPPERS')), failures: [{ workerId: worker(5), reason: 'the engine exited while the worker ran', lost: true, fault: 'environment' }] });
+    assert.deepEqual(review.units.finders.WRAPPERS, { answeredBy: worker(10 + finderAngles.indexOf('WRAPPERS')), failures: [{ workerId: worker(5), reason: 'the engine exited while the worker ran', cause: 'lost' }] });
     assert.deepEqual(review.anglesNotRun, { FOOTGUNS: '2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout' });
     assert.deepEqual(review.phases.finders, { status: 'degraded', attempt: 1 });
   });
 
-  it('records a lost worker\'s failure as lost and a failed attempt\'s as not, in the order they came', () => {
+  it('records a lost worker\'s failure as lost and a failed attempt\'s as the unit\'s, in the order they came', () => {
     const review = triaged().start('finders')
       .add('worker.launched', launch(worker(6), 'finder-RIPPLE finders:RIPPLE'))
       .add('worker.lost', { workerId: worker(6), phase: 'finders', key: 'RIPPLE', reason: 'the engine exited while the worker ran' })
       .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(7), reason: 'timeout: ran long' })
       .review();
     assert.deepEqual(review.units.finders.RIPPLE?.failures, [
-      { workerId: worker(6), reason: 'the engine exited while the worker ran', lost: true, fault: 'environment' },
-      { workerId: worker(7), reason: 'timeout: ran long', lost: false, fault: 'unit' },
+      { workerId: worker(6), reason: 'the engine exited while the worker ran', cause: 'lost' },
+      { workerId: worker(7), reason: 'timeout: ran long', cause: 'unit' },
     ]);
   });
 
-  it('folds the fault version 5 of attempt.failed records, every earlier version as the unit\'s, and a lost worker as its environment\'s (R12 of commit series integrity)', () => {
+  it('folds the fault version 5 of attempt.failed records as its cause, and every earlier version as the unit\'s (R12 of commit series integrity)', () => {
     const failures = baselined().start('fixes').add('fixes.planned', fixPlan)
       .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(51), reason: 'timeout' }, 4)
       .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(52), reason: 'the claims directory was removed while the unit ran', fault: 'environment' }, 5)
       .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(53), reason: 'refused', fault: 'unit' }, 5)
       .review().units.fixes['c1-1']?.failures;
-    assert.deepEqual(failures?.map((failure) => [failure.workerId, failure.fault, failure.lost]), [[worker(51), 'unit', false], [worker(52), 'environment', false], [worker(53), 'unit', false]]);
+    assert.deepEqual(failures?.map((failure) => [failure.workerId, failure.cause]), [[worker(51), 'unit'], [worker(52), 'environment'], [worker(53), 'unit']]);
   });
 
   it('folds deduplication into duplicateOf and verification into verdicts', () => {
@@ -228,7 +228,7 @@ describe('the review fold', () => {
     const before = blocked.fold();
     const review = blocked.start('finders', 2).review();
     assert.deepEqual(review.units.finders, { RIPPLE: { answeredBy: null, failures: [] }, DESIGN: { answeredBy: worker(4), failures: [] } });
-    assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(2), failures: [{ workerId: worker(1), reason: 'first', lost: false, fault: 'unit' }] } }, 'the triage is not re-entered, so its failure stays');
+    assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(2), failures: [{ workerId: worker(1), reason: 'first', cause: 'unit' }] } }, 'the triage is not re-entered, so its failure stays');
     assert.equal(before.review!.units.finders.RIPPLE?.failures.length, 1, 'the state before the start is left as it was');
   });
 

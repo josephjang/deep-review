@@ -163,7 +163,7 @@ const workerLost: Reducer<z.infer<typeof workerLostV4>> = (state, payload, event
   workers[payload.workerId] = { status: 'lost', launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
   const unit = unitOfLostWorker(payload.phase, payload.key);
   if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unitName(unit.phase, unit.key)} at sequence ${String(event.sequence)} before review.configured`);
-  const review = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: true, fault: 'environment' });
+  const review = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, cause: 'lost' });
   return { ...current, workers, review, lastSequence: event.sequence };
 };
 
