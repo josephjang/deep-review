@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
-import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastRun, repairTargets, roundOf } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastRun, repairTargets, roundOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
@@ -128,11 +128,22 @@ function unfinishedIds(review: ReviewState, phase: EditingPhase, key: string): s
   return [...new Set(ids)];
 }
 
-/** What the first round said of a finding the second round takes: its blocked note and the files it needed. */
+/**
+ * What the first round said of a finding the second round takes: its
+ * blocked note and the files it needed, each with the other first-round
+ * cluster that had claimed it last, or null for a file another cluster
+ * owned (R4 of commit series integrity).
+ */
 function firstRoundBlock(review: ReviewState, firstBatches: readonly PlannedBatch[], id: string, requiredFiles: readonly string[]): FixerTaskFinding['firstRound'] {
   const batch = firstBatches.find((candidate) => candidate.findingIds.includes(id));
-  const note = (batch === undefined ? undefined : review.fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? 'blocked';
-  return { note, requiredFiles };
+  const fix = review.fix;
+  const note = (batch === undefined ? undefined : fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? 'blocked';
+  const owned = new Set((fix?.plan?.clusters ?? []).flatMap((cluster) => cluster.files));
+  const claimedBy = (path: string): string | null => {
+    if (fix === null || owned.has(path)) return null;
+    return claimsOfRound(fix, 1).findLast((claim) => claim.path === path && claim.cluster !== batch?.cluster)?.cluster ?? null;
+  };
+  return { note, requiredFiles: requiredFiles.map((path) => ({ path, claimedBy: claimedBy(path) })) };
 }
 
 /** What became of each finding of a fixes-phase batch, as a later batch of its cluster is told: the answer's status and note, or not attempted. */

@@ -314,15 +314,24 @@ describe('the fixer\'s task', () => {
       cluster: 'c4',
       batch: 'c4-1',
       secondRound: true,
-      findings: [{ ...input.findings[0]!, firstRound: { note: 'the fix flips an assertion in t.ts, which c2 owns', requiredFiles: ['t.ts'] } }],
+      findings: [{ ...input.findings[0]!, firstRound: { note: 'the fix flips an assertion in t.ts, which c2 owns', requiredFiles: [{ path: 't.ts', claimedBy: null }] } }],
       earlier: [{ batch: 'c2-1', id: 'T-1', outcome: 'applied', note: 'tightened the builder test' }],
       owned: ['src/a.ts', 't.ts'],
     });
     assert.match(task, /^Cluster c4, batch c4-1, in the second round: 1 finding, numbered \[0\] to \[0\]/m);
     assert.match(task, /^ {4}first round: blocked, needing t\.ts: the fix flips an assertion in t\.ts, which c2 owns$/m);
-    assert.match(task, /^Each of these was blocked in the first round on files another cluster owned\. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included\.$/m);
+    assert.match(task, /^Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included\.$/m);
     assert.match(task, /^Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:\n- c2-1 T-1 applied: tightened the builder test$/m);
     assert.doesNotMatch(fixerTask(input), /first round|second round/, 'a first-round batch says nothing of rounds');
+  });
+
+  it('names the cluster that had claimed each file a second-round finding was blocked on, and none for an owned one (R4 of commit series integrity)', () => {
+    const task = fixerTask({
+      ...input,
+      secondRound: true,
+      findings: [{ ...input.findings[0]!, firstRound: { note: 'needs both', requiredFiles: [{ path: 'src/b.ts', claimedBy: null }, { path: 'test/shared.test.ts', claimedBy: 'c8' }] } }],
+    });
+    assert.match(task, /^ {4}first round: blocked, needing src\/b\.ts, test\/shared\.test\.ts \(which c8 had claimed\): needs both$/m);
   });
 
   it('names the checks that failed before any fixer edited the tree, with their outputs\' paths, as failures that are not the fixer\'s (R24)', () => {
