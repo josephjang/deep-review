@@ -161,6 +161,9 @@ export type AttemptFault = (typeof attemptFaults)[number];
 export const lostClaimReasons = ['owned', 'held', 'unplanned'] as const;
 export type LostClaimReason = (typeof lostClaimReasons)[number];
 
+/** Whom a lost claim's path went to, as the log and the report name it: its holder's cluster, or none for a unit the plan lacks. */
+export const lostClaimWords = (holder: string | null): string => (holder === null ? 'which no batch of the round has' : `to ${holder}`);
+
 /** The operator's action for each blocker code; a test holds every code to having one. */
 export const blockerActions: Readonly<Record<BlockerCode, string>> = {
   'worker-failed': 'run the command again, which gives the failed worker two fresh attempts, or abandon the run',

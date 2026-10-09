@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -65,6 +65,13 @@ describe('the decisions', () => {
     assert.deepEqual(counts, { fix: 1, leave: 0, ask: 2 });
     assert.equal(decisionCountWords(counts), '1 to fix, 0 to leave, 2 to ask the author');
     assert.equal(decisionCountWords(decisionCounts([])), '0 to fix, 0 to leave, 0 to ask the author');
+  });
+});
+
+describe('lostClaimWords', () => {
+  it('names whom a lost claim\'s path went to, in the one phrase the log and the report share, or none for a unit the plan lacks (R3 of commit series integrity)', () => {
+    assert.equal(lostClaimWords('c2'), 'to c2');
+    assert.equal(lostClaimWords(null), 'which no batch of the round has');
   });
 });
 

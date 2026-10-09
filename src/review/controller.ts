@@ -52,7 +52,7 @@ import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
-import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
+import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved only when the run it acts
@@ -213,7 +213,7 @@ function claimLines(event: NewEvent): string[] {
   }
   if (event.kind === 'claims.lost') {
     const { unit, files } = event.payload as ClaimsLost;
-    return files.map((file) => `phase fixes: claim lost: ${file.path} by ${unit} ${file.holder === null ? 'which no batch of the round has' : `to ${file.holder}`}`);
+    return files.map((file) => `phase fixes: claim lost: ${file.path} by ${unit} ${lostClaimWords(file.holder)}`);
   }
   return [];
 }
