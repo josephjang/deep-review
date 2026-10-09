@@ -11,10 +11,11 @@
  * from the last step the ledger holds.
  */
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, DecisionsRecorded, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { revisionMessageOf } from '../checkpoint/fix-state.ts';
+import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
+import { claimsOfRound, revisionMessageOf, roundOf, settledClusters } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
@@ -28,6 +29,7 @@ import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts'
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
+import { caseInsensitiveFileSystem, claimsDirectoryFor, prepareClaims, readClaims, type Held } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
@@ -38,7 +40,7 @@ import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fi
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { patchSeries } from './patch.ts';
-import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
+import { contributionOf, invocationFor, type ClaimsContext, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
@@ -48,7 +50,6 @@ import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
-import type { ExpectedMatch } from './tree.ts';
 import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
 
 /**
@@ -172,6 +173,28 @@ function once<T>(read: () => T): () => T {
 
 /** A count of files, as the log names it. */
 const fileCount = (count: number): string => `${String(count)} file${count === 1 ? '' : 's'}`;
+
+/**
+ * What a settle recorded of the claims, as the log names it (R3, R6 of
+ * commit series integrity): each claiming unit's claims, its late claims
+ * apart, and each marker left out of the ledger, with who holds its path.
+ */
+function claimLines(event: NewEvent): string[] {
+  if (event.kind === 'files.claimed') {
+    const { key, files } = event.payload as FilesClaimed;
+    const timed = files.filter((file) => file.claimedAt !== null).map((file) => file.path);
+    const late = files.filter((file) => file.claimedAt === null).map((file) => file.path);
+    return [
+      ...(timed.length === 0 ? [] : [`worker fixer fixes:${key}: claimed ${fileCount(timed.length)}: ${timed.join(', ')}`]),
+      ...(late.length === 0 ? [] : [`worker fixer fixes:${key}: claimed late, edited before it was claimed: ${late.join(', ')}`]),
+    ];
+  }
+  if (event.kind === 'claims.lost') {
+    const { unit, files } = event.payload as ClaimsLost;
+    return files.map((file) => `phase fixes: claim lost: ${file.path} by ${unit} ${file.holder === null ? 'which no batch of the round has' : `to ${file.holder}`}`);
+  }
+  return [];
+}
 
 /**
  * What a worker's revision did, as the log names it: the findings it
@@ -299,6 +322,43 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     },
   };
   const surveyInputs = (): SurveyInputs => surveyed;
+  const engineEntry = options.engineEntry ?? process.argv[1] ?? 'deep-review';
+  const scratchBase = join(options.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
+  // Whether the worktree's file system folds case, which every claim's marker name follows (TD4 of commit series integrity); probed once, when the first claims directory is read or prepared.
+  const caseInsensitive = once(() => caseInsensitiveFileSystem(options.worktree));
+  /** The claims directory of a fixes-phase unit's round, in this run's scratch. */
+  const claimsDirectory = (key: string): string => claimsDirectoryFor(scratchBase, runId, roundOf(state.review!.fix!, key));
+  const claims: ClaimsContext = {
+    directoryOf: claimsDirectory,
+    command: (key, directory) => claimCommandFor(engineEntry, key, directory),
+    // A directory this engine has not prepared, as a resumed engine's before its first launch, has no claims to read; the next launch seeds it from the ledger (R3).
+    live: (key) => {
+      const directory = claimsDirectory(key);
+      return existsSync(directory) ? { markers: readClaims(directory, caseInsensitive()), caseInsensitive: caseInsensitive() } : null;
+    },
+  };
+  /** What turning a worker's work into events reads, from the fold as it is now. */
+  const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
+  /**
+   * Prepare the claims directory of a fixes-phase unit's round before its
+   * launch (R2, R3 of commit series integrity): the round's clusters,
+   * batches and settled clusters as the fold has them now, and every claim
+   * of the round the ledger holds, seeded back where the directory lost it.
+   */
+  const prepareClaimsFor = (key: string): void => {
+    const fix = state.review!.fix!;
+    const round = roundOf(fix, key);
+    const plan = round === 1 ? fix.plan : fix.secondRound;
+    if (plan === null) throw new Error(`Run ${runId} launches ${key} before its round is planned`);
+    const held: Held = {
+      worktree: options.worktree,
+      clusters: Object.fromEntries(plan.clusters.map((cluster) => [cluster.id, [...cluster.files]])),
+      units: Object.fromEntries(plan.batches.map((batch) => [batch.key, batch.cluster])),
+      settled: [...settledClusters(fix, round)].sort(),
+      caseInsensitive: caseInsensitive(),
+    };
+    prepareClaims(claimsDirectory(key), held, claimsOfRound(fix, round).map((claim) => ({ path: claim.path, cluster: claim.cluster, unit: claim.key, claimedAt: claim.claimedAt })), false);
+  };
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
     const name = unitName(settled.unit.phase, settled.unit.key);
@@ -323,8 +383,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         return;
       }
     }
-    const events = contributionOf(settled.unit, settled.receipt, { state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, survey: surveyInputs });
+    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), survey: surveyInputs });
     for (const event of events) {
+      for (const line of claimLines(event)) log(line);
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
       if (event.kind === 'tree.revised') log(`worker ${settled.unit.role} ${name}: ${revisionSummary(event.payload as TreeRevised)}`);
       if (event.kind === 'survey.recorded') for (const line of surveyLines(runId, event.payload as SurveyRecorded)) log(line);
@@ -349,7 +410,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     const unelevatedEditors = editorsUnderUnelevatedSandbox(configuration, platform);
     if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
-    state = recordLostWorkers(checkpoint, state, options.worktree, content.match, log);
+    state = recordLostWorkers(checkpoint, state, { worktree: options.worktree, match: content.match, claims }, log);
     state = reenterPhase(checkpoint, state, log);
 
     const scope = state.scope!;
@@ -374,9 +435,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       }
       return blocks.rest;
     };
-    const engineEntry = options.engineEntry ?? process.argv[1] ?? 'deep-review';
-    const scratchBase = join(options.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
-    const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match });
     /**
      * The run going on without its survey, as the event that records it and
      * logged with it: a read-only review whose surveyor failed twice, or a
@@ -495,8 +553,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             newScratch: () => join(scratchBase, randomUUID()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
             unelevatedEditors,
+            claims,
           };
           for (const unit of step.units) {
+            // A fixer's claims directory is ready before its task reads the live markers and before the fixer can run the claim command into it.
+            if (unit.phase === 'fixes') prepareClaimsFor(unit.key);
             const invocation = invocationFor(unit, context);
             // An editing worker's snapshots compare with the tree as it is now, from a manifest taken here, outside its sandbox (R23, TD20).
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
@@ -832,18 +893,21 @@ function recordLimits(checkpoint: Checkpoint, state: RunState, limits: ReviewLim
  * Every worker still running on the ledger died with the engine that
  * launched it, or was orphaned by a hard kill: record each lost (TD5).
  * A lost fixer's work is recorded with its loss, from its snapshots and
- * the files it left (R20 of the fix pass), one worker per append so each
- * is read against the tree the one before it left.
+ * the files it left (R20 of the fix pass), after the claims its round's
+ * directory holds that the ledger does not, when the directory is still
+ * there (R3 of commit series integrity); one worker per append so each is
+ * read against the tree the one before it left.
  */
-function recordLostWorkers(checkpoint: Checkpoint, state: RunState, worktree: string, match: ExpectedMatch, log: (line: string) => void): RunState {
+function recordLostWorkers(checkpoint: Checkpoint, state: RunState, context: Pick<RevisionContext, 'worktree' | 'match' | 'claims'>, log: (line: string) => void): RunState {
   const reason = 'the engine exited while the worker ran';
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === 'running')) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
     const lost: NewEvent = { kind: 'worker.lost', version: 4, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
-    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence, match }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
-    if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? '' : 's'}`);
-    state = append(checkpoint, state, [lost, ...edits]);
+    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason) : { claims: [], revisions: [] };
+    for (const line of edits.claims.flatMap(claimLines)) log(line);
+    if (edits.revisions.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.revisions.length)} revision${edits.revisions.length === 1 ? '' : 's'}`);
+    state = append(checkpoint, state, [...edits.claims, lost, ...edits.revisions]);
   }
   return state;
 }

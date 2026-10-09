@@ -286,10 +286,10 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(patch.split('\n').filter((line) => /^[-+][^-+]/.test(line)), ['-  return text!.length;', '+  return text?.length ?? 0;'], patch);
   });
 
-  it('revises an unowned file a fixer edits and reports, without drift', async () => {
+  it('revises an unowned file a fixer edits and reports without claiming it, and records the claim late (R6 of commit series integrity)', async () => {
     box.script({
       ...reviewScript,
-      // The change deletes src/gone.ts; c1 brings it back, a file no cluster owns.
+      // The change deletes src/gone.ts; c1 brings it back, a file no cluster owns, without claiming it first.
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/gone.ts': 'export const gone = 2;\n' } }], output: fixerAnswer([{ files: ['src/gone.ts'] }]) },
     });
     report(await box.fix('claude'));
@@ -297,6 +297,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/gone.ts created']]);
     assert.ok(state.review!.checks.every((check) => !check.drifted));
     assert.deepEqual(state.review!.fix!.answers.fixes['c1-1']!.violations, []);
+    assert.deepEqual(state.review!.fix!.claims, [{ path: 'src/gone.ts', cluster: 'c1', key: 'c1-1', round: 1, claimedAt: null }]);
+    assert.ok(box.logs.includes('worker fixer fixes:c1-1: claimed late, edited before it was claimed: src/gone.ts'), box.logs.join('\n'));
   });
 
   it('records a reported edit to a file another cluster owns as a violation, revises it, and completes', async () => {
@@ -466,7 +468,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const state = box.run();
     const failed = box.events(state.id).filter(([kind, payload]) => kind === 'attempt.failed' && payload.key === 'c1-1');
     assert.equal(failed.length, 1);
-    assert.match(String(failed[0]![1].reason), /^structural check: The answer names no finding for the owned file src\/a\.ts, whose bytes changed/);
+    assert.match(String(failed[0]![1].reason), /^structural check: The answer names no finding for the owned or claimed file src\/a\.ts, whose bytes changed/);
     assert.deepEqual(state.review!.fix!.answers.fixes['c1-1']!.findings.map((finding) => [finding.status, finding.files]), [['already-applied', ['src/a.ts']]]);
     // The refused attempt's edit is recorded as its own, naming no finding since it snapshotted none, and the retry, which verified it, revised nothing (R20).
     assert.deepEqual(state.review!.fix!.revisions.map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [['attempt', [], ['src/a.ts']]]);
@@ -553,6 +555,147 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(state.review!.checks.every((check) => !check.drifted));
   });
 
+  describe('claims (commit series integrity)', () => {
+    const shared = 'test/shared.test.ts';
+    const sharedV1 = 'import { parse } from \'../src/a.ts\';\nif (parse(null) !== 0) throw new Error(\'null\');\n';
+    const sharedV2 = `${sharedV1}if (parse('x') !== 1) throw new Error('x');\n`;
+    /** Wait until the round's claims directory holds a marker, which the claim command wrote. */
+    const claimMade = (round: 1 | 2 = 1): Promise<void> => until(() => box.checkpoint.listRuns().length === 1 && box.markers(round).length > 0, 'a claim marker', 120_000);
+    const answeredOnLedger = (key: string): Promise<void> => until(() => box.checkpoint.listRuns().some((run) => run.review?.fix?.answers.fixes[key] !== undefined), `${key}'s answer on the ledger`, 120_000);
+    const outcomeOnLedger = (key: string): Promise<void> => until(() => box.checkpoint.listRuns().some((run) => (run.review?.units.fixes[key]?.failures.length ?? 0) > 0 || run.review?.fix?.answers.fixes[key] !== undefined), `${key}'s outcome on the ledger`, 120_000);
+    const revised = (state: RunState): [string, string, string[], string[]][] => state.review!.fix!.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind, revision.source.kind === 'check' ? '' : revision.source.key, revision.change.findings, revision.files.map((file) => file.path)]);
+
+    it('refuses a sibling the file a running cluster claimed, which then gets a second round owning it, each revision holding only its own fixer\'s edits (R1, R4)', async () => {
+      const c1Claimed = join(box.directory, 'c1-claimed');
+      const c1MayAnswer = join(box.directory, 'c1-may-answer');
+      box.script({
+        ...reviewScript,
+        'fixer:fixes:c1-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, [shared]: sharedV1 }, snapshot: 0 }], waitFor: c1MayAnswer, output: fixerAnswer([{ files: ['src/a.ts', shared], subject: 'fix(a): Return 0 for a null text' }]) },
+        // c2's fix needs the shared test too; its claim comes once c1's is made, and is refused before any edit.
+        'fixer:fixes:c2-1': { edits: [{ waitFor: c1Claimed, claims: [shared], expectClaim: 'refused' }], output: fixerAnswer([{ status: 'blocked', files: [], requiredFiles: [shared], note: 'the fix needs the shared test, which c1 claimed' }]) },
+        'fixer:fixes:c3-1': { edits: [{ claims: ['docs/c3.md'], expectClaim: 'claimed', writes: { 'src/b.ts': fixedB, [shared]: sharedV2, 'docs/c3.md': 'notes\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['docs/c3.md', 'src/b.ts', shared], subject: 'fix(b): Import parse' }]) },
+      });
+      const pending = box.fix('claude');
+      await claimMade();
+      writeFileSync(c1Claimed, '');
+      await answeredOnLedger('c2-1');
+      writeFileSync(c1MayAnswer, '');
+      report(await pending);
+      const state = box.run();
+      const fix = state.review!.fix!;
+      assert.deepEqual(fix.answers.fixes['c2-1']!.findings.map((finding) => [finding.status, finding.requiredFiles]), [['blocked', [shared]]]);
+      // c1's claim reached the ledger with c2-1's answer, the first settle after it, under c1's own key; c3's in the second round.
+      assert.deepEqual(fix.claims.map((claim) => [claim.path, claim.cluster, claim.key, claim.round, claim.claimedAt === null]), [[shared, 'c1', 'c1-1', 1, false], ['docs/c3.md', 'c3', 'c3-1', 2, false]]);
+      const events = box.events(state.id);
+      const claimedAt = events.findIndex(([kind, payload]) => kind === 'files.claimed' && payload.key === 'c1-1');
+      assert.ok(claimedAt >= 0 && claimedAt < events.findIndex(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c2-1'), 'appended before the settling unit\'s answer');
+      assert.deepEqual(fix.secondRound, {
+        blocked: [{ id: 'SCAN-2', requiredFiles: [shared] }],
+        clusters: [{ id: 'c3', findingIds: ['SCAN-2'], files: ['src/b.ts', shared] }],
+        batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['SCAN-2'] }],
+      });
+      assert.deepEqual(revised(state), [
+        ['fix', 'c1-1', ['SCAN-1'], ['src/a.ts', shared]],
+        ['fix', 'c3-1', ['SCAN-2'], ['docs/c3.md', 'src/b.ts', shared]],
+      ]);
+      assert.deepEqual(fix.answers.fixes['c3-1']!.violations, [], 'the second round owns the file the first round claimed');
+      assert.match(box.promptOf(state, 'fixer fixes:c3-1'), /no other worker edits:\n- src\/b\.ts\n- test\/shared\.test\.ts\n/);
+      assert.match(box.promptOf(state, 'fixer fixes:c2-1'), /^ {4}node ".*cli\.ts" claim --path "<path>" --unit c2-1 --in ".*round-1"$/m);
+      // Each round claimed in its own directory.
+      assert.equal(box.markers(1).length, 1);
+      assert.equal(box.markers(2).length, 1);
+      assert.ok(box.logs.includes('worker fixer fixes:c1-1: claimed 1 file: test/shared.test.ts'), box.logs.join('\n'));
+      assert.ok(state.review!.checks.every((check) => !check.drifted));
+    });
+
+    it('records an edit of a file a still-running sibling claimed as a violation, the sibling\'s claim reaching the ledger with that answer (R3, R6)', async () => {
+      const c2Claimed = join(box.directory, 'c2-claimed');
+      const c2MayAnswer = join(box.directory, 'c2-may-answer');
+      box.script({
+        ...reviewScript,
+        'fixer:fixes:c2-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/b.ts': fixedB, [shared]: sharedV1 } }], waitFor: c2MayAnswer, output: fixerAnswer([{ files: ['src/b.ts', shared], subject: 'fix(b): Import parse' }]) },
+        // c1 edits the shared test without claiming it, once c2 has.
+        'fixer:fixes:c1-1': { edits: [{ waitFor: c2Claimed, writes: { 'src/a.ts': fixedA, [shared]: sharedV2 } }], output: fixerAnswer([{ files: ['src/a.ts', shared], subject: 'fix(a): Return 0 for a null text' }]) },
+      });
+      const pending = box.fix('claude');
+      await claimMade();
+      writeFileSync(c2Claimed, '');
+      await answeredOnLedger('c1-1');
+      writeFileSync(c2MayAnswer, '');
+      report(await pending);
+      const state = box.run();
+      const fix = state.review!.fix!;
+      assert.deepEqual(fix.answers.fixes['c1-1']!.violations, [shared]);
+      const events = box.events(state.id);
+      const claimedAt = events.findIndex(([kind, payload]) => kind === 'files.claimed' && payload.key === 'c2-1');
+      assert.ok(claimedAt >= 0 && claimedAt < events.findIndex(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c1-1'), 'the running sibling\'s claim is on the ledger before the answer that violates it');
+      assert.deepEqual(fix.claims.map((claim) => [claim.path, claim.key]), [[shared, 'c2-1']], 'no late claim of a file a sibling holds');
+      assert.ok(state.review!.checks.every((check) => !check.drifted));
+    });
+
+    it('leaves a sibling\'s edit of a file the sibling claimed out of a failed attempt\'s revisions (R5)', async () => {
+      const c1MayDie = join(box.directory, 'c1-may-die');
+      const c2MayAnswer = join(box.directory, 'c2-may-answer');
+      box.script({
+        ...reviewScript,
+        'fixer:fixes:c1-1': [
+          { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], waitFor: c1MayDie, exit: 3 },
+          { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+        ],
+        'fixer:fixes:c2-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/b.ts': fixedB, [shared]: sharedV1 } }], waitFor: c2MayAnswer, output: fixerAnswer([{ files: ['src/b.ts', shared], subject: 'fix(b): Import parse' }]) },
+      });
+      const pending = box.fix('claude');
+      await until(() => existsSync(join(box.repo, ...shared.split('/'))), 'c2-1\'s edit of the shared test', 120_000);
+      writeFileSync(c1MayDie, '');
+      await outcomeOnLedger('c1-1');
+      writeFileSync(c2MayAnswer, '');
+      report(await pending);
+      const state = box.run();
+      assert.deepEqual(revised(state), [
+        ['attempt', 'c1-1', ['SCAN-1'], ['src/a.ts']],
+        ['fix', 'c2-1', ['SCAN-2'], ['src/b.ts', shared]],
+      ]);
+      const events = box.events(state.id);
+      assert.ok(events.findIndex(([kind, payload]) => kind === 'files.claimed' && payload.key === 'c2-1') < events.findIndex(([kind]) => kind === 'attempt.failed'), 'c2\'s claim is recorded with c1\'s failure, before it');
+    });
+
+    it('fails an answer that leaves out a claimed file it changed, as one that leaves out an owned file, recording the claim with the failure', async () => {
+      box.script({
+        ...reviewScript,
+        'fixer:fixes:c1-1': [
+          { edits: [{ claims: ['docs/a.md'], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, 'docs/a.md': 'a\n' } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+          { edits: [{ claims: ['docs/a.md'], expectClaim: 'claimed' }], output: fixerAnswer([{ status: 'already-applied', files: ['docs/a.md', 'src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+        ],
+      });
+      report(await box.fix('claude'));
+      const state = box.run();
+      const failed = box.events(state.id).filter(([kind, payload]) => kind === 'attempt.failed' && payload.key === 'c1-1');
+      assert.equal(failed.length, 1);
+      assert.match(String(failed[0]![1].reason), /^structural check: The answer names no finding for the owned or claimed file docs\/a\.md, whose bytes changed/);
+      assert.deepEqual(state.review!.fix!.claims.map((claim) => [claim.path, claim.key]), [['docs/a.md', 'c1-1']], 'claimed once, with the failure, and the retry held it');
+    });
+
+    it('lets a later cluster claim a file a settled cluster claimed, with no second round, at concurrency 1 as at any (PD3)', async () => {
+      box.script({
+        ...reviewScript,
+        'fixer:fixes:c1-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, [shared]: sharedV1 }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts', shared], subject: 'fix(a): Return 0 for a null text' }]) },
+        'fixer:fixes:c2-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/b.ts': fixedB, [shared]: sharedV2 }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts', shared], subject: 'fix(b): Import parse' }]) },
+      });
+      report(await box.fix('claude', { flags: { concurrency: 1 } }));
+      const state = box.run();
+      const fix = state.review!.fix!;
+      assert.deepEqual(fix.claims.map((claim) => [claim.path, claim.cluster]), [[shared, 'c1'], [shared, 'c2']]);
+      assert.deepEqual(fix.secondRound, { blocked: [], clusters: [], batches: [] });
+      assert.deepEqual(revised(state), [
+        ['fix', 'c1-1', ['SCAN-1'], ['src/a.ts', shared]],
+        ['fix', 'c2-1', ['SCAN-2'], ['src/b.ts', shared]],
+      ]);
+      // The second claim made the next generation of the path's marker, the first holder's kept.
+      assert.equal(box.markers().length, 2);
+      assert.ok(state.review!.checks.every((check) => !check.drifted));
+    });
+  });
+
   it('records a check that rewrites a file the run expects as a revision attributed to the check, not drift', async () => {
     box.checks({ lint: [{ write: { 'src/a.ts': 'export const formatted = true;\n' } }, 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
@@ -574,13 +717,19 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(box.checkRuns(), ['build', 'build', 'typecheck', 'lint', 'test']);
   });
 
-  it('runs a fix pass on the fake Codex to its report, with no budget', async () => {
-    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
-    report(await box.fix('codex'));
+  it('runs a fix pass on the fake Codex to its report, with no budget, its fixers writing the claims directory beside their scratch', async () => {
+    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ claims: ['docs/a.md'], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, 'docs/a.md': 'a\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['docs/a.md', 'src/a.ts'] }]) } });
+    const recordFile = join(box.directory, 'codex-record.json');
+    report(await box.fix('codex', {}, { FAKE_RECORD: recordFile }));
     const state = box.run();
     assert.equal(state.review!.configuration.runBudgetUsd, null);
     assert.equal(state.review!.fix!.revisions.length, 1);
     assert.equal(state.review!.report!.patches.length, 1);
+    assert.deepEqual(state.review!.fix!.claims.map((claim) => claim.path), ['docs/a.md']);
+    // The last worker recorded is a fixer, whose sandbox may write its scratch and the round's claims directory.
+    const argv = (JSON.parse(readFileSync(recordFile, 'utf8')) as { argv: string[] }).argv;
+    const roots = argv.find((arg) => arg.startsWith('sandbox_workspace_write.writable_roots='));
+    if (process.platform !== 'win32' || roots !== undefined) assert.ok(roots?.includes(JSON.stringify(box.claimsDirectory())), String(roots));
   });
 
   it('runs the checks the surveyor chose from package.json, a hinted one and stated ones, with a --no-check over the survey, and pins them on the run (R4, R5, R11 of the repository survey)', async () => {

@@ -234,10 +234,11 @@ export interface RevisionSources {
  * whatever the fixer snapshotted. A finding with no snapshot, or whose
  * snapshot changed nothing, is carried into the next revision, which then
  * names it too; a path a snapshot does not list is taken from the next
- * reader that does. A path no cluster owns holds whatever a fixer running
- * at the same time had written to it by then, so concurrent clusters' edits
- * of a shared file can land in each other's revisions:
- * https://github.com/josephjang/deep-review/issues/22. Each snapshot is
+ * reader that does. A path no cluster owns is one a cluster claims before
+ * its first edit and holds until it settles, so no other fixer edits it
+ * meanwhile and its revisions hold only its own cluster's edits; a fixer
+ * that edits it unclaimed is recorded as a late claim or a violation (R1,
+ * R6 of commit series integrity). Each snapshot is
  * taken right after its finding, never checked, so one finding's revision
  * can hold an edit a later finding of the batch corrects:
  * https://github.com/josephjang/deep-review/issues/24

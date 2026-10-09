@@ -1,19 +1,22 @@
 /**
  * The events the fix pass's work becomes (R4, R5, R6, TD6 of the fix
- * pass): a fixer's or the repair worker's answer as `fix.recorded` and one
- * `tree.revised` per finding its snapshots tell apart; an attempt that
- * ended without an answer as the revisions its snapshots and the files it
- * left give; a check that wrote to expected files as a revision attributed
- * to it. Each
- * reads the worktree and freezes what changed, and appends nothing itself.
+ * pass; R3, R5, R6 of commit series integrity): a fixer's or the repair
+ * worker's answer as `fix.recorded` and one `tree.revised` per finding its
+ * snapshots tell apart; an attempt that ended without an answer as the
+ * revisions its snapshots and the files it left give; a check that wrote
+ * to expected files as a revision attributed to it. A fixes-phase unit's
+ * answer or attempt is preceded by the claims its round's directory holds
+ * that the ledger does not (`settleClaims`). Each reads the worktree and
+ * freezes what changed, and appends nothing itself.
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { batchOf, ownedFiles, repairTargets, roundClusters, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { batchOf, clusterClaims, heldByOthers, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
+import { foldedWith, isPending, lateClaim, settleClaims, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
 import { expectedTreeOf } from './drift.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup } from './locations.ts';
@@ -24,12 +27,19 @@ import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
 import { type CheckKind, type EditingPhase } from './vocabulary.ts';
 
-/** What turning work into events needs: the fold it is recorded against, the worktree, the evidence store revisions are frozen into, and how a file is compared with what the run expects (R22). */
+/**
+ * What turning work into events needs: the fold it is recorded against,
+ * the worktree, the evidence store revisions are frozen into, how a file is
+ * compared with what the run expects (R22), and where a fixes-phase unit's
+ * claims are read; null where nothing reads them, such as a check's
+ * revision.
+ */
 export interface RevisionContext {
   readonly state: RunState;
   readonly worktree: string;
   readonly evidence: Pick<EvidenceStore, 'put'>;
   readonly match: ExpectedMatch;
+  readonly claims: ClaimsAccess | null;
 }
 
 /** The longest commit subject the engine composes, as a person would keep one. */
@@ -64,11 +74,26 @@ export function unitIds(state: RunState, phase: EditingPhase, key: string): read
   return batchOfUnit(state, key).findingIds;
 }
 
-/** The files every other cluster of the unit's round owns, each with its cluster's id; the repair, its phase's only unit, has none. */
-function othersOwned(state: RunState, phase: EditingPhase, key: string): Map<string, string> {
-  if (phase === 'repair') return new Map();
-  const own = batchOfUnit(state, key).cluster;
-  return new Map(roundClusters(requireFix(state), key).filter((cluster) => cluster.id !== own).flatMap((cluster) => cluster.files.map((file): [string, string] => [file, cluster.id])));
+/**
+ * The claims a unit's settle records before its outcome, read from its
+ * round's directory: none for the repair, which claims nothing and owns
+ * every file it may edit (TD8 of the fix pass).
+ */
+function settleOf(context: RevisionContext, phase: EditingPhase, key: string): ClaimSettle {
+  if (phase === 'repair' || context.claims === null) return settleClaims(context.state, key, null, context.worktree);
+  return settleClaims(context.state, key, context.claims.live(key), context.worktree);
+}
+
+/** The files every other cluster of a fixes-phase unit's round holds, by the plan or by a claim, in the run as the settle leaves it; the repair has none. */
+function othersHeld(state: RunState, phase: EditingPhase, key: string): Map<string, PathHolder> {
+  return phase === 'repair' ? new Map() : heldByOthers(requireFix(state), key);
+}
+
+/** The files a unit's cluster claimed in its round, in the run as the settle leaves it; the repair claims none. */
+function claimedFiles(state: RunState, phase: EditingPhase, key: string): string[] {
+  if (phase === 'repair') return [];
+  const fix = requireFix(state);
+  return clusterClaims(fix, roundOf(fix, key), batchOfUnit(state, key).cluster);
 }
 
 /**
@@ -102,12 +127,16 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
 
 /**
  * The events a completed fixer or repair answer is recorded as (R4, R5,
- * R6, TD11): `fix.recorded` with every path resolved and the ownership
- * violations, then one `tree.revised` per revision its snapshots give.
- * Throws `StructuralCheckError` for an answer that leaves out an index,
- * reports a path outside the repository, or leaves out an owned file
- * whose bytes changed; nothing is appended for it, and the retry is told
- * the tree may hold its work.
+ * R6, TD11 of the fix pass; R3, R6 of commit series integrity): the
+ * claims the round's directory holds that the ledger does not, the
+ * files the answer names that nobody holds as its late claim, then
+ * `fix.recorded` with every path resolved and the violations, the named
+ * files another cluster holds once those claims are folded, then one
+ * `tree.revised` per revision its snapshots give. Throws
+ * `StructuralCheckError` for an answer that leaves out an index, reports
+ * a path outside the repository, or leaves out an owned or claimed file
+ * whose bytes changed; its claims are then recorded with its failure, and
+ * the retry is told the tree may hold its work.
  */
 export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: RevisionContext): NewEvent[] {
   const { state, worktree, evidence } = context;
@@ -117,11 +146,15 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const ids = unitIds(state, phase, unit.key);
   checkFixerAnswer(output, ids.length);
   const owned = ownedFiles(fix, phase, unit.key);
-  const resolved = resolveFixerAnswer(output, { worktree, lookup: worktreeLookup(worktree), owned, othersOwned: othersOwned(state, phase, unit.key) });
+  const settle = settleOf(context, phase, unit.key);
+  const resolved = resolveFixerAnswer(output, { worktree, lookup: worktreeLookup(worktree), owned, othersHeld: othersHeld(settle.state, phase, unit.key) });
+  const late = phase === 'fixes' ? lateClaim(settle.state, unit.key, resolved.named, settle.caseInsensitive) : null;
+  const claims = [...settle.events, ...(late === null ? [] : [late])];
+  const claimed = claimedFiles(late === null ? settle.state : foldedWith(settle.state, [late]), phase, unit.key);
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
   const base = baseOf(context);
-  requireOwnedReported(owned.filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
+  requireOwnedReported([...new Set([...owned, ...claimed])].filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
 
   const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
   const findings = ids.map((id, index): FixedFinding => {
@@ -146,6 +179,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
+    ...claims,
     { kind: 'fix.recorded', version: 1, payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
@@ -155,45 +189,55 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   ];
 }
 
+/** What an attempt that ended without an answer leaves on the ledger: the claims its settle records, which go before its failure or loss, and the revisions of its edits, which go after. */
+export interface AttemptEvents {
+  readonly claims: readonly NewEvent[];
+  readonly revisions: readonly NewEvent[];
+}
+
 /**
- * The revisions of what an attempt of an editing unit left when it ended
- * without an answer (R20, TD19 of the fix pass), to append with its
- * `attempt.failed` or `worker.lost`: one per finding its snapshots tell
- * apart, attributed to that finding, and one naming none for what it left
- * after its last snapshot. The paths are the unit's owned files, and every
- * path its snapshots listed or git reports changed now that no other unit
- * of the phase owns, less the strays the run had already listed, which the
- * attempt did not make, and the files git ignores. A
+ * The events of what an attempt of an editing unit left when it ended
+ * without an answer (R20, TD19 of the fix pass; R3, R5 of commit series
+ * integrity), to append with its `attempt.failed` or `worker.lost`: the
+ * claims the round's directory holds that the ledger does not, and the
+ * revisions, one per finding its snapshots tell apart, attributed to that
+ * finding, and one naming none for what it left after its last snapshot.
+ * The paths are the unit's owned files, the files its cluster claimed, and
+ * every path its snapshots listed or git reports changed that no other
+ * cluster of its round holds, by the plan or by a claim, nor a sibling is
+ * claiming now, less the strays the run had already listed, which the
+ * attempt did not make, and the files git ignores. So a sibling's edit of
+ * a file the sibling claimed is never this attempt's; an edit by a fixer
+ * that ignored the claim rule is still attributed as git reports it. A
  * worker with no scratch, or one the operating system cleaned, gives only
  * the last. The expected tree then holds the attempt's work, so the retry's
- * snapshots attribute only its own. A shared unowned file a sibling unit
- * is editing passes every filter, so its edits so far are attributed to
- * this attempt: https://github.com/josephjang/deep-review/issues/23
+ * snapshots attribute only its own.
  */
-export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): NewEvent[] {
+export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): AttemptEvents {
   const { state, worktree, evidence } = context;
   const fix = requireFix(state);
   const ids = unitIds(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
-  const others = othersOwned(state, phase, key);
+  const settle = settleOf(context, phase, key);
+  const others = othersHeld(settle.state, phase, key);
   const strays = new Set(state.review!.checks.flatMap((check) => check.strays));
-  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !strays.has(path));
+  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !isPending(settle, path) && !strays.has(path));
   // A snapshot lists what changed on disk, ignored files a fixer wrote included; those are no work of the run (R23).
   const ignored = new Set(gitApi.ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids, context.match);
+  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...claimedFiles(settle.state, phase, key), ...listed], ids, context.match);
   const who = phase === 'repair' ? 'the repair' : `batch ${key}`;
   const why = truncated(reason, 1000);
-  return revisions.map((revision): NewEvent => {
+  return { claims: settle.events, revisions: revisions.map((revision): NewEvent => {
     const id = revision.findings[0];
     const message = id === undefined
       ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}\n\nThe files are recorded as it left them after its last snapshot; no finding accounts for them.`, bodyLength) }
       : { subject: truncated(`chore: keep the edits an unfinished attempt made for ${id}`, subjectLength), body: truncated(`An attempt of ${who} ended without an answer after snapshotting ${id}: ${why}\n\nThe files are recorded as its snapshot of ${id} held them.`, bodyLength) };
     const payload: TreeRevised = { phase, source: { kind: 'attempt', key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
     return { kind: 'tree.revised', version: 1, payload };
-  });
+  }) };
 }
 
 /**

@@ -265,9 +265,24 @@ function checksBlock(checks: readonly PlannedCheck[], failing: readonly Baseline
     ...(failing.length === 0
       ? []
       : [
-          'These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch\'s tree already had it:',
+          'These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch\'s tree already had it, unless it lies in a file you do not hold, which is a sibling\'s work in flight:',
           ...failing.map((check) => `- ${check.kind}: ${check.stdout}, ${check.stderr}`),
         ]),
+  ].join('\n');
+}
+
+/**
+ * The claim rule (R1, R8 of commit series integrity), with the command
+ * quoted as the fixer must run it, before the first edit for a finding of
+ * every file outside its own that the finding needs.
+ */
+function claimBlock(command: string): string {
+  return [
+    `Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of ${claimPathPlaceholder}:`,
+    '',
+    `    ${command}`,
+    '',
+    'It claims the file for your cluster until your cluster\'s last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. Report every file you edit or create under the finding it served.',
   ].join('\n');
 }
 
@@ -368,11 +383,15 @@ export interface FixerTaskInput {
   /** The findings the cluster's earlier batches worked, whose edits are in the tree. */
   readonly earlier: readonly FixerTaskEarlier[];
   readonly owned: readonly string[];
-  /** The files every other cluster of the pass owns, cluster by cluster. */
-  readonly othersOwned: readonly { readonly cluster: string; readonly files: readonly string[] }[];
+  /** The files the cluster has claimed so far in its round, which it holds as it owns its own (R1 of commit series integrity). */
+  readonly claimed: readonly string[];
+  /** The files every other cluster of the round owns, or has claimed and holds while it has not settled, cluster by cluster. */
+  readonly othersHeld: readonly { readonly cluster: string; readonly files: readonly { readonly path: string; readonly by: 'plan' | 'claim' }[] }[];
   readonly checks: readonly PlannedCheck[];
   /** The snapshot command, holding `snapshotIndexPlaceholder` for the index. */
   readonly snapshotCommand: string;
+  /** The claim command, holding `claimPathPlaceholder` for the path. */
+  readonly claimCommand: string;
   /** Whether an earlier worker on this cluster may have left part of its work in the tree. */
   readonly mayHoldWork: boolean;
   /** The findings an earlier attempt of this batch left recorded edits for, whose message a verifying fixer gives. */
@@ -424,7 +443,7 @@ function decidedLines(decision: FixerDecision): string[] {
 /** What a fixer's task says of the decisions it carries: apply them, and defer only by the role prompt's criteria, never over a choice the decision made (R7, R12 of the decision step). */
 const decidedRule = 'Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message\'s `body`.';
 
-/** A fixer's task (R4, R18 of the fix pass): its batch's findings numbered in rank order, what the cluster's earlier batches did, the ownership rule with both file lists, the checks, the snapshot command and the answer it returns. */
+/** A fixer's task (R4, R18 of the fix pass; R8 of commit series integrity): its batch's findings numbered in rank order, what the cluster's earlier batches did, the ownership rule with the files it holds and the files other clusters hold, the claim command, the checks, the snapshot command and the answer it returns. */
 export function fixerTask(input: FixerTaskInput): string {
   const count = input.findings.length;
   const findings = input.findings.map((finding, index) => [
@@ -438,7 +457,8 @@ export function fixerTask(input: FixerTaskInput): string {
     ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(', ')}: ${finding.firstRound.note}`]),
   ].join('\n'));
   const decided = input.findings.some((finding) => finding.decision !== null);
-  const others = input.othersOwned.filter((cluster) => cluster.files.length > 0);
+  const others = input.othersHeld.filter((cluster) => cluster.files.length > 0);
+  const held = [...input.owned, ...input.claimed.filter((path) => !input.owned.includes(path)).map((path) => `${path} (claimed)`)];
   return [
     `Cluster ${input.cluster}, batch ${input.batch}${input.secondRound ? ', in the second round' : ''}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
     '',
@@ -456,12 +476,12 @@ export function fixerTask(input: FixerTaskInput): string {
           '',
         ]),
     'Files you own while this batch runs, which no other worker edits:',
-    fileList(input.owned),
+    fileList(held),
     '',
-    'Files other clusters own, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:',
-    others.length === 0 ? '(none)' : others.flatMap((cluster) => cluster.files.map((file) => `- ${file} (${cluster.cluster})`)).join('\n'),
+    'Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:',
+    others.length === 0 ? '(none)' : others.flatMap((cluster) => cluster.files.map((file) => `- ${file.path} (${cluster.cluster}${file.by === 'claim' ? ', claimed' : ''})`)).join('\n'),
     '',
-    'You may edit any other file of the repository, existing or new, when a fix or its tests need it; report every file you edit or create under the finding it served.',
+    claimBlock(input.claimCommand),
     '',
     checksBlock(input.checks, input.baselineFailures),
     '',

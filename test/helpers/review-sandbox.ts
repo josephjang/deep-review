@@ -7,11 +7,13 @@ import { join, resolve } from 'node:path';
 import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
+import { claimsDirectoryFor } from '../../src/review/claims.ts';
 import { runReview, type ReviewOptions, type ReviewOutcome } from '../../src/review/controller.ts';
 import type { CheckFlags } from '../../src/review/checks/discover.ts';
 import { policyFileName, readPolicy } from '../../src/review/policy.ts';
 import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
+import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import type { Script } from './fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './launcher.ts';
@@ -137,6 +139,19 @@ export class ReviewSandbox {
     const runs = this.checkpoint.listRuns();
     if (runs.length !== 1) throw new Error(`Expected one run, found ${String(runs.length)}`);
     return runs[0]!;
+  }
+
+  /** The claims directory of a round of the checkpoint's one run, under this sandbox's scratch root, whether or not it exists. */
+  claimsDirectory(round: 1 | 2 = 1): string {
+    const run = this.checkpoint.listRuns()[0];
+    if (run === undefined) throw new Error('No run has a claims directory yet');
+    return claimsDirectoryFor(join(this.scratchRoot, checkpointScratchKey(this.checkpoint)), run.id, round);
+  }
+
+  /** The claim markers of a round's directory by name, none when it does not exist. */
+  markers(round: 1 | 2 = 1): string[] {
+    const directory = this.claimsDirectory(round);
+    return existsSync(directory) ? readdirSync(directory).filter((name) => /^[0-9a-f]{64}\.\d+\.json$/.test(name)).sort() : [];
   }
 
   /** The run's events as kind and parsed payload. */

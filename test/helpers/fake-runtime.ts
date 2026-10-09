@@ -15,7 +15,7 @@
 //   FAKE_HUGE_STREAM `stderr` to print FAKE_HUGE there; stdout by default
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 //   FAKE_SCRIPT      a JSON file scripting the answer per review role and unit; see scriptedStep
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
@@ -24,12 +24,18 @@ import { finderAngles } from '../../src/review/vocabulary.ts';
 export const environment = process.env;
 
 /**
- * One edit a scripted fixer makes before it answers, in order: files
- * written and removed, relative to its working directory (the worktree),
- * then, when `snapshot` names a finding's index, the snapshot command its
- * prompt quotes, run for that index.
+ * One edit a scripted fixer makes before it answers, in order: the files
+ * it claims, through the claim command its prompt quotes; files written
+ * and removed, relative to its working directory (the worktree); then,
+ * when `snapshot` names a finding's index, the snapshot command its prompt
+ * quotes, run for that index.
  */
 export interface ScriptEdit {
+  /** A file to wait for before this edit, so a test can order one fixer's claim after a sibling's. */
+  readonly waitFor?: string;
+  readonly claims?: readonly string[];
+  /** What each claim must come to, so a timing slip fails the fake loudly rather than passing; any outcome when absent. */
+  readonly expectClaim?: 'claimed' | 'refused';
   readonly writes?: Readonly<Record<string, string>>;
   readonly deletes?: readonly string[];
   readonly snapshot?: number;
@@ -186,9 +192,26 @@ function snapshotCommand(prompt: string): { entry: string; into: string } {
   return { entry: match[1]!, into: match[2]! };
 }
 
-/** Make a scripted fixer's edits in its working directory, running the snapshot command its prompt quotes where a step asks. */
+/** The claim command a fixer's prompt quotes: the engine's entry, the unit and the directory, with `<path>` for the file. */
+function claimCommand(prompt: string): { entry: string; unit: string; into: string } {
+  const match = /^ {4}node "([^"]+)" claim --path "<path>" --unit (\S+) --in "([^"]+)"$/m.exec(prompt);
+  if (match === null) throw new Error('The prompt quotes no claim command');
+  return { entry: match[1]!, unit: match[2]!, into: match[3]! };
+}
+
+/** Claim one file as a fixer does, from its working directory, and throw when the outcome is not the one the script expects. */
+function claim(prompt: string, path: string, expected: ScriptEdit['expectClaim']): void {
+  const { entry, unit, into } = claimCommand(prompt);
+  const result = spawnSync(process.execPath, [entry, 'claim', '--path', path, '--unit', unit, '--in', into], { cwd: process.cwd(), encoding: 'utf8', windowsHide: true });
+  const outcome = result.status === 0 ? 'claimed' : result.status === 2 ? 'refused' : null;
+  if (outcome === null || (expected !== undefined && outcome !== expected)) throw new Error(`The claim of ${path} by ${unit} exited ${String(result.status)}, not as the script expects (${expected ?? 'claimed or refused'}): ${result.stderr}`);
+}
+
+/** Make a scripted fixer's edits in its working directory, running the claim and snapshot commands its prompt quotes where a step asks. */
 export function applyEdits(edits: readonly ScriptEdit[], prompt: string): void {
   for (const edit of edits) {
+    if (edit.waitFor !== undefined) waitForMarkerSync(edit.waitFor);
+    for (const path of edit.claims ?? []) claim(prompt, path, edit.expectClaim);
     for (const [path, content] of Object.entries(edit.writes ?? {})) {
       const file = join(process.cwd(), ...path.split('/'));
       mkdirSync(join(file, '..'), { recursive: true });
@@ -250,6 +273,12 @@ export function record(argv: readonly string[], stdin: string): void {
   const pinned = ['TEMP', 'TMP', 'TMPDIR', 'MSBUILDDISABLENODEREUSE', 'DOTNET_CLI_USE_MSBUILD_SERVER', 'UseSharedCompilation', 'UseRazorBuildServer', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'Path', 'PATH'];
   const seen = Object.fromEntries(Object.entries(process.env).filter(([name]) => pinned.some((pin) => pin.toUpperCase() === name.toUpperCase())));
   writeWhole(file, JSON.stringify({ argv, stdin, cwd: process.cwd(), environment: seen }));
+}
+
+/** Block the process until the marker file exists, for an edit that waits, which runs synchronously. */
+function waitForMarkerSync(marker: string): void {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  while (!existsSync(marker)) Atomics.wait(pause, 0, 0, 20);
 }
 
 /** Block until the marker file exists. */

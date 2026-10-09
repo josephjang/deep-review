@@ -16,7 +16,8 @@ import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
-import { checksPhase, configuration, configured, decidedOf, decisions, found, mergeRanked, ranked, ranking, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withFixPass, worker } from '../helpers/review-history.ts';
+import { baselined, checksPhase, configuration, configured, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, ranked, ranking, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withFixPass, worker } from '../helpers/review-history.ts';
+import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
 const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerReceipt => ({
@@ -36,7 +37,7 @@ const noSurveyInputs: SurveyInputs = { platform: 'linux', flags: noCheckFlags, u
 
 /** The one event a reading unit's receipt becomes; a reading unit freezes and compares nothing, so the evidence store refuses every write and the comparison every call. */
 const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string, survey: SurveyInputs = noSurveyInputs): NewEvent => {
-  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); }, survey: () => survey });
+  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); }, claims: null, survey: () => survey });
   assert.equal(events.length, 1, JSON.stringify(events));
   return events[0]!;
 };
@@ -68,7 +69,7 @@ describe('taskFor', () => {
     const rankedOnSweep = swept().start('merge-rank').worker(40, 'merge-rank merge-rank:merge-rank').add('ranking.recorded', { workerId: worker(40), findings: [{ id: 'SWEEP-2', members: ['RIPPLE-1'], severity: 'major', summary: 'null dereference', reason: 'same root cause at lines 7 and 4' }, ranking[1]] }).finish('merge-rank');
     const history = checksPhase(decidedOf(withFixPass(rankedOnSweep), [{ ...decisions[0], id: 'SWEEP-2' }, decisions[1]]), 'baseline-checks').start('fixes');
     history.add('fixes.planned', fixPlanOf(history.review()));
-    const task = taskFor(unit('fixes', 'c1-1', 'fixer'), history.review(), { editing: { snapshotCommand: 'snapshot', unelevatedSandbox: false }, evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' } });
+    const task = taskFor(unit('fixes', 'c1-1', 'fixer'), history.review(), { editing: { snapshotCommand: 'snapshot', claimCommand: 'claim', unelevatedSandbox: false }, evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' } });
     assert.match(task, /^\[0\] SWEEP-2 \[major\] CONFIRMED \(SCAN\) at src\/a\.ts:7\n {4}summary: null dereference\n {4}reason: same root cause at lines 7 and 4\n {4}primary: SWEEP-2 \(SCAN\) at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n {8}summary: [^\n]*\n {8}detail: [^\n]*\n {8}evidence: none; the group's verifier failed twice\n {4}merged: RIPPLE-1 \(RIPPLE\) at src\/a\.ts:4: CONFIRMED\n {8}summary: [^\n]*\n {8}detail: [^\n]*\n {8}evidence: line 4 dereferences null\n/m);
   });
 });
@@ -86,6 +87,7 @@ describe('invocationFor', () => {
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
     unelevatedEditors: false,
+    claims: { directoryOf: () => '/scratch/claims/run/round-1', command: (key, directory) => `node "/engine/main.mjs" claim --path "<path>" --unit ${key} --in "${directory}"`, live: () => null },
   });
 
   it('builds a read-only invocation with a shell from the pinned role, labelled with its unit, prompt composed from the role and task', () => {
@@ -107,6 +109,22 @@ describe('invocationFor', () => {
     const invocation = invocationFor(unit('triage', 'SCAN', 'triage'), context(configured().fold()));
     assert.equal('budgetUsd' in invocation, false);
     assert.throws(() => invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), roles: new Map() }), /No assembled prompt for role finder-RIPPLE/);
+  });
+
+  it('shares the round\'s claims directory with a fixer, quotes its claim command, and lists the claims its directory holds at the launch; the repair and a reader share nothing (R2, R8 of commit series integrity)', () => {
+    const planned = baselined().start('fixes').add('fixes.planned', fixPlan).fold();
+    const marker = { whole: true as const, hash: markerHash('docs/notes.md', false), generation: 1, path: 'docs/notes.md', cluster: 'c1', unit: 'c1-1', claimedAt: '2026-10-09T01:00:00.000Z' };
+    const fixer = invocationFor(unit('fixes', 'c1-1', 'fixer'), { ...context(planned), claims: { ...context().claims, live: () => ({ markers: [marker], caseInsensitive: false }) } });
+    assert.equal(fixer.access, 'edit');
+    assert.equal(fixer.shared, '/scratch/claims/run/round-1');
+    assert.match(fixer.prompt, /^ {4}node "\/engine\/main\.mjs" claim --path "<path>" --unit c1-1 --in "\/scratch\/claims\/run\/round-1"$/m);
+    assert.match(fixer.prompt, /no other worker edits:\n- src\/a\.ts\n- docs\/notes\.md \(claimed\)\n/, 'the live marker, not yet on the ledger, is in the task');
+    assert.equal(planned.review!.fix!.claims.length, 0, 'and the fold it was read with is left as it was');
+    const repair = invocationFor(unit('repair', 'repair', 'fixer'), context(fixRun().fold()));
+    assert.equal(repair.access, 'edit');
+    assert.equal('shared' in repair, false);
+    assert.doesNotMatch(repair.prompt, / claim --path /);
+    assert.equal('shared' in invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), context()), false);
   });
 
   it('gives the surveyor the scope block of its own phase, read-only, and every later worker the one of theirs (R7, TD10 of the repository survey)', () => {
