@@ -49,7 +49,7 @@ import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { surveyFailure, type SurveyInputs } from './survey.ts';
-import { snapshotIndexPlaceholder } from './tasks.ts';
+import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
 import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
 
@@ -260,6 +260,17 @@ const driftList = (found: { readonly files: readonly { readonly path: string; re
  */
 export function snapshotCommandFor(engineEntry: string, into: string): string {
   return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
+}
+
+/**
+ * The command a fixer runs to claim a file for its cluster (R1, R2 of
+ * commit series integrity): as the snapshot command is built, with the
+ * unit's key, the round's claims directory and the path placeholder the
+ * task asks the fixer to fill in, quoted so a path with a space stays one
+ * argument.
+ */
+export function claimCommandFor(engineEntry: string, unit: string, into: string): string {
+  return `node "${engineEntry}" claim --path "${claimPathPlaceholder}" --unit ${unit} --in "${into}"`;
 }
 
 /** Run a review to its report or its blocker. */

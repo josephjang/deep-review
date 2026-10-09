@@ -31,6 +31,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.match(help.stdout, /deep-review review {2}--runtime claude\|codex/);
     assert.ok(help.stdout.includes(`[--concurrency 1..${String(maxConcurrency)}]`), 'the usage names the bound the flag is checked against');
     assert.ok(help.stdout.includes('[--codex-windows-sandbox unelevated|elevated|none]'), 'the usage names the Codex Windows sandboxes');
+    assert.match(help.stdout, /deep-review claim   --path <path> --unit <key> --in <dir>/, 'the usage names the claim command a fixer runs');
   });
 
   it('refuses a command-line mistake with the usage and exit 1', async (t) => {
