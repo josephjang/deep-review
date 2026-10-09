@@ -10,7 +10,7 @@
  * answers; each plan is recorded once and resumed from the ledger.
  */
 import type { FixedFinding, FixesPlanned } from '../checkpoint/events.ts';
-import { firstRoundHolders, routeOfDecision, type RecordedClaim, type RoutedDecision } from '../checkpoint/fix-state.ts';
+import { firstRoundHolders, routeOfDecision, secondRoundFiles, type RecordedClaim, type RoutedDecision } from '../checkpoint/fix-state.ts';
 import type { CandidateState } from '../checkpoint/review-fold.ts';
 import { unlocatedSpellingIn } from './grouping.ts';
 import type { ReportFinding } from './state.ts';
@@ -152,7 +152,6 @@ export interface SecondRoundPlan {
  */
 export function planSecondRound(plan: Pick<FixPlan, 'routes' | 'clusters'>, answerOf: (id: string) => { readonly status: FixedFinding['status']; readonly requiredFiles: readonly string[] } | null, batchSize: number, claims: readonly Pick<RecordedClaim, 'path' | 'cluster'>[]): SecondRoundPlan {
   const heldBy = firstRoundHolders(plan.clusters, claims);
-  const claimedBy = (cluster: string): string[] => claims.filter((claim) => claim.cluster === cluster).map((claim) => claim.path);
   const clusterOfFinding = new Map(plan.clusters.flatMap((cluster) => cluster.findingIds.map((id): [string, PlannedCluster] => [id, cluster])));
   const blocked = plan.routes.flatMap((route): (BlockedFinding & { readonly files: readonly string[] })[] => {
     const own = clusterOfFinding.get(route.id);
@@ -160,7 +159,7 @@ export function planSecondRound(plan: Pick<FixPlan, 'routes' | 'clusters'>, answ
     if (own === undefined || answer === null || answer.status !== 'blocked' || answer.requiredFiles.length === 0) return [];
     const needed = [...new Set(answer.requiredFiles)];
     if (!needed.every((path) => [...(heldBy.get(path) ?? [])].some((cluster) => cluster !== own.id))) return [];
-    return [{ id: route.id, requiredFiles: needed, files: [...new Set([...own.files, ...claimedBy(own.id), ...needed])].sort() }];
+    return [{ id: route.id, requiredFiles: needed, files: secondRoundFiles(own, claims, needed) }];
   });
   const first = plan.clusters.length;
   const clusters = componentsOf(blocked.map((finding) => finding.files)).map((indexes, position): PlannedCluster => ({
