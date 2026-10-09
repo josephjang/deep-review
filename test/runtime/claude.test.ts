@@ -107,9 +107,14 @@ describe('claude command', () => {
     assert.equal(args.includes('--add-dir'), false);
   });
 
-  it('gives an editor\'s file tools no write in its shared directory, which only the commands its task quotes write', () => {
+  it('adds an editor\'s shared directory beside its scratch, so the commands its task quotes can write it under a sandboxed shell', () => {
     const args = claudeAdapter.command(invocation({ access: 'edit' }), plan({ shared: resolve('/scratch/claims/run/round-1') })).args;
-    assert.deepEqual(args.filter((arg, index) => args[index - 1] === '--add-dir'), [resolve('/checkpoint/scratch/w')]);
+    assert.deepEqual(args.filter((arg, index) => args[index - 1] === '--add-dir'), [resolve('/checkpoint/scratch/w'), resolve('/scratch/claims/run/round-1')]);
+  });
+
+  it('adds the shared directory alone when the worker has no scratch', () => {
+    const args = claudeAdapter.command(invocation({ access: 'edit' }), plan({ scratch: null, shared: resolve('/scratch/claims/run/round-1') })).args;
+    assert.deepEqual(args.filter((arg, index) => args[index - 1] === '--add-dir'), [resolve('/scratch/claims/run/round-1')]);
   });
 
   it('continues a session with --resume and the same permission and schema flags', () => {
