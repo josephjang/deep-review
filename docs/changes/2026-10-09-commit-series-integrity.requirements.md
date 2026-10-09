@@ -18,17 +18,22 @@ included (#23). And a fixer runs the checks at the end of its batch, so
 a later finding's correction of an earlier finding's edit leaves the
 earlier commit red on its own (#24).
 
-The change is one rule and one prompt line. A file no cluster owns
-belongs, for the rest of the round, to the cluster whose fixer first
-claims it: the fixer claims a file through a command the engine ships
-before its first edit of it, and a fixer whose claim is refused reports
-the finding blocked on that file and gets the second round the fix pass
+The change is one ownership rule, a few prompt lines and one rule for
+the answer. A file no cluster owns belongs, until its cluster settles,
+to the cluster whose fixer first claims it: the fixer claims every file
+a finding will need through a command the engine ships before the
+finding's first edit, and a fixer whose claim is refused reports the
+finding blocked on that file and gets the second round the fix pass
 already gives a finding blocked on an owned file (R21, PD18 of the fix
 pass). Ownership and claims are one model, so a refused attempt's
 revisions take only what its cluster owns or claimed, which closes #23
 without a rule of its own. For #24 the fixer's prompt asks it to run the
 quick checks it was given before each snapshot, since a snapshot is a
-commit the repository must accept alone.
+commit the repository must accept alone. A commit message goes with
+every finding that names files, whatever its status, and with none that
+names no file (R11, PD10), which closes #26 and #9: a refused claim
+usually arrives after a finding's first edits, and such a finding would
+otherwise land in one of the two.
 
 The fix pass's PD5, which let a fixer edit any file no cluster owns, and
 the two Risks entries that accepted blurred attribution on such a file,
@@ -169,9 +174,6 @@ a rebuild, and a file a decision named.
   findings is its own judgment under its prompt (PD5).
 - **The interrupted check (#25).** Its own proposal, on its own branch
   and pull request.
-- **The fallback commit subjects (#9) and the structural check that
-  refused `c2-1`'s attempt (#26).** Separate issues; neither changes
-  what a commit holds.
 - **A Codex fix gate.** Codex is a judging runtime here; the gate runs
   on Claude Code alone, as the decision step's did.
 
@@ -191,10 +193,16 @@ a rebuild, and a file a decision named.
   cluster that holds the file, and the fixer reports the finding
   `blocked` with the file in `requiredFiles`, as it does for an owned
   file today. The fixer's prompt and task state the rule in the same
-  breath as ownership. (Amended 2026-10-09, review F2: as first written
-  a claim lasted the round, which sent a later cluster to the second
-  round for a file whose holder had long settled, and so made
-  `--concurrency 1` worse than today; PD3.)
+  breath as ownership. Before the first edit for a finding, the fixer
+  claims every file outside its cluster that the fix and its tests will
+  touch, so that a refusal arrives before any edit and the finding is
+  reported blocked with no edits; when a refusal comes after edits, the
+  edits stay, are listed under the finding, and its message says the
+  change is partial (R11). (Amended 2026-10-09, review F2: as first
+  written a claim lasted the round, which sent a later cluster to the
+  second round for a file whose holder had long settled, and so made
+  `--concurrency 1` worse than today; PD3. Review F4: the claim before
+  the finding's first edit, PD10.)
 - **R2: The claim command starts no process and claims atomically.**
   `deep-review claim --path <path> --unit <key> --in <dir>`, run by a
   fixer from the repository root, records the claim as one file created
@@ -276,8 +284,9 @@ a rebuild, and a file a decision named.
   claim is refused.
 - **R9: The prompts change in their own commits.** `fixer-role.md`
   states the claim rule with the ownership rule; `fixer-apply.md` adds
-  the claim step before the first edit of a file the fixer does not own
-  and the quick checks before each snapshot (R7). The `documentation`
+  the claim step before a finding's first edit, for every file the
+  finding will need, and the quick checks before each snapshot (R7);
+  `fixer-report.md` states the message rule of R11. The `documentation`
   and `answer` roles, which share the fragments, change with them and
   stay unrun.
 - **R10: The gate.** The engine, built from this element, reviews and
@@ -296,6 +305,17 @@ a rebuild, and a file a decision named.
   the two 2026-10-08 runs: 16 of 17 green commits, 47 workers and 32.34
   USD with one fixer at a time; 13 of 23, 48 workers, 37.86 USD and a
   3905 s fixes phase in parallel.
+- **R11: A commit message goes with the files, whatever the status.**
+  (Added 2026-10-09, review F4.) A finding whose `files` is not empty
+  carries a `message` that describes those edits, applied,
+  already-applied, deferred or blocked alike, and one whose `files` is
+  empty carries none; a message on a blocked or deferred finding says
+  the change is partial and what it waits for. The structural check
+  refuses an answer only where the two disagree, a finding with files
+  and no message or with a message and no files, and no longer refuses a
+  message on a blocked or deferred finding (#26). A revision's commit
+  then always carries the fixer's message, and the message the engine
+  composes stays only for a refused attempt's revisions (#9).
 
 ## Metrics
 
@@ -312,6 +332,9 @@ a rebuild, and a file a decision named.
 - Findings left blocked by a claim refused in the second round, from
   the ledger: zero on both 2026-10-08 runs, whose second rounds had one
   cluster each, so no claim could be refused there (R4).
+- Blocked findings that carried edits, from the ledger (R11); on run
+  `71ae22a2` two of the seven blocked findings did, `SCAN-2` and
+  `DUPLICATION-6`.
 - The per-commit check is a loop over detached checkouts, one commit at
   a time, running `npm run check`, which writes nothing; `npm run
   verify` runs on the series' last commit only (PD9). It is never run
@@ -490,6 +513,24 @@ a rebuild, and a file a decision named.
   revision, was weighed and set aside: it needs each revision's tree
   laid out and built, and once the repository asks for `verify` at heads
   only, nothing needs it.
+- **PD10: The message follows the files, not the status.** (Added
+  2026-10-09, review F4.) The fix pass tied a message to the applied
+  status, as the commit message of an applied change, and let a blocked
+  finding carry none. The invariant it meant is that a revision has a
+  message and a finding without edits has none; the status is a proxy
+  for it, and the proxy fails exactly where a blocked or deferred
+  finding holds edits. Under claims that case is the normal one: a
+  refusal usually comes after a finding's first edits, when the fixer
+  opens its test file, and such a finding then lands in #26 if it keeps
+  the message it wrote, the whole answer refused and the edits kept as
+  fallback revisions, the path that made #23's commits, or in #9 if it
+  drops it, a commit under a composed subject, as `DUPLICATION-6` on run
+  `71ae22a2`. #26's first option, dropping the message and logging it,
+  was rejected: it keeps a partial commit without a message, which #9
+  then names. Its second, a schema that forbids the message per status,
+  was rejected for the same reason. Tying the message to `files` closes
+  both with one check, and R1's claim before the finding's first edit
+  makes the partial case rare.
 
 ## Risks
 
@@ -526,6 +567,11 @@ a rebuild, and a file a decision named.
   2026-10-08 runs' second rounds had one cluster, the gate counts the
   case, and rounds until no finding is blocked, under a cap, are the
   lever (R4).
+- **A blocked finding with edits is a commit of its own.** Its message
+  says the change is partial, and the second round's commit completes
+  it, so the series holds a half step and its completion. Accepted;
+  R1's claim before the finding's first edit makes it rare, and the
+  gate counts blocked findings with edits (R11).
 - **The series is green commit by commit only as far as the fixer's
   quick checks reach.** A test that fails only in the full suite, run at
   the batch's end, can still leave an intermediate commit red. Accepted;
