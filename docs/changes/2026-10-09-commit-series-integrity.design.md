@@ -206,9 +206,18 @@ relative, not owned by a cluster of the round, not held by a claim of
 another cluster of the round that has not settled, and not claimed by
 this cluster already while it holds the path; the entries then join
 `FixState.claims`, and a later claim of a path the fold already holds
-makes its cluster the holder. A claim whose marker names a
-cluster the plan does not have is a marker the engine did not write and
-is refused by the command's reader before any event is built. The
+makes its cluster the holder. Before it builds the events, the engine
+filters the markers by the same rules the reducer applies, against the
+fold it is about to append to: a marker on a path a cluster of the
+round owns, on a path an unsettled other cluster already holds on the
+ledger, or from a unit the plan lacks, which is a marker the engine did
+not write, is not appended. Each such marker is logged as `claim lost:
+<path> by <unit> to <holder>`, kept in the controller's memory for the
+report's Limitations, and the path's edits then fall under the
+violation rule (R6). A marker can lose this way only through a
+spelling the command could not match (TD4) or a file written outside
+the engine; a directory that vanishes stops the run first (R12).
+(Added 2026-10-09, review F9.) The
 `fixRecorded` reducer checks each violation against the paths the other
 clusters of the round hold, by their plan's files or by a claim folded
 before the answer, which the order above makes every claim made by then;
@@ -355,8 +364,10 @@ the already-applied finding's message, which this rule now covers.
 by": the cluster that owns the path, `c8 (claimed)` for a claimed one,
 and "nobody" for a path only a check or a late claim touched. The
 Limitations lines of `fixLimitations` name a violation's holder as
-"owned by c2" or "claimed by c2", and add "Claimed late: <path> by
-<unit>, edited before it was claimed" for each late claim. `status`
+"owned by c2" or "claimed by c2", add "Claimed late: <path> by
+<unit>, edited before it was claimed" for each late claim, and add
+"Claim lost: <path> by <unit> to <cluster>" for each marker the engine
+left out (F9). `status`
 prints `Claims: N by M clusters, L late` for a fix run and carries the
 claims in `--json`. The controller logs `worker fixer fixes:c8-1:
 claimed 2 files` with the answer, and the late claims by name.
@@ -568,7 +579,10 @@ readable, and no kind the corpus holds changes shape here.
   keep a file this cluster claimed; the claims events are built with the
   answer, the failure and the lost worker, every unrecorded marker once,
   a running sibling's under the sibling's own key, and not again at the
-  sibling's own settle; `checkRevision` with a manifest revises a
+  sibling's own settle; a marker on an owned path, on a path an
+  unsettled other cluster holds on the ledger, or from a unit the plan
+  lacks is left out of the events and reported lost (F9);
+  `checkRevision` with a manifest revises a
   tracked file outside the expected tree that the check changed, leaves
   out one the user had changed before the check and the check left
   alone, and lists no file new since the check (PD9).

@@ -228,7 +228,12 @@ a rebuild, and a file a decision named.
   refuses a claim on a file a cluster of the round owns or another
   cluster claimed and has not yet settled, holds the latest claim of a
   path as its holder, and the report's Changed files names the cluster
-  that last claimed each unowned path. (Amended 2026-10-09, review F1: as first
+  that last claimed each unowned path. The engine appends no claim the
+  fold would refuse: a claim marker on a file a cluster of the round
+  owns, or that an unsettled other cluster holds on the ledger, or from
+  a unit the plan lacks, is left out, logged, and named in Limitations
+  as a claim lost to its holder, and the file's edits then fall under
+  R6 (added 2026-10-09, review F9). (Amended 2026-10-09, review F1: as first
   written, a unit's claims were appended only when that unit settled, so
   an answer naming a file a still-running sibling had claimed carried a
   violation the fold could not check, and the append was refused.)
