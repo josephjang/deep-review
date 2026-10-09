@@ -210,17 +210,21 @@ export function isPending(settle: ClaimSettle, path: string): boolean {
  * The late claim of an answer (R6): each file it names that nobody holds
  * in its round once the settle's claims are folded, or that only a settled
  * cluster held by claim, claimed for the answering batch's cluster with no
- * time, since it was edited before it was claimed. Null when there is none.
+ * time, since it was edited before it was claimed. A path the settle left
+ * pending is held by a cluster not yet known (F13), so it is neither
+ * claimed late nor, with no holder on the ledger, a violation; its marker
+ * settles at the next settle. Null when there is none.
  */
-export function lateClaim(state: RunState, key: string, named: Iterable<string>, caseInsensitive: boolean): NewEvent | null {
-  const fix = requireFix(state);
+export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<string>): NewEvent | null {
+  const fix = requireFix(settle.state);
   const batch = batchOf(fix, key);
   if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
   const round = roundOf(fix, key);
-  const keyOf = (path: string): string => pathKey(path, caseInsensitive);
+  const keyOf = (path: string): string => pathKey(path, settle.caseInsensitive);
   const holders = holdersKeyedBy(fix, round, keyOf);
   const settled = settledClusters(fix, round);
   const free = [...new Set(named)].filter((path) => {
+    if (isPending(settle, path)) return false;
     const holder = holders.get(keyOf(path));
     return holder === undefined || (holder.by === 'claim' && holder.cluster !== batch.cluster && settled.has(holder.cluster));
   }).sort();
