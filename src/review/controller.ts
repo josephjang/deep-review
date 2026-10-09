@@ -267,11 +267,12 @@ export function snapshotCommandFor(engineEntry: string, into: string): string {
  * The command a fixer runs to claim a file for its cluster (R1, R2 of
  * commit series integrity): as the snapshot command is built, with the
  * unit's key, the round's claims directory and the path placeholder the
- * task asks the fixer to fill in, quoted so a path with a space stays one
- * argument.
+ * task asks the fixer to fill in, single-quoted so a path with a space
+ * stays one argument and one with `$`, a backtick or `\` reaches the
+ * command as written, in bash and in PowerShell alike.
  */
 export function claimCommandFor(engineEntry: string, unit: string, into: string): string {
-  return `node "${engineEntry}" claim --path "${claimPathPlaceholder}" --unit ${unit} --in "${into}"`;
+  return `node "${engineEntry}" claim --path '${claimPathPlaceholder}' --unit ${unit} --in "${into}"`;
 }
 
 /** Run a review to its report or its blocker. */

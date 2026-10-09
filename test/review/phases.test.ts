@@ -87,7 +87,7 @@ describe('invocationFor', () => {
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
     unelevatedEditors: false,
-    claims: { directoryOf: () => '/scratch/claims/run/round-1', command: (key, directory) => `node "/engine/main.mjs" claim --path "<path>" --unit ${key} --in "${directory}"`, live: () => null, caseInsensitive: () => false },
+    claims: { directoryOf: () => '/scratch/claims/run/round-1', command: (key, directory) => `node "/engine/main.mjs" claim --path '<path>' --unit ${key} --in "${directory}"`, live: () => null, caseInsensitive: () => false },
   });
 
   it('builds a read-only invocation with a shell from the pinned role, labelled with its unit, prompt composed from the role and task', () => {
@@ -117,7 +117,7 @@ describe('invocationFor', () => {
     const fixer = invocationFor(unit('fixes', 'c1-1', 'fixer'), { ...context(planned), claims: { ...context().claims, live: () => ({ markers: [marker], caseInsensitive: false }) } });
     assert.equal(fixer.access, 'edit');
     assert.equal(fixer.shared, '/scratch/claims/run/round-1');
-    assert.match(fixer.prompt, /^ {4}node "\/engine\/main\.mjs" claim --path "<path>" --unit c1-1 --in "\/scratch\/claims\/run\/round-1"$/m);
+    assert.match(fixer.prompt, /^ {4}node "\/engine\/main\.mjs" claim --path '<path>' --unit c1-1 --in "\/scratch\/claims\/run\/round-1"$/m);
     assert.match(fixer.prompt, /no other worker edits:\n- src\/a\.ts\n- docs\/notes\.md \(claimed\)\n/, 'the live marker, not yet on the ledger, is in the task');
     assert.equal(planned.review!.fix!.claims.length, 0, 'and the fold it was read with is left as it was');
     const repair = invocationFor(unit('repair', 'repair', 'fixer'), context(fixRun().fold()));
