@@ -1,13 +1,16 @@
 /**
  * What the fix pass's events say about a run (R6, R10, R18, R21 of the fix
- * pass): the checks it pinned and every run of them, the plan of routes,
- * clusters and batches and the second round's, each fixer's recorded
- * answer, every revision of the tree in ledger order, the units settled
- * without an answer, and the commits built from the run afterwards. Facts as recorded; the planner reads what to do
- * next from them. The questions below are answered from this state alone.
+ * pass; R3 of commit series integrity): the checks it pinned and every run
+ * of them, the plan of routes, clusters and batches and the second
+ * round's, each fixer's recorded answer, every revision of the tree in
+ * ledger order, the units settled without an answer, the files the
+ * clusters claimed and the claims left out of the ledger, and the commits
+ * built from the run afterwards. Facts as recorded; the planner reads what
+ * to do next from them. The questions below are answered from this state
+ * alone.
  */
 import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlannedV1, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
 
 /**
  * One kind's check as the fold holds a plan, whichever version recorded
@@ -30,6 +33,29 @@ export interface ChecksPlanned {
   readonly checks: readonly PlannedCheck[];
   /** The package manager a version 1 plan named for its package scripts; null for a version 2 plan, which a flag or the survey decided. */
   readonly manager: string | null;
+}
+
+/**
+ * A file a cluster claimed (R1, R3 of commit series integrity): the path,
+ * the claiming cluster and batch, the round the batch belongs to, and when
+ * the claim was made, null for a late claim recorded at the answer that
+ * named the file (R6).
+ */
+export interface RecordedClaim {
+  readonly path: string;
+  readonly cluster: string;
+  readonly key: string;
+  readonly round: 1 | 2;
+  readonly claimedAt: string | null;
+}
+
+/** A claim marker the engine left out of the ledger, with the unit and cluster the marker named (R3, review F9). */
+export type LostClaim = ClaimsLost['files'][number] & { readonly unit: string; readonly cluster: string };
+
+/** Who holds a path in a round: the cluster that owns it by the plan, or the one whose claim of it came last. */
+export interface PathHolder {
+  readonly cluster: string;
+  readonly by: 'plan' | 'claim';
 }
 
 /** Why a unit of an editing phase was not attempted (R12, R19 of the fix pass). */
@@ -55,6 +81,10 @@ export interface FixState {
   readonly revisions: readonly TreeRevised[];
   /** The units settled without an answer, by editing phase and then by unit key: two failures or the run budget, with the reason; their findings are not attempted. */
   readonly notAttempted: Readonly<Record<EditingPhase, Readonly<Record<string, NotAttempted>>>>;
+  /** Every file claimed, in ledger order, both rounds' (R3 of commit series integrity). */
+  readonly claims: readonly RecordedClaim[];
+  /** Every claim marker left out of the ledger, in ledger order (R3, review F9). */
+  readonly lostClaims: readonly LostClaim[];
   /** The commits built from the run after its report, or null until they are. */
   readonly commits: CommitsCreated | null;
 }
@@ -68,6 +98,8 @@ export function emptyFixState(): FixState {
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecorded>>,
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, NotAttempted>>,
+    claims: [],
+    lostClaims: [],
     commits: null,
   };
 }
@@ -126,9 +158,88 @@ export function roundClusters(fix: FixState, key: string): PlannedCluster[] {
   return [...((second ? fix.secondRound?.clusters : fix.plan?.clusters) ?? [])];
 }
 
+/** Whether a fixes-phase batch has settled: answered, or not attempted. */
+const batchSettled = (fix: FixState, key: string): boolean => Object.hasOwn(fix.answers.fixes, key) || isNotAttempted(fix, 'fixes', key);
+
 /** Whether every batch of the first round has settled: answered, or not attempted. */
 export function firstRoundSettled(fix: FixState): boolean {
-  return (fix.plan?.batches ?? []).every((batch) => Object.hasOwn(fix.answers.fixes, batch.key) || isNotAttempted(fix, 'fixes', batch.key));
+  return (fix.plan?.batches ?? []).every((batch) => batchSettled(fix, batch.key));
+}
+
+/** The round a fixes-phase batch belongs to: the second when the second round plans it, else the first. */
+export function roundOf(fix: FixState, key: string): 1 | 2 {
+  return (fix.secondRound?.batches.some((batch) => batch.key === key) ?? false) ? 2 : 1;
+}
+
+/** The clusters and batches of one round of the fixes phase. */
+function roundPlan(fix: FixState, round: 1 | 2): { readonly clusters: readonly PlannedCluster[]; readonly batches: readonly PlannedBatch[] } {
+  const plan = round === 1 ? fix.plan : fix.secondRound;
+  return { clusters: plan?.clusters ?? [], batches: plan?.batches ?? [] };
+}
+
+/** The claims of one round, in ledger order. */
+export function claimsOfRound(fix: FixState, round: 1 | 2): RecordedClaim[] {
+  return fix.claims.filter((claim) => claim.round === round);
+}
+
+/** The clusters of a round whose every batch has settled, answered or not attempted: they hold their claims no more (PD3 of commit series integrity). */
+export function settledClusters(fix: FixState, round: 1 | 2): Set<string> {
+  const { clusters, batches } = roundPlan(fix, round);
+  return new Set(clusters.filter((cluster) => batches.filter((batch) => batch.cluster === cluster.id).every((batch) => batchSettled(fix, batch.key))).map((cluster) => cluster.id));
+}
+
+/**
+ * Who holds each path in a round: its owner by the round's plan, and for a
+ * path no cluster owns, the cluster whose claim of it came last, settled or
+ * not (R3 of commit series integrity).
+ */
+export function holdersOf(fix: FixState, round: 1 | 2): Map<string, PathHolder> {
+  const holders = new Map<string, PathHolder>();
+  for (const cluster of roundPlan(fix, round).clusters) for (const path of cluster.files) holders.set(path, { cluster: cluster.id, by: 'plan' });
+  for (const claim of claimsOfRound(fix, round)) if (holders.get(claim.path)?.by !== 'plan') holders.set(claim.path, { cluster: claim.cluster, by: 'claim' });
+  return holders;
+}
+
+/** The paths a cluster claimed in a round, in the order it first claimed them. */
+export function clusterClaims(fix: FixState, round: 1 | 2, cluster: string): string[] {
+  return [...new Set(claimsOfRound(fix, round).filter((claim) => claim.cluster === cluster).map((claim) => claim.path))];
+}
+
+/**
+ * The paths another cluster of a fixes-phase batch's round holds while the
+ * batch runs (R1, R6 of commit series integrity): every path another
+ * cluster owns, and every path another cluster that has not settled holds
+ * by its last claim; a settled cluster's claimed files are free again
+ * (PD3). The repair, the only unit of its phase, has none.
+ */
+export function heldByOthers(fix: FixState, key: string): Map<string, PathHolder> {
+  const own = clusterOfBatch(fix, key)?.id;
+  const round = roundOf(fix, key);
+  const settled = settledClusters(fix, round);
+  const held = new Map<string, PathHolder>();
+  for (const [path, holder] of holdersOf(fix, round)) {
+    if (holder.cluster === own || (holder.by === 'claim' && settled.has(holder.cluster))) continue;
+    held.set(path, holder);
+  }
+  return held;
+}
+
+/**
+ * Every first-round cluster that held each path (R4 of commit series
+ * integrity): its owner by the plan, and every cluster that claimed it at
+ * any time of the round, whether it settled after or not, since a holder
+ * that settled after refusing a sibling still blocked that sibling.
+ */
+export function firstRoundHolders(clusters: readonly { readonly id: string; readonly files: readonly string[] }[], claims: readonly Pick<RecordedClaim, 'path' | 'cluster'>[]): Map<string, Set<string>> {
+  const holders = new Map<string, Set<string>>();
+  const add = (path: string, cluster: string): void => {
+    const set = holders.get(path);
+    if (set === undefined) holders.set(path, new Set([cluster]));
+    else set.add(cluster);
+  };
+  for (const cluster of clusters) for (const path of cluster.files) add(path, cluster.id);
+  for (const claim of claims) add(claim.path, claim.cluster);
+  return holders;
 }
 
 /** A finding's last recorded answer in the fixes phase, the second round's over the first's, with the batch that gave it; null when none answered it. */

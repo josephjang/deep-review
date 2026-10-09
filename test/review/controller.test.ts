@@ -110,8 +110,8 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
     assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && (fixPhases as readonly string[]).includes(payload.phase as string)), 'no phase of the fix pass started');
     assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 11);
-    // The engine writes only the fourth version of each kind that carries a phase, and the fifth of the configuration.
-    const written: Record<string, number> = { 'review.configured': 5, 'phase.started': 4, 'phase.finished': 4, 'worktree.checked': 4, 'attempt.failed': 4, 'report.written': 4 };
+    // The engine writes the fourth version of each kind that carries a phase, the fifth of the configuration, and the fifth of the two that carry a blocker code or a fault.
+    const written: Record<string, number> = { 'review.configured': 5, 'phase.started': 4, 'phase.finished': 5, 'worktree.checked': 4, 'attempt.failed': 5, 'report.written': 4 };
     assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => event.kind in written && event.version !== written[event.kind]).map((event) => `${event.kind}@${String(event.version)}`), []);
     assert.ok(kinds.includes('review.configured'));
     // The survey is recorded once, and a read-only run plans no check.

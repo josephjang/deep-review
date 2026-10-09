@@ -544,7 +544,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
         case 'finish-phase':
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? '' : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: 'phase.finished', version: 4, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.finished', version: 5, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case 'write-report': {
           // One patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass).
@@ -556,7 +556,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
           state = append(checkpoint, state, [
             { kind: 'report.written', version: 4, payload: { report, statistics, patches } },
-            { kind: 'phase.finished', version: 4, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
+            { kind: 'phase.finished', version: 5, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
           break;

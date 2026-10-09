@@ -7,11 +7,12 @@
  * of its cluster's order or over the pinned size, a run of a
  * check whose phase is not running, two runs of one kind in a phase, an
  * answer for a unit that does not exist, a revision no answer or check
- * accounts for, commits on a run without a report.
+ * accounts for, commits on a run without a report, a claim of a file
+ * another cluster holds (R3 of commit series integrity).
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, CommitsCreated, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, clusterOfBatch, firstRoundSettled, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundClusters, routeOfDecision, type ChecksPlanned, type FixState } from './fix-state.ts';
+import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
+import { batchOf, claimsOfRound, clusterClaims, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, settledClusters, type ChecksPlanned, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -117,14 +118,17 @@ const fixesPlanned: Reducer<FixesPlanned> = (state, payload, event) => {
 };
 
 /**
- * The second round's plan (R21): once, after the first round settled;
- * each finding it takes was answered blocked in the first round on the
- * files it names, all owned by other first-round clusters; its clusters
+ * The second round's plan (R21; R4 of commit series integrity): once,
+ * after the first round settled; each finding it takes was answered
+ * blocked in the first round on the files it names, each owned or claimed
+ * at any time of the round by another first-round cluster; its clusters
  * are numbered on from the first round's, hold those findings once each,
- * and own each finding's first cluster's files and the files it needed,
- * no file twice; and its batches are held to its clusters as the first
- * round's are. Which findings qualify is checked, not recomputed, so a
- * later engine with another rule reads this plan as it was made.
+ * and own each finding's first cluster's files, the files that cluster
+ * claimed and the files it needed, no file twice; and its batches are held
+ * to its clusters as the first round's are. Which findings qualify is
+ * checked, not recomputed, so a later engine with another rule reads this
+ * plan as it was made; a history without claims folds as it did before
+ * claims existed.
  */
 const fixesReplanned: Reducer<FixesReplanned> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
@@ -133,7 +137,7 @@ const fixesReplanned: Reducer<FixesReplanned> = (state, payload, event) => {
   if (plan === null) throw invalid(event, 'plans a second round before the first');
   if (fix.secondRound !== null) throw invalid(event, 'plans its second round twice');
   if (!firstRoundSettled(fix)) throw invalid(event, 'plans its second round before every batch of the first settled');
-  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path): [string, string] => [path, cluster.id])));
+  const heldBy = firstRoundHolders(plan.clusters, claimsOfRound(fix, 1));
   const filesOf = new Map<string, readonly string[]>();
   for (const entry of payload.blocked) {
     if (filesOf.has(entry.id)) throw invalid(event, `takes finding ${entry.id} into its second round twice`);
@@ -143,9 +147,9 @@ const fixesReplanned: Reducer<FixesReplanned> = (state, payload, event) => {
     if (new Set(entry.requiredFiles).size !== entry.requiredFiles.length || !entry.requiredFiles.every((path) => answer.requiredFiles.includes(path)) || !answer.requiredFiles.every((path) => entry.requiredFiles.includes(path))) {
       throw invalid(event, `gives finding ${entry.id} the files [${entry.requiredFiles.join(', ')}], not the ones it was blocked on [${answer.requiredFiles.join(', ')}]`);
     }
-    const foreign = entry.requiredFiles.filter((path) => !ownerOf.has(path) || ownerOf.get(path) === own.id);
-    if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(', ')}, which no other first-round cluster owned`);
-    filesOf.set(entry.id, [...new Set([...own.files, ...entry.requiredFiles])]);
+    const foreign = entry.requiredFiles.filter((path) => ![...(heldBy.get(path) ?? [])].some((cluster) => cluster !== own.id));
+    if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(', ')}, which no other first-round cluster owned or claimed`);
+    filesOf.set(entry.id, [...new Set([...own.files, ...clusterClaims(fix, 1, own.id), ...entry.requiredFiles])]);
   }
   const owner = new Map<string, string>();
   const taken = new Set<string>();
@@ -225,12 +229,11 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `records an answer for ${payload.phase}:${payload.key} after it failed`);
   const given = payload.findings.map((finding) => finding.id);
   if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(', ')}] for ${payload.phase}:${payload.key}, which holds [${ids.join(', ')}]`);
-  // A violation is a reported file another cluster of the unit's round owns; the repair, the only unit of its phase, has none.
-  const own = payload.phase === 'fixes' ? clusterOfBatch(fix, payload.key)?.id : undefined;
-  const others = new Set((payload.phase === 'fixes' ? roundClusters(fix, payload.key) : []).filter((cluster) => cluster.id !== own).flatMap((cluster) => cluster.files));
+  // A violation is a reported file another cluster of the unit's round holds, by the plan or by a claim folded before the answer (R6 of commit series integrity); the repair, the only unit of its phase, has none.
+  const others = payload.phase === 'fixes' ? heldByOthers(fix, payload.key) : new Map();
   const named = new Set(payload.findings.flatMap((finding) => finding.files));
   for (const path of payload.violations) {
-    if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster owns`);
+    if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster holds`);
   }
   const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
   return withFix(current, review, { ...fix, answers }, event, answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId));
@@ -278,6 +281,45 @@ const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {
   return withFix(current, review, { ...fix, revisions: [...fix.revisions, payload] }, event);
 };
 
+/**
+ * The files one batch claimed (R1, R3, R6 of commit series integrity),
+ * while the fixes phase runs: the batch is one the plan has, of the
+ * cluster the event names, and each file is held by no cluster of the
+ * batch's round, neither owned nor claimed by another cluster that has
+ * not settled, nor claimed by this cluster while it holds it already. The
+ * cluster then holds each file, the latest claimant of it.
+ */
+const filesClaimed: Reducer<FilesClaimed> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requireRunning(review, event, 'fixes');
+  const batch = batchOf(fix, payload.key);
+  if (batch === null) throw invalid(event, `claims files for ${payload.key}, which the plan does not have`);
+  if (batch.cluster !== payload.cluster) throw invalid(event, `claims files for ${payload.key} under cluster ${payload.cluster}, not its cluster ${batch.cluster}`);
+  const round = roundOf(fix, payload.key);
+  const holders = holdersOf(fix, round);
+  const settled = settledClusters(fix, round);
+  for (const file of payload.files) {
+    const holder = holders.get(file.path);
+    if (holder === undefined) continue;
+    const refusal = holder.by === 'plan'
+      ? `which cluster ${holder.cluster} owns`
+      : holder.cluster === payload.cluster
+        ? 'which its cluster holds already'
+        : settled.has(holder.cluster) ? null : `which cluster ${holder.cluster} holds and has not settled`;
+    if (refusal !== null) throw invalid(event, `claims ${file.path} for ${payload.key}, ${refusal}`);
+  }
+  const claims = [...fix.claims, ...payload.files.map((file) => ({ path: file.path, cluster: payload.cluster, key: payload.key, round, claimedAt: file.claimedAt }))];
+  return withFix(current, review, { ...fix, claims }, event);
+};
+
+/** Claim markers the engine left out of the ledger (R3, review F9), while the fixes phase runs; the markers named the unit and the cluster, which need not be the plan's. */
+const claimsLost: Reducer<ClaimsLost> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requireRunning(review, event, 'fixes');
+  const lostClaims = [...fix.lostClaims, ...payload.files.map((file) => ({ ...file, unit: payload.unit, cluster: payload.cluster }))];
+  return withFix(current, review, { ...fix, lostClaims }, event);
+};
+
 const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   requireRunning(review, event, payload.phase);
@@ -312,4 +354,6 @@ export const fixReducers = {
   'tree.revised@1': treeRevised,
   'unit.unattempted@1': unitUnattempted,
   'commits.created@1': commitsCreated,
+  'files.claimed@1': filesClaimed,
+  'claims.lost@1': claimsLost,
 } as const;

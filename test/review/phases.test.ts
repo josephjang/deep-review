@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { attemptFailedV4, eventRegistry } from '../../src/checkpoint/events.ts';
+import { attemptFailedV5, eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { noCheckFlags } from '../../src/review/checks/discover.ts';
@@ -227,12 +227,12 @@ describe('contributionOf', () => {
 
   it('records a failed attempt for a receipt that did not complete, with the outcome and error', () => {
     const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'timeout', error: 'The worker ran past its timeout' }), triaged().fold(), worktree);
-    assert.deepEqual(event, { kind: 'attempt.failed', version: 4, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout' } });
+    assert.deepEqual(event, { kind: 'attempt.failed', version: 5, payload: { phase: 'finders', key: 'RIPPLE', workerId: '00000000-0000-4000-8000-0000000000aa', reason: 'timeout: The worker ran past its timeout', fault: 'unit' } });
   });
 
   it('cuts a failed attempt\'s reason to what the ledger records, marking the cut', () => {
     const event = contribution(unit('finders', 'RIPPLE', 'finder-RIPPLE'), receipt(null, { outcome: 'failed', error: 'e'.repeat(4000) }), triaged().fold(), worktree);
-    const payload = attemptFailedV4.parse(event.payload);
+    const payload = attemptFailedV5.parse(event.payload);
     assert.equal(payload.reason.length, 4000);
     assert.match(payload.reason, /^failed: e+ \[truncated\]$/);
   });

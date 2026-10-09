@@ -8,7 +8,7 @@
  */
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV2 } from '../checkpoint/events.ts';
-import { earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { unsettledKinds, type CheckFlags } from './checks/discover.ts';
@@ -113,12 +113,13 @@ export function fixPlanOf(review: ReviewState): FixPlan {
   return planFixes(findings, review.decisions ?? [], batchSize);
 }
 
-/** The second round's plan (R21 of the fix pass): the one the first round's answers give, in batches of the pinned size; the first round must be planned. */
+/** The second round's plan (R21 of the fix pass; R4 of commit series integrity): the one the first round's answers and claims give, in batches of the pinned size; the first round must be planned. */
 export function secondRoundOf(review: ReviewState): SecondRoundPlan {
   const fix = review.fix;
   const batchSize = review.configuration.fixes?.batchSize;
   if (fix === null || fix.plan === null || batchSize === undefined) throw new Error('A second round needs the first round\'s plan and the pinned batch size');
-  return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize);
+  // Every first-round claim counts, its cluster settled or not, since a holder that settled after refusing a sibling still blocked it (R4 of commit series integrity).
+  return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize, claimsOfRound(fix, 1));
 }
 
 /** The units of a phase (R2; R1, R11, R18, R21 of the fix pass): what its workers are asked, in the order they are launched. */

@@ -10,7 +10,7 @@
  * answers; each plan is recorded once and resumed from the ledger.
  */
 import type { FixedFinding, FixesPlanned } from '../checkpoint/events.ts';
-import { routeOfDecision, type RoutedDecision } from '../checkpoint/fix-state.ts';
+import { firstRoundHolders, routeOfDecision, type RecordedClaim, type RoutedDecision } from '../checkpoint/fix-state.ts';
 import type { CandidateState } from '../checkpoint/review-fold.ts';
 import { unlocatedSpellingIn } from './grouping.ts';
 import type { ReportFinding } from './state.ts';
@@ -139,24 +139,28 @@ export interface SecondRoundPlan {
 }
 
 /**
- * The second round (R21, PD18 of the fix pass), once every batch of the
- * first has settled: each fixer-routed finding, in rank order, whose first
- * answer `answerOf` gives is `blocked` on files that are all owned by
- * other first-round clusters. A finding's files are its first cluster's
- * and the files it needed; the findings are clustered over them as the
- * first round clusters, numbered on from its last cluster, and batched at
- * `batchSize`. Empty when no finding qualifies.
+ * The second round (R21, PD18 of the fix pass; R4 of commit series
+ * integrity), once every batch of the first has settled: each
+ * fixer-routed finding, in rank order, whose first answer `answerOf`
+ * gives is `blocked` on files that were each owned, or claimed at any
+ * time of the round, by another first-round cluster; `claims` are the
+ * first round's, settled or not. A finding's files are its first
+ * cluster's, the files that cluster claimed, and the files it needed; the
+ * findings are clustered over them as the first round clusters, numbered
+ * on from its last cluster, and batched at `batchSize`. Empty when no
+ * finding qualifies.
  */
-export function planSecondRound(plan: Pick<FixPlan, 'routes' | 'clusters'>, answerOf: (id: string) => { readonly status: FixedFinding['status']; readonly requiredFiles: readonly string[] } | null, batchSize: number): SecondRoundPlan {
-  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path): [string, string] => [path, cluster.id])));
+export function planSecondRound(plan: Pick<FixPlan, 'routes' | 'clusters'>, answerOf: (id: string) => { readonly status: FixedFinding['status']; readonly requiredFiles: readonly string[] } | null, batchSize: number, claims: readonly Pick<RecordedClaim, 'path' | 'cluster'>[]): SecondRoundPlan {
+  const heldBy = firstRoundHolders(plan.clusters, claims);
+  const claimedBy = (cluster: string): string[] => claims.filter((claim) => claim.cluster === cluster).map((claim) => claim.path);
   const clusterOfFinding = new Map(plan.clusters.flatMap((cluster) => cluster.findingIds.map((id): [string, PlannedCluster] => [id, cluster])));
   const blocked = plan.routes.flatMap((route): (BlockedFinding & { readonly files: readonly string[] })[] => {
     const own = clusterOfFinding.get(route.id);
     const answer = own === undefined ? null : answerOf(route.id);
     if (own === undefined || answer === null || answer.status !== 'blocked' || answer.requiredFiles.length === 0) return [];
     const needed = [...new Set(answer.requiredFiles)];
-    if (!needed.every((path) => ownerOf.has(path) && ownerOf.get(path) !== own.id)) return [];
-    return [{ id: route.id, requiredFiles: needed, files: [...new Set([...own.files, ...needed])].sort() }];
+    if (!needed.every((path) => [...(heldBy.get(path) ?? [])].some((cluster) => cluster !== own.id))) return [];
+    return [{ id: route.id, requiredFiles: needed, files: [...new Set([...own.files, ...claimedBy(own.id), ...needed])].sort() }];
   });
   const first = plan.clusters.length;
   const clusters = componentsOf(blocked.map((finding) => finding.files)).map((indexes, position): PlannedCluster => ({

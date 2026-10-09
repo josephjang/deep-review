@@ -22,14 +22,15 @@ describe('registry', () => {
   /**
    * Every kind the engine declares, sorted as `registryKeys` sorts: the
    * run, scope and worker kinds, the review's, with versions 2 to 4 of
-   * the kinds that carry a phase and versions 2 to 5 of the
-   * configuration, the fix pass's with version 2 of its plan of checks,
-   * the survey's, and the decision step's.
+   * the kinds that carry a phase, version 5 of the two that carry a
+   * blocker code or a fault, and versions 2 to 5 of the configuration,
+   * the fix pass's with version 2 of its plan of checks, the survey's, the
+   * decision step's, and the claims'.
    */
   const declaredKinds = [
-    'angle.failed@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'candidates.recorded@1', 'check.ran@1', 'checks.planned@1', 'checks.planned@2', 'commits.created@1',
-    'decisions.recorded@1', 'deduplication.recorded@1', 'fix.recorded@1', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
-    'phase.finished@1', 'phase.finished@2', 'phase.finished@3', 'phase.finished@4', 'phase.started@1', 'phase.started@2', 'phase.started@3', 'phase.started@4', 'ranking.recorded@1', 'report.written@1', 'report.written@2', 'report.written@3', 'report.written@4',
+    'angle.failed@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'attempt.failed@5', 'candidates.recorded@1', 'check.ran@1', 'checks.planned@1', 'checks.planned@2', 'claims.lost@1', 'commits.created@1',
+    'decisions.recorded@1', 'deduplication.recorded@1', 'files.claimed@1', 'fix.recorded@1', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
+    'phase.finished@1', 'phase.finished@2', 'phase.finished@3', 'phase.finished@4', 'phase.finished@5', 'phase.started@1', 'phase.started@2', 'phase.started@3', 'phase.started@4', 'ranking.recorded@1', 'report.written@1', 'report.written@2', 'report.written@3', 'report.written@4',
     'review.configured@1', 'review.configured@2', 'review.configured@3', 'review.configured@4', 'review.configured@5', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'survey.failed@1', 'survey.recorded@1', 'tree.revised@1', 'unit.unattempted@1', 'verdicts.recorded@1', 'verification.planned@1',
     'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worker.lost@2', 'worker.lost@3', 'worker.lost@4', 'worktree.checked@1', 'worktree.checked@2', 'worktree.checked@3', 'worktree.checked@4',
   ];

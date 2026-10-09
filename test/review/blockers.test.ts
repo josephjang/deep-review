@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { blockerSchemaV3 } from '../../src/checkpoint/events.ts';
+import { blockerSchemaV5 } from '../../src/checkpoint/events.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { blockerActions, blockerCodes, recordedBlockerCodes, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { surveyConfiguredFix, triaged } from '../helpers/review-history.ts';
+import { baselined, surveyConfiguredFix, triaged, type History } from '../helpers/review-history.ts';
 
 const evidencePath = (reference: { sha256: string; bytes: number }): string => `/evidence/${reference.sha256}`;
 
@@ -21,7 +21,7 @@ describe('the blocker codes', () => {
     for (const code of recordedBlockerCodes) assert.ok((blockerCodes as readonly string[]).includes(code), code);
     for (const code of blockerCodes) {
       const recorded = (recordedBlockerCodes as readonly string[]).includes(code);
-      assert.equal(blockerSchemaV3.safeParse({ code, detail: 'what happened', action: blockerActions[code] }).success, recorded, code);
+      assert.equal(blockerSchemaV5.safeParse({ code, detail: 'what happened', action: blockerActions[code] }).success, recorded, code);
     }
   });
 
@@ -39,12 +39,17 @@ describe('the blocker codes', () => {
     assert.match(surveyWorkerFailedAction, /--check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test/);
   });
 
+  it('tell the operator of a lost claims directory that the next run seeds it and retries the units that ran without it (R12 of commit series integrity)', () => {
+    assert.match(blockerActions['claims-lost'], /run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts/);
+  });
+
   for (const code of recordedBlockerCodes) {
     it(`keep a recorded ${code} blocker, its detail and its action, through status --json`, () => {
       const blocker = { code, detail: `the ${code} detail`, action: blockerActions[code] };
-      // Only the survey blocks on a check that cannot run; every other code is held in a phase of the review.
-      const phase = code === 'check-unavailable' ? 'survey' : 'finders';
-      const state = (code === 'check-unavailable' ? surveyConfiguredFix() : triaged()).start(phase).finish(phase, 'blocked', 1, blocker).fold();
+      // Only the survey blocks on a check that cannot run, and only the fixes phase, at version 5, on a lost claims directory; every other code is held in a phase of the review.
+      const phase = code === 'check-unavailable' ? 'survey' : code === 'claims-lost' ? 'fixes' : 'finders';
+      const started: History = code === 'check-unavailable' ? surveyConfiguredFix().start(phase) : code === 'claims-lost' ? baselined().start(phase) : triaged().start(phase);
+      const state = (code === 'claims-lost' ? started.add('phase.finished', { phase, attempt: 1, outcome: 'blocked', blocker }, 5) : started.finish(phase, 'blocked', 1, blocker)).fold();
       const described = describeRun(state, claudeAdapter, evidencePath);
       const json = JSON.parse(JSON.stringify(described.json)) as { status: string; blocker: unknown };
       assert.equal(json.status, 'blocked');

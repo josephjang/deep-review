@@ -882,8 +882,6 @@ export const blockerSchemaV3 = z.strictObject({
   detail: recordedTextSchema,
   action: z.string().min(1).max(1000),
 });
-/** A blocker as the fold holds it, whichever version recorded it. */
-export type Blocker = z.infer<typeof blockerSchemaV3>;
 
 /**
  * `review.configured` with the survey (R3, TD13 of the repository
@@ -1187,7 +1185,6 @@ export const phaseFinishedV4 = z.strictObject({
   message: 'a blocker is present exactly when the outcome is blocked',
   path: ['blocker'],
 });
-export type PhaseFinished = z.infer<typeof phaseFinishedV4>;
 
 /** `worktree.checked` over the sixteen phases. */
 export const worktreeCheckedV4 = z.strictObject({
@@ -1206,7 +1203,6 @@ export const attemptFailedV4 = z.strictObject({
   workerId: z.uuid(),
   reason: recordedTextSchema,
 });
-export type AttemptFailed = z.infer<typeof attemptFailedV4>;
 
 /** `worker.lost` over the sixteen phases. */
 export const workerLostV4 = z.strictObject({
@@ -1286,6 +1282,102 @@ export const decisionsRecordedV1 = z.strictObject({
 });
 export type DecisionsRecorded = z.infer<typeof decisionsRecordedV1>;
 
+/**
+ * The vocabulary version 5 of the review events records, and version 1 of
+ * the claims' events (R3, R12 of commit series integrity): the recorded
+ * blocker codes, with `claims-lost`; why an attempt failed, the unit's
+ * fault or its environment's; and why a claim marker was left out of the
+ * ledger. Frozen here for the reason `reviewVocabularyV1` is: a test holds
+ * it equal to today's vocabulary.
+ */
+export const reviewVocabularyV5 = {
+  recordedBlockerCodes: ['worker-failed', 'budget', 'drift', 'check-unavailable', 'claims-lost'],
+  attemptFaults: ['unit', 'environment'],
+  lostClaimReasons: ['owned', 'held', 'unplanned'],
+} as const;
+
+const vocabularyV5 = reviewVocabularyV5;
+
+/** The blocker of version 5 of `phase.finished`, with the claims' `claims-lost`. */
+export const blockerSchemaV5 = z.strictObject({
+  code: z.enum(vocabularyV5.recordedBlockerCodes),
+  detail: recordedTextSchema,
+  action: z.string().min(1).max(1000),
+});
+/** A blocker as the fold holds it, whichever version recorded it. */
+export type Blocker = z.infer<typeof blockerSchemaV5>;
+
+/** `phase.finished` over the sixteen phases, with the blocker codes of version 5. */
+export const phaseFinishedV5 = z.strictObject({
+  phase: phaseSchemaV4,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV5.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+export type PhaseFinished = z.infer<typeof phaseFinishedV5>;
+
+/**
+ * `attempt.failed` with its fault (R12 of commit series integrity): the
+ * unit's, a worker that failed or answered what the engine refused, or
+ * the environment's, a claims directory removed while the unit ran, which
+ * counts against no attempt, as a worker lost with its engine does not.
+ * Every earlier version reads as the unit's fault.
+ */
+export const attemptFailedV5 = z.strictObject({
+  ...attemptFailedV4.shape,
+  fault: z.enum(vocabularyV5.attemptFaults),
+});
+export type AttemptFailed = z.infer<typeof attemptFailedV5>;
+
+/** A repository-relative path as a claim records it: inside the tree, outside `.git`, with no empty, `.` or `..` segment. */
+const claimedPathSchema = z.string().min(1).max(1000).refine((path) => {
+  const parts = path.split('/');
+  return !path.includes('\\') && !path.includes('\0') && !/^[a-zA-Z]:/.test(path) && parts.every((part) => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git');
+}, { message: 'a claimed path is relative to the repository, inside it and outside .git' });
+
+/** No path twice in a claims event's files. */
+const pathsOnce = <T extends { readonly path: string }>(files: readonly T[]): boolean => new Set(files.map((file) => file.path)).size === files.length;
+
+/**
+ * Claims one unit made on files no cluster owns (R1, R3, R6 of commit
+ * series integrity), appended before whichever unit's outcome is recorded
+ * next: the batch and its cluster, and each file with when it was claimed,
+ * or null for a late claim, a file an answer named that nobody held and
+ * the cluster never claimed. The fold makes the cluster each file's holder
+ * until the cluster settles.
+ */
+export const filesClaimedV1 = z.strictObject({
+  phase: z.literal('fixes'),
+  key: batchKeySchemaV2,
+  cluster: clusterIdSchemaV2,
+  files: z.array(z.strictObject({ path: claimedPathSchema, claimedAt: z.iso.datetime().nullable() })).min(1).max(2000),
+}).refine((claimed) => pathsOnce(claimed.files), { message: 'each file is claimed once', path: ['files'] });
+export type FilesClaimed = z.infer<typeof filesClaimedV1>;
+
+/**
+ * Claim markers the engine left out of the ledger because the fold would
+ * refuse them (R3 of commit series integrity, review F9): one event per
+ * unit that wrote markers, its key and cluster as the markers spell them,
+ * since a unit the plan lacks is one of the reasons; each file with its
+ * time, why it was left out, and the cluster that owns or holds it, null
+ * exactly for a unit the plan lacks.
+ */
+export const claimsLostV1 = z.strictObject({
+  phase: z.literal('fixes'),
+  unit: z.string().min(1).max(200),
+  cluster: z.string().min(1).max(200),
+  files: z.array(z.strictObject({
+    path: z.string().min(1).max(1000),
+    claimedAt: z.iso.datetime().nullable(),
+    reason: z.enum(vocabularyV5.lostClaimReasons),
+    holder: clusterIdSchemaV2.nullable(),
+  }).refine((file) => (file.reason === 'unplanned') === (file.holder === null), { message: 'a holder is named exactly when the unit is the plan\'s', path: ['holder'] })).min(1).max(2000),
+});
+export type ClaimsLost = z.infer<typeof claimsLostV1>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -1297,10 +1389,10 @@ export const eventRegistry = defineRegistry({
   'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
   'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 } },
   'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 } },
-  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 } },
+  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
@@ -1319,6 +1411,8 @@ export const eventRegistry = defineRegistry({
   'survey.recorded': { 1: { schema: surveyRecordedV1 } },
   'survey.failed': { 1: { schema: surveyFailedV1 } },
   'decisions.recorded': { 1: { schema: decisionsRecordedV1 } },
+  'files.claimed': { 1: { schema: filesClaimedV1 } },
+  'claims.lost': { 1: { schema: claimsLostV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

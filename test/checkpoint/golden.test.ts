@@ -111,6 +111,18 @@ describe('golden checkpoints', () => {
             assert.equal(review.decisions, null, `${name} run ${String(index)} decisions`);
             assert.equal(review.phases.decision.status, 'skipped', `${name} run ${String(index)} decision phase`);
           }
+          // A fix state recorded before claims existed reads as one with none made and none lost (R3 of commit series integrity).
+          const recordedFix = (recorded as { review?: { fix?: object | null } | null }).review?.fix ?? null;
+          if (review?.fix != null && recordedFix !== null && !('claims' in recordedFix)) {
+            assert.deepEqual(review.fix.claims, [], `${name} run ${String(index)} fix.claims`);
+            assert.deepEqual(review.fix.lostClaims, [], `${name} run ${String(index)} fix.lostClaims`);
+          }
+          // A failure recorded before attempt.failed@5 reads as the unit's fault, and a lost worker's as its environment's (R12 of commit series integrity).
+          for (const [phase, units] of Object.entries(review?.units ?? {})) {
+            for (const [key, unit] of Object.entries(units)) {
+              for (const failure of unit.failures) assert.equal(failure.fault, failure.lost ? 'environment' : 'unit', `${name} run ${String(index)} ${phase}:${key} failure ${failure.workerId}`);
+            }
+          }
           // A configuration recorded before the Codex Windows sandbox was pinned reads as unelevated for a Codex run on Windows, the only sandbox the engine used there then, and as none for a Codex run whose worktree is rooted at / or for another runtime (R3 of the Codex sandbox).
           const recordedConfiguration = (recorded as { review?: { configuration?: object } | null }).review?.configuration;
           if (review !== null && recordedConfiguration !== undefined && !('codex' in recordedConfiguration)) {
