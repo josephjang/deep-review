@@ -193,10 +193,14 @@ describe('the repository\'s roles/', () => {
     }
   });
 
-  it('asks every fixer role for the message of an already-applied finding whose edits an earlier attempt left (R20 of the fix pass)', () => {
+  it('asks every fixer role for a message with every finding that names files, whatever its status, a partial one for a blocked or deferred finding, and the message of an already-applied finding whose edits an earlier attempt left (R11 of commit series integrity; R20 of the fix pass)', () => {
     for (const key of fixerRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
-      assert.match(prompt, /Give one for an\s+already-applied finding too when your task says an earlier attempt\s+left its edits, since their commit carries it; null otherwise\./, key);
+      assert.match(prompt, /`message`: for every finding that names files, its commit message,\s+whatever its status/, key);
+      assert.match(prompt, /a blocked or deferred finding's says the\s+change is partial and what it waits for\./, key);
+      assert.match(prompt, /An already-applied finding\s+whose edits an earlier attempt left gives one too, since their commit\s+carries it\. Null for a finding that names no file\./, key);
+      // The status rule it replaces is gone (#26, #9).
+      assert.doesNotMatch(prompt, /for an applied finding, its commit message|null otherwise\.|null for a deferred or blocked one/, key);
     }
   });
 
