@@ -17,11 +17,32 @@ import type { Script } from './fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './launcher.ts';
 import { commitAll, repositoryWith, write } from './repository.ts';
 
-/** The timeout a scripted worker that hangs is killed after: time for the fake to start, even on a loaded runner. */
+/**
+ * The timeout of every worker of a sandbox's runs but the roles a test
+ * shortens: long enough that no worker that answers is killed, however
+ * loaded the runner. With every file's tests running at once, a fake's
+ * `--version` alone has taken over 10 s to start.
+ */
+export const workerTimeoutMs = 120_000;
+
+/**
+ * The timeout of a role a test scripts to hang (see shortenTimeout): time
+ * for the fake to start on a lightly loaded runner, and short enough that
+ * the test does not wait long. Only those roles get it, since a worker that
+ * answers can take longer than this to start on a loaded one.
+ */
 export const hangTimeoutMs = 4000;
 
-/** The timeout a check that hangs is killed after: a check starts a Node process of its own, which a loaded runner can take seconds to start. */
-export const checkTimeoutMs = 10_000;
+/**
+ * The timeout of each preflight probe in a sandbox's runs, at startup and
+ * before every worker: on a loaded runner a fake's `--version` has taken
+ * longer than the preflight's own 10 s, and a probe that times out before a
+ * worker refuses the whole run.
+ */
+export const probeTimeoutMs = 120_000;
+
+/** The timeout of every check: a check starts a Node process of its own, which a loaded runner can take seconds to start, and no sandbox test makes one hang. */
+export const checkTimeoutMs = 120_000;
 
 /** The stand-in check command, steered by FAKE_CHECKS (see fake-check.mjs). */
 export const fakeCheck = resolve(import.meta.dirname, 'fake-check.mjs');
@@ -97,7 +118,7 @@ export class ReviewSandbox {
     this.rolesRoot = join(this.directory, 'roles');
     cpSync(repositoryRolesRoot(), this.rolesRoot, { recursive: true });
     const policy = readPolicy(this.rolesRoot);
-    const roles = Object.fromEntries(Object.entries(policy.roles).map(([role, entry]) => [role, { ...entry, timeoutMs: hangTimeoutMs }]));
+    const roles = Object.fromEntries(Object.entries(policy.roles).map(([role, entry]) => [role, { ...entry, timeoutMs: workerTimeoutMs }]));
     writeFileSync(join(this.rolesRoot, policyFileName), JSON.stringify({ ...policy, roles, checks: { timeoutMs: checkTimeoutMs } }, null, 2));
     this.scriptFile = join(this.directory, 'script.json');
     this.checksFile = join(this.directory, 'checks.json');
@@ -106,6 +127,14 @@ export class ReviewSandbox {
     mkdirSync(this.home);
     this.script({});
     this.checks({});
+  }
+
+  /** Give `role` the hang timeout in the runs created from now on, for a test that scripts one of its workers to hang. */
+  shortenTimeout(role: string): void {
+    const policy = readPolicy(this.rolesRoot);
+    if (!Object.hasOwn(policy.roles, role)) throw new Error(`The policy has no role ${role}`);
+    const roles = { ...policy.roles, [role]: { ...policy.roles[role]!, timeoutMs: hangTimeoutMs } };
+    writeFileSync(join(this.rolesRoot, policyFileName), JSON.stringify({ ...policy, roles }, null, 2));
   }
 
   /** Write the script the fakes answer from; the attempt counters start over. */
@@ -160,7 +189,7 @@ export class ReviewSandbox {
       log: (line) => {
         this.logs.push(line);
       },
-      preflightOptions: { timeoutMs: 30_000 },
+      preflightOptions: { timeoutMs: probeTimeoutMs },
       ...change,
     });
   }

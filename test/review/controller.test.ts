@@ -206,6 +206,7 @@ describe('runReview', { timeout: 600_000 }, () => {
 
   it('degrades an angle whose finder fails twice, tells the sweep, and names it in the report', async () => {
     box.script({ 'finder-FOOTGUNS': { exit: 3 }, 'finder-DESIGN': [{ malformed: true }, { hang: true }] });
+    box.shortenTimeout('finder-DESIGN');
     const text = report(await box.review('claude'));
     const state = box.run();
     assert.deepEqual(Object.keys(state.review!.anglesNotRun).sort(), ['DESIGN', 'FOOTGUNS']);
@@ -452,6 +453,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     // Every worker reports 0.5 USD but REMOVALS, which hangs until its timeout; every role is capped at 8 USD.
     // One worker at a time, so REMOVALS, the first angle, is the only finder launched before its timeout settles.
     box.script({ '*': { costUsd: 0.5 }, surveyor: { costUsd: 0 }, 'finder-REMOVALS': { hang: true } });
+    box.shortenTimeout('finder-REMOVALS');
     const blocked = await box.review('claude', { flags: { budgetUsd: 8, concurrency: 1 } });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'budget', JSON.stringify(blocked));
     // The triage reported 0.50 USD and the timeout counts its 8 USD cap, so REMOVALS is not tried again.
