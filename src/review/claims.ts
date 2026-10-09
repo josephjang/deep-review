@@ -255,13 +255,15 @@ export interface RecordedMarker {
 /**
  * Prepare the round's directory at an editing launch: create it, write
  * `held.json` afresh (under a temporary name and renamed, so the command
- * never reads half of it), and seed a marker for every recorded claim no
- * marker of its path records, in ledger order, at the path's next
- * generation, so the ledger's latest claim of a path is its holder again
- * after a cleaning. A marker records a claim when its cluster, unit and
- * time are the claim's. Nothing is removed. `expectExisting` says this
- * engine prepared the directory before, so its absence is a loss (R12) and
- * throws `ClaimsDirectoryLostError` without creating anything.
+ * never reads half of it), and seed the ledger's latest claim of each path
+ * at the path's next generation when no marker of the path records it, so
+ * that claim is the path's holder again after a cleaning. An earlier claim
+ * of the path holds nothing once a later one exists, and seeding it would
+ * put a cluster above the holder. A marker records a claim when its
+ * cluster, unit and time are the claim's. Nothing is removed.
+ * `expectExisting` says this engine prepared the directory before, so its
+ * absence is a loss (R12) and throws `ClaimsDirectoryLostError` without
+ * creating anything.
  */
 export function prepareClaims(dir: string, held: Held, recorded: readonly RecordedMarker[], expectExisting: boolean): void {
   if (expectExisting && !existsSync(dir)) throw new ClaimsDirectoryLostError(dir);
@@ -270,8 +272,9 @@ export function prepareClaims(dir: string, held: Held, recorded: readonly Record
   const temporary = `${file}.${String(process.pid)}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(held)}\n`);
   renameSync(temporary, file);
-  for (const claim of recorded) {
-    const hash = markerHash(claim.path, held.caseInsensitive);
+  const latest = new Map<string, RecordedMarker>();
+  for (const claim of recorded) latest.set(markerHash(claim.path, held.caseInsensitive), claim);
+  for (const [hash, claim] of latest) {
     const markers = markersOf(dir, hash, held.caseInsensitive);
     if (markers.some((marker) => marker.whole && marker.cluster === claim.cluster && marker.unit === claim.unit && marker.claimedAt === claim.claimedAt)) continue;
     const marker: Marker = { path: claim.path, cluster: claim.cluster, unit: claim.unit, claimedAt: claim.claimedAt };

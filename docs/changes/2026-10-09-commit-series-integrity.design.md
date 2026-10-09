@@ -125,8 +125,11 @@ seven findings in two batches to nine in three.
   cluster }, settled: [ids], caseInsensitive }` for the round, `settled`
   the clusters whose every batch has settled by this launch and
   `caseInsensitive` whether the worktree's file system folds case, TD4)
-  and seeds one marker per
-  recorded claim that has none yet; it removes nothing. The controller
+  and seeds a marker for the latest
+  recorded claim of each path when none records it yet, at the path's
+  next generation; an earlier claim of the path holds nothing, and seeded
+  above the holder's marker it would make a settled cluster the holder
+  again (2026-10-10, review SCAN-1). It removes nothing. The controller
   calls it at every editing launch of the fixes phase, beside
   `prepareSnapshots`, so a resumed run whose temporary directory was
   cleaned seeds the directory again from the plan and the ledger (R3),
@@ -593,7 +596,8 @@ readable, and no kind the corpus holds changes shape here.
 
 - `test/review/claims.test.ts` (new): the directory's name per
   checkpoint, run and round; `prepareClaims` writes `held.json` and
-  seeds recorded claims without removing a marker; `claimFile` answers
+  seeds the latest recorded claim of each path, and no earlier one,
+  without removing a marker; `claimFile` answers
   `owned` for the unit's own file, refuses another cluster's owned file
   naming it, creates a marker once, answers `claimed` for the same
   cluster's second call and refuses another cluster's naming the
