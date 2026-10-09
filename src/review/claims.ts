@@ -124,7 +124,8 @@ export function normalizeClaimPath(raw: string): string {
   return path;
 }
 
-const flipCase = (text: string): string => [...text].map((letter) => (letter === letter.toLowerCase() ? letter.toUpperCase() : letter.toLowerCase())).join('');
+/** A name with the case of its ASCII letters flipped: each has one letter of the other case, which every file system that folds case folds back, where `ß` uppercases to `SS`. */
+const flipCase = (text: string): string => text.replaceAll(/[A-Za-z]/g, (letter) => (letter <= 'Z' ? letter.toLowerCase() : letter.toUpperCase()));
 
 /** Whether two names in one directory are one entry, compared by device and inode; false when the second does not exist. */
 function sameEntry(directory: string, name: string, other: string): boolean {
@@ -135,8 +136,8 @@ function sameEntry(directory: string, name: string, other: string): boolean {
 
 /**
  * Whether the worktree's file system folds case: the worktree root looked
- * up with the case of its last segment flipped, or, when that segment has
- * no cased letter, the first entry under the root that has one (`.git`
+ * up with the case of its last segment's ASCII letters flipped, or, when
+ * that segment has none, the first entry under the root that has one (`.git`
  * always does). Where nothing can be probed, the platform's default.
  */
 export function caseInsensitiveFileSystem(worktree: string): boolean {

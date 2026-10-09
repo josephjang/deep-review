@@ -214,6 +214,13 @@ describe('claims', () => {
     const uncased = join(directory, '1234');
     mkdirSync(join(uncased, 'Sub'), { recursive: true });
     assert.equal(caseInsensitiveFileSystem(uncased), existsSync(join(directory, 'pROBE.TXT')), 'a root with no cased letter is probed through an entry under it');
+    // 'ß' uppercases to 'SS', a name no file system folds back to 'straße', so only its ASCII letters are flipped.
+    const street = join(directory, 'straße');
+    mkdirSync(street);
+    assert.equal(caseInsensitiveFileSystem(street), existsSync(join(directory, 'pROBE.TXT')), 'a root with a letter whose case is not one letter is probed by its ASCII letters');
+    const unflippable = join(directory, 'ßß');
+    mkdirSync(join(unflippable, 'Sub'), { recursive: true });
+    assert.equal(caseInsensitiveFileSystem(unflippable), existsSync(join(directory, 'pROBE.TXT')), 'and a root with no ASCII letter through an entry under it');
   });
 
   describe('deep-review claim', () => {
