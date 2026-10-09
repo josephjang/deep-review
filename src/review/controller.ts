@@ -379,6 +379,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (preparedClaims.has(directory)) loseClaims(directory);
       return null;
     },
+    caseInsensitive,
   };
   /** Prepare a fixes-phase unit's claims directory, or, when this engine prepared it before and it is gone, record the loss and say so. */
   const prepareOrLose = (key: string): boolean => {

@@ -194,9 +194,25 @@ export function settledClusters(fix: FixState, round: 1 | 2): Set<string> {
  * not (R3 of commit series integrity).
  */
 export function holdersOf(fix: FixState, round: 1 | 2): Map<string, PathHolder> {
-  const holders = new Map<string, PathHolder>();
-  for (const cluster of roundPlan(fix, round).clusters) for (const path of cluster.files) holders.set(path, { cluster: cluster.id, by: 'plan' });
-  for (const claim of claimsOfRound(fix, round)) if (holders.get(claim.path)?.by !== 'plan') holders.set(claim.path, { cluster: claim.cluster, by: 'claim' });
+  return new Map([...holdersKeyedBy(fix, round, (path) => path)].map(([path, { cluster, by }]) => [path, { cluster, by }]));
+}
+
+/** A round's holder of a path, with the path as the plan or the holder's last claim spells it. */
+export interface SpelledHolder extends PathHolder {
+  readonly path: string;
+}
+
+/**
+ * The holders of a round as `holdersOf` gives them, keyed by `keyOf`, the
+ * path as the engine compares it, such as lowercased where the worktree's
+ * file system folds case (TD4 of commit series integrity): an owner by the
+ * plan still wins over a claim spelled otherwise, so two spellings of one
+ * file never give it two holders.
+ */
+export function holdersKeyedBy(fix: FixState, round: 1 | 2, keyOf: (path: string) => string): Map<string, SpelledHolder> {
+  const holders = new Map<string, SpelledHolder>();
+  for (const cluster of roundPlan(fix, round).clusters) for (const path of cluster.files) holders.set(keyOf(path), { path, cluster: cluster.id, by: 'plan' });
+  for (const claim of claimsOfRound(fix, round)) if (holders.get(keyOf(claim.path))?.by !== 'plan') holders.set(keyOf(claim.path), { path: claim.path, cluster: claim.cluster, by: 'claim' });
   return holders;
 }
 
@@ -210,16 +226,17 @@ export function clusterClaims(fix: FixState, round: 1 | 2, cluster: string): str
  * batch runs (R1, R6 of commit series integrity): every path another
  * cluster owns, and every path another cluster that has not settled holds
  * by its last claim; a settled cluster's claimed files are free again
- * (PD3). The repair, the only unit of its phase, has none.
+ * (PD3). The repair, the only unit of its phase, has none. Keyed by the
+ * exact path, as the fold compares paths, or by `keyOf`.
  */
-export function heldByOthers(fix: FixState, key: string): Map<string, PathHolder> {
+export function heldByOthers(fix: FixState, key: string, keyOf: (path: string) => string = (path) => path): Map<string, PathHolder> {
   const own = clusterOfBatch(fix, key)?.id;
   const round = roundOf(fix, key);
   const settled = settledClusters(fix, round);
   const held = new Map<string, PathHolder>();
-  for (const [path, holder] of holdersOf(fix, round)) {
-    if (holder.cluster === own || (holder.by === 'claim' && settled.has(holder.cluster))) continue;
-    held.set(path, holder);
+  for (const [path, { cluster, by }] of holdersKeyedBy(fix, round, keyOf)) {
+    if (cluster === own || (by === 'claim' && settled.has(cluster))) continue;
+    held.set(path, { cluster, by });
   }
   return held;
 }
