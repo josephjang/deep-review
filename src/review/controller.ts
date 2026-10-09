@@ -46,7 +46,7 @@ import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuse
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
-import { prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
+import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
@@ -506,9 +506,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     };
     /**
      * Run one due check, or record it skipped, as the events to append: its
-     * `check.ran`, and a revision when it wrote to files the run expects
-     * (R9, TD6 of the fix pass). The engine runs at most one check, and no
-     * worker, at a time, so it awaits the check here.
+     * `check.ran`, and a revision when it wrote to files the run expects or
+     * to any other tracked file (R9, TD6 of the fix pass; PD9 of commit
+     * series integrity), judged against a manifest of the tracked files
+     * taken just before it into the run's own scratch. The engine runs at
+     * most one check, and no worker, at a time, so it awaits the check here.
      */
     const runDueCheck = async (phase: CheckPhase, attempt: number, due: DueCheck): Promise<NewEvent[]> => {
       if (due.skip !== null) {
@@ -520,11 +522,16 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`check ${due.kind} (${phase}): ${due.command}`);
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === undefined) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
+      const manifest = prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree);
       const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options.worktree, environment, timeoutMs, ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`) });
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? '' : `: ${result.error}`}`);
       const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
-      const revision = checkRevision(revisionContext(), phase, due.kind, due.command);
-      if (revision !== null) log(`check ${due.kind} (${phase}): rewrote ${fileCount((revision.payload as TreeRevised).files.length)} the run expects; recorded as its revision`);
+      const revision = checkRevision(revisionContext(), phase, due.kind, due.command, manifest);
+      if (revision !== null) {
+        const expected = expectedTreeOf(state);
+        const outside = (revision.payload as TreeRevised).files.filter((file) => !expected.has(file.path)).length;
+        log(`check ${due.kind} (${phase}): rewrote ${fileCount((revision.payload as TreeRevised).files.length)}${outside === 0 ? ' the run expects' : `, ${String(outside)} of them outside what the run expects`}; recorded as its revision`);
+      }
       return [{ kind: 'check.ran', version: 1, payload: ran }, ...(revision === null ? [] : [revision])];
     };
 
