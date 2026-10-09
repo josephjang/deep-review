@@ -408,6 +408,12 @@ describe('runWorker', () => {
       assert.ok(box.untouched());
     });
 
+    it('preflights with the limits it is given, and the preflight\'s own without them', async () => {
+      await assert.rejects(box.run(box.claude(), {}, { preflightOptions: { maxOutputBytes: 8 } }), /--version: it printed more than 8 bytes$/);
+      assert.ok(box.untouched());
+      assert.equal((await box.run(box.claude())).outcome, 'completed');
+    });
+
     it('records the version it observed, with no version list', async () => {
       const receipt = await box.run(box.claude(), { FAKE_VERSION: '9.8.7 (Claude Code)' });
       assert.equal(receipt.runtime.version, '9.8.7');

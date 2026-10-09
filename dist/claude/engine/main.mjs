@@ -23508,7 +23508,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
   };
   const command = adapter.command(invocation, plan);
   const environment = workerEnvironment(command.environment, scratch, plan.platform);
-  const version2 = await (options2.qualify ?? qualify)(adapter, invocation, inherited);
+  const version2 = await (options2.qualify === void 0 ? qualify(adapter, invocation, inherited, options2.preflightOptions) : options2.qualify(adapter, invocation, inherited));
   const prompt = composePrompt(invocation.prompt, scratch);
   const promptReference = checkpoint.evidence.put(prompt);
   const schemaReference = checkpoint.evidence.put(schema.text);
@@ -23583,8 +23583,8 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     evidence: { prompt: promptReference, schema: schemaReference, stdout: finish.stdout, stderr: finish.stderr, finalMessage: finish.finalMessage, output: finish.output }
   };
 }
-function qualify(adapter, invocation, environment) {
-  return preflight(adapter, invocation.executable, invocation.executableArgs, environment);
+function qualify(adapter, invocation, environment, options2 = {}) {
+  return preflight(adapter, invocation.executable, invocation.executableArgs, environment, options2);
 }
 function pinnedFor(pinned, runtime) {
   if (pinned === void 0 || !Object.hasOwn(pinned, runtime)) return null;
@@ -28010,7 +28010,14 @@ async function runReview(options2) {
             if (invocation.scratch !== void 0) prepareSnapshots(join23(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise2 = runWorker(checkpoint, runId, invocation, { runtimes: options2.runtimes, pinned, environment, platform, ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot } }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
+            const promise2 = runWorker(checkpoint, runId, invocation, {
+              runtimes: options2.runtimes,
+              pinned,
+              environment,
+              platform,
+              ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot },
+              ...options2.preflightOptions === void 0 ? {} : { preflightOptions: options2.preflightOptions }
+            }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise: promise2 });
           }
           break;

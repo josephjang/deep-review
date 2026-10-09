@@ -107,6 +107,7 @@ export interface ReviewOptions {
   readonly home?: string;
   /** Progress, one line at a time; stderr by default. */
   readonly log?: (line: string) => void;
+  /** The limits of the preflight's probes, at startup and before every worker; the preflight's own by default. */
   readonly preflightOptions?: PreflightOptions;
   /**
    * The fix pass a run not yet configured pins (R1 of the fix pass): null
@@ -512,7 +513,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
-            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, { runtimes: options.runtimes, pinned, environment, platform, ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }) })
+            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, {
+              runtimes: options.runtimes,
+              pinned,
+              environment,
+              platform,
+              ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }),
+              ...(options.preflightOptions === undefined ? {} : { preflightOptions: options.preflightOptions }),
+            })
               .then((receipt): Settled => ({ unit, receipt }), (error: unknown): Settled => ({ unit, error }));
             inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise });
           }

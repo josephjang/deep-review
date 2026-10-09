@@ -11,7 +11,7 @@ import { maxDecodeBytes, outputLines, type Decoded, type DecodedResult, type Lau
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from './contract.ts';
 import { workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
-import { preflight } from './preflight.ts';
+import { preflight, type PreflightOptions } from './preflight.ts';
 import { notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes, type PinnedRuntimeOptions } from './runtimes.ts';
@@ -72,6 +72,8 @@ export interface RunWorkerOptions {
    * to reach a spawn failure, which the real preflight would stop first.
    */
   readonly qualify?: (adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv) => Promise<string>;
+  /** The limits of the real preflight's probes; the preflight's own by default. Ignored when `qualify` replaces the preflight. */
+  readonly preflightOptions?: PreflightOptions;
   /** Where a worker's scratch directory is created when the invocation names none; `defaultScratchRoot()` by default. */
   readonly scratchRoot?: string;
   /**
@@ -137,7 +139,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   };
   const command = adapter.command(invocation, plan);
   const environment = workerEnvironment(command.environment, scratch, plan.platform);
-  const version = await (options.qualify ?? qualify)(adapter, invocation, inherited);
+  const version = await (options.qualify === undefined ? qualify(adapter, invocation, inherited, options.preflightOptions) : options.qualify(adapter, invocation, inherited));
 
   const prompt = composePrompt(invocation.prompt, scratch);
   const promptReference = checkpoint.evidence.put(prompt);
@@ -239,8 +241,8 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
  * the worker's temporary directory is not created until the launch is
  * certain.
  */
-function qualify(adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv): Promise<string> {
-  return preflight(adapter, invocation.executable, invocation.executableArgs, environment);
+function qualify(adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv, options: PreflightOptions = {}): Promise<string> {
+  return preflight(adapter, invocation.executable, invocation.executableArgs, environment, options);
 }
 
 /**
