@@ -12,7 +12,7 @@
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimsOfRound, clusterClaims, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, settledClusters, type ChecksPlanned, type FixState } from './fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, clusterClaims, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, settledClusters, type ChecksPlanned, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -301,12 +301,10 @@ const filesClaimed: Reducer<FilesClaimed> = (state, payload, event) => {
   for (const file of payload.files) {
     const holder = holders.get(file.path);
     if (holder === undefined) continue;
-    const refusal = holder.by === 'plan'
-      ? `which cluster ${holder.cluster} owns`
-      : holder.cluster === payload.cluster
-        ? 'which its cluster holds already'
-        : settled.has(holder.cluster) ? null : `which cluster ${holder.cluster} holds and has not settled`;
-    if (refusal !== null) throw invalid(event, `claims ${file.path} for ${payload.key}, ${refusal}`);
+    const refusal = claimRefusal(holder, payload.cluster, settled);
+    if (refusal === null) continue;
+    const why = refusal === 'owned' ? `which cluster ${holder.cluster} owns` : holder.cluster === payload.cluster ? 'which its cluster holds already' : `which cluster ${holder.cluster} holds and has not settled`;
+    throw invalid(event, `claims ${file.path} for ${payload.key}, ${why}`);
   }
   const claims = [...fix.claims, ...payload.files.map((file) => ({ path: file.path, cluster: payload.cluster, key: payload.key, round, claimedAt: file.claimedAt }))];
   return withFix(current, review, { ...fix, claims }, event);
