@@ -235,10 +235,13 @@ export interface RevisionSources {
  * snapshot changed nothing, is carried into the next revision, which then
  * names it too; a path a snapshot does not list is taken from the next
  * reader that does. A path no cluster owns is one a cluster claims before
- * its first edit and holds until it settles, so no other fixer edits it
- * meanwhile and its revisions hold only its own cluster's edits; a fixer
- * that edits it unclaimed is recorded as a late claim or a violation (R1,
- * R6 of commit series integrity). Each snapshot is taken right after its
+ * its first edit and holds until it settles, so a fixer that keeps the
+ * claim rule leaves a held path alone. A fixer that edits a held path
+ * anyway is recorded as a violation, and its revision holds whatever the
+ * holder had written there by then, since nothing here tells one
+ * cluster's bytes from another's; a fixer that edits a free path
+ * unclaimed is recorded as a late claim (R1, R6 of commit series
+ * integrity; PD4 of the fix pass). Each snapshot is taken right after its
  * finding and the engine checks none of them; the fixer's prompt asks it
  * to run the quick checks before each snapshot and correct within the
  * finding what they show (R7 of commit series integrity), so a finding's
