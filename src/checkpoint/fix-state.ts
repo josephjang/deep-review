@@ -9,7 +9,7 @@
  * to do next from them. The questions below are answered from this state
  * alone.
  */
-import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase } from '../review/vocabulary.ts';
+import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
 
 /**
@@ -214,6 +214,20 @@ export function holdersKeyedBy(fix: FixState, round: 1 | 2, keyOf: (path: string
   for (const cluster of roundPlan(fix, round).clusters) for (const path of cluster.files) holders.set(keyOf(path), { path, cluster: cluster.id, by: 'plan' });
   for (const claim of claimsOfRound(fix, round)) if (holders.get(keyOf(claim.path))?.by !== 'plan') holders.set(keyOf(claim.path), { path: claim.path, cluster: claim.cluster, by: 'claim' });
   return holders;
+}
+
+/**
+ * Why a cluster may not claim a path its round's holder holds (R3 of
+ * commit series integrity): `owned` when a cluster owns it by the plan,
+ * `held` when the cluster holds it already by claim or another cluster
+ * that has not settled does; null when nobody holds it, or only a settled
+ * cluster's claim did (PD3). The fold, the settle and the late claim judge
+ * a claim by this one rule, so they agree (TD5).
+ */
+export function claimRefusal(holder: PathHolder | undefined, cluster: string, settled: ReadonlySet<string>): Exclude<LostClaimReason, 'unplanned'> | null {
+  if (holder === undefined) return null;
+  if (holder.by === 'plan') return 'owned';
+  return holder.cluster === cluster || !settled.has(holder.cluster) ? 'held' : null;
 }
 
 /** The paths a cluster claimed in a round, in the order it first claimed them. */

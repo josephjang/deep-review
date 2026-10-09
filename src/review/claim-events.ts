@@ -10,7 +10,7 @@
  */
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { ClaimsLost, FilesClaimed } from '../checkpoint/events.ts';
-import { batchOf, claimsOfRound, holdersKeyedBy, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, holdersKeyedBy, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { applyEvent, type RunState } from '../checkpoint/fold.ts';
 import { markerHash, pathKey, type LiveClaim } from './claims.ts';
 import { StructuralCheckError } from './errors.ts';
@@ -153,15 +153,15 @@ function compareText(a: string, b: string): number {
  * every whole marker of the round's directory the ledger holds neither as
  * a claim nor as a lost claim of the same path, cluster, unit and time,
  * judged in the order the markers were made against the fold's holders of
- * the round, as the reducer judges them. A marker from a unit the plan
- * lacks in this round, or under a cluster not its batch's, is lost as
+ * the round, by the reducer's own `claimRefusal`. A marker from a unit the
+ * plan lacks in this round, or under a cluster not its batch's, is lost as
  * `unplanned`; one on a path a cluster of the round owns as `owned`; one
  * on a path another unsettled cluster, or its own, already holds as
  * `held`. Every other is a claim, its path, where the file system folds
  * case, resolved to the worktree's spelling, or for a file the worktree
- * does not hold to a holder's spelling of it. Markers not yet whole are left for the next settle and
- * returned as pending. A unit with no directory to read settles as
- * `settledNothing`.
+ * does not hold to a holder's spelling of it. Markers not yet whole are
+ * left for the next settle and returned as pending. A unit with no
+ * directory to read settles as `settledNothing`.
  */
 export function settleClaims(state: RunState, key: string, live: LiveClaims, worktree: string): ClaimSettle {
   const fix = requireFix(state);
@@ -189,8 +189,8 @@ export function settleClaims(state: RunState, key: string, live: LiveClaims, wor
       continue;
     }
     const holder = holders.get(keyOf(path));
-    if (holder?.by === 'plan') lost.push({ ...claim, reason: 'owned', holder: holder.cluster });
-    else if (holder !== undefined && (holder.cluster === marker.cluster || !settled.has(holder.cluster))) lost.push({ ...claim, reason: 'held', holder: holder.cluster });
+    const refusal = claimRefusal(holder, marker.cluster, settled);
+    if (refusal !== null) lost.push({ ...claim, reason: refusal, holder: holder!.cluster });
     else {
       accepted.push(claim);
       holders.set(keyOf(path), { path, cluster: marker.cluster, by: 'claim' });
@@ -209,7 +209,7 @@ export function isPending(settle: ClaimSettle, path: string): boolean {
 /**
  * The late claim of an answer (R6): each file it names that nobody holds
  * in its round once the settle's claims are folded, or that only a settled
- * cluster held by claim, claimed for the answering batch's cluster with no
+ * cluster held by claim, as `claimRefusal` frees it, claimed for the answering batch's cluster with no
  * time, since it was edited before it was claimed. A path the settle left
  * pending is held by a cluster not yet known (F13), so it is neither
  * claimed late nor, with no holder on the ledger, a violation; its marker
@@ -223,11 +223,7 @@ export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<stri
   const keyOf = (path: string): string => pathKey(path, settle.caseInsensitive);
   const holders = holdersKeyedBy(fix, round, keyOf);
   const settled = settledClusters(fix, round);
-  const free = [...new Set(named)].filter((path) => {
-    if (isPending(settle, path)) return false;
-    const holder = holders.get(keyOf(path));
-    return holder === undefined || (holder.by === 'claim' && holder.cluster !== batch.cluster && settled.has(holder.cluster));
-  }).sort();
+  const free = [...new Set(named)].filter((path) => !isPending(settle, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled) === null).sort();
   if (free.length === 0) return null;
   return { kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key, cluster: batch.cluster, files: free.map((path) => ({ path, claimedAt: null })) } satisfies FilesClaimed };
 }
