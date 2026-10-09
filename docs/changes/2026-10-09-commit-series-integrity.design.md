@@ -133,8 +133,10 @@ seven findings in two batches to nine in three.
   calls it at every editing launch of the fixes phase, beside
   `prepareSnapshots`, so a resumed run whose temporary directory was
   cleaned seeds the directory again from the plan and the ledger (R3),
-  and so the command learns which holders have settled since the last
-  launch.
+  and again once each fixes-phase unit settles, so a late claim the
+  settle recorded is a marker before any sibling's next claim, and the
+  command learns at once which holders have settled (2026-10-10, review
+  SCAN-2, SCAN-3).
 - `claimFile(dir, path, unit)` is the command's one step: it refuses a
   path that is not repository relative, inside the tree and outside
   `.git` (`validateScopePath`, as the snapshot's `safePath`), answers
@@ -516,9 +518,12 @@ readable, and no kind the corpus holds changes shape here.
   of the fix pass) and a second-round fixer must not be refused by a
   first-round marker. Within a round a claim ends when its cluster
   settles (PD3), which the command learns from `held.json`, rewritten at
-  every launch; a claim attempted between a holder's settle and the next
-  launch is refused as if the holder still ran, a window of seconds,
-  and the finding goes to the second round.
+  every launch and at every settle of the fixes phase, with the late
+  claims that settle recorded seeded as markers. Rewriting it only at a
+  launch was rejected (2026-10-10, review SCAN-2, SCAN-3): with no launch
+  after a settle, a settled holder's files stayed refused until a sibling
+  ended, and a late claim held its file on the ledger but not in the
+  directory, so a sibling's claim was granted a file another cluster held.
 - **TD3: Exclusive file creation is the lock.** A lock file, a counter
   or a daemon was rejected: `O_EXCL` is atomic on every file system the
   engine runs on, the marker is the record, and the engine never
@@ -877,10 +882,12 @@ never run under `git rebase --exec` (#27).
 - `othersHeld` reads the live directory at the answer and the launch;
   a claim made by a sibling between a unit's launch and its answer is
   not in that unit's task, which is why the fixer runs the command
-  rather than trusting the list. A holder that settles between two
-  launches is still in `held.json` as unsettled until the next launch
-  rewrites it, so a claim of its file in that window is refused and the
-  finding goes to the second round (TD2).
+  rather than trusting the list. `held.json` and the seeded markers are
+  refreshed at every launch and every fixes settle (TD2), so a holder is
+  listed as settled, and a late claim holds its file, from the settle
+  that recorded it; only a claim the command makes while that settle is
+  being appended still reads the earlier `held.json` and is refused, and
+  its finding goes to the second round.
 - Two spellings of one path that differ in more than slashes or case
   (TD4) make two markers until the engine resolves them at the answer;
   the fold refuses the second claim, the violation rule then applies,
