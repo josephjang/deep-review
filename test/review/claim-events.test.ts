@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
 import { claimRefusal, heldByOthers } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
+import { heldOf, isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
 import { markerHash, type LiveClaim } from '../../src/review/claims.ts';
 import { baselined, claimed, fixAnswer, type History, worker } from '../helpers/review-history.ts';
 
@@ -139,6 +139,24 @@ describe('lateClaim', () => {
     const settle = settleClaims(running().fold(), 'c1-1', live({ whole: false, hash: markerHash('docs/x.md', false), generation: 1 }), worktree);
     assert.deepEqual((lateClaim(settle, 'c1-1', ['docs/x.md', 'docs/new.md'])?.payload as { files: unknown[] }).files, [{ path: 'docs/new.md', claimedAt: null }]);
     assert.equal(lateClaim(settle, 'c1-1', ['docs/x.md']), null);
+  });
+});
+
+describe('heldOf', () => {
+  it('tells the claim command the round\'s owned files, each batch\'s cluster and the clusters settled now (R2, TD2)', () => {
+    const settled = running().worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), { key: 'c2-1', findings: [{ id: 'SWEEP-1', status: 'deferred', file: 'src/b.ts', line: 1, note: 'n', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] })).fold();
+    assert.deepEqual(heldOf(settled.review!.fix!, 1, worktree, true), {
+      worktree,
+      clusters: { c1: ['src/a.ts'], c2: ['src/b.ts'] },
+      units: { 'c1-1': 'c1', 'c2-1': 'c2' },
+      settled: ['c2'],
+      caseInsensitive: true,
+    });
+    assert.deepEqual(heldOf(running().fold().review!.fix!, 1, worktree, false).settled, [], 'no cluster has settled before its batch answers');
+  });
+
+  it('refuses a round not yet planned, whose units cannot have launched', () => {
+    assert.throws(() => heldOf(running().fold().review!.fix!, 2, worktree, false), /no round 2/);
   });
 });
 

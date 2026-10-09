@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { claimsOfRound, planOfRound, revisionMessageOf, roundOf, settledClusters } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, revisionMessageOf, roundOf } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -30,8 +30,8 @@ import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts'
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
-import type { ClaimsAccess } from './claim-events.ts';
-import { caseInsensitiveFileSystem, claimsDirectoryFor, ClaimsDirectoryLostError, prepareClaims, readClaims, type Held } from './claims.ts';
+import { heldOf, type ClaimsAccess } from './claim-events.ts';
+import { caseInsensitiveFileSystem, claimsDirectoryFor, ClaimsDirectoryLostError, prepareClaims, readClaims } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
@@ -410,15 +410,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const prepareClaimsFor = (key: string): void => {
     const fix = state.review!.fix!;
     const round = roundOf(fix, key);
-    const plan = planOfRound(fix, round);
-    if (plan === null) throw new Error(`Run ${runId} launches ${key} before its round is planned`);
-    const held: Held = {
-      worktree: options.worktree,
-      clusters: Object.fromEntries(plan.clusters.map((cluster) => [cluster.id, [...cluster.files]])),
-      units: Object.fromEntries(plan.batches.map((batch) => [batch.key, batch.cluster])),
-      settled: [...settledClusters(fix, round)].sort(),
-      caseInsensitive: caseInsensitive(),
-    };
+    const held = heldOf(fix, round, options.worktree, caseInsensitive());
     const directory = claimsDirectory(key);
     prepareClaims(directory, held, claimsOfRound(fix, round).map((claim) => ({ path: claim.path, cluster: claim.cluster, unit: claim.key, claimedAt: claim.claimedAt })), preparedClaims.has(directory));
     preparedClaims.add(directory);

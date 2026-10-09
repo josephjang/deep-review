@@ -10,9 +10,9 @@
  */
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { ClaimsLost, FilesClaimed } from '../checkpoint/events.ts';
-import { batchOf, claimRefusal, claimsOfRound, holdersKeyedBy, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, holdersKeyedBy, planOfRound, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { applyEvent, type RunState } from '../checkpoint/fold.ts';
-import { markerHash, pathKey, type LiveClaim } from './claims.ts';
+import { markerHash, pathKey, type Held, type LiveClaim } from './claims.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
 import { worktreeLookup, type RepoLookup } from './locations.ts';
@@ -49,6 +49,25 @@ function requireFix(state: RunState): FixState {
   const fix = state.review?.fix ?? null;
   if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
   return fix;
+}
+
+/**
+ * What a round's claims directory tells the claim command of the round
+ * (R2 of commit series integrity; TD2): its clusters and the files each
+ * owns, the cluster of each batch, and the clusters that have settled, as
+ * the fold has them now. Throws for a round not yet planned, whose units
+ * cannot have launched.
+ */
+export function heldOf(fix: FixState, round: 1 | 2, worktree: string, caseInsensitive: boolean): Held {
+  const plan = planOfRound(fix, round);
+  if (plan === null) throw new Error(`The fix plan has no round ${String(round)} yet`);
+  return {
+    worktree,
+    clusters: Object.fromEntries(plan.clusters.map((cluster) => [cluster.id, [...cluster.files]])),
+    units: Object.fromEntries(plan.batches.map((batch) => [batch.key, batch.cluster])),
+    settled: [...settledClusters(fix, round)].sort(),
+    caseInsensitive,
+  };
 }
 
 /** The events folded onto the run as the ledger would fold them after its last event. */
