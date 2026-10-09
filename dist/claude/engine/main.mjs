@@ -19,12 +19,12 @@ import {
   closeSync,
   existsSync,
   fsyncSync,
-  linkSync,
+  linkSync as linkSync2,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
+  renameSync as renameSync2,
   unlinkSync,
   writeSync
 } from "node:fs";
@@ -19698,6 +19698,53 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
+// src/atomic-write.ts
+import { linkSync, renameSync, rmSync, writeFileSync } from "node:fs";
+var busyReplace = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES"]);
+var noHardLinks = /* @__PURE__ */ new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "EINVAL", "ENOSYS"]);
+var replaceBudgetMs = 500;
+var longestWaitMs = 50;
+var sleeper = new Int32Array(new SharedArrayBuffer(4));
+var temporaryFor = (file2) => `${file2}.${String(process.pid)}.tmp`;
+function writeFileAtomic(file2, text2, rename = renameSync) {
+  const temporary = temporaryFor(file2);
+  writeFileSync(temporary, text2);
+  const deadline = Date.now() + replaceBudgetMs;
+  for (let wait = 1; ; wait = Math.min(wait * 2, longestWaitMs)) {
+    try {
+      rename(temporary, file2);
+      return;
+    } catch (error62) {
+      const code = error62.code;
+      if (code === void 0 || !busyReplace.has(code) || Date.now() >= deadline) throw error62;
+    }
+    Atomics.wait(sleeper, 0, 0, wait);
+  }
+}
+function createFileExclusive(file2, text2, link = linkSync) {
+  const temporary = temporaryFor(file2);
+  try {
+    writeFileSync(temporary, text2);
+    try {
+      link(temporary, file2);
+      return true;
+    } catch (error62) {
+      const code = error62.code;
+      if (code === "EEXIST") return false;
+      if (code === void 0 || !noHardLinks.has(code)) throw error62;
+    }
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  try {
+    writeFileSync(file2, text2, { flag: "wx" });
+    return true;
+  } catch (error62) {
+    if (error62.code === "EEXIST") return false;
+    throw error62;
+  }
+}
+
 // src/errors.ts
 var EngineError = class extends Error {
   name = "EngineError";
@@ -19769,13 +19816,12 @@ var artifactReferenceSchema = external_exports.strictObject({
   bytes: external_exports.number().int().nonnegative()
 });
 var sha256Hex = (bytes) => createHash("sha256").update(bytes).digest("hex");
-var noHardLinks = /* @__PURE__ */ new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "EINVAL", "ENOSYS"]);
 var EvidenceStore = class {
   root;
   #link;
   constructor(root, options2 = {}) {
     this.root = resolve(root);
-    this.#link = options2.link ?? linkSync;
+    this.#link = options2.link ?? linkSync2;
     mkdirSync(this.root, { recursive: true });
     const stat = lstatSync(this.root);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new EvidenceError(`Evidence root must be a real directory: ${this.root}`);
@@ -19870,7 +19916,7 @@ var EvidenceStore = class {
       if (code === void 0 || !noHardLinks.has(code)) throw error62;
     }
     if (existsSync(destination)) return;
-    renameSync(temporary, destination);
+    renameSync2(temporary, destination);
   }
 };
 
@@ -21011,22 +21057,25 @@ function settledClusters(fix, round) {
   return new Set(clusters.filter((cluster) => batches.filter((batch) => batch.cluster === cluster.id).every((batch) => batchSettled(fix, batch.key))).map((cluster) => cluster.id));
 }
 function holdersOf(fix, round) {
+  return new Map([...holdersKeyedBy(fix, round, (path) => path)].map(([path, { cluster, by }]) => [path, { cluster, by }]));
+}
+function holdersKeyedBy(fix, round, keyOf) {
   const holders = /* @__PURE__ */ new Map();
-  for (const cluster of roundPlan(fix, round).clusters) for (const path of cluster.files) holders.set(path, { cluster: cluster.id, by: "plan" });
-  for (const claim3 of claimsOfRound(fix, round)) if (holders.get(claim3.path)?.by !== "plan") holders.set(claim3.path, { cluster: claim3.cluster, by: "claim" });
+  for (const cluster of roundPlan(fix, round).clusters) for (const path of cluster.files) holders.set(keyOf(path), { path, cluster: cluster.id, by: "plan" });
+  for (const claim3 of claimsOfRound(fix, round)) if (holders.get(keyOf(claim3.path))?.by !== "plan") holders.set(keyOf(claim3.path), { path: claim3.path, cluster: claim3.cluster, by: "claim" });
   return holders;
 }
 function clusterClaims(fix, round, cluster) {
   return [...new Set(claimsOfRound(fix, round).filter((claim3) => claim3.cluster === cluster).map((claim3) => claim3.path))];
 }
-function heldByOthers(fix, key) {
+function heldByOthers(fix, key, keyOf = (path) => path) {
   const own2 = clusterOfBatch(fix, key)?.id;
   const round = roundOf(fix, key);
   const settled2 = settledClusters(fix, round);
   const held = /* @__PURE__ */ new Map();
-  for (const [path, holder] of holdersOf(fix, round)) {
-    if (holder.cluster === own2 || holder.by === "claim" && settled2.has(holder.cluster)) continue;
-    held.set(path, holder);
+  for (const [path, { cluster, by }] of holdersKeyedBy(fix, round, keyOf)) {
+    if (cluster === own2 || by === "claim" && settled2.has(cluster)) continue;
+    held.set(path, { cluster, by });
   }
   return held;
 }
@@ -21302,7 +21351,7 @@ var attemptFailed = (state, payload, event, drafts) => {
   requireUnanswered(review2, event, unit);
   const fault = payload.fault ?? "unit";
   if (fault === "environment" && payload.phase !== "fixes") throw invalid(event, `fails ${unitName(payload.phase, payload.key)} for its environment, which only a fixes-phase unit records`);
-  return withReview(current, withFailure(review2, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false, fault }), event);
+  return withReview(current, withFailure(review2, drafts, unit, { workerId: payload.workerId, reason: payload.reason, cause: fault }), event);
 };
 var angleFailed = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
@@ -21867,7 +21916,7 @@ var workerLost = (state, payload, event, drafts) => {
   workers[payload.workerId] = { status: "lost", launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
   const unit = unitOfLostWorker(payload.phase, payload.key);
   if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unitName(unit.phase, unit.key)} at sequence ${String(event.sequence)} before review.configured`);
-  const review2 = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: true, fault: "environment" });
+  const review2 = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, cause: "lost" });
   return { ...current, workers, review: review2, lastSequence: event.sequence };
 };
 var abandoned = (state, payload, event) => {
@@ -22476,7 +22525,7 @@ var PreflightError = class extends EngineError {
 
 // src/runtime/launcher.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync, statSync as statSync2, writeFileSync } from "node:fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync as rmSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join10, resolve as resolve8 } from "node:path";
 
 // src/runtime/adapter.ts
@@ -23039,8 +23088,9 @@ function claudeCommand(invocation, plan, settings = {}) {
     // continuation keeps the id of the session it resumes.
     ...plan.resume === null ? ["--session-id", plan.sessionId] : ["--resume", plan.resume],
     // Without this the CLI denies every write outside the worktree, including the scratch directory the prompt names.
-    // `plan.shared` is not added: its editor reaches the directory only through the commands its task quotes, which the shell runs unsandboxed, and its file tools need no write there.
+    // `plan.shared` is added like the scratch, so the commands its task quotes can still write there when a managed policy sandboxes the shell.
     ...plan.scratch === null ? [] : ["--add-dir", plan.scratch],
+    ...plan.shared === null ? [] : ["--add-dir", plan.shared],
     ...invocation.budgetUsd === void 0 ? [] : ["--max-budget-usd", String(invocation.budgetUsd)],
     "--tools",
     tools,
@@ -23638,14 +23688,14 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     mkdirSync3(join10(checkpoint.root, ioDirectoryName), { recursive: true });
     mkdirSync3(io);
     createdIo = true;
-    writeFileSync(stdinFile, prompt, { flag: "wx" });
-    writeFileSync(plan.schemaFile, schema.text, { flag: "wx" });
+    writeFileSync2(stdinFile, prompt, { flag: "wx" });
+    writeFileSync2(plan.schemaFile, schema.text, { flag: "wx" });
     appendFresh(checkpoint, runId, { kind: "worker.launched", version: 1, payload: launch }, (fresh) => {
       if (invocation.resume !== void 0) continuedWorker(fresh, invocation, schemaDigest);
     });
   } catch (error62) {
-    if (createdIo) rmSync(io, { recursive: true, force: true });
-    if (createdScratch !== null) rmSync(createdScratch, { recursive: true, force: true });
+    if (createdIo) rmSync2(io, { recursive: true, force: true });
+    if (createdScratch !== null) rmSync2(createdScratch, { recursive: true, force: true });
     throw error62;
   }
   let result;
@@ -23669,7 +23719,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
   try {
     appendFresh(checkpoint, runId, { kind: "worker.finished", version: 1, payload: finish });
   } finally {
-    if (!settled2.keepProcessFiles) rmSync(io, { recursive: true, force: true });
+    if (!settled2.keepProcessFiles) rmSync2(io, { recursive: true, force: true });
   }
   return {
     workerId,
@@ -24381,7 +24431,7 @@ function readRootManifests(root) {
 
 // src/review/claims.ts
 import { createHash as createHash3 } from "node:crypto";
-import { existsSync as existsSync4, mkdirSync as mkdirSync4, readdirSync as readdirSync3, readFileSync as readFileSync7, renameSync as renameSync2, statSync as statSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, mkdirSync as mkdirSync4, readdirSync as readdirSync3, readFileSync as readFileSync7, statSync as statSync4 } from "node:fs";
 import { basename as basename2, dirname as dirname2, join as join13 } from "node:path";
 var claimsDirectoryName = "claims";
 var heldFileName = "held.json";
@@ -24406,9 +24456,10 @@ var heldSchema = external_exports.strictObject({
   settled: external_exports.array(external_exports.string()),
   caseInsensitive: external_exports.boolean()
 });
+var claimedPathMax = 1e3;
 var markerSchema = external_exports.strictObject({
   // The caps are the ledger's for a claim the engine records or leaves out, so a marker past them is no claim.
-  path: external_exports.string().min(1).max(1e3),
+  path: external_exports.string().min(1).max(claimedPathMax),
   cluster: external_exports.string().min(1).max(200),
   unit: external_exports.string().min(1).max(200),
   claimedAt: external_exports.iso.datetime().nullable()
@@ -24425,19 +24476,25 @@ function normalizeClaimPath(raw) {
   const path = raw.replaceAll("\\", "/").split("/").filter((part) => part !== ".").join("/");
   validateScopePath(path);
   if (path.split("/").some((part) => part === "" || part === ".")) throw new InvalidScopeRequestError(`A claimed path must name a file: ${raw}`);
+  if (path.length > claimedPathMax) throw new InvalidScopeRequestError(`A claimed path must not be longer than ${String(claimedPathMax)} characters, and this one has ${String(path.length)}`);
   return path;
 }
-var flipCase = (text2) => [...text2].map((letter) => letter === letter.toLowerCase() ? letter.toUpperCase() : letter.toLowerCase()).join("");
-function sameEntry2(directory, name, other) {
-  const first = statSync4(join13(directory, name), { bigint: true, throwIfNoEntry: false });
-  const second = statSync4(join13(directory, other), { bigint: true, throwIfNoEntry: false });
-  return first !== void 0 && second !== void 0 && first.dev === second.dev && first.ino === second.ino;
+var flipCase = (text2) => text2.replaceAll(/[A-Za-z]/g, (letter) => letter <= "Z" ? letter.toLowerCase() : letter.toUpperCase());
+var caseProbeFileSystem = {
+  list: (directory) => readdirSync3(directory),
+  stat: (path) => statSync4(path, { throwIfNoEntry: false })
+};
+function foldsCase(fs, directory, listing, name) {
+  const flipped = flipCase(name);
+  if (listing.includes(name) && listing.includes(flipped)) return false;
+  return fs.stat(join13(directory, flipped)) !== void 0;
 }
-function caseInsensitiveFileSystem(worktree) {
+function caseInsensitiveFileSystem(worktree, fs = caseProbeFileSystem) {
   const name = basename2(worktree);
-  if (flipCase(name) !== name) return sameEntry2(dirname2(worktree), name, flipCase(name));
-  const entry = readdirSync3(worktree).find((candidate) => flipCase(candidate) !== candidate);
-  if (entry !== void 0) return sameEntry2(worktree, entry, flipCase(entry));
+  if (flipCase(name) !== name) return foldsCase(fs, dirname2(worktree), fs.list(dirname2(worktree)), name);
+  const listing = fs.list(worktree);
+  const entry = listing.find((candidate) => flipCase(candidate) !== candidate);
+  if (entry !== void 0) return foldsCase(fs, worktree, listing, entry);
   return process.platform === "win32" || process.platform === "darwin";
 }
 function readHeld(dir) {
@@ -24490,14 +24547,8 @@ function markersOf(dir, hash2, caseInsensitive) {
   }
 }
 function createMarker(dir, hash2, generation, marker) {
-  try {
-    writeFileSync2(join13(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
-`, { flag: "wx" });
-    return true;
-  } catch (error62) {
-    if (error62.code === "EEXIST") return false;
-    throw error62;
-  }
+  return createFileExclusive(join13(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
+`);
 }
 function readClaims(dir, caseInsensitive) {
   let names;
@@ -24519,17 +24570,16 @@ function readClaims(dir, caseInsensitive) {
 function prepareClaims(dir, held, recorded, expectExisting) {
   if (expectExisting && !existsSync4(dir)) throw new ClaimsDirectoryLostError(dir);
   mkdirSync4(dir, { recursive: true });
-  const file2 = join13(dir, heldFileName);
-  const temporary = `${file2}.${String(process.pid)}.tmp`;
-  writeFileSync2(temporary, `${JSON.stringify(held)}
+  writeFileAtomic(join13(dir, heldFileName), `${JSON.stringify(held)}
 `);
-  renameSync2(temporary, file2);
-  for (const claim3 of recorded) {
-    const hash2 = markerHash(claim3.path, held.caseInsensitive);
+  const latest = /* @__PURE__ */ new Map();
+  for (const claim3 of recorded) latest.set(markerHash(claim3.path, held.caseInsensitive), claim3);
+  for (const [hash2, claim3] of latest) {
     const markers = markersOf(dir, hash2, held.caseInsensitive);
     if (markers.some((marker2) => marker2.whole && marker2.cluster === claim3.cluster && marker2.unit === claim3.unit && marker2.claimedAt === claim3.claimedAt)) continue;
     const marker = { path: claim3.path, cluster: claim3.cluster, unit: claim3.unit, claimedAt: claim3.claimedAt };
-    for (let generation = markers.length + 1; !createMarker(dir, hash2, generation, marker); generation += 1) ;
+    let generation = markers.length + 1;
+    while (!createMarker(dir, hash2, generation, marker)) generation += 1;
   }
 }
 function ownerOf(held, path) {
@@ -24562,7 +24612,7 @@ function claimFile(dir, rawPath, unit, now = () => /* @__PURE__ */ new Date()) {
 }
 
 // src/review/checks/run.ts
-import { mkdirSync as mkdirSync5, readFileSync as readFileSync8, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { mkdirSync as mkdirSync5, readFileSync as readFileSync8, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { join as join14 } from "node:path";
 function shellInvocation(command, platform = process.platform, shell) {
   if (platform === "win32") {
@@ -24646,7 +24696,7 @@ async function runCheck(evidence, request) {
       error: checkError(result, request.timeoutMs)
     };
   } finally {
-    if (!keep) rmSync2(request.ioDirectory, { recursive: true, force: true });
+    if (!keep) rmSync3(request.ioDirectory, { recursive: true, force: true });
   }
 }
 function readOutput(file2) {
@@ -25817,7 +25867,7 @@ function degraded(review2, unit) {
       return review2.fix !== null && isNotAttempted(review2.fix, target.phase, target.key);
   }
 }
-var interrupted = (state) => state?.failures.some((failure2) => failure2.fault === "environment") ?? false;
+var interrupted = (state) => state?.failures.some((failure2) => failure2.cause !== "unit") ?? false;
 function exhaustedOutcome(review2, unit, state) {
   return interrupted(state) ? null : degradationOf(review2, unit);
 }
@@ -25829,7 +25879,8 @@ function waitsForItsCluster(review2, unit) {
 var launchableUnit = (review2, unit, state) => !settled(review2, unit) && !exhausted(review2, unit, state) && !waitsForItsCluster(review2, unit);
 var usd = (value) => value.toFixed(2);
 function workerFailedBlocker(review2, unit, state) {
-  const interruption = state?.failures.some((failure2) => failure2.lost) === true ? ", a worker lost with its engine among the failures" : interrupted(state) ? ", an attempt whose claims directory was removed among the failures" : "";
+  const causes = new Set(state?.failures.map((failure2) => failure2.cause));
+  const interruption = causes.has("lost") ? ", a worker lost with its engine among the failures" : causes.has("environment") ? ", an attempt whose claims directory was removed among the failures" : "";
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
   const action = unit.phase === "survey" && degradationOf(review2, unit) === null ? surveyWorkerFailedAction : blockerActions["worker-failed"];
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
@@ -26002,7 +26053,7 @@ function phaseCheck(state, worktree, phase, attempt, moment, match) {
 import { join as join20 } from "node:path";
 
 // src/review/claim-events.ts
-var settledNothing = (state) => ({ events: [], state, pending: /* @__PURE__ */ new Set(), caseInsensitive: false });
+var settledNothing = (state, caseInsensitive) => ({ events: [], state, pending: /* @__PURE__ */ new Set(), caseInsensitive });
 function requireFix2(state) {
   const fix = state.review?.fix ?? null;
   if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
@@ -26011,7 +26062,16 @@ function requireFix2(state) {
 function foldedWith(state, events) {
   return events.reduce((current, event, index2) => applyEvent(current, { sequence: state.lastSequence + index2 + 1, runId: state.id, kind: event.kind, version: event.version, payload: event.payload, recordedAt: (/* @__PURE__ */ new Date()).toISOString(), engine: "claims" }), state);
 }
-function resolvedPath(worktree, lookup, path) {
+function holderSpelled(lookup, holders, keyOf) {
+  return (path) => {
+    const held = lookup(path);
+    if (held.length > 0) return held;
+    const holder = holders.get(keyOf(path));
+    return holder === void 0 ? [] : [holder.path];
+  };
+}
+function resolvedPath(worktree, lookup, path, caseInsensitive) {
+  if (!caseInsensitive) return path;
   try {
     return resolveReportedPath(worktree, lookup, path);
   } catch (error62) {
@@ -26050,7 +26110,6 @@ function compareText(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 function settleClaims(state, key, live2, worktree) {
-  if (live2 === null) return settledNothing(state);
   const fix = requireFix2(state);
   const round = roundOf(fix, key);
   const { caseInsensitive } = live2;
@@ -26060,14 +26119,14 @@ function settleClaims(state, key, live2, worktree) {
     ...claimsOfRound(fix, round).map((claim3) => marked(claim3.path, claim3.cluster, claim3.key, claim3.claimedAt)),
     ...fix.lostClaims.map((claim3) => marked(claim3.path, claim3.cluster, claim3.unit, claim3.claimedAt))
   ]);
-  const holders = new Map([...holdersOf(fix, round)].map(([path, holder]) => [keyOf(path), holder]));
+  const holders = holdersKeyedBy(fix, round, keyOf);
   const settled2 = settledClusters(fix, round);
-  const lookup = worktreeLookup(worktree);
+  const lookup = holderSpelled(worktreeLookup(worktree), holders, keyOf);
   const accepted = [];
   const lost = [];
   const whole = live2.markers.filter((marker) => marker.whole).sort(madeOrder);
   for (const marker of whole) {
-    const path = resolvedPath(worktree, lookup, marker.path);
+    const path = resolvedPath(worktree, lookup, marker.path, caseInsensitive);
     if (known.has(marked(path, marker.cluster, marker.unit, marker.claimedAt))) continue;
     const claim3 = { unit: marker.unit, cluster: marker.cluster, path, claimedAt: marker.claimedAt };
     const batch = batchOf(fix, marker.unit);
@@ -26080,7 +26139,7 @@ function settleClaims(state, key, live2, worktree) {
     else if (holder !== void 0 && (holder.cluster === marker.cluster || !settled2.has(holder.cluster))) lost.push({ ...claim3, reason: "held", holder: holder.cluster });
     else {
       accepted.push(claim3);
-      holders.set(keyOf(path), { cluster: marker.cluster, by: "claim" });
+      holders.set(keyOf(path), { path, cluster: marker.cluster, by: "claim" });
     }
   }
   const events = [...lostEvents(lost), ...claimedEvents(accepted)];
@@ -26096,7 +26155,7 @@ function lateClaim(state, key, named, caseInsensitive) {
   if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
   const round = roundOf(fix, key);
   const keyOf = (path) => pathKey(path, caseInsensitive);
-  const holders = new Map([...holdersOf(fix, round)].map(([path, holder]) => [keyOf(path), holder]));
+  const holders = holdersKeyedBy(fix, round, keyOf);
   const settled2 = settledClusters(fix, round);
   const free = [...new Set(named)].filter((path) => {
     const holder = holders.get(keyOf(path));
@@ -26327,7 +26386,7 @@ function checkDecisions(output2, count2) {
 
 // src/review/snapshot.ts
 import { createHash as createHash5 } from "node:crypto";
-import { existsSync as existsSync5, lstatSync as lstatSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync10, renameSync as renameSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync5, lstatSync as lstatSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync10, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname3, join as join19 } from "node:path";
 var snapshotManifestFileName = "manifest.json";
 var snapshotsDirectoryName = "snapshots";
@@ -26373,6 +26432,12 @@ function statOf(worktree, path) {
   }
   return stat !== void 0 && (stat.isFile() || stat.isSymbolicLink()) ? [stat.size, stat.mtimeMs] : null;
 }
+function statDiffers(before, now) {
+  return now === null || before[0] !== now[0] || before[1] !== now[1];
+}
+function statMapOf(worktree, paths) {
+  return Object.fromEntries(paths.filter(safePath).map((path) => [path, statOf(worktree, path)]));
+}
 function changedSince(manifest) {
   const ignoredDirectories = new Set(manifest.ignored.filter((entry) => entry.endsWith("/")).map((entry) => entry.slice(0, -1)));
   const ignoredFiles = new Set(manifest.ignored.filter((entry) => !entry.endsWith("/")));
@@ -26389,8 +26454,7 @@ function changedSince(manifest) {
       if (ignoredFiles.has(path) || !(entry.isFile() || entry.isSymbolicLink())) continue;
       found.add(path);
       const before = manifest.files[path];
-      const now = statOf(manifest.worktree, path);
-      if (before === void 0 || before === null || now === null || before[0] !== now[0] || before[1] !== now[1]) changed.push(path);
+      if (before === void 0 || before === null || statDiffers(before, statOf(manifest.worktree, path))) changed.push(path);
     }
   };
   walk("");
@@ -26401,8 +26465,8 @@ function takeSnapshot(request) {
   if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
   const copies = join19(request.into, String(request.finding));
   const listingFile = join19(request.into, `${String(request.finding)}.json`);
-  rmSync3(listingFile, { force: true });
-  rmSync3(copies, { recursive: true, force: true });
+  rmSync4(listingFile, { force: true });
+  rmSync4(copies, { recursive: true, force: true });
   mkdirSync6(copies, { recursive: true });
   const manifest = readManifest(request.into);
   const paths = [.../* @__PURE__ */ new Set([...manifest === null ? [] : changedSince(manifest), ...manifest?.expected ?? []])].filter(safePath).sort();
@@ -26462,18 +26526,16 @@ function writeManifest(into, manifest) {
 function changedListed(manifest) {
   return Object.entries(manifest.files).filter(([path, before]) => {
     const now = statOf(manifest.worktree, path);
-    return before === null ? now !== null : now === null || before[0] !== now[0] || before[1] !== now[1];
+    return before === null ? now !== null : statDiffers(before, now);
   }).map(([path]) => path).sort();
 }
 function prepareCheckManifest(into, worktree) {
-  const files = Object.fromEntries(trackedFiles(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
-  const manifest = { worktree, expected: [], files, ignored: [] };
+  const manifest = { worktree, expected: [], files: statMapOf(worktree, trackedFiles(worktree)), ignored: [] };
   writeManifest(into, manifest);
   return manifest;
 }
 function prepareSnapshots(into, worktree, expected) {
-  const files = Object.fromEntries(filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
-  writeManifest(into, { worktree, expected: [...new Set(expected)].sort(), files, ignored: ignoredEntries(worktree) });
+  writeManifest(into, { worktree, expected: [...new Set(expected)].sort(), files: statMapOf(worktree, filesNotIgnored(worktree)), ignored: ignoredEntries(worktree) });
 }
 
 // src/review/fix-events.ts
@@ -26500,11 +26562,20 @@ function unitIds2(state, phase, key) {
   return batchOfUnit(state, key).findingIds;
 }
 function settleOf(context, phase, key) {
-  if (phase === "repair" || context.claims === null) return settleClaims(context.state, key, null, context.worktree);
-  return settleClaims(context.state, key, context.claims.live(key), context.worktree);
+  if (phase === "repair" || context.claims === null) return settledNothing(context.state, false);
+  const live2 = context.claims.live(key);
+  return live2 === null ? settledNothing(context.state, context.claims.caseInsensitive()) : settleClaims(context.state, key, live2, context.worktree);
 }
-function othersHeld(state, phase, key) {
-  return phase === "repair" ? /* @__PURE__ */ new Map() : heldByOthers(requireFix3(state), key);
+var keyOfSettle = (settle3) => (path) => pathKey(path, settle3.caseInsensitive);
+function othersHeld(state, phase, key, keyOf) {
+  return phase === "repair" ? /* @__PURE__ */ new Map() : heldByOthers(requireFix3(state), key, keyOf);
+}
+function answerLookup(settle3, phase, key, worktree) {
+  const lookup = worktreeLookup(worktree);
+  if (phase === "repair") return lookup;
+  const fix = requireFix3(settle3.state);
+  const keyOf = keyOfSettle(settle3);
+  return holderSpelled(lookup, holdersKeyedBy(fix, roundOf(fix, key), keyOf), keyOf);
 }
 function claimedFiles(state, phase, key) {
   if (phase === "repair") return [];
@@ -26544,7 +26615,7 @@ function fixAnswerEvents(unit, receipt, context) {
   checkFixerAnswer(output2, ids.length);
   const owned = ownedFiles(fix, phase, unit.key);
   const settle3 = settleOf(context, phase, unit.key);
-  const resolved = resolveFixerAnswer(output2, { worktree, lookup: worktreeLookup(worktree), owned, othersHeld: othersHeld(settle3.state, phase, unit.key) });
+  const resolved = resolveFixerAnswer(output2, { worktree, lookup: answerLookup(settle3, phase, unit.key, worktree), owned, othersHeld: othersHeld(settle3.state, phase, unit.key) });
   const late = phase === "fixes" ? lateClaim(settle3.state, unit.key, resolved.named, settle3.caseInsensitive) : null;
   const claims = [...settle3.events, ...late === null ? [] : [late]];
   const claimed = claimedFiles(late === null ? settle3.state : foldedWith(settle3.state, [late]), phase, unit.key);
@@ -26589,9 +26660,10 @@ function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join20(scratch, snapshotsDirectoryName);
   const settle3 = settleOf(context, phase, key);
-  const others = othersHeld(settle3.state, phase, key);
+  const keyOf = keyOfSettle(settle3);
+  const others = othersHeld(settle3.state, phase, key, keyOf);
   const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
-  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !isPending(settle3, path) && !strays.has(path));
+  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle3, path) && !strays.has(path));
   const ignored = new Set(ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
@@ -26624,7 +26696,7 @@ function checkRevision(context, phase, kind, command, manifest) {
 }
 
 // src/review/lock.ts
-import { mkdirSync as mkdirSync7, readFileSync as readFileSync11, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "node:fs";
+import { mkdirSync as mkdirSync7, readFileSync as readFileSync11, rmSync as rmSync5, writeFileSync as writeFileSync5 } from "node:fs";
 import { constants } from "node:os";
 import { join as join21 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
@@ -26684,7 +26756,7 @@ function acquireLock(path, holding) {
     if (!held) return;
     held = false;
     try {
-      rmSync4(holderPath(path), { force: true });
+      rmSync5(holderPath(path), { force: true });
     } finally {
       try {
         db.exec("ROLLBACK");
@@ -27539,7 +27611,8 @@ function invocationFor(unit, context) {
   const policy = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
   const shared = unit.phase === "fixes" ? context.claims.directoryOf(unit.key) : null;
-  const review2 = requireReview2(unit.phase === "fixes" ? settleClaims(context.state, unit.key, context.claims.live(unit.key), context.worktree).state : context.state);
+  const live2 = unit.phase === "fixes" ? context.claims.live(unit.key) : null;
+  const review2 = requireReview2(live2 === null ? context.state : settleClaims(context.state, unit.key, live2, context.worktree).state);
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join23(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === "survey" ? context.survey() : null;
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
@@ -28348,7 +28421,8 @@ async function runReview(options2) {
       }
       if (preparedClaims.has(directory)) loseClaims(directory);
       return null;
-    }
+    },
+    caseInsensitive
   };
   const prepareOrLose = (key) => {
     try {
@@ -28407,6 +28481,7 @@ async function runReview(options2) {
       if (event.kind === "decisions.recorded") log(`worker ${settled2.unit.role} ${name}: decided ${decisionCountWords(decisionCounts(event.payload.decisions))}`);
     }
     state = append(checkpoint, state, events);
+    if (phase === "fixes" && claimsLost2 === null) prepareOrLose(settled2.unit.key);
   };
   try {
     if (scopeRequest !== null) {
@@ -28796,7 +28871,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
 
 // src/review/commit.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { mkdtempSync, rmSync as rmSync5 } from "node:fs";
+import { mkdtempSync, rmSync as rmSync6 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join26 } from "node:path";
 function git2(worktree, args, options2 = {}) {
@@ -28977,7 +29052,7 @@ function build(run2, options2) {
     checkpoint.append(run2.id, state.lastSequence, [{ kind: "commits.created", version: 1, payload }]);
     return { runId: run2.id, commits: made.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: staged };
   } finally {
-    rmSync5(temporary, { recursive: true, force: true });
+    rmSync6(temporary, { recursive: true, force: true });
   }
 }
 
