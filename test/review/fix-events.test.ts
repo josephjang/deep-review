@@ -102,6 +102,13 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
     });
   }
 
+  it('neither claims late nor records as a violation a named file a sibling\'s marker not yet whole is claiming (F13)', () => {
+    const state = stateOf(running());
+    const events = fixAnswerEvents({ phase: 'fixes', key: 'c1-1', role: 'fixer' }, receipt(['src/a.ts', 'AGENTS.md']), contextOf(state, folding([{ whole: false, hash: markerHash('AGENTS.md', true), generation: 1 }])));
+    assert.deepEqual(events.filter((event) => event.kind === 'files.claimed'), [], 'the sibling\'s claim settles at the next settle');
+    assert.deepEqual((events.find((event) => event.kind === 'fix.recorded')!.payload as FixRecorded).violations, []);
+  });
+
   it('leaves out of a failed attempt\'s revisions a sibling\'s deletion its claim spells otherwise', () => {
     const state = stateOf(running());
     const sibling: LiveClaim = { whole: true, hash: markerHash('agents.md', true), generation: 1, path: 'agents.md', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' };

@@ -105,7 +105,7 @@ describe('settleClaims', () => {
     const history = running().add('files.claimed', claimed('c2-1', 'c2', ['SRC/A.ts']));
     const folded: LiveClaims = { markers: [{ whole: true, hash: markerHash('src/A.ts', true), generation: 1, path: 'src/A.ts', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' }], caseInsensitive: true };
     assert.deepEqual(kinds(settleClaims(history.fold(), 'c1-1', folded, worktree).events), [['claims.lost', { phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/a.ts', claimedAt: '2026-10-09T01:00:01.000Z', reason: 'owned', holder: 'c1' }] }]]);
-    assert.equal(lateClaim(history.fold(), 'c2-1', ['Src/A.ts'], true), null, 'nor is it free for a late claim');
+    assert.equal(lateClaim(settledNothing(history.fold(), true), 'c2-1', ['Src/A.ts']), null, 'nor is it free for a late claim');
   });
 
   it('records a marker by the exact path it names where the file system does not fold case, though the worktree holds a file spelled otherwise', () => {
@@ -126,12 +126,18 @@ describe('lateClaim', () => {
   const state = (): RunState => running().add('files.claimed', claimed('c2-1', 'c2', [shared])).add('files.claimed', claimed('c1-1', 'c1', ['docs/mine.md'])).fold();
 
   it('claims for the answering batch\'s cluster, with no time, each named file nobody holds (R6)', () => {
-    assert.deepEqual(lateClaim(state(), 'c1-1', ['src/a.ts', 'src/b.ts', shared, 'docs/mine.md', 'docs/new.md', 'docs/a.md'], false), { kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key: 'c1-1', cluster: 'c1', files: [{ path: 'docs/a.md', claimedAt: null }, { path: 'docs/new.md', claimedAt: null }] } });
-    assert.equal(lateClaim(state(), 'c1-1', ['src/a.ts', shared], false), null, 'its own file and a sibling\'s claim are no late claim');
+    assert.deepEqual(lateClaim(settledNothing(state(), false), 'c1-1', ['src/a.ts', 'src/b.ts', shared, 'docs/mine.md', 'docs/new.md', 'docs/a.md']), { kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key: 'c1-1', cluster: 'c1', files: [{ path: 'docs/a.md', claimedAt: null }, { path: 'docs/new.md', claimedAt: null }] } });
+    assert.equal(lateClaim(settledNothing(state(), false), 'c1-1', ['src/a.ts', shared]), null, 'its own file and a sibling\'s claim are no late claim');
   });
 
   it('claims a file only a settled cluster held', () => {
     const settled = running().add('files.claimed', claimed('c2-1', 'c2', [shared])).worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), { key: 'c2-1', findings: [{ id: 'SWEEP-1', status: 'deferred', file: 'src/b.ts', line: 1, note: 'n', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] })).fold();
-    assert.deepEqual((lateClaim(settled, 'c1-1', [shared], false)?.payload as { files: unknown[] }).files, [{ path: shared, claimedAt: null }]);
+    assert.deepEqual((lateClaim(settledNothing(settled, false), 'c1-1', [shared])?.payload as { files: unknown[] }).files, [{ path: shared, claimedAt: null }]);
+  });
+
+  it('leaves out a named file a sibling\'s marker not yet whole is claiming, which its next settle records (F13)', () => {
+    const settle = settleClaims(running().fold(), 'c1-1', live({ whole: false, hash: markerHash('docs/x.md', false), generation: 1 }), worktree);
+    assert.deepEqual((lateClaim(settle, 'c1-1', ['docs/x.md', 'docs/new.md'])?.payload as { files: unknown[] }).files, [{ path: 'docs/new.md', claimedAt: null }]);
+    assert.equal(lateClaim(settle, 'c1-1', ['docs/x.md']), null);
   });
 });
