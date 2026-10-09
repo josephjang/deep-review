@@ -5,8 +5,8 @@ var __export = (target, all) => {
 };
 
 // src/cli.ts
-import { existsSync as existsSync5 } from "node:fs";
-import { join as join26, resolve as resolve10 } from "node:path";
+import { existsSync as existsSync7 } from "node:fs";
+import { join as join27, relative as relative3, resolve as resolve10 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -20771,6 +20771,52 @@ var decisionsRecordedV1 = external_exports.strictObject({
   message: "each finding is decided once",
   path: ["decisions"]
 });
+var reviewVocabularyV5 = {
+  recordedBlockerCodes: ["worker-failed", "budget", "drift", "check-unavailable", "claims-lost"],
+  attemptFaults: ["unit", "environment"],
+  lostClaimReasons: ["owned", "held", "unplanned"]
+};
+var vocabularyV5 = reviewVocabularyV5;
+var blockerSchemaV5 = external_exports.strictObject({
+  code: external_exports.enum(vocabularyV5.recordedBlockerCodes),
+  detail: recordedTextSchema,
+  action: external_exports.string().min(1).max(1e3)
+});
+var phaseFinishedV5 = external_exports.strictObject({
+  phase: phaseSchemaV4,
+  attempt: external_exports.number().int().min(1),
+  outcome: external_exports.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV5.nullable()
+}).refine((finish) => finish.outcome === "blocked" === (finish.blocker !== null), {
+  message: "a blocker is present exactly when the outcome is blocked",
+  path: ["blocker"]
+});
+var attemptFailedV5 = external_exports.strictObject({
+  ...attemptFailedV4.shape,
+  fault: external_exports.enum(vocabularyV5.attemptFaults)
+});
+var claimedPathSchema = external_exports.string().min(1).max(1e3).refine((path) => {
+  const parts = path.split("/");
+  return !path.includes("\\") && !path.includes("\0") && !/^[a-zA-Z]:/.test(path) && parts.every((part) => part !== "" && part !== "." && part !== ".." && part.toLowerCase() !== ".git");
+}, { message: "a claimed path is relative to the repository, inside it and outside .git" });
+var pathsOnce = (files) => new Set(files.map((file2) => file2.path)).size === files.length;
+var filesClaimedV1 = external_exports.strictObject({
+  phase: external_exports.literal("fixes"),
+  key: batchKeySchemaV2,
+  cluster: clusterIdSchemaV2,
+  files: external_exports.array(external_exports.strictObject({ path: claimedPathSchema, claimedAt: external_exports.iso.datetime().nullable() })).min(1).max(2e3)
+}).refine((claimed) => pathsOnce(claimed.files), { message: "each file is claimed once", path: ["files"] });
+var claimsLostV1 = external_exports.strictObject({
+  phase: external_exports.literal("fixes"),
+  unit: external_exports.string().min(1).max(200),
+  cluster: external_exports.string().min(1).max(200),
+  files: external_exports.array(external_exports.strictObject({
+    path: external_exports.string().min(1).max(1e3),
+    claimedAt: external_exports.iso.datetime().nullable(),
+    reason: external_exports.enum(vocabularyV5.lostClaimReasons),
+    holder: clusterIdSchemaV2.nullable()
+  }).refine((file2) => file2.reason === "unplanned" === (file2.holder === null), { message: "a holder is named exactly when the unit is the plan's", path: ["holder"] })).min(1).max(2e3)
+});
 var eventRegistry = defineRegistry({
   "run.created": { 1: { schema: runCreatedV1 } },
   "run.abandoned": { 1: { schema: runAbandonedV1 } },
@@ -20781,10 +20827,10 @@ var eventRegistry = defineRegistry({
   "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 } },
   "limits.changed": { 1: { schema: limitsChangedV1 } },
   "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 } },
-  "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 } },
+  "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 } },
   "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 } },
   "candidates.recorded": { 1: { schema: candidatesRecordedV1 } },
-  "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 } },
+  "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 } },
   "angle.failed": { 1: { schema: angleFailedV1 } },
   "deduplication.recorded": { 1: { schema: deduplicationRecordedV1 } },
   "verification.planned": { 1: { schema: verificationPlannedV1 } },
@@ -20802,7 +20848,9 @@ var eventRegistry = defineRegistry({
   "commits.created": { 1: { schema: commitsCreatedV1 } },
   "survey.recorded": { 1: { schema: surveyRecordedV1 } },
   "survey.failed": { 1: { schema: surveyFailedV1 } },
-  "decisions.recorded": { 1: { schema: decisionsRecordedV1 } }
+  "decisions.recorded": { 1: { schema: decisionsRecordedV1 } },
+  "files.claimed": { 1: { schema: filesClaimedV1 } },
+  "claims.lost": { 1: { schema: claimsLostV1 } }
 });
 
 // src/review/vocabulary.ts
@@ -20866,13 +20914,14 @@ var verificationPhases = ["verification", "sweep-verification"];
 var verificationPhaseSchema2 = external_exports.enum(verificationPhases);
 var phaseOutcomes = ["completed", "degraded", "blocked"];
 var phaseOutcomeSchema2 = external_exports.enum(phaseOutcomes);
-var recordedBlockerCodes = ["worker-failed", "budget", "drift", "check-unavailable"];
+var recordedBlockerCodes = ["worker-failed", "budget", "drift", "check-unavailable", "claims-lost"];
 var recordedBlockerCodeSchema2 = external_exports.enum(recordedBlockerCodes);
 var blockerActions = {
   "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
   budget: "run the command again with --budget-usd above the spend, or abandon the run",
   drift: "restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one",
   "check-unavailable": "install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs",
+  "claims-lost": "run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts, or abandon the run",
   "lock-held": "wait for that engine to finish; the lock clears itself when its process ends",
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
 };
@@ -20931,6 +20980,8 @@ function emptyFixState() {
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
+    claims: [],
+    lostClaims: [],
     commits: null
   };
 }
@@ -20956,12 +21007,54 @@ function clusterOf(fix, id) {
 function batchOf(fix, key) {
   return allBatches(fix).find((batch) => batch.key === key) ?? null;
 }
-function roundClusters(fix, key) {
-  const second = fix.secondRound?.batches.some((batch) => batch.key === key) ?? false;
-  return [...(second ? fix.secondRound?.clusters : fix.plan?.clusters) ?? []];
-}
+var batchSettled = (fix, key) => Object.hasOwn(fix.answers.fixes, key) || isNotAttempted(fix, "fixes", key);
 function firstRoundSettled(fix) {
-  return (fix.plan?.batches ?? []).every((batch) => Object.hasOwn(fix.answers.fixes, batch.key) || isNotAttempted(fix, "fixes", batch.key));
+  return (fix.plan?.batches ?? []).every((batch) => batchSettled(fix, batch.key));
+}
+function roundOf(fix, key) {
+  return fix.secondRound?.batches.some((batch) => batch.key === key) ?? false ? 2 : 1;
+}
+function roundPlan(fix, round) {
+  const plan = round === 1 ? fix.plan : fix.secondRound;
+  return { clusters: plan?.clusters ?? [], batches: plan?.batches ?? [] };
+}
+function claimsOfRound(fix, round) {
+  return fix.claims.filter((claim3) => claim3.round === round);
+}
+function settledClusters(fix, round) {
+  const { clusters, batches } = roundPlan(fix, round);
+  return new Set(clusters.filter((cluster) => batches.filter((batch) => batch.cluster === cluster.id).every((batch) => batchSettled(fix, batch.key))).map((cluster) => cluster.id));
+}
+function holdersOf(fix, round) {
+  const holders = /* @__PURE__ */ new Map();
+  for (const cluster of roundPlan(fix, round).clusters) for (const path of cluster.files) holders.set(path, { cluster: cluster.id, by: "plan" });
+  for (const claim3 of claimsOfRound(fix, round)) if (holders.get(claim3.path)?.by !== "plan") holders.set(claim3.path, { cluster: claim3.cluster, by: "claim" });
+  return holders;
+}
+function clusterClaims(fix, round, cluster) {
+  return [...new Set(claimsOfRound(fix, round).filter((claim3) => claim3.cluster === cluster).map((claim3) => claim3.path))];
+}
+function heldByOthers(fix, key) {
+  const own2 = clusterOfBatch(fix, key)?.id;
+  const round = roundOf(fix, key);
+  const settled2 = settledClusters(fix, round);
+  const held = /* @__PURE__ */ new Map();
+  for (const [path, holder] of holdersOf(fix, round)) {
+    if (holder.cluster === own2 || holder.by === "claim" && settled2.has(holder.cluster)) continue;
+    held.set(path, holder);
+  }
+  return held;
+}
+function firstRoundHolders(clusters, claims) {
+  const holders = /* @__PURE__ */ new Map();
+  const add = (path, cluster) => {
+    const set2 = holders.get(path);
+    if (set2 === void 0) holders.set(path, /* @__PURE__ */ new Set([cluster]));
+    else set2.add(cluster);
+  };
+  for (const cluster of clusters) for (const path of cluster.files) add(path, cluster.id);
+  for (const claim3 of claims) add(claim3.path, claim3.cluster);
+  return holders;
 }
 function lastAnswerOf(fix, id) {
   for (const batch of [...allBatches(fix)].reverse()) {
@@ -21026,6 +21119,7 @@ function surveyBlocker(blocker) {
       return true;
     case "drift":
     case "budget":
+    case "claims-lost":
       return false;
   }
 }
@@ -21170,6 +21264,7 @@ var phaseFinished = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
   requireRunning(review2, event, payload.phase, payload.attempt);
   if (payload.blocker?.code === "check-unavailable" && payload.phase !== "survey") throw invalid(event, `blocks phase ${payload.phase} on a check that cannot run, which only the survey finds`);
+  if (payload.blocker?.code === "claims-lost" && payload.phase !== "fixes") throw invalid(event, `blocks phase ${payload.phase} on a lost claims directory, which only the fixes phase has`);
   const phaseStates = { ...review2.phases, [payload.phase]: { status: payload.outcome, attempt: payload.attempt } };
   const blocker = payload.blocker === null ? null : { ...payload.blocker, phase: payload.phase };
   const survey = payload.phase === "survey" && review2.survey !== null && payload.blocker !== null && surveyBlocker(payload.blocker) ? { ...review2.survey, lastBlock: payload.blocker } : review2.survey;
@@ -21220,7 +21315,9 @@ var attemptFailed = (state, payload, event, drafts) => {
   requireRunning(review2, event, payload.phase);
   const unit = { phase: payload.phase, key: payload.key };
   requireUnanswered(review2, event, unit);
-  return withReview(current, withFailure(review2, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false }), event);
+  const fault = payload.fault ?? "unit";
+  if (fault === "environment" && payload.phase !== "fixes") throw invalid(event, `fails ${unitName(payload.phase, payload.key)} for its environment, which only a fixes-phase unit records`);
+  return withReview(current, withFailure(review2, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false, fault }), event);
 };
 var angleFailed = (state, payload, event) => {
   const { current, review: review2 } = requireReview(state, event);
@@ -21359,6 +21456,7 @@ var reviewReducers = {
   "phase.finished@2": phaseFinished,
   "phase.finished@3": phaseFinished,
   "phase.finished@4": phaseFinished,
+  "phase.finished@5": phaseFinished,
   "worktree.checked@1": worktreeCheckedV12,
   "worktree.checked@2": worktreeChecked,
   "worktree.checked@3": worktreeChecked,
@@ -21368,6 +21466,7 @@ var reviewReducers = {
   "attempt.failed@2": attemptFailed,
   "attempt.failed@3": attemptFailed,
   "attempt.failed@4": attemptFailed,
+  "attempt.failed@5": attemptFailed,
   "angle.failed@1": angleFailed,
   "deduplication.recorded@1": deduplicationRecorded,
   "verification.planned@1": verificationPlanned,
@@ -21483,7 +21582,7 @@ var fixesReplanned = (state, payload, event) => {
   if (plan === null) throw invalid(event, "plans a second round before the first");
   if (fix.secondRound !== null) throw invalid(event, "plans its second round twice");
   if (!firstRoundSettled(fix)) throw invalid(event, "plans its second round before every batch of the first settled");
-  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path) => [path, cluster.id])));
+  const heldBy2 = firstRoundHolders(plan.clusters, claimsOfRound(fix, 1));
   const filesOf = /* @__PURE__ */ new Map();
   for (const entry of payload.blocked) {
     if (filesOf.has(entry.id)) throw invalid(event, `takes finding ${entry.id} into its second round twice`);
@@ -21493,9 +21592,9 @@ var fixesReplanned = (state, payload, event) => {
     if (new Set(entry.requiredFiles).size !== entry.requiredFiles.length || !entry.requiredFiles.every((path) => answer.requiredFiles.includes(path)) || !answer.requiredFiles.every((path) => entry.requiredFiles.includes(path))) {
       throw invalid(event, `gives finding ${entry.id} the files [${entry.requiredFiles.join(", ")}], not the ones it was blocked on [${answer.requiredFiles.join(", ")}]`);
     }
-    const foreign = entry.requiredFiles.filter((path) => !ownerOf.has(path) || ownerOf.get(path) === own2.id);
-    if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(", ")}, which no other first-round cluster owned`);
-    filesOf.set(entry.id, [.../* @__PURE__ */ new Set([...own2.files, ...entry.requiredFiles])]);
+    const foreign = entry.requiredFiles.filter((path) => ![...heldBy2.get(path) ?? []].some((cluster) => cluster !== own2.id));
+    if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(", ")}, which no other first-round cluster owned or claimed`);
+    filesOf.set(entry.id, [.../* @__PURE__ */ new Set([...own2.files, ...clusterClaims(fix, 1, own2.id), ...entry.requiredFiles])]);
   }
   const owner = /* @__PURE__ */ new Map();
   const taken = /* @__PURE__ */ new Set();
@@ -21564,11 +21663,10 @@ var fixRecorded = (state, payload, event, drafts) => {
   if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `records an answer for ${payload.phase}:${payload.key} after it failed`);
   const given = payload.findings.map((finding) => finding.id);
   if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(", ")}] for ${payload.phase}:${payload.key}, which holds [${ids.join(", ")}]`);
-  const own2 = payload.phase === "fixes" ? clusterOfBatch(fix, payload.key)?.id : void 0;
-  const others = new Set((payload.phase === "fixes" ? roundClusters(fix, payload.key) : []).filter((cluster) => cluster.id !== own2).flatMap((cluster) => cluster.files));
+  const others = payload.phase === "fixes" ? heldByOthers(fix, payload.key) : /* @__PURE__ */ new Map();
   const named = new Set(payload.findings.flatMap((finding) => finding.files));
   for (const path of payload.violations) {
-    if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster owns`);
+    if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster holds`);
   }
   const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
   return withFix(current, review2, { ...fix, answers }, event, answered(review2, drafts, { phase: payload.phase, key: payload.key }, payload.workerId));
@@ -21613,6 +21711,30 @@ var treeRevised = (state, payload, event) => {
   }
   return withFix(current, review2, { ...fix, revisions: [...fix.revisions, payload] }, event);
 };
+var filesClaimed = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, "fixes");
+  const batch = batchOf(fix, payload.key);
+  if (batch === null) throw invalid(event, `claims files for ${payload.key}, which the plan does not have`);
+  if (batch.cluster !== payload.cluster) throw invalid(event, `claims files for ${payload.key} under cluster ${payload.cluster}, not its cluster ${batch.cluster}`);
+  const round = roundOf(fix, payload.key);
+  const holders = holdersOf(fix, round);
+  const settled2 = settledClusters(fix, round);
+  for (const file2 of payload.files) {
+    const holder = holders.get(file2.path);
+    if (holder === void 0) continue;
+    const refusal = holder.by === "plan" ? `which cluster ${holder.cluster} owns` : holder.cluster === payload.cluster ? "which its cluster holds already" : settled2.has(holder.cluster) ? null : `which cluster ${holder.cluster} holds and has not settled`;
+    if (refusal !== null) throw invalid(event, `claims ${file2.path} for ${payload.key}, ${refusal}`);
+  }
+  const claims = [...fix.claims, ...payload.files.map((file2) => ({ path: file2.path, cluster: payload.cluster, key: payload.key, round, claimedAt: file2.claimedAt }))];
+  return withFix(current, review2, { ...fix, claims }, event);
+};
+var claimsLost = (state, payload, event) => {
+  const { current, review: review2, fix } = requireFix(state, event);
+  requireRunning(review2, event, "fixes");
+  const lostClaims = [...fix.lostClaims, ...payload.files.map((file2) => ({ ...file2, unit: payload.unit, cluster: payload.cluster }))];
+  return withFix(current, review2, { ...fix, lostClaims }, event);
+};
 var unitUnattempted = (state, payload, event) => {
   const { current, review: review2, fix } = requireFix(state, event);
   requireRunning(review2, event, payload.phase);
@@ -21642,7 +21764,9 @@ var fixReducers = {
   "fix.recorded@1": fixRecorded,
   "tree.revised@1": treeRevised,
   "unit.unattempted@1": unitUnattempted,
-  "commits.created@1": commitsCreated
+  "commits.created@1": commitsCreated,
+  "files.claimed@1": filesClaimed,
+  "claims.lost@1": claimsLost
 };
 
 // src/checkpoint/survey-fold.ts
@@ -21758,7 +21882,7 @@ var workerLost = (state, payload, event, drafts) => {
   workers[payload.workerId] = { status: "lost", launch: worker.launch, launchedAt: worker.launchedAt, reason: payload.reason };
   const unit = unitOfLostWorker(payload.phase, payload.key);
   if (unit !== null && current.review === null) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} of unit ${unitName(unit.phase, unit.key)} at sequence ${String(event.sequence)} before review.configured`);
-  const review2 = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: true });
+  const review2 = unit === null || current.review === null ? current.review : withFailure(current.review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: true, fault: "environment" });
   return { ...current, workers, review: review2, lastSequence: event.sequence };
 };
 var abandoned = (state, payload, event) => {
@@ -22357,7 +22481,8 @@ function engineRolesRoot(directory = import.meta.dirname) {
 
 // src/review/controller.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { join as join23 } from "node:path";
+import { existsSync as existsSync6 } from "node:fs";
+import { join as join24 } from "node:path";
 
 // src/runtime/errors.ts
 var InvalidInvocationError = class extends EngineError {
@@ -22467,6 +22592,15 @@ var invocationSchema = external_exports.strictObject({
    * temporary directory when it is not given.
    */
   scratch: absolutePath.optional(),
+  /**
+   * A directory an editor may write beside its scratch, which other
+   * editors of the run share: the round's claims directory for a fixer
+   * (R2 of commit series integrity). Outside the reviewed tree and the
+   * checkpoint, and never given to a read-only worker. Not recorded on the
+   * ledger: the directory is the round's, and the engine prepares it at
+   * every launch.
+   */
+  shared: absolutePath.optional(),
   /** Free text recorded on the ledger. A worker that runs a role is labelled with its role key, so the ledger says which role ran (D10 of the role prompts proposal). */
   label: text.optional(),
   /** A session to continue; the prompt is then the follow-up message (R9). */
@@ -22950,6 +23084,7 @@ function claudeCommand(invocation, plan, settings = {}) {
     // continuation keeps the id of the session it resumes.
     ...plan.resume === null ? ["--session-id", plan.sessionId] : ["--resume", plan.resume],
     // Without this the CLI denies every write outside the worktree, including the scratch directory the prompt names.
+    // `plan.shared` is not added: its editor reaches the directory only through the commands its task quotes, which the shell runs unsandboxed, and its file tools need no write there.
     ...plan.scratch === null ? [] : ["--add-dir", plan.scratch],
     ...invocation.budgetUsd === void 0 ? [] : ["--max-budget-usd", String(invocation.budgetUsd)],
     "--tools",
@@ -23161,7 +23296,7 @@ function confinementOf(invocation, plan, windowsSandbox) {
   const codexSandbox = !windows ? null : windowsSandbox === "none" ? "unelevated" : windowsSandbox;
   if (invocation.access !== "edit") return { sandboxMode: "read-only", writableRoots: [], windowsSandbox: codexSandbox };
   if (windows && windowsSandbox === "none") return { sandboxMode: "danger-full-access", writableRoots: [], windowsSandbox: codexSandbox };
-  return { sandboxMode: "workspace-write", writableRoots: plan.scratch === null ? [] : [plan.scratch], windowsSandbox: codexSandbox };
+  return { sandboxMode: "workspace-write", writableRoots: [plan.scratch, plan.shared].filter((root) => root !== null), windowsSandbox: codexSandbox };
 }
 function codexCommand(invocation, plan, windowsSandbox, provider = null) {
   const confinement = confinementOf(invocation, plan, windowsSandbox);
@@ -23469,10 +23604,17 @@ function checkpointScratchKey(checkpoint) {
 function chooseScratch(checkpoint, state, adapter, invocation, continued, fallback) {
   if (continued !== null) return continued.launch.scratch;
   if (invocation.access === "read-only" && !adapter.capabilities.readOnlyScratch) return null;
-  const scratch = resolve7(invocation.scratch ?? fallback);
-  if (isInside(state.worktree, scratch)) throw new InvalidInvocationError(`The scratch directory ${scratch} is inside the reviewed tree ${state.worktree}`);
-  if (isInside(checkpoint.root, scratch)) throw new InvalidInvocationError(`The scratch directory ${scratch} is inside the checkpoint ${checkpoint.root}`);
-  return scratch;
+  return requireOutsideRun("scratch directory", resolve7(invocation.scratch ?? fallback), state, checkpoint);
+}
+function chooseShared(checkpoint, state, invocation) {
+  if (invocation.shared === void 0) return null;
+  if (invocation.access === "read-only") throw new InvalidInvocationError(`A read-only worker writes nowhere, so it is given no shared directory, not ${invocation.shared}`);
+  return requireOutsideRun("shared directory", resolve7(invocation.shared), state, checkpoint);
+}
+function requireOutsideRun(what, directory, state, checkpoint) {
+  if (isInside(state.worktree, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the reviewed tree ${state.worktree}`);
+  if (isInside(checkpoint.root, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the checkpoint ${checkpoint.root}`);
+  return directory;
 }
 
 // src/runtime/launcher.ts
@@ -23492,6 +23634,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
   const ids = options2.ids ?? randomUUID3;
   const workerId = ids();
   const scratch = chooseScratch(checkpoint, state, adapter, invocation, continued, join10(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint), workerId));
+  const shared = chooseShared(checkpoint, state, invocation);
   const sessionId = invocation.resume ?? (adapter.capabilities.assignsSessionId ? ids() : null);
   const io = join10(checkpoint.root, ioDirectoryName, workerId);
   const inherited = options2.environment ?? process.env;
@@ -23499,6 +23642,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     sessionId,
     resume: invocation.resume ?? null,
     scratch,
+    shared,
     schema,
     schemaFile: join10(io, "schema.json"),
     finalMessageFile: join10(io, "final-message"),
@@ -23943,6 +24087,9 @@ function changedAgainstHead(repo) {
   const untracked = records(gitText(repo, ["ls-files", "--others", "--exclude-standard", "-z"]));
   return [.../* @__PURE__ */ new Set([...changed, ...untracked])].sort();
 }
+function trackedFiles(repo) {
+  return [...new Set(records(gitText(repo, ["ls-files", "-z", "--cached"])))].sort();
+}
 function filesNotIgnored(repo) {
   return [...new Set(records(gitText(repo, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])))].sort();
 }
@@ -24277,12 +24424,194 @@ function readRootManifests(root) {
   return { files, entries };
 }
 
+// src/review/claims.ts
+import { createHash as createHash3 } from "node:crypto";
+import { existsSync as existsSync4, mkdirSync as mkdirSync4, readdirSync as readdirSync3, readFileSync as readFileSync7, renameSync as renameSync2, statSync as statSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { basename as basename2, dirname as dirname2, join as join13 } from "node:path";
+var claimsDirectoryName = "claims";
+var heldFileName = "held.json";
+function claimsDirectoryFor(scratchBase, runId, round) {
+  return join13(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
+}
+var ClaimsDirectoryLostError = class extends EngineError {
+  name = "ClaimsDirectoryLostError";
+  directory;
+  constructor(directory) {
+    super(`the claims directory ${directory} is gone: stop editing and answer`);
+    this.directory = directory;
+  }
+};
+var ClaimRequestError = class extends EngineError {
+  name = "ClaimRequestError";
+};
+var heldSchema = external_exports.strictObject({
+  worktree: external_exports.string().min(1),
+  clusters: external_exports.record(external_exports.string(), external_exports.array(external_exports.string())),
+  units: external_exports.record(external_exports.string(), external_exports.string()),
+  settled: external_exports.array(external_exports.string()),
+  caseInsensitive: external_exports.boolean()
+});
+var markerSchema = external_exports.strictObject({
+  // The caps are the ledger's for a claim the engine records or leaves out, so a marker past them is no claim.
+  path: external_exports.string().min(1).max(1e3),
+  cluster: external_exports.string().min(1).max(200),
+  unit: external_exports.string().min(1).max(200),
+  claimedAt: external_exports.iso.datetime().nullable()
+});
+var markerNamePattern = /^([0-9a-f]{64})\.([1-9][0-9]{0,8})\.json$/;
+var sha256 = (text2) => createHash3("sha256").update(text2, "utf8").digest("hex");
+function pathKey(path, caseInsensitive) {
+  return caseInsensitive ? path.toLowerCase() : path;
+}
+function markerHash(path, caseInsensitive) {
+  return sha256(pathKey(path, caseInsensitive));
+}
+function normalizeClaimPath(raw) {
+  const path = raw.replaceAll("\\", "/").split("/").filter((part) => part !== ".").join("/");
+  validateScopePath(path);
+  if (path.split("/").some((part) => part === "" || part === ".")) throw new InvalidScopeRequestError(`A claimed path must name a file: ${raw}`);
+  return path;
+}
+var flipCase = (text2) => [...text2].map((letter) => letter === letter.toLowerCase() ? letter.toUpperCase() : letter.toLowerCase()).join("");
+function sameEntry2(directory, name, other) {
+  const first = statSync4(join13(directory, name), { bigint: true, throwIfNoEntry: false });
+  const second = statSync4(join13(directory, other), { bigint: true, throwIfNoEntry: false });
+  return first !== void 0 && second !== void 0 && first.dev === second.dev && first.ino === second.ino;
+}
+function caseInsensitiveFileSystem(worktree) {
+  const name = basename2(worktree);
+  if (flipCase(name) !== name) return sameEntry2(dirname2(worktree), name, flipCase(name));
+  const entry = readdirSync3(worktree).find((candidate) => flipCase(candidate) !== candidate);
+  if (entry !== void 0) return sameEntry2(worktree, entry, flipCase(entry));
+  return process.platform === "win32" || process.platform === "darwin";
+}
+function readHeld(dir) {
+  const file2 = join13(dir, heldFileName);
+  let text2;
+  try {
+    text2 = readFileSync7(file2, "utf8");
+  } catch (error62) {
+    if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
+    throw error62;
+  }
+  let parsed;
+  try {
+    parsed = heldSchema.safeParse(JSON.parse(text2));
+  } catch (error62) {
+    throw new ClaimRequestError(`${file2} is not the round's description: ${error62.message}`);
+  }
+  if (!parsed.success) throw new ClaimRequestError(`${file2} is not the round's description: ${external_exports.prettifyError(parsed.error)}`);
+  return parsed.data;
+}
+function readMarker(dir, hash2, generation, caseInsensitive) {
+  let text2;
+  try {
+    text2 = readFileSync7(join13(dir, `${hash2}.${String(generation)}.json`), "utf8");
+  } catch (error62) {
+    if (error62.code === "ENOENT") return void 0;
+    throw error62;
+  }
+  try {
+    const parsed = markerSchema.safeParse(JSON.parse(text2));
+    if (parsed.success && namesItsPath(parsed.data.path, hash2, caseInsensitive)) return { whole: true, hash: hash2, generation, ...parsed.data };
+  } catch {
+  }
+  return { whole: false, hash: hash2, generation };
+}
+function namesItsPath(path, hash2, caseInsensitive) {
+  try {
+    return normalizeClaimPath(path) === path && markerHash(path, caseInsensitive) === hash2;
+  } catch (error62) {
+    if (error62 instanceof InvalidScopeRequestError) return false;
+    throw error62;
+  }
+}
+function markersOf(dir, hash2, caseInsensitive) {
+  const markers = [];
+  for (let generation = 1; ; generation += 1) {
+    const marker = readMarker(dir, hash2, generation, caseInsensitive);
+    if (marker === void 0) return markers;
+    markers.push(marker);
+  }
+}
+function createMarker(dir, hash2, generation, marker) {
+  try {
+    writeFileSync2(join13(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
+`, { flag: "wx" });
+    return true;
+  } catch (error62) {
+    if (error62.code === "EEXIST") return false;
+    throw error62;
+  }
+}
+function readClaims(dir, caseInsensitive) {
+  let names;
+  try {
+    names = readdirSync3(dir);
+  } catch (error62) {
+    if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
+    throw error62;
+  }
+  const claims = [];
+  for (const name of names) {
+    const match = markerNamePattern.exec(name);
+    if (match === null) continue;
+    const marker = readMarker(dir, match[1], Number(match[2]), caseInsensitive);
+    if (marker !== void 0) claims.push(marker);
+  }
+  return claims.sort((a, b) => a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : a.generation - b.generation);
+}
+function prepareClaims(dir, held, recorded, expectExisting) {
+  if (expectExisting && !existsSync4(dir)) throw new ClaimsDirectoryLostError(dir);
+  mkdirSync4(dir, { recursive: true });
+  const file2 = join13(dir, heldFileName);
+  const temporary = `${file2}.${String(process.pid)}.tmp`;
+  writeFileSync2(temporary, `${JSON.stringify(held)}
+`);
+  renameSync2(temporary, file2);
+  for (const claim3 of recorded) {
+    const hash2 = markerHash(claim3.path, held.caseInsensitive);
+    const markers = markersOf(dir, hash2, held.caseInsensitive);
+    if (markers.some((marker2) => marker2.whole && marker2.cluster === claim3.cluster && marker2.unit === claim3.unit && marker2.claimedAt === claim3.claimedAt)) continue;
+    const marker = { path: claim3.path, cluster: claim3.cluster, unit: claim3.unit, claimedAt: claim3.claimedAt };
+    for (let generation = markers.length + 1; !createMarker(dir, hash2, generation, marker); generation += 1) ;
+  }
+}
+function ownerOf(held, path) {
+  const key = pathKey(path, held.caseInsensitive);
+  for (const [cluster, files] of Object.entries(held.clusters)) if (files.some((file2) => pathKey(file2, held.caseInsensitive) === key)) return cluster;
+  return null;
+}
+function judged(path, cluster, marker, created2) {
+  if (!marker.whole) return { kind: "held-by-unknown", path };
+  return marker.cluster === cluster ? { kind: "claimed", path, cluster, generation: marker.generation, created: created2 } : { kind: "refused", path, holder: marker.cluster, by: "claim" };
+}
+function claimFile(dir, rawPath, unit, now = () => /* @__PURE__ */ new Date()) {
+  const held = readHeld(dir);
+  if (isInside(held.worktree, dir)) throw new InvalidScopeRequestError(`The claims directory ${dir} is inside the worktree ${held.worktree}; a claim there would be a stray file of the review`);
+  if (!Object.hasOwn(held.units, unit)) throw new ClaimRequestError(`unit ${unit} is no batch of this round`);
+  const cluster = held.units[unit];
+  if (held.settled.includes(cluster)) throw new ClaimRequestError(`unit ${unit}'s cluster ${cluster} has settled, so it claims nothing more`);
+  const path = normalizeClaimPath(rawPath);
+  const owner = ownerOf(held, path);
+  if (owner === cluster) return { kind: "owned", path, cluster };
+  if (owner !== null) return { kind: "refused", path, holder: owner, by: "plan" };
+  const hash2 = markerHash(path, held.caseInsensitive);
+  const markers = markersOf(dir, hash2, held.caseInsensitive);
+  const latest = markers.at(-1);
+  if (latest !== void 0 && !(latest.whole && held.settled.includes(latest.cluster))) return judged(path, cluster, latest, false);
+  const generation = markers.length + 1;
+  const marker = { path, cluster, unit, claimedAt: now().toISOString() };
+  if (createMarker(dir, hash2, generation, marker)) return { kind: "claimed", path, cluster, generation, created: true };
+  return judged(path, cluster, readMarker(dir, hash2, generation, held.caseInsensitive) ?? { whole: false, hash: hash2, generation }, false);
+}
+
 // src/review/checks/run.ts
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync7, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join13 } from "node:path";
+import { mkdirSync as mkdirSync5, readFileSync as readFileSync8, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join14 } from "node:path";
 function shellInvocation(command, platform = process.platform, shell) {
   if (platform === "win32") {
-    const cmd = shell ?? join13(process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows", "System32", "cmd.exe");
+    const cmd = shell ?? join14(process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows", "System32", "cmd.exe");
     return { executable: cmd, args: ["/d", "/s", "/c", `"${command}"`], verbatimArguments: true };
   }
   return { executable: shell ?? "/bin/sh", args: ["-c", command], verbatimArguments: false };
@@ -24315,14 +24644,14 @@ function checkError(result, timeoutMs) {
   return null;
 }
 async function runCheck(evidence, request) {
-  mkdirSync4(join13(request.ioDirectory, ".."), { recursive: true });
-  mkdirSync4(request.ioDirectory);
+  mkdirSync5(join14(request.ioDirectory, ".."), { recursive: true });
+  mkdirSync5(request.ioDirectory);
   let keep = false;
   try {
-    const stdinFile = join13(request.ioDirectory, "stdin");
-    const stdoutFile = join13(request.ioDirectory, "stdout");
-    const stderrFile = join13(request.ioDirectory, "stderr");
-    writeFileSync2(stdinFile, "", { flag: "wx" });
+    const stdinFile = join14(request.ioDirectory, "stdin");
+    const stdoutFile = join14(request.ioDirectory, "stdout");
+    const stderrFile = join14(request.ioDirectory, "stderr");
+    writeFileSync3(stdinFile, "", { flag: "wx" });
     const shell = shellInvocation(request.command, process.platform, request.shell);
     let result;
     try {
@@ -24367,7 +24696,7 @@ async function runCheck(evidence, request) {
 }
 function readOutput(file2) {
   try {
-    return readFileSync7(file2);
+    return readFileSync8(file2);
   } catch (error62) {
     if (error62.code === "ENOENT") return Buffer.alloc(0);
     throw error62;
@@ -24375,13 +24704,13 @@ function readOutput(file2) {
 }
 
 // src/review/patch.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 import { deflateSync } from "node:zlib";
 var contextLines = 3;
 var maxDifferences = 2e3;
 var contentOf = (file2, read) => ({ bytes: "blob" in file2.frozen ? read(file2.frozen.blob) : null, symlink: file2.symlink, frozen: file2.frozen });
 function gitBlobId(bytes, format) {
-  return createHash3(format).update(`blob ${String(bytes.length)}\0`).update(bytes).digest("hex");
+  return createHash4(format).update(`blob ${String(bytes.length)}\0`).update(bytes).digest("hex");
 }
 var nullId = (format) => "0".repeat(format === "sha1" ? 40 : 64);
 function isText(bytes) {
@@ -24594,8 +24923,8 @@ function renderMail(message, number5, total, diff) {
 }
 
 // src/review/tree.ts
-import { lstatSync as lstatSync4, readFileSync as readFileSync8 } from "node:fs";
-import { join as join14 } from "node:path";
+import { lstatSync as lstatSync4, readFileSync as readFileSync9 } from "node:fs";
+import { join as join15 } from "node:path";
 
 // src/scope/compare.ts
 function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
@@ -24633,7 +24962,7 @@ function applyRevision(tree, files) {
   for (const file2 of files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
 }
 function readTreeEntry(worktree, path) {
-  const absolute = join14(worktree, ...path.split("/"));
+  const absolute = join15(worktree, ...path.split("/"));
   let stat;
   try {
     stat = lstatSync4(absolute, { throwIfNoEntry: false });
@@ -24643,7 +24972,7 @@ function readTreeEntry(worktree, path) {
   }
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
-  if (stat.isFile()) return { bytes: readFileSync8(absolute), symlink: false };
+  if (stat.isFile()) return { bytes: readFileSync9(absolute), symlink: false };
   return null;
 }
 var worktreeReader = (worktree) => (path) => readTreeEntry(worktree, path);
@@ -24749,10 +25078,10 @@ function gitContent(worktree, read) {
 
 // src/review/conventions.ts
 import { homedir } from "node:os";
-import { join as join15 } from "node:path";
+import { join as join16 } from "node:path";
 var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
 function existingUserRulesFiles(home = homedir()) {
-  return userConventionFiles.map((relative3) => join15(home, ...relative3.split("/"))).filter(isFile);
+  return userConventionFiles.map((relative4) => join16(home, ...relative4.split("/"))).filter(isFile);
 }
 var authorshipWindow = 200;
 function mailmapAddress(output2) {
@@ -24777,7 +25106,7 @@ function reviewerAuthorship(worktree) {
 }
 
 // src/review/survey.ts
-import { isAbsolute as isAbsolute4, join as join17 } from "node:path";
+import { isAbsolute as isAbsolute4, join as join18 } from "node:path";
 
 // src/review/errors.ts
 var InvalidPolicyError = class extends EngineError {
@@ -24800,8 +25129,8 @@ var ReviewRefusedError = class extends EngineError {
 import { isAbsolute as isAbsolute3, relative as relative2, sep as sep2 } from "node:path";
 
 // src/review/locations.ts
-import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync3, readSync } from "node:fs";
-import { join as join16 } from "node:path";
+import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync4, readSync } from "node:fs";
+import { join as join17 } from "node:path";
 var unlocated = { file: null, line: null, located: false, inScope: false };
 function normalizeFileName(file2) {
   return file2.replaceAll("\\", "/").replaceAll(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
@@ -24813,7 +25142,7 @@ function worktreeLookup(worktree) {
     let names = listings.get(key);
     if (names === void 0) {
       try {
-        names = readdirSync3(join16(worktree, ...segments));
+        names = readdirSync4(join17(worktree, ...segments));
       } catch (error62) {
         const code = error62.code;
         if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
@@ -24889,7 +25218,7 @@ function* fileChunks(path) {
   }
 }
 function worktreeLines(worktree, path) {
-  const absolute = join16(worktree, ...path.split("/"));
+  const absolute = join17(worktree, ...path.split("/"));
   const stat = lstatSync5(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return countLines(readLinkText(absolute));
@@ -24959,12 +25288,12 @@ function resolveFixerAnswer(output2, context) {
     return { ...finding, files, requiredFiles };
   });
   const named = new Set(findings.flatMap((finding) => finding.files));
-  const violations = [...named].filter((path) => context.othersOwned.has(path)).sort();
+  const violations = [...named].filter((path) => context.othersHeld.has(path)).sort();
   return { findings, named, violations };
 }
-function requireOwnedReported(changedOwned, named) {
-  const unreported = changedOwned.filter((path) => !named.has(path));
-  if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned file${unreported.length === 1 ? "" : "s"} ${unreported.join(", ")}, whose bytes changed; every owned file a fixer changes is reported under the finding it served`);
+function requireOwnedReported(changedHeld, named) {
+  const unreported = changedHeld.filter((path) => !named.has(path));
+  if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned or claimed file${unreported.length === 1 ? "" : "s"} ${unreported.join(", ")}, whose bytes changed; every owned or claimed file a fixer changes is reported under the finding it served`);
 }
 
 // src/review/survey.ts
@@ -24994,7 +25323,7 @@ function surveyFailure(reason, setting, userFiles) {
 var surveyGitDirectory = "which holds git's own data, not a file of the repository";
 function repositoryFile(context, raw, what) {
   const path = resolveReportedPath(context.worktree, context.lookup, raw, { what, gitDirectory: surveyGitDirectory });
-  const absolute = join17(context.worktree, ...path.split("/"));
+  const absolute = join18(context.worktree, ...path.split("/"));
   if (!isFile(absolute)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a regular file of the repository`);
   if (!resolvingPath(what, raw, () => isInside(context.worktree, absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
   return path;
@@ -25107,10 +25436,10 @@ var spellingOf = (candidate) => normalizeFileName(candidate.rawFile).toLowerCase
 var isAbsolute5 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
 function unlocatedSpellings(candidates) {
   const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
-  const relative3 = [...spellings].filter((spelling) => !isAbsolute5(spelling));
+  const relative4 = [...spellings].filter((spelling) => !isAbsolute5(spelling));
   const joined = /* @__PURE__ */ new Map();
   for (const spelling of spellings) {
-    const within = isAbsolute5(spelling) ? relative3.filter((name) => spelling.endsWith(`/${name}`)) : [];
+    const within = isAbsolute5(spelling) ? relative4.filter((name) => spelling.endsWith(`/${name}`)) : [];
     joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
   }
   return joined;
@@ -25204,16 +25533,17 @@ function componentsOf(keys) {
   });
   return [...members2.entries()].sort(([a], [b]) => a - b).map(([, indexes]) => indexes);
 }
-function planSecondRound(plan, answerOf, batchSize) {
-  const ownerOf = new Map(plan.clusters.flatMap((cluster) => cluster.files.map((path) => [path, cluster.id])));
+function planSecondRound(plan, answerOf, batchSize, claims) {
+  const heldBy2 = firstRoundHolders(plan.clusters, claims);
+  const claimedBy = (cluster) => claims.filter((claim3) => claim3.cluster === cluster).map((claim3) => claim3.path);
   const clusterOfFinding = new Map(plan.clusters.flatMap((cluster) => cluster.findingIds.map((id) => [id, cluster])));
   const blocked = plan.routes.flatMap((route) => {
     const own2 = clusterOfFinding.get(route.id);
     const answer = own2 === void 0 ? null : answerOf(route.id);
     if (own2 === void 0 || answer === null || answer.status !== "blocked" || answer.requiredFiles.length === 0) return [];
     const needed = [...new Set(answer.requiredFiles)];
-    if (!needed.every((path) => ownerOf.has(path) && ownerOf.get(path) !== own2.id)) return [];
-    return [{ id: route.id, requiredFiles: needed, files: [.../* @__PURE__ */ new Set([...own2.files, ...needed])].sort() }];
+    if (!needed.every((path) => [...heldBy2.get(path) ?? []].some((cluster) => cluster !== own2.id))) return [];
+    return [{ id: route.id, requiredFiles: needed, files: [.../* @__PURE__ */ new Set([...own2.files, ...claimedBy(own2.id), ...needed])].sort() }];
   });
   const first = plan.clusters.length;
   const clusters = componentsOf(blocked.map((finding) => finding.files)).map((indexes, position) => ({
@@ -25425,7 +25755,7 @@ function secondRoundOf(review2) {
   const fix = review2.fix;
   const batchSize = review2.configuration.fixes?.batchSize;
   if (fix === null || fix.plan === null || batchSize === void 0) throw new Error("A second round needs the first round's plan and the pinned batch size");
-  return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize);
+  return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize, claimsOfRound(fix, 1));
 }
 function unitsOf(review2, phase) {
   const single = (role) => [{ phase, key: singleUnitKey(phase), role }];
@@ -25532,7 +25862,7 @@ function degraded(review2, unit) {
       return review2.fix !== null && isNotAttempted(review2.fix, target.phase, target.key);
   }
 }
-var interrupted = (state) => state?.failures.some((failure2) => failure2.lost) ?? false;
+var interrupted = (state) => state?.failures.some((failure2) => failure2.fault === "environment") ?? false;
 function exhaustedOutcome(review2, unit, state) {
   return interrupted(state) ? null : degradationOf(review2, unit);
 }
@@ -25544,7 +25874,8 @@ function waitsForItsCluster(review2, unit) {
 var launchableUnit = (review2, unit, state) => !settled(review2, unit) && !exhausted(review2, unit, state) && !waitsForItsCluster(review2, unit);
 var usd = (value) => value.toFixed(2);
 function workerFailedBlocker(review2, unit, state) {
-  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ", a worker lost with its engine among the failures" : ""}: `;
+  const interruption = state?.failures.some((failure2) => failure2.lost) === true ? ", a worker lost with its engine among the failures" : interrupted(state) ? ", an attempt whose claims directory was removed among the failures" : "";
+  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
   const action = unit.phase === "survey" && degradationOf(review2, unit) === null ? surveyWorkerFailedAction : blockerActions["worker-failed"];
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
@@ -25577,6 +25908,9 @@ function driftBlocker(check2, evidencePath) {
     ...check2.files.map((file2) => `${file2.path} (${file2.outcome}${expectedBytes(file2.expected, evidencePath)})`)
   ];
   return { code: "drift", detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions.drift };
+}
+function claimsLostBlocker(directory) {
+  return { code: "claims-lost", detail: truncated(`the claims directory ${directory} was removed while the run was editing`, maxRecordedTextLength), action: blockerActions["claims-lost"] };
 }
 function dueCheck(review2, phase) {
   const fix = review2.fix;
@@ -25633,6 +25967,7 @@ function nextStep(review2, live2) {
   if (checks.length === 0) return { kind: "check-worktree", phase, attempt, moment: "start" };
   const drift = checks.find((check2) => check2.drifted);
   if (drift !== void 0) return live2.running.size > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: driftBlocker(drift, live2.evidencePath) };
+  if (phase === "fixes" && live2.claimsLost !== null) return live2.running.size > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: claimsLostBlocker(live2.claimsLost) };
   if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
   if (phase === "fixes" && review2.fix !== null && review2.fix.plan === null) return { kind: "plan-fixes", plan: fixPlanOf(review2) };
   if (phase === "report") return { kind: "write-report" };
@@ -25709,7 +26044,112 @@ function phaseCheck(state, worktree, phase, attempt, moment, match) {
 }
 
 // src/review/fix-events.ts
-import { join as join19 } from "node:path";
+import { join as join20 } from "node:path";
+
+// src/review/claim-events.ts
+var settledNothing = (state) => ({ events: [], state, pending: /* @__PURE__ */ new Set(), caseInsensitive: false });
+function requireFix2(state) {
+  const fix = state.review?.fix ?? null;
+  if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
+  return fix;
+}
+function foldedWith(state, events) {
+  return events.reduce((current, event, index2) => applyEvent(current, { sequence: state.lastSequence + index2 + 1, runId: state.id, kind: event.kind, version: event.version, payload: event.payload, recordedAt: (/* @__PURE__ */ new Date()).toISOString(), engine: "claims" }), state);
+}
+function resolvedPath(worktree, lookup, path) {
+  try {
+    return resolveReportedPath(worktree, lookup, path);
+  } catch (error62) {
+    if (error62 instanceof StructuralCheckError) return path;
+    throw error62;
+  }
+}
+function claimedEvents(accepted) {
+  const events = [];
+  for (const claim3 of accepted) {
+    const lastOfUnit = events.findLastIndex((event) => event.unit === claim3.unit);
+    const lastOfPath = events.findLastIndex((event) => event.paths.has(claim3.path));
+    const target = lastOfUnit >= 0 && lastOfUnit >= lastOfPath && !events[lastOfUnit].paths.has(claim3.path) ? events[lastOfUnit] : null;
+    if (target === null) events.push({ unit: claim3.unit, cluster: claim3.cluster, files: [{ path: claim3.path, claimedAt: claim3.claimedAt }], paths: /* @__PURE__ */ new Set([claim3.path]) });
+    else {
+      target.files.push({ path: claim3.path, claimedAt: claim3.claimedAt });
+      target.paths.add(claim3.path);
+    }
+  }
+  return events.map((event) => ({ kind: "files.claimed", version: 1, payload: { phase: "fixes", key: event.unit, cluster: event.cluster, files: event.files } }));
+}
+function lostEvents(lost) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const marker of lost) {
+    const name = `${marker.unit}\0${marker.cluster}`;
+    groups.set(name, [...groups.get(name) ?? [], marker]);
+  }
+  return [...groups.values()].map((markers) => ({
+    kind: "claims.lost",
+    version: 1,
+    payload: { phase: "fixes", unit: markers[0].unit, cluster: markers[0].cluster, files: markers.map(({ path, claimedAt, reason, holder }) => ({ path, claimedAt, reason, holder })) }
+  }));
+}
+var madeOrder = (a, b) => a.generation - b.generation || compareText(a.claimedAt ?? "", b.claimedAt ?? "") || compareText(a.hash, b.hash);
+function compareText(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function settleClaims(state, key, live2, worktree) {
+  if (live2 === null) return settledNothing(state);
+  const fix = requireFix2(state);
+  const round = roundOf(fix, key);
+  const { caseInsensitive } = live2;
+  const keyOf = (path) => pathKey(path, caseInsensitive);
+  const marked = (path, cluster, unit, claimedAt) => `${keyOf(path)}\0${cluster}\0${unit}\0${claimedAt ?? ""}`;
+  const known = /* @__PURE__ */ new Set([
+    ...claimsOfRound(fix, round).map((claim3) => marked(claim3.path, claim3.cluster, claim3.key, claim3.claimedAt)),
+    ...fix.lostClaims.map((claim3) => marked(claim3.path, claim3.cluster, claim3.unit, claim3.claimedAt))
+  ]);
+  const holders = new Map([...holdersOf(fix, round)].map(([path, holder]) => [keyOf(path), holder]));
+  const settled2 = settledClusters(fix, round);
+  const lookup = worktreeLookup(worktree);
+  const accepted = [];
+  const lost = [];
+  const whole = live2.markers.filter((marker) => marker.whole).sort(madeOrder);
+  for (const marker of whole) {
+    const path = resolvedPath(worktree, lookup, marker.path);
+    if (known.has(marked(path, marker.cluster, marker.unit, marker.claimedAt))) continue;
+    const claim3 = { unit: marker.unit, cluster: marker.cluster, path, claimedAt: marker.claimedAt };
+    const batch = batchOf(fix, marker.unit);
+    if (batch === null || roundOf(fix, marker.unit) !== round || batch.cluster !== marker.cluster) {
+      lost.push({ ...claim3, reason: "unplanned", holder: null });
+      continue;
+    }
+    const holder = holders.get(keyOf(path));
+    if (holder?.by === "plan") lost.push({ ...claim3, reason: "owned", holder: holder.cluster });
+    else if (holder !== void 0 && (holder.cluster === marker.cluster || !settled2.has(holder.cluster))) lost.push({ ...claim3, reason: "held", holder: holder.cluster });
+    else {
+      accepted.push(claim3);
+      holders.set(keyOf(path), { cluster: marker.cluster, by: "claim" });
+    }
+  }
+  const events = [...lostEvents(lost), ...claimedEvents(accepted)];
+  const pending = new Set(live2.markers.filter((marker) => !marker.whole).map((marker) => marker.hash));
+  return { events, state: foldedWith(state, events), pending, caseInsensitive };
+}
+function isPending(settle3, path) {
+  return settle3.pending.size > 0 && settle3.pending.has(markerHash(path, settle3.caseInsensitive));
+}
+function lateClaim(state, key, named, caseInsensitive) {
+  const fix = requireFix2(state);
+  const batch = batchOf(fix, key);
+  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
+  const round = roundOf(fix, key);
+  const keyOf = (path) => pathKey(path, caseInsensitive);
+  const holders = new Map([...holdersOf(fix, round)].map(([path, holder]) => [keyOf(path), holder]));
+  const settled2 = settledClusters(fix, round);
+  const free = [...new Set(named)].filter((path) => {
+    const holder = holders.get(keyOf(path));
+    return holder === void 0 || holder.by === "claim" && holder.cluster !== batch.cluster && settled2.has(holder.cluster);
+  }).sort();
+  if (free.length === 0) return null;
+  return { kind: "files.claimed", version: 1, payload: { phase: "fixes", key, cluster: batch.cluster, files: free.map((path) => ({ path, claimedAt: null })) } };
+}
 
 // src/review/schemas.ts
 var candidateFields = {
@@ -25796,7 +26236,7 @@ var fixerOutputSchema = external_exports.strictObject({
     file: reportedPath,
     line: external_exports.number().int().min(1).nullable(),
     note: external_exports.string().min(1).max(400),
-    /** The commit message of an applied finding, in the repository's own style; also allowed on an already-applied one whose edits an earlier attempt left (R20 of the fix pass); null for the rest. */
+    /** The commit message of the finding's edits, in the repository's own style: present exactly when `files` names a file, whatever the status, a blocked or deferred finding's saying the change is partial (R11 of commit series integrity). */
     message: external_exports.strictObject({ subject: external_exports.string().min(1).max(72), body: external_exports.string().max(2e3) }).nullable(),
     /** Every file edited or created for this finding. */
     files: external_exports.array(reportedPath).max(200),
@@ -25822,10 +26262,8 @@ function checkFixerAnswer(output2, count2) {
     if (finding.index >= count2) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count2 - 1)}]`);
     if (seen.has(finding.index)) throw new StructuralCheckError(`${what} is answered twice`);
     seen.add(finding.index);
-    if (finding.status === "applied" && finding.message === null) throw new StructuralCheckError(`${what} is applied and has no commit message`);
-    if ((finding.status === "deferred" || finding.status === "blocked") && finding.message !== null) {
-      throw new StructuralCheckError(`${what} is ${finding.status} and has a commit message, which only an applied or already-applied finding carries`);
-    }
+    if (finding.files.length > 0 && finding.message === null) throw new StructuralCheckError(`${what} names files and has no commit message; every finding that names files carries the message their commit takes, whatever its status`);
+    if (finding.files.length === 0 && finding.message !== null) throw new StructuralCheckError(`${what} has a commit message and names no file; a finding with no edits carries none`);
     if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith("."))) {
       throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(finding.message.subject)}`);
     }
@@ -25933,9 +26371,9 @@ function checkDecisions(output2, count2) {
 }
 
 // src/review/snapshot.ts
-import { createHash as createHash4 } from "node:crypto";
-import { existsSync as existsSync4, lstatSync as lstatSync6, mkdirSync as mkdirSync5, readdirSync as readdirSync4, readFileSync as readFileSync9, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname2, join as join18 } from "node:path";
+import { createHash as createHash5 } from "node:crypto";
+import { existsSync as existsSync5, lstatSync as lstatSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync10, renameSync as renameSync3, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname3, join as join19 } from "node:path";
 var snapshotManifestFileName = "manifest.json";
 var snapshotsDirectoryName = "snapshots";
 var listedFileSchema = external_exports.union([
@@ -25946,7 +26384,7 @@ var snapshotListingSchema = external_exports.strictObject({
   finding: external_exports.number().int().nonnegative(),
   paths: external_exports.record(external_exports.string(), listedFileSchema)
 });
-var sha256 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
+var sha2562 = (bytes) => createHash5("sha256").update(bytes).digest("hex");
 function safePath(path) {
   try {
     validateScopePath(path);
@@ -25964,16 +26402,16 @@ var snapshotManifestSchema = external_exports.strictObject({
   ignored: external_exports.array(external_exports.string())
 });
 function readManifest(into) {
-  const file2 = join18(into, snapshotManifestFileName);
-  if (!existsSync4(file2)) return null;
-  const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync9(file2, "utf8")));
+  const file2 = join19(into, snapshotManifestFileName);
+  if (!existsSync5(file2)) return null;
+  const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync10(file2, "utf8")));
   if (!parsed.success) throw new Error(`${file2} is not a snapshot manifest: ${external_exports.prettifyError(parsed.error)}`);
   return parsed.data;
 }
 function statOf(worktree, path) {
   let stat;
   try {
-    stat = lstatSync6(join18(worktree, ...path.split("/")), { throwIfNoEntry: false });
+    stat = lstatSync6(join19(worktree, ...path.split("/")), { throwIfNoEntry: false });
   } catch (error62) {
     if (error62.code === "ENOTDIR") return null;
     throw error62;
@@ -25985,9 +26423,9 @@ function changedSince(manifest) {
   const ignoredFiles = new Set(manifest.ignored.filter((entry) => !entry.endsWith("/")));
   const changed = [];
   const found = /* @__PURE__ */ new Set();
-  const walk = (relative3) => {
-    for (const entry of readdirSync4(join18(manifest.worktree, ...relative3.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
-      const path = relative3 === "" ? entry.name : `${relative3}/${entry.name}`;
+  const walk = (relative4) => {
+    for (const entry of readdirSync5(join19(manifest.worktree, ...relative4.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
+      const path = relative4 === "" ? entry.name : `${relative4}/${entry.name}`;
       if (entry.name === ".git") continue;
       if (entry.isDirectory() && !entry.isSymbolicLink()) {
         if (!ignoredDirectories.has(path)) walk(path);
@@ -26006,26 +26444,26 @@ function changedSince(manifest) {
 }
 function takeSnapshot(request) {
   if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
-  const copies = join18(request.into, String(request.finding));
-  const listingFile = join18(request.into, `${String(request.finding)}.json`);
+  const copies = join19(request.into, String(request.finding));
+  const listingFile = join19(request.into, `${String(request.finding)}.json`);
   rmSync3(listingFile, { force: true });
   rmSync3(copies, { recursive: true, force: true });
-  mkdirSync5(copies, { recursive: true });
+  mkdirSync6(copies, { recursive: true });
   const manifest = readManifest(request.into);
   const paths = [.../* @__PURE__ */ new Set([...manifest === null ? [] : changedSince(manifest), ...manifest?.expected ?? []])].filter(safePath).sort();
   const listed = paths.map((path) => {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, "absent"];
-    const copy = join18(copies, ...path.split("/"));
-    mkdirSync5(dirname2(copy), { recursive: true });
-    writeFileSync3(copy, entry.bytes);
-    return [path, { sha256: sha256(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
+    const copy = join19(copies, ...path.split("/"));
+    mkdirSync6(dirname3(copy), { recursive: true });
+    writeFileSync4(copy, entry.bytes);
+    return [path, { sha256: sha2562(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
   });
   const listing = { finding: request.finding, paths: Object.fromEntries(listed) };
   const temporary = `${listingFile}.${String(process.pid)}.tmp`;
-  writeFileSync3(temporary, `${JSON.stringify(listing)}
+  writeFileSync4(temporary, `${JSON.stringify(listing)}
 `);
-  renameSync2(temporary, listingFile);
+  renameSync3(temporary, listingFile);
   return listing;
 }
 function readSnapshot(into, finding) {
@@ -26037,18 +26475,18 @@ function readSnapshot(into, finding) {
     if (listed === "absent") return null;
     let bytes;
     try {
-      bytes = readFileSync9(join18(into, String(finding), ...path.split("/")));
+      bytes = readFileSync10(join19(into, String(finding), ...path.split("/")));
     } catch {
       return void 0;
     }
-    return bytes.length === listed.size && sha256(bytes) === listed.sha256 ? { bytes, symlink: listed.symlink } : void 0;
+    return bytes.length === listed.size && sha2562(bytes) === listed.sha256 ? { bytes, symlink: listed.symlink } : void 0;
   };
 }
 function readListing(into, finding) {
-  const listingFile = join18(into, `${String(finding)}.json`);
-  if (!existsSync4(listingFile)) return null;
+  const listingFile = join19(into, `${String(finding)}.json`);
+  if (!existsSync5(listingFile)) return null;
   try {
-    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync9(listingFile, "utf8")));
+    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync10(listingFile, "utf8")));
     return parsed.success && parsed.data.finding === finding ? parsed.data : null;
   } catch {
     return null;
@@ -26061,12 +26499,26 @@ function snapshotPaths(into, count2) {
   }
   return [...paths].sort();
 }
-function prepareSnapshots(into, worktree, expected) {
-  mkdirSync5(into, { recursive: true });
-  const files = Object.fromEntries(filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
-  const manifest = { worktree, expected: [...new Set(expected)].sort(), files, ignored: ignoredEntries(worktree) };
-  writeFileSync3(join18(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
+function writeManifest(into, manifest) {
+  mkdirSync6(into, { recursive: true });
+  writeFileSync4(join19(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
 `);
+}
+function changedListed(manifest) {
+  return Object.entries(manifest.files).filter(([path, before]) => {
+    const now = statOf(manifest.worktree, path);
+    return before === null ? now !== null : now === null || before[0] !== now[0] || before[1] !== now[1];
+  }).map(([path]) => path).sort();
+}
+function prepareCheckManifest(into, worktree) {
+  const files = Object.fromEntries(trackedFiles(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
+  const manifest = { worktree, expected: [], files, ignored: [] };
+  writeManifest(into, manifest);
+  return manifest;
+}
+function prepareSnapshots(into, worktree, expected) {
+  const files = Object.fromEntries(filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
+  writeManifest(into, { worktree, expected: [...new Set(expected)].sort(), files, ignored: ignoredEntries(worktree) });
 }
 
 // src/review/fix-events.ts
@@ -26077,25 +26529,32 @@ function baseOf(context) {
   if (head2 === void 0) throw new Error(`Run ${context.state.id} has no scope`);
   return headStates(context.worktree, head2, context.evidence);
 }
-function requireFix2(state) {
+function requireFix3(state) {
   const fix = state.review?.fix ?? null;
   if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
   return fix;
 }
 function batchOfUnit(state, key) {
-  const batch = batchOf(requireFix2(state), key);
+  const batch = batchOf(requireFix3(state), key);
   if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
   return batch;
 }
 function unitIds2(state, phase, key) {
-  const fix = requireFix2(state);
+  const fix = requireFix3(state);
   if (phase === "repair") return repairTargets(fix);
   return batchOfUnit(state, key).findingIds;
 }
-function othersOwned(state, phase, key) {
-  if (phase === "repair") return /* @__PURE__ */ new Map();
-  const own2 = batchOfUnit(state, key).cluster;
-  return new Map(roundClusters(requireFix2(state), key).filter((cluster) => cluster.id !== own2).flatMap((cluster) => cluster.files.map((file2) => [file2, cluster.id])));
+function settleOf(context, phase, key) {
+  if (phase === "repair" || context.claims === null) return settleClaims(context.state, key, null, context.worktree);
+  return settleClaims(context.state, key, context.claims.live(key), context.worktree);
+}
+function othersHeld(state, phase, key) {
+  return phase === "repair" ? /* @__PURE__ */ new Map() : heldByOthers(requireFix3(state), key);
+}
+function claimedFiles(state, phase, key) {
+  if (phase === "repair") return [];
+  const fix = requireFix3(state);
+  return clusterClaims(fix, roundOf(fix, key), batchOfUnit(state, key).cluster);
 }
 function revisionMessage(revision, findings) {
   const held = findings.filter((finding) => revision.findings.includes(finding.id));
@@ -26124,16 +26583,20 @@ ${finding.message.body.trimEnd()}`.trimEnd()).join("\n\n"), bodyLength)
 function fixAnswerEvents(unit, receipt, context) {
   const { state, worktree, evidence } = context;
   const phase = unit.phase;
-  const fix = requireFix2(state);
+  const fix = requireFix3(state);
   const output2 = receipt.output;
   const ids = unitIds2(state, phase, unit.key);
   checkFixerAnswer(output2, ids.length);
   const owned = ownedFiles(fix, phase, unit.key);
-  const resolved = resolveFixerAnswer(output2, { worktree, lookup: worktreeLookup(worktree), owned, othersOwned: othersOwned(state, phase, unit.key) });
+  const settle3 = settleOf(context, phase, unit.key);
+  const resolved = resolveFixerAnswer(output2, { worktree, lookup: worktreeLookup(worktree), owned, othersHeld: othersHeld(settle3.state, phase, unit.key) });
+  const late = phase === "fixes" ? lateClaim(settle3.state, unit.key, resolved.named, settle3.caseInsensitive) : null;
+  const claims = [...settle3.events, ...late === null ? [] : [late]];
+  const claimed = claimedFiles(late === null ? settle3.state : foldedWith(settle3.state, [late]), phase, unit.key);
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
   const base = baseOf(context);
-  requireOwnedReported(owned.filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
+  requireOwnedReported([.../* @__PURE__ */ new Set([...owned, ...claimed])].filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
   const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
   const findings = ids.map((id, index2) => {
     const answer = byIndex.get(index2);
@@ -26152,9 +26615,10 @@ function fixAnswerEvents(unit, receipt, context) {
   });
   const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join19(scratch, snapshotsDirectoryName);
+  const into = scratch === null ? null : join20(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
+    ...claims,
     { kind: "fix.recorded", version: 1, payload: recorded },
     ...revisions.map((revision) => ({
       kind: "tree.revised",
@@ -26165,20 +26629,21 @@ function fixAnswerEvents(unit, receipt, context) {
 }
 function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const { state, worktree, evidence } = context;
-  const fix = requireFix2(state);
+  const fix = requireFix3(state);
   const ids = unitIds2(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join19(scratch, snapshotsDirectoryName);
-  const others = othersOwned(state, phase, key);
+  const into = scratch === null ? null : join20(scratch, snapshotsDirectoryName);
+  const settle3 = settleOf(context, phase, key);
+  const others = othersHeld(settle3.state, phase, key);
   const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
-  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !strays.has(path));
+  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !isPending(settle3, path) && !strays.has(path));
   const ignored = new Set(ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...listed], ids, context.match);
+  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...claimedFiles(settle3.state, phase, key), ...listed], ids, context.match);
   const who = phase === "repair" ? "the repair" : `batch ${key}`;
   const why = truncated(reason, 1e3);
-  return revisions.map((revision) => {
+  return { claims: settle3.events, revisions: revisions.map((revision) => {
     const id = revision.findings[0];
     const message = id === void 0 ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}
 
@@ -26187,12 +26652,12 @@ The files are recorded as it left them after its last snapshot; no finding accou
 The files are recorded as its snapshot of ${id} held them.`, bodyLength) };
     const payload = { phase, source: { kind: "attempt", key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
     return { kind: "tree.revised", version: 1, payload };
-  });
+  }) };
 }
-function checkRevision(context, phase, kind, command) {
+function checkRevision(context, phase, kind, command, manifest) {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), expected.keys(), context.match);
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...manifest === null ? [] : changedListed(manifest)], context.match);
   if (files.length === 0) return null;
   const payload = {
     phase,
@@ -26204,18 +26669,18 @@ function checkRevision(context, phase, kind, command) {
 }
 
 // src/review/lock.ts
-import { mkdirSync as mkdirSync6, readFileSync as readFileSync10, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { mkdirSync as mkdirSync7, readFileSync as readFileSync11, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "node:fs";
 import { constants } from "node:os";
-import { join as join20 } from "node:path";
+import { join as join21 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 var locksDirectoryName = "runs";
 var sqliteBusy = 5;
 var sqliteNotADatabase = 26;
 function startLockPath(checkpointRoot) {
-  return join20(checkpointRoot, "start.lock");
+  return join21(checkpointRoot, "start.lock");
 }
 function lockPath(checkpointRoot, runId) {
-  return join20(checkpointRoot, locksDirectoryName, `${runId}.lock`);
+  return join21(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
 function holderPath(path) {
   return `${path}.pid`;
@@ -26223,7 +26688,7 @@ function holderPath(path) {
 function lockHolder(path) {
   let text2;
   try {
-    text2 = readFileSync10(holderPath(path), "utf8").trim();
+    text2 = readFileSync11(holderPath(path), "utf8").trim();
   } catch (error62) {
     if (error62.code === "ENOENT") return null;
     throw error62;
@@ -26232,11 +26697,11 @@ function lockHolder(path) {
   return text2 !== "" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 function acquireRunLock(checkpointRoot, runId) {
-  mkdirSync6(join20(checkpointRoot, locksDirectoryName), { recursive: true });
+  mkdirSync7(join21(checkpointRoot, locksDirectoryName), { recursive: true });
   return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
 }
 function acquireStartLock(checkpointRoot) {
-  mkdirSync6(checkpointRoot, { recursive: true });
+  mkdirSync7(checkpointRoot, { recursive: true });
   return acquireLock(startLockPath(checkpointRoot), "is starting or ending a run in this repository");
 }
 function sqliteCode(error62) {
@@ -26274,7 +26739,7 @@ function acquireLock(path, holding) {
     }
   };
   try {
-    writeFileSync4(holderPath(path), `${String(process.pid)}
+    writeFileSync5(holderPath(path), `${String(process.pid)}
 `);
   } catch (error62) {
     release();
@@ -26305,12 +26770,12 @@ function releaseOnExit(release, end = exitBySignal) {
 }
 
 // src/review/phases.ts
-import { join as join22 } from "node:path";
+import { join as join23 } from "node:path";
 
 // src/review/policy.ts
-import { createHash as createHash5 } from "node:crypto";
-import { readFileSync as readFileSync11 } from "node:fs";
-import { join as join21 } from "node:path";
+import { createHash as createHash6 } from "node:crypto";
+import { readFileSync as readFileSync12 } from "node:fs";
+import { join as join22 } from "node:path";
 var policyFileName = "policy.json";
 var tiers = ["strong", "fast"];
 var tierSchema = external_exports.enum(tiers);
@@ -26391,10 +26856,10 @@ function parsePolicy(value) {
   return parsed.data;
 }
 function readPolicy(rolesRoot) {
-  const path = join21(rolesRoot, policyFileName);
+  const path = join22(rolesRoot, policyFileName);
   let text2;
   try {
-    text2 = readFileSync11(path, "utf8");
+    text2 = readFileSync12(path, "utf8");
   } catch (error62) {
     throw new InvalidPolicyError(`Cannot read the role policy at ${path}: ${error62.message}`);
   }
@@ -26408,7 +26873,7 @@ function readPolicy(rolesRoot) {
 }
 function rolesDigest(roles) {
   const lines = roles.map((role) => `${role.key}:${role.sha256}`).sort();
-  return createHash5("sha256").update(lines.join("\n")).digest("hex");
+  return createHash6("sha256").update(lines.join("\n")).digest("hex");
 }
 function resolvePolicy(policy, roles, adapter, flags, platform) {
   const named = Object.keys(policy.roles).sort();
@@ -26709,6 +27174,7 @@ function sweepTask(inputs) {
   ].join("\n");
 }
 var snapshotIndexPlaceholder = "<index>";
+var claimPathPlaceholder = "<path>";
 function checksBlock(checks, failing = []) {
   if (checks.every((check2) => check2.command === null)) return "No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.";
   return [
@@ -26716,9 +27182,18 @@ function checksBlock(checks, failing = []) {
     ...checks.map((check2) => check2.command === null ? `- ${check2.kind}: not available (${check2.reason ?? "no command"})` : `- ${check2.kind}: ${check2.command}`),
     "Run the ones that cover your change before you return, and report the suite you ran in `suite`.",
     ...failing.length === 0 ? [] : [
-      "These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch's tree already had it:",
+      "These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch's tree already had it, unless it lies in a file you do not hold, which is a sibling's work in flight:",
       ...failing.map((check2) => `- ${check2.kind}: ${check2.stdout}, ${check2.stderr}`)
     ]
+  ].join("\n");
+}
+function claimBlock(command) {
+  return [
+    `Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of ${claimPathPlaceholder}:`,
+    "",
+    `    ${command}`,
+    "",
+    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial. Report every file you edit or create under the finding it served."
   ].join("\n");
 }
 function snapshotBlock(command, unit) {
@@ -26730,7 +27205,7 @@ function snapshotBlock(command, unit) {
     `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
   ].join("\n");
 }
-var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, null for a deferred or blocked one, and null for an already-applied one unless this task asks for its message; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for every ${unit} that names files, whatever its status, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for, and null for a ${unit} that names no file; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 var scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
 var unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
 function earlierWork(unit, unfinished) {
@@ -26781,7 +27256,8 @@ function fixerTask(input2) {
     ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(", ")}: ${finding.firstRound.note}`]
   ].join("\n"));
   const decided = input2.findings.some((finding) => finding.decision !== null);
-  const others = input2.othersOwned.filter((cluster) => cluster.files.length > 0);
+  const others = input2.othersHeld.filter((cluster) => cluster.files.length > 0);
+  const held = [...input2.owned, ...input2.claimed.filter((path) => !input2.owned.includes(path)).map((path) => `${path} (claimed)`)];
   return [
     `Cluster ${input2.cluster}, batch ${input2.batch}${input2.secondRound ? ", in the second round" : ""}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
     "",
@@ -26795,12 +27271,12 @@ function fixerTask(input2) {
       ""
     ],
     "Files you own while this batch runs, which no other worker edits:",
-    fileList(input2.owned),
+    fileList(held),
     "",
-    "Files other clusters own, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:",
-    others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2} (${cluster.cluster})`)).join("\n"),
+    "Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:",
+    others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2.path} (${cluster.cluster}${file2.by === "claim" ? ", claimed" : ""})`)).join("\n"),
     "",
-    "You may edit any other file of the repository, existing or new, when a fix or its tests need it; report every file you edit or create under the finding it served.",
+    claimBlock(input2.claimCommand),
     "",
     checksBlock(input2.checks, input2.baselineFailures),
     "",
@@ -26947,6 +27423,11 @@ function fixerTaskOf(unit, review2, editing, evidence) {
   const earlier = siblings.slice(0, siblings.indexOf(batch));
   const firstRoundInFiles = inSecondRound ? plan.batches.filter((candidate) => plan.clusters.find((owner) => owner.id === candidate.cluster)?.files.some((path) => cluster.files.includes(path)) ?? false) : [];
   const blockedOn = new Map((second?.blocked ?? []).map((entry) => [entry.id, entry.requiredFiles]));
+  const fix = review2.fix;
+  const round = roundOf(fix, batch.key);
+  const othersHeld2 = /* @__PURE__ */ new Map();
+  for (const [path, holder] of heldByOthers(fix, batch.key)) othersHeld2.set(holder.cluster, [...othersHeld2.get(holder.cluster) ?? [], { path, by: holder.by }]);
+  if (editing.claimCommand === null) throw new Error(`The fixer of ${batch.key} needs its claim command`);
   const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
   const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const findings = batch.findingIds.map((id) => {
@@ -26976,9 +27457,11 @@ function fixerTaskOf(unit, review2, editing, evidence) {
     findings,
     earlier: [...firstRoundInFiles, ...earlier].flatMap((sibling) => batchOutcomes(review2, sibling)),
     owned: cluster.files,
-    othersOwned: clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
+    claimed: clusterClaims(fix, round, cluster.id),
+    othersHeld: [...othersHeld2].map(([held, files]) => ({ cluster: held, files })),
     checks: review2.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
+    claimCommand: editing.claimCommand,
     unelevatedSandbox: editing.unelevatedSandbox,
     mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, [...earlier, ...inSecondRound ? plan.batches : []].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review2, "fixes", unit.key),
@@ -27090,12 +27573,13 @@ function taskFor(unit, review2, options2 = {}) {
   }
 }
 function invocationFor(unit, context) {
-  const review2 = requireReview2(context.state);
   const role = context.roles.get(unit.role);
   if (role === void 0) throw new Error(`No assembled prompt for role ${unit.role}`);
   const policy = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join22(scratch, snapshotsDirectoryName)), unelevatedSandbox: context.unelevatedEditors };
+  const shared = unit.phase === "fixes" ? context.claims.directoryOf(unit.key) : null;
+  const review2 = requireReview2(unit.phase === "fixes" ? settleClaims(context.state, unit.key, context.claims.live(unit.key), context.worktree).state : context.state);
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join23(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === "survey" ? context.survey() : null;
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
   return {
@@ -27111,11 +27595,12 @@ function invocationFor(unit, context) {
     timeoutMs: policy.timeoutMs,
     ...policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd },
     ...scratch === null ? {} : { scratch },
+    ...shared === null ? {} : { shared },
     label: unitLabel(unit.role, unit.phase, unit.key)
   };
 }
-function failed(unit, receipt, reason) {
-  return { kind: "attempt.failed", version: 4, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
+function failed(unit, receipt, reason, fault) {
+  return { kind: "attempt.failed", version: 5, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 function recordCandidates(phase, key, candidates, state, worktree) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -27159,6 +27644,7 @@ function recordedDecisions(output2, findings) {
   }));
 }
 function contributionOf(unit, receipt, context) {
+  if (unit.phase === "fixes" && context.claimsLost) return failedWithEdits(unit, receipt, "the claims directory was removed while the unit ran", context, "environment");
   if (receipt.outcome !== "completed") return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`, context);
   const review2 = requireReview2(context.state);
   try {
@@ -27168,9 +27654,11 @@ function contributionOf(unit, receipt, context) {
     throw error62;
   }
 }
-function failedWithEdits(unit, receipt, reason, context) {
-  const failure2 = failed(unit, receipt, reason);
-  return isEditingPhase(unit.phase) ? [failure2, ...attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason)] : [failure2];
+function failedWithEdits(unit, receipt, reason, context, fault = "unit") {
+  const failure2 = failed(unit, receipt, reason, fault);
+  if (!isEditingPhase(unit.phase)) return [failure2];
+  const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason);
+  return [...attempt.claims, failure2, ...attempt.revisions];
 }
 function contributionEvent(unit, receipt, review2, context) {
   const { state, worktree } = context;
@@ -27531,17 +28019,27 @@ function finalStatus(fix, path) {
   if (existedBefore) return existsAfter ? "modified" : "deleted";
   return existsAfter ? "created" : "created, then deleted";
 }
+function heldBy(fix, path) {
+  const rounds = [fix.plan, fix.secondRound].flatMap((plan, index2) => plan === null ? [] : [{ round: index2 + 1, clusters: plan.clusters }]);
+  const holders = rounds.flatMap(({ round, clusters }) => {
+    const owner = clusters.find((cluster) => cluster.files.includes(path));
+    if (owner !== void 0) return [owner.id];
+    const claim3 = claimsOfRound(fix, round).findLast((candidate) => candidate.path === path);
+    return claim3 === void 0 ? [] : [`${claim3.cluster} (${claim3.claimedAt === null ? "claimed late" : "claimed"})`];
+  });
+  return holders.length === 0 ? "nobody" : [...new Set(holders)].join(", ");
+}
 function changedFilesSection(fix, patches) {
   const paths = [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
   const rows = paths.map((path) => {
     const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file2) => file2.path === path)).map(revisedBy))];
-    return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(", "))} |`;
+    return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(", "))} | ${tableCell(heldBy(fix, path))} |`;
   });
   const series = fix.revisions.map((revision, index2) => `${String(index2 + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}): ${patches[index2] ?? "not written"}`);
   return [
     "## Changed files",
     "",
-    ...paths.length === 0 ? ["No file was changed."] : ["| Path | Status | Changed by |", "|---|---|---|", ...rows],
+    ...paths.length === 0 ? ["No file was changed."] : ["| Path | Status | Changed by | Held by |", "|---|---|---|---|", ...rows],
     ...series.length === 0 ? [] : ["", "The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:", "", ...series]
   ];
 }
@@ -27563,10 +28061,28 @@ function fixLimitations(review2) {
   const fix = review2.fix;
   if (fix === null) return [];
   const lines = [];
-  const owner = (key, path) => (fix.secondRound?.batches.some((batch) => batch.key === key) === true ? fix.secondRound.clusters : fix.plan?.clusters ?? []).find((cluster) => cluster.files.includes(path))?.id ?? "no cluster";
+  const holder = (key, path) => {
+    const round = roundOf(fix, key);
+    const owner = ((round === 2 ? fix.secondRound?.clusters : fix.plan?.clusters) ?? []).find((cluster) => cluster.files.includes(path));
+    if (owner !== void 0) return `owned by ${owner.id}`;
+    const own2 = allBatches(fix).find((batch) => batch.key === key)?.cluster;
+    const claim3 = claimsOfRound(fix, round).findLast((candidate) => candidate.path === path && candidate.cluster !== own2);
+    return claim3 === void 0 ? "held by no cluster" : `claimed by ${claim3.cluster}`;
+  };
   for (const answer of Object.values(fix.answers.fixes)) {
-    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, owned by ${owner(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
+    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, ${holder(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
   }
+  fix.revisions.forEach((revision, index2) => {
+    if (revision.source.kind !== "fix") return;
+    const { key } = revision.source;
+    const later = fix.revisions.slice(index2 + 1).filter((candidate) => candidate.source.kind === "check");
+    for (const file2 of revision.files) {
+      const check2 = later.find((candidate) => candidate.files.some((rewritten) => rewritten.path === file2.path));
+      if (check2 !== void 0 && check2.source.kind === "check") lines.push(`- Rewritten by a later check: ${inlineText(file2.path)}, in ${key}'s revision of ${revision.change.findings.join(", ")}, by the ${check2.source.check} check in ${check2.phase}; a generated file the fixer kept, or a fix the check reformatted.`);
+    }
+  });
+  for (const claim3 of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim3.path)} by ${claim3.key}, edited before it was claimed (R6 of commit series integrity).`);
+  for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lost.holder === null ? "which no batch of the round has" : `to ${lost.holder}`}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
   const strays = [...new Set(review2.checks.flatMap((check2) => check2.strays))].sort();
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(", ")}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check2) => check2.command === null);
@@ -27776,6 +28292,22 @@ function once(read) {
   return () => (memo2 ??= { value: read() }).value;
 }
 var fileCount = (count2) => `${String(count2)} file${count2 === 1 ? "" : "s"}`;
+function claimLines(event) {
+  if (event.kind === "files.claimed") {
+    const { key, files } = event.payload;
+    const timed = files.filter((file2) => file2.claimedAt !== null).map((file2) => file2.path);
+    const late = files.filter((file2) => file2.claimedAt === null).map((file2) => file2.path);
+    return [
+      ...timed.length === 0 ? [] : [`worker fixer fixes:${key}: claimed ${fileCount(timed.length)}: ${timed.join(", ")}`],
+      ...late.length === 0 ? [] : [`worker fixer fixes:${key}: claimed late, edited before it was claimed: ${late.join(", ")}`]
+    ];
+  }
+  if (event.kind === "claims.lost") {
+    const { unit, files } = event.payload;
+    return files.map((file2) => `phase fixes: claim lost: ${file2.path} by ${unit} ${file2.holder === null ? "which no batch of the round has" : `to ${file2.holder}`}`);
+  }
+  return [];
+}
 var revisionSummary = (revision) => {
   const files = fileCount(revision.files.length);
   return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(", ")}`;
@@ -27800,12 +28332,15 @@ function ancestorDirectories(changedPaths2) {
   return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
 }
 function presurveyRulesFiles(worktree, changedPaths2, home) {
-  const repository = ancestorDirectories(changedPaths2).flatMap((directory) => presurveyRulesFileNames.map((name) => directory === "" ? name : `${directory}/${name}`)).filter((path) => isFile(join23(worktree, ...path.split("/"))));
+  const repository = ancestorDirectories(changedPaths2).flatMap((directory) => presurveyRulesFileNames.map((name) => directory === "" ? name : `${directory}/${name}`)).filter((path) => isFile(join24(worktree, ...path.split("/"))));
   return [...existingUserRulesFiles(home).map((path) => ({ level: "user", path })), ...repository.map((path) => ({ level: "repository", path }))];
 }
 var driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
 function snapshotCommandFor(engineEntry, into) {
   return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
+}
+function claimCommandFor(engineEntry, unit, into) {
+  return `node "${engineEntry}" claim --path "${claimPathPlaceholder}" --unit ${unit} --in "${into}"`;
 }
 async function runReview(options2) {
   const log = options2.log ?? ((line) => {
@@ -27842,6 +28377,64 @@ async function runReview(options2) {
     }
   };
   const surveyInputs = () => surveyed;
+  const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
+  const scratchBase = join24(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
+  const caseInsensitive = once(() => caseInsensitiveFileSystem(options2.worktree));
+  const claimsDirectory = (key) => claimsDirectoryFor(scratchBase, runId, roundOf(state.review.fix, key));
+  const preparedClaims = /* @__PURE__ */ new Set();
+  let claimsLost2 = null;
+  const loseClaims = (directory) => {
+    if (claimsLost2 !== null) return;
+    claimsLost2 = directory;
+    log(`phase fixes: the claims directory ${directory} is gone; no more launches, the running units will be recorded as failed attempts`);
+  };
+  const claimsGone = (key) => {
+    const directory = claimsDirectory(key);
+    if (claimsLost2 === null && preparedClaims.has(directory) && !existsSync6(directory)) loseClaims(directory);
+    return claimsLost2 !== null;
+  };
+  const claims = {
+    directoryOf: claimsDirectory,
+    command: (key, directory) => claimCommandFor(engineEntry, key, directory),
+    // A directory this engine has not prepared, as a resumed engine's before its first launch, has no claims to read; the next launch seeds it from the ledger (R3). One it prepared and finds gone is lost (R12).
+    live: (key) => {
+      const directory = claimsDirectory(key);
+      try {
+        if (existsSync6(directory)) return { markers: readClaims(directory, caseInsensitive()), caseInsensitive: caseInsensitive() };
+      } catch (error62) {
+        if (!(error62 instanceof ClaimsDirectoryLostError)) throw error62;
+      }
+      if (preparedClaims.has(directory)) loseClaims(directory);
+      return null;
+    }
+  };
+  const prepareOrLose = (key) => {
+    try {
+      prepareClaimsFor(key);
+      return true;
+    } catch (error62) {
+      if (!(error62 instanceof ClaimsDirectoryLostError)) throw error62;
+      loseClaims(error62.directory);
+      return false;
+    }
+  };
+  const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match, claims });
+  const prepareClaimsFor = (key) => {
+    const fix = state.review.fix;
+    const round = roundOf(fix, key);
+    const plan = round === 1 ? fix.plan : fix.secondRound;
+    if (plan === null) throw new Error(`Run ${runId} launches ${key} before its round is planned`);
+    const held = {
+      worktree: options2.worktree,
+      clusters: Object.fromEntries(plan.clusters.map((cluster) => [cluster.id, [...cluster.files]])),
+      units: Object.fromEntries(plan.batches.map((batch) => [batch.key, batch.cluster])),
+      settled: [...settledClusters(fix, round)].sort(),
+      caseInsensitive: caseInsensitive()
+    };
+    const directory = claimsDirectory(key);
+    prepareClaims(directory, held, claimsOfRound(fix, round).map((claim3) => ({ path: claim3.path, cluster: claim3.cluster, unit: claim3.key, claimedAt: claim3.claimedAt })), preparedClaims.has(directory));
+    preparedClaims.add(directory);
+  };
   const record2 = (settled2, startedAt) => {
     const name = unitName(settled2.unit.phase, settled2.unit.key);
     if ("error" in settled2) throw settled2.error;
@@ -27863,8 +28456,9 @@ async function runReview(options2) {
         return;
       }
     }
-    const events = contributionOf(settled2.unit, settled2.receipt, { state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match, survey: surveyInputs });
+    const events = contributionOf(settled2.unit, settled2.receipt, { ...revisionContext(), survey: surveyInputs, claimsLost: phase === "fixes" && claimsGone(settled2.unit.key) });
     for (const event of events) {
+      for (const line of claimLines(event)) log(line);
       if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
       if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: ${revisionSummary(event.payload)}`);
       if (event.kind === "survey.recorded") for (const line of surveyLines(runId, event.payload)) log(line);
@@ -27886,7 +28480,7 @@ async function runReview(options2) {
     const unelevatedEditors = editorsUnderUnelevatedSandbox(configuration, platform);
     if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
-    state = recordLostWorkers(checkpoint, state, options2.worktree, content.match, log);
+    state = recordLostWorkers(checkpoint, state, { worktree: options2.worktree, match: content.match, claims }, log);
     state = reenterPhase(checkpoint, state, log);
     const scope = state.scope;
     const blocks = {};
@@ -27901,9 +28495,6 @@ async function runReview(options2) {
       }
       return blocks.rest;
     };
-    const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
-    const scratchBase = join23(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
-    const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match });
     const surveyFailedEvent = (reason) => {
       const failure2 = surveyFailure(reason, configuration.survey.userRules, userFiles());
       log(`phase survey: going on without the survey: ${failure2.reason}`);
@@ -27920,16 +28511,21 @@ async function runReview(options2) {
       log(`check ${due.kind} (${phase}): ${due.command}`);
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === void 0) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
-      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, timeoutMs, ioDirectory: join23(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
+      const manifest = prepareCheckManifest(join24(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree);
+      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, timeoutMs, ioDirectory: join24(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? "" : `: ${result.error}`}`);
       const ran = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
-      const revision = checkRevision(revisionContext(), phase, due.kind, due.command);
-      if (revision !== null) log(`check ${due.kind} (${phase}): rewrote ${fileCount(revision.payload.files.length)} the run expects; recorded as its revision`);
+      const revision = checkRevision(revisionContext(), phase, due.kind, due.command, manifest);
+      if (revision !== null) {
+        const expected = expectedTreeOf(state);
+        const outside = revision.payload.files.filter((file2) => !expected.has(file2.path)).length;
+        log(`check ${due.kind} (${phase}): rewrote ${fileCount(revision.payload.files.length)}${outside === 0 ? " the run expects" : `, ${String(outside)} of them outside what the run expects`}; recorded as its revision`);
+      }
       return [{ kind: "check.ran", version: 1, payload: ran }, ...revision === null ? [] : [revision]];
     };
     for (; ; ) {
       const review2 = state.review;
-      const live2 = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags };
+      const live2 = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags, claimsLost: claimsLost2 };
       const step = nextStep(review2, live2);
       switch (step.kind) {
         case "blocked":
@@ -28001,13 +28597,15 @@ async function runReview(options2) {
             scopeBlock: scopeBlockFor,
             survey: surveyInputs,
             evidence: checkpoint.evidence,
-            newScratch: () => join23(scratchBase, randomUUID4()),
+            newScratch: () => join24(scratchBase, randomUUID4()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
-            unelevatedEditors
+            unelevatedEditors,
+            claims
           };
           for (const unit of step.units) {
+            if (unit.phase === "fixes" && !prepareOrLose(unit.key)) break;
             const invocation = invocationFor(unit, context);
-            if (invocation.scratch !== void 0) prepareSnapshots(join23(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
+            if (invocation.scratch !== void 0) prepareSnapshots(join24(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
             const promise2 = runWorker(checkpoint, runId, invocation, {
@@ -28029,7 +28627,7 @@ async function runReview(options2) {
         }
         case "finish-phase":
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? "" : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: "phase.finished", version: 4, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: "phase.finished", version: 5, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case "write-report": {
           const fixState = state.review.fix;
@@ -28040,7 +28638,7 @@ async function runReview(options2) {
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
           state = append(checkpoint, state, [
             { kind: "report.written", version: 4, payload: { report, statistics, patches } },
-            { kind: "phase.finished", version: 4, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
+            { kind: "phase.finished", version: 5, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? "" : `, with ${String(patches.length)} patch${patches.length === 1 ? "" : "es"}`}`);
           break;
@@ -28203,15 +28801,16 @@ function recordLimits(checkpoint, state, limits, log) {
   log(`run ${state.id}: limits in force: concurrency ${String(limits.concurrency)}, ${limits.runBudgetUsd === null ? "no run budget" : `run budget ${limits.runBudgetUsd.toFixed(2)} USD`}`);
   return append(checkpoint, state, [{ kind: "limits.changed", version: 1, payload: limits }]);
 }
-function recordLostWorkers(checkpoint, state, worktree, match, log) {
+function recordLostWorkers(checkpoint, state, context, log) {
   const reason = "the engine exited while the worker ran";
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === "running")) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
     const lost = { kind: "worker.lost", version: 4, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
-    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ state, worktree, evidence: checkpoint.evidence, match }, unit.phase, unit.key, worker.launch.workerId, reason) : [];
-    if (edits.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.length)} revision${edits.length === 1 ? "" : "s"}`);
-    state = append(checkpoint, state, [lost, ...edits]);
+    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason) : { claims: [], revisions: [] };
+    for (const line of edits.claims.flatMap(claimLines)) log(line);
+    if (edits.revisions.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.revisions.length)} revision${edits.revisions.length === 1 ? "" : "s"}`);
+    state = append(checkpoint, state, [...edits.claims, lost, ...edits.revisions]);
   }
   return state;
 }
@@ -28226,7 +28825,7 @@ function reenterPhase(checkpoint, state, log) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute6, join as join24, posix, resolve as resolve9, win32 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute6, join as join25, posix, resolve as resolve9, win32 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -28255,7 +28854,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   const extensions = platform === "win32" ? extname(name) === "" ? spellingsOf(environment, "PATHEXT", platform)[0]?.[1]?.split(";").filter((extension) => extension.length > 0) ?? defaultPathExt : [""] : [""];
   for (const directory of directories) {
     for (const extension of extensions) {
-      const candidate = join24(directory.replaceAll('"', ""), `${name}${extension}`);
+      const candidate = join25(directory.replaceAll('"', ""), `${name}${extension}`);
       if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
     }
   }
@@ -28266,7 +28865,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
 import { execFileSync as execFileSync3 } from "node:child_process";
 import { mkdtempSync, rmSync as rmSync5 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join25 } from "node:path";
+import { join as join26 } from "node:path";
 function git2(worktree, args, options2 = {}) {
   try {
     return execFileSync3("git", ["--no-optional-locks", ...args], {
@@ -28412,9 +29011,9 @@ function build(run2, options2) {
   const scope = run2.scope;
   const fix = run2.review.fix;
   for (const [path, file2] of expectedTree(scope, fix.revisions)) if (file2 !== null) bytesOf(checkpoint, path, file2.frozen);
-  const temporary = mkdtempSync(join25(tmpdir2(), "deep-review-commit-"));
+  const temporary = mkdtempSync(join26(tmpdir2(), "deep-review-commit-"));
   try {
-    const trees = new TreeBuilder(worktree, checkpoint, join25(temporary, "index"), scope.head);
+    const trees = new TreeBuilder(worktree, checkpoint, join26(temporary, "index"), scope.head);
     const made = [];
     let parent = scope.head;
     const commit2 = (message, revision) => {
@@ -28505,11 +29104,14 @@ function fixStatus(state, review2) {
     command: check2.command,
     outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check2.kind)?.outcome ?? null]))
   }));
+  const claimingClusters = new Set(fix.claims.map((claim3) => claim3.cluster)).size;
+  const late = fix.claims.filter((claim3) => claim3.claimedAt === null).length;
   const lines = [
     fix.plan === null ? "Fix pass: not planned yet" : `Fix pass: ${batches.length === 0 ? "no batch" : batches.map((batch) => `${batch.key} ${batch.state}`).join(", ")}; ${String(held.length)} ${heldWords}`,
+    ...fix.plan === null ? [] : [`Claims: ${String(fix.claims.length)} by ${String(claimingClusters)} cluster${claimingClusters === 1 ? "" : "s"}, ${String(late)} late, ${String(fix.lostClaims.length)} lost`],
     ...checks.map((check2) => `Check ${check2.kind}: ${check2.command === null ? "not available" : checkPhases.map((phase) => `${phase} ${check2.outcomes[phase] ?? "-"}`).join(", ")}`)
   ];
-  return { lines, json: { clusters, batches, held, checks, revisions: fix.revisions.length } };
+  return { lines, json: { clusters, batches, held, claims: fix.claims, lostClaims: fix.lostClaims, checks, revisions: fix.revisions.length } };
 }
 
 // src/cli.ts
@@ -28524,8 +29126,9 @@ var usage = `usage:
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
+  deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
 
-exit codes: 0 a report (its path is the last line of stdout), a status, the commits made or a snapshot taken; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, a snapshot taken or a file claimed; 2 a blocked run or a refusal, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 var options = {
   runtime: { type: "string" },
   executable: { type: "string" },
@@ -28553,6 +29156,8 @@ var options = {
   "change-message": { type: "string" },
   finding: { type: "string" },
   into: { type: "string" },
+  unit: { type: "string" },
+  in: { type: "string" },
   help: { type: "boolean", short: "h" }
 };
 var allowed = {
@@ -28560,7 +29165,8 @@ var allowed = {
   status: ["run", "json", "repo", "help"],
   abandon: ["reason", "run", "repo", "help"],
   commit: ["run", "change-message", "repo", "help"],
-  snapshot: ["finding", "into", "repo", "help"]
+  snapshot: ["finding", "into", "repo", "help"],
+  claim: ["path", "unit", "in", "help"]
 };
 var UsageError = class extends EngineError {
   name = "UsageError";
@@ -28667,6 +29273,7 @@ async function run(argv, io) {
     if (values[flag] !== void 0 && !allowed[command].includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
   }
   if (command === "snapshot") return snapshot(values, io);
+  if (command === "claim") return claim2(values, io);
   const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve10(io.cwd, values.repo));
   switch (command) {
     case "review":
@@ -28716,8 +29323,38 @@ function snapshot(values, io) {
 `);
   return 0;
 }
+function claim2(values, io) {
+  const paths = values.path ?? [];
+  if (paths.length !== 1 || paths[0].trim() === "") throw new UsageError("--path <path> is required, once");
+  if (values.unit === void 0 || values.unit.trim() === "") throw new UsageError("--unit <key> is required");
+  if (values.in === void 0 || values.in.trim() === "") throw new UsageError("--in <dir> is required");
+  const dir = resolve10(io.cwd, values.in);
+  const { worktree } = readHeld(dir);
+  if (isInside(worktree, io.cwd) && canonicalPath(io.cwd) !== canonicalPath(worktree)) {
+    throw new UsageError(`run the claim command from the repository root ${worktree}, not from ${relative3(worktree, io.cwd)}, so the path names the file the repository does`);
+  }
+  const outcome = claimFile(dir, paths[0], values.unit);
+  switch (outcome.kind) {
+    case "owned":
+      io.stdout(`claim ${outcome.path}: owned by your cluster ${outcome.cluster}
+`);
+      return 0;
+    case "claimed":
+      io.stdout(`claim ${outcome.path}: ${outcome.created ? "claimed for" : "already held by"} your cluster ${outcome.cluster}
+`);
+      return 0;
+    case "refused":
+      io.stderr(`claim refused: ${outcome.path} is ${outcome.by === "plan" ? "owned" : "held"} by cluster ${outcome.holder}
+`);
+      return 2;
+    case "held-by-unknown":
+      io.stderr(`claim refused: ${outcome.path} is being claimed by another worker
+`);
+      return 2;
+  }
+}
 function openCheckpoint(root, create) {
-  if (!create && !existsSync5(join26(root, ledgerFileName))) return null;
+  if (!create && !existsSync7(join27(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 async function review(values, io, root, worktree) {
