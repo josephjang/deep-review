@@ -23,9 +23,10 @@ npm run verify    # prove dist/ is what skill/ produces, byte for byte
 `dist/` is build output: `dist/claude` is the Claude Code plugin and
 `dist/codex` is the Codex skill, each produced only by `npm run build` from
 the sources under `skill/`. Edit the sources, run the build, and commit the
-result in the same change. An edit made directly in `dist/`, or in an
-installed copy, is invisible to the build and fails `npm run verify` on
-the next run.
+result in the same change: in the same commit when you commit by hand,
+or in the last commit of the series when a run of the engine made it. An
+edit made directly in `dist/`, or in an installed copy, is invisible to
+the build and fails `npm run verify` on the next run.
 
 The build replaces each `dist/<runtime>` tree wholesale, so a renamed or
 removed source never leaves a stale file behind.
@@ -48,7 +49,11 @@ older ledger.
 
 ## Before every commit
 
-`npm run check` and `npm run verify` must both pass. A commit that changes
+`npm run check` must pass at every commit. `npm run verify` must pass at
+every head that is pushed, a pull request's head and `main`, since those
+are the commits the plugin marketplace and the Codex skill install from;
+a commit in the middle of a series may leave `dist/` stale, and the
+series then ends with the commit that rebuilds it. A commit that changes
 built output includes the updated `dist/` and says in its message what
 changed and why.
 
