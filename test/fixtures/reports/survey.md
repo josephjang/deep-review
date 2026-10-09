@@ -102,10 +102,10 @@ Tests the fixers say they added or tightened:
 
 ## Changed files
 
-| Path | Status | Changed by |
-|---|---|---|
-| src/a.ts | modified | lint check, c1-1, repair |
-| test/a.test.ts | created | c1-1 |
+| Path | Status | Changed by | Held by |
+|---|---|---|---|
+| src/a.ts | modified | lint check, c1-1, repair | c1 |
+| test/a.test.ts | created | c1-1 | nobody |
 
 The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:
 

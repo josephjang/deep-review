@@ -5,8 +5,8 @@
  * check counts when that differs from the reported spend, its blocker with
  * the operator's action, its report, what its decision step decided
  * (R8 of the decision step), and for a fix run (R13 of the fix
- * pass) its batches, its checks, its patches and its commits, as text
- * lines and as JSON.
+ * pass) its batches, its claims (R3 of commit series integrity), its
+ * checks, its patches and its commits, as text lines and as JSON.
  */
 import { allBatches, allClusters, isNotAttempted, lastRun } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -79,9 +79,12 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
     command: check.command,
     outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check.kind)?.outcome ?? null])),
   }));
+  const claimingClusters = new Set(fix.claims.map((claim) => claim.cluster)).size;
+  const late = fix.claims.filter((claim) => claim.claimedAt === null).length;
   const lines = [
     fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${batches.length === 0 ? 'no batch' : batches.map((batch) => `${batch.key} ${batch.state}`).join(', ')}; ${String(held.length)} ${heldWords}`,
+    ...(fix.plan === null ? [] : [`Claims: ${String(fix.claims.length)} by ${String(claimingClusters)} cluster${claimingClusters === 1 ? '' : 's'}, ${String(late)} late, ${String(fix.lostClaims.length)} lost`]),
     ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : checkPhases.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}`).join(', ')}`),
   ];
-  return { lines, json: { clusters, batches, held, checks, revisions: fix.revisions.length } };
+  return { lines, json: { clusters, batches, held, claims: fix.claims, lostClaims: fix.lostClaims, checks, revisions: fix.revisions.length } };
 }

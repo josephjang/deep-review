@@ -118,7 +118,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     // The flags named every check, so each row's source is --check, where a check the survey chose names its file.
     assert.match(text, /^\| build \| ".*fake-check\.mjs" build \| --check \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
     assert.match(text, /^## Conventions\n\nThe survey found no file that states conventions/m);
-    assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
+    // c1's fixer wrote the test without claiming it first, so its answer claimed it late (R6 of commit series integrity).
+    assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
     for (const patch of review.report!.patches) assert.ok(text.includes(box.checkpoint.evidence.pathOf(patch)), 'the report names each patch by its path');
     assert.match(text, /^- After the repair: not run, since no check failed after the fixes\.$/m);
     // The two clusters' fixers ran at once: both launched before either finished.
@@ -298,7 +299,9 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       // The change deletes src/gone.ts; c1 brings it back, a file no cluster owns, without claiming it first.
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/gone.ts': 'export const gone = 2;\n' } }], output: fixerAnswer([{ files: ['src/gone.ts'] }]) },
     });
-    reportText(await box.fix('claude'));
+    const text = reportText(await box.fix('claude'));
+    assert.match(text, /^- Claimed late: src\/gone\.ts by c1-1, edited before it was claimed \(R6 of commit series integrity\)\.$/m);
+    assert.match(text, /^\| src\/gone\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
     const state = box.run();
     assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/gone.ts created']]);
     assert.ok(state.review!.checks.every((check) => !check.drifted));
@@ -612,10 +615,13 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       writeFileSync(c1Claimed, '');
       await answeredOnLedger(box, 'c2-1');
       writeFileSync(c1MayAnswer, '');
-      reportText(await pending);
+      const text = reportText(await pending);
       const state = box.run();
       const fix = state.review!.fix!;
       assert.deepEqual(fix.answers.fixes['c2-1']!.findings.map((finding) => [finding.status, finding.requiredFiles]), [['blocked', [shared]]]);
+      // The report names who held each path: c1 by its claim in the first round, c3 by the plan in the second.
+      assert.match(text, /^\| test\/shared\.test\.ts \| created \| c1-1, c3-1 \| c1 \(claimed\), c3 \|$/m);
+      assert.match(text, /^\| docs\/c3\.md \| created \| c3-1 \| c3 \(claimed\) \|$/m);
       // c1's claim reached the ledger with c2-1's answer, the first settle after it, under c1's own key; c3's in the second round.
       assert.deepEqual(fix.claims.map((claim) => [claim.path, claim.cluster, claim.key, claim.round, claim.claimedAt === null]), [[shared, 'c1', 'c1-1', 1, false], ['docs/c3.md', 'c3', 'c3-1', 2, false]]);
       const events = box.events(state.id);
@@ -655,10 +661,11 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       writeFileSync(c2Claimed, '');
       await answeredOnLedger(box, 'c1-1');
       writeFileSync(c2MayAnswer, '');
-      reportText(await pending);
+      const text = reportText(await pending);
       const state = box.run();
       const fix = state.review!.fix!;
       assert.deepEqual(fix.answers.fixes['c1-1']!.violations, [shared]);
+      assert.match(text, /^- Ownership violation: test\/shared\.test\.ts, claimed by c2, was edited by c1-1, which reported it; the edit is kept and revised \(PD4\)\.$/m);
       const events = box.events(state.id);
       const claimedAt = events.findIndex(([kind, payload]) => kind === 'files.claimed' && payload.key === 'c2-1');
       assert.ok(claimedAt >= 0 && claimedAt < events.findIndex(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c1-1'), 'the running sibling\'s claim is on the ledger before the answer that violates it');
