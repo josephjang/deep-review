@@ -51,7 +51,7 @@ describe('claims', () => {
       assert.deepEqual(markerFiles(), [], 'no claim, no marker');
     });
 
-    it('seeds each recorded claim once, in ledger order, and removes no marker', () => {
+    it('seeds the latest recorded claim of each path once, and removes no marker', () => {
       const recorded = [
         { path: 'docs/a.md', cluster: 'c1', unit: 'c1-1', claimedAt: '2026-10-09T01:00:00.000Z' },
         { path: 'docs/a.md', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T02:00:00.000Z' },
@@ -63,10 +63,21 @@ describe('claims', () => {
       prepare({}, recorded);
       assert.deepEqual(readClaims(dir, false), first, 'a second launch seeds nothing more and keeps every marker');
       const docs = first.filter((claim) => claim.hash === markerHash('docs/a.md', false));
-      assert.deepEqual(docs.map((claim) => (claim.whole ? [claim.generation, claim.cluster] : null)), [[1, 'c1'], [2, 'c2']], 'the latest recorded claim is the holder');
+      assert.deepEqual(docs.map((claim) => (claim.whole ? [claim.generation, claim.cluster] : null)), [[1, 'c2']], 'the latest recorded claim is the holder, and an earlier one holds nothing');
       const late = first.find((claim) => claim.hash === markerHash('docs/late.md', false))!;
       assert.equal(late.whole && late.claimedAt, null, 'a late claim is seeded with no time');
       assert.ok(existsSync(join(dir, `${'f'.repeat(64)}.1.json`)));
+    });
+
+    it('seeds no earlier recorded claim above the marker of the path\'s latest one, so a settled cluster never holds it again', () => {
+      prepare({ settled: ['c1'] });
+      assert.equal(claimFile(dir, 'docs/x.md', 'c2-1', at('2026-10-09T02:00:00.000Z')).kind, 'claimed');
+      prepare({ settled: ['c1'] }, [
+        { path: 'docs/x.md', cluster: 'c1', unit: 'c1-1', claimedAt: null },
+        { path: 'docs/x.md', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T02:00:00.000Z' },
+      ]);
+      assert.deepEqual(readClaims(dir, false).map((claim) => [claim.generation, claim.whole && claim.cluster]), [[1, 'c2']]);
+      assert.deepEqual(claimFile(dir, 'docs/x.md', 'c3-1'), { kind: 'refused', path: 'docs/x.md', holder: 'c2', by: 'claim' });
     });
 
     it('seeds a recorded claim above a marker that records another claim of the path', () => {
