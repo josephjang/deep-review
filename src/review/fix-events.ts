@@ -97,11 +97,12 @@ function claimedFiles(state: RunState, phase: EditingPhase, key: string): string
 }
 
 /**
- * The message of one revision of an answer (R6, PD14): the fixer's own for
- * the one applied finding it holds, noting any finding folded into it for
- * want of a snapshot; one that names each applied finding's message when
- * it holds several; and one the engine composes from the notes when it
- * holds no applied finding, such as a deferred finding's partial edit.
+ * The message of one revision of an answer (R6, PD14 of the fix pass; R11
+ * of commit series integrity): the fixer's own for the one finding with a
+ * message it holds, whatever that finding's status, noting any finding
+ * folded into it for want of a snapshot; one that names each such
+ * finding's message when it holds several; and one the engine composes
+ * from the notes when none of its findings carries a message.
  */
 export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, findings: readonly FixedFinding[]): TreeRevised['change']['message'] {
   const held = findings.filter((finding) => revision.findings.includes(finding.id));
@@ -118,7 +119,7 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
       body: truncated(applied.map((finding) => `${finding.message!.subject}\n\n${finding.message!.body.trimEnd()}`.trimEnd()).join('\n\n'), bodyLength),
     };
   }
-  // An already-applied finding a fixer still edited files for, such as a pinning test, lands here too, since its answer carries no message: https://github.com/josephjang/deep-review/issues/9
+  // Every finding that names files carries a message (R11 of commit series integrity), so one answer still lands here: a finding that names no file whose snapshot nonetheless differs in a file another finding of the batch named, so its revision holds an edit it did not report.
   return {
     subject: truncated(`Keep the edits made for ${held.map((finding) => finding.id).join(', ')}`, subjectLength),
     body: truncated(held.map((finding) => `${finding.id} ${finding.status}: ${finding.note}`).join('\n'), bodyLength),
