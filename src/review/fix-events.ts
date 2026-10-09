@@ -208,11 +208,15 @@ export interface AttemptEvents {
  * cluster of its round holds, by the plan or by a claim, nor a sibling is
  * claiming now, less the strays the run had already listed, which the
  * attempt did not make, and the files git ignores. So a sibling's edit of
- * a file the sibling claimed is never this attempt's; an edit by a fixer
- * that ignored the claim rule is still attributed as git reports it. A
- * worker with no scratch, or one the operating system cleaned, gives only
- * the last. The expected tree then holds the attempt's work, so the retry's
- * snapshots attribute only its own.
+ * a file the sibling claimed is never this attempt's while that claim is on
+ * the ledger or in the round's directory. A claim lost with the directory
+ * (R12 of commit series integrity), or one a resumed engine cannot read
+ * because its directory was cleaned while it was down, leaves that edit to
+ * whichever attempt settles first, as the design's Verification accepts;
+ * an edit by a fixer that ignored the claim rule is still attributed as
+ * git reports it. A worker with no scratch, or one the operating system
+ * cleaned, gives only the last. The expected tree then holds the attempt's
+ * work, so the retry's snapshots attribute only its own.
  */
 export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): AttemptEvents {
   const { state, worktree, evidence } = context;
