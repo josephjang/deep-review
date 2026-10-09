@@ -8,7 +8,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, claimsOfRound, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, roundOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, claimsOfRound, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -307,14 +307,11 @@ export function fixLimitations(review: ReviewState): string[] {
   const fix = review.fix;
   if (fix === null) return [];
   const lines: string[] = [];
-  // A violation is against the reporting batch's round, so the holder named is that round's owner of the file, or the other cluster that claimed it last in that round (R6 of commit series integrity).
+  // A violation names the holder the fold judged it against when the answer was recorded, not a cluster that claimed the file after (R6 of commit series integrity).
   const holder = (key: string, path: string): string => {
-    const round = roundOf(fix, key);
-    const owner = ((round === 2 ? fix.secondRound?.clusters : fix.plan?.clusters) ?? []).find((cluster) => cluster.files.includes(path));
-    if (owner !== undefined) return `owned by ${owner.id}`;
-    const own = allBatches(fix).find((batch) => batch.key === key)?.cluster;
-    const claim = claimsOfRound(fix, round).findLast((candidate) => candidate.path === path && candidate.cluster !== own);
-    return claim === undefined ? 'held by no cluster' : `claimed by ${claim.cluster}`;
+    const held = fix.violationHolders[key]?.[path];
+    if (held === undefined) return 'held by no cluster';
+    return `${held.by === 'plan' ? 'owned' : 'claimed'} by ${held.cluster}`;
   };
   for (const answer of Object.values(fix.answers.fixes)) {
     for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, ${holder(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
