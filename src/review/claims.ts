@@ -4,7 +4,8 @@
  * <dir>`, run by a fixer before its first edit of such a file, claims it for
  * the fixer's cluster by creating one marker file exclusively under the
  * round's claims directory. The engine prepares the directory at every
- * editing launch of the fixes phase: `held.json` says which cluster owns
+ * editing launch of the fixes phase and again once each of its units
+ * settles: `held.json` says which cluster owns
  * which file, which batch belongs to which cluster, which clusters have
  * settled and whether the worktree's file system folds case, and the claims
  * the ledger holds are seeded back as markers when the directory lost them.
@@ -57,7 +58,7 @@ export class ClaimRequestError extends EngineError {
 }
 
 /**
- * The round as the engine describes it at a launch: the worktree, each
+ * The round as the engine describes it at a launch or a settle: the worktree, each
  * cluster's owned files as the plan spells them, the cluster of each batch,
  * the clusters whose every batch has settled, and whether the worktree's
  * file system folds case.
@@ -273,7 +274,7 @@ export interface RecordedMarker {
 }
 
 /**
- * Prepare the round's directory at an editing launch: create it, write
+ * Prepare the round's directory at an editing launch or a settle: create it, write
  * `held.json` afresh (whole, so the command never reads half of it, and
  * retried while a command reading it keeps Windows from replacing it), and
  * seed the ledger's latest claim of each path at the path's next
