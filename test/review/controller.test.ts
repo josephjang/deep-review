@@ -933,8 +933,8 @@ describe('presurveyRulesFiles', () => {
 
 describe('the fixer\'s commands', () => {
   it('quotes the claim command\'s path placeholder and directory, and names the unit', () => {
-    assert.equal(claimCommandFor('/engine/main.mjs', 'c8-1', '/scratch/key/claims/run/round-1'), 'node "/engine/main.mjs" claim --path "<path>" --unit c8-1 --in "/scratch/key/claims/run/round-1"');
-    assert.ok(claimCommandFor('/e', 'c1-1', '/d').includes(`"${claimPathPlaceholder}"`), 'a path with a space stays one argument');
+    assert.equal(claimCommandFor('/engine/main.mjs', 'c8-1', '/scratch/key/claims/run/round-1'), 'node "/engine/main.mjs" claim --path \'<path>\' --unit c8-1 --in "/scratch/key/claims/run/round-1"');
+    assert.ok(claimCommandFor('/e', 'c1-1', '/d').includes(`'${claimPathPlaceholder}'`), 'a path with a space stays one argument, and one with $ or a backtick is not expanded by bash or PowerShell');
   });
 
   it('quotes the snapshot command\'s directory beside its index placeholder', () => {
