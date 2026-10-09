@@ -733,24 +733,29 @@ the engine or a fragment.
 
 ### Implementation
 
-The element was built in commits `f387aef` (the claim command) to
-`3a1dd7e` (the last prompt fragment), on `698d18d`, the design as
-amended for the ledger versions, and `85a0608`, which added the
+The element was built in commits `cd6f421` (the claim command) to
+`f0c13e6` (the last prompt fragment), on `dfa6614`, the design as
+amended for the ledger versions, and `754fdd7`, which added the
 second-round task's naming of a claimed file the series had left out;
-the rebuild of `dist/` is the series' last commit. Each commit passed
-`npm run check` on Windows; `85a0608`, 1729 tests in 254 suites, 1710
-passing, 19 skipped as the platform asks, none failing, from 1653 at
-the first commit of the series. Continuous integration on the three platforms runs once the
-branch is pushed.
+the rebuild of `dist/` follows them. Each commit passed `npm run
+check` on Windows as it was made, on `2163eab`. The series was then
+rebased onto `eec946a` (2026-10-10), which brought the suite's guard
+against inherited git variables; there `npm run check` passed at the
+head, 1741 tests in 254 suites, 1722 passing, 19 skipped as the
+platform asks, none failing, and at the first eight code commits of
+the series before the per-commit run was stopped by decision: the
+series is tested at its head, and looked back over only when the head
+fails. Continuous integration runs on the three platforms for the
+pushed head.
 
 The roles digest a run configured from the repository's roles pins:
 
 | After | Digest |
 |---|---|
-| `698d18d`, before the series | `c5db64a859bd6800f11e35df517d5223e921db30f0279c233a641c74605b1c71` |
-| `aecbec6`, `fixer-role.md` | `8f2bb7d8004479651c010be6660cbe0cef74b4a91c2494474964fe54a451b6a4` |
-| `2223281`, `fixer-apply.md` | `b6ad355c8253d43a89dfe2954e3db0e1ceca0ba67bf819cc057d4778580ef78f` |
-| `3a1dd7e`, `fixer-report.md` | `18060bc439c642a4fa4e2c31e60d53e14045f202084162025370deac8aa12ea0` |
+| `dfa6614`, before the series | `c5db64a859bd6800f11e35df517d5223e921db30f0279c233a641c74605b1c71` |
+| `4e53473`, `fixer-role.md` | `8f2bb7d8004479651c010be6660cbe0cef74b4a91c2494474964fe54a451b6a4` |
+| `0a20a48`, `fixer-apply.md` | `b6ad355c8253d43a89dfe2954e3db0e1ceca0ba67bf819cc057d4778580ef78f` |
+| `f0c13e6`, `fixer-report.md` | `18060bc439c642a4fa4e2c31e60d53e14045f202084162025370deac8aa12ea0` |
 
 Decided at implementation, 2026-10-09, where the design said less or
 otherwise:
