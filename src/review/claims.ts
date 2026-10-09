@@ -21,9 +21,10 @@
  * marker.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { z } from 'zod';
+import { writeFileAtomic } from '../atomic-write.ts';
 import { EngineError } from '../errors.ts';
 import { isInside } from '../paths.ts';
 import { validateScopePath } from '../scope/capture.ts';
@@ -254,10 +255,11 @@ export interface RecordedMarker {
 
 /**
  * Prepare the round's directory at an editing launch: create it, write
- * `held.json` afresh (under a temporary name and renamed, so the command
- * never reads half of it), and seed the ledger's latest claim of each path
- * at the path's next generation when no marker of the path records it, so
- * that claim is the path's holder again after a cleaning. An earlier claim
+ * `held.json` afresh (whole, so the command never reads half of it, and
+ * retried while a command reading it keeps Windows from replacing it), and
+ * seed the ledger's latest claim of each path at the path's next
+ * generation when no marker of the path records it, so that claim is the
+ * path's holder again after a cleaning. An earlier claim
  * of the path holds nothing once a later one exists, and seeding it would
  * put a cluster above the holder. A marker records a claim when its
  * cluster, unit and time are the claim's. Nothing is removed.
@@ -268,10 +270,7 @@ export interface RecordedMarker {
 export function prepareClaims(dir: string, held: Held, recorded: readonly RecordedMarker[], expectExisting: boolean): void {
   if (expectExisting && !existsSync(dir)) throw new ClaimsDirectoryLostError(dir);
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, heldFileName);
-  const temporary = `${file}.${String(process.pid)}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(held)}\n`);
-  renameSync(temporary, file);
+  writeFileAtomic(join(dir, heldFileName), `${JSON.stringify(held)}\n`);
   const latest = new Map<string, RecordedMarker>();
   for (const claim of recorded) latest.set(markerHash(claim.path, held.caseInsensitive), claim);
   for (const [hash, claim] of latest) {
