@@ -178,6 +178,21 @@ describe('the repository\'s roles/', () => {
     }
   });
 
+  it('tells every fixer role to claim before a finding\'s first edit, and to run the quick checks before each snapshot, leaving a sibling\'s failure and restoring a generator\'s output (R1, R7 of commit series integrity)', () => {
+    for (const key of fixerRoles) {
+      const prompt = roles.find((role) => role.key === key)!.prompt;
+      assert.match(prompt, /\*\*Claim before the first edit for a finding\.\*\* Your task gives a claim\s+command\. Before you edit anything for a finding, run it once for each\s+file outside your own that the finding and its tests will need, existing\s+or new/, key);
+      assert.match(prompt, /A refused claim blocks the finding: report it `blocked` with\s+the file in `requiredFiles`, and make no edit for it\./, key);
+      assert.match(prompt, /A refusal that\s+comes after you edited leaves those edits in place: list them under the\s+finding, with a message that says the change is partial\./, key);
+      assert.ok(prompt.indexOf('**Claim before the first edit for a finding.**') < prompt.indexOf('**Snapshot after each finding.**'), `${key} claims before it snapshots`);
+      assert.match(prompt, /Before each snapshot,\s+run the checks your task gives that finish quickly, such as a typecheck\s+and a lint, on what the finding touched, and correct within the finding\s+what they show/, key);
+      assert.match(prompt, /the full suite stays at the end of your batch\./, key);
+      assert.match(prompt, /A\s+failure they show in a file you do not hold is a sibling's work in\s+flight, not yours: leave it and read past it/, key);
+      assert.match(prompt, /A generator's output is not the\s+fix: restore what a build, an install or a test rewrote before the\s+snapshot/, key);
+      assert.match(prompt, /run a tool that writes over\s+the files you hold, never over the whole tree\./, key);
+    }
+  });
+
   it('asks every fixer role for the message of an already-applied finding whose edits an earlier attempt left (R20 of the fix pass)', () => {
     for (const key of fixerRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
