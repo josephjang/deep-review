@@ -184,6 +184,11 @@ export function claimsOfRound(fix: FixState, round: 1 | 2): RecordedClaim[] {
   return fix.claims.filter((claim) => claim.round === round);
 }
 
+/** The last claim of a path in a round by a cluster other than `except`, settled or not, as `holdersOf` names a claimed path's holder. */
+export function lastClaimOf(fix: FixState, round: 1 | 2, path: string, except?: string): RecordedClaim | undefined {
+  return claimsOfRound(fix, round).findLast((claim) => claim.path === path && claim.cluster !== except);
+}
+
 /** The clusters of a round whose every batch has settled, answered or not attempted: they hold their claims no more (PD3 of commit series integrity). */
 export function settledClusters(fix: FixState, round: 1 | 2): Set<string> {
   const { clusters, batches } = roundPlan(fix, round);

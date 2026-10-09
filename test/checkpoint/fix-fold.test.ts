@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, holdersOf, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, holdersOf, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
@@ -371,6 +371,15 @@ describe('the claims fold', () => {
     const after = settled.add('files.claimed', claimed('c2-1', 'c2', [shared], '2026-10-09T02:00:00.000Z')).review().fix!;
     assert.deepEqual(holdersOf(after, 1).get(shared), { cluster: 'c2', by: 'claim' });
     assert.equal(after.claims.length, 2);
+  });
+
+  it('gives a path\'s last claim of a round, or the last by a cluster other than the one named, with its time', () => {
+    const fix = c1Settled(running().add('files.claimed', claimed('c1-1', 'c1', [shared])), [shared]).add('files.claimed', claimed('c2-1', 'c2', [shared], '2026-10-09T02:00:00.000Z')).review().fix!;
+    assert.deepEqual(lastClaimOf(fix, 1, shared), { path: shared, cluster: 'c2', key: 'c2-1', round: 1, claimedAt: '2026-10-09T02:00:00.000Z' });
+    assert.deepEqual(lastClaimOf(fix, 1, shared, 'c2'), { path: shared, cluster: 'c1', key: 'c1-1', round: 1, claimedAt: '2026-10-09T01:00:00.000Z' }, 'the named cluster\'s own claim is passed over');
+    assert.equal(lastClaimOf(fix, 1, shared, 'c9')?.cluster, 'c2', 'a cluster that never claimed it passes over nothing');
+    assert.equal(lastClaimOf(fix, 1, 'docs/none.md'), undefined, 'a path nobody claimed');
+    assert.equal(lastClaimOf(fix, 2, shared), undefined, 'a first-round claim is not the second round\'s');
   });
 
   it('folds a late claim with no time, and lost claims as their markers named them', () => {
