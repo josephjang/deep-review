@@ -30,7 +30,7 @@ import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts'
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
-import { caseInsensitiveFileSystem, claimsDirectoryFor, prepareClaims, readClaims, type Held } from './claims.ts';
+import { caseInsensitiveFileSystem, claimsDirectoryFor, ClaimsDirectoryLostError, prepareClaims, readClaims, type Held } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
@@ -350,14 +350,46 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const caseInsensitive = once(() => caseInsensitiveFileSystem(options.worktree));
   /** The claims directory of a fixes-phase unit's round, in this run's scratch. */
   const claimsDirectory = (key: string): string => claimsDirectoryFor(scratchBase, runId, roundOf(state.review!.fix!, key));
+  /** The claims directories this engine prepared, whose absence is a loss. */
+  const preparedClaims = new Set<string>();
+  /** The claims directory this engine found removed while the fixes phase edited, which stops the phase (R12 of commit series integrity). */
+  let claimsLost: string | null = null;
+  const loseClaims = (directory: string): void => {
+    if (claimsLost !== null) return;
+    claimsLost = directory;
+    log(`phase fixes: the claims directory ${directory} is gone; no more launches, the running units will be recorded as failed attempts`);
+  };
+  /** Whether a fixes-phase unit's claims directory is lost: found removed now, or before, by this engine. */
+  const claimsGone = (key: string): boolean => {
+    const directory = claimsDirectory(key);
+    if (claimsLost === null && preparedClaims.has(directory) && !existsSync(directory)) loseClaims(directory);
+    return claimsLost !== null;
+  };
   const claims: ClaimsContext = {
     directoryOf: claimsDirectory,
     command: (key, directory) => claimCommandFor(engineEntry, key, directory),
-    // A directory this engine has not prepared, as a resumed engine's before its first launch, has no claims to read; the next launch seeds it from the ledger (R3).
+    // A directory this engine has not prepared, as a resumed engine's before its first launch, has no claims to read; the next launch seeds it from the ledger (R3). One it prepared and finds gone is lost (R12).
     live: (key) => {
       const directory = claimsDirectory(key);
-      return existsSync(directory) ? { markers: readClaims(directory, caseInsensitive()), caseInsensitive: caseInsensitive() } : null;
+      try {
+        if (existsSync(directory)) return { markers: readClaims(directory, caseInsensitive()), caseInsensitive: caseInsensitive() };
+      } catch (error) {
+        if (!(error instanceof ClaimsDirectoryLostError)) throw error;
+      }
+      if (preparedClaims.has(directory)) loseClaims(directory);
+      return null;
     },
+  };
+  /** Prepare a fixes-phase unit's claims directory, or, when this engine prepared it before and it is gone, record the loss and say so. */
+  const prepareOrLose = (key: string): boolean => {
+    try {
+      prepareClaimsFor(key);
+      return true;
+    } catch (error) {
+      if (!(error instanceof ClaimsDirectoryLostError)) throw error;
+      loseClaims(error.directory);
+      return false;
+    }
   };
   /** What turning a worker's work into events reads, from the fold as it is now. */
   const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
@@ -379,7 +411,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       settled: [...settledClusters(fix, round)].sort(),
       caseInsensitive: caseInsensitive(),
     };
-    prepareClaims(claimsDirectory(key), held, claimsOfRound(fix, round).map((claim) => ({ path: claim.path, cluster: claim.cluster, unit: claim.key, claimedAt: claim.claimedAt })), false);
+    const directory = claimsDirectory(key);
+    prepareClaims(directory, held, claimsOfRound(fix, round).map((claim) => ({ path: claim.path, cluster: claim.cluster, unit: claim.key, claimedAt: claim.claimedAt })), preparedClaims.has(directory));
+    preparedClaims.add(directory);
   };
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
@@ -405,7 +439,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         return;
       }
     }
-    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), survey: surveyInputs });
+    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), survey: surveyInputs, claimsLost: phase === 'fixes' && claimsGone(settled.unit.key) });
     for (const event of events) {
       for (const line of claimLines(event)) log(line);
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
@@ -496,7 +530,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 
     for (;;) {
       const review = state.review!;
-      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags };
+      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags, claimsLost };
       const step = nextStep(review, live);
       switch (step.kind) {
         case 'blocked':
@@ -578,8 +612,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             claims,
           };
           for (const unit of step.units) {
-            // A fixer's claims directory is ready before its task reads the live markers and before the fixer can run the claim command into it.
-            if (unit.phase === 'fixes') prepareClaimsFor(unit.key);
+            // A fixer's claims directory is ready before its task reads the live markers and before the fixer can run the claim command into it; one this engine prepared and finds gone launches nothing more (R12).
+            if (unit.phase === 'fixes' && !prepareOrLose(unit.key)) break;
             const invocation = invocationFor(unit, context);
             // An editing worker's snapshots compare with the tree as it is now, from a manifest taken here, outside its sandbox (R23, TD20).
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());

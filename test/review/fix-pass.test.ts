@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { describeRun } from '../../src/review/status.ts';
@@ -708,6 +708,55 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       assert.equal(failed.length, 1);
       assert.match(String(failed[0]![1].reason), /^structural check: The answer names no finding for the owned or claimed file docs\/a\.md, whose bytes changed/);
       assert.deepEqual(state.review!.fix!.claims.map((claim) => [claim.path, claim.key]), [['docs/a.md', 'c1-1']], 'claimed once, with the failure, and the retry held it');
+    });
+
+    it('stops the run when its claims directory is removed while two fixers run, keeps their edits, and retries them on a directory seeded again (R12)', async (t) => {
+      const box = ReviewSandbox.forTest(t);
+      const c1MayAnswer = join(box.directory, 'c1-may-answer');
+      const c2MayAnswer = join(box.directory, 'c2-may-answer');
+      box.script({
+        ...reviewScript,
+        'fixer:fixes:c1-1': [
+          { edits: [{ claims: ['docs/c1.md'], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, 'docs/c1.md': 'c1\n' }, snapshot: 0 }], waitFor: c1MayAnswer, output: fixerAnswer([{ files: ['docs/c1.md', 'src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+          { edits: [{ claims: ['docs/c1.md'], expectClaim: 'claimed' }], output: fixerAnswer([{ status: 'already-applied', files: ['docs/c1.md', 'src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+        ],
+        'fixer:fixes:c2-1': [
+          { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], waitFor: c2MayAnswer, output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+          { output: fixerAnswer([{ status: 'already-applied', files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+        ],
+      });
+      const pending = box.fix('claude');
+      await until(() => box.checkpoint.foldRuns().length === 1 && box.markers().length === 1 && existsSync(join(box.repo, 'src', 'b.ts')) && readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8') === fixedB && box.checkpoint.foldRuns()[0]!.review?.fix?.plan !== null, 'both fixers\' edits in the tree', 120_000);
+      const directory = box.claimsDirectory();
+      rmSync(directory, { recursive: true });
+      // c1 settles first: its claim of docs/c1.md was lost with the directory, so a sibling settling first would read c1's edit of it as its own, which R12 accepts; this order keeps each attribution to assert.
+      writeFileSync(c1MayAnswer, '');
+      await until(() => (box.checkpoint.foldRuns()[0]?.review?.units.fixes['c1-1']?.failures.length ?? 0) > 0, 'c1-1\'s failure on the ledger', 120_000);
+      writeFileSync(c2MayAnswer, '');
+      const blocked = await pending;
+      assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'claims-lost' && blocked.blocker.phase === 'fixes', JSON.stringify(blocked));
+      assert.equal(blocked.kind === 'blocked' ? blocked.blocker.detail : '', `the claims directory ${directory} was removed while the run was editing`);
+      assert.match(blocked.kind === 'blocked' ? blocked.blocker.action : '', /^run the command again, which seeds the claims directory from the ledger/);
+      assert.ok(box.logs.includes(`phase fixes: the claims directory ${directory} is gone; no more launches, the running units will be recorded as failed attempts`), box.logs.join('\n'));
+      const state = box.run();
+      const events = box.events(state.id);
+      // Whatever they answered, both were recorded as failed for their environment, with their edits, and neither as answered.
+      assert.deepEqual(events.filter(([kind]) => kind === 'attempt.failed').map(([, payload]) => [payload.key, payload.fault, payload.reason]).sort(), [['c1-1', 'environment', 'the claims directory was removed while the unit ran'], ['c2-1', 'environment', 'the claims directory was removed while the unit ran']]);
+      assert.equal(events.filter(([kind]) => kind === 'fix.recorded').length, 0);
+      assert.deepEqual(revised(state).map(([kind, key, findings]) => [kind, key, findings]).sort(), [['attempt', 'c1-1', ['SCAN-1']], ['attempt', 'c2-1', ['SCAN-2']]]);
+      assert.equal(state.review!.phases.fixes.status, 'blocked');
+      // The next run seeds the directory, gives both batches fresh attempts that are told what their predecessors left, and completes.
+      reportText(await box.fix('claude'));
+      const after = box.run();
+      assert.ok(existsSync(directory), 'prepared again');
+      for (const key of ['c1-1', 'c2-1']) {
+        const prompts = Object.values(after.workers).filter((worker) => worker.launch.label === `fixer fixes:${key}`).map((worker) => box.checkpoint.evidence.read(worker.launch.prompt).toString('utf8'));
+        assert.equal(prompts.length, 2, key);
+        assert.match(prompts[1]!, /The tree may already hold part of this work/, key);
+        assert.match(prompts[1]!, /An earlier attempt left edits for SCAN-/, key);
+      }
+      assert.deepEqual(after.review!.fix!.claims.map((claim) => [claim.path, claim.key]), [['docs/c1.md', 'c1-1']], 'the retry\'s claim, made on the new directory');
+      assert.equal(after.review!.phases.fixes.status, 'completed');
     });
 
     it('lets a later cluster claim a file a settled cluster claimed, with no second round, at concurrency 1 as at any (PD3)', async (t) => {

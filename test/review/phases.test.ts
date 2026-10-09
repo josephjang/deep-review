@@ -37,7 +37,7 @@ const noSurveyInputs: SurveyInputs = { platform: 'linux', flags: noCheckFlags, u
 
 /** The one event a reading unit's receipt becomes; a reading unit freezes and compares nothing, so the evidence store refuses every write and the comparison every call. */
 const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string, survey: SurveyInputs = noSurveyInputs): NewEvent => {
-  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); }, claims: null, survey: () => survey });
+  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); }, claims: null, survey: () => survey, claimsLost: false });
   assert.equal(events.length, 1, JSON.stringify(events));
   return events[0]!;
 };

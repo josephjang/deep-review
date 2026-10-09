@@ -6,7 +6,7 @@ import { checkUnavailableBlocker, nextStep, unitsOf, workerFailedBlocker, type L
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { launch, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
 
-const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags };
+const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
 const flags = (commands: CheckFlags['commands'], dropped: CheckFlags['dropped'] = []): CheckFlags => ({ commands, dropped });
 const allFour = flags({ build: 'make build', typecheck: 'make typecheck', lint: 'make lint', test: 'make test' });
