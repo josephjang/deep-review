@@ -4,8 +4,10 @@ Written 2026-10-10, from measurements of `npm test` at `eec946a` and of
 experiments on top of it, on one Windows 11 machine. It records where the
 suite's wall time goes, what each change tried saved, and the failures
 that running tests concurrently exposed, so the changes can be weighed
-and committed later. None of the changes is committed yet; each lever
-names what it changes, what it saved, and what it still needs.
+and committed later. Each lever names what it changes, what it saved,
+and what it needed. The report was written before any change was
+committed; "Decisions" at the end records what was committed and what
+was not.
 
 ## Summary
 
@@ -468,6 +470,9 @@ The sum of all files' time in the first run fell from 1,270 s to 740 s:
 fix-pass is still the suite's wall time: 136 s of a 139 s run.
 
 ## Decisions for the author
+
+These were open when the report was written; "Decisions" at the end
+records how each was settled.
 
 ### 1. Whether a preflight that times out disqualifies the runtime
 
