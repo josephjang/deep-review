@@ -855,15 +855,15 @@ The gate of R10 is filled in this form:
 | | `71ae22a2`, parallel | `8dbe23ad`, one at a time | The gate |
 |---|---|---|---|
 | Concurrency in the fix pass | 4 | 1 | 4 |
-| Engine commits, green alone | 13 of 23 | 16 of 17 | |
-| Commits holding another cluster's edit (pass: 0) | 10 of 23 | 0 of 17 | |
-| Red commits inside one batch (pass: each explained) | 0 of 23 | 1 of 17 | |
-| Fixer workers | 14 | 13 | |
-| Claims made, refused, late | | | |
-| Second round | 7 findings, 2 batches | 6 findings, 2 batches | |
-| Left blocked by a second-round refusal | 0 | 0 | |
-| Fixes phase, wall seconds | 3905 | 5964 | |
-| The run: workers, USD | 48, 37.86 | 47, 32.34 | |
+| Engine commits, green alone | 13 of 23 | 16 of 17 | 39 of 40 |
+| Commits holding another cluster's edit (pass: 0) | 10 of 23 | 0 of 17 | 2 of 40 |
+| Red commits inside one batch (pass: each explained) | 0 of 23 | 1 of 17 | 1 of 40 |
+| Fixer workers | 14 | 13 | 19 |
+| Claims made, refused, late | | | 38, 0, 0 |
+| Second round | 7 findings, 2 batches | 6 findings, 2 batches | 10 findings, 3 batches |
+| Left blocked by a second-round refusal | 0 | 0 | 0 |
+| Fixes phase, wall seconds | 3905 | 5964 | 8849 |
+| The run: workers, USD | 48, 37.86 | 47, 32.34 | 59, 55.53 |
 
 The gate passes when the first of the two added rows is zero and every
 commit of the second has its cause named (R10, F10); the first row is
@@ -875,6 +875,59 @@ commits were checked after 2026-10-08's incident, and runs
 `npm run verify` on the series' last commit, which the build check's
 tail revision makes current (PD9); nothing is rebuilt by hand, and it is
 never run under `git rebase --exec` (#27).
+
+The gate ran on 2026-10-10 as run `55ecace9`: the engine built at
+`89b2e30` on Claude Code 2.1.295, on this element's change from
+`eec946a`, with the source, test, role and script paths in scope and the
+proposal, `dist/` and the golden fixtures left out, the four checks
+named by flag, the build check among them, and a budget of 150 USD. The
+reviewers found 38 findings; the decision fixed 31, left 5 and asked 2,
+whose defaults applied. The fix pass applied 31 and found 2 already
+applied, and every check passed before and after the fixes.
+`deep-review commit` made 40 commits, with no hand edit, from `2a25cb6`
+to `538ef73`, the build check's rewrite of `dist/`; `npm run verify`
+passed there.
+
+**The gate does not pass.** Two commits hold a path their cluster
+neither owned nor claimed, both from the attempt of `c3-2` that ran past
+its timeout:
+
+- `6d14108`, the attempt's revision of FOOTGUNS-2, holds
+  `test/checkpoint/events-vocabulary.test.ts`, which `c11` had claimed
+  and whose edit `c11-1` had already recorded, and holds it as the
+  attempt's snapshot had read it, before that edit: the commit takes
+  `c11`'s new test out again, and `a3cd21d` puts it back. The cause is in
+  the engine: the attempt's paths leave out the paths `heldByOthers`
+  names, and that set drops a settled cluster's claims (PD3), so once
+  `c11` had settled its file was no longer kept from the attempt. R5
+  asks that a sibling's claimed file never be attributed to an attempt,
+  settled or not.
+- `a3cd21d`, the attempt's revision after its last snapshot, holds that
+  file again and the four `dist/` files a fixer's `npm run build` had
+  left, a build of the tree with its siblings' edits half made. R5 lets
+  an attempt take a path no other cluster holds, and PD9 accepted a
+  generator's output in a revision; R10's first row counts it all the
+  same.
+
+The red commit, `37c4b82`, the revision of SCAN-2 in batch `c1-1`,
+fails one test under the full suite, the R11 test of `fix-pass`, whose
+two fixers settle in an order the test does not fix: it passed ten runs
+of ten alone at that commit and at the head. The race is in the test
+this element added, not in the commit.
+
+The run also stopped once: at the end of the fixes phase the worktree
+check found the four `dist/` files rewritten after the attempt's
+revision had recorded them, by a later fixer's build that no answer's
+revision takes, and blocked the run on drift. PD9 widened the drift
+check to tracked files outside the expected tree without a fixer's
+leftover in them being foreseen. The files were restored to the bytes
+the run expected and the run resumed; the build check then rewrote them
+into the tail revision. The attempt of `c3-2` timed out after 1800 s,
+and Windows' `taskkill` could not end its process tree, though none of
+it was left running afterwards; its retry answered. One worker's cost
+went unreported, so the run cost more than 55.53 USD. No claim was
+refused at a settle and no violation was recorded; a claim the command
+refused is not on the ledger.
 
 ## Risks & Migration
 
