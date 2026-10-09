@@ -316,8 +316,11 @@ recorded as a violation, a file nobody held that a fixer edited without
 claiming it as a late claim, a file no answer names as a stray, and none
 of them stops the run. A check that rewrites tracked files, a build that
 regenerates `dist/`, is recorded as the check's revision, judged against
-a list of every tracked file taken just before it, so the rebuilt tree
-is the series' last commit rather than a change left in the worktree.
+a list of every tracked file taken just before it, so the rebuilt
+tracked files are the series' last commit rather than a change left in
+the worktree. A file the check creates, such as a new file a build
+writes under `dist/`, is not tracked, so it stays a stray, named in
+Limitations and in no commit.
 
 The checks are the repository's own `build`, `typecheck`, `lint` and
 `test` commands, as the survey chose them or a `--check <kind>=<command>`
