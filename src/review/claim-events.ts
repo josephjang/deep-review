@@ -72,8 +72,16 @@ export function holderSpelled(lookup: RepoLookup, holders: ReadonlyMap<string, S
   };
 }
 
-/** A marker's path in the worktree's own spelling, as an answer's paths are resolved, or else a holder's, so one file never has two holders through two spellings. */
-function resolvedPath(worktree: string, lookup: RepoLookup, path: string): string {
+/**
+ * A marker's path in the worktree's own spelling, as an answer's paths are
+ * resolved, or else a holder's, so one file never has two holders through
+ * two spellings; where the file system does not fold case, the path as the
+ * marker names it, which is already the file's own exact name, since the
+ * worktree's lookup matches names case-insensitively and would give a new
+ * `src/Util.ts` the existing `src/util.ts`.
+ */
+function resolvedPath(worktree: string, lookup: RepoLookup, path: string, caseInsensitive: boolean): string {
+  if (!caseInsensitive) return path;
   try {
     return resolveReportedPath(worktree, lookup, path);
   } catch (error) {
@@ -149,9 +157,9 @@ function compareText(a: string, b: string): number {
  * lacks in this round, or under a cluster not its batch's, is lost as
  * `unplanned`; one on a path a cluster of the round owns as `owned`; one
  * on a path another unsettled cluster, or its own, already holds as
- * `held`. Every other is a claim, its path resolved to the worktree's
- * spelling, or for a file the worktree does not hold to a holder's
- * spelling of it. Markers not yet whole are left for the next settle and
+ * `held`. Every other is a claim, its path, where the file system folds
+ * case, resolved to the worktree's spelling, or for a file the worktree
+ * does not hold to a holder's spelling of it. Markers not yet whole are left for the next settle and
  * returned as pending. A unit with no directory to read settles as
  * `settledNothing`.
  */
@@ -172,7 +180,7 @@ export function settleClaims(state: RunState, key: string, live: LiveClaims, wor
   const lost: Lost[] = [];
   const whole = live.markers.filter((marker): marker is LiveClaim & { whole: true } => marker.whole).sort(madeOrder);
   for (const marker of whole) {
-    const path = resolvedPath(worktree, lookup, marker.path);
+    const path = resolvedPath(worktree, lookup, marker.path, caseInsensitive);
     if (known.has(marked(path, marker.cluster, marker.unit, marker.claimedAt))) continue;
     const claim: Accepted = { unit: marker.unit, cluster: marker.cluster, path, claimedAt: marker.claimedAt };
     const batch = batchOf(fix, marker.unit);
