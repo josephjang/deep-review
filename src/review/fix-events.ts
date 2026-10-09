@@ -155,7 +155,9 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
  * `tree.revised` per revision its snapshots give. Throws
  * `StructuralCheckError` for an answer that leaves out an index, reports
  * a path outside the repository, or leaves out an owned or claimed file
- * whose bytes changed; its claims are then recorded with its failure, and
+ * whose bytes changed. Its failure then records the claims the settle
+ * reads from the round's directory but no late claim, which only an
+ * answered unit makes, so a file it edited without claiming stays free;
  * the retry is told the tree may hold its work.
  */
 export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: RevisionContext): NewEvent[] {
