@@ -190,10 +190,15 @@ clusters, whose files are free again (PD3); a running sibling's claim is
 in the directory only, and this is the one place the engine reads it
 before that sibling settles. `resolveFixerAnswer`'s context field is renamed
 `othersHeld`, and the violation rule is unchanged in shape: a named
-path another cluster holds is listed in `violations`.
+path another cluster holds is listed in `violations`. `requireOwnedReported`
+covers the cluster's claimed files beside its owned ones (decided
+2026-10-09, at implementation): a claim says the fixer will edit the
+file, so an edit of it the answer leaves out is refused at the answer,
+where the retry is told the tree may hold the work, rather than reaching
+the phase's end check as drift and blocking the run.
 
 When a unit's outcome is recorded, the engine appends, in the same
-append, before the unit's own `fix.recorded@1`, `attempt.failed@4` or
+append, before the unit's own `fix.recorded@1`, `attempt.failed@5` or
 `worker.lost@4` and before its revisions:
 
 - `files.claimed@1` `{ phase: 'fixes', key, cluster, files: [{ path,
@@ -220,13 +225,23 @@ filters the markers by the same rules the reducer applies, against the
 fold it is about to append to: a marker on a path a cluster of the
 round owns, on a path an unsettled other cluster already holds on the
 ledger, or from a unit the plan lacks, which is a marker the engine did
-not write, is not appended. Each such marker is logged as `claim lost:
-<path> by <unit> to <holder>`, kept in the controller's memory for the
-report's Limitations, and the path's edits then fall under the
-violation rule (R6). A marker can lose this way only through a
-spelling the command could not match (TD4) or a file written outside
-the engine; a directory that vanishes stops the run first (R12).
-(Added 2026-10-09, review F9.) The
+not write, is not appended as a claim. Each such marker is logged as
+`claim lost: <path> by <unit> to <holder>` and recorded, in the same
+append and before the claims, as an entry of `claims.lost@1` `{ phase:
+'fixes', unit, cluster, files: [{ path, claimedAt, reason, holder }] }`,
+one event per marker-writing unit, `reason` one of `owned`, `held` and
+`unplanned` and `holder` the cluster that owns or holds the path, null
+for `unplanned`. `unit` and `cluster` are the marker's own strings, not
+plan keys, since a marker from a unit the plan lacks is one of the
+things recorded; the reducer `claimsLost` holds only that the fixes
+phase runs and the list is not empty, and the entries join
+`FixState.lostClaims`, which Limitations and `status` read. (Decided
+2026-10-09, at implementation: the first draft kept them in the
+controller's memory, which a resumed engine does not have.) The path's
+edits then fall under the violation rule (R6). A marker can lose this
+way only through a spelling the command could not match (TD4) or a file
+written outside the engine; a directory that vanishes stops the run
+first (R12). (Added 2026-10-09, review F9.) The
 `fixRecorded` reducer checks each violation against the paths the other
 clusters of the round hold, by their plan's files or by a claim folded
 before the answer, which the order above makes every claim made by then;
@@ -247,15 +262,23 @@ again, which seeds it from the ledger and retries the units that ran
 without it".
 
 A unit that ends after the loss is not answered. Whatever its worker
-returned, `record` appends `attempt.failed@4` with the reason "the
+returned, `record` appends `attempt.failed@5` with the reason "the
 claims directory was removed while the unit ran" and `fault:
-'environment'`, a new field of that kind, with the attempt's revisions
+'environment'`, the field version 5 adds, with the attempt's revisions
 (R20) in the same append; `interrupted` in `steps.ts` reads `fault:
 'environment'` as it reads `lost`, so the failure exhausts nothing and
-the unit blocks rather than degrades. `attempt.failed@4` changes in
-place, as the 2026-10-08 decision allows, with `fault: 'unit'` the
-value every existing history folds to, and `schema-1-09` carries the
-field. The resumed run re-enters the phase, seeds the directory from
+the unit blocks rather than degrades. `attempt.failed` goes to version
+5 rather than changing in place (decided 2026-10-09, at
+implementation): AGENTS.md says a changed payload shape is a new
+version, never an edit of the old schema, and the 2026-10-08 decision
+permits a new version as readily as an edit; `fault` is required on
+version 5, every version before folds to `fault: 'unit'`, and
+`schema-1-09` carries the new version. The `claims-lost` code goes the
+same way: `phase.finished@5` with `blockerSchemaV5` over a
+`reviewVocabularyV5` that adds the code, since `phase.finished@4` takes
+the blocker codes frozen by `reviewVocabularyV3`, which a test holds
+equal to the vocabulary of today, exactly as `check-unavailable` took
+version 3 (TD10). The resumed run re-enters the phase, seeds the directory from
 the recorded claims and launches the units afresh, their tasks naming
 the findings the failed attempt left edits for, as a retry's task does
 today.
@@ -332,7 +355,8 @@ leaves it changed in the worktree and in no revision. Now:
 - Before `runDueCheck` in `controller.ts` starts a check, it writes a
   manifest of the worktree's tracked files, size and time, through
   `prepareSnapshots`' manifest writer into the run's own scratch
-  (`<scratchBase>/checks/<phase>-<kind>`), never the worktree.
+  (`<scratchBase>/<runId>/checks/<phase>-<kind>`, under the run so two
+  runs on one checkpoint never share one), never the worktree.
 - After the check, `checkRevision(context, phase, kind, command,
   manifest)` revises the union of the expected tree's paths and the
   tracked paths whose size or time differ from the manifest
@@ -363,8 +387,11 @@ files, is refused naming the index, whatever its status; the subject
 rules stay. The comment on `message` in `fixerOutputSchema` says the
 message goes with the files. `revisionMessage` in `fix-events.ts` keeps
 its composed subject for a revision whose findings carry no message,
-which after this only a refused attempt's revisions reach, and its #9
-comment says so. R20 of the fix pass gains a pointer at its sentence on
+which after this one case of an answer still reaches: a finding whose
+`files` is empty but whose snapshot differs in a file another finding of
+the batch named, so its revision holds an edit it did not report; the
+comment says so in place of its #9 link. A refused attempt's revisions
+compose their own message and never pass through it. R20 of the fix pass gains a pointer at its sentence on
 the already-applied finding's message, which this rule now covers.
 
 ### The report, status and the log
@@ -375,11 +402,13 @@ and "nobody" for a path only a check or a late claim touched. The
 Limitations lines of `fixLimitations` name a violation's holder as
 "owned by c2" or "claimed by c2", add "Claimed late: <path> by
 <unit>, edited before it was claimed" for each late claim, and add
-"Claim lost: <path> by <unit> to <cluster>" for each marker the engine
-left out (F9). `status`
-prints `Claims: N by M clusters, L late` for a fix run and carries the
-claims in `--json`. The controller logs `worker fixer fixes:c8-1:
-claimed 2 files` with the answer, and the late claims by name.
+"Claim lost: <path> by <unit> to <cluster>", or "which no batch of the
+round has" for an unplanned unit, for each entry of `FixState.lostClaims`
+(F9). `status` prints `Claims: N by M clusters, L late, K lost` for a
+fix run and carries the claims and the lost claims in `--json`. The
+controller logs `worker fixer fixes:c8-1: claimed 2 files` with the
+answer, and the late and lost claims by name, all read from the events
+it appends.
 
 ### The runtime (R2)
 
@@ -438,14 +467,20 @@ new sentences.
 
 `files.claimed@1` is a new kind with a strict schema (`phase` the
 `fixes` literal, `key` a batch key, `cluster` a cluster id, `files` one
-to 2000 entries of a repository-relative path and an ISO time or null).
-No existing kind changes shape, and no vocabulary is widened, so no
-version 5 of the phase-carrying kinds is needed. The `fixes.replanned@1`
+to 2000 entries of a repository-relative path and an ISO time or null,
+no path twice), and `claims.lost@1` a second (`phase` the `fixes`
+literal, `unit` and `cluster` as the marker spelled them, `files` one
+to 2000 entries of a path, a time or null, a reason and a holder that is
+null exactly for `unplanned`). No existing kind changes shape:
+`attempt.failed@5` adds `fault` and `phase.finished@5` takes the
+blocker codes of `reviewVocabularyV5`, each a new version beside the
+old (TD10). The `fixes.replanned@1`
 reducer is widened in place: it accepts every history it accepted, and
 a ledger with no claims folds as before. The rule followed is
 AGENTS.md's: a new kind is a registry change, so the golden test fails
 until `schema-1-09` is committed with `npm run golden`, and the eight
-older fixtures stay and must fold, with `claims` empty, which is the
+older fixtures stay and must fold, with `claims` and `lostClaims` empty
+and `fault: 'unit'` on every failure, which is the
 proof a newer engine reads an older ledger. The author's decision of
 2026-10-08 says the same for this case: new kinds are added freely, the
 one compatibility requirement is that the measurement corpus stays
@@ -533,6 +568,20 @@ readable, and no kind the corpus holds changes shape here.
   revision's files are the same shape, and the commit command reads
   revisions in ledger order as before; the series is right because the
   revisions are, not because the command knows about claims.
+- **TD10: A widened enum is a new version of the kind that carries it.**
+  (Added 2026-10-09, at implementation.) `phase.finished@4` takes
+  `blockerSchemaV3`, whose code enum is `reviewVocabularyV3`'s frozen
+  list, and `test/checkpoint/events-vocabulary.test.ts` holds that list
+  equal to `recordedBlockerCodes` of today. Adding `claims-lost` to the
+  live list without a new frozen vocabulary would either break that test
+  or edit a frozen copy, which is what freezing forbids; so the code
+  arrives as `reviewVocabularyV5`, `blockerSchemaV5` and
+  `phase.finished@5`, the way `check-unavailable` arrived at version 3,
+  and `attempt.failed@5` carries `fault` for the same reason. The
+  2026-10-08 decision, that the corpus staying readable is the one
+  compatibility rule, is met either way; the version is AGENTS.md's
+  rule, kept because it costs one schema and keeps every frozen copy
+  frozen.
 
 ## Test Strategy
 
@@ -559,15 +608,18 @@ readable, and no kind the corpus holds changes shape here.
   `--in` inside the worktree, exits 0, 2 and 1 as designed, and runs
   from a fixer's shell.
 - `test/checkpoint/events-vocabulary.test.ts`: `files.claimed@1`'s
-  schema, its caps and the null time; `attempt.failed@4`'s `fault`
-  with its two values; the `claims-lost` blocker code;
-  `reviewVocabularyV4` unchanged.
+  schema, its caps and the null time; `claims.lost@1`'s schema and its
+  null holder exactly for `unplanned`; `attempt.failed@5`'s `fault`
+  with its two values, required; `reviewVocabularyV5`'s frozen codes
+  equal to today's, `blockerSchemaV5` taking `claims-lost` and
+  `blockerSchemaV3` refusing it; `reviewVocabularyV4` unchanged.
 - `test/checkpoint/review-fold.test.ts` and `test/review/steps.test.ts`:
   an attempt failed with `fault: 'environment'` does not exhaust its
   unit and blocks the phase as a lost worker does; every existing
   history folds with `fault: 'unit'`.
 - `test/checkpoint/fix-fold.test.ts`: claims fold into `FixState.claims`
-  and `holdersOf`; refusals for a claim before the plan, by a unit the
+  and `holdersOf`, lost claims into `FixState.lostClaims` and are refused
+  outside a running fixes phase; refusals for a claim before the plan, by a unit the
   plan lacks, under another cluster's name, of a file a cluster of the
   round owns, of a file another cluster claimed, of a file claimed
   twice by one cluster, and in a phase not running; a claim of a file
@@ -708,19 +760,19 @@ never run under `git rebase --exec` (#27).
   with `--roles <old dir>`, since the fixer fragments change the roles
   digest; its fix pass then runs without claims, as its task and plan
   were made.
-- A ledger written before this change folds with `claims` empty and its
-  second round as recorded; nothing is migrated. The measurement corpus
-  under `projects\gate\replay` holds no `files.claimed` and folds as
-  before, which the golden test and the corpus check in Verification
-  show.
+- A ledger written before this change folds with `claims` and
+  `lostClaims` empty and its second round as recorded; nothing is
+  migrated. The measurement corpus under `projects\gate\replay` holds no
+  `files.claimed` or `claims.lost` and folds as before, which the golden
+  test and the corpus check in Verification show.
 - The claims directory is under the system's temporary directory, as
   the scratch is; a cleaning mid-round stops the run with `claims-lost`
   once the engine sees it, the units then running are recorded as
   failed attempts whose edits are kept, and the next run seeds the
-  directory from the ledger and retries them (R12). `attempt.failed@4`
-  gains `fault` in place and the `Blocker` code enum gains
-  `claims-lost`, both carried by `schema-1-09`; every older ledger folds
-  with `fault: 'unit'`.
+  directory from the ledger and retries them (R12). `attempt.failed@5`
+  carries `fault` and `phase.finished@5` the `claims-lost` code, both in
+  `schema-1-09` (TD10); every older ledger folds with `fault: 'unit'`
+  and no `claims-lost`.
 - `othersHeld` reads the live directory at the answer and the launch;
   a claim made by a sibling between a unit's launch and its answer is
   not in that unit's task, which is why the fixer runs the command
