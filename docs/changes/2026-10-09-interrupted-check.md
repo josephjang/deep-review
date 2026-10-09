@@ -15,9 +15,10 @@ earlier one, which is the ledger's rule for a wrong record. A check that
 passed before the engine was stopped is not run again.
 
 This proposal comes from the same runs as
-`2026-10-09-commit-series-integrity.requirements.md` and travels in the
-same pull request; it changes the checks phases' planner and reducer
-and nothing a fixer, a revision or a claim touches, so it stands alone.
+`2026-10-09-commit-series-integrity.requirements.md` and was split out
+of that proposal's pull request (#32) into its own (#33); it changes
+the checks phases' planner and reducer and nothing a fixer, a revision
+or a claim touches, so it stands alone.
 
 ## Problem
 
@@ -152,11 +153,11 @@ was cut short, because it is re-entering it.
   rerun's `check.ran@1` at the later attempt is that event, and
   `lastRun` already reads the last; nothing marks the earlier run void,
   and `status --json` carries both.
-- **D4: Not folded into the commit series design.** The two share a
-  pull request and two runs, not a code path: this change is `dueCheck`
-  in `src/review/steps.ts`, `checkRan` in `src/checkpoint/fix-fold.ts`,
-  one Limitations line and one log line, and its tests are the checks
-  phases' own.
+- **D4: Not folded into the commit series design.** The two share two
+  runs, not a pull request (#32, #33) and not a code path: this change
+  is `dueCheck` in `src/review/steps.ts`, `checkRan` in
+  `src/checkpoint/fix-fold.ts`, one Limitations line and one log line,
+  and its tests are the checks phases' own.
 
 ## Design
 
