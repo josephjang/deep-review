@@ -238,10 +238,12 @@ export interface RevisionSources {
  * its first edit and holds until it settles, so no other fixer edits it
  * meanwhile and its revisions hold only its own cluster's edits; a fixer
  * that edits it unclaimed is recorded as a late claim or a violation (R1,
- * R6 of commit series integrity). Each snapshot is
- * taken right after its finding, never checked, so one finding's revision
- * can hold an edit a later finding of the batch corrects:
- * https://github.com/josephjang/deep-review/issues/24
+ * R6 of commit series integrity). Each snapshot is taken right after its
+ * finding and the engine checks none of them; the fixer's prompt asks it
+ * to run the quick checks before each snapshot and correct within the
+ * finding what they show (R7 of commit series integrity), so a finding's
+ * revision holds no edit a later finding must correct, as far as those
+ * checks reach.
  */
 export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[], match: ExpectedMatch = rawMatch): FindingRevision[] {
   const state = new Map(expected);
