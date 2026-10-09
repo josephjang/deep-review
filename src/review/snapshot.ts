@@ -91,6 +91,11 @@ export function statOf(worktree: string, path: string): [number, number] | null 
   return stat !== undefined && (stat.isFile() || stat.isSymbolicLink()) ? [stat.size, stat.mtimeMs] : null;
 }
 
+/** Each path a snapshot may copy among `paths`, with its size and time, as a manifest records them. */
+function statMapOf(worktree: string, paths: readonly string[]): SnapshotManifest['files'] {
+  return Object.fromEntries(paths.filter(safePath).map((path) => [path, statOf(worktree, path)]));
+}
+
 /**
  * The paths that changed since the manifest was taken: a file it lists
  * whose size or time differs, or that is gone; and a file it does not
@@ -238,8 +243,7 @@ export function changedListed(manifest: SnapshotManifest): string[] {
  * worktree; and return it.
  */
 export function prepareCheckManifest(into: string, worktree: string): SnapshotManifest {
-  const files = Object.fromEntries(gitApi.trackedFiles(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
-  const manifest: SnapshotManifest = { worktree, expected: [], files, ignored: [] };
+  const manifest: SnapshotManifest = { worktree, expected: [], files: statMapOf(worktree, gitApi.trackedFiles(worktree)), ignored: [] };
   writeManifest(into, manifest);
   return manifest;
 }
@@ -251,6 +255,5 @@ export function prepareCheckManifest(into: string, worktree: string): SnapshotMa
  * git does not ignore with its size and time, and what git ignores.
  */
 export function prepareSnapshots(into: string, worktree: string, expected: Iterable<string>): void {
-  const files = Object.fromEntries(gitApi.filesNotIgnored(worktree).filter(safePath).map((path) => [path, statOf(worktree, path)]));
-  writeManifest(into, { worktree, expected: [...new Set(expected)].sort(), files, ignored: gitApi.ignoredEntries(worktree) });
+  writeManifest(into, { worktree, expected: [...new Set(expected)].sort(), files: statMapOf(worktree, gitApi.filesNotIgnored(worktree)), ignored: gitApi.ignoredEntries(worktree) });
 }
