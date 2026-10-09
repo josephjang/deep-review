@@ -71,6 +71,9 @@ export const heldSchema = z.strictObject({
 });
 export type Held = z.infer<typeof heldSchema>;
 
+/** The longest path a marker records, the ledger's cap for a claimed path; the command refuses a longer one rather than make a marker never whole. */
+const claimedPathMax = 1000;
+
 /**
  * One claim as its marker records it: the path as the fixer spelled it,
  * once normalized, the claiming cluster and batch, and when it was made;
@@ -79,7 +82,7 @@ export type Held = z.infer<typeof heldSchema>;
  */
 export const markerSchema = z.strictObject({
   // The caps are the ledger's for a claim the engine records or leaves out, so a marker past them is no claim.
-  path: z.string().min(1).max(1000),
+  path: z.string().min(1).max(claimedPathMax),
   cluster: z.string().min(1).max(200),
   unit: z.string().min(1).max(200),
   claimedAt: z.iso.datetime().nullable(),
@@ -114,13 +117,14 @@ export function markerName(path: string, generation: number, caseInsensitive: bo
  * A claimed path in the repository's spelling: backslashes as slashes and
  * `.` segments dropped, then refused unless it is relative, inside the
  * repository, outside `.git` and free of empty segments, as a snapshot's
- * path must be.
+ * path must be, and no longer than a marker records.
  */
 export function normalizeClaimPath(raw: string): string {
   const path = raw.replaceAll('\\', '/').split('/').filter((part) => part !== '.').join('/');
   // A path of nothing but `.` segments is empty here, which the scope check refuses.
   validateScopePath(path);
   if (path.split('/').some((part) => part === '' || part === '.')) throw new InvalidScopeRequestError(`A claimed path must name a file: ${raw}`);
+  if (path.length > claimedPathMax) throw new InvalidScopeRequestError(`A claimed path must not be longer than ${String(claimedPathMax)} characters, and this one has ${String(path.length)}`);
   return path;
 }
 

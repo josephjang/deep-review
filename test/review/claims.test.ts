@@ -155,6 +155,14 @@ describe('claims', () => {
       assert.equal(normalizeClaimPath('./src/./a.ts'), 'src/a.ts');
     });
 
+    it('refuses a path longer than a marker records, which would hold the path with a marker never whole, and claims one at the cap', () => {
+      const longest = `docs/${'a'.repeat(995)}`;
+      assert.throws(() => claimFile(dir, `${longest}b`, 'c1-1'), (error: unknown) => error instanceof InvalidScopeRequestError && /longer than 1000 characters/.test(error.message));
+      assert.deepEqual(markerFiles(), []);
+      assert.equal(claimFile(dir, `./${longest}`, 'c1-1').kind, 'claimed', 'the cap is on the normalized path');
+      assert.deepEqual(readClaims(dir, false).map((claim) => claim.whole && claim.path), [longest]);
+    });
+
     it('refuses a unit the round lacks, one whose cluster has settled, and a directory inside the worktree', () => {
       assert.throws(() => claimFile(dir, 'docs/a.md', 'c9-1'), (error: unknown) => error instanceof ClaimRequestError && /unit c9-1 is no batch of this round/.test(error.message));
       prepare({ settled: ['c1'] });
