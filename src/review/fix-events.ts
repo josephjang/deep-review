@@ -154,8 +154,9 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
  * files another cluster holds once those claims are folded, then one
  * `tree.revised` per revision its snapshots give. Throws
  * `StructuralCheckError` for an answer that leaves out an index, reports
- * a path outside the repository, or leaves out an owned or claimed file
- * whose bytes changed. Its failure then records the claims the settle
+ * a path outside the repository, blocks a finding on a file its own
+ * cluster owns or claimed, or leaves out an owned or claimed file whose
+ * bytes changed. Its failure then records the claims the settle
  * reads from the round's directory but no late claim, which only an
  * answered unit makes, so a file it edited without claiming stays free;
  * the retry is told the tree may hold its work.
@@ -169,7 +170,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   checkFixerAnswer(output, ids.length);
   const owned = ownedFiles(fix, phase, unit.key);
   const settle = settleOf(context, phase, unit.key);
-  const resolved = resolveFixerAnswer(output, { worktree, lookup: answerLookup(settle, phase, unit.key, worktree), owned, othersHeld: othersHeld(settle.state, phase, unit.key) });
+  const resolved = resolveFixerAnswer(output, { worktree, lookup: answerLookup(settle, phase, unit.key, worktree), owned, claimed: claimedFiles(settle.state, phase, unit.key), othersHeld: othersHeld(settle.state, phase, unit.key) });
   const late = phase === 'fixes' ? lateClaim(settle, unit.key, resolved.named) : null;
   const claims = [...settle.events, ...(late === null ? [] : [late])];
   const claimed = claimedFiles(late === null ? settle.state : foldedWith(settle.state, [late]), phase, unit.key);

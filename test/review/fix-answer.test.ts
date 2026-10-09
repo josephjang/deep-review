@@ -81,7 +81,7 @@ describe('the fixer\'s answer against the tree', () => {
   });
 
   describe('resolveFixerAnswer', () => {
-    const context = (): Parameters<typeof resolveFixerAnswer>[1] => ({ worktree, lookup, owned: ['src/b.ts'], othersHeld: new Map([['src/Parser.ts', { cluster: 'c2', by: 'plan' }], ['test/shared.test.ts', { cluster: 'c3', by: 'claim' }]]) });
+    const context = (): Parameters<typeof resolveFixerAnswer>[1] => ({ worktree, lookup, owned: ['src/b.ts'], claimed: ['docs/x.md'], othersHeld: new Map([['src/Parser.ts', { cluster: 'c2', by: 'plan' }], ['test/shared.test.ts', { cluster: 'c3', by: 'claim' }]]) });
 
     it('resolves every finding\'s files once and names every file the answer reports', () => {
       const resolved = resolveFixerAnswer(answer([{ files: ['src/b.ts', './src/b.ts'] }, { files: ['test/b.test.ts'] }]), context());
@@ -99,8 +99,9 @@ describe('the fixer\'s answer against the tree', () => {
       assert.deepEqual(resolveFixerAnswer(answer([{ files: ['test/shared.test.ts'] }, { files: ['src/Parser.ts'] }]), context()).violations, ['src/Parser.ts', 'test/shared.test.ts']);
     });
 
-    it('refuses a blocked finding that requires a file its own cluster owns, and accepts one another cluster owns', () => {
-      assert.throws(() => resolveFixerAnswer(answer([{ files: [], requiredFiles: ['src/b.ts'], status: 'blocked' }]), context()), /blocked on src\/b\.ts, which its own cluster owns/);
+    it('refuses a blocked finding that requires a file its own cluster owns or claimed, and accepts one another cluster owns', () => {
+      assert.throws(() => resolveFixerAnswer(answer([{ files: [], requiredFiles: ['src/b.ts'], status: 'blocked' }]), context()), /blocked on src\/b\.ts, which its own cluster owns or claimed$/);
+      assert.throws(() => resolveFixerAnswer(answer([{ files: [], requiredFiles: ['docs/x.md'], status: 'blocked' }]), context()), /blocked on docs\/x\.md, which its own cluster owns or claimed$/);
       assert.deepEqual(resolveFixerAnswer(answer([{ files: [], requiredFiles: ['src/parser.ts'], status: 'blocked' }]), context()).findings[0]!.requiredFiles, ['src/Parser.ts']);
     });
 
