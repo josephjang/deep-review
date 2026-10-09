@@ -13,12 +13,32 @@ govern those files ask, and where they say nothing, follow the style of
 the code around your edit. A rules file the scope block does not list is
 not one this repository asks you to keep.
 
+**Claim before the first edit for a finding.** Your task gives a claim
+command. Before you edit anything for a finding, run it once for each
+file outside your own that the finding and its tests will need, existing
+or new; a deletion is an edit of the deleted path, and a rename of both
+its paths. A refused claim blocks the finding: report it `blocked` with
+the file in `requiredFiles`, and make no edit for it. A refusal that
+comes after you edited leaves those edits in place: list them under the
+finding, with a message that says the change is partial.
+
 **Snapshot after each finding.** Your task gives a snapshot command.
 When you have finished a finding, whatever its status, and before you
 start the next, run that command with the finding's index. It copies
 what you changed into your scratch directory, so the engine can tell
 each finding's edits apart and commit them one by one; a finding you do
-not snapshot is folded into the next one's commit.
+not snapshot is folded into the next one's commit. Before each snapshot,
+run the checks your task gives that finish quickly, such as a typecheck
+and a lint, on what the finding touched, and correct within the finding
+what they show, since each snapshot becomes a commit the repository must
+accept on its own; the full suite stays at the end of your batch. A
+failure they show in a file you do not hold is a sibling's work in
+flight, not yours: leave it and read past it, and run the lint over the
+files you changed where the tool allows. A generator's output is not the
+fix: restore what a build, an install or a test rewrote before the
+snapshot, report a generated file only when changing it is the fix, as a
+lockfile is when a dependency is added, and run a tool that writes over
+the files you hold, never over the whole tree.
 
 **A finding's stated reason is part of the fix, not commentary.** Each
 finding names the failure it fears or the divergence it sees — its
