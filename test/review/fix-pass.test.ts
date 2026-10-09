@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
+import { caseInsensitiveFileSystem, readClaims } from '../../src/review/claims.ts';
 import { policyFileName } from '../../src/review/policy.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -776,6 +777,32 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       // The second claim made the next generation of the path's marker, the first holder's kept.
       assert.equal(box.markers().length, 2);
       assert.ok(state.review!.checks.every((check) => !check.drifted));
+    });
+
+    it('prepares the claims directory again at a settle, with no launch after it: the late claim it recorded is a marker, and its settled cluster holds nothing (R1, TD2)', async () => {
+      const c1Settled = join(box.directory, 'c1-settled');
+      box.script({
+        ...reviewScript,
+        // c1 claims the shared test, and writes docs/x.md without claiming it, which its answer claims late.
+        'fixer:fixes:c1-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, [shared]: sharedV1, 'docs/x.md': 'x\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['docs/x.md', 'src/a.ts', shared], subject: 'fix(a): Return 0 for a null text' }]) },
+        // c2, launched with c1 and still running, claims the shared test once c1 has settled; no batch is left to launch in between.
+        'fixer:fixes:c2-1': { edits: [{ waitFor: c1Settled, claims: [shared], expectClaim: 'claimed', writes: { 'src/b.ts': fixedB, [shared]: sharedV2 }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts', shared], subject: 'fix(b): Import parse' }]) },
+      });
+      const pending = box.fix('claude');
+      await answeredOnLedger('c1-1');
+      const live = readClaims(box.claimsDirectory(), caseInsensitiveFileSystem(box.repo));
+      assert.deepEqual(live.map((claim) => (claim.whole ? [claim.path, claim.cluster, claim.claimedAt === null] : null)).sort(), [['docs/x.md', 'c1', true], [shared, 'c1', false]], 'the late claim is seeded at the settle that recorded it');
+      assert.deepEqual(JSON.parse(readFileSync(join(box.claimsDirectory(), 'held.json'), 'utf8')).settled, ['c1'], 'the settled cluster is listed at once');
+      writeFileSync(c1Settled, '');
+      report(await pending);
+      const state = box.run();
+      const fix = state.review!.fix!;
+      assert.deepEqual(fix.claims.map((claim) => [claim.path, claim.cluster, claim.claimedAt === null]), [[shared, 'c1', false], ['docs/x.md', 'c1', true], [shared, 'c2', false]]);
+      assert.deepEqual(fix.lostClaims, []);
+      assert.deepEqual(fix.secondRound, { blocked: [], clusters: [], batches: [] });
+      assert.deepEqual(fix.answers.fixes['c2-1']!.violations, []);
+      const events = box.events(state.id);
+      assert.equal(events.filter(([kind, payload]) => kind === 'worker.launched' && String(payload.label).startsWith('fixer ')).length, 2, 'no launch prepared the directory after c1 settled');
     });
   });
 

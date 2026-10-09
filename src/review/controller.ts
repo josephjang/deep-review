@@ -374,7 +374,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
   /**
    * Prepare the claims directory of a fixes-phase unit's round before its
-   * launch (R2, R3 of commit series integrity): the round's clusters,
+   * launch, and again once it settles (R2, R3 of commit series integrity;
+   * TD2): the round's clusters,
    * batches and settled clusters as the fold has them now, and every claim
    * of the round the ledger holds, seeded back where the directory lost it.
    */
@@ -427,6 +428,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (event.kind === 'decisions.recorded') log(`worker ${settled.unit.role} ${name}: decided ${decisionCountWords(decisionCounts((event.payload as DecisionsRecorded).decisions))}`);
     }
     state = append(checkpoint, state, events);
+    // The round's directory is prepared again at once, not at the next launch: a late claim just recorded holds its file there too, and a cluster that has just settled holds nothing more, before any sibling's next claim (R1, TD2 of commit series integrity). A directory found gone is lost, as at a launch.
+    if (phase === 'fixes' && claimsLost === null) prepareOrLose(settled.unit.key);
   };
   try {
     if (scopeRequest !== null) {
