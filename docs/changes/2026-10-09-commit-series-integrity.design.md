@@ -14,9 +14,10 @@ command runs under. The engine reads the directory when it records any
 unit's answer, failed attempt or lost worker, and appends every claim
 the ledger does not hold yet, whichever cluster made it, as one new
 event kind, `files.claimed@1`, which the fold keeps as
-`FixState.claims`. Wherever the fix pass asks "which cluster owns this
-path", the answer is now "which cluster holds it, by its plan or by a
-claim": the files a fixer's task forbids, the violations an answer is
+`FixState.claims`. A claim lasts until its cluster settles, and a
+settled cluster's file may be claimed again (PD3). Wherever the fix
+pass asks "which cluster owns this path", the answer is now "which
+cluster holds it, by its plan or by a claim": the files a fixer's task forbids, the violations an answer is
 checked for, the paths a refused attempt's revisions take, and the
 second round's eligibility. The fixer's prompt gains the claim step and
 the quick checks before each snapshot. No existing event changes shape;
@@ -118,23 +119,30 @@ seven findings in two batches to nine in three.
   be one of its files.
 - `prepareClaims(dir, held, recorded)` creates the directory, writes
   `held.json` (`{ worktree, clusters: { [id]: files }, units: { [key]:
-  cluster } }` for the round) and seeds one marker per recorded claim
-  that has none yet; it removes nothing. The controller calls it at
-  every editing launch of the fixes phase, beside `prepareSnapshots`,
-  so a resumed run whose temporary directory was cleaned seeds the
-  directory again from the plan and the ledger (R3).
+  cluster }, settled: [ids] }` for the round, `settled` the clusters
+  whose every batch has settled by this launch) and seeds one marker per
+  recorded claim that has none yet; it removes nothing. The controller
+  calls it at every editing launch of the fixes phase, beside
+  `prepareSnapshots`, so a resumed run whose temporary directory was
+  cleaned seeds the directory again from the plan and the ledger (R3),
+  and so the command learns which holders have settled since the last
+  launch.
 - `claimFile(dir, path, unit)` is the command's one step: it refuses a
   path that is not repository relative, inside the tree and outside
   `.git` (`validateScopePath`, as the snapshot's `safePath`), answers
   `owned` for a file of the unit's own cluster and refuses one another
-  cluster owns naming it, else creates `<dir>/<sha256(path)>.json` with
-  `{ path, cluster, unit, claimedAt }` under the `wx` flag. A marker
-  already there is read: the unit's own cluster answers `claimed`, any
-  other refuses naming the holder. Exclusive creation is the whole
-  lock; two fixers claiming one path in the same instant get one marker
-  and one refusal.
-- `readClaims(dir)` lists the markers, and `claimsOfCluster(dir, id)`
-  those of one cluster, for the engine.
+  cluster owns naming it, else reads the markers of the path,
+  `<dir>/<sha256(path)>.<n>.json` with `{ path, cluster, unit,
+  claimedAt }`, `n` counting from 1. The marker with the highest `n` is
+  the holder: the unit's own cluster answers `claimed`; a cluster
+  `held.json` lists as settled holds nothing any more, and so does no
+  marker, and the command creates `<sha256(path)>.<n+1>.json` under the
+  `wx` flag; any other cluster refuses naming the holder. Exclusive
+  creation is the whole lock: two fixers claiming one path in the same
+  instant, or two claiming it after its holder settled, aim at the same
+  `n` and get one marker and one refusal.
+- `readClaims(dir)` lists the markers with their generations, and
+  `claimsOfCluster(dir, id)` those of one cluster, for the engine.
 
 `src/cli.ts` gains `claim --path <path> --unit <key> --in <dir>
 [--repo <dir>]`, listed with `snapshot` as run by a fix worker, with
@@ -154,12 +162,15 @@ sibling needs to know.
 `fix-state.ts` gains `RecordedClaim` (`{ path, cluster, key, round,
 claimedAt }`), `FixState.claims`, and `holdersOf(fix, round)`: a map
 from path to `{ cluster, by: 'plan' | 'claim' }` over the round's
-clusters' files and its recorded claims. `othersOwned` in
-`fix-events.ts` becomes `othersHeld(state, phase, key, dir)`: the fold's
-holders of the round, overlaid by the live markers of the directory,
-less the unit's own cluster; a running sibling's claim is in the
-directory only, and this is the one place the engine reads it before
-that sibling settles. `resolveFixerAnswer`'s context field is renamed
+clusters' files and its recorded claims, the latest claim of a path
+being its holder, and `settledClusters(fix, round)`, the clusters whose
+every batch of the round has answered or is not attempted. `othersOwned`
+in `fix-events.ts` becomes `othersHeld(state, phase, key, dir)`: the
+fold's holders of the round, overlaid by the live markers of the
+directory, less the unit's own cluster and less the claims of settled
+clusters, whose files are free again (PD3); a running sibling's claim is
+in the directory only, and this is the one place the engine reads it
+before that sibling settles. `resolveFixerAnswer`'s context field is renamed
 `othersHeld`, and the violation rule is unchanged in shape: a named
 path another cluster holds is listed in `violations`.
 
@@ -182,9 +193,11 @@ append, before the unit's own `fix.recorded@1`, `attempt.failed@4` or
 
 The reducer `filesClaimed` holds: the phase running; the unit a planned
 batch of the round and the cluster its own; each path repository
-relative, not owned by a cluster of the round, not claimed by another
-cluster of the round, and not claimed by this cluster already; the
-entries then join `FixState.claims`. A claim whose marker names a
+relative, not owned by a cluster of the round, not held by a claim of
+another cluster of the round that has not settled, and not claimed by
+this cluster already while it holds the path; the entries then join
+`FixState.claims`, and a later claim of a path the fold already holds
+makes its cluster the holder. A claim whose marker names a
 cluster the plan does not have is a marker the engine did not write and
 is refused by the command's reader before any event is built. The
 `fixRecorded` reducer checks each violation against the paths the other
@@ -203,12 +216,14 @@ launch. `fixerTask` prints, in place of the two ownership lists:
   the cluster's files and the files it has claimed so far.
 - "Files other clusters own or have claimed, which you must not edit; a
   fix that needs one is `blocked`, naming it in `requiredFiles`", each
-  line `- <path> (<cluster>, claimed)` or `(<cluster>)`.
+  line `- <path> (<cluster>, claimed)` or `(<cluster>)`; a settled
+  cluster's claims are left out, since those files are free again.
 - `claimBlock(command)`: "Before your first edit of any other file of
   the repository, existing or new, run this from the repository root
   with the file's path in place of `<path>`", the command on a line of
-  its own, "It claims the file for your cluster until the round ends.
-  Exit 0 means it is yours; exit 2 names the cluster that holds it, and
+  its own, "It claims the file for your cluster until your cluster's
+  last batch has finished. Exit 0 means it is yours; exit 2 names the
+  cluster that holds it, and
   the finding that needs it is `blocked` with the file in
   `requiredFiles`, as for a file another cluster owns. Report every
   file you edit or create under the finding it served."
@@ -218,14 +233,16 @@ owns every revised path (TD8 of the fix pass).
 
 ### The second round (R4)
 
-`planSecondRound` takes `heldBy: ReadonlyMap<string, string>` in place
-of the owner map it built from the clusters: `secondRoundOf` passes
-`holdersOf(fix, 1)` reduced to cluster ids. A finding whose required
-files are each held by a first-round cluster other than its own is
-eligible, and its second-round files are its cluster's files, its
+`planSecondRound` takes `heldBy: ReadonlyMap<string, readonly string[]>`
+in place of the owner map it built from the clusters: `secondRoundOf`
+passes, per path, the cluster that owns it or every cluster that claimed
+it during the round, since a holder that settled after refusing a
+sibling still blocked that sibling (R4). A finding whose required files
+were each owned or claimed by a first-round cluster other than its own
+is eligible, and its second-round files are its cluster's files, its
 cluster's claims and its required files, so a file it claimed in the
-first round stays with it. `fixesReplanned` builds `ownerOf` the same
-way and words its refusal "which no other first-round cluster owned or
+first round stays with it. `fixesReplanned` builds the same map and
+words its refusal "which no other first-round cluster owned or
 claimed". `fixes.replanned@1` keeps its shape. In the second round the
 directory is `round-2`, prepared from the second-round plan, and claims
 work among its clusters as in the first; `firstRoundBlock` words a file
@@ -325,12 +342,18 @@ readable, and no kind the corpus holds changes shape here.
   worker's scratch was rejected: siblings must read and write the same
   markers. Per round, because the first round's claims end with it (R21
   of the fix pass) and a second-round fixer must not be refused by a
-  first-round marker.
+  first-round marker. Within a round a claim ends when its cluster
+  settles (PD3), which the command learns from `held.json`, rewritten at
+  every launch; a claim attempted between a holder's settle and the next
+  launch is refused as if the holder still ran, a window of seconds,
+  and the finding goes to the second round.
 - **TD3: Exclusive file creation is the lock.** A lock file, a counter
   or a daemon was rejected: `O_EXCL` is atomic on every file system the
   engine runs on, the marker is the record, and the engine never
-  deletes one. The marker's name is the path's SHA-256, so a path of any
-  length or spelling makes one file name.
+  deletes one. The marker's name is the path's SHA-256 and a generation
+  number, so a path of any length or spelling makes one file name per
+  claim, and a file claimed again after its holder settled gets the next
+  generation rather than a deleted or rewritten marker (2026-10-09, F2).
 - **TD4: The command compares path strings; the engine resolves.** The
   command cannot ask git (R23 of the fix pass), so it normalizes slashes
   and `./` and compares with the spelling `held.json` carries, which is
@@ -382,7 +405,9 @@ readable, and no kind the corpus holds changes shape here.
   naming it, creates a marker once, answers `claimed` for the same
   cluster's second call and refuses another cluster's naming the
   holder; two claims of one path in one instant give one marker and one
-  refusal (two processes); a path outside the tree, under `.git`, with
+  refusal (two processes); a claim of a path whose holder `held.json`
+  lists as settled creates the next generation and succeeds, and two
+  such claims in one instant give one marker and one refusal; a path outside the tree, under `.git`, with
   a backslash or `..`, is refused; the command starts no process, with
   `node:child_process` made to throw as the snapshot test does.
 - `test/cli.test.ts`: `claim` parses its flags, refuses unknown ones and
@@ -394,7 +419,9 @@ readable, and no kind the corpus holds changes shape here.
   and `holdersOf`; refusals for a claim before the plan, by a unit the
   plan lacks, under another cluster's name, of a file a cluster of the
   round owns, of a file another cluster claimed, of a file claimed
-  twice by one cluster, and in a phase not running; a violation on a
+  twice by one cluster, and in a phase not running; a claim of a file
+  another cluster claimed folds once that cluster has settled and makes
+  the new cluster the holder, and is refused while it has not; a violation on a
   file another cluster claimed folds when that claim was recorded
   before the answer and is refused when it was not; the second round
   folds when a required file was claimed by another first-round
@@ -429,10 +456,13 @@ readable, and no kind the corpus holds changes shape here.
   claimed records the sibling's file in no revision of its own; a run
   stopped with claims made and resumed with the directory removed seeds
   it again from the ledger and the retry's claim of its own file is
-  `claimed`; the second round claims among its own clusters; the report
-  shows "Held by", the late claim and the holder of a violation; the
-  fake Codex run gives its editors the shared directory as a writable
-  root.
+  `claimed`; a cluster claims a shared file, settles, and a cluster
+  launched later claims the same file, edits it and completes with no
+  second round, each revision holding its own edits; the same change at
+  `--concurrency 1` plans no second round at all; the second round
+  claims among its own clusters; the report shows "Held by", the late
+  claim and the holder of a violation; the fake Codex run gives its
+  editors the shared directory as a writable root.
 - `test/runtime/codex.test.ts`: an editor's `writable_roots` holds the
   scratch and the shared directory, a read-only worker neither;
   `test/runtime/launcher.test.ts`: `shared` refused for a read-only
@@ -499,7 +529,10 @@ after 2026-10-08's incident; it is never run under `git rebase --exec`
 - `othersHeld` reads the live directory at the answer and the launch;
   a claim made by a sibling between a unit's launch and its answer is
   not in that unit's task, which is why the fixer runs the command
-  rather than trusting the list.
+  rather than trusting the list. A holder that settles between two
+  launches is still in `held.json` as unsettled until the next launch
+  rewrites it, so a claim of its file in that window is refused and the
+  finding goes to the second round (TD2).
 - Two spellings of one path (TD4) make two markers until the engine
   resolves them at the answer; the fold refuses the second claim, the
   violation rule then applies, and the report names it. A

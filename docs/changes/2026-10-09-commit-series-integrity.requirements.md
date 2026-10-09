@@ -178,16 +178,23 @@ a rebuild, and a file a decision named.
 ## Requirements
 
 - **R1: A file no cluster owns belongs to the cluster whose fixer first
-  claims it, for the rest of the round.** Before its first edit of a
+  claims it, until that cluster settles.** Before its first edit of a
   file its cluster does not own, existing or new, a fixer claims it
   through the claim command its task quotes. The claim succeeds when no
   other cluster of the round holds the file, and holds it for the
-  fixer's cluster until the round ends, as ownership does: a later batch
-  of the same cluster edits it freely, a fixer of another cluster does
-  not. A claim refused names the cluster that holds the file, and the
-  fixer reports the finding `blocked` with the file in `requiredFiles`,
-  as it does for an owned file today. The fixer's prompt and task state
-  the rule in the same breath as ownership.
+  fixer's cluster until every batch of the cluster has settled (answered
+  or not attempted): a later batch of the same cluster edits it freely,
+  a fixer of another cluster does not until then. Once the holder has
+  settled, the file is free to claim again, as a file no cluster owns
+  is, since the holder's edits are then in the expected tree and a later
+  claimant's revisions attribute only its own. A claim refused names the
+  cluster that holds the file, and the fixer reports the finding
+  `blocked` with the file in `requiredFiles`, as it does for an owned
+  file today. The fixer's prompt and task state the rule in the same
+  breath as ownership. (Amended 2026-10-09, review F2: as first written
+  a claim lasted the round, which sent a later cluster to the second
+  round for a file whose holder had long settled, and so made
+  `--concurrency 1` worse than today; PD3.)
 - **R2: The claim command starts no process and claims atomically.**
   `deep-review claim --path <path> --unit <key> --in <dir>`, run by a
   fixer from the repository root, records the claim as one file created
@@ -209,16 +216,19 @@ a rebuild, and a file a decision named.
   A resumed run seeds the directory again from the plan and the recorded
   claims before it launches a batch, and never removes a claim. The fold
   refuses a claim on a file a cluster of the round owns or another
-  cluster claimed, and the report's Changed files names the cluster that
-  claimed each unowned path. (Amended 2026-10-09, review F1: as first
+  cluster claimed and has not yet settled, holds the latest claim of a
+  path as its holder, and the report's Changed files names the cluster
+  that last claimed each unowned path. (Amended 2026-10-09, review F1: as first
   written, a unit's claims were appended only when that unit settled, so
   an answer naming a file a still-running sibling had claimed carried a
   violation the fold could not check, and the append was refused.)
 - **R4: A finding blocked on a claimed file gets the second round.** A
-  finding reported `blocked` whose required files are each owned or
-  claimed by another cluster of the first round is planned into the
-  second round as R21 of the fix pass plans one blocked on owned files,
-  and the second round's cluster owns those files. The first round's
+  finding reported `blocked` whose required files are each owned, or
+  claimed at any time of the round, by another cluster of the first
+  round is planned into the second round as R21 of the fix pass plans
+  one blocked on owned files, and the second round's cluster owns those
+  files; that the holder has settled since the refusal changes nothing,
+  since the blocked answer is already recorded. The first round's
   claims end with it, and second-round fixers claim among themselves the
   same way.
 - **R5: A refused attempt's revisions take only its cluster's work.**
@@ -247,8 +257,8 @@ a rebuild, and a file a decision named.
   check per snapshot.
 - **R8: The task tells a fixer what is held and how to claim.** A
   fixer's task lists, beside the files other clusters own, the files
-  other clusters have claimed so far in the round, each with its
-  cluster; quotes the claim command with the unit and the directory
+  that other clusters which have not yet settled have claimed so far in
+  the round, each with its cluster; quotes the claim command with the unit and the directory
   filled in, as the snapshot command is quoted; and says a file not
   listed is claimed before its first edit and reported blocked when the
   claim is refused.
@@ -342,16 +352,28 @@ a rebuild, and a file a decision named.
   permission hooks and Codex's sandbox were rejected again for the
   reasons PD4 gave; a fixer that writes without claiming is observed
   (R6).
-- **PD3: A claim belongs to the cluster and lasts the round.** A claim
-  per batch was rejected: a cluster's batches run one after another and
-  share its files, so a file the first batch claimed is the cluster's
-  for the next, as the files it owns are. Releasing a claim when the
-  batch answers was rejected: the sibling blocked on it has already
-  reported, and the second round is where it goes; a release would
-  only let a third cluster claim it and block a fourth. A claim that
-  outlives the round was rejected: ownership ends with the round (R21
-  of the fix pass), and the second round reclusters over the files
-  anyway.
+- **PD3: A claim belongs to the cluster and lasts until the cluster
+  settles.** A claim per batch was rejected: a cluster's batches run one
+  after another and share its files, so a file the first batch claimed
+  is the cluster's for the next, as the files it owns are. Releasing a
+  claim when a batch answers while the cluster has batches left was
+  rejected for the same reason. A claim that lasts the whole round, the
+  first draft, was rejected on 2026-10-09 (review F2): once a cluster
+  has settled its edits are in the expected tree, so a later cluster
+  that claims the same file attributes only its own edits, exactly as a
+  later batch edits an unowned file today; holding the file past the
+  settle only sends that cluster to the second round for nothing. On
+  run `8dbe23ad`, with one fixer at a time, c9-1 edited the two proposal
+  documents twenty minutes after c3 had settled; a claim lasting the
+  round would have sent RIPPLE-2 to a second round the run never needed,
+  so `--concurrency 1` would have run worse than today. A claim that
+  ends at the settle leaves that run as it was and leaves run
+  `71ae22a2`'s count unchanged, since c8-1 and c10-1 both wrote
+  `fix-state.ts` before c2 settled. A claim that outlives the round was
+  rejected: ownership ends with the round (R21 of the fix pass), and the
+  second round reclusters over the files anyway. Owned files keep
+  ownership for the round as R21 gives it; a cluster holds a file it
+  claimed while it is unsettled, which is still one model.
 - **PD4: The refused attempt's paths narrow to its cluster's, revising
   the fix pass's Risks.** The fix pass accepted that a failed attempt's
   revision takes a sibling's partial edit of a shared unowned file
@@ -414,16 +436,17 @@ a rebuild, and a file a decision named.
   both runs; a missed claim is observed as a late claim or a violation
   (R6), and a sibling's concurrent edit of the same file then blurs
   attribution as today. The gate counts late claims.
-- **More second rounds.** A file two clusters both need now costs the
-  loser a second round where it cost nothing before; on the first run
-  that is two findings and about one batch. A change whose fixes all
+- **More second rounds.** A file two clusters both need at the same
+  time now costs the loser a second round where it cost nothing before;
+  on the first run that is two findings and about one batch. A file a
+  settled cluster claimed costs nothing (PD3). A change whose fixes all
   meet in one shared file serializes through the second round, which is
   what clustering does for an owned file already.
-- **A claim made and never used holds a file for the round.** A fixer
-  that claims a file it then does not edit blocks a sibling for nothing;
-  the report shows the claim with no revision of the file. Accepted;
-  the prompt asks for the claim before the first edit, not before
-  reading.
+- **A claim made and never used holds a file until its cluster
+  settles.** A fixer that claims a file it then does not edit blocks a
+  sibling for nothing while its cluster runs; the report shows the claim
+  with no revision of the file. Accepted; the prompt asks for the claim
+  before the first edit, not before reading.
 - **The claims directory is in the temporary directory.** An operating
   system that cleans it mid-round loses the live claims; the command
   then refuses every claim, the fixer reports blocked, and the second
