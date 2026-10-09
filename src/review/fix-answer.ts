@@ -92,29 +92,32 @@ export interface ResolvedAnswer {
   readonly violations: readonly string[];
 }
 
-/** What an answer is checked against: the worktree, the unit's own files, and the files every other cluster of its round holds. */
+/** What an answer is checked against: the worktree, the unit's own files, the files its cluster claimed, and the files every other cluster of its round holds. */
 export interface OwnershipContext {
   readonly worktree: string;
   readonly lookup: RepoLookup;
   readonly owned: readonly string[];
+  /** The files the unit's cluster claimed in its round, which its task lists among the files it owns. */
+  readonly claimed: readonly string[];
   /** Every path another cluster of the round owns, or holds by a claim while it has not settled, with that cluster and how it holds the path. */
   readonly othersHeld: ReadonlyMap<string, PathHolder>;
 }
 
 /**
  * Resolve every path an answer reports and judge its ownership: a
- * required file must not be one the unit owns, since a fixer is never
- * blocked by its own file; a named file another cluster holds is a
- * violation, kept and recorded, never a refusal (PD4).
+ * required file must not be one the unit owns or its cluster claimed,
+ * since a fixer is never blocked by its own file and a second round gives
+ * a finding only files another cluster held; a named file another cluster
+ * holds is a violation, kept and recorded, never a refusal (PD4).
  */
 export function resolveFixerAnswer(output: FixerOutput, context: OwnershipContext): ResolvedAnswer {
   const resolve = (raw: string): string => resolveReportedPath(context.worktree, context.lookup, raw);
-  const owned = new Set(context.owned);
+  const own = new Set([...context.owned, ...context.claimed]);
   const findings = output.findings.map((finding) => {
     const files = [...new Set(finding.files.map(resolve))];
     const requiredFiles = [...new Set(finding.requiredFiles.map(resolve))];
-    const own = requiredFiles.filter((path) => owned.has(path));
-    if (own.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${own.join(', ')}, which its own cluster owns`);
+    const held = requiredFiles.filter((path) => own.has(path));
+    if (held.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${held.join(', ')}, which its own cluster owns or claimed`);
     return { ...finding, files, requiredFiles };
   });
   const named = new Set(findings.flatMap((finding) => finding.files));

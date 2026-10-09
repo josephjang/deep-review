@@ -109,6 +109,17 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
     assert.deepEqual((events.find((event) => event.kind === 'fix.recorded')!.payload as FixRecorded).violations, []);
   });
 
+  it('refuses an answer blocked on a file its own cluster claimed, on the ledger or only in the directory', () => {
+    const blocked = { workerId: worker(60), output: fixerAnswer([{ status: 'blocked', files: ['src/a.ts'], requiredFiles: ['AGENTS.md'] }]) } as unknown as WorkerReceipt;
+    const onLedger = stateOf(running().add('files.claimed', claimed('c1-1', 'c1', ['AGENTS.md'])));
+    assert.throws(() => fixAnswerEvents({ phase: 'fixes', key: 'c1-1', role: 'fixer' }, blocked, contextOf(onLedger, folding([]))), /blocked on AGENTS\.md, which its own cluster owns or claimed$/);
+    const own: LiveClaim = { whole: true, hash: markerHash('AGENTS.md', true), generation: 1, path: 'AGENTS.md', cluster: 'c1', unit: 'c1-1', claimedAt: '2026-10-09T01:00:01.000Z' };
+    assert.throws(() => fixAnswerEvents({ phase: 'fixes', key: 'c1-1', role: 'fixer' }, blocked, contextOf(stateOf(running()), folding([own]))), /blocked on AGENTS\.md, which its own cluster owns or claimed$/);
+    const sibling = stateOf(running().add('files.claimed', claimed('c2-1', 'c2', ['AGENTS.md'])));
+    const recorded = fixAnswerEvents({ phase: 'fixes', key: 'c1-1', role: 'fixer' }, blocked, contextOf(sibling, folding([]))).find((event) => event.kind === 'fix.recorded')!.payload as FixRecorded;
+    assert.deepEqual(recorded.findings[0]!.requiredFiles, ['AGENTS.md'], 'a file a sibling claimed is one to block on');
+  });
+
   it('leaves out of a failed attempt\'s revisions a sibling\'s deletion its claim spells otherwise', () => {
     const state = stateOf(running());
     const sibling: LiveClaim = { whole: true, hash: markerHash('agents.md', true), generation: 1, path: 'agents.md', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' };
