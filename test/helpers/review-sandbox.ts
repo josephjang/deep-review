@@ -252,8 +252,42 @@ export class ReviewSandbox {
     return this.checkpoint.evidence.read(worker.launch.prompt).toString('utf8');
   }
 
-  close(): void {
-    this.#checkpoint?.close();
+  /** Where keep() puts its copy: beside the sandbox, so restore() can replace the whole sandbox from it. */
+  get #kept(): string {
+    return `${this.directory}.kept`;
+  }
+
+  /**
+   * Keep a copy of the sandbox as it is now, repository, checkpoint and all,
+   * for restore() to put back. A run records the absolute path of the tree
+   * it reviewed, and the engine refuses to act on that run from any other
+   * path, so tests that share one run's outcome take turns in this sandbox
+   * rather than each working on a copy elsewhere.
+   */
+  keep(): void {
+    this.#closeCheckpoint();
+    rmSync(this.#kept, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    cpSync(this.directory, this.#kept, { recursive: true, preserveTimestamps: true });
+  }
+
+  /** Put back the sandbox as keep() last copied it, and forget the log lines since. */
+  restore(): void {
+    if (!existsSync(this.#kept)) throw new Error('restore() needs a copy made by keep()');
+    this.#closeCheckpoint();
     rmSync(this.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    cpSync(this.#kept, this.directory, { recursive: true, preserveTimestamps: true });
+    this.logs.length = 0;
+  }
+
+  close(): void {
+    this.#closeCheckpoint();
+    rmSync(this.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    rmSync(this.#kept, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+
+  /** Close the checkpoint this sandbox opened, if it did; the next use opens it again. */
+  #closeCheckpoint(): void {
+    this.#checkpoint?.close();
+    this.#checkpoint = null;
   }
 }
