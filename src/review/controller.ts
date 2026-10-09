@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { claimsOfRound, revisionMessageOf, roundOf, settledClusters } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, planOfRound, revisionMessageOf, roundOf, settledClusters } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -410,7 +410,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const prepareClaimsFor = (key: string): void => {
     const fix = state.review!.fix!;
     const round = roundOf(fix, key);
-    const plan = round === 1 ? fix.plan : fix.secondRound;
+    const plan = planOfRound(fix, round);
     if (plan === null) throw new Error(`Run ${runId} launches ${key} before its round is planned`);
     const held: Held = {
       worktree: options.worktree,
