@@ -8,7 +8,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, claimsOfRound, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -254,7 +254,7 @@ function heldBy(fix: FixState, path: string): string {
     if (plan === null) return [];
     const owner = plan.clusters.find((cluster) => cluster.files.includes(path));
     if (owner !== undefined) return [owner.id];
-    const claim = claimsOfRound(fix, round).findLast((candidate) => candidate.path === path);
+    const claim = lastClaimOf(fix, round, path);
     return claim === undefined ? [] : [`${claim.cluster} (${claim.claimedAt === null ? 'claimed late' : 'claimed'})`];
   });
   return holders.length === 0 ? 'nobody' : [...new Set(holders)].join(', ');

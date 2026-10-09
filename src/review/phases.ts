@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
-import { claimsOfRound, clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastRun, repairTargets, roundOf } from '../checkpoint/fix-state.ts';
+import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastClaimOf, lastRun, repairTargets, roundOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
@@ -141,7 +141,7 @@ function firstRoundBlock(review: ReviewState, firstBatches: readonly PlannedBatc
   const owned = new Set((fix?.plan?.clusters ?? []).flatMap((cluster) => cluster.files));
   const claimedBy = (path: string): string | null => {
     if (fix === null || owned.has(path)) return null;
-    return claimsOfRound(fix, 1).findLast((claim) => claim.path === path && claim.cluster !== batch?.cluster)?.cluster ?? null;
+    return lastClaimOf(fix, 1, path, batch?.cluster)?.cluster ?? null;
   };
   return { note, requiredFiles: requiredFiles.map((path) => ({ path, claimedBy: claimedBy(path) })) };
 }
