@@ -254,7 +254,13 @@ a rebuild, and a file a decision named.
   show, so that a later finding's work never has to repair an earlier
   finding's commit. The full suite stays at the end of the batch. Which
   of the checks are quick is the fixer's judgment; the engine runs no
-  check per snapshot.
+  check per snapshot. A generator's output is not the fixer's fix: when
+  a build, an install or a test it ran rewrote generated files, the
+  fixer restores them to their launch state before the snapshot, and
+  reports a generated file only when changing it is the fix, as a
+  lockfile is when a dependency is added. A tool that writes runs over
+  the files the fixer holds, never as a variant that rewrites the whole
+  tree (PD9). (Added 2026-10-09, review F3.)
 - **R8: The task tells a fixer what is held and how to claim.** A
   fixer's task lists, beside the files other clusters own, the files
   that other clusters which have not yet settled have claimed so far in
@@ -271,10 +277,13 @@ a rebuild, and a file a decision named.
 - **R10: The gate.** The engine, built from this element, reviews and
   fixes this element's own pull request on Claude Code with `--fix` at
   the default concurrency of 4, with the checks named by flag as the
-  decision step's review named them. Every engine commit passes
-  `npm run check` and, after `dist/` is rebuilt into it, `npm run
-  verify` alone, measured by checking out each commit detached in turn,
-  never under `git rebase --exec` (#27). The run's commits, fixer
+  decision step's review named them, the build check included this
+  time, so that the engine itself makes the commit that rebuilds `dist/`
+  at the series' tail (PD9). Every engine commit passes `npm run check`
+  alone, measured by checking out each commit detached in turn, never
+  under `git rebase --exec` (#27), and the series' last commit passes
+  `npm run verify`, which is what the repository asks of a pushed head
+  (AGENTS.md, "Before every commit", as amended on 2026-10-09). The run's commits, fixer
   workers, claims made and refused, second-round findings, fixes-phase
   wall time and cost are recorded in the design's Verification against
   the two 2026-10-08 runs: 16 of 17 green commits, 47 workers and 32.34
@@ -294,9 +303,13 @@ a rebuild, and a file a decision named.
 - Claims per batch, claims refused, late claims and violations against
   claimed files, from the ledger.
 - The per-commit check is a loop over detached checkouts, one commit at
-  a time, with `dist/` rebuilt into each commit first; it is never run
+  a time, running `npm run check`, which writes nothing; `npm run
+  verify` runs on the series' last commit only (PD9). It is never run
   under `git rebase --exec`, which exported `GIT_DIR` into the suite's
   git calls and rewrote the shared git directory on 2026-10-08 (#27).
+- Generated paths a fixer kept in a revision of its own, from the
+  ledger: zero is the target, and each one is named in Limitations
+  (PD9).
 
 ## Product Decisions
 
@@ -428,6 +441,45 @@ a rebuild, and a file a decision named.
   touches; folding it into this design would tie an unrelated gate to
   it. Its own branch and pull request too, so each is confirmed and
   lands on its own, though both came from the same runs.
+- **PD9: A step that writes the tree puts its output at the series'
+  tail, and the middle of the series stands without it.** (Added
+  2026-10-09, review F3.) The review found that on run `71ae22a2` a
+  fixer's `npm run build` had bundled siblings' half-made edits into
+  `dist/`, which the fixer then restored by hand, and that R10's
+  requirement of `npm run verify` on every commit could be met only by
+  a person rebuilding `dist/` into each commit after the run. The cause
+  is not the build but the repository's rule that every commit carry a
+  current `dist/`, which that rule asked of commits nobody installs;
+  AGENTS.md now asks it of pushed heads, and this decision follows.
+  Nothing a run does per commit may write the tree, and what writes it
+  writes once, at the end:
+  - *The per-commit criterion writes nothing.* The gate's per-commit
+    check is `npm run check`; a kind whose only command writes is taken
+    in its checking variant where the repository has one (TD5 of the
+    fix pass) and otherwise left to the head.
+  - *A check the engine runs that writes the tree is a check revision at
+    the tail.* As TD6 of the fix pass records it, with one change: the
+    revision covers every tracked file the check changed, judged
+    against a manifest taken just before the check, not only the paths
+    the expected tree already held, so a generated tree outside the
+    scope, `dist/` here, is recorded and committed last rather than left
+    changed and unrecorded in the worktree. A check runs once per
+    phase, with no editing worker alive and one kind at a time, so its
+    output meets no batch's. New untracked files stay strays.
+  - *A fixer keeps no generator output as its fix* (R7): it restores
+    what a build, an install or a test rewrote before the snapshot, and
+    runs a writing tool over its own files only. The fixers of one
+    round can reach one another only through such tools, and this is
+    the rule that closes it.
+  - *A generated file a fixer kept anyway is observed, not reverted.*
+    The engine names it in Limitations, as PD3 and PD4 of the fix pass
+    treat every edit; the tail revision overwrites it with the output of
+    the final tree, so the head is right, and whether the middle commit
+    still passes `npm run check` is counted by the gate.
+  Rebuilding generated trees inside the commit command, once per
+  revision, was weighed and set aside: it needs each revision's tree
+  laid out and built, and once the repository asks for `verify` at heads
+  only, nothing needs it.
 
 ## Risks
 
@@ -463,3 +515,16 @@ a rebuild, and a file a decision named.
   the batch's end, can still leave an intermediate commit red. Accepted;
   the full series is checked after the run, and the count is the
   metric.
+- **A fixer keeps a generator's output in its revision.** Under
+  concurrency that output holds siblings' half-made edits. Accepted;
+  the prompt says to restore it (R7), the tail check revision overwrites
+  it, Limitations names it, and the gate counts it (PD9).
+- **A generated file larger than the run freezes.** A file over the
+  8 MiB freeze limit is recorded by hash and size only, so the commit
+  command refuses to build a commit for it and the operator commits it
+  by hand; this repository's bundle is 1.2 MB. Accepted; the limit is
+  the scope capture's, not this element's.
+- **A stale `dist/` at the run's start.** The baseline build check then
+  rewrites it before any fix, and that rewrite is the series' first
+  commit, a check revision. Accepted; it records a fact about the
+  repository.

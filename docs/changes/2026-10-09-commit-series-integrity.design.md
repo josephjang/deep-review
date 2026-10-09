@@ -23,7 +23,10 @@ second round's eligibility. The fixer's prompt gains the claim step and
 the quick checks before each snapshot. No existing event changes shape;
 `fixes.replanned@1`'s reducer accepts a required file another cluster
 claimed as it accepts one another cluster owns, and the golden fixture
-`schema-1-09` is committed for the new kind.
+`schema-1-09` is committed for the new kind. A check that writes the
+tree revises every tracked file it changed, judged against a manifest
+taken before it ran, so a generated tree outside the scope is committed
+once, at the series' tail (PD9).
 
 ## Non-Goals
 
@@ -258,6 +261,37 @@ so, and the #23 link goes. `fixAnswerEvents` is unchanged in its paths:
 the owned files and every file the answer names already cover the
 cluster's claims, which a fixer names under the finding they served.
 
+### Checks that write (PD9)
+
+Added 2026-10-09 (review F3). `checkRevision` in `fix-events.ts` today
+revises only the paths the expected tree holds, so a check that
+rewrites a tracked file outside the scope, `dist/` on the two runs,
+leaves it changed in the worktree and in no revision. Now:
+
+- Before `runDueCheck` in `controller.ts` starts a check, it writes a
+  manifest of the worktree's tracked files, size and time, through
+  `prepareSnapshots`' manifest writer into the run's own scratch
+  (`<scratchBase>/checks/<phase>-<kind>`), never the worktree.
+- After the check, `checkRevision(context, phase, kind, command,
+  manifest)` revises the union of the expected tree's paths and the
+  tracked paths whose size or time differ from the manifest
+  (`changedSince` over the manifest's `files` alone, so a file new since
+  the check is not listed), freezing them as today; the before state of
+  a path the expected tree does not hold is the head's, as a fixer's is.
+  A tracked file the user changed before the run and the check left
+  alone is not listed, since it did not change during the check.
+- The revision's message is unchanged, `chore: apply the <kind> check's
+  rewrite`; the report's Changed files shows the check as the source,
+  and the commit command commits the revision in ledger order, after
+  the phase's fix revisions, which puts the rebuilt `dist/` at the
+  series' tail. A file over `freezeLimitBytes` is frozen by hash and
+  size as today, and the commit command refuses it as today
+  (`commit.ts`), naming the file.
+- Limitations gains "Generated path kept by a fixer: <path> in <unit>'s
+  revision of <finding>" for each path of a fix revision that a later
+  check revision of the same run rewrites, which is how the engine tells
+  a kept generator output from a fix.
+
 ### The report, status and the log
 
 `changedFilesSection` (`src/review/fix-report.ts`) gains a column, "Held
@@ -297,9 +331,14 @@ Two text commits, each recording the roles' hashes in Verification:
    gives that finish quickly, such as a typecheck and a lint, on what
    the finding touched, and correct within the finding what they show,
    since each snapshot becomes a commit the repository must accept on
-   its own; the full suite stays at the end. A new paragraph before it,
-   "Claim before the first edit of a file you do not own", states the
-   step and that a refused claim blocks the finding.
+   its own; the full suite stays at the end. The same paragraph says
+   that a generator's output is not the fix: restore what a build, an
+   install or a test rewrote before the snapshot, report a generated
+   file only when changing it is the fix, and run a tool that writes
+   over the files you hold, never over the whole tree (R7, PD9). A new
+   paragraph before it, "Claim before the first edit of a file you do
+   not own", states the step and that a refused claim blocks the
+   finding.
 
 The `documentation` and `answer` roles change with the fragments and
 stay unrun. The guard tests in `test/roles/repository.test.ts` pin the
@@ -439,7 +478,10 @@ readable, and no kind the corpus holds changes shape here.
   keep a file this cluster claimed; the claims events are built with the
   answer, the failure and the lost worker, every unrecorded marker once,
   a running sibling's under the sibling's own key, and not again at the
-  sibling's own settle.
+  sibling's own settle; `checkRevision` with a manifest revises a
+  tracked file outside the expected tree that the check changed, leaves
+  out one the user had changed before the check and the check left
+  alone, and lists no file new since the check (PD9).
 - `test/review/tasks.test.ts`: the task lists owned and claimed files
   apart, names a sibling's claim with its cluster, quotes the claim
   command on a line of its own with the placeholder, and says a refused
@@ -462,7 +504,12 @@ readable, and no kind the corpus holds changes shape here.
   `--concurrency 1` plans no second round at all; the second round
   claims among its own clusters; the report shows "Held by", the late
   claim and the holder of a violation; the fake Codex run gives its
-  editors the shared directory as a writable root.
+  editors the shared directory as a writable root; a fake build check
+  that rewrites a tracked file outside the scope after the fixes gives
+  one check revision at the tail, which the commit command commits last,
+  and a fake fixer that rewrites that file and restores it before its
+  snapshot leaves no revision of it, while one that keeps it is named in
+  Limitations once the check rewrites it (PD9).
 - `test/runtime/codex.test.ts`: an editor's `writable_roots` holds the
   scratch and the shared directory, a read-only worker neither;
   `test/runtime/launcher.test.ts`: `shared` refused for a read-only
@@ -472,8 +519,9 @@ readable, and no kind the corpus holds changes shape here.
   lines, the `Claims:` line and its JSON; the committed report
   snapshots of runs without claims render as before but for the column.
 - `test/roles/repository.test.ts`: the claim sentences in every fixer
-  role, the quick-checks sentence in `fixer-apply.md`, and the old
-  "any file no cluster owns" sentence gone from wherever it was pinned.
+  role, the quick-checks sentence and the generator sentence in
+  `fixer-apply.md`, and the old "any file no cluster owns" sentence gone
+  from wherever it was pinned.
 - `test/checkpoint/golden.test.ts`: `schema-1-09`, written by the golden
   script with a scripted claim, a refused claim, a late claim and a
   second round on a claimed file; every older fixture folds with
@@ -505,11 +553,12 @@ R10, in this form:
 | Fixes phase, wall seconds | 3905 | 5964 | |
 | The run: workers, USD | 48, 37.86 | 47, 32.34 | |
 
-The per-commit check rebuilds `dist/` into each commit first, then
-checks out each commit detached in turn and runs `npm run check` and
-`npm run verify` there, as the decision step's commits were checked
-after 2026-10-08's incident; it is never run under `git rebase --exec`
-(#27).
+The per-commit check checks out each commit detached in turn and runs
+`npm run check` there, which writes nothing, as the decision step's
+commits were checked after 2026-10-08's incident, and runs
+`npm run verify` on the series' last commit, which the build check's
+tail revision makes current (PD9); nothing is rebuilt by hand, and it is
+never run under `git rebase --exec` (#27).
 
 ## Risks & Migration
 
@@ -544,3 +593,12 @@ after 2026-10-08's incident; it is never run under `git rebase --exec`
 - The Codex Windows unelevated sandbox refuses a Node process a piped
   child; the command starts none, as the snapshot command starts none,
   which the no-process test holds.
+- A check revision now covers tracked files outside the expected tree
+  (PD9), so a run whose baseline build finds `dist/` stale makes that
+  rebuild the series' first commit, and the drift check of every later
+  phase covers those files too; a user who edits a generated file during
+  the run is blocked by drift where before the edit went unseen. A
+  generated file over the freeze limit cannot be committed by the
+  command and is named for the operator. A check that creates new
+  tracked files cannot exist, since a new file is untracked until added;
+  such output stays a stray, listed and not committed.
