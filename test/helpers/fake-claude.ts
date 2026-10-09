@@ -4,16 +4,19 @@
 // FAKE_CLAUDE_ENV is a file to write every CLAUDE* variable the fake
 // received to, as JSON, whatever its spelling. With FAKE_SCRIPT set and a
 // review worker's prompt on stdin, the scripted step decides the answer.
+// A probe loads only fake-probe.ts, and the help text's flags from the
+// adapter; fake-runtime.ts is loaded only when the fake acts as a worker.
 import { writeFileSync } from 'node:fs';
-import { claudeFlags } from '../../src/runtime/claude.ts';
-import { answer, beginScriptedStep, environment, option, printHelp, readStdin, record, scriptedStep, versionOutput } from './fake-runtime.ts';
+import { environment, printHelp, versionOutput } from './fake-probe.ts';
 
 const argv = process.argv.slice(2);
 if (argv[0] === '--version') {
   process.stdout.write(`${versionOutput('2.1.283 (Claude Code)')}\n`);
 } else if (argv[0] === '--help') {
+  const { claudeFlags } = await import('../../src/runtime/claude.ts');
   printHelp(claudeFlags);
 } else {
+  const { answer, beginScriptedStep, option, readStdin, record, scriptedStep } = await import('./fake-runtime.ts');
   const stdin = readStdin();
   record(argv, stdin);
   if (environment.FAKE_CLAUDE_ENV !== undefined) {

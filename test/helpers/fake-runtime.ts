@@ -15,13 +15,14 @@
 //   FAKE_HUGE_STREAM `stderr` to print FAKE_HUGE there; stdout by default
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 //   FAKE_SCRIPT      a JSON file scripting the answer per review role and unit; see scriptedStep
+// The answers to the preflight's probes, which read the first three, are in
+// fake-probe.ts; a fake loads this module only to act as a worker.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
-
-export const environment = process.env;
+import { environment } from './fake-probe.ts';
 
 /**
  * One edit a scripted fixer makes before it answers, in order: files
@@ -222,19 +223,6 @@ export function scriptedStep(prompt: string): { readonly role: string; readonly 
 
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
 export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
-
-/** What `--version` prints: another program's name while FAKE_UNQUALIFIED_WHEN exists, else FAKE_VERSION or the runtime's usual output. */
-export function versionOutput(usual: string): string {
-  const broken = environment.FAKE_UNQUALIFIED_WHEN;
-  if (broken !== undefined && existsSync(broken)) return 'an unrelated program 1.0';
-  return environment.FAKE_VERSION ?? usual;
-}
-
-/** Print a help text listing every flag but FAKE_HELP_OMIT. */
-export function printHelp(flags: readonly string[]): void {
-  const omit = environment.FAKE_HELP_OMIT;
-  process.stdout.write(`Usage: fake [options]\n\nOptions:\n${flags.filter((flag) => flag !== omit).map((flag) => `  ${flag} <value>  a flag\n`).join('')}`);
-}
 
 /** Write a file whole, under a temporary name and then renamed, so a polling test never reads it empty or half written. */
 function writeWhole(file: string, text: string): void {

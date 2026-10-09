@@ -7,8 +7,10 @@
 // default turn whose aggregated_output is that many bytes long, all on the
 // one line of its item.completed event. With FAKE_SCRIPT set and a review
 // worker's prompt on stdin, the scripted step decides the final message.
+// A probe loads only fake-probe.ts; fake-runtime.ts is loaded only when the
+// fake acts as a worker.
 import { writeFileSync } from 'node:fs';
-import { answer, beginScriptedStep, environment, freshThread, option, printHelp, readStdin, record, scriptedStep, versionOutput } from './fake-runtime.ts';
+import { environment, printHelp, versionOutput } from './fake-probe.ts';
 
 const argv = process.argv.slice(2);
 if (argv[0] === '--version') {
@@ -18,6 +20,7 @@ if (argv[0] === '--version') {
 } else if (argv.at(-1) === '--help') {
   printHelp(['--ignore-user-config', '--strict-config', '--ignore-rules', '--skip-git-repo-check', '--config', '--model', '--json', '--output-schema', '--output-last-message']);
 } else {
+  const { answer, beginScriptedStep, freshThread, option, readStdin, record, scriptedStep } = await import('./fake-runtime.ts');
   const stdin = readStdin();
   record(argv, stdin);
   const resumed = argv.includes('resume') ? argv.at(-2) : undefined;
