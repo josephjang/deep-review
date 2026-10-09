@@ -16,7 +16,7 @@ import { leftAs } from './decision-report.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, droppedByOperator, unavailableCell } from './survey-report.ts';
-import { checkPhases, repairUnitKey, type CheckPhase } from './vocabulary.ts';
+import { checkPhases, lostClaimWords, repairUnitKey, type CheckPhase } from './vocabulary.ts';
 
 /**
  * What became of one ranked finding, as the report names it: a fixer's
@@ -327,7 +327,7 @@ export function fixLimitations(review: ReviewState): string[] {
     }
   });
   for (const claim of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim.path)} by ${claim.key}, edited before it was claimed (R6 of commit series integrity).`);
-  for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lost.holder === null ? 'which no batch of the round has' : `to ${lost.holder}`}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
+  for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lostClaimWords(lost.holder)}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
   const strays = [...new Set(review.checks.flatMap((check) => check.strays))].sort();
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);
