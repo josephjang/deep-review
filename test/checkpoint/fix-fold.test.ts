@@ -334,7 +334,7 @@ describe('the versions of the events that carry a phase', () => {
     const running = baselined().start('fixes').add('fixes.planned', fixPlan).add('worker.launched', { ...launchOf(worker(70)) });
     assert.throws(() => foldRun(running.add('worker.lost', lost).events), /schema rejects/);
     const review = baselined().start('fixes').add('fixes.planned', fixPlan).add('worker.launched', { ...launchOf(worker(70)) }).add('worker.lost', lost, 2).review();
-    assert.deepEqual(review.units.fixes['c1-1']?.failures, [{ workerId: worker(70), reason: lost.reason, lost: true, fault: 'environment' }]);
+    assert.deepEqual(review.units.fixes['c1-1']?.failures, [{ workerId: worker(70), reason: lost.reason, cause: 'lost' }]);
   });
 });
 

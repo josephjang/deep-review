@@ -57,6 +57,27 @@ function assertHolds(actual: unknown, recorded: unknown, path: string): void {
   assert.deepEqual(actual, recorded, path);
 }
 
+interface LegacyFailure {
+  readonly workerId: string;
+  readonly reason: string;
+  readonly lost?: boolean;
+}
+
+/**
+ * The run as recorded, each unit failure an engine recorded before
+ * failures had a cause, with only `lost`, in the shape the fold now
+ * gives: a lost worker's as `lost`, any other as the unit's, since no
+ * fault was recorded before `attempt.failed@5` (R12 of commit series
+ * integrity).
+ */
+function withFailureCauses(recorded: RunState): RunState {
+  const review = recorded.review as { readonly units?: Record<string, Record<string, { readonly failures: readonly LegacyFailure[] }>> } | null;
+  if (review?.units === undefined) return recorded;
+  const cause = ({ lost, ...failure }: LegacyFailure): object => (lost === undefined ? failure : { ...failure, cause: lost ? 'lost' : 'unit' });
+  const units = Object.fromEntries(Object.entries(review.units).map(([phase, ofPhase]) => [phase, Object.fromEntries(Object.entries(ofPhase).map(([key, unit]) => [key, { ...unit, failures: unit.failures.map(cause) }]))]));
+  return { ...recorded, review: { ...review, units } } as unknown as RunState;
+}
+
 describe('golden checkpoints', () => {
   let sandbox: string;
   const opened: Checkpoint[] = [];
@@ -88,7 +109,7 @@ describe('golden checkpoints', () => {
         assert.equal(runs.length, expected.runs.length);
         for (const [index, recorded] of expected.runs.entries()) {
           const actual: Record<string, unknown> = { ...runs[index] };
-          assertHolds(actual, recorded, `${name} run ${String(index)}`);
+          assertHolds(actual, withFailureCauses(recorded), `${name} run ${String(index)}`);
           // A run recorded before workers existed has none (R11 of the runtime adapter).
           if (!('workers' in recorded)) assert.deepEqual(actual.workers, {}, `${name} run ${String(index)} workers`);
           // A run recorded before reviews existed has no review (R10 of the read-only review).
@@ -116,12 +137,6 @@ describe('golden checkpoints', () => {
           if (review?.fix != null && recordedFix !== null && !('claims' in recordedFix)) {
             assert.deepEqual(review.fix.claims, [], `${name} run ${String(index)} fix.claims`);
             assert.deepEqual(review.fix.lostClaims, [], `${name} run ${String(index)} fix.lostClaims`);
-          }
-          // A failure recorded before attempt.failed@5 reads as the unit's fault, and a lost worker's as its environment's (R12 of commit series integrity).
-          for (const [phase, units] of Object.entries(review?.units ?? {})) {
-            for (const [key, unit] of Object.entries(units)) {
-              for (const failure of unit.failures) assert.equal(failure.fault, failure.lost ? 'environment' : 'unit', `${name} run ${String(index)} ${phase}:${key} failure ${failure.workerId}`);
-            }
           }
           // A configuration recorded before the Codex Windows sandbox was pinned reads as unelevated for a Codex run on Windows, the only sandbox the engine used there then, and as none for a Codex run whose worktree is rooted at / or for another runtime (R3 of the Codex sandbox).
           const recordedConfiguration = (recorded as { review?: { configuration?: object } | null }).review?.configuration;

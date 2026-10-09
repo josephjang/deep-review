@@ -74,7 +74,7 @@ describe('the survey fold', () => {
     assert.equal(lastSurvey(resurveyed.survey!)?.workerId, worker(2));
     // A survey left running by an engine that stopped is opened again too, and an interrupted attempt keeps counting against it.
     const lost = surveyConfigured().start('survey').add('worker.launched', launch(worker(3), 'surveyor survey:survey')).add('worker.lost', { workerId: worker(3), phase: 'survey', key: 'survey', reason: 'the engine exited' }, 3);
-    assert.deepEqual(lost.start('survey', 2).review().units.survey.survey, { answeredBy: null, failures: [{ workerId: worker(3), reason: 'the engine exited', lost: true, fault: 'environment' }] });
+    assert.deepEqual(lost.start('survey', 2).review().units.survey.survey, { answeredBy: null, failures: [{ workerId: worker(3), reason: 'the engine exited', cause: 'lost' }] });
   });
 
   it('goes on without a read-only run\'s survey, recording CONVENTIONS as not run when no source is left, and running it on the policy\'s file when one is', () => {
