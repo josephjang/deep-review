@@ -305,7 +305,7 @@ describe('planSecondRound', () => {
   const blocked = (...requiredFiles: string[]): Answer => ({ status: 'blocked', requiredFiles });
 
   it('takes a finding blocked on another first-round cluster\'s file, owning its own files and the ones it needed, numbered on from the first round', () => {
-    const second = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'T-1': { status: 'applied', requiredFiles: [] } }), 4);
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'T-1': { status: 'applied', requiredFiles: [] } }), 4, []);
     assert.deepEqual(second, {
       blocked: [{ id: 'A-1', requiredFiles: ['t.ts'] }],
       clusters: [{ id: 'c4', findingIds: ['A-1'], files: ['a.ts', 't.ts'] }],
@@ -314,21 +314,41 @@ describe('planSecondRound', () => {
   });
 
   it('clusters blocked findings that share a file, in rank order, and batches them at the size given', () => {
-    const second = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'A-2': blocked('b.ts'), 'B-1': blocked('t.ts') }), 1);
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'A-2': blocked('b.ts'), 'B-1': blocked('t.ts') }), 1, []);
     assert.deepEqual(second.clusters, [{ id: 'c4', findingIds: ['A-1', 'A-2', 'B-1'], files: ['a.ts', 'b.ts', 't.ts'] }]);
     assert.deepEqual(second.batches.map((batch) => [batch.key, batch.findingIds]), [['c4-1', ['A-1']], ['c4-2', ['A-2']], ['c4-3', ['B-1']]]);
-    const apart = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'B-1': blocked('t.ts') }), 4);
+    const apart = planSecondRound(plan, answers({ 'A-1': blocked('t.ts'), 'B-1': blocked('t.ts') }), 4, []);
     assert.deepEqual(apart.clusters.map((cluster) => cluster.findingIds), [['A-1', 'B-1']], 'one needed file joins them');
   });
 
   it('leaves out a finding blocked on a file no cluster owned or on its own cluster\'s, a deferred or applied one, and one with no answer', () => {
-    const second = planSecondRound(plan, answers({ 'A-1': blocked('elsewhere.ts'), 'A-2': blocked('a.ts'), 'T-1': { status: 'deferred', requiredFiles: [] }, 'B-1': blocked('t.ts', 'nowhere.ts') }), 4);
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('elsewhere.ts'), 'A-2': blocked('a.ts'), 'T-1': { status: 'deferred', requiredFiles: [] }, 'B-1': blocked('t.ts', 'nowhere.ts') }), 4, []);
     assert.deepEqual(second, { blocked: [], clusters: [], batches: [] });
-    assert.deepEqual(planSecondRound(plan, answers({}), 4), { blocked: [], clusters: [], batches: [] });
-    assert.deepEqual(planSecondRound(plan, answers({ 'A-1': blocked() }), 4).blocked, [], 'blocked on no file names nothing to own');
+    assert.deepEqual(planSecondRound(plan, answers({}), 4, []), { blocked: [], clusters: [], batches: [] });
+    assert.deepEqual(planSecondRound(plan, answers({ 'A-1': blocked() }), 4, []).blocked, [], 'blocked on no file names nothing to own');
   });
 
   it('never takes a held finding, which no fixer saw', () => {
-    assert.deepEqual(planSecondRound(plan, answers({ 'D-1': blocked('a.ts') }), 4).blocked, []);
+    assert.deepEqual(planSecondRound(plan, answers({ 'D-1': blocked('a.ts') }), 4, []).blocked, []);
+  });
+
+  it('takes a finding blocked on a file another cluster claimed, with the file among its cluster\'s, settled holder or not (R4 of commit series integrity)', () => {
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('test/shared.test.ts') }), 4, [{ path: 'test/shared.test.ts', cluster: 'c2' }]);
+    assert.deepEqual(second, {
+      blocked: [{ id: 'A-1', requiredFiles: ['test/shared.test.ts'] }],
+      clusters: [{ id: 'c4', findingIds: ['A-1'], files: ['a.ts', 'test/shared.test.ts'] }],
+      batches: [{ key: 'c4-1', cluster: 'c4', findingIds: ['A-1'] }],
+    });
+  });
+
+  it('leaves out a finding blocked on a file nobody held or only its own cluster claimed', () => {
+    assert.deepEqual(planSecondRound(plan, answers({ 'A-1': blocked('docs/free.md') }), 4, [{ path: 'docs/other.md', cluster: 'c2' }]).blocked, []);
+    assert.deepEqual(planSecondRound(plan, answers({ 'A-1': blocked('docs/own.md') }), 4, [{ path: 'docs/own.md', cluster: 'c1' }]).blocked, []);
+    assert.equal(planSecondRound(plan, answers({ 'A-1': blocked('docs/both.md') }), 4, [{ path: 'docs/both.md', cluster: 'c1' }, { path: 'docs/both.md', cluster: 'c3' }]).blocked.length, 1, 'another cluster claimed it after its own settled');
+  });
+
+  it('keeps a cluster\'s first-round claims in its second-round files', () => {
+    const second = planSecondRound(plan, answers({ 'A-1': blocked('t.ts') }), 4, [{ path: 'docs/notes.md', cluster: 'c1' }, { path: 'docs/c2.md', cluster: 'c2' }]);
+    assert.deepEqual(second.clusters, [{ id: 'c4', findingIds: ['A-1'], files: ['a.ts', 'docs/notes.md', 't.ts'] }]);
   });
 });

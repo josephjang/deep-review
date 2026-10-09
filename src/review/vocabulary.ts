@@ -133,15 +133,33 @@ export type PhaseOutcome = z.infer<typeof phaseOutcomeSchema>;
 
 /**
  * Why a run stopped short of a report, with the operator's action for
- * each (R5, R6, R7; R15 of the repository survey). The first four are
- * recorded on `phase.finished`; `lock-held` and `runtime-unqualified` are
- * refused before any event exists and are printed, never recorded.
+ * each (R5, R6, R7; R15 of the repository survey; R12 of commit series
+ * integrity). The first five are recorded on `phase.finished`;
+ * `lock-held` and `runtime-unqualified` are refused before any event
+ * exists and are printed, never recorded.
  */
-export const blockerCodes = ['worker-failed', 'budget', 'drift', 'check-unavailable', 'lock-held', 'runtime-unqualified'] as const;
+export const blockerCodes = ['worker-failed', 'budget', 'drift', 'check-unavailable', 'claims-lost', 'lock-held', 'runtime-unqualified'] as const;
 export type BlockerCode = (typeof blockerCodes)[number];
-export const recordedBlockerCodes = ['worker-failed', 'budget', 'drift', 'check-unavailable'] as const;
+export const recordedBlockerCodes = ['worker-failed', 'budget', 'drift', 'check-unavailable', 'claims-lost'] as const;
 export const recordedBlockerCodeSchema = z.enum(recordedBlockerCodes);
 export type RecordedBlockerCode = z.infer<typeof recordedBlockerCodeSchema>;
+
+/**
+ * Whose fault a failed attempt was (R12 of commit series integrity): the
+ * unit's, which counts against its attempts, or its environment's, a
+ * claims directory removed while it ran, which counts against none.
+ */
+export const attemptFaults = ['unit', 'environment'] as const;
+export type AttemptFault = (typeof attemptFaults)[number];
+
+/**
+ * Why the engine left a claim marker out of the ledger (R3 of commit
+ * series integrity, review F9): a cluster of the round owns the path, an
+ * unsettled other cluster holds it on the ledger, or the marker names a
+ * unit the plan lacks.
+ */
+export const lostClaimReasons = ['owned', 'held', 'unplanned'] as const;
+export type LostClaimReason = (typeof lostClaimReasons)[number];
 
 /** The operator's action for each blocker code; a test holds every code to having one. */
 export const blockerActions: Readonly<Record<BlockerCode, string>> = {
@@ -149,6 +167,7 @@ export const blockerActions: Readonly<Record<BlockerCode, string>> = {
   budget: 'run the command again with --budget-usd above the spend, or abandon the run',
   drift: 'restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one',
   'check-unavailable': 'install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs',
+  'claims-lost': 'run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts, or abandon the run',
   'lock-held': 'wait for that engine to finish; the lock clears itself when its process ends',
   'runtime-unqualified': 'fix the runtime installation or pass --executable with a qualifying binary, then run the command again',
 };

@@ -328,6 +328,11 @@ export const fixRevision = (workerId: string, after = reference('f')): Record<st
   files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: after } }],
 });
 
+/** The files one batch claimed, all at one time, or with none for a late claim (R3 of commit series integrity). */
+export const claimed = (key: string, cluster: string, paths: readonly string[], claimedAt: string | null = '2026-10-09T01:00:00.000Z'): Record<string, unknown> => ({
+  phase: 'fixes', key, cluster, files: paths.map((path) => ({ path, claimedAt })),
+});
+
 /** A clean check at an editing phase's end. */
 export const endCheck = (phase: string, attempt = 1): Record<string, unknown> => ({ phase, attempt, moment: 'end', drifted: false, head: null, files: [], strays: [] });
 

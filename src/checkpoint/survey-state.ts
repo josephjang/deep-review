@@ -37,6 +37,7 @@ export function surveyBlocker(blocker: Blocker): boolean {
       return true;
     case 'drift':
     case 'budget':
+    case 'claims-lost':
       return false;
   }
 }

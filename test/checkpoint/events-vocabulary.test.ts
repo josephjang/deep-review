@@ -7,14 +7,19 @@ import {
   attemptFailedV2,
   attemptFailedV3,
   attemptFailedV4,
+  attemptFailedV5,
   blockerSchema,
   blockerSchemaV3,
+  blockerSchemaV5,
+  claimsLostV1,
   candidatesRecordedV1,
   decisionsRecordedV1,
+  filesClaimedV1,
   groupUnverifiedV1,
   phaseFinishedV2,
   phaseFinishedV3,
   phaseFinishedV4,
+  phaseFinishedV5,
   phaseStartedV1,
   phaseStartedV2,
   phaseStartedV3,
@@ -32,6 +37,7 @@ import {
   reviewVocabularyV2,
   reviewVocabularyV3,
   reviewVocabularyV4,
+  reviewVocabularyV5,
   surveyFailedV1,
   unitUnattemptedV1,
   workerLostV1,
@@ -45,6 +51,7 @@ import {
 import { hintRules } from '../../src/review/checks/discover.ts';
 import {
   angles,
+  attemptFaults,
   candidateIdSchema,
   candidatePhases,
   checkBases,
@@ -62,6 +69,7 @@ import {
   fixStatuses,
   groupIdSchema,
   leaveReasons,
+  lostClaimReasons,
   maxRecordedTextLength,
   phaseOutcomes,
   phases,
@@ -100,7 +108,7 @@ describe('the review vocabulary frozen by the v1 events', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, ...rest } = reviewVocabularyV1;
     assert.deepEqual(rest, { angles, finderAngles, candidatePhases, deduplicationPhases, verificationPhases, phaseOutcomes, verdicts, severities });
     assert.deepEqual(frozenPhases, phases.filter((phase) => !(fixPhases as readonly string[]).includes(phase) && phase !== 'survey' && phase !== 'decision'), 'the fix pass added its five phases, the survey and the decision step one each, and nothing else');
-    assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable'), 'the survey added its blocker code and nothing else');
+    assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable' && code !== 'claims-lost'), 'the survey and the claims added a blocker code each and nothing else');
   });
 
   it('spells candidate ids, group ids and unit keys as today\'s vocabulary does', () => {
@@ -162,7 +170,7 @@ describe('the review vocabulary frozen by the v2 events', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, checkOrigins: frozenOrigins, ...rest } = reviewVocabularyV2;
     assert.deepEqual(rest, { checkPhases, editingPhases, phaseOutcomes, checkKinds, checkOutcomes, fixStatuses, validationMethods, suiteResults });
     assert.deepEqual(frozenPhases, phases.filter((phase) => phase !== 'survey' && phase !== 'decision'), 'the survey and the decision step added a phase each, and nothing else');
-    assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable'));
+    assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable' && code !== 'claims-lost'));
     // The origins a version 1 plan records are the flag and the manifest rules, which live on as the rules a hint names.
     assert.deepEqual(frozenOrigins, ['flag', ...hintRules]);
   });
@@ -214,10 +222,11 @@ describe('the review vocabulary frozen by the v3 events', () => {
     });
   });
 
-  it('is today\'s vocabulary in every word the decision step did not widen', () => {
-    const { phases: frozenPhases, ...rest } = reviewVocabularyV3;
-    assert.deepEqual(rest, { phaseOutcomes, recordedBlockerCodes, checkKinds, checkOrigins, checkBases, conventionLevels, userRulesSettings });
+  it('is today\'s vocabulary in every word the decision step and the claims did not widen', () => {
+    const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, ...rest } = reviewVocabularyV3;
+    assert.deepEqual(rest, { phaseOutcomes, checkKinds, checkOrigins, checkBases, conventionLevels, userRulesSettings });
     assert.deepEqual(frozenPhases, phases.filter((phase) => phase !== 'decision'), 'the decision step added its phase and nothing else');
+    assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'claims-lost'), 'the claims added their blocker code and nothing else');
   });
 
   it('caps a recorded reason at the same length as version 1', () => {
@@ -357,5 +366,80 @@ describe('decisions.recorded@1', () => {
     assert.equal(accepts({ ...fix, grounds: 'x'.repeat(1000) }), true);
     assert.equal(accepts({ ...fix, grounds: 'x'.repeat(1001) }), false);
     assert.equal(accepts({ ...fix, fix: { approach: 'x'.repeat(2001), rejected: [] } }), false);
+  });
+});
+
+// Version 5 of phase.finished and attempt.failed, and version 1 of the
+// claims' events, record the vocabulary commit series integrity widened;
+// the same rule holds them to today's.
+describe('the review vocabulary frozen by the v5 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV5, { recordedBlockerCodes, attemptFaults, lostClaimReasons });
+  });
+
+  it('records claims-lost only from version 5 of phase.finished, and only there', () => {
+    const blocked = { phase: 'fixes', attempt: 1, outcome: 'blocked', blocker: { code: 'claims-lost', detail: 'the claims directory /s was removed while the run was editing', action: 'run the command again' } };
+    assert.equal(blockerSchemaV3.safeParse(blocked.blocker).success, false);
+    assert.equal(blockerSchemaV5.safeParse(blocked.blocker).success, true);
+    assert.equal(phaseFinishedV4.safeParse(blocked).success, false);
+    assert.equal(phaseFinishedV5.safeParse(blocked).success, true);
+    assert.equal(phaseFinishedV5.safeParse({ ...blocked, outcome: 'completed' }).success, false, 'a blocker exactly when blocked');
+  });
+
+  it('requires a fault on attempt.failed@5, the unit\'s or the environment\'s, and caps its reason as version 1 does', () => {
+    const failure = { phase: 'fixes', key: 'c1-1', workerId, reason: 'the claims directory was removed while the unit ran' };
+    assert.equal(attemptFailedV5.safeParse(failure).success, false, 'no fault');
+    for (const fault of attemptFaults) assert.equal(attemptFailedV5.safeParse({ ...failure, fault }).success, true, fault);
+    assert.equal(attemptFailedV5.safeParse({ ...failure, fault: 'engine' }).success, false);
+    assert.equal(attemptFailedV4.safeParse({ ...failure, fault: 'unit' }).success, false, 'version 4 has no fault');
+    assert.equal(attemptFailedV5.safeParse({ ...failure, fault: 'unit', reason: 'x'.repeat(recordedTextLengthV1) }).success, true);
+    assert.equal(attemptFailedV5.safeParse({ ...failure, fault: 'unit', reason: 'x'.repeat(recordedTextLengthV1 + 1) }).success, false);
+  });
+
+  it('leaves the version 4 vocabulary as the decision step froze it', () => {
+    assert.deepEqual(reviewVocabularyV4, { phases, decisionKinds, leaveReasons });
+  });
+});
+
+describe('files.claimed@1', () => {
+  const claim = (files: unknown[], change: Record<string, unknown> = {}): boolean => filesClaimedV1.safeParse({ phase: 'fixes', key: 'c1-1', cluster: 'c1', files, ...change }).success;
+
+  it('records a batch\'s claims, each with its time or none for a late claim', () => {
+    assert.equal(claim([{ path: 'test/a.test.ts', claimedAt: '2026-10-09T01:00:00.000Z' }, { path: 'docs/late.md', claimedAt: null }]), true);
+  });
+
+  it('refuses no file, more than 2000, one path twice, another phase, and a key or cluster not spelled as the plan spells them', () => {
+    assert.equal(claim([]), false);
+    assert.equal(claim(Array.from({ length: 2000 }, (_, index) => ({ path: `f${String(index)}`, claimedAt: null }))), true);
+    assert.equal(claim(Array.from({ length: 2001 }, (_, index) => ({ path: `f${String(index)}`, claimedAt: null }))), false);
+    assert.equal(claim([{ path: 'a', claimedAt: null }, { path: 'a', claimedAt: '2026-10-09T01:00:00.000Z' }]), false);
+    assert.equal(claim([{ path: 'a', claimedAt: null }], { phase: 'repair' }), false);
+    assert.equal(claim([{ path: 'a', claimedAt: null }], { key: 'repair' }), false);
+    assert.equal(claim([{ path: 'a', claimedAt: null }], { cluster: 'C1' }), false);
+    assert.equal(claim([{ path: 'a', claimedAt: 'yesterday' }]), false);
+  });
+
+  it('refuses a path that is not repository relative, leaves the tree or names .git', () => {
+    for (const path of ['', '/etc/passwd', 'C:/x', '../x', 'a/../b', 'a//b', './a', 'a/', '.git/config', 'a/.GIT/b', 'a\\b']) assert.equal(claim([{ path, claimedAt: null }]), false, JSON.stringify(path));
+  });
+});
+
+describe('claims.lost@1', () => {
+  const lost = (file: Record<string, unknown>, change: Record<string, unknown> = {}): boolean => claimsLostV1.safeParse({ phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/a.ts', claimedAt: null, ...file }], ...change }).success;
+
+  it('names the holder exactly for a marker of a unit the plan has', () => {
+    assert.equal(lost({ reason: 'owned', holder: 'c1' }), true);
+    assert.equal(lost({ reason: 'held', holder: 'c1' }), true);
+    assert.equal(lost({ reason: 'unplanned', holder: null }, { unit: 'not a key', cluster: 'anything' }), true, 'the marker\'s own strings');
+    assert.equal(lost({ reason: 'unplanned', holder: 'c1' }), false);
+    assert.equal(lost({ reason: 'owned', holder: null }), false);
+    assert.equal(lost({ reason: 'stale', holder: null }), false);
+  });
+
+  it('refuses no file and another phase', () => {
+    assert.equal(claimsLostV1.safeParse({ phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [] }).success, false);
+    assert.equal(lost({ reason: 'owned', holder: 'c1' }, { phase: 'repair' }), false);
   });
 });

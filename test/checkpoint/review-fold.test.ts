@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { History, askDecision, candidate, configuration, configurationV1, configured, decidedOf, decisions, finding, found, launch, leads, mergeRanked, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { History, askDecision, baselined, candidate, configuration, configurationV1, configured, decidedOf, decisions, finding, fixPlan, found, launch, leads, mergeRanked, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
@@ -68,11 +68,11 @@ describe('the review fold', () => {
     assert.deepEqual(review.units.finders.FOOTGUNS, {
       answeredBy: null,
       failures: [
-        { workerId: worker(3), reason: 'failed: The answer does not match the output schema', lost: false },
-        { workerId: worker(4), reason: 'timeout: The worker ran past its timeout', lost: false },
+        { workerId: worker(3), reason: 'failed: The answer does not match the output schema', lost: false, fault: 'unit' },
+        { workerId: worker(4), reason: 'timeout: The worker ran past its timeout', lost: false, fault: 'unit' },
       ],
     });
-    assert.deepEqual(review.units.finders.WRAPPERS, { answeredBy: worker(10 + finderAngles.indexOf('WRAPPERS')), failures: [{ workerId: worker(5), reason: 'the engine exited while the worker ran', lost: true }] });
+    assert.deepEqual(review.units.finders.WRAPPERS, { answeredBy: worker(10 + finderAngles.indexOf('WRAPPERS')), failures: [{ workerId: worker(5), reason: 'the engine exited while the worker ran', lost: true, fault: 'environment' }] });
     assert.deepEqual(review.anglesNotRun, { FOOTGUNS: '2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout' });
     assert.deepEqual(review.phases.finders, { status: 'degraded', attempt: 1 });
   });
@@ -84,9 +84,18 @@ describe('the review fold', () => {
       .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(7), reason: 'timeout: ran long' })
       .review();
     assert.deepEqual(review.units.finders.RIPPLE?.failures, [
-      { workerId: worker(6), reason: 'the engine exited while the worker ran', lost: true },
-      { workerId: worker(7), reason: 'timeout: ran long', lost: false },
+      { workerId: worker(6), reason: 'the engine exited while the worker ran', lost: true, fault: 'environment' },
+      { workerId: worker(7), reason: 'timeout: ran long', lost: false, fault: 'unit' },
     ]);
+  });
+
+  it('folds the fault version 5 of attempt.failed records, every earlier version as the unit\'s, and a lost worker as its environment\'s (R12 of commit series integrity)', () => {
+    const failures = baselined().start('fixes').add('fixes.planned', fixPlan)
+      .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(51), reason: 'timeout' }, 4)
+      .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(52), reason: 'the claims directory was removed while the unit ran', fault: 'environment' }, 5)
+      .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(53), reason: 'refused', fault: 'unit' }, 5)
+      .review().units.fixes['c1-1']?.failures;
+    assert.deepEqual(failures?.map((failure) => [failure.workerId, failure.fault, failure.lost]), [[worker(51), 'unit', false], [worker(52), 'environment', false], [worker(53), 'unit', false]]);
   });
 
   it('folds deduplication into duplicateOf and verification into verdicts', () => {
@@ -219,7 +228,7 @@ describe('the review fold', () => {
     const before = blocked.fold();
     const review = blocked.start('finders', 2).review();
     assert.deepEqual(review.units.finders, { RIPPLE: { answeredBy: null, failures: [] }, DESIGN: { answeredBy: worker(4), failures: [] } });
-    assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(2), failures: [{ workerId: worker(1), reason: 'first', lost: false }] } }, 'the triage is not re-entered, so its failure stays');
+    assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(2), failures: [{ workerId: worker(1), reason: 'first', lost: false, fault: 'unit' }] } }, 'the triage is not re-entered, so its failure stays');
     assert.equal(before.review!.units.finders.RIPPLE?.failures.length, 1, 'the state before the start is left as it was');
   });
 
@@ -325,6 +334,8 @@ describe('the review fold', () => {
     ['candidates for an angle that failed', () => finding().add('candidates.recorded', { phase: 'finders', key: 'FOOTGUNS', workerId: worker(6), candidates: [], leads: null }), /after it failed/],
     ['a failure for an answered unit', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null }).add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'late' }), /already answered/],
     ['an angle failed twice', () => finding().add('angle.failed', { angle: 'FOOTGUNS', reason: 'again' }), /fails angle FOOTGUNS twice/],
+    ['a failure for the environment outside the fixes phase', () => triaged().start('finders').add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'gone', fault: 'environment' }, 5), /fails finders:RIPPLE for its environment, which only a fixes-phase unit records/],
+    ['a lost claims directory blocking a phase other than the fixes', () => triaged().start('finders').add('phase.finished', { phase: 'finders', attempt: 1, outcome: 'blocked', blocker: { code: 'claims-lost', detail: 'gone', action: 'run it again' } }, 5), /blocks phase finders on a lost claims directory, which only the fixes phase has/],
     ['deduplication of a candidate outside its pool', () => found().start('deduplication').add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [{ members: ['SCAN-1', 'SWEEP-1'], keep: 'SCAN-1', reason: 'r' }] }), /not in the deduplication pool/],
     ['deduplication grouping a candidate twice', () => found().start('deduplication').add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [{ members: ['SCAN-1', 'RIPPLE-1'], keep: 'SCAN-1', reason: 'r' }, { members: ['RIPPLE-1', 'SCAN-1'], keep: 'RIPPLE-1', reason: 'r' }] }), /groups candidate .* twice/],
     ['deduplication keeping a non-member', () => found().start('deduplication').add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [{ members: ['SCAN-1', 'RIPPLE-1'], keep: 'SWEEP-1', reason: 'r' }] }), /the kept candidate is a member/],

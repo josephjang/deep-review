@@ -62,9 +62,14 @@ class ReviewHistory {
     this.phaseAt(3, phase, body, outcome, check);
   }
 
-  /** The same at version 4, as the engine now writes them. */
+  /** The same at version 4, as the decision step's engine wrote them. */
   phaseV4(phase: Phase, body: () => void, outcome: 'completed' | 'degraded' = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
     this.phaseAt(4, phase, body, outcome, check);
+  }
+
+  /** The same as the engine now writes them: started and checked at version 4, finished at version 5, which a blocker of the claims needs. */
+  phaseV5(phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+    this.phaseAt(4, phase, body, finish, check, 5);
   }
 
   /** Start a phase at its next attempt at version 3 with a clean check and finish it blocked, as a survey that blocks does. */
@@ -75,9 +80,10 @@ class ReviewHistory {
   /**
    * Start a phase at its next attempt with a clean worktree check at
    * `version`, run `body`, optionally check the worktree again at the end,
-   * and finish it: `completed` or `degraded`, or `blocked` on a blocker.
+   * and finish it at `finishedVersion`, `version` unless given:
+   * `completed` or `degraded`, or `blocked` on a blocker.
    */
-  phaseAt(version: 2 | 3 | 4, phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+  phaseAt(version: 2 | 3 | 4, phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}, finishedVersion: number = version): void {
     const number = (this.#attempts[phase] ?? 0) + 1;
     this.#attempts[phase] = number;
     this.add('phase.started', { phase, attempt: number }, version);
@@ -85,7 +91,7 @@ class ReviewHistory {
     body();
     if (check.end === true) this.add('worktree.checked', { phase, attempt: number, moment: 'end', drifted: false, head: null, files: [], strays: check.strays ?? [] }, version);
     const finished = typeof finish === 'string' ? { outcome: finish, blocker: null } : { outcome: 'blocked', blocker: finish };
-    this.add('phase.finished', { phase, attempt: number, ...finished }, version);
+    this.add('phase.finished', { phase, attempt: number, ...finished }, finishedVersion);
   }
 
   /** One check as it ran in a checks phase, four seconds long. */
@@ -877,7 +883,197 @@ try {
       patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
     }, 4);
   });
-  const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
+  // A seventh run with claims, every event at the version the engine now
+  // writes: a fix run of two clusters, one finding per batch. c1-1 claims a
+  // shared test file and applies SCAN-1; c2-1's claim of it is refused, its
+  // marker on c1's own file is left out of the ledger as lost, and it
+  // answers RIPPLE-1 blocked on the test file; c1-2 edits a file nobody held
+  // without claiming it, a late claim; c2-2's claims directory is removed
+  // while it runs, so its attempt fails for the environment and the phase
+  // blocks with claims-lost; the re-entered phase gives c2-2 a fresh attempt,
+  // which answers; and the second round takes RIPPLE-1 into c3, owning c2's
+  // file and the test file c1 had claimed, where c3-1 claims one more file.
+  const claimedRun = checkpoint.createRun({ worktree: '/fixture/claimed' });
+  const claimed = new ReviewHistory(checkpoint, claimedRun.id, checkpoint.append(claimedRun.id, claimedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  claimed.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.297',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: [
+      pinned('surveyor', 'strong', 'medium'),
+      pinned('triage', 'strong'),
+      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
+      pinned('deduplication', 'strong'),
+      pinned('verifier', 'strong'),
+      pinned('sweep', 'strong'),
+      pinned('merge-rank', 'strong'),
+      pinned('decider', 'strong', 'high', 1_800_000),
+      pinned('fixer', 'strong', 'high', 1_800_000),
+    ],
+    rolesDigest: 'a'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 60,
+    fix: true,
+    checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 1 },
+    survey: { userRules: 'ignore' },
+    codex: null,
+  }, 5);
+  claimed.phaseV5('survey', () => {
+    claimed.launch('601', 'surveyor survey:survey');
+    claimed.finishWorker('601');
+    claimed.add('survey.recorded', {
+      workerId: claimed.id('601'),
+      conventions: [],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: decidedChecks.build, basis: 'stated', source: { path: 'CONTRIBUTING.md', quote: '`npm run build`' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'the build typechecks' },
+        { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no linter' },
+        { kind: 'test', command: decidedChecks.test, basis: 'stated', source: { path: 'CONTRIBUTING.md', quote: '`npm test`' }, missingTool: null, reason: null },
+      ],
+      note: '',
+    });
+    claimed.add('checks.planned', { checks: [
+      { kind: 'build', command: decidedChecks.build, origin: 'survey', reason: null, source: { path: 'CONTRIBUTING.md', quote: '`npm run build`', basis: 'stated' } },
+      { kind: 'typecheck', command: null, origin: 'none', reason: 'the build typechecks', source: null },
+      { kind: 'lint', command: null, origin: 'none', reason: 'the project has no linter', source: null },
+      { kind: 'test', command: decidedChecks.test, origin: 'survey', reason: null, source: { path: 'CONTRIBUTING.md', quote: '`npm test`', basis: 'stated' } },
+    ] }, 2);
+  });
+  claimed.phaseV5('triage', () => {
+    claimed.launch('602', 'triage triage:SCAN');
+    claimed.finishWorker('602');
+    claimed.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: claimed.id('602'), candidates: [claimed.candidate('SCAN-1', 'SCAN', 1), claimed.candidate('SCAN-2', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  claimed.phaseV5('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = String(610 + finderAngles.indexOf(angle));
+      claimed.launch(tag, `finder-${angle} finders:${angle}`);
+      claimed.finishWorker(tag);
+      const candidates = angle === 'RIPPLE'
+        ? [1, 2].map((number) => ({ ...claimed.candidate(`RIPPLE-${String(number)}`, 'RIPPLE', number), file: 'src/caller.ts', inScope: false, rawFile: 'src/caller.ts' }))
+        : [];
+      claimed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: claimed.id(tag), candidates, leads: null });
+    }
+  });
+  claimed.phaseV5('deduplication', () => {
+    claimed.launch('620', 'deduplication deduplication:deduplication');
+    claimed.finishWorker('620');
+    claimed.add('deduplication.recorded', { phase: 'deduplication', workerId: claimed.id('620'), groups: [] });
+  });
+  claimed.phaseV5('verification', () => {
+    claimed.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1', 'RIPPLE-2', 'SCAN-1', 'SCAN-2'] }] });
+    claimed.launch('621', 'verifier verification:g1');
+    claimed.finishWorker('621');
+    claimed.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: claimed.id('621'), verdicts: [
+      { id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'line 1 passes the null on' },
+      { id: 'RIPPLE-2', verdict: 'CONFIRMED', evidence: 'line 2 logs the raw value' },
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null' },
+      { id: 'SCAN-2', verdict: 'CONFIRMED', evidence: 'line 1 skips the guard' },
+    ] });
+  });
+  claimed.phaseV5('sweep', () => {
+    claimed.launch('630', 'sweep sweep:sweep');
+    claimed.finishWorker('630');
+    claimed.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: claimed.id('630'), candidates: [], leads: null });
+  });
+  claimed.phaseV5('sweep-deduplication', () => {});
+  claimed.phaseV5('sweep-verification', () => claimed.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  claimed.phaseV5('merge-rank', () => {
+    claimed.launch('640', 'merge-rank merge-rank:merge-rank');
+    claimed.finishWorker('640');
+    claimed.add('ranking.recorded', { workerId: claimed.id('640'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'RIPPLE-1', members: [], severity: 'minor', summary: 'the caller passes the null on', reason: 'the crash reaches a second site' },
+      { id: 'SCAN-2', members: [], severity: 'minor', summary: 'changed() skips its guard', reason: 'the guard is part of the fix' },
+      { id: 'RIPPLE-2', members: [], severity: 'minor', summary: 'the caller logs the raw value', reason: 'the log leaks the input' },
+    ] });
+  });
+  claimed.phaseV5('decision', () => {
+    claimed.launch('645', 'decider decision:decision');
+    claimed.finishWorker('645');
+    const fixIt = (id: string, approach: string) => ({ id, decision: 'fix', grounds: `${id} is reachable`, fix: { approach, rejected: [] }, leave: null, ask: null, departure: null });
+    claimed.add('decisions.recorded', { workerId: claimed.id('645'), decisions: [
+      fixIt('SCAN-1', 'guard the null in changed()'),
+      fixIt('RIPPLE-1', 'stop passing the null in the caller, with the shared test'),
+      fixIt('SCAN-2', 'check the guard, noting it in docs/notes.md'),
+      fixIt('RIPPLE-2', 'log the checked value'),
+    ] });
+  });
+  claimed.phaseV5('baseline-checks', () => {
+    claimed.check('baseline-checks', 'build', decidedChecks.build, 'passed');
+    claimed.check('baseline-checks', 'test', decidedChecks.test, 'passed');
+  });
+  const modified = (path: string, before: string, after: string) => ({ path, status: 'modified', before: claimed.frozen(before), beforeSymlink: false, symlink: false, after: claimed.frozen(after) });
+  const added = (path: string, after: string) => ({ path, status: 'created', before: null, beforeSymlink: false, symlink: false, after: claimed.frozen(after) });
+  const fixRevision = (key: string, tag: string, id: string, subject: string, files: unknown[]) => claimed.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key, workerId: claimed.id(tag) }, change: { findings: [id], message: message(subject) }, files });
+  const answer = (key: string, tag: string, answered: ReturnType<typeof finding>, violations: string[] = []) => claimed.add('fix.recorded', { phase: 'fixes', key, workerId: claimed.id(tag), findings: [answered], drift: [], tests: [], suite: { result: answered.status === 'blocked' ? 'not-run' : 'pass', command: answered.status === 'blocked' ? '' : decidedChecks.test, failures: '' }, violations });
+  const plan = {
+    routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'RIPPLE-1', route: 'fixer' }, { id: 'SCAN-2', route: 'fixer' }, { id: 'RIPPLE-2', route: 'fixer' }],
+    clusters: [{ id: 'c1', findingIds: ['SCAN-1', 'SCAN-2'], files: ['src/changed.ts'] }, { id: 'c2', findingIds: ['RIPPLE-1', 'RIPPLE-2'], files: ['src/caller.ts'] }],
+    batches: [
+      { key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] },
+      { key: 'c2-1', cluster: 'c2', findingIds: ['RIPPLE-1'] },
+      { key: 'c1-2', cluster: 'c1', findingIds: ['SCAN-2'] },
+      { key: 'c2-2', cluster: 'c2', findingIds: ['RIPPLE-2'] },
+    ],
+  };
+  claimed.phaseV5('fixes', () => {
+    claimed.add('fixes.planned', plan);
+    claimed.launch('650', 'fixer fixes:c1-1');
+    claimed.launch('651', 'fixer fixes:c2-1');
+    // c1-1 settles first: its claim of the shared test reaches the ledger with its answer.
+    claimed.finishWorker('650');
+    claimed.add('files.claimed', { phase: 'fixes', key: 'c1-1', cluster: 'c1', files: [{ path: 'test/shared.test.ts', claimedAt: '2026-10-09T01:00:05.000Z' }] });
+    answer('c1-1', '650', finding('SCAN-1', 'applied', ['src/changed.ts', 'test/shared.test.ts'], 'fix: Guard the null in changed()'));
+    fixRevision('c1-1', '650', 'SCAN-1', 'fix: Guard the null in changed()', [modified('src/changed.ts', 'after\n', 'after; // guarded\n'), modified('test/shared.test.ts', 'shared();\n', 'shared(null);\n')]);
+    // c2-1's marker on c1's own file is one the fold would refuse, so it is recorded as lost; its claim of the test was refused, so it answers blocked on it with no edit.
+    claimed.finishWorker('651');
+    claimed.add('claims.lost', { phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/changed.ts', claimedAt: '2026-10-09T01:00:07.000Z', reason: 'owned', holder: 'c1' }] });
+    answer('c2-1', '651', finding('RIPPLE-1', 'blocked', [], null, ['test/shared.test.ts']));
+    // c1-2 edited docs/notes.md, which nobody held, without claiming it: a late claim, appended before its answer.
+    claimed.launch('652', 'fixer fixes:c1-2');
+    claimed.launch('653', 'fixer fixes:c2-2');
+    claimed.finishWorker('652');
+    claimed.add('files.claimed', { phase: 'fixes', key: 'c1-2', cluster: 'c1', files: [{ path: 'docs/notes.md', claimedAt: null }] });
+    answer('c1-2', '652', finding('SCAN-2', 'applied', ['docs/notes.md', 'src/changed.ts'], 'fix: Check the guard in changed()'));
+    fixRevision('c1-2', '652', 'SCAN-2', 'fix: Check the guard in changed()', [added('docs/notes.md', 'the guard is checked\n'), modified('src/changed.ts', 'after; // guarded\n', 'after; // guarded, checked\n')]);
+    // The claims directory was removed while c2-2 ran: whatever it answered, its attempt failed for the environment, with its edits kept.
+    claimed.finishWorker('653');
+    claimed.add('attempt.failed', { phase: 'fixes', key: 'c2-2', workerId: claimed.id('653'), reason: 'the claims directory was removed while the unit ran', fault: 'environment' }, 5);
+    claimed.add('tree.revised', { phase: 'fixes', source: { kind: 'attempt', key: 'c2-2', workerId: claimed.id('653') }, change: { findings: [], message: { subject: 'chore: keep the edits an unfinished attempt left', body: 'An attempt of batch c2-2 ended without an answer after its last snapshot.' } }, files: [modified('src/caller.ts', 'caller(null);\n', 'caller(null); // checked\n')] });
+  }, { code: 'claims-lost', detail: 'the claims directory /fixture/scratch/claims/round-1 was removed while the run was editing', action: 'run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts, or abandon the run' });
+  claimed.phaseV5('fixes', () => {
+    claimed.launch('654', 'fixer fixes:c2-2');
+    claimed.finishWorker('654');
+    answer('c2-2', '654', finding('RIPPLE-2', 'already-applied', ['src/caller.ts'], 'fix: Log the checked value in the caller'));
+    // RIPPLE-1 was blocked on the test c1 claimed, so the second round takes it into c3, which owns c2's file and that test.
+    claimed.add('fixes.replanned', { blocked: [{ id: 'RIPPLE-1', requiredFiles: ['test/shared.test.ts'] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['src/caller.ts', 'test/shared.test.ts'] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] });
+    claimed.launch('655', 'fixer fixes:c3-1');
+    claimed.finishWorker('655');
+    claimed.add('files.claimed', { phase: 'fixes', key: 'c3-1', cluster: 'c3', files: [{ path: 'docs/caller.md', claimedAt: '2026-10-09T01:20:00.000Z' }] });
+    answer('c3-1', '655', finding('RIPPLE-1', 'applied', ['docs/caller.md', 'src/caller.ts', 'test/shared.test.ts'], 'fix: Stop passing the null in the caller'));
+    fixRevision('c3-1', '655', 'RIPPLE-1', 'fix: Stop passing the null in the caller', [added('docs/caller.md', 'the caller passes no null\n'), modified('src/caller.ts', 'caller(null); // checked\n', 'caller(); // checked\n'), modified('test/shared.test.ts', 'shared(null);\n', 'shared(null);\nshared();\n')]);
+  }, 'completed', { end: true });
+  claimed.phaseV5('checks', () => {
+    claimed.check('checks', 'build', decidedChecks.build, 'passed');
+    claimed.check('checks', 'test', decidedChecks.test, 'passed');
+  });
+  claimed.phaseV5('repair', () => {});
+  claimed.phaseV5('repair-checks', () => {});
+  claimed.phaseV5('report', () => {
+    const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+    const workersPerPhase: Record<Phase, number> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, decision: 1, 'baseline-checks': 0, fixes: 6, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
+    claimed.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run with claims\n'),
+      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: spend(22), budgetApplied: true },
+      patches: ['guard', 'check the guard', 'keep the attempt', 'stop passing the null'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
+    }, 4);
+  });
+  const evidence =checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);
   writeFileSync(join(output, 'identity.json'), `${JSON.stringify(checkpointIdentity(), null, 2)}\n`);

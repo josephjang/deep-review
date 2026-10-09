@@ -15,6 +15,7 @@ import {
   singleUnitKey,
   unitName,
   verificationPhases,
+  type AttemptFault,
   type CandidatePhase,
   type DeduplicationPhase,
   type Phase,
@@ -76,12 +77,20 @@ export interface UnitState {
   readonly failures: readonly UnitFailure[];
 }
 
-/** One attempt of a unit that did not contribute: its worker, why, and whether the worker was lost rather than seen to fail. */
+/** One attempt of a unit that did not contribute: its worker, why, whether the worker was lost rather than seen to fail, and whose fault the failure was. */
 export interface UnitFailure {
   readonly workerId: string;
   readonly reason: string;
   /** True for a worker lost with the engine that ran it (`worker.lost`), false for one recorded failing (`attempt.failed`). */
   readonly lost: boolean;
+  /**
+   * The unit's own, a worker that failed or answered what the engine
+   * refused, or its environment's, a worker lost with its engine or a unit
+   * that ran while its claims directory was removed (R12 of commit series
+   * integrity), which counts against no attempt. `attempt.failed` before
+   * version 5 records none and reads as the unit's.
+   */
+  readonly fault: AttemptFault;
 }
 
 /** A candidate as recorded, with the phase and worker it came from and what later phases decided about it. */
@@ -348,6 +357,7 @@ const phaseFinished: Reducer<PhaseFinished> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase, payload.attempt);
   if (payload.blocker?.code === 'check-unavailable' && payload.phase !== 'survey') throw invalid(event, `blocks phase ${payload.phase} on a check that cannot run, which only the survey finds`);
+  if (payload.blocker?.code === 'claims-lost' && payload.phase !== 'fixes') throw invalid(event, `blocks phase ${payload.phase} on a lost claims directory, which only the fixes phase has`);
   const phaseStates = { ...review.phases, [payload.phase]: { status: payload.outcome, attempt: payload.attempt } };
   const blocker = payload.blocker === null ? null : { ...payload.blocker, phase: payload.phase };
   // The survey's last blocker of its own outlives the next start, which clears the run's: a re-entered survey reads from it whether the flags may stand in for it. A drift or budget block leaves it, so it never hides the survey's failure.
@@ -402,12 +412,16 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, 
   return withReview(current, { ...review, candidates, leads, units: answered(review, drafts, unit, payload.workerId) }, event);
 };
 
-const attemptFailed: Reducer<AttemptFailed> = (state, payload, event, drafts) => {
+/** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. */
+const attemptFailed: Reducer<Omit<AttemptFailed, 'fault'> & { readonly fault?: AttemptFailed['fault'] }> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
   const unit: UnitRef = { phase: payload.phase, key: payload.key };
   requireUnanswered(review, event, unit);
-  return withReview(current, withFailure(review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false }), event);
+  const fault = payload.fault ?? 'unit';
+  // Only the fixes phase has a claims directory to lose, the one environment fault an attempt records.
+  if (fault === 'environment' && payload.phase !== 'fixes') throw invalid(event, `fails ${unitName(payload.phase, payload.key)} for its environment, which only a fixes-phase unit records`);
+  return withReview(current, withFailure(review, drafts, unit, { workerId: payload.workerId, reason: payload.reason, lost: false, fault }), event);
 };
 
 const angleFailed: Reducer<AngleFailed> = (state, payload, event) => {
@@ -568,6 +582,7 @@ export const reviewReducers = {
   'phase.finished@2': phaseFinished,
   'phase.finished@3': phaseFinished,
   'phase.finished@4': phaseFinished,
+  'phase.finished@5': phaseFinished,
   'worktree.checked@1': worktreeCheckedV1,
   'worktree.checked@2': worktreeChecked,
   'worktree.checked@3': worktreeChecked,
@@ -577,6 +592,7 @@ export const reviewReducers = {
   'attempt.failed@2': attemptFailed,
   'attempt.failed@3': attemptFailed,
   'attempt.failed@4': attemptFailed,
+  'attempt.failed@5': attemptFailed,
   'angle.failed@1': angleFailed,
   'deduplication.recorded@1': deduplicationRecorded,
   'verification.planned@1': verificationPlanned,

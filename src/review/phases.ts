@@ -364,9 +364,9 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   };
 }
 
-/** The failed attempt a unit records for a receipt or a refused answer. */
+/** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault. */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
-  return { kind: 'attempt.failed', version: 4, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength) } };
+  return { kind: 'attempt.failed', version: 5, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault: 'unit' } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */

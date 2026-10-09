@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { failedAtBaseline, fixesRevisedPaths, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, holdersOf, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
-import { fixPlanOf } from '../../src/review/steps.ts';
+import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
 import {
   askDecision,
   baselined,
   checkRun,
   checksPhase,
+  claimed,
   configured,
   decidedOf,
   decisions,
@@ -333,6 +334,121 @@ describe('the versions of the events that carry a phase', () => {
     const running = baselined().start('fixes').add('fixes.planned', fixPlan).add('worker.launched', { ...launchOf(worker(70)) });
     assert.throws(() => foldRun(running.add('worker.lost', lost).events), /schema rejects/);
     const review = baselined().start('fixes').add('fixes.planned', fixPlan).add('worker.launched', { ...launchOf(worker(70)) }).add('worker.lost', lost, 2).review();
-    assert.deepEqual(review.units.fixes['c1-1']?.failures, [{ workerId: worker(70), reason: lost.reason, lost: true }]);
+    assert.deepEqual(review.units.fixes['c1-1']?.failures, [{ workerId: worker(70), reason: lost.reason, lost: true, fault: 'environment' }]);
   });
+});
+
+// R1, R3, R4, R6 of commit series integrity: c1 owns src/a.ts and c2 src/b.ts, one batch each, both running.
+describe('the claims fold', () => {
+  const twoClusterPlan = {
+    routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
+    clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }],
+    batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }],
+  };
+  const answerOf = (key: string, id: string, status: string, files: string[] = [], requiredFiles: string[] = [], violations: string[] = []): Record<string, unknown> => ({
+    key, findings: [{ id, status, file: 'src/a.ts', line: 1, note: `${id} ${status}`, message: files.length > 0 ? { subject: 'fix: x', body: '' } : null, files, corrections: [], validation: [], requiredFiles }], violations,
+  });
+  const running = (): History => baselined().start('fixes').add('fixes.planned', twoClusterPlan);
+  /** c1-1 answers, which settles c1, its one batch. */
+  const c1Settled = (history: History, files: string[] = []): History => history.worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'applied', files)));
+  const shared = 'test/shared.test.ts';
+
+  it('folds a claim into the fix state and makes its cluster the file\'s holder, which no sibling may edit while it runs', () => {
+    const fix = running().add('files.claimed', claimed('c1-1', 'c1', [shared])).review().fix!;
+    assert.deepEqual(fix.claims, [{ path: shared, cluster: 'c1', key: 'c1-1', round: 1, claimedAt: '2026-10-09T01:00:00.000Z' }]);
+    assert.deepEqual([...holdersOf(fix, 1)], [['src/a.ts', { cluster: 'c1', by: 'plan' }], ['src/b.ts', { cluster: 'c2', by: 'plan' }], [shared, { cluster: 'c1', by: 'claim' }]]);
+    assert.deepEqual([...heldByOthers(fix, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }], [shared, { cluster: 'c1', by: 'claim' }]]);
+    assert.deepEqual([...heldByOthers(fix, 'c1-1')], [['src/b.ts', { cluster: 'c2', by: 'plan' }]], 'a cluster\'s own claims are its own');
+    assert.deepEqual(clusterClaims(fix, 1, 'c1'), [shared]);
+    assert.deepEqual([...settledClusters(fix, 1)], []);
+  });
+
+  it('frees a settled cluster\'s claimed files, and lets another cluster claim one and hold it', () => {
+    const settled = c1Settled(running().add('files.claimed', claimed('c1-1', 'c1', [shared])), [shared]);
+    const before = settled.review().fix!;
+    assert.deepEqual([...settledClusters(before, 1)], ['c1']);
+    assert.deepEqual([...heldByOthers(before, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }]], 'owned files stay owned for the round; claimed ones end with the settle');
+    const after = settled.add('files.claimed', claimed('c2-1', 'c2', [shared], '2026-10-09T02:00:00.000Z')).review().fix!;
+    assert.deepEqual(holdersOf(after, 1).get(shared), { cluster: 'c2', by: 'claim' });
+    assert.equal(after.claims.length, 2);
+  });
+
+  it('folds a late claim with no time, and lost claims as their markers named them', () => {
+    const fix = running()
+      .add('claims.lost', { phase: 'fixes', unit: 'c9-1', cluster: 'c9', files: [{ path: 'docs/x.md', claimedAt: '2026-10-09T01:00:00.000Z', reason: 'unplanned', holder: null }] })
+      .add('claims.lost', { phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/a.ts', claimedAt: null, reason: 'owned', holder: 'c1' }] })
+      .add('files.claimed', claimed('c1-1', 'c1', ['docs/late.md'], null))
+      .review().fix!;
+    assert.deepEqual(fix.claims.map((claim) => [claim.path, claim.claimedAt]), [['docs/late.md', null]]);
+    assert.deepEqual(fix.lostClaims, [
+      { path: 'docs/x.md', claimedAt: '2026-10-09T01:00:00.000Z', reason: 'unplanned', holder: null, unit: 'c9-1', cluster: 'c9' },
+      { path: 'src/a.ts', claimedAt: null, reason: 'owned', holder: 'c1', unit: 'c2-1', cluster: 'c2' },
+    ]);
+  });
+
+  it('folds a violation on a file another cluster claimed when the claim was folded first, and refuses it otherwise (R6)', () => {
+    const violating = (history: History): History => history.worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'applied', ['src/a.ts', shared], [], [shared])));
+    assert.deepEqual(violating(running().add('files.claimed', claimed('c2-1', 'c2', [shared]))).review().fix!.answers.fixes['c1-1']?.violations, [shared]);
+    assert.throws(() => violating(running()).fold(), /records a violation on test\/shared\.test\.ts, which is not a reported file another cluster holds/);
+    // A claim of a cluster that settled since holds nothing.
+    const c2Settled = running().add('files.claimed', claimed('c2-1', 'c2', [shared])).worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), answerOf('c2-1', 'SWEEP-1', 'applied', ['src/b.ts', shared])));
+    assert.throws(() => violating(c2Settled).fold(), /records a violation on test\/shared\.test\.ts/);
+  });
+
+  it('folds a second round for a finding blocked on a file another first-round cluster claimed, settled or not, with its cluster\'s claims among its files (R4)', () => {
+    // c2 claims the test, applies SWEEP-1 and settles; c1 claims docs/c1.md and answers RIPPLE-1 blocked on the test.
+    const firstRound = running()
+      .add('files.claimed', claimed('c2-1', 'c2', [shared]))
+      .worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), answerOf('c2-1', 'SWEEP-1', 'applied', ['src/b.ts', shared])))
+      .add('files.claimed', claimed('c1-1', 'c1', ['docs/c1.md']))
+      .worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'blocked', ['docs/c1.md'], [shared])));
+    const second = { blocked: [{ id: 'RIPPLE-1', requiredFiles: [shared] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['docs/c1.md', 'src/a.ts', shared] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] };
+    const fix = firstRound.clone().add('fixes.replanned', second).review().fix!;
+    assert.deepEqual(fix.secondRound, second);
+    assert.deepEqual(secondRoundOf(firstRound.review()), second, 'the planner makes the plan the fold accepts');
+    assert.throws(() => firstRound.clone().add('fixes.replanned', { ...second, clusters: [{ ...second.clusters[0]!, files: ['src/a.ts', shared] }] }).fold(), /gives second-round cluster c3 the files \[src\/a\.ts, test\/shared\.test\.ts\], not its findings' \[docs\/c1\.md, src\/a\.ts, test\/shared\.test\.ts\]/);
+  });
+
+  it('refuses a second round for a file only the finding\'s own cluster claimed, or nobody held', () => {
+    const blockedOn = (path: string, claims: History = running()): History => claims
+      .worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'blocked', [], [path])))
+      .worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), answerOf('c2-1', 'SWEEP-1', 'applied', ['src/b.ts'])))
+      .add('fixes.replanned', { blocked: [{ id: 'RIPPLE-1', requiredFiles: [path] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['src/a.ts', path] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] });
+    assert.throws(() => blockedOn('docs/own.md', running().add('files.claimed', claimed('c1-1', 'c1', ['docs/own.md']))).fold(), /takes finding RIPPLE-1 into its second round for docs\/own\.md, which no other first-round cluster owned or claimed/);
+    assert.throws(() => blockedOn('docs/free.md').fold(), /for docs\/free\.md, which no other first-round cluster owned or claimed/);
+  });
+
+  it('holds second-round claims to the second round\'s clusters, where the first round\'s claims are over', () => {
+    const second = { blocked: [{ id: 'RIPPLE-1', requiredFiles: ['src/b.ts'] }], clusters: [{ id: 'c3', findingIds: ['RIPPLE-1'], files: ['src/a.ts', 'src/b.ts'] }], batches: [{ key: 'c3-1', cluster: 'c3', findingIds: ['RIPPLE-1'] }] };
+    const fix = running()
+      .add('files.claimed', claimed('c2-1', 'c2', [shared]))
+      .worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'blocked', [], ['src/b.ts'])))
+      .worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), answerOf('c2-1', 'SWEEP-1', 'applied', ['src/b.ts', shared])))
+      .add('fixes.replanned', second)
+      .add('files.claimed', claimed('c3-1', 'c3', [shared, 'docs/c3.md']))
+      .review().fix!;
+    assert.deepEqual(fix.claims.slice(1).map((claim) => [claim.path, claim.round]), [[shared, 2], ['docs/c3.md', 2]]);
+    assert.deepEqual(holdersOf(fix, 2).get(shared), { cluster: 'c3', by: 'claim' });
+    assert.deepEqual(holdersOf(fix, 1).get(shared), { cluster: 'c2', by: 'claim' });
+  });
+
+  const refusals: [name: string, build: () => History, message: RegExp][] = [
+    ['a claim before the plan', () => baselined().start('fixes').add('files.claimed', claimed('c1-1', 'c1', [shared])), /claims files for c1-1, which the plan does not have/],
+    ['a claim by a unit the plan lacks', () => running().add('files.claimed', claimed('c9-1', 'c9', [shared])), /claims files for c9-1, which the plan does not have/],
+    ['a claim under another cluster\'s name', () => running().add('files.claimed', claimed('c1-1', 'c2', [shared])), /claims files for c1-1 under cluster c2, not its cluster c1/],
+    ['a claim of a file another cluster owns', () => running().add('files.claimed', claimed('c1-1', 'c1', ['src/b.ts'])), /claims src\/b\.ts for c1-1, which cluster c2 owns/],
+    ['a claim of a file its own cluster owns', () => running().add('files.claimed', claimed('c1-1', 'c1', ['src/a.ts'])), /claims src\/a\.ts for c1-1, which cluster c1 owns/],
+    ['a claim of a file an unsettled cluster claimed', () => running().add('files.claimed', claimed('c1-1', 'c1', [shared])).add('files.claimed', claimed('c2-1', 'c2', [shared])), /claims test\/shared\.test\.ts for c2-1, which cluster c1 holds and has not settled/],
+    ['a claim of a file its cluster holds already', () => running().add('files.claimed', claimed('c1-1', 'c1', [shared])).add('files.claimed', claimed('c1-1', 'c1', [shared])), /claims test\/shared\.test\.ts for c1-1, which its cluster holds already/],
+    ['a claim while the fixes phase is not running', () => fixed().add('files.claimed', claimed('c1-1', 'c1', [shared])), /while it is completed/],
+    ['a claim of one file twice in one event', () => running().add('files.claimed', claimed('c1-1', 'c1', [shared, shared])), /schema rejects/],
+    ['a claim of a path outside the repository', () => running().add('files.claimed', claimed('c1-1', 'c1', ['../x.ts'])), /schema rejects/],
+    ['a claim on a read-only run', () => mergeRanked().add('files.claimed', claimed('c1-1', 'c1', [shared])), /configured without the fix pass/],
+    ['a lost claim while the fixes phase is not running', () => fixed().add('claims.lost', { phase: 'fixes', unit: 'c1-1', cluster: 'c1', files: [{ path: 'x', claimedAt: null, reason: 'unplanned', holder: null }] }), /while it is completed/],
+  ];
+  for (const [name, build, message] of refusals) {
+    it(`refuses ${name}`, () => {
+      assert.throws(() => build().fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), name);
+    });
+  }
 });
