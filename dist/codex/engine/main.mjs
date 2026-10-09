@@ -22789,9 +22789,9 @@ var claudeSessionMarkers = [
   "CLAUDE_CODE_SSE_PORT",
   "CLAUDE_CODE_MESSAGING_SOCKET",
   "CLAUDE_CODE_MESSAGING_TOKEN",
-  "CLAUDE_JOB_DIR",
-  "CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT"
+  "CLAUDE_JOB_DIR"
 ];
+var claudeScreenSettings = ["CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT"];
 var claudeCredentialSettings = ["apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh", "proxyAuthHelper"];
 var reservedSettingsVariables = [
   ...thinkingOverrides,
@@ -22846,7 +22846,7 @@ function claudeEnvironment(environment, effort, platform) {
     }
   }
   return pinVariables(
-    withoutVariables(environment, [...thinkingOverrides, ...claudeSessionMarkers], platform),
+    withoutVariables(environment, [...thinkingOverrides, ...claudeSessionMarkers, ...claudeScreenSettings], platform),
     { CLAUDE_CODE_EFFORT_LEVEL: effort, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
     platform
   );

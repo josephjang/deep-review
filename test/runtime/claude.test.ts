@@ -11,6 +11,7 @@ import {
   claudeCredentialSettings,
   claudeEnvironment,
   claudeFlags,
+  claudeScreenSettings,
   claudeSessionMarkers,
   claudeTools,
   createClaudeAdapter,
@@ -221,6 +222,15 @@ describe('Claude settings option', () => {
     }
   });
 
+  it('takes the full repaint setting in a settings env block, since it changes nothing the engine decides', () => {
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      for (const name of ['CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT', 'claude_code_alt_screen_full_repaint']) {
+        const adapter = createClaudeAdapter({ settings: { env: { [name]: '1' } } });
+        assert.deepEqual(settingsOf(adapter.command(invocation(), plan({ platform })).args), { env: { [name]: '1' }, autoMemoryEnabled: false, claudeMdExcludes: ['**'] }, `${platform} ${name}`);
+      }
+    }
+  });
+
   it('counts the settings toward the command-line limit and names them as the remedy', () => {
     const large = createClaudeAdapter({ settings: { apiKeyHelper: 'k'.repeat(posixArgumentLimit) } });
     assert.throws(
@@ -290,6 +300,13 @@ describe('claudeEnvironment', () => {
     const markers = Object.fromEntries(claudeSessionMarkers.map((name) => [name, '1']));
     const kept = { HOME: '/h', claudecode: 'mine', ANTHROPIC_API_KEY: 'k' };
     assert.deepEqual(claudeEnvironment({ ...markers, ...kept }, 'high', 'linux'), { ...kept, CLAUDE_CODE_EFFORT_LEVEL: 'high', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+  });
+
+  it('drops an enclosing session\'s screen settings in every spelling on Windows and by the exact name on POSIX', () => {
+    for (const name of claudeScreenSettings) {
+      assert.deepEqual(claudeEnvironment({ [name.toLowerCase()]: '1', HOME: '/h' }, 'high', 'win32'), { HOME: '/h', CLAUDE_CODE_EFFORT_LEVEL: 'high', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }, name);
+      assert.deepEqual(claudeEnvironment({ [name]: '1', [name.toLowerCase()]: 'mine', HOME: '/h' }, 'high', 'linux'), { [name.toLowerCase()]: 'mine', HOME: '/h', CLAUDE_CODE_EFFORT_LEVEL: 'high', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }, name);
+    }
   });
 
   it('is what the command runs with, on the plan\'s platform', () => {

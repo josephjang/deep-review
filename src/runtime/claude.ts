@@ -35,9 +35,7 @@ export const thinkingOverrides = ['MAX_THINKING_TOKENS', 'CLAUDE_CODE_DISABLE_TH
  * itself a child session (which turns session persistence off in an
  * interactive child), to take the parent's entrypoint, to connect to the
  * parent's IDE and to join the parent's messaging socket with its token.
- * `CLAUDE_JOB_DIR` names the parent's job directory, and
- * `CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT` is a display setting of the
- * parent's screen, which a worker in print mode does not draw.
+ * `CLAUDE_JOB_DIR` names the parent's job directory.
  * A worker is a session of its own, so they are dropped, never refused:
  * refusing would stop every worker the engine starts from inside Claude
  * Code. The worker's CLI sets its own for the processes it starts.
@@ -59,8 +57,19 @@ export const claudeSessionMarkers = [
   'CLAUDE_CODE_MESSAGING_SOCKET',
   'CLAUDE_CODE_MESSAGING_TOKEN',
   'CLAUDE_JOB_DIR',
-  'CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT',
 ] as const;
+
+/**
+ * Settings of the interactive screen, which a worker in print mode never
+ * draws. A user sets the full repaint for a terminal that leaves stale text
+ * on screen, and Claude Code sets it itself on Windows for a background
+ * session and agent view, whose workers then inherit it:
+ * https://code.claude.com/docs/en/fullscreen#stale-or-misplaced-text-on-screen
+ * An inherited one is dropped with the session markers, since it describes
+ * the enclosing session's screen. Unlike a marker, a settings `env` block may
+ * set one: it changes nothing the engine decides for a worker.
+ */
+export const claudeScreenSettings = ['CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT'] as const;
 
 /**
  * The settings a Claude adapter may be given, each a command Claude Code
@@ -171,12 +180,12 @@ export function claudeTools(access: Access, shell: boolean): string[] {
 
 /**
  * The caller's environment with the effort and auto memory pinned and the
- * markers of an enclosing Claude Code session removed. Claude Code lets
- * `CLAUDE_CODE_EFFORT_LEVEL` outrank `--effort`, so both are set; an
- * inherited thinking override is refused by name rather than dropped, so
- * the operator learns their shell was changing every worker. A name is any
- * spelling on Windows, where the worker reads every spelling as one
- * variable, and the exact name elsewhere.
+ * markers and screen settings of an enclosing Claude Code session removed.
+ * Claude Code lets `CLAUDE_CODE_EFFORT_LEVEL` outrank `--effort`, so both
+ * are set; an inherited thinking override is refused by name rather than
+ * dropped, so the operator learns their shell was changing every worker.
+ * A name is any spelling on Windows, where the worker reads every spelling
+ * as one variable, and the exact name elsewhere.
  */
 export function claudeEnvironment(environment: NodeJS.ProcessEnv, effort: Effort, platform: NodeJS.Platform): NodeJS.ProcessEnv {
   for (const name of thinkingOverrides) {
@@ -185,7 +194,7 @@ export function claudeEnvironment(environment: NodeJS.ProcessEnv, effort: Effort
     }
   }
   return pinVariables(
-    withoutVariables(environment, [...thinkingOverrides, ...claudeSessionMarkers], platform),
+    withoutVariables(environment, [...thinkingOverrides, ...claudeSessionMarkers, ...claudeScreenSettings], platform),
     { CLAUDE_CODE_EFFORT_LEVEL: effort, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
     platform,
   );
