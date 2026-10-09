@@ -2,12 +2,13 @@
  * The report's account of the fix pass (R13 of the fix pass), rendered
  * from the fold alone like the rest of the report: what became of every
  * ranked finding, what each check said before the fixes, after them and
- * after the repair, every file a revision changed and who changed it,
- * and the lines Limitations gains. A run without the fix pass has none
+ * after the repair, every file a revision changed, who changed it and
+ * which cluster held it (R3 of commit series integrity), and the lines
+ * Limitations gains. A run without the fix pass has none
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, claimsOfRound, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, roundOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -242,17 +243,34 @@ function finalStatus(fix: FixState, path: string): string {
 }
 
 /** The Changed files section: every path a revision names, once, with its final status and who changed it, then the patch series. */
+/**
+ * Which clusters held a path in the fixes phase, round by round (R1, R3 of
+ * commit series integrity): its owner by the plan, or else the cluster
+ * that claimed it last in that round, marked as a claim or a late claim;
+ * `nobody` for a path no cluster held, such as one only a check wrote.
+ */
+function heldBy(fix: FixState, path: string): string {
+  const rounds = [fix.plan, fix.secondRound].flatMap((plan, index) => (plan === null ? [] : [{ round: (index + 1) as 1 | 2, clusters: plan.clusters }]));
+  const holders = rounds.flatMap(({ round, clusters }) => {
+    const owner = clusters.find((cluster) => cluster.files.includes(path));
+    if (owner !== undefined) return [owner.id];
+    const claim = claimsOfRound(fix, round).findLast((candidate) => candidate.path === path);
+    return claim === undefined ? [] : [`${claim.cluster} (${claim.claimedAt === null ? 'claimed late' : 'claimed'})`];
+  });
+  return holders.length === 0 ? 'nobody' : [...new Set(holders)].join(', ');
+}
+
 function changedFilesSection(fix: FixState, patches: readonly string[]): string[] {
   const paths = [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file) => file.path)))].sort();
   const rows = paths.map((path) => {
     const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file) => file.path === path)).map(revisedBy))];
-    return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(', '))} |`;
+    return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(', '))} | ${tableCell(heldBy(fix, path))} |`;
   });
   const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}): ${patches[index] ?? 'not written'}`);
   return [
     '## Changed files',
     '',
-    ...(paths.length === 0 ? ['No file was changed.'] : ['| Path | Status | Changed by |', '|---|---|---|', ...rows]),
+    ...(paths.length === 0 ? ['No file was changed.'] : ['| Path | Status | Changed by | Held by |', '|---|---|---|---|', ...rows]),
     ...(series.length === 0 ? [] : ['', 'The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:', '', ...series]),
   ];
 }
@@ -280,16 +298,29 @@ export function fixHeaderLine(review: ReviewState): string | null {
   return `Fix pass: ${counts.join(', ')}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? '' : 'es'}; the edits are in the working tree, uncommitted`;
 }
 
-/** The lines the fix pass adds to Limitations: violations, strays, the checks not available, and the fixers' validation and suite lines. */
+/**
+ * The lines the fix pass adds to Limitations: violations, late and lost
+ * claims, strays, the checks not available, and the fixers' validation
+ * and suite lines.
+ */
 export function fixLimitations(review: ReviewState): string[] {
   const fix = review.fix;
   if (fix === null) return [];
   const lines: string[] = [];
-  // A violation is against the reporting batch's round, so the owner named is that round's cluster of the file.
-  const owner = (key: string, path: string): string => (fix.secondRound?.batches.some((batch) => batch.key === key) === true ? fix.secondRound.clusters : (fix.plan?.clusters ?? [])).find((cluster) => cluster.files.includes(path))?.id ?? 'no cluster';
+  // A violation is against the reporting batch's round, so the holder named is that round's owner of the file, or the other cluster that claimed it last in that round (R6 of commit series integrity).
+  const holder = (key: string, path: string): string => {
+    const round = roundOf(fix, key);
+    const owner = ((round === 2 ? fix.secondRound?.clusters : fix.plan?.clusters) ?? []).find((cluster) => cluster.files.includes(path));
+    if (owner !== undefined) return `owned by ${owner.id}`;
+    const own = allBatches(fix).find((batch) => batch.key === key)?.cluster;
+    const claim = claimsOfRound(fix, round).findLast((candidate) => candidate.path === path && candidate.cluster !== own);
+    return claim === undefined ? 'held by no cluster' : `claimed by ${claim.cluster}`;
+  };
   for (const answer of Object.values(fix.answers.fixes)) {
-    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, owned by ${owner(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
+    for (const path of answer.violations) lines.push(`- Ownership violation: ${inlineText(path)}, ${holder(answer.key, path)}, was edited by ${answer.key}, which reported it; the edit is kept and revised (PD4).`);
   }
+  for (const claim of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim.path)} by ${claim.key}, edited before it was claimed (R6 of commit series integrity).`);
+  for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lost.holder === null ? 'which no batch of the round has' : `to ${lost.holder}`}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
   const strays = [...new Set(review.checks.flatMap((check) => check.strays))].sort();
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);

@@ -51,8 +51,9 @@ describe('the report of a fix run', () => {
 
   it('lists every changed path once with its final status and who changed it, then the patch series in order', () => {
     const report = render();
-    assert.match(report, /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \|$/m);
-    assert.match(report, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
+    assert.match(report, /^\| Path \| Status \| Changed by \| Held by \|$/m);
+    assert.match(report, /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \| c1 \|$/m);
+    assert.match(report, /^\| test\/a\.test\.ts \| created \| c1-1 \| nobody \|$/m, 'a file no cluster owned, edited before claims existed');
     assert.match(report, /applies in order to a tree at the scope with `git am --keep-cr`:\n\n1\. chore: apply the lint check's rewrite \(lint check\): \/evidence\/patch-1\n2\. fix: Guard the null in parse \(c1-1\): \/evidence\/patch-2\n3\. style: Format the guard \(repair\): \/evidence\/patch-3$/m);
   });
 
@@ -64,6 +65,32 @@ describe('the report of a fix run', () => {
     assert.match(report, /^- Fixer c1-1 ran its own suite: pass \(npm test\)\.$/m);
     assert.match(report, /^- The repair ran its own suite: pass \(npm test\)\.$/m);
     assert.match(report, /^- Worktree checks: \d+, none found a difference from what the run expected\.$/m);
+  });
+
+  it('names who held each changed path by claim, late claim or plan, round by round (R3 of commit series integrity)', () => {
+    const review = fixRun().review();
+    const fix = review.fix!;
+    const claimed = { ...fix, claims: [{ path: 'test/a.test.ts', cluster: 'c1', key: 'c1-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }] };
+    assert.match(render({ ...fixRun().fold(), review: { ...review, fix: claimed } }), /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed\) \|$/m);
+    const late = { ...fix, claims: [{ ...claimed.claims[0]!, claimedAt: null }] };
+    assert.match(render({ ...fixRun().fold(), review: { ...review, fix: late } }), /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
+  });
+
+  it('names a late claim and a lost claim in Limitations, with who holds a lost claim\'s path (R6, F9 of commit series integrity)', () => {
+    const review = fixRun().review();
+    const fix = { ...review.fix!, claims: [{ path: 'docs/late.md', cluster: 'c1', key: 'c1-1', round: 1 as const, claimedAt: null }], lostClaims: [{ path: 'src/a.ts', claimedAt: null, reason: 'owned' as const, holder: 'c1', unit: 'c2-1', cluster: 'c2' }, { path: 'docs/x.md', claimedAt: '2026-10-09T01:00:00.000Z', reason: 'unplanned' as const, holder: null, unit: 'c9-1', cluster: 'c9' }] };
+    const lines = fixLimitations({ ...review, fix });
+    assert.ok(lines.includes('- Claimed late: docs/late.md by c1-1, edited before it was claimed (R6 of commit series integrity).'), lines.join('\n'));
+    assert.ok(lines.includes('- Claim lost: src/a.ts by c2-1 to c1; the claim is not on the ledger, and the file\'s edits fall under the ownership rule.'), lines.join('\n'));
+    assert.ok(lines.includes('- Claim lost: docs/x.md by c9-1 which no batch of the round has; the claim is not on the ledger, and the file\'s edits fall under the ownership rule.'), lines.join('\n'));
+  });
+
+  it('names an ownership violation of a claimed file with the cluster that claimed it', () => {
+    const review = fixRun().review();
+    const fix = review.fix!;
+    const plan = { ...fix.plan!, clusters: [...fix.plan!.clusters, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }], batches: [...fix.plan!.batches, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }] };
+    const withViolation = { ...review, fix: { ...fix, plan, claims: [{ path: 'docs/shared.md', cluster: 'c2', key: 'c2-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }], answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, violations: ['docs/shared.md'] } } } } };
+    assert.ok(fixLimitations(withViolation).includes('- Ownership violation: docs/shared.md, claimed by c2, was edited by c1-1, which reported it; the edit is kept and revised (PD4).'));
   });
 
   it('names an ownership violation with the cluster that reported it and the one that owns the file', () => {
@@ -154,6 +181,20 @@ describe('status of a fix run', () => {
     assert.deepEqual(json.fix.held, ['SWEEP-1']);
     assert.deepEqual(json.patches, ['/evidence/11111111', '/evidence/22222222', '/evidence/33333333']);
     assert.equal(json.commits, null);
+  });
+
+  it('counts the claims made, by how many clusters, the late ones and the lost ones, and carries them in the JSON (R3 of commit series integrity)', () => {
+    const history = withFixPass(mergeRanked()).start('baseline-checks').add('check.ran', checkRun('baseline-checks', 'build')).finish('baseline-checks').start('fixes').add('fixes.planned', fixPlan);
+    assert.ok(describeRun(history.fold(), claudeAdapter, evidencePath).lines.includes('Claims: 0 by 0 clusters, 0 late, 0 lost'));
+    history
+      .add('files.claimed', { phase: 'fixes', key: 'c1-1', cluster: 'c1', files: [{ path: 'docs/a.md', claimedAt: '2026-10-09T01:00:00.000Z' }, { path: 'docs/b.md', claimedAt: null }] })
+      .add('claims.lost', { phase: 'fixes', unit: 'c9-1', cluster: 'c9', files: [{ path: 'docs/x.md', claimedAt: null, reason: 'unplanned', holder: null }] });
+    const described = describeRun(history.fold(), claudeAdapter, evidencePath);
+    assert.ok(described.lines.includes('Claims: 2 by 1 cluster, 1 late, 1 lost'), described.lines.join('\n'));
+    const json = JSON.parse(JSON.stringify(described.json)) as { fix: { claims: { path: string }[]; lostClaims: { path: string }[] } };
+    assert.deepEqual(json.fix.claims.map((claim) => claim.path), ['docs/a.md', 'docs/b.md']);
+    assert.deepEqual(json.fix.lostClaims.map((claim) => claim.path), ['docs/x.md']);
+    assert.ok(!describeRun(withFixPass(mergeRanked()).fold(), claudeAdapter, evidencePath).lines.some((line) => line.startsWith('Claims:')), 'nothing to count before the plan');
   });
 
   it('names a batch with a worker running as running, and one with none yet as pending', () => {
