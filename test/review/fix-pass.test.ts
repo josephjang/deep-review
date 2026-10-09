@@ -58,12 +58,21 @@ describe('the fix pass', { timeout: 900_000 }, () => {
   };
 
   it('fixes the fixer-routed findings, one cluster per file, runs the checks before and after, and records each finding\'s edits as a revision', async () => {
+    // Each fixer answers only once both are running, so that they ran at once is not left to how fast each one started.
+    const bothRunning = join(box.directory, 'both-fixers-running');
     box.script({
       ...reviewScript,
-      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': testA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
-      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': testA }, snapshot: 0 }], waitFor: bothRunning, output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], waitFor: bothRunning, output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
     });
-    const text = report(await box.fix('claude'));
+    const pending = box.fix('claude');
+    const running = (label: string): boolean => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === label && worker.status === 'running'));
+    try {
+      await until(() => running('fixer fixes:c1-1') && running('fixer fixes:c2-1'), 'both fixers running', 120_000);
+    } finally {
+      writeFileSync(bothRunning, '');
+    }
+    const text = report(await pending);
     const state = box.run();
     const review = state.review!;
     assert.equal(review.configuration.fix, true);
