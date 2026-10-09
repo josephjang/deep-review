@@ -143,7 +143,11 @@ met in `fix-state.ts`.
 **How many files a fixer claims.** In the two runs a batch edited
 between one and seven files outside its cluster, two to four as a rule:
 its tests, the proposal documents a finding's fix amends, `dist/` after
-a rebuild, and a file a decision named.
+a rebuild, and a file a decision named. The files two clusters both
+wrote in one round, the case a claim decides, were the two proposal
+documents on both runs and `src/checkpoint/fix-state.ts` on the first;
+no test file was written by two clusters in either run (review of
+2026-10-09, F11).
 
 ## Goals
 
@@ -433,9 +437,12 @@ a rebuild, and a file a decision named.
     `fix-state.ts` would have chained `c2-1` (1592 s and a 663 s retry),
     `c8-1` (1319 s) and `c10-1` (672 s), about 2000 s longer than the
     phase took, and it reaches none of #23's five files, which no
-    decision names: a fixer's tests are where most shared edits are. It
-    also needs the engine to read file names out of a decision's prose,
-    or the decider to list them (PD6).
+    decision names: the files a refused attempt took from siblings there
+    were tests and documents, and the files two clusters both wrote on
+    the two runs were the proposal's documents four times and a
+    decision-named source file once (Problem). It also needs the engine
+    to read file names out of a decision's prose, or the decider to list
+    them (PD6).
 - **PD2: The claim is a rule and a command, observed by the engine, as
   ownership is (PD4 of the fix pass).** A watch on the worktree that
   claims on the fixer's behalf was rejected: the engine would see the
@@ -601,7 +608,11 @@ a rebuild, and a file a decision named.
   on the first run that is two findings and about one batch. A file a
   settled cluster claimed costs nothing (PD3). A change whose fixes all
   meet in one shared file serializes through the second round, which is
-  what clustering does for an owned file already.
+  what clustering does for an owned file already. On these runs the
+  files two clusters shared were the proposal's documents, which the
+  fixes amend; the documentation reconciliation (#29), if it takes that
+  editing out of the fixers' hands, takes those second rounds with it
+  (F11).
 - **A claim made and never used holds a file until its cluster
   settles.** A fixer that claims a file it then does not edit blocks a
   sibling for nothing while its cluster runs; the report shows the claim
