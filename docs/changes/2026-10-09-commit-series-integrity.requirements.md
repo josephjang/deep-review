@@ -579,11 +579,18 @@ a rebuild, and a file a decision named.
 
 ## Risks
 
-- **A fixer forgets to claim.** The rule is in the prompt and the task,
-  and the snapshot rule in the same place was followed in every batch of
-  both runs; a missed claim is observed as a late claim or a violation
-  (R6), and a sibling's concurrent edit of the same file then blurs
-  attribution as today. The gate counts late claims.
+- **A fixer forgets to claim.** The rule is in the prompt and the task.
+  The snapshot rule in the same place was followed wherever a finding
+  had edits on both runs (three batches skipped the snapshot of a last
+  finding that had no edits, or whose edits the worktree read covered),
+  and under R1 as amended a claim is one step per finding too, before
+  the finding's first edit, rather than one step per write in the
+  middle of the python scripts and `sed -i` calls that write several
+  files at once, which the fixers of both runs used often: 37 such
+  writes on the first run, 27 on the second. A missed claim is observed
+  as a late claim or a violation (R6), and a sibling's concurrent edit
+  of the same file then blurs attribution as today. The gate counts
+  late claims. (Reworded 2026-10-09, review F7.)
 - **More second rounds.** A file two clusters both need at the same
   time now costs the loser a second round where it cost nothing before;
   on the first run that is two findings and about one batch. A file a
