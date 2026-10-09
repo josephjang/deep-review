@@ -550,6 +550,7 @@ R10, in this form:
 | Fixer workers | 14 | 13 | |
 | Claims made, refused, late | | | |
 | Second round | 7 findings, 2 batches | 6 findings, 2 batches | |
+| Left blocked by a second-round refusal | 0 | 0 | |
 | Fixes phase, wall seconds | 3905 | 5964 | |
 | The run: workers, USD | 48, 37.86 | 47, 32.34 | |
 
