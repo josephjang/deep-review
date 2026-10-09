@@ -44,7 +44,7 @@ src/review/              the review: policy, schemas, prompts, planner, controll
 src/review/checks/       the fix pass's checks: the manifest rules that hint the surveyor, running one
 src/replay/              replaying a recorded run's verifiers: the recorded prompt, the samples, their summary,
                          and their score against labels
-src/cli.ts               the deep-review command: review, status, abandon, commit, snapshot
+src/cli.ts               the deep-review command: review, status, abandon, commit, snapshot, claim
 scripts/                 build, fixture, smoke, replay and replay score entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
@@ -274,11 +274,20 @@ whole, so no file is owned by two clusters. Each cluster's findings go
 in batches of the policy's `fixes.batchSize`, four by default, to
 `fixer` workers with edit access, one batch after another, and the
 batches of the whole run launch best-ranked first. A fixer owns its
-cluster's files while its batch runs, may edit any file no cluster owns
-when a fix or its tests need it, never touches another cluster's, and
-returns a schema the engine validates: per finding a status
-(`applied`, `already-applied`, `deferred`, `blocked`), a note, the
-files it changed and, for an applied finding, a commit message. After
+cluster's files while its batch runs. Before its first edit of a file
+no cluster owns it runs `deep-review claim`, which claims the file for
+its cluster until the cluster's last batch has settled, and a fixer
+never touches a file another cluster owns or has claimed: a fix that
+needs one is reported blocked. The command creates one marker file
+exclusively in a directory the engine prepares per run and round beside
+the workers' scratch, so two fixers claiming one file at once get one
+claim and one refusal, and it starts no process. A fixer returns a
+schema the engine validates: per finding a status (`applied`,
+`already-applied`, `deferred`, `blocked`), a note, the files it
+changed and, for every finding that names files, a commit message,
+which for a blocked or deferred finding says the change is partial.
+Before each snapshot it runs the quick checks it was given, since each
+finding becomes a commit the repository must accept alone. After
 each finding it runs `deep-review snapshot`, which copies what it
 changed into its scratch directory, so the engine records one revision
 of the tree per finding. The command finds what changed against a
@@ -287,7 +296,13 @@ process, so it works in a sandbox, such as Codex's unelevated one on
 Windows, where a Node process cannot start a child whose output it
 captures. Once every batch of this first round has
 settled, a finding a fixer reported blocked only on files another
-cluster owned gets one second round, owning those files too.
+cluster owned or claimed gets one second round, owning those files too.
+Every claim reaches the ledger when the next unit settles, so the fold
+judges an answer against a running sibling's claims too, and a resumed
+run seeds the claims directory again from the ledger. A claims
+directory removed while fixers run stops the run with `claims-lost`:
+the units then running are recorded as failed attempts with their edits
+kept, and the next run retries them.
 
 The engine never writes the reviewed tree during a run. It records the
 bytes every worker or check left in the files it changed as a revision,
@@ -298,9 +313,13 @@ that fails, or is lost with its engine, has what it left recorded when
 it fails, a revision per finding its snapshots tell apart, so its
 retry's revisions are its own. Files are compared as git would store
 them, so a formatter turning a CRLF checkout to LF changes nothing. A file
-another cluster owns that a fixer reports editing is recorded as a
-violation, a file no answer names as a stray, and neither stops the
-run.
+another cluster owns or has claimed that a fixer reports editing is
+recorded as a violation, a file nobody held that a fixer edited without
+claiming it as a late claim, a file no answer names as a stray, and none
+of them stops the run. A check that rewrites tracked files, a build that
+regenerates `dist/`, is recorded as the check's revision, judged against
+a list of every tracked file taken just before it, so the rebuilt tree
+is the series' last commit rather than a change left in the worktree.
 
 The checks are the repository's own `build`, `typecheck`, `lint` and
 `test` commands, as the survey chose them or a `--check <kind>=<command>`
@@ -474,10 +493,10 @@ The suite never calls a model: fake Claude and Codex CLIs stand in for the
 real ones, and for the review they answer from a script per role and
 unit, so a whole review runs through the controller in a test, with
 failures, hangs, a killed engine and a drifted tree where a case needs
-them. A scripted fixer edits the tree and runs the snapshot command its
-prompt quotes, and a stand-in check passes, fails, hangs or writes as a
-control file says, so a whole fix run runs there too, no toolchain
-needed. `npm run smoke` is the real-runtime check, for each CLI named
+them. A scripted fixer edits the tree and runs the claim and snapshot
+commands its prompt quotes, and a stand-in check passes, fails, hangs or
+writes as a control file says, so a whole fix run runs there too, no
+toolchain needed. `npm run smoke` is the real-runtime check, for each CLI named
 on its command line, installed and signed in. Per runtime it runs three
 workers: a read-only worker asked to create a file with its shell, that
 worker's session continued and asked the same again, and an editor with
