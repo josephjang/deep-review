@@ -122,8 +122,10 @@ seven findings in two batches to nine in three.
   be one of its files.
 - `prepareClaims(dir, held, recorded)` creates the directory, writes
   `held.json` (`{ worktree, clusters: { [id]: files }, units: { [key]:
-  cluster }, settled: [ids] }` for the round, `settled` the clusters
-  whose every batch has settled by this launch) and seeds one marker per
+  cluster }, settled: [ids], caseInsensitive }` for the round, `settled`
+  the clusters whose every batch has settled by this launch and
+  `caseInsensitive` whether the worktree's file system folds case, TD4)
+  and seeds one marker per
   recorded claim that has none yet; it removes nothing. The controller
   calls it at every editing launch of the fixes phase, beside
   `prepareSnapshots`, so a resumed run whose temporary directory was
@@ -462,14 +464,23 @@ readable, and no kind the corpus holds changes shape here.
   claim, and a file claimed again after its holder settled gets the next
   generation rather than a deleted or rewritten marker (2026-10-09, F2).
 - **TD4: The command compares path strings; the engine resolves.** The
-  command cannot ask git (R23 of the fix pass), so it normalizes slashes
-  and `./` and compares with the spelling `held.json` carries, which is
-  the plan's, the worktree's own. A path spelled otherwise by a fixer
-  makes a marker under that spelling; at the answer the engine resolves
-  the answer's paths through `resolveReportedPath` as today and reads
-  the markers through the same lookup, so one file never has two
-  holders through two spellings in the fold. The fold refuses a second
-  claim of a path it already holds.
+  command cannot ask git (R23 of the fix pass), so it normalizes
+  slashes, backslashes included, and `./`, and compares with the
+  spelling `held.json` carries, which is the plan's, the worktree's own;
+  a Windows spelling thus makes the same marker as the plan's. `held.json`
+  also carries `caseInsensitive`, which the engine probes at launch by
+  looking the worktree root up with its case changed, and when it is set
+  the command compares case-insensitively, reading the `path` inside
+  each marker of the directory rather than trusting the hash in its
+  name, so `Src/A.ts` and `src/a.ts` meet one marker on such a file
+  system (2026-10-09, review F8: the first draft left case to the
+  answer, where the fold refuses the second claim, too late to stop the
+  concurrent edit the claim exists to stop). A path spelled otherwise
+  by a fixer still makes a marker under that spelling; at the answer
+  the engine resolves the answer's paths through `resolveReportedPath`
+  as today and reads the markers through the same lookup, so one file
+  never has two holders through two spellings in the fold. The fold
+  refuses a second claim of a path it already holds.
 - **TD5: The live directory is read where a running sibling's claim
   matters.** The ledger holds a claim only once some unit settles after
   it was made (R3), so between two settles a violation check or an
@@ -516,9 +527,12 @@ readable, and no kind the corpus holds changes shape here.
   lists as settled creates the next generation and succeeds, and two
   such claims in one instant give one marker and one refusal; a claim
   into a directory that is gone exits 1 with the stop message, and
-  `readClaims` of it throws (R12); a path outside the tree, under `.git`, with
-  a backslash or `..`, is refused; the command starts no process, with
-  `node:child_process` made to throw as the snapshot test does.
+  `readClaims` of it throws (R12); a path outside the tree, under `.git`
+  or with `..` is refused, a backslash spelling makes the same marker as
+  the plan's, and with `caseInsensitive` set two spellings of one path
+  that differ in case meet one marker while without it they make two
+  (TD4); the command starts no process, with `node:child_process` made
+  to throw as the snapshot test does.
 - `test/cli.test.ts`: `claim` parses its flags, refuses unknown ones and
   `--in` inside the worktree, exits 0, 2 and 1 as designed, and runs
   from a fixer's shell.
@@ -689,11 +703,12 @@ never run under `git rebase --exec` (#27).
   launches is still in `held.json` as unsettled until the next launch
   rewrites it, so a claim of its file in that window is refused and the
   finding goes to the second round (TD2).
-- Two spellings of one path (TD4) make two markers until the engine
-  resolves them at the answer; the fold refuses the second claim, the
-  violation rule then applies, and the report names it. A
-  case-insensitive file system is handled where the plan's spelling is
-  chosen, as grouping handles it.
+- Two spellings of one path that differ in more than slashes or case
+  (TD4) make two markers until the engine resolves them at the answer;
+  the fold refuses the second claim, the violation rule then applies,
+  and the report names it. Slashes are normalized by the command and
+  case is compared as the worktree's file system compares it, so neither
+  makes a second marker.
 - The quick checks run inside the fixer's session, so the time they
   take is the fixer's wall time and the budget counts it; the gate
   measures the fixes phase against both earlier runs.
