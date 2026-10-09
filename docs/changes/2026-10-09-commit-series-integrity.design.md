@@ -144,8 +144,12 @@ seven findings in two batches to nine in three.
   claimedAt }`, `n` counting from 1. The marker with the highest `n` is
   the holder: the unit's own cluster answers `claimed`; a cluster
   `held.json` lists as settled holds nothing any more, and so does no
-  marker, and the command creates `<sha256(path)>.<n+1>.json` under the
-  `wx` flag; any other cluster refuses naming the holder. Exclusive
+  marker, and the command creates `<sha256(path)>.<n+1>.json`
+  exclusively, writing it under a temporary name and hard-linking it to
+  its own, so it appears whole or not at all, and under the `wx` flag
+  where the file system has no hard links (2026-10-10, review: a kill
+  between a `wx` create and its write left an empty marker that held
+  the path for the round); any other cluster refuses naming the holder. Exclusive
   creation is the whole lock: two fixers claiming one path in the same
   instant, or two claiming it after its holder settled, aim at the same
   `n` and get one marker and one refusal.
@@ -156,7 +160,8 @@ seven findings in two batches to nine in three.
   R12), and makes `readClaims` throw `ClaimsDirectoryLostError`, which
   the controller turns into the stop below.
 - A marker that is empty or not yet whole JSON is one a sibling created
-  under `wx` and is still writing. Its name already says the path's hash
+  under `wx`, on a file system without hard links, and is still
+  writing. Its name already says the path's hash
   and its generation, so `claimFile`, which looks a path's markers up by
   that name, refuses the path as held by a cluster not yet known,
   `othersHeld` counts it as held the same way, and the append of R3
@@ -521,6 +526,10 @@ readable, and no kind the corpus holds changes shape here.
   number, so a path of any length or spelling makes one file name per
   claim, and a file claimed again after its holder settled gets the next
   generation rather than a deleted or rewritten marker (2026-10-09, F2).
+  Where the file system has hard links, a marker is created by linking
+  a whole temporary file to its name, which fails on an existing name
+  as `O_EXCL` does; a rename was rejected, since it replaces one
+  (2026-10-10, review).
 - **TD4: The command compares path strings; the engine resolves.** The
   command cannot ask git (R23 of the fix pass), so it normalizes
   slashes, backslashes included, and `./`, and compares with the

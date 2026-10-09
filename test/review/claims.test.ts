@@ -183,6 +183,16 @@ describe('claims', () => {
       assert.deepEqual(readClaims(dir, false).map((claim) => [claim.whole, claim.generation]), [[false, 1], [false, 1]]);
     });
 
+    it('takes a temporary file a claimant killed while writing left behind for no marker, so the path stays free', () => {
+      writeFileSync(join(dir, `${markerName('docs/torn.md', 1, false)}.4242.tmp`), '{"path":"docs/torn.md","clus');
+      assert.deepEqual(readClaims(dir, false), []);
+      assert.deepEqual(claimFile(dir, 'docs/torn.md', 'c2-1', at('2026-10-09T01:00:00.000Z')), { kind: 'claimed', path: 'docs/torn.md', cluster: 'c2', generation: 1, created: true });
+      assert.deepEqual(markerFiles(), [markerName('docs/torn.md', 1, false), `${markerName('docs/torn.md', 1, false)}.4242.tmp`], 'the claim leaves no temporary file of its own');
+      prepare({}, [{ path: 'docs/seeded.md', cluster: 'c1', unit: 'c1-1', claimedAt: null }]);
+      assert.deepEqual(readClaims(dir, false).map((claim) => claim.whole && claim.path).sort(), ['docs/seeded.md', 'docs/torn.md'], 'and a seeded marker is created whole the same way');
+      assert.equal(markerFiles().length, 3);
+    });
+
     it('reads a marker whose path does not hash to its name, or is not one the command writes, as not whole, so no claim is taken from it', () => {
       writeFileSync(join(dir, markerName('docs/a.md', 1, false)), JSON.stringify({ path: 'docs/b.md', cluster: 'c2', unit: 'c2-1', claimedAt: null }));
       writeFileSync(join(dir, markerName('./docs/c.md', 1, false)), JSON.stringify({ path: './docs/c.md', cluster: 'c2', unit: 'c2-1', claimedAt: null }));

@@ -21,10 +21,10 @@
  * marker.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { z } from 'zod';
-import { writeFileAtomic } from '../atomic-write.ts';
+import { createFileExclusive, writeFileAtomic } from '../atomic-write.ts';
 import { EngineError } from '../errors.ts';
 import { isInside } from '../paths.ts';
 import { validateScopePath } from '../scope/capture.ts';
@@ -190,7 +190,7 @@ function readMarker(dir: string, hash: string, generation: number, caseInsensiti
     const parsed = markerSchema.safeParse(JSON.parse(text));
     if (parsed.success && namesItsPath(parsed.data.path, hash, caseInsensitive)) return { whole: true, hash, generation, ...parsed.data };
   } catch {
-    // Not whole JSON yet: a sibling created it under `wx` and is still writing it.
+    // Not whole JSON: a sibling on a file system without hard links created it under `wx` and is still writing it.
   }
   return { whole: false, hash, generation };
 }
@@ -215,15 +215,9 @@ function markersOf(dir: string, hash: string, caseInsensitive: boolean): LiveCla
   }
 }
 
-/** Create a marker under `wx`; false when a marker of that name exists already. */
+/** Create a marker exclusively and whole, so a claimant killed while writing it leaves no marker that holds the path for the round; false when a marker of that name exists already. */
 function createMarker(dir: string, hash: string, generation: number, marker: Marker): boolean {
-  try {
-    writeFileSync(join(dir, `${hash}.${String(generation)}.json`), `${JSON.stringify(marker)}\n`, { flag: 'wx' });
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
-    throw error;
-  }
+  return createFileExclusive(join(dir, `${hash}.${String(generation)}.json`), `${JSON.stringify(marker)}\n`);
 }
 
 /**
@@ -282,7 +276,8 @@ export function prepareClaims(dir: string, held: Held, recorded: readonly Record
     const markers = markersOf(dir, hash, held.caseInsensitive);
     if (markers.some((marker) => marker.whole && marker.cluster === claim.cluster && marker.unit === claim.unit && marker.claimedAt === claim.claimedAt)) continue;
     const marker: Marker = { path: claim.path, cluster: claim.cluster, unit: claim.unit, claimedAt: claim.claimedAt };
-    for (let generation = markers.length + 1; !createMarker(dir, hash, generation, marker); generation += 1);
+    let generation = markers.length + 1;
+    while (!createMarker(dir, hash, generation, marker)) generation += 1;
   }
 }
 
@@ -315,7 +310,7 @@ function judged(path: string, cluster: string, marker: LiveClaim, created: boole
  * its own cluster, refused naming the owner for another cluster's file;
  * else the path's latest marker decides. The unit's own cluster's marker is
  * `claimed`; no marker, or one of a cluster `held.json` lists as settled,
- * makes the next generation under `wx`, and a sibling that made the same
+ * makes the next generation exclusively, and a sibling that made the same
  * one first refuses the claim naming that sibling; a marker not yet whole
  * is `held-by-unknown`; any other is refused naming its cluster. A
  * directory or `held.json` that is gone throws `ClaimsDirectoryLostError`,
