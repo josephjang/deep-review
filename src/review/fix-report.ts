@@ -8,7 +8,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, claimsOfRound, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, claimsOfRound, clusterOf, isNotAttempted, lastAnswerOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -249,9 +249,10 @@ function finalStatus(fix: FixState, path: string): string {
  * `nobody` for a path no cluster held, such as one only a check wrote.
  */
 function heldBy(fix: FixState, path: string): string {
-  const rounds = [fix.plan, fix.secondRound].flatMap((plan, index) => (plan === null ? [] : [{ round: (index + 1) as 1 | 2, clusters: plan.clusters }]));
-  const holders = rounds.flatMap(({ round, clusters }) => {
-    const owner = clusters.find((cluster) => cluster.files.includes(path));
+  const holders = ([1, 2] as const).flatMap((round) => {
+    const plan = planOfRound(fix, round);
+    if (plan === null) return [];
+    const owner = plan.clusters.find((cluster) => cluster.files.includes(path));
     if (owner !== undefined) return [owner.id];
     const claim = claimsOfRound(fix, round).findLast((candidate) => candidate.path === path);
     return claim === undefined ? [] : [`${claim.cluster} (${claim.claimedAt === null ? 'claimed late' : 'claimed'})`];
