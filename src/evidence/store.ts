@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import { noHardLinks } from '../atomic-write.ts';
 import { EvidenceError } from '../checkpoint/errors.ts';
 
 /**
@@ -31,9 +32,6 @@ export const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').upd
 
 /** How a finished temporary file becomes the blob: a hard link by default, a rename where links are unsupported. */
 export type Publish = (temporary: string, destination: string) => void;
-
-/** Error codes a filesystem without hard links raises from linkSync. */
-const noHardLinks = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'EINVAL', 'ENOSYS']);
 
 export interface EvidenceStoreOptions {
   /** Overrides the hard-link step; tests use it to simulate a filesystem without links. */

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { writeFileAtomic } from '../src/atomic-write.ts';
+import { createFileExclusive, writeFileAtomic } from '../src/atomic-write.ts';
 
 describe('writeFileAtomic', () => {
   let directory: string;
@@ -55,5 +55,60 @@ describe('writeFileAtomic', () => {
     assert.throws(() => writeFileAtomic(file, 'new\n', other.rename), { code: 'EXDEV' });
     assert.equal(other.calls.count, 1);
     assert.equal(readFileSync(file, 'utf8'), 'old\n');
+  });
+});
+
+describe('createFileExclusive', () => {
+  let directory: string;
+  let file: string;
+  beforeEach(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-exclusive-')));
+    file = join(directory, 'marker.json');
+  });
+  afterEach(() => rmSync(directory, { recursive: true, force: true }));
+
+  /** A link that fails with `code`, counting its calls. */
+  const refusing = (code: string) => {
+    const calls = { count: 0 };
+    const link = (): void => {
+      calls.count += 1;
+      throw Object.assign(new Error(`${code}: link`), { code });
+    };
+    return { calls, link };
+  };
+
+  it('creates a file once and leaves an existing one as it is, leaving no temporary file', () => {
+    assert.equal(createFileExclusive(file, 'one\n'), true);
+    assert.equal(createFileExclusive(file, 'two\n'), false);
+    assert.equal(readFileSync(file, 'utf8'), 'one\n');
+    assert.deepEqual(readdirSync(directory), ['marker.json']);
+  });
+
+  it('gives the file its name only once its content is whole, so a writer killed before that leaves no file under the name', () => {
+    const seen: { content: string; named: boolean }[] = [];
+    const link = (from: string, to: string): void => {
+      seen.push({ content: readFileSync(from, 'utf8'), named: existsSync(to) });
+      linkSync(from, to);
+    };
+    assert.equal(createFileExclusive(file, '{"whole":true}\n', link), true);
+    assert.deepEqual(seen, [{ content: '{"whole":true}\n', named: false }]);
+    assert.deepEqual(readdirSync(directory), ['marker.json']);
+  });
+
+  it('creates the file under wx where the file system has no hard links, still once', () => {
+    for (const code of ['EPERM', 'ENOTSUP', 'EXDEV']) {
+      rmSync(file, { force: true });
+      const { calls, link } = refusing(code);
+      assert.equal(createFileExclusive(file, `${code}\n`, link), true, code);
+      assert.equal(createFileExclusive(file, 'again\n', link), false, code);
+      assert.equal(calls.count, 2, code);
+      assert.equal(readFileSync(file, 'utf8'), `${code}\n`, code);
+      assert.deepEqual(readdirSync(directory), ['marker.json'], code);
+    }
+  });
+
+  it('throws any other link error, creating nothing and removing the temporary file', () => {
+    assert.throws(() => createFileExclusive(file, 'x\n', refusing('EIO').link), { code: 'EIO' });
+    assert.deepEqual(readdirSync(directory), []);
   });
 });

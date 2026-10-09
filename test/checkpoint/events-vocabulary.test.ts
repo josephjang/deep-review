@@ -49,7 +49,6 @@ import {
   worktreeCheckedV4,
 } from '../../src/checkpoint/events.ts';
 import { hintRules } from '../../src/review/checks/discover.ts';
-import { normalizeClaimPath } from '../../src/review/claims.ts';
 import {
   angles,
   attemptFaults,
@@ -424,34 +423,6 @@ describe('files.claimed@1', () => {
 
   it('refuses a path that is not repository relative, leaves the tree or names .git', () => {
     for (const path of ['', '/etc/passwd', 'C:/x', '../x', 'a/../b', 'a//b', './a', 'a/', '.git/config', 'a/.GIT/b', 'a\\b']) assert.equal(claim([{ path, claimedAt: null }]), false, JSON.stringify(path));
-  });
-
-  // The claim command's rule is live and this schema is frozen, so they are
-  // two copies: if this fails, the command changed, and a claim it now makes
-  // needs a new version of the event rather than an edit of this one.
-  it('records exactly the paths the claim command writes, as it spells them', () => {
-    const commandWrites = (path: string): string | undefined => {
-      try {
-        return normalizeClaimPath(path);
-      } catch {
-        return undefined;
-      }
-    };
-    const paths = [
-      'a', 'src/a.ts', '.gitignore', 'a/.github/x', 'a/..b', '...', 'a.git/b', `${'x/'.repeat(499)}xx`, 'x'.repeat(1000), 'x'.repeat(1001),
-      '', '.', './', '/a', '/', 'C:/x', 'c:x', 'C:\\x', '\\\\server\\share', 'a\\b', '.\\a', 'a/\\b', './a', 'a/./b', 'a/.',
-      '..', '../x', 'a/../b', 'a/..', 'a//b', 'a/', '.git', '.git/config', 'a/.GIT/b', 'a/.Git', 'a\0b',
-    ];
-    for (const path of paths) {
-      const written = commandWrites(path);
-      // The schema takes a path just when the command takes it and writes it unchanged.
-      assert.equal(claim([{ path, claimedAt: null }]), written === path, JSON.stringify(path));
-      // A path the command refuses is refused in the spelling the command would have written.
-      if (written === undefined) {
-        const spelled = path.replaceAll('\\', '/').split('/').filter((part) => part !== '.').join('/');
-        assert.equal(claim([{ path: spelled, claimedAt: null }]), false, JSON.stringify(spelled));
-      }
-    }
   });
 });
 

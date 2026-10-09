@@ -1,12 +1,16 @@
 /**
  * Writing a file whole, for a file another process may read at any moment:
  * the round's `held.json`, which a fixer's claim command reads while the
- * engine rewrites it at a launch (`src/review/claims.ts`).
+ * engine rewrites it at a launch, and a claim's marker, which a sibling's
+ * command reads while it is created (`src/review/claims.ts`).
  */
-import { renameSync, writeFileSync } from 'node:fs';
+import { linkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 
 /** The codes Windows raises for a rename over a file another process has open, or antivirus is scanning; the replace goes through once that handle closes. */
 const busyReplace = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+/** Error codes a filesystem without hard links raises from linkSync. */
+export const noHardLinks: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'EINVAL', 'ENOSYS']);
 
 /** How long a refused replace is retried before its error is thrown. */
 const replaceBudgetMs = 500;
@@ -16,6 +20,9 @@ const longestWaitMs = 50;
 
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
 
+/** The temporary name beside `file` this process writes it under: no reader takes it for `file`, since it does not end as `file` does. */
+const temporaryFor = (file: string): string => `${file}.${String(process.pid)}.tmp`;
+
 /**
  * Write `text` to `file` whole: to a temporary name beside it, then renamed
  * over it, so a reader never sees half of it. A rename refused as busy is
@@ -23,7 +30,7 @@ const sleeper = new Int32Array(new SharedArrayBuffer(4));
  * `rename` stands in for the file system's in tests.
  */
 export function writeFileAtomic(file: string, text: string, rename: (from: string, to: string) => void = renameSync): void {
-  const temporary = `${file}.${String(process.pid)}.tmp`;
+  const temporary = temporaryFor(file);
   writeFileSync(temporary, text);
   const deadline = Date.now() + replaceBudgetMs;
   for (let wait = 1; ; wait = Math.min(wait * 2, longestWaitMs)) {
@@ -35,5 +42,39 @@ export function writeFileAtomic(file: string, text: string, rename: (from: strin
       if (code === undefined || !busyReplace.has(code) || Date.now() >= deadline) throw error;
     }
     Atomics.wait(sleeper, 0, 0, wait);
+  }
+}
+
+/**
+ * Create `file` holding `text`, only if no file of that name exists, and
+ * whole: written under a temporary name beside it, then hard-linked to its
+ * name, so a process killed or a disk filled while writing leaves no file
+ * under the name, and a reader never sees it before its content. False
+ * when `file` exists already. Where the file system has no hard links, it
+ * is created under `wx` and written, which a kill can still tear. The
+ * temporary file is removed whatever happened; `link` stands in for the
+ * file system's in tests.
+ */
+export function createFileExclusive(file: string, text: string, link: (from: string, to: string) => void = linkSync): boolean {
+  const temporary = temporaryFor(file);
+  try {
+    writeFileSync(temporary, text);
+    try {
+      link(temporary, file);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') return false;
+      if (code === undefined || !noHardLinks.has(code)) throw error;
+    }
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  try {
+    writeFileSync(file, text, { flag: 'wx' });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw error;
   }
 }
