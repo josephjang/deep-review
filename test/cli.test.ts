@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { Checkpoint, isUnreadable } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
-import { maxConcurrency } from '../src/review/policy.ts';
+import { maxConcurrency, policyFileName } from '../src/review/policy.ts';
+import { caseInsensitiveFileSystem, claimsDirectoryFor, readClaims } from '../src/review/claims.ts';
+import { checkpointScratchKey } from '../src/runtime/scratch.ts';
 import { checkKinds, finderAngles } from '../src/review/vocabulary.ts';
 import { fixerAnswer } from './helpers/fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex, type Finished, isAlive, node, until } from './helpers/launcher.ts';
@@ -419,6 +422,59 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const events = box.events(state.id);
     const lostAt = events.findIndex(([kind]) => kind === 'worker.lost');
     assert.equal(events[lostAt + 1]?.[0], 'tree.revised', 'the revision follows the loss in its append');
+  });
+
+  it('resumes a fix run whose claims directory was removed with its engine, seeding it again from the ledger, so a retry\'s claim of its cluster\'s file is its own (R3 of commit series integrity)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const policyFile = join(box.rolesRoot, policyFileName);
+    writeFileSync(policyFile, JSON.stringify({ ...JSON.parse(readFileSync(policyFile, 'utf8')), fixes: { batchSize: 1 } }, null, 2));
+    const marker = join(box.directory, 'fixer-may-answer');
+    const shared = 'test/shared.test.ts';
+    const found = (line: number, summary: string): Record<string, unknown> => ({ file: 'src/a.ts', line, summary, detail: `${summary}: d` });
+    box.script({
+      triage: { output: { candidates: [found(2, 'text is dereferenced when null'), found(6, 'other() passes null on')], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      // c1-1 claims the shared test and answers; c1-2 waits and is killed with the engine; its replacement claims the same file again.
+      'fixer:fixes:c1-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { [shared]: 'shared\n' } }], output: fixerAnswer([{ files: [shared] }]) },
+      'fixer:fixes:c1-2': [{ waitFor: marker }, { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { [shared]: 'shared\nmore\n' } }], output: fixerAnswer([{ files: [shared] }]) }],
+    });
+    const checks = checkKinds.flatMap((kind) => ['--check', `${kind}=${fakeCheckCommand(kind)}`]);
+    const child = spawn(process.execPath, [cli, ...claudeFlags(box, '--last-commit', '--fix', ...checks)], { cwd: box.repo, env: environment(box), stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    const root = locateCheckpoint(box.repo).root;
+    const secondRunning = (): boolean => {
+      const checkpoint = Checkpoint.open(root, { engine: 'test-observer' });
+      try {
+        return Object.values(checkpoint.foldRuns()[0]?.workers ?? {}).some((worker) => worker.launch.label === 'fixer fixes:c1-2' && worker.status === 'running');
+      } finally {
+        checkpoint.close();
+      }
+    };
+    await until(() => /worker fixer fixes:c1-2: started/.test(stderr) && secondRunning(), 'the second batch running on the ledger', 180_000);
+    child.kill();
+    await new Promise<void>((done) => child.once('close', () => done()));
+    writeFileSync(marker, '');
+    const midway = box.run();
+    assert.deepEqual(midway.review!.fix!.claims.map((claim) => [claim.path, claim.key]), [[shared, 'c1-1']], 'the claim reached the ledger with c1-1\'s answer');
+    // The engine's claims directory is under the system's temporary directory, as its scratch is; a cleaning removes it while no engine runs.
+    const directory = claimsDirectoryFor(join(tmpdir(), 'deep-review-scratch', checkpointScratchKey(box.checkpoint)), midway.id, 1);
+    assert.ok(existsSync(directory), directory);
+    rmSync(directory, { recursive: true });
+    try {
+      const resumed = await run(box, ...claudeFlags(box, '--fix'));
+      assert.equal(resumed.status, 0, resumed.stderr);
+      assert.match(resumed.stderr, /lost with the previous engine/);
+      const state = box.run();
+      // The retry's claim found the seeded marker of its cluster's claim and made none of its own.
+      assert.deepEqual(readClaims(directory, caseInsensitiveFileSystem(box.repo)).map((claim) => (claim.whole ? [claim.generation, claim.cluster, claim.unit] : null)), [[1, 'c1', 'c1-1']]);
+      assert.deepEqual(state.review!.fix!.claims.map((claim) => [claim.path, claim.key]), [[shared, 'c1-1']]);
+      assert.deepEqual(state.review!.fix!.answers.fixes['c1-2']!.violations, []);
+      assert.ok(state.review!.checks.every((check) => !check.drifted));
+    } finally {
+      rmSync(join(tmpdir(), 'deep-review-scratch', checkpointScratchKey(box.checkpoint)), { recursive: true, force: true });
+    }
   });
 
   it('runs snapshot from a fixer\'s shell and refuses it outside a worktree', async (t) => {

@@ -1,12 +1,14 @@
 /**
- * A fixer's answer against the tree (R4, R5 of the fix pass): every path
- * it reports resolved to the worktree's own spelling, refused when it
- * leaves the repository; the files another cluster owns that it reports
- * as violations; and the rule that every owned file whose bytes changed
- * is reported under some finding. The checks the schema cannot express
- * and that need no tree are `checkFixerAnswer` in schemas.ts.
+ * A fixer's answer against the tree (R4, R5 of the fix pass; R1, R6 of
+ * commit series integrity): every path it reports resolved to the
+ * worktree's own spelling, refused when it leaves the repository; the
+ * files another cluster owns or holds by a claim that it reports as
+ * violations; and the rule that every owned or claimed file whose bytes
+ * changed is reported under some finding. The checks the schema cannot
+ * express and that need no tree are `checkFixerAnswer` in schemas.ts.
  */
 import { isAbsolute, relative, sep } from 'node:path';
+import type { PathHolder } from '../checkpoint/fix-state.ts';
 import { canonicalPath } from '../paths.ts';
 import { StructuralCheckError } from './errors.ts';
 import { normalizeFileName, type RepoLookup } from './locations.ts';
@@ -86,23 +88,23 @@ export interface ResolvedAnswer {
   readonly findings: readonly (FixerOutput['findings'][number] & { readonly files: readonly string[]; readonly requiredFiles: readonly string[] })[];
   /** Every file the answer names under some finding, resolved. */
   readonly named: ReadonlySet<string>;
-  /** The named files another cluster of the phase owns, sorted: each a violation recorded on the answer (PD4). */
+  /** The named files another cluster of the round holds, sorted: each a violation recorded on the answer (PD4). */
   readonly violations: readonly string[];
 }
 
-/** What an answer is checked against: the worktree, the unit's own files, and the files every other cluster of its phase owns. */
+/** What an answer is checked against: the worktree, the unit's own files, and the files every other cluster of its round holds. */
 export interface OwnershipContext {
   readonly worktree: string;
   readonly lookup: RepoLookup;
   readonly owned: readonly string[];
-  /** Every path another cluster of the phase owns, with that cluster's id. */
-  readonly othersOwned: ReadonlyMap<string, string>;
+  /** Every path another cluster of the round owns, or holds by a claim while it has not settled, with that cluster and how it holds the path. */
+  readonly othersHeld: ReadonlyMap<string, PathHolder>;
 }
 
 /**
  * Resolve every path an answer reports and judge its ownership: a
  * required file must not be one the unit owns, since a fixer is never
- * blocked by its own file; a named file another cluster owns is a
+ * blocked by its own file; a named file another cluster holds is a
  * violation, kept and recorded, never a refusal (PD4).
  */
 export function resolveFixerAnswer(output: FixerOutput, context: OwnershipContext): ResolvedAnswer {
@@ -116,16 +118,19 @@ export function resolveFixerAnswer(output: FixerOutput, context: OwnershipContex
     return { ...finding, files, requiredFiles };
   });
   const named = new Set(findings.flatMap((finding) => finding.files));
-  const violations = [...named].filter((path) => context.othersOwned.has(path)).sort();
+  const violations = [...named].filter((path) => context.othersHeld.has(path)).sort();
   return { findings, named, violations };
 }
 
 /**
- * Refuse an answer that leaves out an owned file whose bytes changed
- * (R4, TD11): the report would otherwise claim edits nobody accounted
- * for, and the retry is told the tree may already hold the work.
+ * Refuse an answer that leaves out an owned or claimed file whose bytes
+ * changed (R4, TD11 of the fix pass; decided 2026-10-09 for commit series
+ * integrity): the report would otherwise claim edits nobody accounted for,
+ * and the retry is told the tree may already hold the work. A claimed file
+ * is one the fixer said it would edit, so an unreported edit of it is
+ * refused here rather than reaching the phase's end check as drift.
  */
-export function requireOwnedReported(changedOwned: readonly string[], named: ReadonlySet<string>): void {
-  const unreported = changedOwned.filter((path) => !named.has(path));
-  if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned file${unreported.length === 1 ? '' : 's'} ${unreported.join(', ')}, whose bytes changed; every owned file a fixer changes is reported under the finding it served`);
+export function requireOwnedReported(changedHeld: readonly string[], named: ReadonlySet<string>): void {
+  const unreported = changedHeld.filter((path) => !named.has(path));
+  if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned or claimed file${unreported.length === 1 ? '' : 's'} ${unreported.join(', ')}, whose bytes changed; every owned or claimed file a fixer changes is reported under the finding it served`);
 }

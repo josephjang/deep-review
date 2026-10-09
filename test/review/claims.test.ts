@@ -59,9 +59,9 @@ describe('claims', () => {
       ];
       prepare({}, recorded);
       writeFileSync(join(dir, `${'f'.repeat(64)}.1.json`), '{"path":"x","cluster":"c9","unit":"c9-1","claimedAt":null}\n');
-      const first = readClaims(dir);
+      const first = readClaims(dir, false);
       prepare({}, recorded);
-      assert.deepEqual(readClaims(dir), first, 'a second launch seeds nothing more and keeps every marker');
+      assert.deepEqual(readClaims(dir, false), first, 'a second launch seeds nothing more and keeps every marker');
       const docs = first.filter((claim) => claim.hash === markerHash('docs/a.md', false));
       assert.deepEqual(docs.map((claim) => (claim.whole ? [claim.generation, claim.cluster] : null)), [[1, 'c1'], [2, 'c2']], 'the latest recorded claim is the holder');
       const late = first.find((claim) => claim.hash === markerHash('docs/late.md', false))!;
@@ -73,7 +73,7 @@ describe('claims', () => {
       prepare();
       assert.equal(claimFile(dir, 'docs/a.md', 'c1-1', at('2026-10-09T01:00:00.000Z')).kind, 'claimed');
       prepare({ settled: ['c1'] }, [{ path: 'docs/a.md', cluster: 'c2', unit: 'c2-1', claimedAt: null }]);
-      const claims = readClaims(dir);
+      const claims = readClaims(dir, false);
       assert.deepEqual(claims.map((claim) => claim.generation), [1, 2]);
       const seeded = claims[1]!;
       assert.equal(seeded.whole && seeded.cluster, 'c2');
@@ -113,7 +113,7 @@ describe('claims', () => {
       prepare({ settled: ['c1'] });
       assert.deepEqual(claimFile(dir, 'test/shared.test.ts', 'c2-1', at('2026-10-09T02:00:00.000Z')), { kind: 'claimed', path: 'test/shared.test.ts', cluster: 'c2', generation: 2, created: true });
       assert.deepEqual(claimFile(dir, 'test/shared.test.ts', 'c3-1'), { kind: 'refused', path: 'test/shared.test.ts', holder: 'c2', by: 'claim' }, 'the new holder has not settled');
-      assert.deepEqual(readClaims(dir).map((claim) => claim.generation), [1, 2], 'the settled holder\'s marker stays');
+      assert.deepEqual(readClaims(dir, false).map((claim) => claim.generation), [1, 2], 'the settled holder\'s marker stays');
     });
 
     it('normalizes slashes and dot segments, so a Windows spelling makes the plan\'s marker (TD4)', () => {
@@ -161,7 +161,15 @@ describe('claims', () => {
       assert.deepEqual(claimFile(dir, 'docs/half.md', 'c1-1'), { kind: 'held-by-unknown', path: 'docs/half.md' });
       prepare({ settled: ['c1', 'c2'] });
       assert.equal(claimFile(dir, 'docs/half.md', 'c3-1').kind, 'held-by-unknown', 'whoever writes it has not settled as far as anyone knows');
-      assert.deepEqual(readClaims(dir).map((claim) => [claim.whole, claim.generation]), [[false, 1], [false, 1]]);
+      assert.deepEqual(readClaims(dir, false).map((claim) => [claim.whole, claim.generation]), [[false, 1], [false, 1]]);
+    });
+
+    it('reads a marker whose path does not hash to its name, or is not one the command writes, as not whole, so no claim is taken from it', () => {
+      writeFileSync(join(dir, markerName('docs/a.md', 1, false)), JSON.stringify({ path: 'docs/b.md', cluster: 'c2', unit: 'c2-1', claimedAt: null }));
+      writeFileSync(join(dir, markerName('./docs/c.md', 1, false)), JSON.stringify({ path: './docs/c.md', cluster: 'c2', unit: 'c2-1', claimedAt: null }));
+      assert.deepEqual(claimFile(dir, 'docs/a.md', 'c1-1'), { kind: 'held-by-unknown', path: 'docs/a.md' });
+      assert.deepEqual(readClaims(dir, false).map((claim) => claim.whole), [false, false]);
+      assert.equal(readClaims(dir, true).length, 2, 'judged by the case the directory was named by');
     });
 
     it('throws ClaimsDirectoryLostError for a directory or held.json that is gone, and so does readClaims (R12)', () => {
@@ -169,7 +177,7 @@ describe('claims', () => {
       assert.throws(() => claimFile(dir, 'docs/a.md', 'c1-1'), ClaimsDirectoryLostError);
       rmSync(dir, { recursive: true });
       assert.throws(() => claimFile(dir, 'docs/a.md', 'c1-1'), ClaimsDirectoryLostError);
-      assert.throws(() => readClaims(dir), ClaimsDirectoryLostError);
+      assert.throws(() => readClaims(dir, false), ClaimsDirectoryLostError);
       assert.equal(existsSync(dir), false, 'nothing recreates it');
     });
 
@@ -186,7 +194,7 @@ describe('claims', () => {
     claimFile(dir, 'docs/a.md', 'c1-1', at('2026-10-09T01:00:00.000Z'));
     writeFileSync(join(dir, 'notes.txt'), 'x');
     writeFileSync(join(dir, `${'a'.repeat(64)}.0.json`), 'x');
-    assert.deepEqual(readClaims(dir), [{ whole: true, hash: markerHash('docs/a.md', false), generation: 1, path: 'docs/a.md', cluster: 'c1', unit: 'c1-1', claimedAt: '2026-10-09T01:00:00.000Z' }]);
+    assert.deepEqual(readClaims(dir, false), [{ whole: true, hash: markerHash('docs/a.md', false), generation: 1, path: 'docs/a.md', cluster: 'c1', unit: 'c1-1', claimedAt: '2026-10-09T01:00:00.000Z' }]);
   });
 
   it('tells whether the worktree\'s file system folds case, as the file system itself answers', () => {
@@ -232,13 +240,13 @@ describe('claims', () => {
         return (await Promise.all(exits)).sort();
       };
       assert.deepEqual(await race(['c1-1', 'c2-1']), [0, 2]);
-      assert.deepEqual(readClaims(dir).map((claim) => claim.generation), [1]);
-      const holder = readClaims(dir)[0]!;
+      assert.deepEqual(readClaims(dir, false).map((claim) => claim.generation), [1]);
+      const holder = readClaims(dir, false)[0]!;
       assert.ok(holder.whole);
       prepare({ settled: [holder.cluster] });
       // The holder settled, so the cluster it refused and c3 both aim at generation 2.
       assert.deepEqual(await race([holder.cluster === 'c1' ? 'c2-1' : 'c1-1', 'c3-1']), [0, 2]);
-      assert.deepEqual(readClaims(dir).map((claim) => claim.generation), [1, 2]);
+      assert.deepEqual(readClaims(dir, false).map((claim) => claim.generation), [1, 2]);
     });
 
     it('exits 1 with the words to stop editing when the directory is gone (R12)', () => {
@@ -283,7 +291,7 @@ describe('claims', () => {
       writeFileSync(forbid, "import cp from 'node:child_process';\nimport { syncBuiltinESMExports } from 'node:module';\nfor (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) cp[name] = () => { throw Object.assign(new Error('spawn EPERM'), { code: 'EPERM' }); };\nsyncBuiltinESMExports();\n");
       const result = spawnSync(process.execPath, ['--import', pathToFileURL(forbid).href, cli, 'claim', ...claimArgs('docs/a.md', 'c1-1')], { cwd: repo, env: baseEnvironment, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(readClaims(dir).length, 1);
+      assert.equal(readClaims(dir, false).length, 1);
     });
   });
 });

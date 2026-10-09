@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerDecision, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { claimPathPlaceholder, codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerDecision, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -190,6 +190,7 @@ describe('the task texts', () => {
 
 describe('the fixer\'s task', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
+  const claim = `node "/engine/main.mjs" claim --path "${claimPathPlaceholder}" --unit c1-2 --in "/scratch/claims/run/round-1"`;
   const input: FixerTaskInput = {
     cluster: 'c1',
     batch: 'c1-2',
@@ -217,7 +218,8 @@ describe('the fixer\'s task', () => {
     ],
     earlier: [],
     owned: ['src/a.ts'],
-    othersOwned: [{ cluster: 'c2', files: ['src/b.ts'] }, { cluster: 'c3', files: [] }],
+    claimed: [],
+    othersHeld: [{ cluster: 'c2', files: [{ path: 'src/b.ts', by: 'plan' }] }, { cluster: 'c3', files: [] }],
     checks: [
       { kind: 'build', command: null, origin: 'none', reason: 'nothing names it', source: null },
       { kind: 'typecheck', command: 'npm run typecheck', origin: 'package', reason: null, source: null },
@@ -225,6 +227,7 @@ describe('the fixer\'s task', () => {
       { kind: 'test', command: 'npm run test', origin: 'package', reason: null, source: null },
     ],
     snapshotCommand: snapshot,
+    claimCommand: claim,
     mayHoldWork: false,
     unfinished: [],
     baselineFailures: [],
@@ -277,12 +280,25 @@ describe('the fixer\'s task', () => {
     assert.doesNotMatch(task, /decided:|Each finding carries what was decided/);
   });
 
-  it('states the ownership rule with both file lists', () => {
+  it('states the ownership rule with the files the cluster holds and the files the others hold', () => {
     const task = fixerTask(input);
     assert.match(task, /Files you own while this batch runs, which no other worker edits:\n- src\/a\.ts\n/);
-    assert.match(task, /Files other clusters own, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:\n- src\/b\.ts \(c2\)\n\n/);
-    assert.match(task, /You may edit any other file of the repository, existing or new, when a fix or its tests need it; report every file you edit or create under the finding it served\./);
-    assert.match(fixerTask({ ...input, owned: [], othersOwned: [] }), /no other worker edits:\n\(none\)\n[\s\S]*`requiredFiles`:\n\(none\)\n/);
+    assert.match(task, /Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:\n- src\/b\.ts \(c2\)\n\n/);
+    assert.match(fixerTask({ ...input, owned: [], othersHeld: [] }), /no other worker edits:\n\(none\)\n[\s\S]*`requiredFiles`:\n\(none\)\n/);
+  });
+
+  it('lists the files the cluster claimed apart from the ones it owns, and a sibling\'s claims with their cluster (R8 of commit series integrity)', () => {
+    const task = fixerTask({ ...input, claimed: ['test/shared.test.ts', 'src/a.ts'], othersHeld: [{ cluster: 'c2', files: [{ path: 'src/b.ts', by: 'plan' }, { path: 'docs/notes.md', by: 'claim' }] }] });
+    assert.match(task, /no other worker edits:\n- src\/a\.ts\n- test\/shared\.test\.ts \(claimed\)\n\n/, 'a claimed file is marked, and an owned one is listed once');
+    assert.match(task, /`requiredFiles`:\n- src\/b\.ts \(c2\)\n- docs\/notes\.md \(c2, claimed\)\n\n/);
+  });
+
+  it('quotes the claim command on a line of its own with the path placeholder, before the first edit for a finding, and says a refusal blocks the finding (R1, R8 of commit series integrity)', () => {
+    const task = fixerTask(input);
+    assert.match(task, /^Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of <path>:\n\n {4}node "\/engine\/main\.mjs" claim --path "<path>" --unit c1-2 --in "\/scratch\/claims\/run\/round-1"\n\n/m);
+    assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it\. Report every file you edit or create under the finding it served\./);
+    assert.doesNotMatch(task, /You may edit any other file/, 'the claim rule replaces the old freedom');
+    assert.ok(task.indexOf('Before your first edit for a finding') < task.indexOf('After finishing each finding'), 'the claim comes before the snapshot rule');
   });
 
   it('names what the cluster\'s earlier batches did, as work already in the tree, and says nothing of them for a first batch', () => {
@@ -312,7 +328,7 @@ describe('the fixer\'s task', () => {
   it('names the checks that failed before any fixer edited the tree, with their outputs\' paths, as failures that are not the fixer\'s (R24)', () => {
     assert.doesNotMatch(fixerTask(input), /These failed before any fixer edited the tree/);
     const task = fixerTask({ ...input, baselineFailures: [{ kind: 'test', stdout: '/evidence/out', stderr: '/evidence/err' }] });
-    assert.match(task, /^These failed before any fixer edited the tree; their output then is at the paths given\. A failure that output does not show is yours, even when an earlier batch's tree already had it:\n- test: \/evidence\/out, \/evidence\/err$/m);
+    assert.match(task, /^These failed before any fixer edited the tree; their output then is at the paths given\. A failure that output does not show is yours, even when an earlier batch's tree already had it, unless it lies in a file you do not hold, which is a sibling's work in flight:\n- test: \/evidence\/out, \/evidence\/err$/m);
   });
 
   it('names each check\'s command or why it has none, or that none is available', () => {

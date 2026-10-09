@@ -77,9 +77,10 @@ export type Held = z.infer<typeof heldSchema>;
  * seeds back when it prepares the directory.
  */
 export const markerSchema = z.strictObject({
-  path: z.string().min(1),
-  cluster: z.string().min(1),
-  unit: z.string().min(1),
+  // The caps are the ledger's for a claim the engine records or leaves out, so a marker past them is no claim.
+  path: z.string().min(1).max(1000),
+  cluster: z.string().min(1).max(200),
+  unit: z.string().min(1).max(200),
   claimedAt: z.iso.datetime().nullable(),
 });
 export type Marker = z.infer<typeof markerSchema>;
@@ -165,8 +166,13 @@ export function readHeld(dir: string): Held {
   return parsed.data;
 }
 
-/** One marker read by its name: whole, or not yet whole when it is empty, not JSON or not a marker; undefined when there is no such file. */
-function readMarker(dir: string, hash: string, generation: number): LiveClaim | undefined {
+/**
+ * One marker read by its name: whole, or not yet whole when it is empty,
+ * not JSON, not a marker, or a marker whose path is not one the command
+ * writes or does not hash to its name, which no claim made; undefined when
+ * there is no such file.
+ */
+function readMarker(dir: string, hash: string, generation: number, caseInsensitive: boolean): LiveClaim | undefined {
   let text: string;
   try {
     text = readFileSync(join(dir, `${hash}.${String(generation)}.json`), 'utf8');
@@ -176,18 +182,28 @@ function readMarker(dir: string, hash: string, generation: number): LiveClaim | 
   }
   try {
     const parsed = markerSchema.safeParse(JSON.parse(text));
-    if (parsed.success) return { whole: true, hash, generation, ...parsed.data };
+    if (parsed.success && namesItsPath(parsed.data.path, hash, caseInsensitive)) return { whole: true, hash, generation, ...parsed.data };
   } catch {
     // Not whole JSON yet: a sibling created it under `wx` and is still writing it.
   }
   return { whole: false, hash, generation };
 }
 
+/** Whether a marker's path is one the command writes, normalized, and hashes to the marker's name. */
+function namesItsPath(path: string, hash: string, caseInsensitive: boolean): boolean {
+  try {
+    return normalizeClaimPath(path) === path && markerHash(path, caseInsensitive) === hash;
+  } catch (error) {
+    if (error instanceof InvalidScopeRequestError) return false;
+    throw error;
+  }
+}
+
 /** A path's markers, from generation 1 up to the first missing one, read by name. */
-function markersOf(dir: string, hash: string): LiveClaim[] {
+function markersOf(dir: string, hash: string, caseInsensitive: boolean): LiveClaim[] {
   const markers: LiveClaim[] = [];
   for (let generation = 1; ; generation += 1) {
-    const marker = readMarker(dir, hash, generation);
+    const marker = readMarker(dir, hash, generation, caseInsensitive);
     if (marker === undefined) return markers;
     markers.push(marker);
   }
@@ -205,11 +221,12 @@ function createMarker(dir: string, hash: string, generation: number, marker: Mar
 }
 
 /**
- * Every marker in the directory, by hash then generation. A directory that
- * is gone throws `ClaimsDirectoryLostError`; a file whose name is not a
- * marker's, `held.json` included, is not a claim.
+ * Every marker in the directory, by hash then generation, judged whole as
+ * `claimFile` judges it on a file system that folds case or not. A
+ * directory that is gone throws `ClaimsDirectoryLostError`; a file whose
+ * name is not a marker's, `held.json` included, is not a claim.
  */
-export function readClaims(dir: string): LiveClaim[] {
+export function readClaims(dir: string, caseInsensitive: boolean): LiveClaim[] {
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -221,7 +238,7 @@ export function readClaims(dir: string): LiveClaim[] {
   for (const name of names) {
     const match = markerNamePattern.exec(name);
     if (match === null) continue;
-    const marker = readMarker(dir, match[1]!, Number(match[2]));
+    const marker = readMarker(dir, match[1]!, Number(match[2]), caseInsensitive);
     if (marker !== undefined) claims.push(marker);
   }
   return claims.sort((a, b) => (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : a.generation - b.generation));
@@ -255,7 +272,7 @@ export function prepareClaims(dir: string, held: Held, recorded: readonly Record
   renameSync(temporary, file);
   for (const claim of recorded) {
     const hash = markerHash(claim.path, held.caseInsensitive);
-    const markers = markersOf(dir, hash);
+    const markers = markersOf(dir, hash, held.caseInsensitive);
     if (markers.some((marker) => marker.whole && marker.cluster === claim.cluster && marker.unit === claim.unit && marker.claimedAt === claim.claimedAt)) continue;
     const marker: Marker = { path: claim.path, cluster: claim.cluster, unit: claim.unit, claimedAt: claim.claimedAt };
     for (let generation = markers.length + 1; !createMarker(dir, hash, generation, marker); generation += 1);
@@ -311,12 +328,12 @@ export function claimFile(dir: string, rawPath: string, unit: string, now: () =>
   if (owner === cluster) return { kind: 'owned', path, cluster };
   if (owner !== null) return { kind: 'refused', path, holder: owner, by: 'plan' };
   const hash = markerHash(path, held.caseInsensitive);
-  const markers = markersOf(dir, hash);
+  const markers = markersOf(dir, hash, held.caseInsensitive);
   const latest = markers.at(-1);
   if (latest !== undefined && !(latest.whole && held.settled.includes(latest.cluster))) return judged(path, cluster, latest, false);
   const generation = markers.length + 1;
   const marker: Marker = { path, cluster, unit, claimedAt: now().toISOString() };
   if (createMarker(dir, hash, generation, marker)) return { kind: 'claimed', path, cluster, generation, created: true };
   // A sibling created the same generation first: its marker holds the path, whole or still being written.
-  return judged(path, cluster, readMarker(dir, hash, generation) ?? { whole: false, hash, generation }, false);
+  return judged(path, cluster, readMarker(dir, hash, generation, held.caseInsensitive) ?? { whole: false, hash, generation }, false);
 }

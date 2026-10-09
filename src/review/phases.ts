@@ -10,13 +10,14 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
-import { failedAtBaseline, fixesRevisedPaths, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
+import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastRun, repairTargets, roundOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
+import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { StructuralCheckError } from './errors.ts';
 import { attemptRevisionEvents, fixAnswerEvents, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
@@ -49,7 +50,19 @@ import { fixPlanOf, truncated, type Unit } from './steps.ts';
 import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
-/** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, the survey's inputs, and for an editing unit its scratch and snapshot command. */
+/**
+ * Where a fixes-phase unit claims files (R1, R2 of commit series
+ * integrity): its round's claims directory, which the engine has prepared
+ * before the launch, the claim command into it, and its live markers.
+ */
+export interface ClaimsContext extends ClaimsAccess {
+  /** The claims directory of a fixes-phase unit's round. */
+  readonly directoryOf: (key: string) => string;
+  /** The command a fixer runs to claim a file, for its unit and its round's directory, holding `claimPathPlaceholder` for the path. */
+  readonly command: (key: string, directory: string) => string;
+}
+
+/** What building an invocation needs beyond the unit: the fold, the prompts, the pinned policy and the scope block, the survey's inputs, and for an editing unit its scratch, snapshot command and, in the fixes phase, its claims. */
 export interface PhaseContext {
   readonly state: RunState;
   readonly worktree: string;
@@ -67,6 +80,8 @@ export interface PhaseContext {
   readonly snapshotCommand: (into: string) => string;
   /** Whether the run's editors work in Codex's unelevated Windows sandbox (`editorsUnderUnelevatedSandbox`). */
   readonly unelevatedEditors: boolean;
+  /** Where a fixes-phase unit claims files. */
+  readonly claims: ClaimsContext;
 }
 
 function requireReview(state: RunState): ReviewState {
@@ -85,9 +100,11 @@ export function groupCandidates(review: ReviewState, phase: VerificationPhase, g
   });
 }
 
-/** What an editing unit's task names beyond the fold: the command that takes a snapshot into its directory, and what its sandbox will not run. */
+/** What an editing unit's task names beyond the fold: the command that takes a snapshot into its directory, the claim command, and what its sandbox will not run. */
 export interface EditingTaskInput {
   readonly snapshotCommand: string;
+  /** The command a fixer runs to claim a file, holding `claimPathPlaceholder` for the path; null for the repair, which claims nothing. */
+  readonly claimCommand: string | null;
   /** Whether the worker runs in Codex's unelevated Windows sandbox, whose limit its task states (R6 of the Codex sandbox). */
   readonly unelevatedSandbox: boolean;
 }
@@ -163,6 +180,12 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
   // A second-round batch is also told what the first round did in the files it now owns.
   const firstRoundInFiles = inSecondRound ? plan.batches.filter((candidate) => plan.clusters.find((owner) => owner.id === candidate.cluster)?.files.some((path) => cluster.files.includes(path)) ?? false) : [];
   const blockedOn = new Map((second?.blocked ?? []).map((entry) => [entry.id, entry.requiredFiles]));
+  // What the cluster and its siblings hold, by the plan or by a claim, in the fold as the launch read it with the round's live markers (R8 of commit series integrity).
+  const fix = review.fix!;
+  const round = roundOf(fix, batch.key);
+  const othersHeld = new Map<string, { path: string; by: 'plan' | 'claim' }[]>();
+  for (const [path, holder] of heldByOthers(fix, batch.key)) othersHeld.set(holder.cluster, [...(othersHeld.get(holder.cluster) ?? []), { path, by: holder.by }]);
+  if (editing.claimCommand === null) throw new Error(`The fixer of ${batch.key} needs its claim command`);
   const ranked = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const findings = batch.findingIds.map((id): FixerTaskFinding => {
@@ -192,9 +215,11 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
     findings,
     earlier: [...firstRoundInFiles, ...earlier].flatMap((sibling) => batchOutcomes(review, sibling)),
     owned: cluster.files,
-    othersOwned: clusters.filter((other) => other.id !== cluster.id).map((other) => ({ cluster: other.id, files: other.files })),
+    claimed: clusterClaims(fix, round, cluster.id),
+    othersHeld: [...othersHeld].map(([held, files]) => ({ cluster: held, files })),
     checks: review.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
+    claimCommand: editing.claimCommand,
     unelevatedSandbox: editing.unelevatedSandbox,
     mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, [...earlier, ...(inSecondRound ? plan.batches : [])].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review, 'fixes', unit.key),
@@ -336,15 +361,20 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
  * and timeout of its role, with a shell, labelled with its unit. A unit
  * of an editing phase has edit access and its own scratch directory,
  * which its task names as where its snapshots go (TD7 of the fix pass);
- * every other unit is read-only.
+ * every other unit is read-only. A fixes-phase unit also shares its
+ * round's claims directory with its siblings, which its task's claim
+ * command writes, and its task names what each cluster holds as the fold
+ * and the directory's live markers say at the launch (R2, R8 of commit
+ * series integrity).
  */
 export function invocationFor(unit: Unit, context: PhaseContext): InvocationInput {
-  const review = requireReview(context.state);
   const role = context.roles.get(unit.role);
   if (role === undefined) throw new Error(`No assembled prompt for role ${unit.role}`);
   const policy: PinnedRole = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)), unelevatedSandbox: context.unelevatedEditors };
+  const shared = unit.phase === 'fixes' ? context.claims.directoryOf(unit.key) : null;
+  const review = requireReview(unit.phase === 'fixes' ? settleClaims(context.state, unit.key, context.claims.live(unit.key), context.worktree).state : context.state);
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === 'survey' ? context.survey() : null;
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
   return {
@@ -360,6 +390,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
     timeoutMs: policy.timeoutMs,
     ...(policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd }),
     ...(scratch === null ? {} : { scratch }),
+    ...(shared === null ? {} : { shared }),
     label: unitLabel(unit.role, unit.phase, unit.key),
   };
 }
@@ -448,10 +479,17 @@ export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: Cont
   }
 }
 
-/** A failed attempt, followed for an editing unit by the revisions of what the attempt left (R20 of the fix pass), which the fold takes after the failure. */
+/**
+ * A failed attempt, for an editing unit preceded by the claims its settle
+ * records (R3 of commit series integrity) and followed by the revisions of
+ * what the attempt left (R20 of the fix pass), which the fold takes after
+ * the failure.
+ */
 function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, context: RevisionContext): NewEvent[] {
   const failure = failed(unit, receipt, reason);
-  return isEditingPhase(unit.phase) ? [failure, ...attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason)] : [failure];
+  if (!isEditingPhase(unit.phase)) return [failure];
+  const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason);
+  return [...attempt.claims, failure, ...attempt.revisions];
 }
 
 /** The events a unit's contribution is recorded as, each kind with its own payload. */

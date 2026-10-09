@@ -81,7 +81,7 @@ describe('the fixer\'s answer against the tree', () => {
   });
 
   describe('resolveFixerAnswer', () => {
-    const context = (): Parameters<typeof resolveFixerAnswer>[1] => ({ worktree, lookup, owned: ['src/b.ts'], othersOwned: new Map([['src/Parser.ts', 'c2']]) });
+    const context = (): Parameters<typeof resolveFixerAnswer>[1] => ({ worktree, lookup, owned: ['src/b.ts'], othersHeld: new Map([['src/Parser.ts', { cluster: 'c2', by: 'plan' }], ['test/shared.test.ts', { cluster: 'c3', by: 'claim' }]]) });
 
     it('resolves every finding\'s files once and names every file the answer reports', () => {
       const resolved = resolveFixerAnswer(answer([{ files: ['src/b.ts', './src/b.ts'] }, { files: ['test/b.test.ts'] }]), context());
@@ -95,6 +95,10 @@ describe('the fixer\'s answer against the tree', () => {
       assert.deepEqual(resolved.violations, ['src/Parser.ts']);
     });
 
+    it('records a reported file another cluster holds by a claim as a violation too (R6 of commit series integrity)', () => {
+      assert.deepEqual(resolveFixerAnswer(answer([{ files: ['test/shared.test.ts'] }, { files: ['src/Parser.ts'] }]), context()).violations, ['src/Parser.ts', 'test/shared.test.ts']);
+    });
+
     it('refuses a blocked finding that requires a file its own cluster owns, and accepts one another cluster owns', () => {
       assert.throws(() => resolveFixerAnswer(answer([{ files: [], requiredFiles: ['src/b.ts'], status: 'blocked' }]), context()), /blocked on src\/b\.ts, which its own cluster owns/);
       assert.deepEqual(resolveFixerAnswer(answer([{ files: [], requiredFiles: ['src/parser.ts'], status: 'blocked' }]), context()).findings[0]!.requiredFiles, ['src/Parser.ts']);
@@ -106,11 +110,11 @@ describe('the fixer\'s answer against the tree', () => {
   });
 
   describe('requireOwnedReported', () => {
-    it('passes when every changed owned file is named, and names each one left out', () => {
+    it('passes when every changed owned or claimed file is named, and names each one left out', () => {
       assert.doesNotThrow(() => requireOwnedReported(['src/b.ts'], new Set(['src/b.ts', 'test/x.ts'])));
       assert.doesNotThrow(() => requireOwnedReported([], new Set()));
-      assert.throws(() => requireOwnedReported(['src/a.ts', 'src/b.ts'], new Set(['src/b.ts'])), /names no finding for the owned file src\/a\.ts, whose bytes changed/);
-      assert.throws(() => requireOwnedReported(['src/a.ts', 'src/c.ts'], new Set()), /owned files src\/a\.ts, src\/c\.ts/);
+      assert.throws(() => requireOwnedReported(['src/a.ts', 'src/b.ts'], new Set(['src/b.ts'])), /names no finding for the owned or claimed file src\/a\.ts, whose bytes changed/);
+      assert.throws(() => requireOwnedReported(['src/a.ts', 'src/c.ts'], new Set()), /owned or claimed files src\/a\.ts, src\/c\.ts/);
     });
   });
 });
