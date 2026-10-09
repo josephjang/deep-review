@@ -11,11 +11,10 @@
  * from the last step the ledger holds.
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { claimsOfRound, revisionMessageOf, roundOf } from '../checkpoint/fix-state.ts';
+import { revisionMessageOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
@@ -29,8 +28,8 @@ import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts'
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
-import { heldOf, type ClaimsAccess } from './claim-events.ts';
-import { caseInsensitiveFileSystem, claimsDirectoryFor, ClaimsDirectoryLostError, prepareClaims, readClaims } from './claims.ts';
+import { claimsDirectories } from './claims-directories.ts';
+import { caseInsensitiveFileSystem } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
@@ -41,7 +40,7 @@ import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fi
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { patchSeries } from './patch.ts';
-import { contributionOf, invocationFor, type ClaimsContext, type PhaseContext } from './phases.ts';
+import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
@@ -328,71 +327,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const scratchBase = join(options.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
   // Whether the worktree's file system folds case, which every claim's marker name follows (TD4 of commit series integrity); probed once, when the first claims directory is read or prepared.
   const caseInsensitive = once(() => caseInsensitiveFileSystem(options.worktree));
-  /** The claims directory of a fixes-phase unit's round, in this run's scratch. */
-  const claimsDirectory = (key: string): string => claimsDirectoryFor(scratchBase, runId, roundOf(state.review!.fix!, key));
-  /** The claims directories this engine prepared, whose absence is a loss. */
-  const preparedClaims = new Set<string>();
-  /** The claims directory this engine found removed while the fixes phase edited, which stops the phase (R12 of commit series integrity). */
-  let claimsLost: string | null = null;
-  const loseClaims = (directory: string): void => {
-    if (claimsLost !== null) return;
-    claimsLost = directory;
-    log(`phase fixes: the claims directory ${directory} is gone; no more launches, the running units will be recorded as failed attempts`);
-  };
-  const claims: ClaimsContext = {
-    directoryOf: claimsDirectory,
-    command: (key, directory) => claimCommandFor(engineEntry, key, directory),
-    // A directory this engine has not prepared, as a resumed engine's before its first launch, has no claims to read; the next launch seeds it from the ledger (R3). One it prepared and finds gone is lost (R12).
-    live: (key) => {
-      const directory = claimsDirectory(key);
-      try {
-        if (existsSync(directory)) return { markers: readClaims(directory, caseInsensitive()), caseInsensitive: caseInsensitive() };
-      } catch (error) {
-        if (!(error instanceof ClaimsDirectoryLostError)) throw error;
-      }
-      if (preparedClaims.has(directory)) loseClaims(directory);
-      return null;
-    },
-    caseInsensitive,
-  };
-  /** Prepare a fixes-phase unit's claims directory, or, when this engine prepared it before and it is gone, record the loss and say so. */
-  const prepareOrLose = (key: string): boolean => {
-    try {
-      prepareClaimsFor(key);
-      return true;
-    } catch (error) {
-      if (!(error instanceof ClaimsDirectoryLostError)) throw error;
-      loseClaims(error.directory);
-      return false;
-    }
-  };
-  /**
-   * The claims a settling fixes-phase unit is recorded with: its round's
-   * directory read once, now, a reading that finds it gone latching the
-   * loss, so whether the unit ran without its directory and what its settle
-   * records come from the same reading (R12 of commit series integrity).
-   */
-  const settleReading = (key: string): ClaimsAccess => {
-    const reading = claims.live(key);
-    return { live: (asked) => (asked === key ? reading : claims.live(asked)), caseInsensitive };
-  };
+  const directories = claimsDirectories({ scratchBase, runId, worktree: options.worktree, state: () => state, caseInsensitive, command: (key, directory) => claimCommandFor(engineEntry, key, directory), log });
+  const { claims } = directories;
   /** What turning a worker's work into events reads, from the fold as it is now. */
   const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
-  /**
-   * Prepare the claims directory of a fixes-phase unit's round before its
-   * launch, and again once it settles (R2, R3 of commit series integrity;
-   * TD2): the round's clusters,
-   * batches and settled clusters as the fold has them now, and every claim
-   * of the round the ledger holds, seeded back where the directory lost it.
-   */
-  const prepareClaimsFor = (key: string): void => {
-    const fix = state.review!.fix!;
-    const round = roundOf(fix, key);
-    const held = heldOf(fix, round, options.worktree, caseInsensitive());
-    const directory = claimsDirectory(key);
-    prepareClaims(directory, held, claimsOfRound(fix, round).map((claim) => ({ path: claim.path, cluster: claim.cluster, unit: claim.key, claimedAt: claim.claimedAt })), preparedClaims.has(directory));
-    preparedClaims.add(directory);
-  };
   /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
   const record = (settled: Settled, startedAt: number): void => {
     const name = unitName(settled.unit.phase, settled.unit.key);
@@ -417,8 +355,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         return;
       }
     }
-    const settling = phase === 'fixes' ? settleReading(settled.unit.key) : claims;
-    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling, survey: surveyInputs, claimsLost: phase === 'fixes' && claimsLost !== null });
+    const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : claims;
+    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling, survey: surveyInputs, claimsLost: phase === 'fixes' && directories.lost() !== null });
     for (const event of events) {
       for (const line of claimLines(event)) log(line);
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
@@ -428,7 +366,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     state = append(checkpoint, state, events);
     // The round's directory is prepared again at once, not at the next launch: a late claim just recorded holds its file there too, and a cluster that has just settled holds nothing more, before any sibling's next claim (R1, TD2 of commit series integrity). A directory found gone is lost, as at a launch.
-    if (phase === 'fixes' && claimsLost === null) prepareOrLose(settled.unit.key);
+    if (phase === 'fixes' && directories.lost() === null) directories.prepare(settled.unit.key);
   };
   try {
     if (scopeRequest !== null) {
@@ -518,7 +456,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 
     for (;;) {
       const review = state.review!;
-      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags, claimsLost };
+      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags, claimsLost: directories.lost() };
       const step = nextStep(review, live);
       switch (step.kind) {
         case 'blocked':
@@ -601,7 +539,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           };
           for (const unit of step.units) {
             // A fixer's claims directory is ready before its task reads the live markers and before the fixer can run the claim command into it; one this engine prepared and finds gone launches nothing more (R12).
-            if (unit.phase === 'fixes' && !prepareOrLose(unit.key)) break;
+            if (unit.phase === 'fixes' && !directories.prepare(unit.key)) break;
             const invocation = invocationFor(unit, context);
             // An editing worker's snapshots compare with the tree as it is now, from a manifest taken here, outside its sandbox (R23, TD20).
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
