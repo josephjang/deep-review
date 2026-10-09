@@ -279,8 +279,12 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
  * scope is recorded, and committed at the series' tail, rather than left
  * changed in the worktree; a file new since the check is not listed, and
  * a file changed before it and left alone is not either. The state before
- * a path the run expects nothing of is the scope's head's. Without a
- * manifest, the expected files alone.
+ * a path the run expects nothing of is the scope's head's, so a fixer's
+ * edit of such a file that it neither claimed nor named, and that the
+ * check then rewrote, is kept in this revision under the check's subject
+ * and named nowhere apart (PD9; whether to name or leave out such an edit
+ * is the author's open question). Without a manifest, the expected files
+ * alone.
  */
 export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
   const { state, worktree, evidence } = context;
