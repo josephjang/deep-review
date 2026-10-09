@@ -190,7 +190,7 @@ describe('the task texts', () => {
 
 describe('the fixer\'s task', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
-  const claim = `node "/engine/main.mjs" claim --path "${claimPathPlaceholder}" --unit c1-2 --in "/scratch/claims/run/round-1"`;
+  const claim = `node "/engine/main.mjs" claim --path '${claimPathPlaceholder}' --unit c1-2 --in "/scratch/claims/run/round-1"`;
   const input: FixerTaskInput = {
     cluster: 'c1',
     batch: 'c1-2',
@@ -295,7 +295,7 @@ describe('the fixer\'s task', () => {
 
   it('quotes the claim command on a line of its own with the path placeholder, before the first edit for a finding, and says a refusal blocks the finding (R1, R8 of commit series integrity)', () => {
     const task = fixerTask(input);
-    assert.match(task, /^Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of <path>:\n\n {4}node "\/engine\/main\.mjs" claim --path "<path>" --unit c1-2 --in "\/scratch\/claims\/run\/round-1"\n\n/m);
+    assert.match(task, /^Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of <path>:\n\n {4}node "\/engine\/main\.mjs" claim --path '<path>' --unit c1-2 --in "\/scratch\/claims\/run\/round-1"\n\n/m);
     assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it\. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial\. Report every file you edit or create under the finding it served\./);
     assert.doesNotMatch(task, /You may edit any other file/, 'the claim rule replaces the old freedom');
     assert.ok(task.indexOf('Before your first edit for a finding') < task.indexOf('After finishing each finding'), 'the claim comes before the snapshot rule');
