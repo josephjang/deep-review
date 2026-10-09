@@ -242,7 +242,6 @@ function finalStatus(fix: FixState, path: string): string {
   return existsAfter ? 'created' : 'created, then deleted';
 }
 
-/** The Changed files section: every path a revision names, once, with its final status and who changed it, then the patch series. */
 /**
  * Which clusters held a path in the fixes phase, round by round (R1, R3 of
  * commit series integrity): its owner by the plan, or else the cluster
@@ -260,6 +259,7 @@ function heldBy(fix: FixState, path: string): string {
   return holders.length === 0 ? 'nobody' : [...new Set(holders)].join(', ');
 }
 
+/** The Changed files section: every path a revision names, once, with its final status, who changed it and who held it, then the patch series. */
 function changedFilesSection(fix: FixState, patches: readonly string[]): string[] {
   const paths = [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file) => file.path)))].sort();
   const rows = paths.map((path) => {
