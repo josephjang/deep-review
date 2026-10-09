@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { heldOf } from '../../src/review/claim-events.ts';
 import { claimsDirectories, type ClaimsDirectories } from '../../src/review/claims-directories.ts';
-import { claimFile, claimsDirectoryFor, markerHash, readHeld } from '../../src/review/claims.ts';
+import { claimFile, claimsDirectoryFor, heldFileName, markerHash, readHeld } from '../../src/review/claims.ts';
 import { baselined, claimed, type History } from '../helpers/review-history.ts';
 
 // c1 owns src/a.ts and c2 src/b.ts, one batch each, both running.
@@ -51,20 +51,25 @@ describe('claimsDirectories', () => {
     });
   });
 
-  it('loses a directory it prepared and finds removed once, and it stays lost, whether a read or a launch finds it gone (R12)', () => {
-    for (const finder of ['read', 'launch'] as const) {
-      withDirectories(running().fold(), (directories, round, logged) => {
-        assert.equal(directories.prepare('c1-1'), true);
-        rmSync(round, { recursive: true, force: true });
-        if (finder === 'read') assert.equal(directories.claims.live('c1-1'), null);
-        else assert.equal(directories.prepare('c1-1'), false);
-        assert.equal(directories.lost(), round, finder);
-        assert.equal(directories.prepare('c2-1'), false, 'no launch prepares it again');
-        assert.equal(existsSync(round), false, 'nor is it created again');
-        assert.equal(directories.claims.live('c2-1'), null);
-        assert.equal(directories.lost(), round);
-        assert.deepEqual(logged, [`phase fixes: the claims directory ${round} is gone; no more launches, the running units will be recorded as failed attempts`], 'the loss is said once');
-      });
+  it('loses a directory it prepared and finds removed or emptied in place once, and it stays lost, whether a read or a launch finds it (R12)', () => {
+    for (const removal of ['removed', 'emptied'] as const) {
+      for (const finder of ['read', 'launch'] as const) {
+        withDirectories(running().fold(), (directories, round, logged) => {
+          assert.equal(directories.prepare('c1-1'), true);
+          assert.equal(claimFile(round, 'docs/a.md', 'c1-1').kind, 'claimed');
+          // A temporary file cleaner may take the directory, or only the files in it, the markers with held.json.
+          if (removal === 'removed') rmSync(round, { recursive: true, force: true });
+          else for (const name of readdirSync(round)) rmSync(join(round, name));
+          if (finder === 'read') assert.equal(directories.claims.live('c1-1'), null, `${removal} ${finder}`);
+          else assert.equal(directories.prepare('c1-1'), false, `${removal} ${finder}`);
+          assert.equal(directories.lost(), round, `${removal} ${finder}`);
+          assert.equal(directories.prepare('c2-1'), false, 'no launch prepares it again');
+          assert.equal(existsSync(join(round, heldFileName)), false, 'nor is it written again');
+          assert.equal(directories.claims.live('c2-1'), null);
+          assert.equal(directories.lost(), round);
+          assert.deepEqual(logged, [`phase fixes: the claims directory ${round} is gone; no more launches, the running units will be recorded as failed attempts`], 'the loss is said once');
+        });
+      }
     }
   });
 

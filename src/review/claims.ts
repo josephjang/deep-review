@@ -173,7 +173,17 @@ export function caseInsensitiveFileSystem(worktree: string, fs: CaseProbeFileSys
   return process.platform === 'win32' || process.platform === 'darwin';
 }
 
-/** The round `held.json` describes; a missing directory or file means the directory was lost. */
+/**
+ * Whether a claims directory is intact: its `held.json` is there. A
+ * directory gone, or emptied in place, has lost its markers with it, so
+ * the engine judges a prepared directory lost by this test (R12), as the
+ * command does when `readHeld` finds no `held.json`.
+ */
+export function claimsDirectoryIntact(dir: string): boolean {
+  return existsSync(join(dir, heldFileName));
+}
+
+/** The round `held.json` describes; a missing directory or file means the directory was lost, as `claimsDirectoryIntact` judges it. */
 export function readHeld(dir: string): Held {
   const file = join(dir, heldFileName);
   let text: string;
@@ -283,12 +293,12 @@ export interface RecordedMarker {
  * of the path holds nothing once a later one exists, and seeding it would
  * put a cluster above the holder. A marker records a claim when its
  * cluster, unit and time are the claim's. Nothing is removed.
- * `expectExisting` says this engine prepared the directory before, so its
- * absence is a loss (R12) and throws `ClaimsDirectoryLostError` without
- * creating anything.
+ * `expectExisting` says this engine prepared the directory before, so a
+ * directory no longer intact, gone or without its `held.json`, is a loss
+ * (R12) and throws `ClaimsDirectoryLostError` without writing anything.
  */
 export function prepareClaims(dir: string, held: Held, recorded: readonly RecordedMarker[], expectExisting: boolean): void {
-  if (expectExisting && !existsSync(dir)) throw new ClaimsDirectoryLostError(dir);
+  if (expectExisting && !claimsDirectoryIntact(dir)) throw new ClaimsDirectoryLostError(dir);
   mkdirSync(dir, { recursive: true });
   writeFileAtomic(join(dir, heldFileName), `${JSON.stringify(held)}\n`);
   const latest = new Map<string, RecordedMarker>();

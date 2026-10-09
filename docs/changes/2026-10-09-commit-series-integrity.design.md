@@ -253,8 +253,8 @@ phase runs and the list is not empty, and the entries join
 controller's memory, which a resumed engine does not have.) The path's
 edits then fall under the violation rule (R6). A marker can lose this
 way only through a spelling the command could not match (TD4) or a file
-written outside the engine; a directory that vanishes stops the run
-first (R12). (Added 2026-10-09, review F9.) The
+written outside the engine; a directory that vanishes, or loses its
+`held.json`, stops the run first (R12). (Added 2026-10-09, review F9.) The
 `fixRecorded` reducer checks each violation against the paths the other
 clusters of the round hold, by their plan's files or by a claim folded
 before the answer, which the order above makes every claim made by then;
@@ -266,10 +266,18 @@ path after that holder settled is never the one the report names.
 
 ### A lost claims directory (R12)
 
-Added 2026-10-09 (review F5). The engine sees the loss in two places:
-`prepareClaims` at a launch, when the round's directory does not exist
-though an earlier launch of the round made it, and `readClaims` when a
-unit's outcome is recorded. Either sets `claimsLost` on the fixes phase
+Added 2026-10-09 (review F5). A directory is lost when it is no longer
+intact: its `held.json` is missing, because the directory is gone or was
+emptied in place, which takes its markers too. `claimsDirectoryIntact`
+in `src/review/claims.ts` is that one test, the one the claim command
+applies when `readHeld` finds no `held.json`, so a directory a temporary
+file cleaner empties stops the fixers and the engine alike. (Amended
+2026-10-10, review ALTITUDE-7: the engine first tested only that the
+directory existed, so it blamed the units that stopped and rewrote
+`held.json` silently.) The engine sees the loss in two places:
+`prepareClaims` at a launch, when the round's directory is not intact
+though an earlier launch of the round made it, and the claims reading
+when a unit's outcome is recorded. Either sets `claimsLost` on the fixes phase
 for the rest of this engine's life, and the planner then behaves as it
 does for a drift found mid-phase: `nextStep` launches nothing, awaits
 the running units, and once none runs finishes the phase blocked with
