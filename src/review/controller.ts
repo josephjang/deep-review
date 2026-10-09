@@ -30,6 +30,7 @@ import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts'
 import { captureScope } from '../scope/capture.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
+import type { ClaimsAccess } from './claim-events.ts';
 import { caseInsensitiveFileSystem, claimsDirectoryFor, ClaimsDirectoryLostError, prepareClaims, readClaims, type Held } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
@@ -360,12 +361,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     claimsLost = directory;
     log(`phase fixes: the claims directory ${directory} is gone; no more launches, the running units will be recorded as failed attempts`);
   };
-  /** Whether a fixes-phase unit's claims directory is lost: found removed now, or before, by this engine. */
-  const claimsGone = (key: string): boolean => {
-    const directory = claimsDirectory(key);
-    if (claimsLost === null && preparedClaims.has(directory) && !existsSync(directory)) loseClaims(directory);
-    return claimsLost !== null;
-  };
   const claims: ClaimsContext = {
     directoryOf: claimsDirectory,
     command: (key, directory) => claimCommandFor(engineEntry, key, directory),
@@ -392,6 +387,16 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       loseClaims(error.directory);
       return false;
     }
+  };
+  /**
+   * The claims a settling fixes-phase unit is recorded with: its round's
+   * directory read once, now, a reading that finds it gone latching the
+   * loss, so whether the unit ran without its directory and what its settle
+   * records come from the same reading (R12 of commit series integrity).
+   */
+  const settleReading = (key: string): ClaimsAccess => {
+    const reading = claims.live(key);
+    return { live: (asked) => (asked === key ? reading : claims.live(asked)), caseInsensitive };
   };
   /** What turning a worker's work into events reads, from the fold as it is now. */
   const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
@@ -442,7 +447,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         return;
       }
     }
-    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), survey: surveyInputs, claimsLost: phase === 'fixes' && claimsGone(settled.unit.key) });
+    const settling = phase === 'fixes' ? settleReading(settled.unit.key) : claims;
+    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling, survey: surveyInputs, claimsLost: phase === 'fixes' && claimsLost !== null });
     for (const event of events) {
       for (const line of claimLines(event)) log(line);
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
