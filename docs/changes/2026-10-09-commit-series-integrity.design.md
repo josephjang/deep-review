@@ -89,12 +89,12 @@ What the change works against, as the code stood at `2163eab`:
   (`src/runtime/scratch.ts`), and a Codex editor gets its scratch as
   the one writable root beside the worktree (`confinementOf` in
   `src/runtime/codex.ts`).
-- **The fold and the registry.** `FixState` holds `plan`, `secondRound`,
-  `answers`, `revisions`, `notAttempted` and `commits`; every fix kind
-  is version 1 with a reducer in `fix-fold.ts`; `reviewVocabularyV4` is
-  the newest frozen vocabulary; the newest golden fixture is
-  `schema-1-08`, and `golden.test.ts` names the serial after the newest
-  as the one to write next.
+- **The fold and the registry.** `FixState` holds `checks`, `plan`,
+  `secondRound`, `answers`, `revisions`, `notAttempted` and `commits`;
+  every fix kind is version 1 with a reducer in `fix-fold.ts`;
+  `reviewVocabularyV4` is the newest frozen vocabulary; the newest
+  golden fixture is `schema-1-08`, and `golden.test.ts` names the
+  serial after the newest as the one to write next.
 - **The prompt guards.** `test/roles/repository.test.ts` pins the
   ownership sentences of `fixer-role.md` and the snapshot sentence of
   `fixer-apply.md` for the three roles that share the fragments.
@@ -152,14 +152,23 @@ seven findings in two batches to nine in three.
   directory <dir> is gone: stop editing and answer` on stderr (R2,
   R12), and makes `readClaims` throw `ClaimsDirectoryLostError`, which
   the controller turns into the stop below.
+- A marker that is empty or not yet whole JSON is one a sibling created
+  under `wx` and is still writing. Its name already says the path's hash
+  and its generation, so `claimFile`, which looks a path's markers up by
+  that name, refuses the path as held by a cluster not yet known,
+  `othersHeld` counts it as held the same way, and the append of R3
+  leaves the marker for the next settle, when it is whole (2026-10-09,
+  review F13).
 
 `src/cli.ts` gains `claim --path <path> --unit <key> --in <dir>
 [--repo <dir>]`, listed with `snapshot` as run by a fix worker, with
 the same path and `--in` checks as `snapshot`; exit 0 for `owned` or
 `claimed`, 2 with the holder's cluster on stderr for a refusal, 1
 otherwise. `claimCommandFor(engineEntry, unit, into)` in `controller.ts`
-quotes it as `node "<entry>" claim --path <path> --unit <key> --in
-"<dir>"`, with `claimPathPlaceholder` (`<path>`) for the task.
+quotes it as `node "<entry>" claim --path "<path>" --unit <key> --in
+"<dir>"`, with `claimPathPlaceholder` (`<path>`) for the task, the
+path quoted as the directory is so that a path with a space stays one
+argument (2026-10-09, review F12).
 
 The command never opens the ledger: Codex keeps the git directory
 read-only, and the directory it reads is the launch's view of the plan
@@ -542,8 +551,10 @@ readable, and no kind the corpus holds changes shape here.
   or with `..` is refused, a backslash spelling makes the same marker as
   the plan's, and with `caseInsensitive` set two spellings of one path
   that differ in case meet one marker while without it they make two
-  (TD4); the command starts no process, with `node:child_process` made
-  to throw as the snapshot test does.
+  (TD4); an empty marker and a half-written one refuse a claim as held
+  by a cluster not yet known and are left out of the append (F13); the
+  command starts no process, with `node:child_process` made to throw as
+  the snapshot test does.
 - `test/cli.test.ts`: `claim` parses its flags, refuses unknown ones and
   `--in` inside the worktree, exits 0, 2 and 1 as designed, and runs
   from a fixer's shell.

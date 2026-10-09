@@ -141,13 +141,14 @@ approach names files outside its finding, which is how three clusters
 met in `fix-state.ts`.
 
 **How many files a fixer claims.** In the two runs a batch edited
-between one and seven files outside its cluster, two to four as a rule:
-its tests, the proposal documents a finding's fix amends, `dist/` after
-a rebuild, and a file a decision named. The files two clusters both
-wrote in one round, the case a claim decides, were the two proposal
-documents on both runs and `src/checkpoint/fix-state.ts` on the first;
-no test file was written by two clusters in either run (review of
-2026-10-09, F11).
+between none and ten files outside its cluster, two to four as a rule
+and the largest counts in second-round batches (the first draft said
+one to seven; review F16, 2026-10-09): its tests, the proposal
+documents a finding's fix amends, `dist/` after a rebuild, and a file a
+decision named. The files two clusters both wrote in one round, the
+case a claim decides, were the two proposal documents on both runs and
+`src/checkpoint/fix-state.ts` on the first; no test file was written by
+two clusters in either run (review of 2026-10-09, F11).
 
 ## Goals
 
@@ -186,7 +187,9 @@ no test file was written by two clusters in either run (review of
 - **R1: A file no cluster owns belongs to the cluster whose fixer first
   claims it, until that cluster settles.** Before its first edit of a
   file its cluster does not own, existing or new, a fixer claims it
-  through the claim command its task quotes. The claim succeeds when no
+  through the claim command its task quotes; a deletion is an edit of
+  the deleted path, and a rename is an edit of both its paths
+  (2026-10-09, review F15). The claim succeeds when no
   other cluster of the round holds the file, and holds it for the
   fixer's cluster until every batch of the cluster has settled (answered
   or not attempted): a later batch of the same cluster edits it freely,
@@ -217,9 +220,11 @@ no test file was written by two clusters in either run (review of
   gone included, which it names on stderr with the words to stop
   editing and answer (R12). It reads no ledger and starts no
   process, so it runs under every sandbox the snapshot command runs
-  under (R23 of the fix pass). A path outside the repository, under
-  `.git`, or one a cluster of the round owns, is refused with the
-  reason; an owned file of the fixer's own cluster answers 0.
+  under (R23 of the fix pass). A path outside the repository or under
+  `.git` is refused with the reason and exits 1, there being no holder
+  to name; a file another cluster of the round owns is refused as a
+  held file is, 2 naming the owner; an owned file of the fixer's own
+  cluster answers 0 (2026-10-09, review F14).
 - **R3: The engine records every claim on the ledger and the fold holds
   it.** When a unit's answer, failed attempt or lost worker is recorded,
   every claim in the directory that the ledger does not hold yet is
@@ -400,15 +405,16 @@ no test file was written by two clusters in either run (review of
 
 ## Product Decisions
 
-- **PD1: Claim on first write, revising PD5 of the fix pass.** PD5 gave
-  a fixer every file no cluster owns and gave up the guarantee that two
-  fixers never touch one shared file; it is revised to: a fixer may edit
-  any file no cluster owns and no cluster has claimed, and its first
-  write claims the file for its cluster until the round ends. This is
-  the ownership model the fix pass already runs, with one more way for
-  a cluster to come to hold a file, and the second round it already has
-  takes the finding that loses the file. Three mechanisms were weighed
-  against the first run's evidence:
+- **PD1: Claim before the first edit, revising PD5 of the fix pass.**
+  PD5 gave a fixer every file no cluster owns and gave up the guarantee
+  that two fixers never touch one shared file; it is revised to: a fixer
+  may edit any file no cluster owns and no cluster has claimed, and
+  before its first edit of it claims the file for its cluster, which
+  holds it until the cluster settles (PD3, PD10). This is the ownership
+  model the fix pass already runs, with one more way for a cluster to
+  come to hold a file, and the second round it already has takes the
+  finding that loses the file. Three mechanisms were weighed against
+  the first run's evidence:
   - *Claim on first write.* On run `71ae22a2` the one collision was
     `fix-state.ts`, first written by `c2-1` at 22:33:28. `c8-1`'s SCAN-3
     and `c10-1`'s SCAN-4 would have been blocked on it and joined the
@@ -435,11 +441,13 @@ no test file was written by two clusters in either run (review of
   - *Serializing units whose findings or decisions name a common unowned
     file.* Rejected. On the first run the three decisions naming
     `fix-state.ts` would have chained `c2-1` (1592 s and a 663 s retry),
-    `c8-1` (1319 s) and `c10-1` (672 s), about 2000 s longer than the
-    phase took, and it reaches none of #23's five files, which no
-    decision names: the files a refused attempt took from siblings there
-    were tests and documents, and the files two clusters both wrote on
-    the two runs were the proposal's documents four times and a
+    `c8-1` (1319 s) and `c10-1` (672 s): 4246 s, and with the second
+    round after the chain, where R21 of the fix pass puts it, about
+    2000 s longer than the phase took (the chain alone is 338 s longer;
+    review F16, 2026-10-09). It reaches none of #23's five files, which
+    no decision names: the files a refused attempt took from siblings
+    there were tests and documents, and the files two clusters both
+    wrote on the two runs were the proposal's documents four times and a
     decision-named source file once (Problem). It also needs the engine
     to read file names out of a decision's prose, or the decider to list
     them (PD6).
