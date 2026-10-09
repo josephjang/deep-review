@@ -253,19 +253,21 @@ interface Confinement {
 /**
  * How a worker's Windows sandbox confines it, every value's
  * meaning in one place. A reader runs `read-only` and an editor
- * `workspace-write` with the scratch directory writable, under the
+ * `workspace-write` with the scratch directory and the directory it
+ * shares with the run's other editors writable, under the
  * chosen Windows sandbox on Windows and under none elsewhere. `none`
  * means something on Windows only: an editor runs in no sandbox,
  * `danger-full-access`, with no writable root, and every worker keeps
  * `windows.sandbox="unelevated"`, which needs no setup, so a reader
  * stays read-only.
  */
-function confinementOf(invocation: Invocation, plan: Pick<LaunchPlan, 'platform' | 'scratch'>, windowsSandbox: WindowsSandbox): Confinement {
+function confinementOf(invocation: Invocation, plan: Pick<LaunchPlan, 'platform' | 'scratch' | 'shared'>, windowsSandbox: WindowsSandbox): Confinement {
   const windows = plan.platform === 'win32';
   const codexSandbox = !windows ? null : windowsSandbox === 'none' ? 'unelevated' : windowsSandbox;
   if (invocation.access !== 'edit') return { sandboxMode: 'read-only', writableRoots: [], windowsSandbox: codexSandbox };
   if (windows && windowsSandbox === 'none') return { sandboxMode: 'danger-full-access', writableRoots: [], windowsSandbox: codexSandbox };
-  return { sandboxMode: 'workspace-write', writableRoots: plan.scratch === null ? [] : [plan.scratch], windowsSandbox: codexSandbox };
+  // An editor writes its scratch and the directory it shares with the run's other editors, the claims directory of a fixer, beside the worktree.
+  return { sandboxMode: 'workspace-write', writableRoots: [plan.scratch, plan.shared].filter((root) => root !== null), windowsSandbox: codexSandbox };
 }
 
 /**

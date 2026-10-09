@@ -76,6 +76,8 @@ export interface LaunchPlan {
   readonly resume: string | null;
   /** Absolute scratch directory the runtime must allow writes to, or null when the worker has none. */
   readonly scratch: string | null;
+  /** Absolute directory an editor shares with the run's other editors, which a sandboxing runtime must allow writes to, or null when it has none. */
+  readonly shared: string | null;
   readonly schema: CompiledSchema;
   /** Absolute path of a file holding `schema.text`, for a runtime that reads its schema from a file. */
   readonly schemaFile: string;

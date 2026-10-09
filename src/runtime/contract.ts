@@ -53,6 +53,15 @@ export const invocationSchema = z.strictObject({
    * temporary directory when it is not given.
    */
   scratch: absolutePath.optional(),
+  /**
+   * A directory an editor may write beside its scratch, which other
+   * editors of the run share: the round's claims directory for a fixer
+   * (R2 of commit series integrity). Outside the reviewed tree and the
+   * checkpoint, and never given to a read-only worker. Not recorded on the
+   * ledger: the directory is the round's, and the engine prepares it at
+   * every launch.
+   */
+  shared: absolutePath.optional(),
   /** Free text recorded on the ledger. A worker that runs a role is labelled with its role key, so the ledger says which role ran (D10 of the role prompts proposal). */
   label: text.optional(),
   /** A session to continue; the prompt is then the follow-up message (R9). */

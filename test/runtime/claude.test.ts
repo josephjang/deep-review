@@ -53,6 +53,7 @@ const plan = (change: Partial<LaunchPlan> = {}): LaunchPlan => ({
   sessionId: session,
   resume: null,
   scratch: resolve('/checkpoint/scratch/w'),
+  shared: null,
   schema: compiled,
   schemaFile: resolve('/checkpoint/io/w/schema.json'),
   finalMessageFile: resolve('/checkpoint/io/w/final-message'),
@@ -104,6 +105,11 @@ describe('claude command', () => {
   it('leaves out the scratch directory when the worker has none', () => {
     const args = claudeAdapter.command(invocation(), plan({ scratch: null })).args;
     assert.equal(args.includes('--add-dir'), false);
+  });
+
+  it('gives an editor\'s file tools no write in its shared directory, which only the commands its task quotes write', () => {
+    const args = claudeAdapter.command(invocation({ access: 'edit' }), plan({ shared: resolve('/scratch/claims/run/round-1') })).args;
+    assert.deepEqual(args.filter((arg, index) => args[index - 1] === '--add-dir'), [resolve('/checkpoint/scratch/w')]);
   });
 
   it('continues a session with --resume and the same permission and schema flags', () => {

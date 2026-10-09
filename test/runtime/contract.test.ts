@@ -31,12 +31,15 @@ describe('parseInvocation', () => {
       executableArgs: ['cli.js'],
       budgetUsd: 2.5,
       scratch: resolve('/scratch'),
+      shared: resolve('/claims'),
       label: 'finder: correctness',
       resume: '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b',
     });
     assert.deepEqual(invocation.executableArgs, ['cli.js']);
     assert.equal(invocation.budgetUsd, 2.5);
     assert.equal(invocation.label, 'finder: correctness');
+    assert.equal(invocation.shared, resolve('/claims'));
+    assert.equal(parseInvocation(valid()).shared, undefined, 'a worker shares no directory unless asked');
   });
 
   const refusals: [string, Record<string, unknown>, RegExp][] = [
@@ -55,6 +58,7 @@ describe('parseInvocation', () => {
     ['a zero budget', { budgetUsd: 0 }, /budgetUsd/],
     ['a budget over 100 dollars', { budgetUsd: 100.01 }, /budgetUsd/],
     ['a relative scratch directory', { scratch: 'scratch' }, /absolute path/],
+    ['a relative shared directory', { shared: 'claims' }, /absolute path/],
     ['a session id that reads as an option', { resume: '-x' }, /session id/],
     ['a session id with a space', { resume: 'a b' }, /session id/],
     ['an unknown field', { tools: ['Read'] }, /tools/],
