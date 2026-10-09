@@ -446,6 +446,13 @@ describe('runWorker', () => {
       assert.equal(box.recorded().environment.TEMP, scratch);
     });
 
+    it('gives a Codex editor its shared directory beside its scratch, as given and resolved (R2 of commit series integrity)', async () => {
+      const claims = join(box.directory, 'claims', 'round-1');
+      const receipt = await box.run(box.codex({ access: 'edit', shared: claims }));
+      const scratch = box.scratchOf(receipt.workerId);
+      assert.ok(box.recorded().argv.includes(`sandbox_workspace_write.writable_roots=[${JSON.stringify(scratch)},${JSON.stringify(claims)}]`));
+    });
+
     it('keeps the default scratch directory out of the git directory, where a Codex editor could not write to it', async () => {
       // The production layout: a main worktree whose checkpoint lives in its .git directory.
       // Codex's workspace-write sandbox makes .git read-only and refuses every command of a
@@ -482,6 +489,14 @@ describe('runWorker', () => {
       await assert.rejects(box.run(box.claude({ scratch: box.repo })), /inside the reviewed tree/);
       await assert.rejects(box.run(box.claude({ scratch: join(box.checkpoint.root, 'scratch') })), (error: unknown) => error instanceof InvalidInvocationError && /inside the checkpoint/.test(error.message));
       assert.equal(existsSync(join(box.repo, 'tmp')), false);
+    });
+
+    it('refuses a shared directory to a read-only worker, and one inside the reviewed tree or the checkpoint, launching nothing (R2 of commit series integrity)', async () => {
+      const claims = join(box.directory, 'claims', 'round-1');
+      await assert.rejects(box.run(box.claude({ shared: claims })), (error: unknown) => error instanceof InvalidInvocationError && /A read-only worker writes nowhere, so it is given no shared directory/.test(error.message));
+      await assert.rejects(box.run(box.claude({ access: 'edit', shared: join(box.repo, 'claims') })), (error: unknown) => error instanceof InvalidInvocationError && /The shared directory .* is inside the reviewed tree/.test(error.message));
+      await assert.rejects(box.run(box.claude({ access: 'edit', shared: join(box.checkpoint.root, 'claims') })), (error: unknown) => error instanceof InvalidInvocationError && /The shared directory .* is inside the checkpoint/.test(error.message));
+      assert.deepEqual(Object.keys(box.checkpoint.fold(box.runId).workers), [], 'no worker launched');
     });
 
     it('judges containment by whole path segments, so a directory named ..tmp is inside', async () => {

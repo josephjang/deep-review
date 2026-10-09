@@ -33,6 +33,7 @@ const plan = (change: Partial<LaunchPlan> = {}): LaunchPlan => ({
   sessionId: null,
   resume: null,
   scratch: null,
+  shared: null,
   schema: compiled,
   schemaFile,
   finalMessageFile,
@@ -87,6 +88,17 @@ describe('codex command', () => {
       ...tail('xhigh'),
       '-',
     ]);
+  });
+
+  it('gives an editor its scratch and its shared directory as writable roots, and a reader neither (R2 of commit series integrity)', () => {
+    const claims = resolve('/scratch/claims/run/round-1');
+    const rootsOf = (args: readonly string[]): string[] => args.filter((arg) => arg.startsWith('sandbox_workspace_write.'));
+    assert.deepEqual(rootsOf(codexAdapter.command(invocation({ access: 'edit' }), plan({ scratch, shared: claims })).args), [`sandbox_workspace_write.writable_roots=[${JSON.stringify(scratch)},${JSON.stringify(claims)}]`]);
+    assert.deepEqual(rootsOf(codexAdapter.command(invocation({ access: 'edit' }), plan({ scratch: null, shared: claims })).args), [`sandbox_workspace_write.writable_roots=[${JSON.stringify(claims)}]`]);
+    assert.deepEqual(rootsOf(codexAdapter.command(invocation({ access: 'read-only' }), plan({ scratch, shared: claims })).args), [], 'a reader writes nowhere');
+    const unsandboxed = createCodexAdapter({ windowsSandbox: 'none' }).command(invocation({ access: 'edit' }), plan({ scratch, shared: claims, platform: 'win32' })).args;
+    assert.deepEqual(rootsOf(unsandboxed), [], 'no root means anything to an editor in no sandbox');
+    assert.ok(unsandboxed.includes('sandbox_mode="danger-full-access"'));
   });
 
   it('writes a Windows scratch path as a valid TOML string', () => {

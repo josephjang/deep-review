@@ -15,7 +15,7 @@ import { preflight } from './preflight.ts';
 import { notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes, type PinnedRuntimeOptions } from './runtimes.ts';
-import { checkpointScratchKey, chooseScratch, defaultScratchRoot } from './scratch.ts';
+import { checkpointScratchKey, chooseScratch, chooseShared, defaultScratchRoot } from './scratch.ts';
 
 /** Longest error text the ledger records; the full story is in the frozen stdout and stderr. */
 const maxErrorLength = 4000;
@@ -121,6 +121,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   const ids = options.ids ?? randomUUID;
   const workerId = ids();
   const scratch = chooseScratch(checkpoint, state, adapter, invocation, continued, join(options.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint), workerId));
+  const shared = chooseShared(checkpoint, state, invocation);
   const sessionId = invocation.resume ?? (adapter.capabilities.assignsSessionId ? ids() : null);
   const io = join(checkpoint.root, ioDirectoryName, workerId);
   const inherited = options.environment ?? process.env;
@@ -128,6 +129,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     sessionId,
     resume: invocation.resume ?? null,
     scratch,
+    shared,
     schema,
     schemaFile: join(io, 'schema.json'),
     finalMessageFile: join(io, 'final-message'),
