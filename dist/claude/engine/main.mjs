@@ -27208,7 +27208,7 @@ function fixerTask(input2) {
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...finding.decision === null ? [] : decidedLines(finding.decision),
     ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
-    ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.join(", ")}: ${finding.firstRound.note}`]
+    ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file2) => file2.claimedBy === null ? file2.path : `${file2.path} (which ${file2.claimedBy} had claimed)`).join(", ")}: ${finding.firstRound.note}`]
   ].join("\n"));
   const decided = input2.findings.some((finding) => finding.decision !== null);
   const others = input2.othersHeld.filter((cluster) => cluster.files.length > 0);
@@ -27219,7 +27219,7 @@ function fixerTask(input2) {
     ...findings,
     "",
     ...decided ? [decidedRule, ""] : [],
-    ...input2.secondRound ? ["Each of these was blocked in the first round on files another cluster owned. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.", ""] : [],
+    ...input2.secondRound ? ["Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.", ""] : [],
     ...input2.earlier.length === 0 ? [] : [
       input2.secondRound ? "Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:" : "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
       input2.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? "" : `: ${entry.note}`}`).join("\n"),
@@ -27339,8 +27339,14 @@ function unfinishedIds(review2, phase, key) {
 }
 function firstRoundBlock(review2, firstBatches, id, requiredFiles) {
   const batch = firstBatches.find((candidate) => candidate.findingIds.includes(id));
-  const note = (batch === void 0 ? void 0 : review2.fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? "blocked";
-  return { note, requiredFiles };
+  const fix = review2.fix;
+  const note = (batch === void 0 ? void 0 : fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? "blocked";
+  const owned = new Set((fix?.plan?.clusters ?? []).flatMap((cluster) => cluster.files));
+  const claimedBy = (path) => {
+    if (fix === null || owned.has(path)) return null;
+    return claimsOfRound(fix, 1).findLast((claim3) => claim3.path === path && claim3.cluster !== batch?.cluster)?.cluster ?? null;
+  };
+  return { note, requiredFiles: requiredFiles.map((path) => ({ path, claimedBy: claimedBy(path) })) };
 }
 function batchOutcomes(review2, batch) {
   const answer = review2.fix?.answers.fixes[batch.key];
