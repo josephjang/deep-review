@@ -29,10 +29,11 @@ three kinds of failure the serial suite had hidden: timeouts sized for
 serial runs, a test that asserts on process-wide state, and a test that
 infers concurrency from event order. Each was fixed at its cause.
 
-Three decisions are left to the author: whether a preflight that times
+Three decisions were left to the author: whether a preflight that times
 out should disqualify the runtime mid-run; a change proposal for lever
 C, which changes observable behavior; and whether the concurrency stays
-at 4.
+at 4. "Decisions" at the end records how each was settled: A, B and D
+are committed, C is not taken, and the preflight timeout is issue #34.
 
 ## Terms
 
@@ -351,9 +352,7 @@ the workers finish does not change the outcome.
 - **Takes.** The changes above, all in tests except A4's options, which
   touch `src/runtime/launcher.ts` and `src/review/controller.ts` without
   changing the CLI.
-- **Status.** Ready to commit. The concurrency is read from an
-  experiment-only variable, `SANDBOX_CONCURRENCY`, which goes before the
-  commit.
+- **Status.** Committed, the concurrency fixed at 4; see "Decisions".
 
 ### B. The commit tests build their shared run once
 
@@ -371,7 +370,7 @@ the workers finish does not change the outcome.
 - **Risk.** The six tests share one state between restores; a test that
   wrote outside the sandbox directory would leak into the next.
 - **Takes.** The two files above, tests only.
-- **Status.** Ready to commit.
+- **Status.** Committed; see "Decisions".
 
 ### C. The preflight's probes at once
 
@@ -392,7 +391,7 @@ the workers finish does not change the outcome.
   as well as `--version`.
 - **Takes.** `src/runtime/preflight.ts` and a change proposal, since the
   behavior changes.
-- **Status.** Waits for the author's decision (below).
+- **Status.** Not taken; see "Decisions".
 
 ```mermaid
 sequenceDiagram
@@ -436,7 +435,7 @@ C. The times are means measured with the fake runtimes.
   runtime tests: 343 passed, 6 skipped, none failed.
 - **Risk.** None found.
 - **Takes.** The four helper files, tests only.
-- **Status.** Ready to commit.
+- **Status.** Committed; see "Decisions".
 
 ## Final comparison
 
@@ -515,6 +514,38 @@ machine, and fix the value in the code before the commit.
 - Whether concurrency 2 beats 4 on the full suite on an idle machine.
 - How far fix-pass can shrink, split into several files or with fewer
   reviews per test; it bounds the suite now.
+
+## Decisions
+
+Settled by the author on 2026-10-10, after the report was written.
+
+1. **Levers A, B and D are committed**, A with A4's change to the
+   preflight options. In order:
+   - `0b1f20a` passes the preflight options to every worker's preflight
+     (A4).
+   - `04e093b` names issue #34 in the comment on `refusalOf`.
+   - `dcf663b` fixes failure 3's race (A3).
+   - `2a1f31c` sizes the sandbox's timeouts (A2).
+   - `ee4f2d3` gives each test a sandbox and runs a file's tests four at
+     a time, moving failure 2's test to a describe of its own (A1, A3).
+   - `8bcd681` builds the commit tests' shared run once (B).
+   - `e7ed484` answers the fakes' probes without the worker code (D).
+
+   `npm run check` and `npm run verify` passed at `e7ed484`.
+2. **Lever C is not taken.** Its gain is too small to be worth a change
+   in observable behavior: with D a probe is short, and C would save one
+   probe per worker, about 5 to 10% of the suite by estimate. The final
+   comparison above was measured with C applied, so the suite as
+   committed is slower than its 144 s by about that much; it was not
+   measured again.
+3. **A preflight that times out is a separate matter** from the suite's
+   speed. Issue [#34](https://github.com/josephjang/deep-review/issues/34)
+   tracks it, and the comment on `refusalOf` in `src/review/controller.ts`
+   names the issue.
+4. **The concurrency stays at 4**, fixed in
+   `test/helpers/review-sandbox.ts`; the experiment's
+   `SANDBOX_CONCURRENCY` variable is gone. Whether 2 is faster on an idle
+   machine stays among the open questions.
 
 ## Appendix: measurement scripts
 
