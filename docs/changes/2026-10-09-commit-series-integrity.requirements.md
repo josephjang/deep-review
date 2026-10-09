@@ -563,7 +563,14 @@ two clusters in either run (review of 2026-10-09, F11).
     scope, `dist/` here, is recorded and committed last rather than left
     changed and unrecorded in the worktree. A check runs once per
     phase, with no editing worker alive and one kind at a time, so its
-    output meets no batch's. New untracked files stay strays.
+    output meets no batch's. New untracked files stay strays. A tracked
+    file outside the expected tree is revised from the head, so when a
+    fixer edited one without claiming or naming it and the check then
+    rewrites it, the revision keeps that earlier edit under `chore:
+    apply the <kind> check's rewrite`, and nothing names it apart.
+    Whether the engine should name such an edit in Limitations, or
+    leave a path that already differed from the head out of the check's
+    revision, is left to the author.
   - *A fixer keeps no generator output as its fix* (R7): it restores
     what a build, an install or a test rewrote before the snapshot, and
     runs a writing tool over its own files only. The fixers of one
