@@ -209,7 +209,9 @@ a rebuild, and a file a decision named.
   exclusively under a directory the engine prepares for the round,
   outside the reviewed tree and outside the git directory, and exits 0
   for a claim made or already its cluster's, 2 naming the holder for a
-  refusal, 1 for anything else. It reads no ledger and starts no
+  refusal, 1 for anything else, a directory the engine prepared that is
+  gone included, which it names on stderr with the words to stop
+  editing and answer (R12). It reads no ledger and starts no
   process, so it runs under every sandbox the snapshot command runs
   under (R23 of the fix pass). A path outside the repository, under
   `.git`, or one a cluster of the round owns, is refused with the
@@ -316,6 +318,25 @@ a rebuild, and a file a decision named.
   message on a blocked or deferred finding (#26). A revision's commit
   then always carries the fixer's message, and the message the engine
   composes stays only for a refused attempt's revisions (#9).
+- **R12: A claims directory that disappears stops the run.** (Added
+  2026-10-09, review F5.) When the engine finds the round's claims
+  directory gone, at a launch when it prepares the directory or when it
+  reads the directory to record a unit's outcome, it launches nothing
+  more. Each unit still running is recorded, when it ends, as a failed
+  attempt whose reason names the lost directory, whatever it answered,
+  with its edits kept as attempt revisions (R20 of the fix pass) and the
+  failure not counted against the unit's attempts, as a worker lost
+  with its engine is not counted; the phase then finishes blocked with
+  `claims-lost`, whose action is to run the command again. The resumed
+  run seeds the directory from the plan and the recorded claims (R3)
+  and gives those units fresh attempts, whose tasks say an earlier
+  attempt left edits. Claims made after the directory vanished are lost
+  with it; the edits they covered are in the attempt revisions, so the
+  retry claims again and goes on from the tree it finds. A cleaned
+  snapshot directory stays as the fix pass accepted it, a loss of
+  granularity and never of correctness; a cleaned claims directory is a
+  loss of the guarantee against concurrent edits, which the run must not
+  go on under.
 
 ## Metrics
 
@@ -551,10 +572,18 @@ a rebuild, and a file a decision named.
   with no revision of the file. Accepted; the prompt asks for the claim
   before the first edit, not before reading.
 - **The claims directory is in the temporary directory.** An operating
-  system that cleans it mid-round loses the live claims; the command
-  then refuses every claim, the fixer reports blocked, and the second
-  round takes the finding. A resume seeds the directory from the ledger
-  (R3). Accepted, as the fix pass accepted a cleaned scratch.
+  system that cleans it mid-round loses the live claims, and the run
+  stops with `claims-lost` once the engine sees it (R12): the units then
+  running are recorded as failed attempts with their edits kept, and a
+  person runs the command again, which retries them on a directory
+  seeded from the ledger. Accepted; going on with a directory seeded
+  from the ledger alone, while siblings held claims nobody had recorded,
+  would give up the guarantee the claims exist for, and the fix pass's
+  acceptance of a cleaned scratch does not carry over, since a lost
+  snapshot costs granularity and a lost claim costs correctness.
+  (Rewritten 2026-10-09, review F5: the first draft sent the refused
+  finding to the second round, which R4 does not do for a file nobody
+  holds.)
 - **The quick checks slow each finding.** A few seconds and a turn per
   finding here; on a repository whose fastest check is a long build the
   fixer may skip it and the commit may still be red. Accepted; the gate
