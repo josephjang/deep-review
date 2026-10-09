@@ -48,7 +48,7 @@ import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, typ
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
 import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
-import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /**
  * Where a fixes-phase unit claims files (R1, R2 of commit series
@@ -395,9 +395,9 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   };
 }
 
-/** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault. */
-function failed(unit: Unit, receipt: WorkerReceipt, reason: string): NewEvent {
-  return { kind: 'attempt.failed', version: 5, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault: 'unit' } };
+/** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault, or for a unit that ran while its claims directory was removed, the environment's (R12 of commit series integrity). */
+function failed(unit: Unit, receipt: WorkerReceipt, reason: string, fault: AttemptFault): NewEvent {
+  return { kind: 'attempt.failed', version: 5, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
@@ -455,9 +455,10 @@ function recordedDecisions(output: DeciderOutput, findings: readonly ReportFindi
   }));
 }
 
-/** What recording a contribution needs: the revision context, and for the survey what the invocation knew when it launched the surveyor. */
+/** What recording a contribution needs: the revision context, for the survey what the invocation knew when it launched the surveyor, and whether a fixes-phase unit's claims directory was removed while it ran. */
 export interface ContributionContext extends RevisionContext {
   readonly survey: () => SurveyInputs;
+  readonly claimsLost: boolean;
 }
 
 /**
@@ -469,6 +470,8 @@ export interface ContributionContext extends RevisionContext {
  * tree it made.
  */
 export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: ContributionContext): NewEvent[] {
+  // A fixer that ran without its claims directory is not answered, whatever it returned: its edits are kept, and the failure is its environment's (R12 of commit series integrity).
+  if (unit.phase === 'fixes' && context.claimsLost) return failedWithEdits(unit, receipt, 'the claims directory was removed while the unit ran', context, 'environment');
   if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context);
   const review = requireReview(context.state);
   try {
@@ -485,8 +488,8 @@ export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: Cont
  * what the attempt left (R20 of the fix pass), which the fold takes after
  * the failure.
  */
-function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, context: RevisionContext): NewEvent[] {
-  const failure = failed(unit, receipt, reason);
+function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, context: RevisionContext, fault: AttemptFault = 'unit'): NewEvent[] {
+  const failure = failed(unit, receipt, reason, fault);
   if (!isEditingPhase(unit.phase)) return [failure];
   const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason);
   return [...attempt.claims, failure, ...attempt.revisions];

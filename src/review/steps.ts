@@ -56,6 +56,8 @@ export interface Live {
   readonly evidencePath: (reference: ArtifactReference) => string;
   /** This invocation's `--check` and `--no-check` flags, which settle their kinds until the checks are planned (R5, TD6 of the repository survey); none in a run that does not fix. */
   readonly checkFlags: CheckFlags;
+  /** The claims directory this engine found removed while the fixes phase edited, which stops the phase (R12 of commit series integrity); null while none was. */
+  readonly claimsLost: string | null;
 }
 
 /** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, its batch's findings not attempted, or the run going on without its survey. */
@@ -275,8 +277,13 @@ function degraded(review: ReviewState, unit: Unit): boolean {
   }
 }
 
-/** Whether a worker lost with its engine is among a unit's failures: an interruption, which nothing observed failing. */
-const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.lost) ?? false;
+/**
+ * Whether a failure of the environment is among a unit's: a worker lost
+ * with its engine, which nothing observed failing, or an attempt that ran
+ * while its claims directory was removed (R12 of commit series
+ * integrity). Either is an interruption, not the unit failing.
+ */
+const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.fault === 'environment') ?? false;
 
 /**
  * What a unit out of attempts records, or null when it blocks its phase
@@ -318,7 +325,8 @@ const usd = (value: number): string => value.toFixed(2);
  * settle nothing there.
  */
 export function workerFailedBlocker(review: ReviewState, unit: Unit, state: UnitState | undefined): Blocker {
-  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interrupted(state) ? ', a worker lost with its engine among the failures' : ''}: `;
+  const interruption = state?.failures.some((failure) => failure.lost) === true ? ', a worker lost with its engine among the failures' : interrupted(state) ? ', an attempt whose claims directory was removed among the failures' : '';
+  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
   const action = unit.phase === 'survey' && degradationOf(review, unit) === null ? surveyWorkerFailedAction : blockerActions['worker-failed'];
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
@@ -378,6 +386,16 @@ export function driftBlocker(check: Pick<WorktreeCheckState, 'files' | 'head'>, 
     ...check.files.map((file) => `${file.path} (${file.outcome}${expectedBytes(file.expected, evidencePath)})`),
   ];
   return { code: 'drift', detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions.drift };
+}
+
+/**
+ * The blocker the fixes phase finishes with when the engine found its
+ * claims directory removed while it edited (R12 of commit series
+ * integrity): the directory, and the action that seeds it again from the
+ * ledger and retries the units that ran without it.
+ */
+export function claimsLostBlocker(directory: string): Blocker {
+  return { code: 'claims-lost', detail: truncated(`the claims directory ${directory} was removed while the run was editing`, maxRecordedTextLength), action: blockerActions['claims-lost'] };
 }
 
 /**
@@ -486,6 +504,8 @@ export function nextStep(review: ReviewState, live: Live): Step {
   // A drift found at the attempt's start, before an answer was recorded, or at its end, blocks the attempt once every worker in flight has settled; nothing more is launched.
   const drift = checks.find((check) => check.drifted);
   if (drift !== undefined) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: driftBlocker(drift, live.evidencePath) };
+  // A claims directory removed while the fixes phase edits stops it the same way: the units in flight are recorded as failed attempts as they end, and the phase blocks with the action that seeds the directory again (R12 of commit series integrity).
+  if (phase === 'fixes' && live.claimsLost !== null) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: claimsLostBlocker(live.claimsLost) };
   if ((phase === 'verification' || phase === 'sweep-verification') && review.plans[phase] === null) return { kind: 'plan-verification', phase, groups: groupsOf(review, phase) };
   if (phase === 'fixes' && review.fix !== null && review.fix.plan === null) return { kind: 'plan-fixes', plan: fixPlanOf(review) };
   if (phase === 'report') return { kind: 'write-report' };

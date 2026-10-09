@@ -4,7 +4,7 @@ import { noCheckFlags } from '../../src/review/checks/discover.ts';
 import { fixPlanOf, nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
 import { askDecision, baselined, checkRun, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
-const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags };
+const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
 
 describe('nextStep in the fix pass', () => {
@@ -205,6 +205,26 @@ describe('nextStep in the fix pass', () => {
       .add('worker.lost', { workerId: worker(51), phase: 'fixes', key: 'c1-1', reason: 'the engine exited while the worker ran' }, 2);
     const step = nextStep(lost.review(), idle);
     assert.equal(step.kind === 'finish-phase' ? step.blocker?.code : step.kind, 'worker-failed');
+  });
+
+  it('stops the fixes phase once its claims directory is lost: awaits the units in flight, launches nothing more, then blocks with claims-lost (R12 of commit series integrity)', () => {
+    const running = baselined().start('fixes').add('fixes.planned', fixPlan);
+    const lost = '/scratch/claims/run/round-1';
+    assert.deepEqual(nextStep(running.review(), live({ claimsLost: lost, running: new Set(['fixes:c1-1']) })), { kind: 'await' });
+    const step = nextStep(running.review(), live({ claimsLost: lost }));
+    assert.deepEqual(step, { kind: 'finish-phase', phase: 'fixes', attempt: 1, outcome: 'blocked', blocker: { code: 'claims-lost', detail: `the claims directory ${lost} was removed while the run was editing`, action: 'run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts, or abandon the run' } });
+    assert.equal(nextStep(running.review(), idle).kind, 'launch', 'nothing is lost without the directory gone');
+  });
+
+  it('blocks rather than degrades a batch an environment failure is among the two failures of, which the next run gives fresh attempts (R12 of commit series integrity)', () => {
+    const failing = baselined().start('fixes').add('fixes.planned', fixPlan)
+      .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(50), reason: 'failed', fault: 'unit' }, 5)
+      .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(51), reason: 'the claims directory was removed while the unit ran', fault: 'environment' }, 5);
+    const step = nextStep(failing.review(), idle);
+    assert.equal(step.kind === 'finish-phase' ? step.blocker?.code : step.kind, 'worker-failed');
+    assert.match(step.kind === 'finish-phase' ? step.blocker!.detail : '', /failed twice, an attempt whose claims directory was removed among the failures: /);
+    const once = baselined().start('fixes').add('fixes.planned', fixPlan).add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(51), reason: 'gone', fault: 'environment' }, 5);
+    assert.equal(nextStep(once.review(), idle).kind, 'launch', 'one environment failure leaves the batch its second attempt');
   });
 
   it('runs the checks after the fixes only when they changed the tree, and the repair only for a check failing after them', () => {
