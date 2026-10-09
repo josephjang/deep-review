@@ -87,7 +87,7 @@ describe('invocationFor', () => {
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
     unelevatedEditors: false,
-    claims: { directoryOf: () => '/scratch/claims/run/round-1', command: (key, directory) => `node "/engine/main.mjs" claim --path "<path>" --unit ${key} --in "${directory}"`, live: () => null },
+    claims: { directoryOf: () => '/scratch/claims/run/round-1', command: (key, directory) => `node "/engine/main.mjs" claim --path "<path>" --unit ${key} --in "${directory}"`, live: () => null, caseInsensitive: () => false },
   });
 
   it('builds a read-only invocation with a shell from the pinned role, labelled with its unit, prompt composed from the role and task', () => {

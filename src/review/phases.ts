@@ -384,7 +384,8 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const policy: PinnedRole = pinnedRole(context.configuration.roles, unit.role);
   const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
   const shared = unit.phase === 'fixes' ? context.claims.directoryOf(unit.key) : null;
-  const review = requireReview(unit.phase === 'fixes' ? settleClaims(context.state, unit.key, context.claims.live(unit.key), context.worktree).state : context.state);
+  const live = unit.phase === 'fixes' ? context.claims.live(unit.key) : null;
+  const review = requireReview(live === null ? context.state : settleClaims(context.state, unit.key, live, context.worktree).state);
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === 'survey' ? context.survey() : null;
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));

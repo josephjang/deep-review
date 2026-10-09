@@ -12,14 +12,15 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { batchOf, clusterClaims, heldByOthers, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { batchOf, clusterClaims, heldByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
-import { foldedWith, isPending, lateClaim, settleClaims, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
+import { foldedWith, holderSpelled, isPending, lateClaim, settleClaims, settledNothing, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
+import { pathKey } from './claims.ts';
 import { expectedTreeOf } from './drift.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
-import { worktreeLookup } from './locations.ts';
+import { worktreeLookup, type RepoLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
 import { changedListed, readSnapshot, snapshotPaths, snapshotsDirectoryName, type SnapshotManifest } from './snapshot.ts';
 import * as gitApi from '../scope/git.ts';
@@ -80,13 +81,31 @@ export function unitIds(state: RunState, phase: EditingPhase, key: string): read
  * every file it may edit (TD8 of the fix pass).
  */
 function settleOf(context: RevisionContext, phase: EditingPhase, key: string): ClaimSettle {
-  if (phase === 'repair' || context.claims === null) return settleClaims(context.state, key, null, context.worktree);
-  return settleClaims(context.state, key, context.claims.live(key), context.worktree);
+  if (phase === 'repair' || context.claims === null) return settledNothing(context.state, false);
+  const live = context.claims.live(key);
+  return live === null ? settledNothing(context.state, context.claims.caseInsensitive()) : settleClaims(context.state, key, live, context.worktree);
 }
 
-/** The files every other cluster of a fixes-phase unit's round holds, by the plan or by a claim, in the run as the settle leaves it; the repair has none. */
-function othersHeld(state: RunState, phase: EditingPhase, key: string): Map<string, PathHolder> {
-  return phase === 'repair' ? new Map() : heldByOthers(requireFix(state), key);
+/** A path as a settle compares it: lowercased where the worktree's file system folds case. */
+const keyOfSettle = (settle: ClaimSettle) => (path: string): string => pathKey(path, settle.caseInsensitive);
+
+/** The files every other cluster of a fixes-phase unit's round holds, by the plan or by a claim, in the run as the settle leaves it, keyed by the exact path or by `keyOf`; the repair has none. */
+function othersHeld(state: RunState, phase: EditingPhase, key: string, keyOf?: (path: string) => string): Map<string, PathHolder> {
+  return phase === 'repair' ? new Map() : heldByOthers(requireFix(state), key, keyOf);
+}
+
+/**
+ * How an answer's paths are found in the worktree: in its own spelling,
+ * and in a fixes-phase unit's for a file it does not hold, in the spelling
+ * a holder of the round records under the same key, so a violation of a
+ * sibling's deleted or new file is named as the fold holds it (TD4).
+ */
+function answerLookup(settle: ClaimSettle, phase: EditingPhase, key: string, worktree: string): RepoLookup {
+  const lookup = worktreeLookup(worktree);
+  if (phase === 'repair') return lookup;
+  const fix = requireFix(settle.state);
+  const keyOf = keyOfSettle(settle);
+  return holderSpelled(lookup, holdersKeyedBy(fix, roundOf(fix, key), keyOf), keyOf);
 }
 
 /** The files a unit's cluster claimed in its round, in the run as the settle leaves it; the repair claims none. */
@@ -148,7 +167,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   checkFixerAnswer(output, ids.length);
   const owned = ownedFiles(fix, phase, unit.key);
   const settle = settleOf(context, phase, unit.key);
-  const resolved = resolveFixerAnswer(output, { worktree, lookup: worktreeLookup(worktree), owned, othersHeld: othersHeld(settle.state, phase, unit.key) });
+  const resolved = resolveFixerAnswer(output, { worktree, lookup: answerLookup(settle, phase, unit.key, worktree), owned, othersHeld: othersHeld(settle.state, phase, unit.key) });
   const late = phase === 'fixes' ? lateClaim(settle.state, unit.key, resolved.named, settle.caseInsensitive) : null;
   const claims = [...settle.events, ...(late === null ? [] : [late])];
   const claimed = claimedFiles(late === null ? settle.state : foldedWith(settle.state, [late]), phase, unit.key);
@@ -225,9 +244,11 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
   const settle = settleOf(context, phase, key);
-  const others = othersHeld(settle.state, phase, key);
+  // Compared as the file system compares paths, since git and the snapshots spell a file as the disk does and a sibling's claim as the sibling did.
+  const keyOf = keyOfSettle(settle);
+  const others = othersHeld(settle.state, phase, key, keyOf);
   const strays = new Set(state.review!.checks.flatMap((check) => check.strays));
-  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(path) && !isPending(settle, path) && !strays.has(path));
+  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle, path) && !strays.has(path));
   // A snapshot lists what changed on disk, ignored files a fixer wrote included; those are no work of the run (R23).
   const ignored = new Set(gitApi.ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));

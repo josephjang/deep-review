@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
 import { heldByOthers } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { isPending, lateClaim, settleClaims, type LiveClaims } from '../../src/review/claim-events.ts';
+import { isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
 import { markerHash, type LiveClaim } from '../../src/review/claims.ts';
 import { baselined, claimed, fixAnswer, type History, worker } from '../helpers/review-history.ts';
 
@@ -78,9 +78,9 @@ describe('settleClaims', () => {
     assert.equal(isPending(settle, 'docs/other.md'), false);
   });
 
-  it('records nothing without a directory to read, and nothing for a marker the ledger seeded back', () => {
+  it('records nothing without a directory to read, comparing paths as the file system does, and nothing for a marker the ledger seeded back', () => {
     const state = running().fold();
-    assert.deepEqual(settleClaims(state, 'c1-1', null, worktree).events, []);
+    for (const caseInsensitive of [false, true]) assert.deepEqual(settledNothing(state, caseInsensitive), { events: [], state, pending: new Set(), caseInsensitive });
     const seeded = running().add('files.claimed', claimed('c1-1', 'c1', ['docs/late.md'], null)).fold();
     assert.deepEqual(settleClaims(seeded, 'c2-1', live(marker('docs/late.md', 'c1-1', 'c1', 1, null)), worktree).events, []);
   });
@@ -89,6 +89,20 @@ describe('settleClaims', () => {
     const history = running().add('files.claimed', claimed('c1-1', 'c1', ['docs/Notes.md']));
     const folded: LiveClaims = { markers: [{ whole: true, hash: markerHash('docs/notes.md', true), generation: 1, path: 'docs/notes.md', cluster: 'c1', unit: 'c1-1', claimedAt: '2026-10-09T01:00:00.000Z' }], caseInsensitive: true };
     assert.deepEqual(settleClaims(history.fold(), 'c2-1', folded, worktree).events, [], 'the recorded claim, spelled otherwise');
+  });
+
+  it('records a marker for a file the worktree does not hold in the spelling its holder records, where the file system folds case (TD4)', () => {
+    const history = running().add('files.claimed', claimed('c2-1', 'c2', ['docs/New.md']));
+    const folded: LiveClaims = { markers: [{ whole: true, hash: markerHash('docs/new.md', true), generation: 1, path: 'docs/new.md', cluster: 'c1', unit: 'c1-1', claimedAt: '2026-10-09T01:00:01.000Z' }], caseInsensitive: true };
+    assert.deepEqual(kinds(settleClaims(history.fold(), 'c1-1', folded, worktree).events), [['claims.lost', { phase: 'fixes', unit: 'c1-1', cluster: 'c1', files: [{ path: 'docs/New.md', claimedAt: '2026-10-09T01:00:01.000Z', reason: 'held', holder: 'c2' }] }]]);
+  });
+
+  it('keeps an owner by the plan the holder of a path a claim spells otherwise, where the file system folds case', () => {
+    // A claim the fold took on its exact spelling while no settle folded case; the plan still owns the file.
+    const history = running().add('files.claimed', claimed('c2-1', 'c2', ['SRC/A.ts']));
+    const folded: LiveClaims = { markers: [{ whole: true, hash: markerHash('src/A.ts', true), generation: 1, path: 'src/A.ts', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' }], caseInsensitive: true };
+    assert.deepEqual(kinds(settleClaims(history.fold(), 'c1-1', folded, worktree).events), [['claims.lost', { phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/a.ts', claimedAt: '2026-10-09T01:00:01.000Z', reason: 'owned', holder: 'c1' }] }]]);
+    assert.equal(lateClaim(history.fold(), 'c2-1', ['Src/A.ts'], true), null, 'nor is it free for a late claim');
   });
 });
 

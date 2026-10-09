@@ -10,12 +10,12 @@
  */
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { ClaimsLost, FilesClaimed } from '../checkpoint/events.ts';
-import { batchOf, claimsOfRound, holdersOf, roundOf, settledClusters, type FixState, type PathHolder } from '../checkpoint/fix-state.ts';
+import { batchOf, claimsOfRound, holdersKeyedBy, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { applyEvent, type RunState } from '../checkpoint/fold.ts';
 import { markerHash, pathKey, type LiveClaim } from './claims.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
-import { worktreeLookup } from './locations.ts';
+import { worktreeLookup, type RepoLookup } from './locations.ts';
 import type { LostClaimReason } from './vocabulary.ts';
 
 /** The round's claims directory as a settle reads it: its markers, and whether the worktree's file system folds case, which the markers' names follow. */
@@ -24,9 +24,10 @@ export interface LiveClaims {
   readonly caseInsensitive: boolean;
 }
 
-/** Where the engine reads a fixes-phase unit's claims: its round's directory, null where there is none to read, such as a resumed engine's before its first launch. */
+/** Where the engine reads a fixes-phase unit's claims: its round's directory, null where there is none to read, such as a resumed engine's before its first launch; and whether the worktree's file system folds case, known with a directory or without one. */
 export interface ClaimsAccess {
   readonly live: (key: string) => LiveClaims | null;
+  readonly caseInsensitive: () => boolean;
 }
 
 /** What a settle records of the claims, and the run as the fold will hold it after them. */
@@ -41,7 +42,8 @@ export interface ClaimSettle {
   readonly caseInsensitive: boolean;
 }
 
-const settledNothing = (state: RunState): ClaimSettle => ({ events: [], state, pending: new Set(), caseInsensitive: false });
+/** The settle of a unit with no directory to read: nothing recorded, nothing pending, and paths compared as the worktree's file system compares them, as a late claim compares them. */
+export const settledNothing = (state: RunState, caseInsensitive: boolean): ClaimSettle => ({ events: [], state, pending: new Set(), caseInsensitive });
 
 function requireFix(state: RunState): FixState {
   const fix = state.review?.fix ?? null;
@@ -54,8 +56,24 @@ export function foldedWith(state: RunState, events: readonly NewEvent[]): RunSta
   return events.reduce((current, event, index) => applyEvent(current, { sequence: state.lastSequence + index + 1, runId: state.id, kind: event.kind, version: event.version, payload: event.payload, recordedAt: new Date().toISOString(), engine: 'claims' }), state);
 }
 
-/** A marker's path in the worktree's own spelling, as an answer's paths are resolved, so one file never has two holders through two spellings. */
-function resolvedPath(worktree: string, lookup: ReturnType<typeof worktreeLookup>, path: string): string {
+/**
+ * A lookup of the worktree that, for a file it does not hold, a deleted or
+ * a new one, gives instead the spelling a holder of the round records under
+ * the same key (TD4): so a path is spelled one way before it reaches the
+ * fold, whose exact comparisons then agree with the engine's keyed ones.
+ * `holders` is read at each lookup, so a holder added meanwhile counts.
+ */
+export function holderSpelled(lookup: RepoLookup, holders: ReadonlyMap<string, SpelledHolder>, keyOf: (path: string) => string): RepoLookup {
+  return (path) => {
+    const held = lookup(path);
+    if (held.length > 0) return held;
+    const holder = holders.get(keyOf(path));
+    return holder === undefined ? [] : [holder.path];
+  };
+}
+
+/** A marker's path in the worktree's own spelling, as an answer's paths are resolved, or else a holder's, so one file never has two holders through two spellings. */
+function resolvedPath(worktree: string, lookup: RepoLookup, path: string): string {
   try {
     return resolveReportedPath(worktree, lookup, path);
   } catch (error) {
@@ -132,11 +150,12 @@ function compareText(a: string, b: string): number {
  * `unplanned`; one on a path a cluster of the round owns as `owned`; one
  * on a path another unsettled cluster, or its own, already holds as
  * `held`. Every other is a claim, its path resolved to the worktree's
- * spelling. Markers not yet whole are left for the next settle and
- * returned as pending. Nothing to record without a directory to read.
+ * spelling, or for a file the worktree does not hold to a holder's
+ * spelling of it. Markers not yet whole are left for the next settle and
+ * returned as pending. A unit with no directory to read settles as
+ * `settledNothing`.
  */
-export function settleClaims(state: RunState, key: string, live: LiveClaims | null, worktree: string): ClaimSettle {
-  if (live === null) return settledNothing(state);
+export function settleClaims(state: RunState, key: string, live: LiveClaims, worktree: string): ClaimSettle {
   const fix = requireFix(state);
   const round = roundOf(fix, key);
   const { caseInsensitive } = live;
@@ -146,9 +165,9 @@ export function settleClaims(state: RunState, key: string, live: LiveClaims | nu
     ...claimsOfRound(fix, round).map((claim) => marked(claim.path, claim.cluster, claim.key, claim.claimedAt)),
     ...fix.lostClaims.map((claim) => marked(claim.path, claim.cluster, claim.unit, claim.claimedAt)),
   ]);
-  const holders = new Map<string, PathHolder>([...holdersOf(fix, round)].map(([path, holder]) => [keyOf(path), holder]));
+  const holders = holdersKeyedBy(fix, round, keyOf);
   const settled = settledClusters(fix, round);
-  const lookup = worktreeLookup(worktree);
+  const lookup = holderSpelled(worktreeLookup(worktree), holders, keyOf);
   const accepted: Accepted[] = [];
   const lost: Lost[] = [];
   const whole = live.markers.filter((marker): marker is LiveClaim & { whole: true } => marker.whole).sort(madeOrder);
@@ -166,7 +185,7 @@ export function settleClaims(state: RunState, key: string, live: LiveClaims | nu
     else if (holder !== undefined && (holder.cluster === marker.cluster || !settled.has(holder.cluster))) lost.push({ ...claim, reason: 'held', holder: holder.cluster });
     else {
       accepted.push(claim);
-      holders.set(keyOf(path), { cluster: marker.cluster, by: 'claim' });
+      holders.set(keyOf(path), { path, cluster: marker.cluster, by: 'claim' });
     }
   }
   const events = [...lostEvents(lost), ...claimedEvents(accepted)];
@@ -191,7 +210,7 @@ export function lateClaim(state: RunState, key: string, named: Iterable<string>,
   if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
   const round = roundOf(fix, key);
   const keyOf = (path: string): string => pathKey(path, caseInsensitive);
-  const holders = new Map([...holdersOf(fix, round)].map(([path, holder]) => [keyOf(path), holder]));
+  const holders = holdersKeyedBy(fix, round, keyOf);
   const settled = settledClusters(fix, round);
   const free = [...new Set(named)].filter((path) => {
     const holder = holders.get(keyOf(path));
