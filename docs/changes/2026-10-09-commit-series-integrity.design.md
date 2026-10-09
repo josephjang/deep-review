@@ -530,7 +530,13 @@ readable, and no kind the corpus holds changes shape here.
   name, so `Src/A.ts` and `src/a.ts` meet one marker on such a file
   system (2026-10-09, review F8: the first draft left case to the
   answer, where the fold refuses the second claim, too late to stop the
-  concurrent edit the claim exists to stop). A path spelled otherwise
+  concurrent edit the claim exists to stop). (Implemented otherwise on
+  2026-10-09: a marker's name hashes the path as the file system
+  compares it, lowercased when `held.json` says `caseInsensitive`, so
+  two spellings that differ in case aim at one name and the exclusive
+  create settles their race by itself; the command never reads another
+  marker's path, and a marker whose path does not hash to its name is
+  read as one not yet whole. See Verification, Implementation.) A path spelled otherwise
   by a fixer still makes a marker under that spelling; at the answer
   the engine resolves the answer's paths through `resolveReportedPath`
   as today and reads the markers through the same lookup, so one file
@@ -725,10 +731,75 @@ the engine or a fragment.
 
 ## Verification
 
-No checks have run yet. This section is filled by the commits that
-build the element: the roles' hashes after each text commit, the test
-counts, continuous integration on the three platforms, and the gate of
-R10, in this form:
+### Implementation
+
+The element was built in commits `f387aef` (the claim command) to
+`3a1dd7e` (the last prompt fragment), on `698d18d`, the design as
+amended for the ledger versions; the rebuild of `dist/` follows them,
+the series' last commit. Each commit passed `npm run check` on Windows;
+the last, 1728 tests in 254 suites, 1709 passing, 19 skipped as the
+platform asks, none failing, from 1653 at the first commit of the
+series. Continuous integration on the three platforms runs once the
+branch is pushed.
+
+The roles digest a run configured from the repository's roles pins:
+
+| After | Digest |
+|---|---|
+| `698d18d`, before the series | `c5db64a859bd6800f11e35df517d5223e921db30f0279c233a641c74605b1c71` |
+| `aecbec6`, `fixer-role.md` | `8f2bb7d8004479651c010be6660cbe0cef74b4a91c2494474964fe54a451b6a4` |
+| `2223281`, `fixer-apply.md` | `b6ad355c8253d43a89dfe2954e3db0e1ceca0ba67bf819cc057d4778580ef78f` |
+| `3a1dd7e`, `fixer-report.md` | `18060bc439c642a4fa4e2c31e60d53e14045f202084162025370deac8aa12ea0` |
+
+Decided at implementation, 2026-10-09, where the design said less or
+otherwise:
+
+- **A marker's name hashes the path as the file system compares it.**
+  Lowercased when `held.json` says `caseInsensitive`, so the exclusive
+  create settles a case race by name (TD4 as written read the path inside
+  each marker instead, which this naming makes unnecessary). A marker is
+  whole only when its content parses, its path is one the command
+  writes, and that path hashes to the marker's name; any other is held
+  by a cluster not yet known (F13), and is never recorded.
+- **A marker's `claimedAt` is nullable,** so a late claim on the ledger
+  is seeded back into a prepared directory as a marker of its own and
+  holds the file there too.
+- **The command refuses** a unit whose cluster `held.json` lists as
+  settled, since a marker it made would read as one that holds nothing,
+  and a run from a subdirectory of the worktree, where a relative path
+  would seem to name another file; it takes no `--repo`, since
+  `held.json` names the worktree.
+- **The settle folds its claim events in memory first** (`settleClaims`
+  in `src/review/claim-events.ts`): the violations and the attempt's
+  paths are judged against the fold as it will be once the claims are
+  appended, which is TD5's one set made literal. A path a sibling's marker
+  not yet whole names is kept out of a refused attempt's revisions too.
+- **A claims event per unit, unless the order forbids it.** Two markers
+  of one path from two units in one settle go into events in the order
+  they were made, so the fold takes them as the engine judged them.
+- **Claude Code's editor gets no `--add-dir` for the claims
+  directory.** Only the quoted commands write there, run by its shell,
+  and its file tools need no write in it.
+- **The report's Held by** names a late claim's cluster as `c1 (claimed
+  late)` rather than `nobody`, since the fold holds the file for that
+  cluster; `nobody` is left for a path no cluster held, round by round.
+- **The Limitations line for a fixer's path a later check rewrote**
+  reads "Rewritten by a later check: <path>, in <unit>'s revision of
+  <finding>, by the <kind> check in <phase>; a generated file the fixer
+  kept, or a fix the check reformatted", since a formatter's rewrite of
+  a fix looks the same on the ledger as a kept generator output.
+- **The check's manifest** lists tracked files only and is written to
+  `<scratch>/<checkpoint>/<runId>/checks/<phase>-<kind>`; a tracked file
+  absent before the check and present after is listed as changed.
+- **A lost claims directory and attribution.** A claim made after the
+  last settle is lost with the directory (R12), so a unit settling first
+  may take a sibling's edit of a file whose claim was lost into its
+  attempt's after-the-last-snapshot revision. Accepted with R12; the
+  test of the case orders the settles.
+
+### The gate
+
+The gate of R10 is filled in this form:
 
 | | `71ae22a2`, parallel | `8dbe23ad`, one at a time | The gate |
 |---|---|---|---|
