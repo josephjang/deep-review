@@ -221,15 +221,18 @@ launch. `fixerTask` prints, in place of the two ownership lists:
   fix that needs one is `blocked`, naming it in `requiredFiles`", each
   line `- <path> (<cluster>, claimed)` or `(<cluster>)`; a settled
   cluster's claims are left out, since those files are free again.
-- `claimBlock(command)`: "Before your first edit of any other file of
-  the repository, existing or new, run this from the repository root
-  with the file's path in place of `<path>`", the command on a line of
-  its own, "It claims the file for your cluster until your cluster's
-  last batch has finished. Exit 0 means it is yours; exit 2 names the
-  cluster that holds it, and
-  the finding that needs it is `blocked` with the file in
-  `requiredFiles`, as for a file another cluster owns. Report every
-  file you edit or create under the finding it served."
+- `claimBlock(command)`: "Before your first edit for a finding, run
+  this from the repository root once for each file outside your own
+  that the finding and its tests will touch, existing or new, with the
+  file's path in place of `<path>`", the command on a line of its own,
+  "It claims the file for your cluster until your cluster's last batch
+  has finished. Exit 0 means it is yours; exit 2 names the cluster that
+  holds it, and the finding that needs it is `blocked` with the file in
+  `requiredFiles`, as for a file another cluster owns, with no edit made
+  for it. A refusal that comes after you edited leaves the edits in
+  place, listed under the finding, with a message that says the change
+  is partial. Report every file you edit or create under the finding it
+  served."
 
 The repair's task is unchanged: the repair is its phase's only unit and
 owns every revised path (TD8 of the fix pass).
@@ -292,6 +295,20 @@ leaves it changed in the worktree and in no revision. Now:
   check revision of the same run rewrites, which is how the engine tells
   a kept generator output from a fix.
 
+### The message follows the files (R11)
+
+Added 2026-10-09 (review F4). `checkFixerAnswer` in `schemas.ts` drops
+its two status rules, "applied and has no commit message" and "blocked
+or deferred and has a commit message", and the #26 comment with them,
+for one: a finding with files and no message, or with a message and no
+files, is refused naming the index, whatever its status; the subject
+rules stay. The comment on `message` in `fixerOutputSchema` says the
+message goes with the files. `revisionMessage` in `fix-events.ts` keeps
+its composed subject for a revision whose findings carry no message,
+which after this only a refused attempt's revisions reach, and its #9
+comment says so. R20 of the fix pass gains a pointer at its sentence on
+the already-applied finding's message, which this rule now covers.
+
 ### The report, status and the log
 
 `changedFilesSection` (`src/review/fix-report.ts`) gains a column, "Held
@@ -318,14 +335,14 @@ scratch means nothing there.
 
 ### Prompt fragments (R7, R9)
 
-Two text commits, each recording the roles' hashes in Verification:
+Three text commits, each recording the roles' hashes in Verification:
 
 1. `fixer-role.md`: the ownership paragraph gains, after "You may also
    edit any file of the repository that no cluster owns", the claim
-   rule: your first edit of such a file claims it for your cluster for
-   the rest of the round, through the command your task gives, and a
-   file another cluster has claimed is as one it owns: never touch it,
-   report the finding blocked and name the file.
+   rule: your first edit of such a file claims it for your cluster
+   until your cluster's last batch has finished, through the command
+   your task gives, and a file another cluster has claimed is as one it
+   owns: never touch it, report the finding blocked and name the file.
 2. `fixer-apply.md`: the "Snapshot after each finding" paragraph gains
    the quick checks: before each snapshot, run the checks your task
    gives that finish quickly, such as a typecheck and a lint, on what
@@ -336,9 +353,19 @@ Two text commits, each recording the roles' hashes in Verification:
    install or a test rewrote before the snapshot, report a generated
    file only when changing it is the fix, and run a tool that writes
    over the files you hold, never over the whole tree (R7, PD9). A new
-   paragraph before it, "Claim before the first edit of a file you do
-   not own", states the step and that a refused claim blocks the
-   finding.
+   paragraph before it, "Claim before the first edit for a finding",
+   says to claim every file outside your own that the finding and its
+   tests will need before editing anything for it, that a refused claim
+   blocks the finding with no edits, and that a refusal after edits
+   leaves them listed under the finding with a message that says the
+   change is partial (R1).
+3. `fixer-report.md`: the `message` field's line becomes: for every
+   finding that names files, its commit message, whatever its status, a
+   blocked or deferred one saying the change is partial and what it
+   waits for; null for a finding that names no file (R11). The
+   `answerFields` text in `tasks.ts` says the same, in the same commit
+   as the engine change below, since it is task text and not a
+   fragment.
 
 The `documentation` and `answer` roles change with the fragments and
 stay unrun. The guard tests in `test/roles/repository.test.ts` pin the
@@ -509,7 +536,11 @@ readable, and no kind the corpus holds changes shape here.
   one check revision at the tail, which the commit command commits last,
   and a fake fixer that rewrites that file and restores it before its
   snapshot leaves no revision of it, while one that keeps it is named in
-  Limitations once the check rewrites it (PD9).
+  Limitations once the check rewrites it (PD9); a scripted fixer
+  refused a claim after editing answers the finding blocked with its
+  files and a partial message, and the revision commits under that
+  message, while one refused before editing answers it with no files
+  and no message and no revision is made (R11).
 - `test/runtime/codex.test.ts`: an editor's `writable_roots` holds the
   scratch and the shared directory, a read-only worker neither;
   `test/runtime/launcher.test.ts`: `shared` refused for a read-only
@@ -518,10 +549,17 @@ readable, and no kind the corpus holds changes shape here.
   `test/review/status.test.ts`: the "Held by" column, the Limitations
   lines, the `Claims:` line and its JSON; the committed report
   snapshots of runs without claims render as before but for the column.
+- `test/review/schemas.test.ts`: `checkFixerAnswer` accepts a blocked
+  or deferred finding with files and a message, refuses a finding with
+  files and no message and one with a message and no files whatever its
+  status, and keeps the subject rules; the test that pinned the refusal
+  of a message on a blocked finding is inverted.
 - `test/roles/repository.test.ts`: the claim sentences in every fixer
-  role, the quick-checks sentence and the generator sentence in
-  `fixer-apply.md`, and the old "any file no cluster owns" sentence gone
-  from wherever it was pinned.
+  role, the claim-before-the-finding paragraph, the quick-checks
+  sentence and the generator sentence in `fixer-apply.md`, the message
+  sentence in `fixer-report.md`, and the old "any file no cluster owns"
+  and "null for a deferred or blocked one" sentences gone from wherever
+  they were pinned.
 - `test/checkpoint/golden.test.ts`: `schema-1-09`, written by the golden
   script with a scripted claim, a refused claim, a late claim and a
   second round on a claimed file; every older fixture folds with
