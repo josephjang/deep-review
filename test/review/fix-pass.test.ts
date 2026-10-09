@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { RunState } from '../../src/checkpoint/fold.ts';
+import { describe, it } from 'node:test';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { policyFileName } from '../../src/review/policy.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -10,7 +9,7 @@ import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { until } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
-import { ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** A candidate as a finder returns it. */
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
@@ -37,27 +36,19 @@ const fixedA = 'export function parse(text: string | null) {\n  return text?.len
 const fixedB = 'import { parse } from \'./a.ts\';\n\nexport const b = parse("x");\n';
 const testA = 'import { parse } from \'../src/a.ts\';\nif (parse(null) !== 0) throw new Error(\'null\');\n';
 
-describe('the fix pass', { timeout: 900_000 }, () => {
-  let box: ReviewSandbox;
-  beforeEach(() => {
-    box = new ReviewSandbox();
-  });
-  afterEach(() => {
-    box.close();
-  });
-
+describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
   const report = (outcome: ReviewOutcome): string => {
     assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
     return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
   };
-  const promptOf = (state: RunState, label: string): string => box.promptOf(state, label);
   /** Set the sandbox policy's fixer batch size, which the next run created pins. */
-  const setPolicyBatchSize = (batchSize: number): void => {
+  const setPolicyBatchSize = (box: ReviewSandbox, batchSize: number): void => {
     const policyFile = join(box.rolesRoot, policyFileName);
     writeFileSync(policyFile, JSON.stringify({ ...JSON.parse(readFileSync(policyFile, 'utf8')), fixes: { batchSize } }, null, 2));
   };
 
-  it('fixes the fixer-routed findings, one cluster per file, runs the checks before and after, and records each finding\'s edits as a revision', async () => {
+  it('fixes the fixer-routed findings, one cluster per file, runs the checks before and after, and records each finding\'s edits as a revision', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // Each fixer answers only once both are running, so that they ran at once is not left to how fast each one started.
     const bothRunning = join(box.directory, 'both-fixers-running');
     box.script({
@@ -103,7 +94,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       ['fixes', 'fix', ['SCAN-2'], 'fix(b): Import parse', ['src/b.ts modified']],
     ]);
     // The design finding the decision left never reached a fixer (R6 of the decision step), and each fixer was told its finding's decision (R7).
-    const c1 = promptOf(state, 'fixer fixes:c1-1');
+    const c1 = box.promptOf(state, 'fixer fixes:c1-1');
     assert.match(c1, /^Cluster c1, batch c1-1: 1 finding, numbered \[0\] to \[0\]/m);
     assert.doesNotMatch(c1, /Findings of this cluster that earlier batches worked/, 'a cluster\'s first batch has none before it');
     assert.match(c1, /^\[0\] SCAN-1 \[minor\] PLAUSIBLE \(SCAN\) at src\/a\.ts:2$/m);
@@ -142,7 +133,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     triage: { output: { candidates: [found('src/a.ts', 1, 'first'), found('src/a.ts', 2, 'second'), found('src/a.ts', 3, 'third')], leads: noLeads } },
   };
 
-  it('gives each finding its own revision from the snapshot taken after it, folds a finding with none into the next, and writes a series git am applies', async () => {
+  it('gives each finding its own revision from the snapshot taken after it, folds a finding with none into the next, and writes a series git am applies', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const v1 = 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n';
     const v3 = `${v1}\nexport function other() {\n  return parse(null);\n}\n`;
     box.script({
@@ -181,8 +173,9 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(git(clone, 'log', '--format=%s', '-2').split('\n'), ['Apply SCAN-2, SCAN-3', 'fix: First']);
   });
 
-  it('fixes a cluster in batches of the policy\'s size, one after another, each told what the batches before it did', async () => {
-    setPolicyBatchSize(1);
+  it('fixes a cluster in batches of the policy\'s size, one after another, each told what the batches before it did', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    setPolicyBatchSize(box, 1);
     // Two findings in src/a.ts make one cluster; batches of one run it as c1-1, then c1-2.
     box.script({
       triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
@@ -199,7 +192,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const answeredAt = events.findIndex(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c1-1');
     const launchedAt = events.findIndex(([kind, payload]) => kind === 'worker.launched' && payload.label === 'fixer fixes:c1-2');
     assert.ok(answeredAt >= 0 && launchedAt > answeredAt, `c1-1 answered at ${String(answeredAt)}, c1-2 launched at ${String(launchedAt)}`);
-    const second = promptOf(state, 'fixer fixes:c1-2');
+    const second = box.promptOf(state, 'fixer fixes:c1-2');
     assert.match(second, /^Cluster c1, batch c1-2: 1 finding, numbered \[0\] to \[0\]/m);
     assert.match(second, /^- c1-1 SCAN-1 applied: fake applied \[0\]$/m);
     assert.match(second, /Files you own while this batch runs, which no other worker edits:\n- src\/a\.ts\n/);
@@ -209,8 +202,9 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(describeRun(state, claudeAdapter, (reference) => reference.sha256).lines.includes('Fix pass: c1-1 answered, c1-2 answered; 0 no fixer sees, as decided'));
   });
 
-  it('stops launching fixers once the run budget is reached, reports what it did not attempt, and completes instead of blocking (R19)', async () => {
-    setPolicyBatchSize(1);
+  it('stops launching fixers once the run budget is reached, reports what it did not attempt, and completes instead of blocking (R19)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    setPolicyBatchSize(box, 1);
     box.script({
       triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
       // The first batch alone spends past the budget, so its cluster's second batch is never launched.
@@ -232,7 +226,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(fix.checks.runs.checks.length > 0, true);
   });
 
-  it('gives a finding blocked on another cluster\'s file a second round that owns both, once the first round settled, and reports what it was first blocked on (R21)', async () => {
+  it('gives a finding blocked on another cluster\'s file a second round that owns both, once the first round settled, and reports what it was first blocked on (R21)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const guardedB = `${fixedB}// keeps the guard\n`;
     box.script({
       ...reviewScript,
@@ -255,7 +250,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const replannedAt = at(([kind]) => kind === 'fixes.replanned');
     assert.ok(at(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c1-1') < replannedAt && at(([kind, payload]) => kind === 'fix.recorded' && payload.key === 'c2-1') < replannedAt);
     assert.ok(replannedAt < at(([kind, payload]) => kind === 'worker.launched' && payload.label === 'fixer fixes:c3-1'));
-    const prompt = promptOf(state, 'fixer fixes:c3-1');
+    const prompt = box.promptOf(state, 'fixer fixes:c3-1');
     assert.match(prompt, /^Cluster c3, batch c3-1, in the second round: 1 finding/m);
     assert.match(prompt, /^ {4}first round: blocked, needing src\/b\.ts: the fix needs src\/b\.ts, which c2 owns$/m);
     assert.match(prompt, /Files you own while this batch runs, which no other worker edits:\n- src\/a\.ts\n- src\/b\.ts\n/);
@@ -271,7 +266,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(box.logs.includes('phase fixes: second round for SCAN-1, in 1 cluster and 1 batch'), box.logs.join('\n'));
   });
 
-  it('sees a CRLF checkout rewritten to LF as no change: no revision for the check, no drift, and a fix\'s patch of its own lines only (R22)', async () => {
+  it('sees a CRLF checkout rewritten to LF as no change: no revision for the check, no drift, and a fix\'s patch of its own lines only (R22)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // Check the reviewed tree out again with core.autocrlf, as Git for Windows does: every text file CRLF in the worktree, LF in the index.
     git(box.repo, 'config', 'core.autocrlf', 'true');
     git(box.repo, 'rm', '--cached', '-r', '-q', '.');
@@ -295,7 +291,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(patch.split('\n').filter((line) => /^[-+][^-+]/.test(line)), ['-  return text!.length;', '+  return text?.length ?? 0;'], patch);
   });
 
-  it('revises an unowned file a fixer edits and reports, without drift', async () => {
+  it('revises an unowned file a fixer edits and reports, without drift', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({
       ...reviewScript,
       // The change deletes src/gone.ts; c1 brings it back, a file no cluster owns.
@@ -308,7 +305,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(state.review!.fix!.answers.fixes['c1-1']!.violations, []);
   });
 
-  it('records a reported edit to a file another cluster owns as a violation, revises it, and completes', async () => {
+  it('records a reported edit to a file another cluster owns as a violation, revises it, and completes', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({
       ...reviewScript,
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/a.ts', 'src/b.ts'] }]) },
@@ -321,7 +319,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(state.review!.checks.every((check) => !check.drifted));
   });
 
-  it('blocks the fixes phase\'s end check on an unreported edit to a settled sibling\'s file, naming it and its expected bytes, and completes once it is restored', async () => {
+  it('blocks the fixes phase\'s end check on an unreported edit to a settled sibling\'s file, naming it and its expected bytes, and completes once it is restored', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const marker = join(box.directory, 'c1-may-answer');
     box.script({
       ...reviewScript,
@@ -346,7 +345,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(box.run().review!.phases.fixes.status, 'completed');
   });
 
-  it('lists a file no answer names as a stray, and does not block on it', async () => {
+  it('lists a file no answer names as a stray, and does not block on it', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({
       ...reviewScript,
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'notes.txt': 'scratch left in the tree\n' } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
@@ -358,7 +358,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(existsSync(join(box.repo, 'notes.txt')), true, 'the engine removes nothing from the tree');
   });
 
-  it('gives a check that failed before any edit and still fails to the repair worker with both outputs, for the failures that are new (R24)', async () => {
+  it('gives a check that failed before any edit and still fails to the repair worker with both outputs, for the failures that are new (R24)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.checks({ lint: 'fail' });
     box.script({
       ...reviewScript,
@@ -371,22 +372,24 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(fix.checks.runs['baseline-checks'].find((run) => run.kind === 'lint')?.outcome, 'failed');
     assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'lint')?.outcome, 'failed');
     assert.deepEqual(fix.answers.repair.repair!.findings.map((finding) => [finding.id, finding.status]), [['lint', 'deferred']]);
-    const repair = promptOf(state, 'fixer repair:repair');
+    const repair = box.promptOf(state, 'fixer repair:repair');
     assert.match(repair, /^\[0\] lint: .*\n {4}exited with code 1\n[\s\S]*?\n {4}It failed before any fixer edited the tree too: fix only the failures its output then does not show/m);
     // Each fixer was told what failed before it edited anything.
-    assert.match(promptOf(state, 'fixer fixes:c1-1'), /^These failed before any fixer edited the tree; their output then is at the paths given\. [^\n]*\n- lint: \S/m);
+    assert.match(box.promptOf(state, 'fixer fixes:c1-1'), /^These failed before any fixer edited the tree; their output then is at the paths given\. [^\n]*\n- lint: \S/m);
     assert.deepEqual(fix.checks.runs['repair-checks'].map((run) => run.kind), ['build', 'typecheck', 'lint', 'test'], 'the checks ran once more after the repair');
     assert.match(text, /^- lint check deferred: every failure was there before the fixes; no patch$/m);
   });
 
-  it('never sends the repair a check that failed before any edit and passes after', async () => {
+  it('never sends the repair a check that failed before any edit and passes after', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.checks({ lint: ['fail', 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
     report(await box.fix('claude'));
     assert.ok(!Object.values(box.run().workers).some((worker) => worker.launch.label === 'fixer repair:repair'));
   });
 
-  it('sends a check the fixers broke to one repair worker, which owns their files, and runs the checks once more', async () => {
+  it('sends a check the fixers broke to one repair worker, which owns their files, and runs the checks once more', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.checks({ test: { failIfContains: { 'src/a.ts': 'BROKEN' } } });
     box.script({
       ...reviewScript,
@@ -400,7 +403,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(fix.answers.repair.repair!.findings.map((finding) => [finding.id, finding.status]), [['test', 'applied']]);
     assert.deepEqual(fix.checks.runs['repair-checks'].map((run) => [run.kind, run.outcome]), [['build', 'passed'], ['typecheck', 'passed'], ['lint', 'passed'], ['test', 'passed']]);
     assert.deepEqual(fix.revisions.map((revision) => [revision.phase, revision.change.findings]), [['fixes', ['SCAN-1']], ['repair', ['test']]]);
-    const repair = promptOf(state, 'fixer repair:repair');
+    const repair = box.promptOf(state, 'fixer repair:repair');
     assert.match(repair, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the fixers' edits\./m);
     assert.match(repair, /^ {4}It passed before any fixer edited the tree\.$/m);
     assert.match(repair, /^\[0\] test: .*fake-check\.mjs" test\n {4}exited with code 1\n {4}stdout, its last \d+ bytes \(the whole is at .+\):\n```text\ntest: src\/a\.ts is broken\n```/m);
@@ -408,7 +411,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.match(repair, /^- c1-1 SCAN-1 applied: fake applied \[0\]$/m);
   });
 
-  it('leaves a check the repair did not fix failing in the report, and completes', async () => {
+  it('leaves a check the repair did not fix failing in the report, and completes', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.checks({ test: { failIfContains: { 'src/a.ts': 'BROKEN' } } });
     box.script({
       ...reviewScript,
@@ -421,7 +425,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(box.run().review!.phases['repair-checks'].status, 'completed');
   });
 
-  it('blocks with drift naming HEAD when a commit lands during the fixes, whatever the files say', async () => {
+  it('blocks with drift naming HEAD when a commit lands during the fixes, whatever the files say', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const marker = join(box.directory, 'c1-may-answer');
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { waitFor: marker, output: fixerAnswer([{ status: 'deferred', files: [] }]) } });
     const pending = box.fix('claude');
@@ -436,7 +441,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.match(blocked.kind === 'blocked' ? blocked.blocker.action : '', /reset a moved HEAD to the recorded head/);
   });
 
-  it('marks a cluster whose fixer fails twice not attempted, records the edits it left, degrades the phase and completes', async () => {
+  it('marks a cluster whose fixer fails twice not attempted, records the edits it left, degrades the phase and completes', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({
       ...reviewScript,
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// half done\n` } }], exit: 3 },
@@ -463,7 +469,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.doesNotMatch(prompts[1]!, /An earlier attempt left edits for/, 'the first attempt snapshotted no finding');
   });
 
-  it('fails an answer that leaves out a changed owned file, and tells the retry the tree may hold earlier work', async () => {
+  it('fails an answer that leaves out a changed owned file, and tells the retry the tree may hold earlier work', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({
       ...reviewScript,
       'fixer:fixes:c1-1': [
@@ -481,7 +488,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(state.review!.fix!.revisions.map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [['attempt', [], ['src/a.ts']]]);
   });
 
-  it('leaves out of a failed attempt\'s revisions a file another cluster is editing and a stray listed before it ran', async () => {
+  it('leaves out of a failed attempt\'s revisions a file another cluster is editing and a stray listed before it ran', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // The baseline build leaves an untracked file the run does not expect, which the fixes phase's start check lists as a stray.
     box.checks({ build: [{ write: { 'notes.txt': 'build notes\n' } }, 'pass'] });
     const c1MayDie = join(box.directory, 'c1-may-die');
@@ -509,7 +517,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(box.run().review!.checks.some((check) => check.strays.includes('notes.txt')), 'the notes are a stray, in no revision');
   });
 
-  it('leaves out of a failed attempt\'s revisions a file git ignores that its snapshot listed, since the snapshot asks git nothing (R23)', async () => {
+  it('leaves out of a failed attempt\'s revisions a file git ignores that its snapshot listed, since the snapshot asks git nothing (R23)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     writeFileSync(join(box.repo, '.git', 'info', 'exclude'), '*.log\n');
     box.script({
       ...reviewScript,
@@ -526,7 +535,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [['attempt', ['SCAN-1'], ['src/a.ts']]]);
   });
 
-  it('records each finding an unfinished attempt snapshotted as its own revision, and commits it with the message the retry gives on verifying it', async () => {
+  it('records each finding an unfinished attempt snapshotted as its own revision, and commits it with the message the retry gives on verifying it', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const second = `${fixedA}// the second finding\n`;
     box.script({
       triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
@@ -562,7 +572,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(state.review!.checks.every((check) => !check.drifted));
   });
 
-  it('records a check that rewrites a file the run expects as a revision attributed to the check, not drift', async () => {
+  it('records a check that rewrites a file the run expects as a revision attributed to the check, not drift', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.checks({ lint: [{ write: { 'src/a.ts': 'export const formatted = true;\n' } }, 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
     report(await box.fix('claude'));
@@ -573,7 +584,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(state.review!.checks.every((check) => !check.drifted));
   });
 
-  it('skips the three later checks when build fails, and runs all three when build passes', async () => {
+  it('skips the three later checks when build fails, and runs all three when build passes', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.checks({ build: ['fail', 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
     report(await box.fix('claude'));
@@ -583,7 +595,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(box.checkRuns(), ['build', 'build', 'typecheck', 'lint', 'test']);
   });
 
-  it('runs a fix pass on the fake Codex to its report, with no budget', async () => {
+  it('runs a fix pass on the fake Codex to its report, with no budget', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
     report(await box.fix('codex'));
     const state = box.run();
@@ -592,7 +605,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(state.review!.report!.patches.length, 1);
   });
 
-  it('runs the checks the surveyor chose from package.json, a hinted one and stated ones, with a --no-check over the survey, and pins them on the run (R4, R5, R11 of the repository survey)', async () => {
+  it('runs the checks the surveyor chose from package.json, a hinted one and stated ones, with a --no-check over the survey, and pins them on the run (R4, R5, R11 of the repository survey)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const script = (kind: string, basis: 'stated' | 'hint'): Record<string, unknown> => ({ kind, command: `npm run ${kind}`, basis, source: { path: 'package.json', quote: `"${kind}": "node ..."` }, missingTool: null, reason: null });
     box.script({
       ...reviewScript,
@@ -616,7 +630,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(box.logs.includes(`run ${state.id}: check typecheck: not available (flag: dropped by --no-check)`), box.logs.join('\n'));
   });
 
-  it('hints, and no longer refuses, a repository whose lock files name two package managers, and plans no check the surveyor did not choose (R11 of the repository survey)', async () => {
+  it('hints, and no longer refuses, a repository whose lock files name two package managers, and plans no check the surveyor did not choose (R11 of the repository survey)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     write(box.repo, 'yarn.lock', '# yarn\n');
     git(box.repo, 'add', 'yarn.lock');
     git(box.repo, 'commit', '-q', '--amend', '--no-edit');
@@ -629,7 +644,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(box.checkRuns(), []);
   });
 
-  it('writes a series that leaves the user\'s own uncommitted change out, so it applies at HEAD in worktree mode', async () => {
+  it('writes a series that leaves the user\'s own uncommitted change out, so it applies at HEAD in worktree mode', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     write(box.repo, 'src/c.ts', 'export const c = 1;\n');
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
     report(await box.fix('claude'));
@@ -649,7 +665,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.equal(existsSync(join(clone, 'src', 'c.ts')), false, 'the user\'s uncommitted change is in no patch');
   });
 
-  it('owns a file outside the change as HEAD holds it: a fixer that leaves it alone passes, and one that edits it is a modification', async () => {
+  it('owns a file outside the change as HEAD holds it: a fixer that leaves it alone passes, and one that edits it is a modification', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // RIPPLE finds a caller of parse() in src/caller.ts, a file the change does not touch.
     write(box.repo, 'src/caller.ts', 'import { parse } from \'./a.ts\';\nexport const n = parse(null);\n');
     git(box.repo, 'add', 'src/caller.ts');
@@ -679,12 +696,13 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.match(patch, /^-export const n = parse\(null\);$/m);
   });
 
-  it('keeps what a run pinned when it resumes: the fix pass, its checks and its batch size, whatever the flags and the policy say now', async () => {
-    setPolicyBatchSize(2);
+  it('keeps what a run pinned when it resumes: the fix pass, its checks and its batch size, whatever the flags and the policy say now', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    setPolicyBatchSize(box, 2);
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.fix('claude')).kind, 'blocked');
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the run pinned the policy\'s batch size');
-    setPolicyBatchSize(4);
+    setPolicyBatchSize(box, 4);
     box.script(reviewScript);
     report(await box.review('claude', { fix: { commands: { test: 'echo other' }, dropped: [] } }));
     assert.ok(box.logs.some((line) => /keeps the checks it pinned; --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
@@ -692,7 +710,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the resumed run kept the size it started with');
   });
 
-  it('logs --fix and its check flags as ignored on a run pinned without the fix pass, and keeps it read-only', async () => {
+  it('logs --fix and its check flags as ignored on a run pinned without the fix pass, and keeps it read-only', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.review('claude')).kind, 'blocked');
     box.script(reviewScript);
@@ -701,7 +720,8 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     assert.ok(box.logs.some((line) => /is pinned without the fix pass; --fix, --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
   });
 
-  it('logs the absence of --fix on a run pinned with it, and continues the fix pass', async () => {
+  it('logs the absence of --fix on a run pinned with it, and continues the fix pass', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.fix('claude')).kind, 'blocked');
     box.script(reviewScript);

@@ -4,6 +4,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { TestContext } from 'node:test';
 import { Checkpoint, type ListedRun } from '../../src/checkpoint/checkpoint.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
@@ -86,6 +87,14 @@ export const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => v
   return { checkpoint: proxy, acted: () => acted };
 };
 
+/**
+ * How many tests of one file run at once, each in a sandbox of its own (see
+ * ReviewSandbox.forTest). A review starts dozens of processes, so the
+ * machine's CPU, not the test process, is what runs out: past this, the
+ * tests only slow each other down.
+ */
+export const sandboxConcurrency = 4;
+
 export class ReviewSandbox {
   readonly directory: string;
   readonly repo: string;
@@ -97,6 +106,20 @@ export class ReviewSandbox {
   readonly home: string;
   readonly logs: string[] = [];
   #checkpoint: Checkpoint | null = null;
+
+  /**
+   * A sandbox for the test `t` alone, closed when `t` ends. A file whose
+   * tests run concurrently gives each its own this way: one sandbox shared
+   * through a variable that each test's hook reassigns would let one test
+   * act on, and close, another's.
+   */
+  static forTest(t: TestContext): ReviewSandbox {
+    const box = new ReviewSandbox();
+    t.after(() => {
+      box.close();
+    });
+    return box;
+  }
 
   constructor() {
     this.directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-review-')));

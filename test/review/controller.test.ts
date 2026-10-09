@@ -18,7 +18,7 @@ import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { afterFind, fakeCheckCommand, otherEngine, ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { afterFind, fakeCheckCommand, otherEngine, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
@@ -80,21 +80,14 @@ const lockFree = (acquire: () => ReleaseLock): boolean => {
   }
 };
 
-describe('runReview', { timeout: 600_000 }, () => {
-  let box: ReviewSandbox;
-  beforeEach(() => {
-    box = new ReviewSandbox();
-  });
-  afterEach(() => {
-    box.close();
-  });
-
+describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
   const report = (outcome: ReviewOutcome): string => {
     assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
     return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
   };
 
-  it('reviews a change through every phase on the fake Claude and writes the report', async () => {
+  it('reviews a change through every phase on the fake Claude and writes the report', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script(fullScript);
     const outcome = await box.review('claude');
     const text = report(outcome);
@@ -190,7 +183,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released');
   });
 
-  it('reviews on the fake Codex, with no budget and no cost, and the report says the budget did not apply', async () => {
+  it('reviews on the fake Codex, with no budget and no cost, and the report says the budget did not apply', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({});
     const text = report(await box.review('codex'));
     const state = box.run();
@@ -204,7 +198,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(text, /^\| Total \| 12 \| [0-9.]+ \| - \| \d+ \| 0 \| \d+ \|$/m);
   });
 
-  it('degrades an angle whose finder fails twice, tells the sweep, and names it in the report', async () => {
+  it('degrades an angle whose finder fails twice, tells the sweep, and names it in the report', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ 'finder-FOOTGUNS': { exit: 3 }, 'finder-DESIGN': [{ malformed: true }, { hang: true }] });
     box.shortenTimeout('finder-DESIGN');
     const text = report(await box.review('claude'));
@@ -219,7 +214,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'finder-FOOTGUNS finders:FOOTGUNS').length, 2);
   });
 
-  it('marks a group unverified when its verifier fails twice, and its candidates carry PLAUSIBLE unverified into the report', async () => {
+  it('marks a group unverified when its verifier fails twice, and its candidates carry PLAUSIBLE unverified into the report', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { output: { candidates: [found('src/a.ts', 2, 'null deref'), found('src/b.ts', 1, 'b calls parse')], leads: noLeads } }, 'verifier:verification:g2': { exit: 1 } });
     const text = report(await box.review('claude'));
     const state = box.run();
@@ -232,7 +228,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(text, /- Group g2 of verification was not verified/);
   });
 
-  it('blocks with worker-failed when the triage fails twice, and running again retries it and completes', async () => {
+  it('blocks with worker-failed when the triage fails twice, and running again retries it and completes', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     const blocked = await box.review('claude');
     assert.equal(blocked.kind, 'blocked');
@@ -257,7 +254,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(box.logs.some((line) => /^phase triage: re-entered \(attempt 2\), clearing the worker-failed blocker$/.test(line)));
   });
 
-  it('blocks with worker-failed when the decider fails twice, with no degrade, and running again decides and completes (R9 of the decision step)', async () => {
+  it('blocks with worker-failed when the decider fails twice, with no degrade, and running again decides and completes (R9 of the decision step)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ ...fullScript, decider: { exit: 2 } });
     const blocked = await box.review('claude');
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'worker-failed' && blocked.blocker.phase === 'decision', JSON.stringify(blocked));
@@ -274,7 +272,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(text, /^## Decisions$/m);
   });
 
-  it('decides nothing and launches no decider for a run whose ranking holds no finding', async () => {
+  it('decides nothing and launches no decider for a run whose ranking holds no finding', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({});
     report(await box.review('claude'));
     const state = box.run();
@@ -283,7 +282,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(!Object.values(state.workers).some((worker) => worker.launch.label === 'decider decision:decision'));
   });
 
-  it('refuses to resume a fix run configured before the decision step that has not planned its fixes, before anything is recorded, even with its own roles (R6 of the decision step)', async () => {
+  it('refuses to resume a fix run configured before the decision step that has not planned its fixes, before anything is recorded, even with its own roles (R6 of the decision step)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // A run of this engine gives the configuration such a run pinned: the same one, recorded at version 4.
     box.script({ triage: { exit: 2 } });
     const first = await box.fix('claude');
@@ -307,7 +307,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.doesNotMatch(text, /^## Decisions$/m);
   });
 
-  it('goes on without a fix run\'s failed survey on flags alone, reading only the user-level files, so a git history it cannot read does not stop it (R9 of the repository survey)', async () => {
+  it('goes on without a fix run\'s failed survey on flags alone, reading only the user-level files, so a git history it cannot read does not stop it (R9 of the repository survey)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ surveyor: { exit: 2 } });
     const halfFlagged = { commands: { build: ReviewSandbox.checkFlags().commands.build! }, dropped: [] };
     const blocked = await box.review('claude', { fix: halfFlagged });
@@ -328,7 +329,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(!box.logs.some((line) => line.includes('its survey was asked with')), box.logs.join('\n'));
   });
 
-  it('names the kinds an earlier invocation\'s flags settled for the survey when a resume before the checks are planned leaves them unsettled (TD6 of the repository survey)', async () => {
+  it('names the kinds an earlier invocation\'s flags settled for the survey when a resume before the checks are planned leaves them unsettled (TD6 of the repository survey)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const stated = (kind: 'build' | 'typecheck' | 'lint' | 'test', missingTool: string | null = null): Record<string, unknown> =>
       ({ kind, command: missingTool === null ? fakeCheckCommand(kind) : `${missingTool} check .`, basis: 'stated', source: { path: 'package.json', quote: `"${kind}": "node ..."` }, missingTool, reason: null });
     box.script({ surveyor: [
@@ -346,7 +348,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.origin]), [['build', 'survey'], ['typecheck', 'survey'], ['lint', 'flag'], ['test', 'survey']]);
   });
 
-  it('lists, for a run configured before the survey existed and resumed, the rules files the engine found for it then, as its pinned role prompts expect', async () => {
+  it('lists, for a run configured before the survey existed and resumed, the rules files the engine found for it then, as its pinned role prompts expect', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // A run of this engine gives the configuration such a run pinned: the same one, without the survey's setting or the Codex Windows sandbox.
     box.script({ triage: { exit: 2 } });
     const first = await box.review('claude');
@@ -371,7 +374,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.doesNotMatch(triage, /### Convention sources/);
   });
 
-  it('records and logs a run going on without its survey the same way in a read-only review as in a fix run, the user-level files decided by the policy alone (R3, R9 of the repository survey)', async () => {
+  it('records and logs a run going on without its survey the same way in a read-only review as in a fix run, the user-level files decided by the policy alone (R3, R9 of the repository survey)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const userFile = join(box.home, '.claude', 'CLAUDE.md');
     write(box.home, '.claude/CLAUDE.md', '# the reviewer\'s rules\n');
     box.script({ surveyor: { exit: 2 } });
@@ -388,7 +392,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(box.logs.includes(`run ${state.id}: user-level rules ${userFile}: not applied, ${policyWords.unjudged}`), box.logs.join('\n'));
   });
 
-  it('blocks on the run budget before a launch, and completes when run again with a higher --budget-usd', async () => {
+  it('blocks on the run budget before a launch, and completes when run again with a higher --budget-usd', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // The surveyor reports no cost, so the budget meets the triage and the finders as it did before the survey.
     box.script({ '*': { costUsd: 12 }, surveyor: { costUsd: 0 } });
     const blocked = await box.review('claude', { flags: { budgetUsd: 20 } });
@@ -430,7 +435,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(spendLine() ?? '', / of 1000\.00 USD; /);
   });
 
-  it('applies a budget given on a resume to a run pinned without one, and the report says it applied', async () => {
+  it('applies a budget given on a resume to a run pinned without one, and the report says it applied', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const policyPath = join(box.rolesRoot, policyFileName);
     const policy = JSON.parse(readFileSync(policyPath, 'utf8')) as { runtimes: { claude: { runBudgetUsd: number | null } } };
     policy.runtimes.claude.runBudgetUsd = null;
@@ -449,7 +455,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.doesNotMatch(text, /did not apply|No run budget was set/);
   });
 
-  it('charges a timed-out worker, which reports no cost, at its per-worker cap, so timeouts reach the run budget', async () => {
+  it('charges a timed-out worker, which reports no cost, at its per-worker cap, so timeouts reach the run budget', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // Every worker reports 0.5 USD but REMOVALS, which hangs until its timeout; every role is capped at 8 USD.
     // One worker at a time, so REMOVALS, the first angle, is the only finder launched before its timeout settles.
     box.script({ '*': { costUsd: 0.5 }, surveyor: { costUsd: 0 }, 'finder-REMOVALS': { hang: true } });
@@ -466,7 +473,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(lines.some((line) => /^Spend: 0\.50 USD; /.test(line)), lines.join('\n'));
   });
 
-  it('blocks with drift when a scope file changes while the triage runs, sets its answer aside, and completes once the tree is restored', async () => {
+  it('blocks with drift when a scope file changes while the triage runs, sets its answer aside, and completes once the tree is restored', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const marker = join(box.directory, 'triage-may-answer');
     box.script({ triage: { waitFor: marker } });
     const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
@@ -513,7 +521,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.match(text, /- Worktree checks: 14, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
   });
 
-  it('sets aside a finder\'s answer when a scope file changes while it runs, lets the others settle, and relaunches it without using an attempt', async () => {
+  it('sets aside a finder\'s answer when a scope file changes while it runs, lets the others settle, and relaunches it without using an attempt', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const marker = join(box.directory, 'removals-may-answer');
     box.script({ 'finder-REMOVALS': { waitFor: marker } });
     const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
@@ -541,34 +550,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual(box.events(after.id).filter(([kind]) => kind === 'attempt.failed'), [], 'the set-aside answer used no attempt');
   });
 
-  it('ends with the launcher\'s error when the run is abandoned under a running worker, and no rejection goes unhandled', async () => {
-    const marker = join(box.directory, 'triage-may-answer');
-    box.script({ triage: { waitFor: marker } });
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown): void => {
-      unhandled.push(reason);
-    };
-    process.on('unhandledRejection', onUnhandled);
-    const signalListeners = process.listenerCount('SIGINT');
-    try {
-      const pending = box.review('claude', { flags: { concurrency: 1 } });
-      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
-      assert.ok(process.listenerCount('SIGINT') > signalListeners, 'an interruption releases the held lock');
-      const state = box.run();
-      box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'abandoned under the worker' } }]);
-      writeFileSync(marker, '');
-      await assert.rejects(pending, RunClosedError);
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      assert.deepEqual(unhandled, []);
-      assert.equal(box.run().status, 'abandoned');
-      assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released on the way out');
-      assert.equal(process.listenerCount('SIGINT'), signalListeners, 'and its signal listener with it');
-    } finally {
-      process.off('unhandledRejection', onUnhandled);
-    }
-  });
-
-  it('waits for the workers still in flight, and records their answers, before a runtime that stops qualifying mid-run refuses the review', async () => {
+  it('waits for the workers still in flight, and records their answers, before a runtime that stops qualifying mid-run refuses the review', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const removalsMayAnswer = join(box.directory, 'removals-may-answer');
     const rippleMayAnswer = join(box.directory, 'ripple-may-answer');
     const broken = join(box.directory, 'runtime-broken');
@@ -598,7 +581,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released after the last worker');
   });
 
-  it('refuses to resume a run from another worktree of the repository, naming the run\'s worktree', async () => {
+  it('refuses to resume a run from another worktree of the repository, naming the run\'s worktree', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     await box.review('claude');
     const runId = box.run().id;
@@ -614,7 +598,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     report(await box.review('claude'));
   });
 
-  it('resumes a configured run from its pinned configuration, whatever the policy file, the model flags and the executable say now', async () => {
+  it('resumes a configured run from its pinned configuration, whatever the policy file, the model flags and the executable say now', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     await box.review('claude');
     const pinned = box.run().review!.configuration;
@@ -628,7 +613,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(box.logs.includes(`run ${state.id} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`));
   });
 
-  it('refuses to resume a run whose pinned executable no longer qualifies, with an action a resumed run can take', async () => {
+  it('refuses to resume a run whose pinned executable no longer qualifies, with an action a resumed run can take', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     await box.review('claude');
     const state = box.run();
@@ -640,7 +626,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(Object.values(box.run().workers).length, 3, 'nothing ran');
   });
 
-  it('resolves the command\'s executable only for a run not yet configured, and a refusal of it creates no run', async () => {
+  it('resolves the command\'s executable only for a run not yet configured, and a refusal of it creates no run', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     const refused = (): never => {
       throw new ReviewRefusedError('the executable was refused', 'runtime-unqualified');
     };
@@ -660,7 +647,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     report(await box.review('claude', { executable: () => assert.fail('a configured run resolved the command\'s executable') }));
   });
 
-  it('refuses to resume a run whose role prompts changed since it was configured, naming both digests', async () => {
+  it('refuses to resume a run whose role prompts changed since it was configured, naming both digests', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     await box.review('claude');
     const state = box.run();
@@ -671,14 +659,16 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(Object.values(box.run().workers).length, 3, 'nothing ran');
   });
 
-  it('refuses --budget-usd when resuming a run on a runtime that reports no cost, as a new run does', async () => {
+  it('refuses --budget-usd when resuming a run on a runtime that reports no cost, as a new run does', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     await box.review('codex');
     await assert.rejects(box.review('codex', { flags: { budgetUsd: 5 } }), (error: unknown) => error instanceof InvalidPolicyError && /--budget-usd does not apply to runtime codex/.test(error.message));
     await assert.rejects(box.review('codex', { flags: { concurrency: 0 } }), (error: unknown) => error instanceof InvalidPolicyError && error.message === `--concurrency must be a whole number from 1 to ${String(maxConcurrency)}, not 0`);
   });
 
-  it('refuses a resumed run whose runtime differs, and two active runs', async () => {
+  it('refuses a resumed run whose runtime differs, and two active runs', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     await box.review('claude');
     await assert.rejects(box.review('codex'), (error: unknown) => error instanceof ReviewRefusedError && /pinned to runtime claude, not codex/.test(error.message));
@@ -686,13 +676,15 @@ describe('runReview', { timeout: 600_000 }, () => {
     await assert.rejects(box.review('claude'), /2 runs are active/);
   });
 
-  it('refuses an unqualified runtime before any run exists', async () => {
+  it('refuses an unqualified runtime before any run exists', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     await assert.rejects(box.review('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /lacks flags the adapter uses/.test(error.message)
       && error.message.endsWith('; fix the runtime installation or pass --executable with a qualifying binary, then run the command again'));
     assert.deepEqual(box.checkpoint.foldRuns(), []);
   });
 
-  it('finds or creates the run under the start lock, so an engine starting meanwhile is refused and creates no run of its own', async () => {
+  it('finds or creates the run under the start lock, so an engine starting meanwhile is refused and creates no run of its own', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     // Another holder of the start lock, as an engine between its find and its run lock holds it; a second connection in this process is refused like another process.
     const release = acquireStartLock(box.checkpoint.root);
     try {
@@ -706,7 +698,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(lockFree(() => acquireStartLock(box.checkpoint.root)), true, 'the start lock is released once the run is locked');
   });
 
-  it('appends every event once: a foreign append between its plan and its append is refused as stale, not re-sent, and the lock is released', async () => {
+  it('appends every event once: a foreign append between its plan and its append is refused as stale, not re-sent, and the lock is released', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     let foreign = 0;
     const log = (line: string): void => {
       box.logs.push(line);
@@ -725,7 +718,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released');
   });
 
-  it('reads a found run again once its lock is held, so a worker finished after the find is not recorded lost', async () => {
+  it('reads a found run again once its lock is held, so a worker finished after the find is not recorded lost', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.review('claude')).kind, 'blocked');
     const runId = box.run().id;
@@ -744,7 +738,8 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.ok(!box.logs.some((line) => /lost with the previous engine/.test(line)), box.logs.join('\n'));
   });
 
-  it('creates a new run when the found run stops being resumable before its lock is taken, and leaves that run as it is', async () => {
+  it('creates a new run when the found run stops being resumable before its lock is taken, and leaves that run as it is', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.review('claude')).kind, 'blocked');
     const first = box.run();
@@ -766,20 +761,22 @@ describe('runReview', { timeout: 600_000 }, () => {
 
   // Issue #37: one run another engine build wrote, holding an event this engine does not declare, stopped every review of the repository.
   describe('a run this engine cannot read', () => {
-    const passedOver = (runId: string): string[] => box.logs.filter((line) => line.startsWith(`run ${runId}: passed over: `));
+    const passedOver = (box: ReviewSandbox, runId: string): string[] => box.logs.filter((line) => line.startsWith(`run ${runId}: passed over: `));
 
-    it('is passed over, with one line naming its event and the engine that wrote it, and the review runs a run of its own', async () => {
+    it('is passed over, with one line naming its event and the engine that wrote it, and the review runs a run of its own', async (t) => {
+      const box = ReviewSandbox.forTest(t);
       const unreadable = box.unreadableRun();
       box.script({});
       const outcome = await box.review('claude');
       report(outcome);
       assert.notEqual(outcome.runId, unreadable);
-      assert.deepEqual(passedOver(unreadable), [`run ${unreadable}: passed over: it holds phase.finished@99 at sequence 2, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`]);
+      assert.deepEqual(passedOver(box, unreadable), [`run ${unreadable}: passed over: it holds phase.finished@99 at sequence 2, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`]);
       assert.equal(box.checkpoint.ledger.lastSequence(unreadable), 2, 'nothing was appended to the run passed over');
       assert.deepEqual(box.checkpoint.listRuns().map((run) => run.id), [unreadable, outcome.runId]);
     });
 
-    it('takes no part in finding the run to resume: the readable active run beside it resumes', async () => {
+    it('takes no part in finding the run to resume: the readable active run beside it resumes', async (t) => {
+      const box = ReviewSandbox.forTest(t);
       box.script({ triage: { exit: 2 } });
       assert.equal((await box.review('claude')).kind, 'blocked');
       const first = box.run();
@@ -790,11 +787,12 @@ describe('runReview', { timeout: 600_000 }, () => {
       const outcome = await box.review('claude');
       report(outcome);
       assert.equal(outcome.runId, first.id, 'the blocked run resumed');
-      assert.equal(passedOver(unreadable).length, 1, box.logs.join('\n'));
+      assert.equal(passedOver(box, unreadable).length, 1, box.logs.join('\n'));
       assert.equal(box.checkpoint.ledger.lastSequence(unreadable), before, 'nothing was appended to the run passed over');
     });
 
-    it('takes no part in the refusal of two active runs, which names the readable ones only', async () => {
+    it('takes no part in the refusal of two active runs, which names the readable ones only', async (t) => {
+      const box = ReviewSandbox.forTest(t);
       box.script({ triage: { exit: 2 } });
       assert.equal((await box.review('claude')).kind, 'blocked');
       const first = box.run().id;
@@ -803,7 +801,8 @@ describe('runReview', { timeout: 600_000 }, () => {
       await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.message.startsWith(`2 runs are active (${first}, ${second});`));
     });
 
-    it('is passed over when another engine makes the found run unreadable before its lock is taken, and the lock is released', async () => {
+    it('is passed over when another engine makes the found run unreadable before its lock is taken, and the lock is released', async (t) => {
+      const box = ReviewSandbox.forTest(t);
       box.script({ triage: { exit: 2 } });
       assert.equal((await box.review('claude')).kind, 'blocked');
       const first = box.run();
@@ -818,10 +817,43 @@ describe('runReview', { timeout: 600_000 }, () => {
       assert.notEqual(outcome.runId, first.id, 'the review ran a run of its own');
       assert.equal(box.checkpoint.ledger.lastSequence(first.id), first.lastSequence + 1, 'nothing but the event of the other engine was appended to the found run');
       // The same line the find gives such a run, naming this engine as the reader and the other as the writer.
-      assert.deepEqual(passedOver(first.id), [`run ${first.id}: passed over: it holds phase.finished@99 at sequence ${String(first.lastSequence + 1)}, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`], box.logs.join('\n'));
+      assert.deepEqual(passedOver(box, first.id), [`run ${first.id}: passed over: it holds phase.finished@99 at sequence ${String(first.lastSequence + 1)}, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`], box.logs.join('\n'));
       assert.ok(!box.logs.some((line) => line.includes('before its lock was taken')), box.logs.join('\n'));
       assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, first.id)), true, 'its lock is released');
     });
+  });
+});
+
+// A test that watches process-wide state, the unhandled rejections and the
+// signal listeners every run lock adds, sees every concurrent test's too: it
+// runs alone, after the concurrent tests above.
+describe('runReview, alone in its process', { timeout: 600_000 }, () => {
+  it('ends with the launcher\'s error when the run is abandoned under a running worker, and no rejection goes unhandled', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const marker = join(box.directory, 'triage-may-answer');
+    box.script({ triage: { waitFor: marker } });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    const signalListeners = process.listenerCount('SIGINT');
+    try {
+      const pending = box.review('claude', { flags: { concurrency: 1 } });
+      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
+      assert.ok(process.listenerCount('SIGINT') > signalListeners, 'an interruption releases the held lock');
+      const state = box.run();
+      box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'abandoned under the worker' } }]);
+      writeFileSync(marker, '');
+      await assert.rejects(pending, RunClosedError);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.deepEqual(unhandled, []);
+      assert.equal(box.run().status, 'abandoned');
+      assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released on the way out');
+      assert.equal(process.listenerCount('SIGINT'), signalListeners, 'and its signal listener with it');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 });
 
