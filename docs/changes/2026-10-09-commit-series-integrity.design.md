@@ -10,9 +10,10 @@ edit of a file no cluster owns. The claim is one file created
 exclusively in a directory the engine prepares per run and per round
 under the scratch root, where the snapshot manifests already live, so
 the command starts no process and runs under every sandbox the snapshot
-command runs under. The engine reads a unit's claims when it records
-the unit's answer, its failed attempt or its lost worker, and appends
-them as one new event kind, `files.claimed@1`, which the fold keeps as
+command runs under. The engine reads the directory when it records any
+unit's answer, failed attempt or lost worker, and appends every claim
+the ledger does not hold yet, whichever cluster made it, as one new
+event kind, `files.claimed@1`, which the fold keeps as
 `FixState.claims`. Wherever the fix pass asks "which cluster owns this
 path", the answer is now "which cluster holds it, by its plan or by a
 claim": the files a fixer's task forbids, the violations an answer is
@@ -163,14 +164,21 @@ that sibling settles. `resolveFixerAnswer`'s context field is renamed
 path another cluster holds is listed in `violations`.
 
 When a unit's outcome is recorded, the engine appends, in the same
-append and before its revisions:
+append, before the unit's own `fix.recorded@1`, `attempt.failed@4` or
+`worker.lost@4` and before its revisions:
 
 - `files.claimed@1` `{ phase: 'fixes', key, cluster, files: [{ path,
-  claimedAt }] }` for every marker of the unit's cluster the ledger does
-  not hold yet, `claimedAt` the marker's time; plus, for an answered
-  unit, one entry with `claimedAt: null` for each named file nobody
-  holds that the cluster never claimed, the late claim of R6, logged as
-  "claimed late". Nothing is appended when there is none.
+  claimedAt }] }` for every marker in the directory the ledger does not
+  hold yet, whichever cluster made it, one event per claiming unit, with
+  that unit's key and cluster read from the marker and `claimedAt` the
+  marker's time; plus, for an answered unit, one entry with
+  `claimedAt: null` for each named file nobody holds that the cluster
+  never claimed, the late claim of R6, logged as "claimed late". Nothing
+  is appended when there is none. (Amended 2026-10-09, review F1: as
+  first written, only the settling unit's own cluster's markers were
+  appended, so the fold could not check a violation against a claim a
+  running sibling had made, since that claim reached the ledger only at
+  the sibling's own settle.)
 
 The reducer `filesClaimed` holds: the phase running; the unit a planned
 batch of the round and the cluster its own; each path repository
@@ -178,7 +186,11 @@ relative, not owned by a cluster of the round, not claimed by another
 cluster of the round, and not claimed by this cluster already; the
 entries then join `FixState.claims`. A claim whose marker names a
 cluster the plan does not have is a marker the engine did not write and
-is refused by the command's reader before any event is built.
+is refused by the command's reader before any event is built. The
+`fixRecorded` reducer checks each violation against the paths the other
+clusters of the round hold, by their plan's files or by a claim folded
+before the answer, which the order above makes every claim made by then;
+a violation on a path nobody holds on the ledger is refused as today.
 
 ### The fixer's task (R8)
 
@@ -302,7 +314,11 @@ readable, and no kind the corpus holds changes shape here.
   round's planning; one kind appended with whichever outcome the unit
   has serves all three. Changing `fix.recorded@1` in place, which the
   2026-10-08 decision would allow, was rejected for that reason, not
-  for compatibility.
+  for compatibility. A fourth reason came with the review of 2026-10-09
+  (F1): a running sibling's claim must be on the ledger before an answer
+  that violates it, so it is appended with whichever unit settles next,
+  under the sibling's own key, which no field of the settling unit's
+  event could carry.
 - **TD2: The directory lives under the scratch root, per run and per
   round.** Under the checkpoint was rejected: Codex keeps the git
   directory read-only for every worker (PD21 of the fix pass). Under a
@@ -325,12 +341,15 @@ readable, and no kind the corpus holds changes shape here.
   holders through two spellings in the fold. The fold refuses a second
   claim of a path it already holds.
 - **TD5: The live directory is read where a running sibling's claim
-  matters.** The ledger holds a unit's claims only once it settles, so a
-  violation check or an attempt's path filter against the ledger alone
-  would miss a claim by a sibling still running. `othersHeld` overlays
-  the markers on the fold; the fold stays the record and the directory
-  the round's live state, as the snapshot directory is the fixer's
-  live state and the revisions the record.
+  matters.** The ledger holds a claim only once some unit settles after
+  it was made (R3), so between two settles a violation check or an
+  attempt's path filter against the ledger alone would miss a claim by
+  a sibling still running. `othersHeld` overlays the markers on the
+  fold, and the same markers become the events the settle appends
+  first, so what the engine judged by and what the fold checks are one
+  set; the fold stays the record and the directory the round's live
+  state, as the snapshot directory is the fixer's live state and the
+  revisions the record.
 - **TD6: The second round's eligibility is widened in the reducer, not
   versioned.** The recorded shape of `fixes.replanned@1` does not
   change, a history without claims folds exactly as before, and a
@@ -346,7 +365,9 @@ readable, and no kind the corpus holds changes shape here.
   controller appends in steps and awaits workers between them, a poll
   is a new kind of step with its own timing to test, and nothing reads
   the ledger's claims before a unit settles (TD5). The directory is
-  enough while the round runs.
+  enough while the round runs. R3 as amended on 2026-10-09 widens what
+  each settle records to every marker in the directory, not when the
+  directory is read.
 - **TD9: No change to `tree.revised@1` or the commit command.** A
   revision's files are the same shape, and the commit command reads
   revisions in ledger order as before; the series is right because the
@@ -373,7 +394,9 @@ readable, and no kind the corpus holds changes shape here.
   and `holdersOf`; refusals for a claim before the plan, by a unit the
   plan lacks, under another cluster's name, of a file a cluster of the
   round owns, of a file another cluster claimed, of a file claimed
-  twice by one cluster, and in a phase not running; the second round
+  twice by one cluster, and in a phase not running; a violation on a
+  file another cluster claimed folds when that claim was recorded
+  before the answer and is refused when it was not; the second round
   folds when a required file was claimed by another first-round
   cluster, and is refused when it was claimed by the finding's own
   cluster or by nobody; `fixes.replanned@1` histories of the existing
@@ -386,8 +409,10 @@ readable, and no kind the corpus holds changes shape here.
   on the fold; an answer naming a file a running sibling claimed is a
   violation; an answer naming a free unclaimed file records a late
   claim; an attempt's revisions leave out a file a sibling claimed and
-  keep a file this cluster claimed; the claims event is built with the
-  answer, the failure and the lost worker, each once.
+  keep a file this cluster claimed; the claims events are built with the
+  answer, the failure and the lost worker, every unrecorded marker once,
+  a running sibling's under the sibling's own key, and not again at the
+  sibling's own settle.
 - `test/review/tasks.test.ts`: the task lists owned and claimed files
   apart, names a sibling's claim with its cluster, quotes the claim
   command on a line of its own with the placeholder, and says a refused
@@ -396,8 +421,9 @@ readable, and no kind the corpus holds changes shape here.
   run at once, the first scripted fixer claims a shared test file and
   edits it, the second is refused, reports its finding blocked on it and
   gets a second round that owns the file, and each revision holds only
-  its fixer's edits; a fixer that edits a claimed file without claiming
-  it records a violation and completes; a fixer that edits a free file
+  its fixer's edits; a fixer that edits a file a still-running sibling
+  claimed, without claiming it, records a violation and completes, the
+  sibling's claim reaching the ledger with that answer; a fixer that edits a free file
   without claiming it records a late claim; a refused attempt that
   snapshotted a finding while a sibling edited a file the sibling
   claimed records the sibling's file in no revision of its own; a run

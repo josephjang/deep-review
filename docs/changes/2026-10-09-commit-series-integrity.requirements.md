@@ -201,13 +201,19 @@ a rebuild, and a file a decision named.
   reason; an owned file of the fixer's own cluster answers 0.
 - **R3: The engine records every claim on the ledger and the fold holds
   it.** When a unit's answer, failed attempt or lost worker is recorded,
-  the claims its cluster made through the directory are appended with
-  it, each with when it was made, as one event per unit; a resumed run
-  seeds the directory again from the plan and the recorded claims
-  before it launches a batch, and never removes a claim. The fold
+  every claim in the directory that the ledger does not hold yet is
+  appended before it, whichever cluster made it, as one event per
+  claiming unit with each claim's time; so the ledger holds every claim
+  made before any later answer, and the fold checks a violation against
+  a running sibling's claim as it checks one against an owned file (R6).
+  A resumed run seeds the directory again from the plan and the recorded
+  claims before it launches a batch, and never removes a claim. The fold
   refuses a claim on a file a cluster of the round owns or another
   cluster claimed, and the report's Changed files names the cluster that
-  claimed each unowned path.
+  claimed each unowned path. (Amended 2026-10-09, review F1: as first
+  written, a unit's claims were appended only when that unit settled, so
+  an answer naming a file a still-running sibling had claimed carried a
+  violation the fold could not check, and the append was refused.)
 - **R4: A finding blocked on a claimed file gets the second round.** A
   finding reported `blocked` whose required files are each owned or
   claimed by another cluster of the first round is planned into the
@@ -226,7 +232,9 @@ a rebuild, and a file a decision named.
   not reverted.** When an answer names a file another cluster of the
   round holds, by ownership or by claim, it is recorded as an ownership
   violation as today, revised like any other file, and named in
-  Limitations with both clusters. When it names a file nobody holds, the
+  Limitations with both clusters; the fold checks the violation against
+  the plan's files and the claims recorded before the answer, which R3's
+  order makes every claim made by then. When it names a file nobody holds, the
   claim is recorded late, at the answer, and Limitations says the fixer
   edited it without claiming it first. Neither stops the run.
 - **R7: A snapshot is a commit the repository must accept on its own.**
