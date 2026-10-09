@@ -137,13 +137,16 @@ describe('the repository\'s roles/', () => {
     assert.doesNotMatch(answer.prompt, /\bdispatch/i);
   });
 
-  it('gives every fixer role the fix pass\'s ownership rule: its own files while its batch runs, any file no cluster owns, never another cluster\'s (R4, R18 of the fix pass)', () => {
+  it('gives every fixer role the fix pass\'s ownership rule: its own files while its batch runs, any file no cluster owns once claimed, never another cluster\'s owned or claimed file (R4, R18 of the fix pass; R1 of commit series integrity)', () => {
     for (const key of fixerRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
       assert.match(prompt, /You own your files exclusively while your batch runs/, key);
       assert.match(prompt, /You may also edit any file of the repository that no\s+cluster owns, existing or new, when a fix or its tests need it, and you\s+report every such file/, key);
-      assert.match(prompt, /Never touch a file another cluster owns: if a\s+fix genuinely requires one, report the finding blocked and name the file/, key);
-      assert.match(prompt, /the files other\s+clusters own, and the project's checks/, key);
+      assert.match(prompt, /Never touch a file another cluster owns or has claimed: if a fix\s+genuinely requires one, report the finding blocked and name the file/, key);
+      assert.match(prompt, /the files other\s+clusters own or have claimed, the command that claims a file, and the\s+project's checks/, key);
+      // A file no cluster owns is the cluster's that claims it first, until the cluster settles (R1, R9 of commit series integrity).
+      assert.match(prompt, /Your first edit of such a file claims it for\s+your cluster until your cluster's last batch has finished, through the\s+command your task gives\./, key);
+      assert.match(prompt, /A file another cluster has claimed is as one it\s+owns\./, key);
       // A cluster's findings go to fix workers in batches, one after another, and a later batch is told what the earlier ones did.
       assert.match(prompt, /gives each cluster's findings, in batches, to fix workers that\s+run one after another, so a cluster has one fix worker at a time/, key);
       assert.match(prompt, /what\s+earlier batches of your cluster did/, key);
