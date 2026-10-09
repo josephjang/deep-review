@@ -85,6 +85,8 @@ export interface FixState {
   readonly claims: readonly RecordedClaim[];
   /** Every claim marker left out of the ledger, in ledger order (R3, review F9). */
   readonly lostClaims: readonly LostClaim[];
+  /** The holder each recorded violation was judged against when its answer folded, by fixes-phase unit key and then path; a later claim of the path does not change it (R6 of commit series integrity). */
+  readonly violationHolders: Readonly<Record<string, Readonly<Record<string, PathHolder>>>>;
   /** The commits built from the run after its report, or null until they are. */
   readonly commits: CommitsCreated | null;
 }
@@ -100,6 +102,7 @@ export function emptyFixState(): FixState {
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, NotAttempted>>,
     claims: [],
     lostClaims: [],
+    violationHolders: {},
     commits: null,
   };
 }

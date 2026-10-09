@@ -89,14 +89,25 @@ describe('the report of a fix run', () => {
     const review = fixRun().review();
     const fix = review.fix!;
     const plan = { ...fix.plan!, clusters: [...fix.plan!.clusters, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }], batches: [...fix.plan!.batches, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }] };
-    const withViolation = { ...review, fix: { ...fix, plan, claims: [{ path: 'docs/shared.md', cluster: 'c2', key: 'c2-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }], answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, violations: ['docs/shared.md'] } } } } };
+    const withViolation = { ...review, fix: { ...fix, plan, claims: [{ path: 'docs/shared.md', cluster: 'c2', key: 'c2-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }], answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, violations: ['docs/shared.md'] } } }, violationHolders: { 'c1-1': { 'docs/shared.md': { cluster: 'c2', by: 'claim' as const } } } } };
     assert.ok(fixLimitations(withViolation).includes('- Ownership violation: docs/shared.md, claimed by c2, was edited by c1-1, which reported it; the edit is kept and revised (PD4).'));
+  });
+
+  it('names the cluster a violation was judged against, not one that claimed the file after its holder settled (R6 of commit series integrity)', () => {
+    const review = fixRun().review();
+    const fix = review.fix!;
+    const plan = { ...fix.plan!, clusters: [...fix.plan!.clusters, { id: 'c2', findingIds: [], files: [] }, { id: 'c3', findingIds: [], files: [] }] };
+    // c2 held docs/shared.md when c1-1 answered; c3 claimed it once c2 had settled.
+    const claims = [{ path: 'docs/shared.md', cluster: 'c2', key: 'c2-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }, { path: 'docs/shared.md', cluster: 'c3', key: 'c3-1', round: 1 as const, claimedAt: '2026-10-09T02:00:00.000Z' }];
+    const withViolation = { ...review, fix: { ...fix, plan, claims, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, violations: ['docs/shared.md'] } } }, violationHolders: { 'c1-1': { 'docs/shared.md': { cluster: 'c2', by: 'claim' as const } } } } };
+    const lines = fixLimitations(withViolation);
+    assert.ok(lines.includes('- Ownership violation: docs/shared.md, claimed by c2, was edited by c1-1, which reported it; the edit is kept and revised (PD4).'), lines.join('\n'));
   });
 
   it('names an ownership violation with the cluster that reported it and the one that owns the file', () => {
     const review = fixRun().review();
     const fix = review.fix!;
-    const withViolation = { ...review, fix: { ...fix, plan: { ...fix.plan!, clusters: [...fix.plan!.clusters, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }] }, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, violations: ['src/b.ts'] } } } } };
+    const withViolation = { ...review, fix: { ...fix, plan: { ...fix.plan!, clusters: [...fix.plan!.clusters, { id: 'c2', findingIds: ['SWEEP-1'], files: ['src/b.ts'] }] }, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, violations: ['src/b.ts'] } } }, violationHolders: { 'c1-1': { 'src/b.ts': { cluster: 'c2', by: 'plan' as const } } } } };
     assert.ok(fixLimitations(withViolation).includes('- Ownership violation: src/b.ts, owned by c2, was edited by c1-1, which reported it; the edit is kept and revised (PD4).'));
   });
 

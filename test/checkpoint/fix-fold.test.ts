@@ -395,6 +395,19 @@ describe('the claims fold', () => {
     assert.throws(() => violating(c2Settled).fold(), /records a violation on test\/shared\.test\.ts/);
   });
 
+  it('keeps the holder each violation was judged against, which a later claim of the file does not change (R6)', () => {
+    const violated = running().add('files.claimed', claimed('c2-1', 'c2', [shared]))
+      .worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'applied', ['src/a.ts', 'src/b.ts', shared], [], ['src/b.ts', shared])));
+    assert.deepEqual(violated.review().fix!.violationHolders, { 'c1-1': { 'src/b.ts': { cluster: 'c2', by: 'plan' }, [shared]: { cluster: 'c2', by: 'claim' } } });
+    // c2 settles, which frees the file, and c1 claims it.
+    const reclaimed = violated.worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), answerOf('c2-1', 'SWEEP-1', 'applied', ['src/b.ts', shared])))
+      .add('files.claimed', claimed('c1-1', 'c1', [shared], '2026-10-09T02:00:00.000Z'))
+      .review().fix!;
+    assert.deepEqual(holdersOf(reclaimed, 1).get(shared), { cluster: 'c1', by: 'claim' });
+    assert.deepEqual(reclaimed.violationHolders['c1-1']?.[shared], { cluster: 'c2', by: 'claim' });
+    assert.deepEqual(running().worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'applied', ['src/a.ts']))).review().fix!.violationHolders, {}, 'an answer without a violation keeps none');
+  });
+
   it('folds a second round for a finding blocked on a file another first-round cluster claimed, settled or not, with its cluster\'s claims among its files (R4)', () => {
     // c2 claims the test, applies SWEEP-1 and settles; c1 claims docs/c1.md and answers RIPPLE-1 blocked on the test.
     const firstRound = running()

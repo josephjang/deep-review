@@ -12,7 +12,7 @@
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, clusterClaims, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, settledClusters, type ChecksPlanned, type FixState } from './fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, clusterClaims, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -229,14 +229,18 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `records an answer for ${payload.phase}:${payload.key} after it failed`);
   const given = payload.findings.map((finding) => finding.id);
   if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(', ')}] for ${payload.phase}:${payload.key}, which holds [${ids.join(', ')}]`);
-  // A violation is a reported file another cluster of the unit's round holds, by the plan or by a claim folded before the answer (R6 of commit series integrity); the repair, the only unit of its phase, has none.
-  const others = payload.phase === 'fixes' ? heldByOthers(fix, payload.key) : new Map();
+  // A violation is a reported file another cluster of the unit's round holds, by the plan or by a claim folded before the answer (R6 of commit series integrity), and that holder is kept with it; the repair, the only unit of its phase, has none.
+  const others = payload.phase === 'fixes' ? heldByOthers(fix, payload.key) : new Map<string, PathHolder>();
   const named = new Set(payload.findings.flatMap((finding) => finding.files));
+  const holders: [string, PathHolder][] = [];
   for (const path of payload.violations) {
-    if (!others.has(path) || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster holds`);
+    const holder = others.get(path);
+    if (holder === undefined || !named.has(path)) throw invalid(event, `records a violation on ${path}, which is not a reported file another cluster holds`);
+    holders.push([path, holder]);
   }
   const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
-  return withFix(current, review, { ...fix, answers }, event, answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId));
+  const violationHolders = holders.length === 0 ? fix.violationHolders : { ...fix.violationHolders, [payload.key]: Object.fromEntries(holders) };
+  return withFix(current, review, { ...fix, answers, violationHolders }, event, answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId));
 };
 
 const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {

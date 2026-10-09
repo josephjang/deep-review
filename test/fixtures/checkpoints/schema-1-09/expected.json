@@ -4719,6 +4719,14 @@
           },
           "claims": [],
           "lostClaims": [],
+          "violationHolders": {
+            "c1-1": {
+              "src/caller.ts": {
+                "cluster": "c2",
+                "by": "plan"
+              }
+            }
+          },
           "commits": {
             "commits": [
               {
@@ -6243,6 +6251,7 @@
           },
           "claims": [],
           "lostClaims": [],
+          "violationHolders": {},
           "commits": null
         },
         "survey": {
@@ -6895,6 +6904,7 @@
           },
           "claims": [],
           "lostClaims": [],
+          "violationHolders": {},
           "commits": null
         },
         "survey": {
@@ -9043,6 +9053,7 @@
           },
           "claims": [],
           "lostClaims": [],
+          "violationHolders": {},
           "commits": null
         },
         "survey": {
@@ -11996,6 +12007,7 @@
               "cluster": "c2"
             }
           ],
+          "violationHolders": {},
           "commits": null
         },
         "survey": {

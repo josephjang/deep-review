@@ -259,6 +259,10 @@ first (R12). (Added 2026-10-09, review F9.) The
 clusters of the round hold, by their plan's files or by a claim folded
 before the answer, which the order above makes every claim made by then;
 a violation on a path nobody holds on the ledger is refused as today.
+The holder each violation was checked against is kept in
+`FixState.violationHolders`, by the answer's unit and the path, a fact
+derived at the fold that no event carries, so a cluster that claims the
+path after that holder settled is never the one the report names.
 
 ### A lost claims directory (R12)
 
@@ -412,7 +416,8 @@ the already-applied finding's message, which this rule now covers.
 `changedFilesSection` (`src/review/fix-report.ts`) gains a column, "Held
 by": the cluster that owns the path, `c8 (claimed)` for a claimed one,
 and "nobody" for a path only a check or a late claim touched. The
-Limitations lines of `fixLimitations` name a violation's holder as
+Limitations lines of `fixLimitations` name a violation's holder, the one
+`FixState.violationHolders` kept when the answer folded, as
 "owned by c2" or "claimed by c2", add "Claimed late: <path> by
 <unit>, edited before it was claimed" for each late claim, and add
 "Claim lost: <path> by <unit> to <cluster>", or "which no batch of the
