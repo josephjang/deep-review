@@ -156,7 +156,7 @@ export const fixerOutputSchema = z.strictObject({
     file: reportedPath,
     line: z.number().int().min(1).nullable(),
     note: z.string().min(1).max(400),
-    /** The commit message of an applied finding, in the repository's own style; also allowed on an already-applied one whose edits an earlier attempt left (R20 of the fix pass); null for the rest. */
+    /** The commit message of the finding's edits, in the repository's own style: present exactly when `files` names a file, whatever the status, a blocked or deferred finding's saying the change is partial (R11 of commit series integrity). */
     message: z.strictObject({ subject: z.string().min(1).max(72), body: z.string().max(2000) }).nullable(),
     /** Every file edited or created for this finding. */
     files: z.array(reportedPath).max(200),
@@ -179,8 +179,8 @@ export type FixerOutput = z.infer<typeof fixerOutputSchema>;
 
 /**
  * Refuse a fixer's answer whose findings do not name each index of the
- * task once, that has no message on an applied finding or one on a
- * deferred or blocked finding, or
+ * task once, that has a finding naming files with no message or a message
+ * with no files, whatever its status (R11 of commit series integrity),
  * whose subject is not one line without a trailing period, or that names
  * required files on a finding that is not blocked. The checks that read
  * the paths against the worktree come after these (`fix-answer.ts`).
@@ -192,11 +192,9 @@ export function checkFixerAnswer(output: FixerOutput, count: number): void {
     if (finding.index >= count) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count - 1)}]`);
     if (seen.has(finding.index)) throw new StructuralCheckError(`${what} is answered twice`);
     seen.add(finding.index);
-    if (finding.status === 'applied' && finding.message === null) throw new StructuralCheckError(`${what} is applied and has no commit message`);
-    if ((finding.status === 'deferred' || finding.status === 'blocked') && finding.message !== null) {
-      // The output schema allows the message, so this refuses the whole answer after the work: https://github.com/josephjang/deep-review/issues/26
-      throw new StructuralCheckError(`${what} is ${finding.status} and has a commit message, which only an applied or already-applied finding carries`);
-    }
+    // The message goes with the edits, not the status: a blocked or deferred finding that holds edits commits them under its own message, saying the change is partial (R11, PD10 of commit series integrity).
+    if (finding.files.length > 0 && finding.message === null) throw new StructuralCheckError(`${what} names files and has no commit message; every finding that names files carries the message their commit takes, whatever its status`);
+    if (finding.files.length === 0 && finding.message !== null) throw new StructuralCheckError(`${what} has a commit message and names no file; a finding with no edits carries none`);
     if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith('.'))) {
       throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(finding.message.subject)}`);
     }

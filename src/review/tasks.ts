@@ -282,7 +282,7 @@ function claimBlock(command: string): string {
     '',
     `    ${command}`,
     '',
-    'It claims the file for your cluster until your cluster\'s last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. Report every file you edit or create under the finding it served.',
+    'It claims the file for your cluster until your cluster\'s last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial. Report every file you edit or create under the finding it served.',
   ].join('\n');
 }
 
@@ -299,7 +299,7 @@ function snapshotBlock(command: string, unit: 'finding' | 'check'): string {
 
 /** The answer's fields, as both fixer tasks describe them. */
 const answerFields = (unit: 'finding' | 'check'): string =>
-  `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for an applied ${unit}, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, null for a deferred or blocked one, and null for an already-applied one unless this task asks for its message; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+  `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it; a \`message\` for every ${unit} that names files, whatever its status, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for, and null for a ${unit} that names no file; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 
 const scratchRule = 'Write logs and every other temporary file under your scratch directory, never in the repository.';
 

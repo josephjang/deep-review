@@ -139,9 +139,9 @@ describe('the fixer\'s output schema', () => {
 
   const parsed = (findings: Record<string, unknown>[]) => fixerOutputSchema.parse(answer(findings));
 
-  it('accepts every index once, a message with an applied finding alone, and required files on a blocked one', () => {
-    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(1), finding(0, { status: 'blocked', message: null, requiredFiles: ['src/b.ts'] })]), 2));
-    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied', message: null })]), 1));
+  it('accepts every index once, a message with every finding that names files, and required files on a blocked one', () => {
+    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(1), finding(0, { status: 'blocked', message: null, files: [], requiredFiles: ['src/b.ts'] })]), 2));
+    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied', message: null, files: [] })]), 1));
     assert.doesNotThrow(() => checkFixerAnswer(parsed([]), 0));
   });
 
@@ -151,17 +151,23 @@ describe('the fixer\'s output schema', () => {
     assert.throws(() => checkFixerAnswer(parsed([finding(2)]), 2), /Finding \[2\] is outside the task, whose findings are numbered \[0\] to \[1\]/);
   });
 
-  it('refuses an applied finding without a message, and a message on a deferred or blocked one', () => {
-    assert.throws(() => checkFixerAnswer(parsed([finding(0, { message: null })]), 1), /Finding \[0\] is applied and has no commit message/);
-    for (const status of ['deferred', 'blocked']) {
-      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status })]), 1), new RegExp(`Finding \\[0\\] is ${status} and has a commit message, which only an applied or already-applied finding carries`), status);
+  it('accepts a blocked or deferred finding with files and a message, which commits its partial change under that message (R11 of commit series integrity)', () => {
+    for (const status of ['blocked', 'deferred', 'already-applied', 'applied']) {
+      const requiredFiles = status === 'blocked' ? ['src/b.ts'] : [];
+      assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status, requiredFiles, message: { subject: 'fix(a): Guard the null in part, until c2 lands', body: 'Partial: waits for src/b.ts.' } })]), 1), status);
     }
   });
 
-  it('lets an already-applied finding carry a message or not, as a retry verifying an earlier attempt\'s edits gives one (R20 of the fix pass)', () => {
-    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied' })]), 1));
-    assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied', message: null })]), 1));
-    assert.throws(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied', message: { subject: 'fix: Ends here.', body: '' } })]), 1), /one line with no trailing period/, 'its subject is held to the same rule');
+  it('refuses, whatever the status, a finding that names files with no message and one with a message and no files (R11 of commit series integrity)', () => {
+    for (const status of ['applied', 'already-applied', 'deferred', 'blocked']) {
+      const requiredFiles = status === 'blocked' ? ['src/b.ts'] : [];
+      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status, requiredFiles, message: null })]), 1), /Finding \[0\] names files and has no commit message; every finding that names files carries the message their commit takes, whatever its status/, status);
+      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status, requiredFiles, files: [] })]), 1), /Finding \[0\] has a commit message and names no file; a finding with no edits carries none/, status);
+    }
+  });
+
+  it('holds an already-applied finding\'s message to the subject rule, as a retry verifying an earlier attempt\'s edits gives one (R20 of the fix pass)', () => {
+    assert.throws(() => checkFixerAnswer(parsed([finding(0, { status: 'already-applied', message: { subject: 'fix: Ends here.', body: '' } })]), 1), /one line with no trailing period/);
   });
 
   it('refuses a subject with a line break or a trailing period', () => {
@@ -171,7 +177,7 @@ describe('the fixer\'s output schema', () => {
   });
 
   it('refuses required files on a finding that is not blocked', () => {
-    assert.throws(() => checkFixerAnswer(parsed([finding(0, { status: 'deferred', message: null, requiredFiles: ['src/b.ts'] })]), 1), /Finding \[0\] is deferred and names required files/);
+    assert.throws(() => checkFixerAnswer(parsed([finding(0, { status: 'deferred', message: null, files: [], requiredFiles: ['src/b.ts'] })]), 1), /Finding \[0\] is deferred and names required files/);
   });
 });
 

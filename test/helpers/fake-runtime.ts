@@ -157,7 +157,10 @@ export interface FixedFinding {
   readonly files?: readonly string[];
   readonly requiredFiles?: readonly string[];
   readonly subject?: string;
+  readonly body?: string;
   readonly note?: string;
+  /** False for an answer that leaves the message out of a finding that names files, which the structural check refuses. */
+  readonly message?: false;
 }
 
 /** A fixer's answer with one entry per finding, by index, in the shape its output schema demands. */
@@ -171,8 +174,8 @@ export function fixerAnswer(findings: readonly FixedFinding[]): unknown {
         file: finding.files?.[0] ?? 'src/a.ts',
         line: 1,
         note: finding.note ?? `fake ${status} [${String(index)}]`,
-        // An applied finding always carries a message; an already-applied one only when the script gives its subject, as a retry verifying an earlier attempt's edits does.
-        message: status === 'applied' || (status === 'already-applied' && finding.subject !== undefined) ? { subject: finding.subject ?? `fix: Apply finding ${String(index)}`, body: `Why finding ${String(index)} changed.` } : null,
+        // A finding that names files carries a message, whatever its status, and one that names none carries none (R11 of commit series integrity); `message: false` leaves it out, as a fixer that breaks the rule does.
+        message: (finding.files ?? []).length > 0 && finding.message !== false ? { subject: finding.subject ?? `fix: Apply finding ${String(index)}`, body: finding.body ?? `Why finding ${String(index)} changed.` } : null,
         files: [...(finding.files ?? [])],
         corrections: [],
         validation: [{ method: 'existing', source: 'tests', evidence: 'fake evidence' }],

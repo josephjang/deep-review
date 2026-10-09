@@ -296,7 +296,7 @@ describe('the fixer\'s task', () => {
   it('quotes the claim command on a line of its own with the path placeholder, before the first edit for a finding, and says a refusal blocks the finding (R1, R8 of commit series integrity)', () => {
     const task = fixerTask(input);
     assert.match(task, /^Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of <path>:\n\n {4}node "\/engine\/main\.mjs" claim --path "<path>" --unit c1-2 --in "\/scratch\/claims\/run\/round-1"\n\n/m);
-    assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it\. Report every file you edit or create under the finding it served\./);
+    assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it\. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial\. Report every file you edit or create under the finding it served\./);
     assert.doesNotMatch(task, /You may edit any other file/, 'the claim rule replaces the old freedom');
     assert.ok(task.indexOf('Before your first edit for a finding') < task.indexOf('After finishing each finding'), 'the claim comes before the snapshot rule');
   });
@@ -367,7 +367,8 @@ describe('the fixer\'s task', () => {
     assert.match(fixerTask({ ...input, mayHoldWork: true }), /The tree may already hold part of this work: an earlier worker on it did not finish\. Verify each finding against the code before applying it/);
     assert.doesNotMatch(fixerTask({ ...input, mayHoldWork: true }), /An earlier attempt left edits/, 'no finding has an attempt\'s recorded edits');
     assert.match(fixerTask({ ...input, mayHoldWork: true, unfinished: ['RIPPLE-1', 'SWEEP-1'] }), /never apply a change on top of itself\. An earlier attempt left edits for RIPPLE-1, SWEEP-1, recorded as that attempt's work; for each of these you report `already-applied`, give the `message` its commit will carry, as for an applied finding\.$/m);
-    assert.match(fixerTask(input), /null for a deferred or blocked one, and null for an already-applied one unless this task asks for its message;/);
+    assert.match(fixerTask(input), /a `message` for every finding that names files, whatever its status, [^;]*, a blocked or deferred finding's saying the change is partial and what it waits for, and null for a finding that names no file;/);
+    assert.doesNotMatch(fixerTask(input), /null for a deferred or blocked one/);
   });
 });
 
