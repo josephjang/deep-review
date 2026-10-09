@@ -631,6 +631,8 @@ R10, in this form:
 |---|---|---|---|
 | Concurrency in the fix pass | 4 | 1 | 4 |
 | Engine commits, green alone | 13 of 23 | 16 of 17 | |
+| Commits holding another cluster's edit (pass: 0) | 10 of 23 | 0 of 17 | |
+| Red commits inside one batch (pass: each explained) | 0 of 23 | 1 of 17 | |
 | Fixer workers | 14 | 13 | |
 | Claims made, refused, late | | | |
 | Second round | 7 findings, 2 batches | 6 findings, 2 batches | |
@@ -638,7 +640,11 @@ R10, in this form:
 | Fixes phase, wall seconds | 3905 | 5964 | |
 | The run: workers, USD | 48, 37.86 | 47, 32.34 | |
 
-The per-commit check checks out each commit detached in turn and runs
+The gate passes when the first of the two added rows is zero and every
+commit of the second has its cause named (R10, F10); the first row is
+read from the ledger, each revision's paths against what its cluster
+owned, claimed or claimed late at that point. The per-commit check
+checks out each commit detached in turn and runs
 `npm run check` there, which writes nothing, as the decision step's
 commits were checked after 2026-10-08's incident, and runs
 `npm run verify` on the series' last commit, which the build check's

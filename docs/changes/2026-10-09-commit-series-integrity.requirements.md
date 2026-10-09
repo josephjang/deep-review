@@ -306,7 +306,18 @@ a rebuild, and a file a decision named.
   wall time and cost are recorded in the design's Verification against
   the two 2026-10-08 runs: 16 of 17 green commits, 47 workers and 32.34
   USD with one fixer at a time; 13 of 23, 48 workers, 37.86 USD and a
-  3905 s fixes phase in parallel.
+  3905 s fixes phase in parallel. The gate passes on three conditions
+  (decided 2026-10-09, review F10). First, no commit holds a path its
+  cluster neither owned nor claimed, late claims included, which the
+  ledger and the revisions decide and which is the closing of #22 and
+  #23: 10 of 23 on the parallel run, 0 of 17 on the sequential, and
+  zero on the gate. Second, every commit red under `npm run check`
+  alone lies inside one batch and has its cause named, the kind #24
+  describes: 0 of 23 and 1 of 17 on the two runs, and on the gate each
+  one explained. Third, the costs above are recorded. Every commit
+  green is the aim and not the pass condition, since the Risks accept a
+  failure only the full suite shows, and a single gate run on another
+  change is one sample, not a measurement against the two runs.
 - **R11: A commit message goes with the files, whatever the status.**
   (Added 2026-10-09, review F4.) A finding whose `files` is not empty
   carries a `message` that describes those edits, applied,
@@ -340,9 +351,16 @@ a rebuild, and a file a decision named.
 
 ## Metrics
 
-- Engine commits that pass `npm run check` alone: every one. The
-  sequential run's 16 of 17 is the number to beat; the parallel run's
-  13 of 23 is the number the mechanism answers.
+- Engine commits that pass `npm run check` alone: every one is the aim.
+  The sequential run's 16 of 17 is the number to beat; the parallel
+  run's 13 of 23 is the number the mechanism answers. The pass
+  conditions are R10's (F10).
+- Commits holding a path their cluster neither owned nor claimed, from
+  the ledger and the revisions: 10 of 23 on the parallel run, 0 of 17 on
+  the sequential; zero on the gate is the first pass condition.
+- Red commits that lie inside one batch, the kind of #24, each with its
+  cause: 0 of 23 and 1 of 17; each explained is the second pass
+  condition.
 - Fixes-phase wall time at the default concurrency, against 3905 s in
   parallel and 5964 s one at a time on the same change.
 - Second-round findings and batches, against 7 in 2 batches. On the
@@ -605,7 +623,8 @@ a rebuild, and a file a decision named.
   quick checks reach.** A test that fails only in the full suite, run at
   the batch's end, can still leave an intermediate commit red. Accepted;
   the full series is checked after the run, and the count is the
-  metric.
+  metric, which is why every commit green is the aim and not the pass
+  condition (R10, F10).
 - **A fixer keeps a generator's output in its revision.** Under
   concurrency that output holds siblings' half-made edits. Accepted;
   the prompt says to restore it (R7), the tail check revision overwrites
