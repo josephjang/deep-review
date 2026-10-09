@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { caseInsensitiveFileSystem, claimFile, ClaimRequestError, claimsDirectoryFor, ClaimsDirectoryLostError, heldFileName, markerHash, markerName, normalizeClaimPath, prepareClaims, readClaims, readHeld, type Held } from '../../src/review/claims.ts';
+import { caseInsensitiveFileSystem, claimFile, ClaimRequestError, claimsDirectoryFor, claimsDirectoryIntact, ClaimsDirectoryLostError, heldFileName, markerHash, markerName, normalizeClaimPath, prepareClaims, readClaims, readHeld, type Held } from '../../src/review/claims.ts';
 import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
 import { repositoryWith } from '../helpers/repository.ts';
@@ -97,6 +97,17 @@ describe('claims', () => {
       assert.equal(existsSync(dir), false);
       prepareClaims(dir, round(), [], false);
       assert.ok(existsSync(join(dir, heldFileName)), 'a first launch, or a resumed engine, creates it');
+    });
+
+    it('refuses a directory it prepared before that was emptied in place, its held.json gone, writing nothing (R12)', () => {
+      prepare();
+      assert.equal(claimsDirectoryIntact(dir), true);
+      rmSync(join(dir, heldFileName));
+      assert.equal(claimsDirectoryIntact(dir), false, 'the directory is there, but not intact');
+      assert.throws(() => prepareClaims(dir, round(), [{ path: 'docs/a.md', cluster: 'c1', unit: 'c1-1', claimedAt: null }], true), (error: unknown) => error instanceof ClaimsDirectoryLostError && error.directory === dir);
+      assert.deepEqual(readdirSync(dir), [], 'neither held.json nor a seeded marker');
+      assert.throws(() => claimFile(dir, 'docs/a.md', 'c1-1'), ClaimsDirectoryLostError, 'the command judges it lost by the same test');
+      assert.equal(claimsDirectoryIntact(join(dir, 'missing')), false);
     });
   });
 

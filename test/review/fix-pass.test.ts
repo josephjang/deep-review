@@ -821,6 +821,31 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       assert.equal(events.filter(([kind]) => kind === 'fix.recorded').length, 0, 'no answer recorded as completed while its markers were dropped');
     });
 
+    it('stops the run when its claims directory is emptied in place while two fixers run, as the claim command judges it lost (R12)', async (t) => {
+      const box = ReviewSandbox.forTest(t);
+      const c1MayAnswer = join(box.directory, 'c1-may-answer');
+      const c2MayAnswer = join(box.directory, 'c2-may-answer');
+      box.script({
+        ...reviewScript,
+        'fixer:fixes:c1-1': { edits: [{ claims: ['docs/c1.md'], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, 'docs/c1.md': 'c1\n' }, snapshot: 0 }], waitFor: c1MayAnswer, output: fixerAnswer([{ files: ['docs/c1.md', 'src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+        'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], waitFor: c2MayAnswer, output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+      });
+      const pending = box.fix('claude');
+      await until(() => box.checkpoint.foldRuns().length === 1 && box.markers().length === 1 && existsSync(join(box.repo, 'src', 'b.ts')) && readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8') === fixedB && box.checkpoint.foldRuns()[0]!.review?.fix?.plan !== null, 'both fixers\' edits in the tree', 120_000);
+      const directory = box.claimsDirectory();
+      // A temporary file cleaner takes the files and leaves the directory: held.json and c1's marker are gone.
+      for (const name of readdirSync(directory)) rmSync(join(directory, name));
+      writeFileSync(c1MayAnswer, '');
+      await until(() => (box.checkpoint.foldRuns()[0]?.review?.units.fixes['c1-1']?.failures.length ?? 0) > 0 || box.checkpoint.foldRuns()[0]?.review?.fix?.answers.fixes['c1-1'] !== undefined, 'c1-1\'s outcome on the ledger', 120_000);
+      writeFileSync(c2MayAnswer, '');
+      const blocked = await pending;
+      assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'claims-lost', JSON.stringify(blocked));
+      const events = box.events(box.run().id);
+      assert.deepEqual(events.filter(([kind]) => kind === 'attempt.failed').map(([, payload]) => [payload.key, payload.fault]).sort(), [['c1-1', 'environment'], ['c2-1', 'environment']]);
+      assert.equal(events.filter(([kind]) => kind === 'fix.recorded').length, 0, 'no answer recorded as completed while its markers were dropped');
+      assert.deepEqual(readdirSync(directory), [], 'held.json is not written again behind the loss');
+    });
+
     it('lets a later cluster claim a file a settled cluster claimed, with no second round, at concurrency 1 as at any (PD3)', async (t) => {
       const box = ReviewSandbox.forTest(t);
       box.script({

@@ -5,13 +5,13 @@
  * it found removed, which stops the phase. A directory this engine has not
  * prepared, as a resumed engine's before its first launch, has no claims to
  * read; the next launch seeds it from the ledger. One it prepared and finds
- * gone is lost, once, and stays lost.
+ * no longer intact, gone or emptied of its `held.json`, is lost, once, and
+ * stays lost.
  */
-import { existsSync } from 'node:fs';
 import { claimsOfRound, roundOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { heldOf, type ClaimsAccess } from './claim-events.ts';
-import { claimsDirectoryFor, ClaimsDirectoryLostError, prepareClaims, readClaims } from './claims.ts';
+import { claimsDirectoryFor, claimsDirectoryIntact, ClaimsDirectoryLostError, prepareClaims, readClaims } from './claims.ts';
 import type { ClaimsContext } from './phases.ts';
 
 /** What the claims directories of a run are kept with. */
@@ -31,14 +31,14 @@ export interface ClaimsDirectoriesOptions {
 
 /** A run's claims directories, as one engine prepares and reads them. */
 export interface ClaimsDirectories {
-  /** Where fixes-phase units claim files and what their directories hold now; a directory found gone after this engine prepared it is lost. */
+  /** Where fixes-phase units claim files and what their directories hold now; a directory found no longer intact after this engine prepared it is lost. */
   readonly claims: ClaimsContext;
   /**
    * Prepare a fixes-phase unit's round's directory, before its launch and
    * again once it settles: what the claim command is told of the round, as
    * the fold has it now, and every claim of the round the ledger holds,
    * seeded back where the directory lost it. False, the loss recorded, when
-   * this engine prepared it before and it is gone.
+   * this engine prepared it before and it is no longer intact.
    */
   readonly prepare: (key: string) => boolean;
   /**
@@ -68,7 +68,7 @@ export function claimsDirectories(options: ClaimsDirectoriesOptions): ClaimsDire
     live: (key) => {
       const directory = directoryOf(key);
       try {
-        if (existsSync(directory)) return { markers: readClaims(directory, caseInsensitive()), caseInsensitive: caseInsensitive() };
+        if (claimsDirectoryIntact(directory)) return { markers: readClaims(directory, caseInsensitive()), caseInsensitive: caseInsensitive() };
       } catch (error) {
         if (!(error instanceof ClaimsDirectoryLostError)) throw error;
       }

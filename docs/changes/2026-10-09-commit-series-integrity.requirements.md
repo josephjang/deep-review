@@ -351,7 +351,9 @@ two clusters in either run (review of 2026-10-09, F11).
   composes stays only for a refused attempt's revisions (#9).
 - **R12: A claims directory that disappears stops the run.** (Added
   2026-10-09, review F5.) When the engine finds the round's claims
-  directory gone, at a launch when it prepares the directory or when it
+  directory gone, or without the `held.json` it wrote there, as the
+  claim command does (R2; amended 2026-10-10, review ALTITUDE-7), at a
+  launch when it prepares the directory or when it
   reads the directory to record a unit's outcome, it launches nothing
   more. Each unit still running is recorded, when it ends, as a failed
   attempt whose reason names the lost directory, whatever it answered,
