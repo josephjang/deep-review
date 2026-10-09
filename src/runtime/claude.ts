@@ -273,8 +273,9 @@ export function claudeCommand(invocation: Invocation, plan: LaunchPlan, settings
     // continuation keeps the id of the session it resumes.
     ...(plan.resume === null ? ['--session-id', plan.sessionId] : ['--resume', plan.resume]),
     // Without this the CLI denies every write outside the worktree, including the scratch directory the prompt names.
-    // `plan.shared` is not added: its editor reaches the directory only through the commands its task quotes, which the shell runs unsandboxed, and its file tools need no write there.
+    // `plan.shared` is added like the scratch, so the commands its task quotes can still write there when a managed policy sandboxes the shell.
     ...(plan.scratch === null ? [] : ['--add-dir', plan.scratch]),
+    ...(plan.shared === null ? [] : ['--add-dir', plan.shared]),
     ...(invocation.budgetUsd === undefined ? [] : ['--max-budget-usd', String(invocation.budgetUsd)]),
     '--tools', tools,
     '--allowedTools', tools,
