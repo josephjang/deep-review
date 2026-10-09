@@ -735,11 +735,12 @@ the engine or a fragment.
 
 The element was built in commits `f387aef` (the claim command) to
 `3a1dd7e` (the last prompt fragment), on `698d18d`, the design as
-amended for the ledger versions; the rebuild of `dist/` follows them,
-the series' last commit. Each commit passed `npm run check` on Windows;
-the last, 1728 tests in 254 suites, 1709 passing, 19 skipped as the
-platform asks, none failing, from 1653 at the first commit of the
-series. Continuous integration on the three platforms runs once the
+amended for the ledger versions, and `85a0608`, which added the
+second-round task's naming of a claimed file the series had left out;
+the rebuild of `dist/` is the series' last commit. Each commit passed
+`npm run check` on Windows; `85a0608`, 1729 tests in 254 suites, 1710
+passing, 19 skipped as the platform asks, none failing, from 1653 at
+the first commit of the series. Continuous integration on the three platforms runs once the
 branch is pushed.
 
 The roles digest a run configured from the repository's roles pins:
@@ -777,6 +778,12 @@ otherwise:
 - **A claims event per unit, unless the order forbids it.** Two markers
   of one path from two units in one settle go into events in the order
   they were made, so the fold takes them as the engine judged them.
+- **A continuation does not keep `shared`.** The shared directory is
+  not recorded on `worker.launched@1`, which stays as it is, so
+  `continuationFields` has nothing to compare it with, and each launch
+  takes the directory its invocation names. The engine resumes no fixer
+  today; a continuation that needs the directory kept would record it
+  first, as a new version of that event.
 - **Claude Code's editor gets no `--add-dir` for the claims
   directory.** Only the quoted commands write there, run by its shell,
   and its file tools need no write in it.
