@@ -91,6 +91,11 @@ export function statOf(worktree: string, path: string): [number, number] | null 
   return stat !== undefined && (stat.isFile() || stat.isSymbolicLink()) ? [stat.size, stat.mtimeMs] : null;
 }
 
+/** Whether a file a manifest recorded changed since: it is gone, or its size or time differs. */
+function statDiffers(before: [number, number], now: [number, number] | null): boolean {
+  return now === null || before[0] !== now[0] || before[1] !== now[1];
+}
+
 /** Each path a snapshot may copy among `paths`, with its size and time, as a manifest records them. */
 function statMapOf(worktree: string, paths: readonly string[]): SnapshotManifest['files'] {
   return Object.fromEntries(paths.filter(safePath).map((path) => [path, statOf(worktree, path)]));
@@ -119,8 +124,7 @@ function changedSince(manifest: SnapshotManifest): string[] {
       if (ignoredFiles.has(path) || !(entry.isFile() || entry.isSymbolicLink())) continue;
       found.add(path);
       const before = manifest.files[path];
-      const now = statOf(manifest.worktree, path);
-      if (before === undefined || before === null || now === null || before[0] !== now[0] || before[1] !== now[1]) changed.push(path);
+      if (before === undefined || before === null || statDiffers(before, statOf(manifest.worktree, path))) changed.push(path);
     }
   };
   walk('');
@@ -230,7 +234,7 @@ export function changedListed(manifest: SnapshotManifest): string[] {
   return Object.entries(manifest.files)
     .filter(([path, before]) => {
       const now = statOf(manifest.worktree, path);
-      return before === null ? now !== null : now === null || before[0] !== now[0] || before[1] !== now[1];
+      return before === null ? now !== null : statDiffers(before, now);
     })
     .map(([path]) => path)
     .sort();
