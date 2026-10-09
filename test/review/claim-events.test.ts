@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
 import { heldByOthers } from '../../src/checkpoint/fix-state.ts';
@@ -103,6 +106,19 @@ describe('settleClaims', () => {
     const folded: LiveClaims = { markers: [{ whole: true, hash: markerHash('src/A.ts', true), generation: 1, path: 'src/A.ts', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' }], caseInsensitive: true };
     assert.deepEqual(kinds(settleClaims(history.fold(), 'c1-1', folded, worktree).events), [['claims.lost', { phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/a.ts', claimedAt: '2026-10-09T01:00:01.000Z', reason: 'owned', holder: 'c1' }] }]]);
     assert.equal(lateClaim(history.fold(), 'c2-1', ['Src/A.ts'], true), null, 'nor is it free for a late claim');
+  });
+
+  it('records a marker by the exact path it names where the file system does not fold case, though the worktree holds a file spelled otherwise', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'deep-review-claim-events-'));
+    try {
+      mkdirSync(join(directory, 'src'));
+      writeFileSync(join(directory, 'src', 'a.ts'), 'a\n');
+      // c2 claims a new src/A.ts beside c1's src/a.ts: on a case-sensitive file system two files, so neither owned by c1 nor c1's.
+      const settle = settleClaims(running().fold(), 'c1-1', live(marker('src/A.ts', 'c2-1', 'c2')), directory);
+      assert.deepEqual(kinds(settle.events), [['files.claimed', { phase: 'fixes', key: 'c2-1', cluster: 'c2', files: [{ path: 'src/A.ts', claimedAt: '2026-10-09T01:00:01.000Z' }] }]]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
