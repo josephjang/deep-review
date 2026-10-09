@@ -230,7 +230,13 @@ a rebuild, and a file a decision named.
   files; that the holder has settled since the refusal changes nothing,
   since the blocked answer is already recorded. The first round's
   claims end with it, and second-round fixers claim among themselves the
-  same way.
+  same way. A claim refused in the second round leaves its finding
+  blocked, as R21 leaves a finding blocked twice: there is no third
+  round. PD18 of the fix pass reasoned that a finding blocked twice had
+  twice misjudged what it needed; a refused claim is a race lost, not a
+  misjudgment, so the gate counts such findings (R10), and rounds that
+  run until no finding is blocked, under a cap, are the next lever if
+  the count says so (decided 2026-10-09).
 - **R5: A refused attempt's revisions take only its cluster's work.**
   The paths of an unfinished attempt's revisions (R20 of the fix pass)
   are the unit's owned files, the files its cluster claimed, and every
@@ -284,7 +290,8 @@ a rebuild, and a file a decision named.
   under `git rebase --exec` (#27), and the series' last commit passes
   `npm run verify`, which is what the repository asks of a pushed head
   (AGENTS.md, "Before every commit", as amended on 2026-10-09). The run's commits, fixer
-  workers, claims made and refused, second-round findings, fixes-phase
+  workers, claims made and refused, second-round findings, findings left
+  blocked by a claim refused in the second round, fixes-phase
   wall time and cost are recorded in the design's Verification against
   the two 2026-10-08 runs: 16 of 17 green commits, 47 workers and 32.34
   USD with one fixer at a time; 13 of 23, 48 workers, 37.86 USD and a
@@ -302,6 +309,9 @@ a rebuild, and a file a decision named.
   the second round (design, Context), about one more batch.
 - Claims per batch, claims refused, late claims and violations against
   claimed files, from the ledger.
+- Findings left blocked by a claim refused in the second round, from
+  the ledger: zero on both 2026-10-08 runs, whose second rounds had one
+  cluster each, so no claim could be refused there (R4).
 - The per-commit check is a loop over detached checkouts, one commit at
   a time, running `npm run check`, which writes nothing; `npm run
   verify` runs on the series' last commit only (PD9). It is never run
@@ -510,6 +520,12 @@ a rebuild, and a file a decision named.
   measures the time and the series.
 - **A decision that names one file for several findings now costs
   second rounds.** PD6 leaves the lever for later with the gate's count.
+- **A claim refused in the second round blocks a finding for good.** A
+  second round with several clusters races for its unowned files as the
+  first did, and the loser has no third round. Accepted for now: both
+  2026-10-08 runs' second rounds had one cluster, the gate counts the
+  case, and rounds until no finding is blocked, under a cap, are the
+  lever (R4).
 - **The series is green commit by commit only as far as the fixer's
   quick checks reach.** A test that fails only in the full suite, run at
   the batch's end, can still leave an intermediate commit red. Accepted;
