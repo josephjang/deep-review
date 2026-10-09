@@ -152,12 +152,6 @@ export function batchOf(fix: FixState, key: string): PlannedBatch | null {
   return allBatches(fix).find((batch) => batch.key === key) ?? null;
 }
 
-/** The clusters of the round a fixes-phase batch belongs to: within a round no file has two owners, and a round's ownership ends with it (R21). */
-export function roundClusters(fix: FixState, key: string): PlannedCluster[] {
-  const second = fix.secondRound?.batches.some((batch) => batch.key === key) ?? false;
-  return [...((second ? fix.secondRound?.clusters : fix.plan?.clusters) ?? [])];
-}
-
 /** Whether a fixes-phase batch has settled: answered, or not attempted. */
 const batchSettled = (fix: FixState, key: string): boolean => Object.hasOwn(fix.answers.fixes, key) || isNotAttempted(fix, 'fixes', key);
 
@@ -171,9 +165,14 @@ export function roundOf(fix: FixState, key: string): 1 | 2 {
   return (fix.secondRound?.batches.some((batch) => batch.key === key) ?? false) ? 2 : 1;
 }
 
-/** The clusters and batches of one round of the fixes phase. */
+/** The plan of one round of the fixes phase, its clusters and batches, or null until that round is planned: within a round no file has two owners, and a round's ownership ends with it (R21). */
+export function planOfRound(fix: FixState, round: 1 | 2): Pick<FixesPlanned, 'clusters' | 'batches'> | null {
+  return round === 1 ? fix.plan : fix.secondRound;
+}
+
+/** The clusters and batches of one round of the fixes phase, none before it is planned. */
 function roundPlan(fix: FixState, round: 1 | 2): { readonly clusters: readonly PlannedCluster[]; readonly batches: readonly PlannedBatch[] } {
-  const plan = round === 1 ? fix.plan : fix.secondRound;
+  const plan = planOfRound(fix, round);
   return { clusters: plan?.clusters ?? [], batches: plan?.batches ?? [] };
 }
 
