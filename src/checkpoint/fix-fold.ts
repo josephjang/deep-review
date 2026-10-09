@@ -12,7 +12,7 @@
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, clusterClaims, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -137,7 +137,8 @@ const fixesReplanned: Reducer<FixesReplanned> = (state, payload, event) => {
   if (plan === null) throw invalid(event, 'plans a second round before the first');
   if (fix.secondRound !== null) throw invalid(event, 'plans its second round twice');
   if (!firstRoundSettled(fix)) throw invalid(event, 'plans its second round before every batch of the first settled');
-  const heldBy = firstRoundHolders(plan.clusters, claimsOfRound(fix, 1));
+  const claims = claimsOfRound(fix, 1);
+  const heldBy = firstRoundHolders(plan.clusters, claims);
   const filesOf = new Map<string, readonly string[]>();
   for (const entry of payload.blocked) {
     if (filesOf.has(entry.id)) throw invalid(event, `takes finding ${entry.id} into its second round twice`);
@@ -149,7 +150,7 @@ const fixesReplanned: Reducer<FixesReplanned> = (state, payload, event) => {
     }
     const foreign = entry.requiredFiles.filter((path) => ![...(heldBy.get(path) ?? [])].some((cluster) => cluster !== own.id));
     if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(', ')}, which no other first-round cluster owned or claimed`);
-    filesOf.set(entry.id, [...new Set([...own.files, ...clusterClaims(fix, 1, own.id), ...entry.requiredFiles])]);
+    filesOf.set(entry.id, secondRoundFiles(own, claims, entry.requiredFiles));
   }
   const owner = new Map<string, string>();
   const taken = new Set<string>();

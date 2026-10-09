@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, holdersOf, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, settledClusters } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, holdersOf, lastAnswerOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
@@ -420,6 +420,12 @@ describe('the claims fold', () => {
     assert.deepEqual(fix.secondRound, second);
     assert.deepEqual(secondRoundOf(firstRound.review()), second, 'the planner makes the plan the fold accepts');
     assert.throws(() => firstRound.clone().add('fixes.replanned', { ...second, clusters: [{ ...second.clusters[0]!, files: ['src/a.ts', shared] }] }).fold(), /gives second-round cluster c3 the files \[src\/a\.ts, test\/shared\.test\.ts\], not its findings' \[docs\/c1\.md, src\/a\.ts, test\/shared\.test\.ts\]/);
+  });
+
+  it('gives a second-round finding its cluster\'s files, that cluster\'s claims and the files it needed, sorted, once each (R4)', () => {
+    const claims = [{ path: 'docs/z.md', cluster: 'c1' }, { path: shared, cluster: 'c2' }, { path: 'docs/z.md', cluster: 'c1' }, { path: 'docs/a.md', cluster: 'c1' }];
+    assert.deepEqual(secondRoundFiles({ id: 'c1', files: ['src/a.ts'] }, claims, [shared, 'src/a.ts']), ['docs/a.md', 'docs/z.md', 'src/a.ts', shared]);
+    assert.deepEqual(secondRoundFiles({ id: 'c1', files: [] }, [], []), [], 'a cluster with no files, claims or needs has none');
   });
 
   it('refuses a second round for a file only the finding\'s own cluster claimed, or nobody held', () => {

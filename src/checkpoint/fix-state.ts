@@ -232,9 +232,23 @@ export function claimRefusal(holder: PathHolder | undefined, cluster: string, se
   return holder.cluster === cluster || !settled.has(holder.cluster) ? 'held' : null;
 }
 
+/** The paths a cluster claimed among `claims`, in the order it first claimed them. */
+const pathsClaimedBy = (claims: readonly Pick<RecordedClaim, 'path' | 'cluster'>[], cluster: string): string[] => [...new Set(claims.filter((claim) => claim.cluster === cluster).map((claim) => claim.path))];
+
 /** The paths a cluster claimed in a round, in the order it first claimed them. */
 export function clusterClaims(fix: FixState, round: 1 | 2, cluster: string): string[] {
-  return [...new Set(claimsOfRound(fix, round).filter((claim) => claim.cluster === cluster).map((claim) => claim.path))];
+  return pathsClaimedBy(claimsOfRound(fix, round), cluster);
+}
+
+/**
+ * A second-round finding's files (R4 of commit series integrity): its
+ * first-round cluster's files, the files that cluster claimed among the
+ * first round's `claims`, and the files the finding was blocked on,
+ * sorted, none twice. The planner plans by it and the fold holds a
+ * recorded plan to it, so the two cannot drift apart.
+ */
+export function secondRoundFiles(own: { readonly id: string; readonly files: readonly string[] }, claims: readonly Pick<RecordedClaim, 'path' | 'cluster'>[], requiredFiles: readonly string[]): string[] {
+  return [...new Set([...own.files, ...pathsClaimedBy(claims, own.id), ...requiredFiles])].sort();
 }
 
 /**
