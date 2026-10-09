@@ -175,10 +175,13 @@ seven findings in two batches to nine in three.
 the same path and `--in` checks as `snapshot`; exit 0 for `owned` or
 `claimed`, 2 with the holder's cluster on stderr for a refusal, 1
 otherwise. `claimCommandFor(engineEntry, unit, into)` in `controller.ts`
-quotes it as `node "<entry>" claim --path "<path>" --unit <key> --in
+quotes it as `node "<entry>" claim --path '<path>' --unit <key> --in
 "<dir>"`, with `claimPathPlaceholder` (`<path>`) for the task, the
-path quoted as the directory is so that a path with a space stays one
-argument (2026-10-09, review F12).
+path quoted so that a path with a space stays one argument (2026-10-09,
+review F12), and in single quotes so that `$`, a backtick or `\`
+reaches the command as written in bash and PowerShell alike, where a
+double-quoted `app/routes/$id.tsx` would be claimed as
+`app/routes/.tsx` (2026-10-10, review FOOTGUNS-1).
 
 The command never opens the ledger: Codex keeps the git directory
 read-only, and the directory it reads is the launch's view of the plan
