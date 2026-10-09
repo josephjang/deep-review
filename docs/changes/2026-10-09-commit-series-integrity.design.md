@@ -145,7 +145,11 @@ seven findings in two batches to nine in three.
   instant, or two claiming it after its holder settled, aim at the same
   `n` and get one marker and one refusal.
 - `readClaims(dir)` lists the markers with their generations, and
-  `claimsOfCluster(dir, id)` those of one cluster, for the engine.
+  `claimsOfCluster(dir, id)` those of one cluster, for the engine. A
+  directory that is gone makes `claimFile` exit 1 with `the claims
+  directory <dir> is gone: stop editing and answer` on stderr (R2,
+  R12), and makes `readClaims` throw `ClaimsDirectoryLostError`, which
+  the controller turns into the stop below.
 
 `src/cli.ts` gains `claim --path <path> --unit <key> --in <dir>
 [--repo <dir>]`, listed with `snapshot` as run by a fix worker, with
@@ -207,6 +211,34 @@ is refused by the command's reader before any event is built. The
 clusters of the round hold, by their plan's files or by a claim folded
 before the answer, which the order above makes every claim made by then;
 a violation on a path nobody holds on the ledger is refused as today.
+
+### A lost claims directory (R12)
+
+Added 2026-10-09 (review F5). The engine sees the loss in two places:
+`prepareClaims` at a launch, when the round's directory does not exist
+though an earlier launch of the round made it, and `readClaims` when a
+unit's outcome is recorded. Either sets `claimsLost` on the fixes phase
+for the rest of this engine's life, and the planner then behaves as it
+does for a drift found mid-phase: `nextStep` launches nothing, awaits
+the running units, and once none runs finishes the phase blocked with
+`claims-lost`, a new blocker code whose action reads "the claims
+directory <dir> was removed while the run was editing; run the command
+again, which seeds it from the ledger and retries the units that ran
+without it".
+
+A unit that ends after the loss is not answered. Whatever its worker
+returned, `record` appends `attempt.failed@4` with the reason "the
+claims directory was removed while the unit ran" and `fault:
+'environment'`, a new field of that kind, with the attempt's revisions
+(R20) in the same append; `interrupted` in `steps.ts` reads `fault:
+'environment'` as it reads `lost`, so the failure exhausts nothing and
+the unit blocks rather than degrades. `attempt.failed@4` changes in
+place, as the 2026-10-08 decision allows, with `fault: 'unit'` the
+value every existing history folds to, and `schema-1-09` carries the
+field. The resumed run re-enters the phase, seeds the directory from
+the recorded claims and launches the units afresh, their tasks naming
+the findings the failed attempt left edits for, as a retry's task does
+today.
 
 ### The fixer's task (R8)
 
@@ -473,14 +505,22 @@ readable, and no kind the corpus holds changes shape here.
   holder; two claims of one path in one instant give one marker and one
   refusal (two processes); a claim of a path whose holder `held.json`
   lists as settled creates the next generation and succeeds, and two
-  such claims in one instant give one marker and one refusal; a path outside the tree, under `.git`, with
+  such claims in one instant give one marker and one refusal; a claim
+  into a directory that is gone exits 1 with the stop message, and
+  `readClaims` of it throws (R12); a path outside the tree, under `.git`, with
   a backslash or `..`, is refused; the command starts no process, with
   `node:child_process` made to throw as the snapshot test does.
 - `test/cli.test.ts`: `claim` parses its flags, refuses unknown ones and
   `--in` inside the worktree, exits 0, 2 and 1 as designed, and runs
   from a fixer's shell.
 - `test/checkpoint/events-vocabulary.test.ts`: `files.claimed@1`'s
-  schema, its caps and the null time; `reviewVocabularyV4` unchanged.
+  schema, its caps and the null time; `attempt.failed@4`'s `fault`
+  with its two values; the `claims-lost` blocker code;
+  `reviewVocabularyV4` unchanged.
+- `test/checkpoint/review-fold.test.ts` and `test/review/steps.test.ts`:
+  an attempt failed with `fault: 'environment'` does not exhaust its
+  unit and blocks the phase as a lost worker does; every existing
+  history folds with `fault: 'unit'`.
 - `test/checkpoint/fix-fold.test.ts`: claims fold into `FixState.claims`
   and `holdersOf`; refusals for a claim before the plan, by a unit the
   plan lacks, under another cluster's name, of a file a cluster of the
@@ -525,7 +565,13 @@ readable, and no kind the corpus holds changes shape here.
   claimed records the sibling's file in no revision of its own; a run
   stopped with claims made and resumed with the directory removed seeds
   it again from the ledger and the retry's claim of its own file is
-  `claimed`; a cluster claims a shared file, settles, and a cluster
+  `claimed`; a run whose claims directory is removed while two fixers
+  run launches nothing more, records both units as failed attempts with
+  `fault: 'environment'`, their edits as attempt revisions and no
+  `fix.recorded`, finishes the phase blocked with `claims-lost`, and on
+  the next run seeds the directory from the ledger, gives both units
+  fresh attempts whose tasks name the earlier edits, and completes
+  (R12); a cluster claims a shared file, settles, and a cluster
   launched later claims the same file, edits it and completes with no
   second round, each revision holding its own edits; the same change at
   `--concurrency 1` plans no second round at all; the second round
@@ -611,9 +657,13 @@ never run under `git rebase --exec` (#27).
   before, which the golden test and the corpus check in Verification
   show.
 - The claims directory is under the system's temporary directory, as
-  the scratch is; a cleaning mid-round refuses every claim until the
-  next launch seeds it again, and the findings refused go to the second
-  round (requirements, Risks).
+  the scratch is; a cleaning mid-round stops the run with `claims-lost`
+  once the engine sees it, the units then running are recorded as
+  failed attempts whose edits are kept, and the next run seeds the
+  directory from the ledger and retries them (R12). `attempt.failed@4`
+  gains `fault` in place and the `Blocker` code enum gains
+  `claims-lost`, both carried by `schema-1-09`; every older ledger folds
+  with `fault: 'unit'`.
 - `othersHeld` reads the live directory at the answer and the launch;
   a claim made by a sibling between a unit's launch and its answer is
   not in that unit's task, which is why the fixer runs the command
