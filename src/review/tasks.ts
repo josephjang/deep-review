@@ -245,6 +245,9 @@ export function sweepTask(inputs: SweepInputs): string {
 /** The placeholder a task's snapshot command holds for the index of the finding just finished. */
 export const snapshotIndexPlaceholder = '<index>';
 
+/** The placeholder a task's claim command holds for the path of the file to claim. */
+export const claimPathPlaceholder = '<path>';
+
 /** The checks as a fixer reads them: each kind's command, or why it has none. */
 /** A check that failed before any fixer edited the tree, with where its frozen output is (R24 of the fix pass). */
 export interface BaselineFailure {

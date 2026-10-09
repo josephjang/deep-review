@@ -2,12 +2,14 @@
  * The `deep-review` command (R1, R13 of the read-only review): `review` runs
  * a review to its report in the foreground and is resumable, `status` prints
  * the fold of a run, `abandon` closes one, `commit` turns a completed fix
- * run's revisions into commits (R17 of the fix pass), and `snapshot` is
- * what a fix worker runs after each finding (R6). The entry point of the
- * bundle and of `npm run review` during development.
+ * run's revisions into commits (R17 of the fix pass), `snapshot` is what
+ * a fix worker runs after each finding (R6), and `claim` what it runs
+ * before its first edit of a file outside its cluster (R1, R2 of commit
+ * series integrity). The entry point of the bundle and of `npm run review`
+ * during development.
  */
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
@@ -25,9 +27,11 @@ import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, 
 import { reviewStatus } from './review/state.ts';
 import { checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import type { CheckFlags } from './review/checks/discover.ts';
+import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
 import { describeRun } from './review/status.ts';
+import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { status as gitStatus } from './scope/git.ts';
@@ -43,8 +47,9 @@ export const usage = `usage:
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
+  deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
 
-exit codes: 0 a report (its path is the last line of stdout), a status, the commits made or a snapshot taken; 2 a blocked run or a refusal, with the blocker and the operator's action on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, a snapshot taken or a file claimed; 2 a blocked run or a refusal, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -73,6 +78,8 @@ const options = {
   'change-message': { type: 'string' },
   finding: { type: 'string' },
   into: { type: 'string' },
+  unit: { type: 'string' },
+  in: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 
@@ -93,6 +100,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
+  claim: ['path', 'unit', 'in', 'help'],
 };
 
 /** A command-line mistake: the usage is printed with it. */
@@ -210,6 +218,8 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
   }
   // A fixer's snapshot runs inside its sandbox, where a Node process may not start one whose output it captures, so it asks git nothing when the engine's manifest names the worktree (R23).
   if (command === 'snapshot') return snapshot(values, io);
+  // A claim runs in the same sandbox and reads only the directory the engine prepared, which names the worktree.
+  if (command === 'claim') return claim(values, io);
   const location = locateCheckpoint(values.repo === undefined ? io.cwd : resolve(io.cwd, values.repo));
   switch (command) {
     case 'review':
@@ -268,6 +278,43 @@ function snapshot(values: Values, io: CommandIo): number {
   const listing = takeSnapshot({ worktree, finding: Number(finding), into });
   io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}\n`);
   return 0;
+}
+
+/**
+ * Claim a file for the fixer's cluster before its first edit (R1, R2 of
+ * commit series integrity): exit 0 for a file its cluster owns or now
+ * holds, 2 naming the cluster that holds it otherwise, 1 for anything
+ * else, a claims directory that is gone included, which says to stop
+ * editing. It reads the directory the engine prepared and nothing else,
+ * and starts no process. The path is the repository's, so the command is
+ * refused from a directory inside the worktree other than its root, where
+ * a relative path would seem to mean another file.
+ */
+function claim(values: Values, io: CommandIo): number {
+  const paths = values.path ?? [];
+  if (paths.length !== 1 || paths[0]!.trim() === '') throw new UsageError('--path <path> is required, once');
+  if (values.unit === undefined || values.unit.trim() === '') throw new UsageError('--unit <key> is required');
+  if (values.in === undefined || values.in.trim() === '') throw new UsageError('--in <dir> is required');
+  const dir = resolve(io.cwd, values.in);
+  const { worktree } = readHeld(dir);
+  if (isInside(worktree, io.cwd) && canonicalPath(io.cwd) !== canonicalPath(worktree)) {
+    throw new UsageError(`run the claim command from the repository root ${worktree}, not from ${relative(worktree, io.cwd)}, so the path names the file the repository does`);
+  }
+  const outcome = claimFile(dir, paths[0]!, values.unit);
+  switch (outcome.kind) {
+    case 'owned':
+      io.stdout(`claim ${outcome.path}: owned by your cluster ${outcome.cluster}\n`);
+      return 0;
+    case 'claimed':
+      io.stdout(`claim ${outcome.path}: ${outcome.created ? 'claimed for' : 'already held by'} your cluster ${outcome.cluster}\n`);
+      return 0;
+    case 'refused':
+      io.stderr(`claim refused: ${outcome.path} is ${outcome.by === 'plan' ? 'owned' : 'held'} by cluster ${outcome.holder}\n`);
+      return 2;
+    case 'held-by-unknown':
+      io.stderr(`claim refused: ${outcome.path} is being claimed by another worker\n`);
+      return 2;
+  }
 }
 
 /** Open the checkpoint with this engine's identity, or null when the repository has none and `create` is false. */

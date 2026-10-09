@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { presurveyRulesFiles, type ReviewOutcome } from '../../src/review/controller.ts';
+import { claimCommandFor, presurveyRulesFiles, snapshotCommandFor, type ReviewOutcome } from '../../src/review/controller.ts';
+import { claimPathPlaceholder } from '../../src/review/tasks.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
@@ -836,5 +837,16 @@ describe('presurveyRulesFiles', () => {
     mkdirSync(join(worktree, 'CLAUDE.md'));
     rulesFile(worktree, 'src/AGENTS.md');
     assert.deepEqual(presurveyRulesFiles(worktree, ['src/a.ts'], home), [{ level: 'repository', path: 'src/AGENTS.md' }]);
+  });
+});
+
+describe('the fixer\'s commands', () => {
+  it('quotes the claim command\'s path placeholder and directory, and names the unit', () => {
+    assert.equal(claimCommandFor('/engine/main.mjs', 'c8-1', '/scratch/key/claims/run/round-1'), 'node "/engine/main.mjs" claim --path "<path>" --unit c8-1 --in "/scratch/key/claims/run/round-1"');
+    assert.ok(claimCommandFor('/e', 'c1-1', '/d').includes(`"${claimPathPlaceholder}"`), 'a path with a space stays one argument');
+  });
+
+  it('quotes the snapshot command\'s directory beside its index placeholder', () => {
+    assert.equal(snapshotCommandFor('/engine/main.mjs', '/scratch/w1/snapshots'), 'node "/engine/main.mjs" snapshot --finding <index> --into "/scratch/w1/snapshots"');
   });
 });
