@@ -33,6 +33,19 @@ describe('writeFileAtomic', () => {
     assert.deepEqual(readdirSync(directory), ['held.json']);
   });
 
+  it('writes each replace under a temporary name of its own', () => {
+    const temporaries: string[] = [];
+    const rename = (from: string, to: string): void => {
+      temporaries.push(from);
+      renameSync(from, to);
+    };
+    writeFileAtomic(file, 'one\n', rename);
+    writeFileAtomic(file, 'two\n', rename);
+    assert.equal(temporaries.length, 2);
+    assert.notEqual(temporaries[0], temporaries[1]);
+    assert.ok(temporaries.every((temporary) => temporary.endsWith('.tmp')));
+  });
+
   it('retries a replace Windows refuses while another process reads the file, until it goes through', () => {
     writeFileSync(file, 'old\n');
     for (const code of ['EPERM', 'EBUSY', 'EACCES']) {
@@ -105,6 +118,21 @@ describe('createFileExclusive', () => {
       assert.equal(readFileSync(file, 'utf8'), `${code}\n`, code);
       assert.deepEqual(readdirSync(directory), ['marker.json'], code);
     }
+  });
+
+  it('writes each creation under a temporary name of its own, so two claimants sharing a pid never share one', () => {
+    const temporaries: string[] = [];
+    const link = (from: string, to: string): void => {
+      temporaries.push(from);
+      linkSync(from, to);
+    };
+    assert.equal(createFileExclusive(file, 'one\n', link), true);
+    rmSync(file);
+    assert.equal(createFileExclusive(file, 'two\n', link), true);
+    assert.equal(temporaries.length, 2);
+    assert.notEqual(temporaries[0], temporaries[1]);
+    for (const temporary of temporaries) assert.ok(temporary.startsWith(`${file}.${String(process.pid)}.`) && temporary.endsWith('.tmp'), temporary);
+    assert.deepEqual(readdirSync(directory), ['marker.json']);
   });
 
   it('throws any other link error, creating nothing and removing the temporary file', () => {
