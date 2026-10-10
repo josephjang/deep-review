@@ -12,8 +12,8 @@
  *
  * A marker is `<sha256 of the path>.<n>.json`, holding `{ path, cluster,
  * unit, claimedAt }`; the path is hashed as the file system compares it,
- * folded by `pathKey` when it folds case, so two spellings of one file
- * meet one name. Generation `n` counts from 1, the highest is the path's holder, and
+ * lowercased when it folds case, so two spellings of one file meet one
+ * name. Generation `n` counts from 1, the highest is the path's holder, and
  * a holder `held.json` lists as settled holds nothing any more, so the next
  * claim creates `n + 1`. Exclusive creation is the whole lock: two claims of
  * one path in one instant aim at one name, and one of them is refused. The
@@ -99,16 +99,9 @@ const markerNamePattern = /^([0-9a-f]{64})\.([1-9][0-9]{0,8})\.json$/;
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 
-/**
- * A path as the file system compares it: where it folds case, composed
- * (NFC), uppercased and then lowercased, so the spellings NTFS and APFS
- * take for one name meet one key: NFC and NFD forms, a final and a medial
- * sigma, the Kelvin sign and `k`. The key may merge names such a file
- * system keeps apart (`ß` and `ss`), which only refuses a claim, the safe
- * side for a lock.
- */
+/** A path as the file system compares it: lowercased where it folds case. */
 export function pathKey(path: string, caseInsensitive: boolean): string {
-  return caseInsensitive ? path.normalize('NFC').toUpperCase().toLowerCase() : path;
+  return caseInsensitive ? path.toLowerCase() : path;
 }
 
 /** The hash a path's markers are named by. */
@@ -191,32 +184,17 @@ function foldsCase(fs: CaseProbeFileSystem, directory: string, listing: readonly
   return fs.stat(join(directory, flipped)) !== undefined;
 }
 
-/** A directory's entries, or undefined when the engine may pass through it but not read it, as under a parent of mode 0711 another user owns. */
-function readableListing(fs: CaseProbeFileSystem, directory: string): readonly string[] | undefined {
-  try {
-    return fs.list(directory);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'EACCES' || code === 'EPERM') return undefined;
-    throw error;
-  }
-}
-
 /**
  * Whether the worktree's file system folds case: the worktree root looked
  * up with the case of its last segment's ASCII letters flipped, or, when
- * that segment has none or the root's parent cannot be listed, the first
- * entry under the root that has one (`.git` always does). Where nothing can
- * be probed, the platform's default. One answer for the whole worktree
- * (TD4), though Windows can make a single directory case-sensitive.
+ * that segment has none, the first entry under the root that has one (`.git`
+ * always does). Where nothing can be probed, the platform's default. One
+ * answer for the whole worktree (TD4), though Windows can make a single
+ * directory case-sensitive.
  */
 export function caseInsensitiveFileSystem(worktree: string, fs: CaseProbeFileSystem = caseProbeFileSystem): boolean {
   const name = basename(worktree);
-  if (flipCase(name) !== name) {
-    const parent = dirname(worktree);
-    const siblings = readableListing(fs, parent);
-    if (siblings !== undefined) return foldsCase(fs, parent, siblings, name);
-  }
+  if (flipCase(name) !== name) return foldsCase(fs, dirname(worktree), fs.list(dirname(worktree)), name);
   const listing = fs.list(worktree);
   const entry = listing.find((candidate) => flipCase(candidate) !== candidate);
   if (entry !== undefined) return foldsCase(fs, worktree, listing, entry);
