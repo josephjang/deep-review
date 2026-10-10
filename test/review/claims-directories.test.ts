@@ -79,9 +79,22 @@ describe('claimsDirectories', () => {
       assert.equal(claimFile(round, 'docs/a.md', 'c1-1').kind, 'claimed');
       const reading = directories.settleReading('c1-1');
       rmSync(round, { recursive: true, force: true });
-      assert.deepEqual(reading.live('c1-1')?.markers.map((marker) => marker.whole && marker.path), ['docs/a.md'], 'the reading taken before the removal');
-      assert.equal(directories.lost(), null, 'the reading found the directory');
-      assert.equal(reading.live('c2-1'), null, 'another unit\'s directory is read afresh');
+      assert.deepEqual(reading.access.live('c1-1')?.markers.map((marker) => marker.whole && marker.path), ['docs/a.md'], 'the reading taken before the removal');
+      assert.equal(reading.lost, false, 'the reading found the directory');
+      assert.equal(directories.lost(), null);
+      assert.equal(reading.access.live('c2-1'), null, 'another unit\'s directory is read afresh');
+      assert.equal(directories.lost(), round);
+      assert.equal(reading.lost, false, 'what the settle records does not change after its reading');
+    });
+  });
+
+  it('reports a settle whose reading finds its directory removed as lost, from the same call (R12)', () => {
+    withDirectories(running().fold(), (directories, round) => {
+      assert.equal(directories.prepare('c1-1'), true);
+      rmSync(round, { recursive: true, force: true });
+      const reading = directories.settleReading('c1-1');
+      assert.equal(reading.access.live('c1-1'), null);
+      assert.equal(reading.lost, true);
       assert.equal(directories.lost(), round);
     });
   });

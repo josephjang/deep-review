@@ -29,6 +29,14 @@ export interface ClaimsDirectoriesOptions {
   readonly log: (line: string) => void;
 }
 
+/** What a settling fixes-phase unit is recorded with, both from one reading of its round's directory. */
+export interface SettleReading {
+  /** The claims as that reading found them, other units' directories read afresh. */
+  readonly access: ClaimsAccess;
+  /** Whether a claims directory is lost once that reading is taken, so the unit ran without one. */
+  readonly lost: boolean;
+}
+
 /** A run's claims directories, as one engine prepares and reads them. */
 export interface ClaimsDirectories {
   /** Where fixes-phase units claim files and what their directories hold now; a directory found no longer intact after this engine prepared it is lost. */
@@ -42,12 +50,13 @@ export interface ClaimsDirectories {
    */
   readonly prepare: (key: string) => boolean;
   /**
-   * The claims a settling fixes-phase unit is recorded with: its round's
+   * What a settling fixes-phase unit is recorded with: its round's
    * directory read once, now, a reading that finds it gone latching the
-   * loss, so whether the unit ran without its directory and what its settle
-   * records come from the same reading.
+   * loss, and the loss as it stands after that reading, so whether the unit
+   * ran without its directory and what its settle records come from the
+   * same call.
    */
-  readonly settleReading: (key: string) => ClaimsAccess;
+  readonly settleReading: (key: string) => SettleReading;
   /** The directory found removed, which stops the phase, or null while none is. */
   readonly lost: () => string | null;
 }
@@ -91,9 +100,9 @@ export function claimsDirectories(options: ClaimsDirectoriesOptions): ClaimsDire
     prepared.add(directory);
     return true;
   };
-  const settleReading = (key: string): ClaimsAccess => {
+  const settleReading = (key: string): SettleReading => {
     const reading = claims.live(key);
-    return { live: (asked) => (asked === key ? reading : claims.live(asked)), caseInsensitive };
+    return { access: { live: (asked) => (asked === key ? reading : claims.live(asked)), caseInsensitive }, lost: lost !== null };
   };
   return { claims, prepare, settleReading, lost: () => lost };
 }
