@@ -1182,9 +1182,10 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.ok(described.lines.includes(`Continued from: ${firstPath}, into the fix pass on ${review.continuedFrom!.at}`), described.lines.join('\n'));
     assert.deepEqual(described.json.continuedFrom, { report: firstPath, at: review.continuedFrom!.at });
     assert.equal(described.json.report, outcome.kind === 'report' ? outcome.reportPath : null);
-    // The continued run commits as any fix run (R9).
+    // The continued run commits as any fix run (R9): one commit per revision, in ledger order, which is the order the two concurrent fixers settled in.
     const committed = commitRun({ checkpoint: box.checkpoint, worktree: box.repo, log: () => {} });
-    assert.deepEqual(committed.commits.map((made) => made.subject), ['fix(a): Return 0 for a null text', 'fix(b): Import parse']);
+    assert.deepEqual(committed.commits.map((made) => made.subject), review.fix!.revisions.map((revision) => revision.change.message.subject));
+    assert.deepEqual(committed.commits.map((made) => made.subject).sort(), ['fix(a): Return 0 for a null text', 'fix(b): Import parse']);
     assert.match(git(box.repo, 'log', '-1', '--format=%B'), new RegExp(`^Deep-review: run ${before.id}, `, 'm'), 'the commit carries the run\'s trailer');
   });
 
