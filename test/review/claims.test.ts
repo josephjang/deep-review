@@ -158,6 +158,24 @@ describe('claims', () => {
       assert.equal(markerName('Docs/Notes.md', 1, true), markerName('docs/notes.md', 1, true));
     });
 
+    it('meets one marker for the spellings NTFS and APFS take for one name beyond ASCII case, a final sigma and an NFD form, where the file system folds case', () => {
+      // `toLowerCase` alone keeps `ας` from `ασ` and an NFD `é` from the NFC one, which such a file system takes for one name.
+      // A sigma before `.md` is not final, since `.` is ignored and `m` follows, so the sigma ends a word before `-`.
+      const pairs = [['docs/ΑΣ-1.md', 'docs/ασ-1.md'], ['docs/caf\u00e9.md', 'docs/cafe\u0301.md'], ['docs/\u212a.md', 'docs/k.md']] as const;
+      for (const [first, second] of pairs) {
+        assert.equal(claimFile(dir, first, 'c1-1').kind, 'claimed', first);
+        assert.equal(claimFile(dir, second, 'c2-1').kind, 'claimed', `${second}: a case-sensitive file system keeps the bytes it was given`);
+      }
+      rmSync(dir, { recursive: true });
+      prepare({ caseInsensitive: true });
+      for (const [first, second] of pairs) {
+        assert.equal(markerName(first, 1, true), markerName(second, 1, true), first);
+        assert.equal(claimFile(dir, first, 'c1-1').kind, 'claimed', first);
+        assert.deepEqual(claimFile(dir, second, 'c2-1'), { kind: 'refused', path: second, holder: 'c1', by: 'claim' });
+      }
+      assert.equal(markerFiles().length, pairs.length);
+    });
+
     it('refuses a path outside the repository, under .git, absolute outside the worktree or empty, with the reason', () => {
       for (const path of ['../outside.ts', 'src/../../x', '.git/config', 'src/.GIT/x', '/etc/passwd', 'C:/x.ts', 'c:\\x.ts', '', '.', 'src//a.ts', 'src/', join(directory, 'outside.ts'), repo, join(repo, '.git', 'config')]) {
         assert.throws(() => claimFile(dir, path, 'c1-1'), InvalidScopeRequestError, JSON.stringify(path));

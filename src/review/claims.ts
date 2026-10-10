@@ -12,8 +12,8 @@
  *
  * A marker is `<sha256 of the path>.<n>.json`, holding `{ path, cluster,
  * unit, claimedAt }`; the path is hashed as the file system compares it,
- * lowercased when it folds case, so two spellings of one file meet one
- * name. Generation `n` counts from 1, the highest is the path's holder, and
+ * folded by `pathKey` when it folds case, so two spellings of one file
+ * meet one name. Generation `n` counts from 1, the highest is the path's holder, and
  * a holder `held.json` lists as settled holds nothing any more, so the next
  * claim creates `n + 1`. Exclusive creation is the whole lock: two claims of
  * one path in one instant aim at one name, and one of them is refused. The
@@ -99,9 +99,16 @@ const markerNamePattern = /^([0-9a-f]{64})\.([1-9][0-9]{0,8})\.json$/;
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 
-/** A path as the file system compares it: lowercased where it folds case. */
+/**
+ * A path as the file system compares it: where it folds case, composed
+ * (NFC), uppercased and then lowercased, so the spellings NTFS and APFS
+ * take for one name meet one key: NFC and NFD forms, a final and a medial
+ * sigma, the Kelvin sign and `k`. The key may merge names such a file
+ * system keeps apart (`ß` and `ss`), which only refuses a claim, the safe
+ * side for a lock.
+ */
 export function pathKey(path: string, caseInsensitive: boolean): string {
-  return caseInsensitive ? path.toLowerCase() : path;
+  return caseInsensitive ? path.normalize('NFC').toUpperCase().toLowerCase() : path;
 }
 
 /** The hash a path's markers are named by. */
