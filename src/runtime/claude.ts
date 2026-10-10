@@ -358,6 +358,7 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
     const result = typeof envelope.result === 'string' && envelope.result.length > 0 ? `: ${envelope.result}` : '';
     return { ...known, result: { kind: 'budget', error: `Claude Code stopped at its budget of ${String(invocation.budgetUsd)} USD${result}` } };
   }
+  // A usage or session limit arrives here too, as is_error with the limit in result, and fails like any other error, so the engine counts it against the unit: https://github.com/josephjang/deep-review/issues/40
   if (envelope.type !== 'result' || envelope.subtype !== 'success' || envelope.is_error !== false) {
     const result = typeof envelope.result === 'string' && envelope.result.length > 0 ? `: ${envelope.result}` : '';
     return failed(`Claude Code reported ${String(envelope.type)}/${String(envelope.subtype)} with is_error ${String(envelope.is_error)}${result}`, known);
