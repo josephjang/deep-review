@@ -1,6 +1,6 @@
 // A repository with a change, a checkpoint, a roles directory whose policy
-// has short timeouts, and the fake runtimes, so a whole review runs through
-// the controller in a test. The fakes are scripted per role and unit.
+// has timeouts that fit a test, and the fake runtimes, so a whole review runs
+// through the controller in a test. The fakes are scripted per role and unit.
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -19,12 +19,15 @@ import { baseEnvironment, fakeClaude, fakeCodex } from './launcher.ts';
 import { commitAll, repositoryWith, write } from './repository.ts';
 
 /**
- * The timeout of every worker of a sandbox's runs but the roles a test
- * shortens: long enough that no worker that answers is killed, however
- * loaded the runner. With every file's tests running at once, a fake's
- * `--version` alone has taken over 10 s to start.
+ * The timeout of everything in a sandbox's runs that answers: every worker
+ * but those of a role a test shortens (see hangTimeoutMs), every check, and
+ * every preflight probe, at startup and before every worker. It is long
+ * enough that nothing that answers is killed, however loaded the runner:
+ * with every file's tests running at once, a fake's `--version` alone has
+ * taken over 10 s to start, past the preflight's own limit, and a probe that
+ * times out before a worker refuses the whole run.
  */
-export const workerTimeoutMs = 120_000;
+export const loadedRunnerTimeoutMs = 120_000;
 
 /**
  * The timeout of a role a test scripts to hang (see shortenTimeout): time
@@ -33,17 +36,6 @@ export const workerTimeoutMs = 120_000;
  * answers can take longer than this to start on a loaded one.
  */
 export const hangTimeoutMs = 4000;
-
-/**
- * The timeout of each preflight probe in a sandbox's runs, at startup and
- * before every worker: on a loaded runner a fake's `--version` has taken
- * longer than the preflight's own 10 s, and a probe that times out before a
- * worker refuses the whole run.
- */
-export const probeTimeoutMs = 120_000;
-
-/** The timeout of every check: a check starts a Node process of its own, which a loaded runner can take seconds to start, and no sandbox test makes one hang. */
-export const checkTimeoutMs = 120_000;
 
 /** The stand-in check command, steered by FAKE_CHECKS (see fake-check.mjs). */
 export const fakeCheck = resolve(import.meta.dirname, 'fake-check.mjs');
@@ -142,8 +134,8 @@ export class ReviewSandbox {
     cpSync(repositoryRolesRoot(), this.rolesRoot, { recursive: true });
     this.editPolicy((policy) => ({
       ...policy,
-      roles: Object.fromEntries(Object.entries(policy.roles).map(([role, entry]) => [role, { ...entry, timeoutMs: workerTimeoutMs }])),
-      checks: { timeoutMs: checkTimeoutMs },
+      roles: Object.fromEntries(Object.entries(policy.roles).map(([role, entry]) => [role, { ...entry, timeoutMs: loadedRunnerTimeoutMs }])),
+      checks: { timeoutMs: loadedRunnerTimeoutMs },
     }));
     this.scriptFile = join(this.directory, 'script.json');
     this.checksFile = join(this.directory, 'checks.json');
@@ -219,7 +211,7 @@ export class ReviewSandbox {
       log: (line) => {
         this.logs.push(line);
       },
-      preflightOptions: { timeoutMs: probeTimeoutMs },
+      preflightOptions: { timeoutMs: loadedRunnerTimeoutMs },
       ...change,
     });
   }
