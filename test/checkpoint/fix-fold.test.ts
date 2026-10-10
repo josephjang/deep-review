@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, holdersOf, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, heldInRoundByOthers, holdersOf, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
@@ -368,9 +368,12 @@ describe('the claims fold', () => {
     const before = settled.review().fix!;
     assert.deepEqual([...settledClusters(before, 1)], ['c1']);
     assert.deepEqual([...heldByOthers(before, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }]], 'owned files stay owned for the round; claimed ones end with the settle');
+    assert.deepEqual([...heldInRoundByOthers(before, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }], [shared, { cluster: 'c1', by: 'claim' }]], 'an attempt still leaves out what the settled cluster claimed (R5)');
     const after = settled.add('files.claimed', claimed('c2-1', 'c2', [shared], '2026-10-09T02:00:00.000Z')).review().fix!;
     assert.deepEqual(holdersOf(after, 1).get(shared), { cluster: 'c2', by: 'claim' });
     assert.equal(after.claims.length, 2);
+    assert.deepEqual([...heldInRoundByOthers(after, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }]], 'a file c2 claimed after c1 settled is c2\'s own');
+    assert.deepEqual([...heldInRoundByOthers(after, 'c1-1')], [['src/b.ts', { cluster: 'c2', by: 'plan' }], [shared, { cluster: 'c2', by: 'claim' }]]);
   });
 
   it('gives a path\'s last claim of a round, or the last by a cluster other than the one named, with its time', () => {

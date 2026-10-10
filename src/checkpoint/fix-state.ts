@@ -265,12 +265,28 @@ export function secondRoundFiles(own: { readonly id: string; readonly files: rea
  * exact path, as the fold compares paths, or by `keyOf`.
  */
 export function heldByOthers(fix: FixState, key: string, keyOf: (path: string) => string = (path) => path): Map<string, PathHolder> {
+  return othersOfRound(fix, key, keyOf, settledClusters(fix, roundOf(fix, key)));
+}
+
+/**
+ * The paths another cluster of a fixes-phase batch's round has held at
+ * any point of the round (R5 of commit series integrity): every path
+ * another cluster owns, and every path another cluster holds by the
+ * round's last claim of it, settled or not. A settle frees a claimed file
+ * for a new claim (PD3), but not for an attempt's revisions: the
+ * attempt's snapshots may predate the holder's edit, which the holder's
+ * revision has already recorded, and taking the file would undo it.
+ */
+export function heldInRoundByOthers(fix: FixState, key: string, keyOf: (path: string) => string = (path) => path): Map<string, PathHolder> {
+  return othersOfRound(fix, key, keyOf, new Set());
+}
+
+/** The round's holders of a batch's paths other than its own cluster, less the claims of the clusters in `released`. */
+function othersOfRound(fix: FixState, key: string, keyOf: (path: string) => string, released: ReadonlySet<string>): Map<string, PathHolder> {
   const own = clusterOfBatch(fix, key)?.id;
-  const round = roundOf(fix, key);
-  const settled = settledClusters(fix, round);
   const held = new Map<string, PathHolder>();
-  for (const [path, { cluster, by }] of holdersKeyedBy(fix, round, keyOf)) {
-    if (cluster === own || (by === 'claim' && settled.has(cluster))) continue;
+  for (const [path, { cluster, by }] of holdersKeyedBy(fix, roundOf(fix, key), keyOf)) {
+    if (cluster === own || (by === 'claim' && released.has(cluster))) continue;
     held.set(path, { cluster, by });
   }
   return held;

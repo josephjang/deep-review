@@ -364,9 +364,16 @@ the first round held by claim as "which c8 had claimed".
 
 `attemptRevisionEvents` builds its paths as the unit's owned files, its
 cluster's claimed files, and every candidate path (its snapshots'
-listings and `changedPaths`) that `othersHeld` does not name, less the
-strays and what git ignores, as today. Its comment is rewritten to say
-so, and the #23 link goes. `fixAnswerEvents` is unchanged in its paths:
+listings and `changedPaths`) that `othersHeldInRound` does not name,
+less the strays and what git ignores, as today. `othersHeldInRound`
+names every path another cluster of the round owns or holds by the
+round's last claim of it, whether that cluster has settled or not
+(`heldInRoundByOthers` in `fix-state.ts`): a settle frees a claimed file
+for a new claim (PD3) but not for an attempt, whose snapshots may
+predate the holder's edit that the holder's revision has recorded, and
+would undo it (amended 2026-10-10, after the gate; see Verification).
+Its comment is rewritten to say so, and the #23 link goes.
+`fixAnswerEvents` is unchanged in its paths:
 the owned files and every file the answer names already cover the
 cluster's claims, which a fixer names under the finding they served.
 

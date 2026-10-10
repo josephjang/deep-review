@@ -12,7 +12,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { batchOf, clusterClaims, heldByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { batchOf, clusterClaims, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
@@ -89,9 +89,14 @@ function settleOf(context: RevisionContext, phase: EditingPhase, key: string): C
 /** A path as a settle compares it: lowercased where the worktree's file system folds case. */
 const keyOfSettle = (settle: ClaimSettle) => (path: string): string => pathKey(path, settle.caseInsensitive);
 
-/** The files every other cluster of a fixes-phase unit's round holds, by the plan or by a claim, in the run as the settle leaves it, keyed by the exact path or by `keyOf`; the repair has none. */
+/** The files every other cluster of a fixes-phase unit's round holds now, by the plan or by a claim of a cluster not yet settled (PD3), in the run as the settle leaves it, keyed by the exact path or by `keyOf`; the repair has none. */
 function othersHeld(state: RunState, phase: EditingPhase, key: string, keyOf?: (path: string) => string): Map<string, PathHolder> {
   return phase === 'repair' ? new Map() : heldByOthers(requireFix(state), key, keyOf);
+}
+
+/** The files every other cluster of a fixes-phase unit's round has held, settled or not (R5), in the run as the settle leaves it, keyed by `keyOf`; the repair has none. */
+function othersHeldInRound(state: RunState, phase: EditingPhase, key: string, keyOf: (path: string) => string): Map<string, PathHolder> {
+  return phase === 'repair' ? new Map() : heldInRoundByOthers(requireFix(state), key, keyOf);
 }
 
 /**
@@ -227,11 +232,13 @@ export interface AttemptEvents {
  * finding, and one naming none for what it left after its last snapshot.
  * The paths are the unit's owned files, the files its cluster claimed, and
  * every path its snapshots listed or git reports changed that no other
- * cluster of its round holds, by the plan or by a claim, nor a sibling is
- * claiming now, less the strays the run had already listed, which the
- * attempt did not make, and the files git ignores. So a sibling's edit of
- * a file the sibling claimed is never this attempt's while that claim is on
- * the ledger or in the round's directory. A claim lost with the directory
+ * cluster of its round has held, by the plan or by a claim, settled or
+ * not, nor a sibling is claiming now, less the strays the run had already
+ * listed, which the attempt did not make, and the files git ignores. So a
+ * sibling's edit of a file the sibling claimed is never this attempt's
+ * while that claim is on the ledger or in the round's directory, even once
+ * the sibling has settled, when a snapshot of this attempt taken before
+ * the sibling's edit would otherwise undo it. A claim lost with the directory
  * (R12 of commit series integrity), or one a resumed engine cannot read
  * because its directory was cleaned while it was down, leaves that edit to
  * whichever attempt settles first, as the design's Verification accepts;
@@ -249,7 +256,8 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   const settle = settleOf(context, phase, key);
   // Compared as the file system compares paths, since git and the snapshots spell a file as the disk does and a sibling's claim as the sibling did.
   const keyOf = keyOfSettle(settle);
-  const others = othersHeld(settle.state, phase, key, keyOf);
+  // A sibling's file stays out for the whole round, its holder settled or not (R5): this attempt's snapshots may predate the sibling's recorded edit.
+  const others = othersHeldInRound(settle.state, phase, key, keyOf);
   const strays = new Set(state.review!.checks.flatMap((check) => check.strays));
   const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle, path) && !strays.has(path));
   // A snapshot lists what changed on disk, ignored files a fixer wrote included; those are no work of the run (R23).
