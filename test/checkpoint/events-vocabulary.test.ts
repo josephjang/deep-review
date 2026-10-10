@@ -15,6 +15,7 @@ import {
   candidatesRecordedV1,
   decisionsRecordedV1,
   filesClaimedV1,
+  fixPinnedV1,
   groupUnverifiedV1,
   phaseFinishedV2,
   phaseFinishedV3,
@@ -470,5 +471,34 @@ describe('claims.lost@1', () => {
   it('refuses no file and another phase', () => {
     assert.equal(claimsLostV1.safeParse({ phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [] }).success, false);
     assert.equal(lost({ reason: 'owned', holder: 'c1' }, { phase: 'repair' }), false);
+  });
+});
+
+describe('fix.pinned@1', () => {
+  const flag = (kind: string, command: string | null = `npm run ${kind}`): Record<string, unknown> => (command === null ? { kind, command: null, origin: 'flag', reason: 'dropped by --no-check', source: null } : { kind, command, origin: 'flag', reason: null, source: null });
+  const plan = checkKinds.map((kind) => flag(kind));
+  const pinned = (change: Record<string, unknown> = {}): boolean => fixPinnedV1.safeParse({ checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 }, plannedChecks: null, ...change }).success;
+
+  it('records the timeout and the batch size, with no plan or a plan of the flags\' four kinds in the order they run', () => {
+    assert.equal(pinned(), true);
+    assert.equal(pinned({ plannedChecks: plan }), true);
+    assert.equal(pinned({ plannedChecks: [flag('build'), flag('typecheck', null), flag('lint', null), flag('test')] }), true, 'a kind dropped by --no-check');
+  });
+
+  it('refuses a plan with a kind missing, a kind twice, the kinds out of order, or a check the survey or nobody decided', () => {
+    assert.equal(pinned({ plannedChecks: plan.slice(1) }), false, 'missing');
+    assert.equal(pinned({ plannedChecks: [plan[0], plan[0], plan[2], plan[3]] }), false, 'twice');
+    assert.equal(pinned({ plannedChecks: [plan[1], plan[0], plan[2], plan[3]] }), false, 'out of order');
+    assert.equal(pinned({ plannedChecks: [{ kind: 'build', command: 'npm run build', origin: 'survey', reason: null, source: { path: 'ci.yml', quote: 'run: npm run build', basis: 'stated' } }, ...plan.slice(1)] }), false, 'the survey\'s');
+    assert.equal(pinned({ plannedChecks: [{ kind: 'build', command: null, origin: 'none', reason: 'no build', source: null }, ...plan.slice(1)] }), false, 'nobody\'s');
+  });
+
+  it('holds the timeout and the batch size to review.configured@2\'s bounds, and requires both', () => {
+    assert.equal(pinned({ checks: { timeoutMs: 0 } }), false);
+    assert.equal(pinned({ fixes: { batchSize: 21 } }), false);
+    assert.equal(pinned({ fixes: { batchSize: 0 } }), false);
+    assert.equal(pinned({ checks: null }), false);
+    assert.equal(pinned({ fixes: null }), false);
+    assert.equal(pinned({ extra: true }), false);
   });
 });

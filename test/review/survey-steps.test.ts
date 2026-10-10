@@ -4,7 +4,7 @@ import { conventionsKnown } from '../../src/checkpoint/survey-state.ts';
 import { noCheckFlags, type CheckFlags } from '../../src/review/checks/discover.ts';
 import { checkUnavailableBlocker, nextStep, unitsOf, workerFailedBlocker, type Live } from '../../src/review/steps.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
-import { launch, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
+import { continuedRun, continuedSurvey, flagPlan, launch, pin, readOnlyReported, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -216,5 +216,48 @@ describe('nextStep in the survey', () => {
   it('starts the triage once the survey has finished', () => {
     const done = surveyConfigured().start('survey').worker(1, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(1))).finish('survey').review();
     assert.deepEqual(nextStep(done, idle), { kind: 'start-phase', phase: 'triage', attempt: 1 });
+  });
+});
+
+// R4 of fix pass continuation: the machinery of a fix run's survey, on a read-only run continued into the fix pass.
+describe('nextStep in a continued run\'s survey', () => {
+  /** The continued run's survey re-entered at its second attempt, its surveyor answering `checks` with the standing conventions. */
+  const surveying = (): History => continuedRun().start('survey', 2);
+  const answeredAgain = (checks: readonly Record<string, unknown>[], history: History = surveying(), n = 81): History =>
+    history.worker(n, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(n), { checks }));
+
+  it('opens the survey again at its next attempt and launches one surveyor, since the read-only answer chose no check', () => {
+    assert.deepEqual(nextStep(continuedRun().review(), idle), { kind: 'start-phase', phase: 'survey', attempt: 2 });
+    assert.deepEqual(nextStep(surveying().review(), idle), { kind: 'launch', units: [surveyor] });
+    assert.deepEqual(nextStep(surveying().review(), live({ checkFlags: flags({ build: 'make' }, ['lint']) })), { kind: 'launch', units: [surveyor] }, 'flags that leave a kind unsettled');
+  });
+
+  it('plans the checks from the new answer and the flags, and then starts the baseline', () => {
+    const step = nextStep(answeredAgain(stated).review(), idle);
+    assert.ok(step.kind === 'plan-checks' && step.without === null && step.checks.length === 4, JSON.stringify(step));
+    const done = continuedSurvey(continuedRun()).review();
+    assert.deepEqual(nextStep(done, idle), { kind: 'start-phase', phase: 'baseline-checks', attempt: 1 }, 'no read-only phase runs again');
+  });
+
+  it('starts the baseline at once when the flags planned every check with the pin, the survey left completed', () => {
+    assert.deepEqual(nextStep(readOnlyReported().add('fix.pinned', pin(flagPlan)).review(), idle), { kind: 'start-phase', phase: 'baseline-checks', attempt: 1 });
+  });
+
+  it('blocks on a missing tool, and surveys again for the checks alone on the re-entry (R15 of the repository survey)', () => {
+    const step = nextStep(answeredAgain(missingRuff).review(), idle);
+    assert.ok(step.kind === 'finish-phase' && step.blocker?.code === 'check-unavailable', JSON.stringify(step));
+    const reentered = answeredAgain(missingRuff).finish('survey', 'blocked', 2, step.kind === 'finish-phase' ? step.blocker : null).start('survey', 3);
+    assert.deepEqual(nextStep(reentered.review(), idle), { kind: 'launch', units: [surveyor] });
+    assert.equal(nextStep(reentered.review(), live({ checkFlags: flags({}, ['lint']) })).kind, 'plan-checks', 'a --no-check settles the block with no worker');
+  });
+
+  it('blocks a surveyor that failed twice with the action naming the flags, and plans from the standing answer once they settle all four', () => {
+    const twice = failedOnce(failedOnce(surveying(), 82), 83);
+    const step = nextStep(twice.review(), idle);
+    assert.ok(step.kind === 'finish-phase' && step.blocker?.action === surveyWorkerFailedAction, JSON.stringify(step));
+    const reentered = twice.finish('survey', 'blocked', 2, step.kind === 'finish-phase' ? step.blocker : null).start('survey', 3);
+    const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
+    // The read-only answer still stands as the run's survey, so the run records no failure of it.
+    assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
   });
 });

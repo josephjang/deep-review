@@ -1,7 +1,9 @@
 /**
  * The controller (R1, R5, R6, R7 of the read-only review; TD1, TD5, TD6;
  * R1, R6, R7, R9 of the fix pass; R1, R6, R7 of the repository survey;
- * R1 to R3 of the Codex sandbox): find or create the run, take its lock,
+ * R1 to R3 of the Codex sandbox; R1 to R5 of fix pass continuation): find
+ * the run, continue a finished read-only run into the fix pass, or create
+ * one, take its lock,
  * record the workers a previous engine lost, then loop over fold, plan,
  * execute and append until the report is written or the run blocks. It
  * launches workers with the runtime options the run pinned, plans the
@@ -13,8 +15,8 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { revisionMessageOf } from '../checkpoint/fix-state.ts';
+import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinned, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
+import { revisionMessageOf, routeOfDecision } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -27,6 +29,7 @@ import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { captureScope } from '../scope/capture.ts';
+import { scopeMatches } from '../scope/compare.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
 import { claimsDirectories } from './claims-directories.ts';
@@ -50,15 +53,17 @@ import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from '
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
-import { surveyFailure, type SurveyInputs } from './survey.ts';
+import { resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
+import type { ExpectedMatch } from './tree.ts';
 import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
 
 /**
- * The scope a command asks for. It is resolved only when the run it acts
- * on has none captured (a new run, or one whose capture failed), and a run
- * that has one keeps it, so the request is not even checked against a tree
- * that may have moved on.
+ * The scope a command asks for. It is resolved when the run it acts on
+ * has none captured (a new run, or one whose capture failed), and when a
+ * `--fix` compares it with a finished run's before continuing that run; an
+ * active run that has one keeps it, so the request is not even checked
+ * against a tree that may have moved on.
  */
 export interface ScopeSource {
   /** Whether the command named a scope, so a resumed run that ignores it can say so. */
@@ -120,6 +125,13 @@ export interface ReviewOptions {
    */
   readonly fix?: CheckFlags | null;
   /**
+   * Whether `--fresh` declines a continuation (R2 of fix pass
+   * continuation): with `fix` and no active run, a finished read-only run
+   * of the same change is continued into the fix pass unless this is true,
+   * when a new run is created. An active run is resumed either way.
+   */
+  readonly fresh?: boolean;
+  /**
    * The script a fixer's snapshot command runs with `node`: the engine's
    * own entry, the bundle or `src/cli.ts`. `process.argv[1]` by default,
    * which is that entry when the engine runs as the command.
@@ -161,7 +173,12 @@ export function isResumable(run: RunState): boolean {
  * this guard.
  */
 export function findActiveRun(checkpoint: Checkpoint, log: (line: string) => void): RunState | null {
-  const runs = readableRuns(checkpoint, log).filter(isResumable);
+  return activeRunAmong(readableRuns(checkpoint, log));
+}
+
+/** The one resumable run among readable runs, or null; two are refused, naming them (`findActiveRun`). */
+function activeRunAmong(readable: readonly RunState[]): RunState | null {
+  const runs = readable.filter(isResumable);
   if (runs.length > 1) {
     throw new ReviewRefusedError(`${String(runs.length)} runs are active (${runs.map((run) => run.id).join(', ')}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\``);
   }
@@ -227,6 +244,12 @@ const revisionSummary = (revision: TreeRevised): string => {
   const files = fileCount(revision.files.length);
   return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(', ')}`;
 };
+
+/** A run's spend so far against the run budget in force, as a continuation's log names it before its first launch (PD7 of fix pass continuation). */
+function spendWords(spentUsd: number | null, budgetUsd: number | null): string {
+  if (spentUsd === null) return 'no cost reported';
+  return budgetUsd === null ? `spent ${spentUsd.toFixed(2)} USD, no run budget` : `spent ${spentUsd.toFixed(2)} USD of the ${budgetUsd.toFixed(2)} USD run budget`;
+}
 
 /** One planned check as the log names it: its command and who decided it, with the survey's source, or why it has none. */
 const checkLine = (check: PlannedCheckV2): string => {
@@ -321,10 +344,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const { checkpoint } = options;
   // Every comparison with what the run expects, and every patch, sees a file as git would store it (R22 of the fix pass).
   const content = gitContent(options.worktree, (reference) => checkpoint.evidence.read(reference));
-  const opened = await openRun({ ...options, log, environment, platform, adapter, roles });
+  const opened = await openRun({ ...options, log, environment, platform, adapter, roles, match: content.match });
   let state = opened.state;
   const runId = state.id;
-  const { release, scopeRequest, configure } = opened;
+  const { release, scopeRequest, configure, continuation } = opened;
   const inFlight = new Map<string, InFlight>();
   const checkFlags = options.fix ?? noCheckFlags;
   const userFiles = once(() => existingUserRulesFiles(options.home));
@@ -409,6 +432,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       // The checks are planned when the survey completes, not here (R6 of the repository survey).
       state = append(checkpoint, state, [{ kind: 'review.configured', version: 5, payload: configure }]);
       log(`run ${runId}: configured for ${configure.runtime} ${configure.version}, models ${configure.models.strong} and ${configure.models.fast}${configure.fix ? ', with the fix pass' : ''}${configure.codex === null ? '' : `, Codex Windows sandbox ${configure.codex.windowsSandbox}`}; the reviewer's own rules: ${configure.survey.userRules}`);
+    }
+    if (continuation !== null) {
+      // Where a new run's configuration is pinned, before the limits are recorded, which the fold accepts again once the pin clears the report (R6 of fix pass continuation).
+      state = append(checkpoint, state, [{ kind: 'fix.pinned', version: 1, payload: continuation.pin }]);
+      log(`run ${runId}: continued into the fix pass; its read-only report is ${continuation.report}; ${spendWords(budgetSpendOf(state, adapter).usd, limitsInForce(state.review!.configuration, options.flags, adapter).runBudgetUsd)}`);
+      for (const check of continuation.pin.plannedChecks ?? []) log(`run ${runId}: check ${check.kind}: ${checkLine(check)}`);
     }
     const configuration = state.review!.configuration;
     // What every worker launches with, from what the run pinned, however long ago it was configured.
@@ -694,6 +723,8 @@ interface OpenContext extends ReviewOptions {
   readonly platform: NodeJS.Platform;
   readonly adapter: RuntimeAdapter;
   readonly roles: readonly AssembledRole[];
+  /** How the run compares a file with what it expects, as git would store each (R22 of the fix pass), which a finished run's files are compared by before it is continued. */
+  readonly match: ExpectedMatch;
 }
 
 /** An open run: its state, the release of its lock, and what it still needs before its first step. */
@@ -704,6 +735,53 @@ interface OpenedRun {
   readonly scopeRequest: ScopeRequest | null;
   /** The configuration to pin, for a run not yet configured; null for one whose configuration is pinned. */
   readonly configure: ReviewConfiguration | null;
+  /** The continuation to pin, for a finished read-only run this command continues into the fix pass, with where its read-only report is; null otherwise (R1 of fix pass continuation). */
+  readonly continuation: { readonly pin: FixPinned; readonly report: string } | null;
+}
+
+/** How a configured run is held to what it pinned: resumed, or continued into the fix pass, whose refusals name another way out (TD6 of fix pass continuation). */
+type PinnedUse = 'resume' | 'continue';
+
+/** The way out a refusal of a pinned run names besides the flag that matches: abandoning an active run, or a new run for a finished one, which is not abandoned. */
+function wayOut(runId: string, use: PinnedUse): string {
+  return use === 'resume' ? `abandon it with \`deep-review abandon --run ${runId} --reason <text>\`` : 'start a new run with --fresh';
+}
+
+/**
+ * The finished runs a `review --fix` may continue (R2 of fix pass
+ * continuation), newest first: complete runs of this worktree that ran
+ * without the fix pass and were configured with the decision step, whose
+ * decisions a fix run routes its findings by.
+ */
+function continuable(runs: readonly RunState[], worktree: string): RunState[] {
+  return finishedReadOnly(runs, worktree).filter((run) => run.review!.fix === null && run.review!.phases.decision.status !== 'skipped');
+}
+
+/** The complete runs of this worktree configured without the fix pass, continued since or not, newest first: the ones a `review --fix` names when it continues none. */
+function finishedReadOnly(runs: readonly RunState[], worktree: string): RunState[] {
+  return runs
+    .filter((run) => reviewStatus(run) === 'complete' && run.review !== null && (run.review.fix === null || run.review.continuedFrom !== null) && sameDirectory(run.worktree, worktree))
+    .reverse();
+}
+
+/** Why a finished read-only run is not continued when it is not a candidate at all: it was continued already, or configured before the decision step. */
+function notContinuable(run: RunState): string | null {
+  if (run.review?.continuedFrom !== null && run.review?.continuedFrom !== undefined) return 'it was continued into the fix pass already';
+  if (run.review?.phases.decision.status === 'skipped') return 'it was configured before the decision step, which a fix run routes its findings by';
+  return null;
+}
+
+/**
+ * The counts of a run's decisions that route no finding to a fixer, as a
+ * continuation refuses them (R5, PD6 of fix pass continuation), or null
+ * when some finding routes to one.
+ */
+function nothingToFix(run: RunState): string | null {
+  const decisions = run.review?.decisions ?? [];
+  if (decisions.some((decision) => routeOfDecision(decision) === 'fixer')) return null;
+  if (decisions.length === 0) return 'its review ranked no finding';
+  const counts = decisionCounts(decisions);
+  return `${String(counts.fix)} decided fix, ${String(counts.leave)} left, ${String(counts.ask)} asked with the code kept`;
 }
 
 /**
@@ -733,13 +811,22 @@ interface OpenedRun {
  * engine running it refuses this one at once, and is released on every
  * way out: the caller's release, the process's exit, and a signal that
  * ends it (design, run lifecycle step 2).
+ *
+ * With no active run, `--fix` and no `--fresh`, a finished read-only run
+ * of this change is continued instead of a run created (R1, R2 of fix
+ * pass continuation): the newest that qualifies and whose scope the
+ * command names as it is (`chooseContinuation`), taken under its lock
+ * and read again, as a found run is. One that another engine continued
+ * meanwhile is resumable now and is resumed; one that no longer qualifies
+ * for another reason is let go, and a run is created.
  */
 async function openRun(context: OpenContext): Promise<OpenedRun> {
   const { checkpoint, log } = context;
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release: ReleaseLock | null = null;
   try {
-    let found = findActiveRun(checkpoint, log);
+    const runs = readableRuns(checkpoint, log);
+    let found = activeRunAmong(runs);
     // The checkpoint is shared by every worktree of the repository, while a run's scope, worktree checks and workers belong to the worktree it was created in.
     if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
       throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
@@ -757,18 +844,37 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
         release = null;
       }
     }
-    const pinned = found?.review?.configuration ?? null;
-    if (found !== null && pinned !== null && pinned.runtime !== context.runtime) {
-      throw new ReviewRefusedError(`run ${found.id} is pinned to runtime ${pinned.runtime}, not ${context.runtime}; run it with --runtime ${pinned.runtime}, or abandon it`);
+    // An active run is resumed first, --fresh or not (R2 of fix pass continuation).
+    if (found !== null && context.fresh === true) log(`run ${found.id} is active and resumes; --fresh is ignored`);
+    const scopeRequestOf = once(() => context.scope.request());
+    if (found === null && (context.fix ?? null) !== null) {
+      const chosen = chooseContinuation(runs, context, scopeRequestOf);
+      if (chosen !== null) {
+        release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
+        const refolded = refoldUnderLock(checkpoint, chosen.id, log);
+        if (refolded !== null && reviewStatus(refolded) === 'complete' && refolded.review?.fix === null) {
+          return { state: refolded, release, scopeRequest: null, configure: null, continuation: await continuationOf(refolded, context) };
+        }
+        // Another engine continued it between the find and the lock: it is this worktree's active run now, and is resumed rather than joined by a second.
+        if (refolded !== null && isResumable(refolded)) found = refolded;
+        else {
+          // Abandoned, or continued and finished, by another engine; one this engine cannot read was passed over with its line.
+          if (refolded !== null) log(`run ${refolded.id}: ${refolded.status === 'abandoned' ? 'abandoned' : 'continued into the fix pass by another engine'} before its lock was taken; a new run is created`);
+          release();
+          release = null;
+        }
+      }
     }
+    const pinned = found?.review?.configuration ?? null;
+    if (found !== null && pinned !== null) refuseOtherRuntime(found.id, pinned, context.runtime, 'abandon it');
     if (found !== null) {
       log(`run ${found.id}: resuming${found.scope === null ? '; it has no scope yet and captures the one this command names' : ''}`);
       if (found.scope !== null && context.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
     }
-    const scopeRequest = found === null || found.scope === null ? context.scope.request() : null;
+    const scopeRequest = found === null || found.scope === null ? scopeRequestOf() : null;
     let configure: OpenedRun['configure'] = null;
     if (found !== null && pinned !== null) {
-      await resumePinned(found, pinned, context);
+      await resumePinned(found, pinned, context, 'resume');
     } else {
       const resolved = resolvePolicy(readPolicy(context.rolesRoot), context.roles, context.adapter, context.flags, context.platform);
       if (context.flags.codexWindowsSandbox !== undefined && resolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
@@ -784,13 +890,77 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       release = releaseOnExit(acquireRunLock(checkpoint.root, state.id));
       log(`run ${state.id}: created`);
     }
-    return { state, release: release!, scopeRequest, configure };
+    return { state, release: release!, scopeRequest, configure, continuation: null };
   } catch (error) {
     release?.();
     throw error;
   } finally {
     releaseStart();
   }
+}
+
+/**
+ * The finished read-only run a `review --fix` continues (R2, TD8 of fix
+ * pass continuation): the newest that qualifies (`continuable`) whose
+ * scope the command names, its files as git would store them what the run
+ * froze and `HEAD` at its head (`scopeMatches`). None with `--fresh`,
+ * which says so. When none matches, the log says a new run is created,
+ * and names the newest finished read-only run of this worktree with the
+ * first reason it was not continued.
+ */
+function chooseContinuation(runs: readonly RunState[], context: OpenContext, request: () => ScopeRequest): RunState | null {
+  if (context.fresh === true) {
+    context.log('--fresh: no finished run is considered; a new run is created');
+    return null;
+  }
+  const reasons = new Map<string, string>();
+  for (const run of continuable(runs, context.worktree)) {
+    const reason = scopeMatches(request(), run.scope!, context.worktree, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path));
+    if (reason === null) return run;
+    reasons.set(run.id, reason);
+  }
+  context.log('--fix: no finished read-only run of this worktree reviewed this change as it is; a new run is created');
+  const newest = finishedReadOnly(runs, context.worktree)[0];
+  if (newest !== undefined) {
+    const reason = notContinuable(newest) ?? reasons.get(newest.id);
+    if (reason === undefined) throw new Error(`Run ${newest.id} was neither tried nor ruled out as a continuation`);
+    context.log(`run ${newest.id}: not continued: ${reason}`);
+  }
+  return null;
+}
+
+/**
+ * What continuing a finished read-only run pins (R3 to R6 of fix pass
+ * continuation), or a refusal that leaves it complete: the run is held to
+ * its runtime, roles digest, Codex Windows sandbox and executable as a
+ * resume holds a run, with `--fresh` as the way out; a run whose decisions
+ * route no finding to a fixer is refused, and so is one that went on
+ * without its survey unless the flags settle every check. The pin carries
+ * the policy's per-check timeout and batch size, and the flags' plan of
+ * the checks when they settle every kind.
+ */
+async function continuationOf(run: RunState, context: OpenContext): Promise<{ pin: FixPinned; report: string }> {
+  const review = run.review!;
+  const flags = context.fix!;
+  refuseOtherRuntime(run.id, review.configuration, context.runtime, wayOut(run.id, 'continue'));
+  await resumePinned(run, review.configuration, context, 'continue');
+  const nothing = nothingToFix(run);
+  if (nothing !== null) throw new ReviewRefusedError(`run ${run.id} has no finding to fix: ${nothing}; nothing to continue; start a new run with --fresh to review it again`);
+  const unsettled = unsettledKinds(flags);
+  if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {
+    throw new ReviewRefusedError(`run ${run.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for ${unsettled.join(', ')}, or start a new run with --fresh`);
+  }
+  const policy = readPolicy(context.rolesRoot);
+  const plannedChecks = unsettled.length === 0 ? [...resolveChecks(null, flags).checks] : null;
+  return {
+    pin: { checks: { timeoutMs: policy.checks.timeoutMs }, fixes: { batchSize: policy.fixes.batchSize }, plannedChecks },
+    report: context.checkpoint.evidence.pathOf(review.report!.report),
+  };
+}
+
+/** Refuse a run pinned to another runtime than the command's, naming the flag and `way` out. */
+function refuseOtherRuntime(runId: string, pinned: Pick<ReviewConfiguration, 'runtime'>, runtime: string, way: string): void {
+  if (pinned.runtime !== runtime) throw new ReviewRefusedError(`run ${runId} is pinned to runtime ${pinned.runtime}, not ${runtime}; run it with --runtime ${pinned.runtime}, or ${way}`);
 }
 
 /**
@@ -809,8 +979,13 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * pinned none because it was configured off Windows, and is refused when
  * it names another value than the pinned one; the pinned executable, not
  * the command's, must still qualify.
+ *
+ * A finished read-only run continued into the fix pass is held the same
+ * way (R3, TD6 of fix pass continuation), its refusals naming a new run
+ * with `--fresh` where a resume's name abandoning it; whether it fixes and
+ * its check flags are the continuation's to say, not a resume's.
  */
-async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext): Promise<void> {
+async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext, use: PinnedUse): Promise<void> {
   const runId = run.id;
   // A fix run routes its findings by their decisions (R6 of the decision step); one configured before the decision step has none to route by, so it cannot go on to plan its fixes, whatever roles it is given.
   if (pinned.fix && run.review?.phases.decision.status === 'skipped' && (run.review.fix?.plan ?? null) === null) {
@@ -818,7 +993,7 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
   }
   const digest = rolesDigest(context.roles);
   if (digest !== pinned.rolesDigest) {
-    throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+    throw new ReviewRefusedError(`run ${runId} was configured with roles digest ${pinned.rolesDigest}, and the roles at ${context.rolesRoot} now digest ${digest}; run it with the roles it started with (--roles <dir>), or ${wayOut(runId, use)}`);
   }
   refuseInvocationFlags(context.adapter, context.flags);
   // How the run's workers are confined is pinned at configuration (R3 of the Codex sandbox): a resume asking for another confinement is refused, not silently given the pinned one.
@@ -831,16 +1006,29 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
     } else if (applied === null) {
       context.log(`run ${runId} pins no Codex Windows sandbox, since it was not configured on Windows; --codex-windows-sandbox is ignored`);
     } else if (sandbox !== applied) {
-      throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${applied}, not ${sandbox}; run it with --codex-windows-sandbox ${applied} or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
+      throw new ReviewRefusedError(`run ${runId} is pinned to the Codex Windows sandbox ${applied}, not ${sandbox}; run it with --codex-windows-sandbox ${applied} or without the flag, or ${wayOut(runId, use)}`);
     }
   }
   if (context.flags.strongModel !== undefined || context.flags.fastModel !== undefined) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
-  // Whether the run fixes is pinned at configuration (R1 of the fix pass); the check flags settle their kinds until the checks are planned (TD6 of the repository survey), and are named and ignored after.
+  if (use === 'resume') resumedFixFlags(run, pinned, context);
+  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
+}
+
+/**
+ * What a resumed run says of `--fix`, `--check` and `--no-check`: whether
+ * the run fixes is pinned at configuration (R1 of the fix pass), so a
+ * read-only run names `--fix` ignored and how it is continued once its
+ * report is written (R10 of fix pass continuation); the check flags settle
+ * their kinds until the checks are planned (TD6 of the repository survey),
+ * and are named and ignored after.
+ */
+function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: OpenContext): void {
+  const runId = run.id;
   const fix = context.fix ?? null;
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
-  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored`);
+  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored; once its report is written, run again with --fix to continue it into the fix pass`);
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
   const planned = (run.review?.fix?.checks.planned ?? null) !== null;
   if (pinned.fix && checkFlags && planned) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
@@ -852,7 +1040,6 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
       context.log(`run ${runId}: its survey was asked with --check or --no-check settling ${unsettled.join(', ')}, which this invocation leaves unsettled, so the survey is asked again for ${unsettled.length === 1 ? 'it' : 'them'}; give those flags again to keep them`);
     }
   }
-  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
 }
 
 /**

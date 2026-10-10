@@ -11,7 +11,7 @@ import { RuntimeRegistry } from '../../src/runtime/registry.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { fixerAnswer } from '../helpers/fake-runtime.ts';
-import { fakeCheckCommand, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { fakeCheckCommand, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** One launch as the spying runtimes saw it: the runtime and the pinned options its plan handed the adapter. */
 interface Launch {
@@ -116,6 +116,16 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     assert.equal(box.run().id, runId, 'the same run resumed');
     assert.deepEqual(box.run().review!.configuration.codex, { windowsSandbox: 'elevated' });
     assert.deepEqual(launchedWith(), [{ windowsSandbox: 'elevated' }], 'each resume launches every worker with the pinned sandbox, flag or none');
+  });
+
+  it('refuses to continue a finished read-only run into the fix pass under another sandbox, naming --fresh rather than abandoning a run that is complete (R3 of fix pass continuation)', async (t) => {
+    const { box, codex } = spied(t);
+    box.script({});
+    reportText(await codex({ flags: { codexWindowsSandbox: 'elevated' } }));
+    const finished = box.run();
+    await assert.rejects(codex({ flags: { codexWindowsSandbox: 'none' }, fix: ReviewSandbox.checkFlags() }), (error: unknown) => error instanceof ReviewRefusedError
+      && error.message === `run ${finished.id} is pinned to the Codex Windows sandbox elevated, not none; run it with --codex-windows-sandbox elevated or without the flag, or start a new run with --fresh`);
+    assert.equal(box.run().lastSequence, finished.lastSequence, 'the refusal recorded nothing');
   });
 
   it('names the flag as ignored on the resume of a run configured off Windows, there and on Windows', async (t) => {

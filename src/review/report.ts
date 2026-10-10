@@ -1,6 +1,6 @@
 /**
  * The report (R9, PD8 of the read-only review; R13 of the fix pass; R7
- * of the Codex sandbox):
+ * of the Codex sandbox; R7 of fix pass continuation):
  * Markdown rendered by the engine from the fold alone, so two engines
  * render the same report from the same ledger and no model rewrites a
  * finding. Sections in order: the header, for a run with the decision
@@ -185,6 +185,18 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
   return lines;
 }
 
+/**
+ * The header's line for a read-only run continued into the fix pass (R7
+ * of fix pass continuation): when, and where its read-only report is,
+ * which stays in the evidence store beside this one; none for a run
+ * never continued.
+ */
+function continuedLine(review: ReviewState, input: ReportInput): string[] {
+  if (review.continuedFrom === null) return [];
+  if (input.fix === undefined) throw new Error('A continued run is a fix run, whose report names where its evidence is');
+  return [`Continued: into the fix pass on ${review.continuedFrom.at}, after the read-only report at ${inlineText(input.fix.evidencePath(review.continuedFrom.report.report))}`];
+}
+
 /** Render the report from the fold. The run must be configured for review and have its scope. */
 export function renderReport(state: RunState, input: ReportInput): string {
   const review = state.review;
@@ -207,6 +219,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(configuration.codex === null ? [] : [`Codex Windows sandbox: ${codexSandboxWords[configuration.codex.windowsSandbox]}`]),
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
+    ...continuedLine(review, input),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
     ...[fixHeaderLine(review)].filter((line) => line !== null),
   ];

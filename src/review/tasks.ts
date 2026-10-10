@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import type { Lead, RecordedDecision } from '../checkpoint/events.ts';
+import type { Lead, RecordedDecision, SurveyRecorded } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { fenceFor } from './prompts.ts';
@@ -36,6 +36,28 @@ export interface SurveyTaskInput {
    * cannot list, so its task names another lookup (R12 of the Codex sandbox).
    */
   readonly elevatedSandbox: boolean;
+  /**
+   * The convention sources and user-level decisions a read-only run
+   * continued into the fix pass recorded, which stand, so its surveyor is
+   * asked for the checks alone (R4, PD5 of fix pass continuation); null
+   * for every other survey, which answers both questions.
+   */
+  readonly standing: Pick<SurveyRecorded, 'conventions' | 'userRules'> | null;
+}
+
+/**
+ * The opening of a continued run's survey task: what stands and that only
+ * the checks are asked, in place of the survey of the conventions and the
+ * user-level files offered.
+ */
+function standingLines(standing: Pick<SurveyRecorded, 'conventions' | 'userRules'>): string[] {
+  return [
+    'This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.',
+    '',
+    'Convention sources recorded:',
+    ...(standing.conventions.length === 0 ? ['- none'] : standing.conventions.map((source) => `- ${source.path} (${source.level}): ${source.governs}`)),
+    ...(standing.userRules.length === 0 ? [] : ['', 'User-level rules files decided:', ...standing.userRules.map((rule) => `- ${rule.path}: ${rule.applied ? 'applied' : 'not applied'}, ${rule.reason}`)]),
+  ];
 }
 
 /** The reviewer's authorship as the task states it: a fact the surveyor's own shell cannot see. */
@@ -72,9 +94,15 @@ function shellOf(platform: NodeJS.Platform, elevatedSandbox: boolean): { readonl
  * kinds to choose, the ones the operator's flags settled, how a check
  * reaches its shell on this platform and how to look a tool up as it
  * would, and the manifest rules' hints as guesses; in a run that does not
- * fix, that no check is asked for.
+ * fix, that no check is asked for. A continued run's task says instead
+ * what its survey recorded, which stands, and asks for the checks alone
+ * (R4 of fix pass continuation).
  */
 export function surveyTask(input: SurveyTaskInput): string {
+  if (input.standing !== null) {
+    if (!input.fix) throw new Error('A survey asked for the checks alone is a continued run\'s, which fixes');
+    return [...standingLines(input.standing), '', ...fixChecks(input)].join('\n');
+  }
   const userRules = input.offered.length > 0
     ? [
         'User-level rules files offered:',

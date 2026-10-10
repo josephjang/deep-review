@@ -3,7 +3,9 @@
  * review): its status, worktree, runtime and models, the phase it is in,
  * its workers, its spend against the run budget in force, what the budget
  * check counts when that differs from the reported spend, its blocker with
- * the operator's action, its report, what its decision step decided
+ * the operator's action, its report and for a run continued into the fix
+ * pass its read-only report (R7 of fix pass continuation), what its
+ * decision step decided
  * (R8 of the decision step), and for a fix run (R13 of the fix
  * pass) its batches, its claims (R3 of commit series integrity), its
  * checks, its patches and its commits, as text lines and as JSON.
@@ -32,6 +34,8 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const checkedUsd = budgetSpend?.usd ?? null;
   const budgetCheckLine = budgetUsd === null || checkedUsd === null || budgetNote === null ? null : `Budget check: ${checkedUsd.toFixed(2)} USD of ${budgetUsd.toFixed(2)} USD, ${budgetNote}`;
   const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
+  // A run continued into the fix pass keeps its read-only report beside the one it writes next (R7 of fix pass continuation).
+  const continuedFrom = review?.continuedFrom === null || review?.continuedFrom === undefined ? null : { report: evidencePath(review.continuedFrom.report.report), at: review.continuedFrom.at };
   const patches = (review?.report?.patches ?? []).map(evidencePath);
   const fix = review === null ? null : fixStatus(state, review);
   // How many findings the decision step decided each way (R8 of the decision step), or null while it has recorded none.
@@ -47,13 +51,14 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
       : `Spend: ${statistics.total.costUsd === null ? 'no cost reported' : `${statistics.total.costUsd.toFixed(2)} USD`}${budgetUsd === null || budgetCheckLine !== null ? '' : ` of ${budgetUsd.toFixed(2)} USD`}; ${statistics.total.inputTokens === null ? 'no tokens reported' : `${String(statistics.total.inputTokens)} input, ${String(statistics.total.outputTokens ?? 0)} output tokens`}`,
     ...(budgetCheckLine === null ? [] : [budgetCheckLine]),
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
+    ...(continuedFrom === null ? [] : [`Continued from: ${continuedFrom.report}, into the fix pass on ${continuedFrom.at}`]),
     ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
     ...(decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`]),
     ...(fix === null ? [] : fix.lines),
     ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
     ...(review?.fix?.commits === null || review?.fix?.commits === undefined ? [] : [`Commits: ${String(review.fix.commits.commits.length)} created, ${review.fix.commits.from} to ${review.fix.commits.to}`]),
   ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, decisions, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? null, review };
+  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? null, review };
   return { lines, json };
 }
 

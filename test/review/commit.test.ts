@@ -89,9 +89,9 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal((await box.review('claude')).kind, 'report');
     const readOnly = box.checkpoint.foldRuns().at(-1)!.id;
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: readOnly }), refused(/ran without --fix/));
-    // A fix run whose fixer found its finding already applied, and changed nothing.
+    // A fix run whose fixer found its finding already applied, and changed nothing: a new run, not a continuation of the read-only one, which found nothing.
     box.script({ ...twoFixes, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) }, 'fixer:fixes:c2-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
-    assert.equal((await box.fix('claude')).kind, 'report');
+    assert.equal((await box.fix('claude', { fresh: true })).kind, 'report');
     const unchanged = box.checkpoint.foldRuns().at(-1)!.id;
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: unchanged }), refused(/changed no file, so there is nothing to commit/));
   });

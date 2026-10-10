@@ -262,6 +262,26 @@ read-only review exactly. Whether a run fixes is pinned when it is
 configured, and which checks it runs when its survey completes; a
 resumed run keeps both and says when the command asks otherwise.
 
+A finished read-only run is continued rather than reviewed again. With
+no run active, `review --fix` given the scope flags of a change that a
+read-only run of this worktree reviewed to its report continues the
+newest such run, when it was configured with the decision step and the
+change is unchanged since: the same mode, base and paths, every file as
+git would store it what the run froze, and `HEAD` at its head. The run
+pins the fix pass, asks its surveyor only for the checks the flags leave
+unsettled, the convention sources its review recorded standing, runs the
+five phases on the findings and decisions it holds, and writes a second
+report whose header names the first. No finder, verifier or decider
+runs again, and the run budget is the run's over both passes. A run
+whose decisions send no finding to a fixer is refused, and so is one
+that went on without its survey unless the flags settle every check.
+When no finished run qualifies, the log names the newest finished
+read-only run of the worktree and why, and a new run is created;
+`--fresh` creates one without looking. An active read-only run still
+ignores `--fix`, and says how to continue it once its report is
+written. See `docs/changes/2026-10-10-fix-pass-continuation.requirements.md`
+and its design.
+
 Every ranked finding is routed by its decision: a finding decided `fix`,
 and one decided `ask` whose default edits the code, goes to a fixer,
 which is told the decision and each merged candidate's verdict and

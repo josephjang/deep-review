@@ -41,7 +41,7 @@ export const usage = `usage:
                       [--strong-model <model>] [--fast-model <model>]
                       (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
-                      [--fix [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
+                      [--fix [--fresh] [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
                       [--codex-windows-sandbox ${windowsSandboxes.join('|')}]   (with --runtime codex; applies on Windows)
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
@@ -72,6 +72,7 @@ const options = {
   json: { type: 'boolean' },
   reason: { type: 'string' },
   fix: { type: 'boolean' },
+  fresh: { type: 'boolean' },
   check: { type: 'string', multiple: true },
   'no-check': { type: 'string', multiple: true },
   'codex-windows-sandbox': { type: 'string' },
@@ -95,7 +96,7 @@ export interface CommandIo {
 
 /** The flags each command takes; any other given flag is refused by name. */
 const allowed: Record<string, readonly (keyof Values)[]> = {
-  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'check', 'no-check', 'codex-windows-sandbox', 'help'],
+  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'help'],
   status: ['run', 'json', 'repo', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
@@ -173,6 +174,13 @@ export function fixRequestOf(values: Values): CheckFlags | null {
     commands[kind] = command;
   }
   return { commands, dropped: dropped.map((text) => kindOf('--no-check', text)) };
+}
+
+/** Whether `--fresh` declines a continuation (R2 of fix pass continuation); it is refused without `--fix`, which alone continues a run. */
+export function freshRequestOf(values: Values): boolean {
+  if (values.fresh !== true) return false;
+  if (values.fix !== true) throw new UsageError('--fresh applies only with --fix');
+  return true;
 }
 
 /** Run the command line and return the exit code. */
@@ -347,9 +355,10 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   const problem = invocationFlagProblem(flags);
   if (problem !== null) throw new UsageError(problem);
   const fix = fixRequestOf(values);
+  const fresh = freshRequestOf(values);
   const checkpoint = openCheckpoint(root, true)!;
   try {
-    // The controller resolves the scope only for a run that has none yet: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on.
+    // The controller resolves the scope for a run that has none yet, and to compare it with a finished run's before continuing that run: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on.
     const scope: ScopeSource = {
       named: hasScopeFlags(values),
       request: () => {
@@ -371,6 +380,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
       flags,
       scope,
       fix,
+      fresh,
       // A fixer's snapshot command runs this same entry: the bundle, or this file from the sources.
       engineEntry: import.meta.filename,
       environment: io.environment,

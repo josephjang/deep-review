@@ -59,7 +59,10 @@ import { emptySurveyState, surveyBlocker, type SurveyState } from './survey-stat
  * A phase's status; `skipped` is set at configuration and never started:
  * a fix phase of a run configured without the fix pass (TD9 of the fix
  * pass), the survey of a run configured before the survey existed, and
- * the decision of a run configured before the decision step existed.
+ * the decision of a run configured before the decision step existed. A
+ * fix phase skipped so goes back to `pending` only when `fix.pinned`
+ * continues the run into the fix pass, the one event that moves a phase
+ * out of `skipped` or `completed` (TD7 of fix pass continuation).
  */
 export type PhaseStatus = 'pending' | 'running' | 'completed' | 'degraded' | 'blocked' | 'skipped';
 
@@ -160,7 +163,14 @@ export interface ReviewState {
    */
   readonly decisions: readonly RecordedDecision[] | null;
   readonly report: ReportWritten | null;
-  /** The fix pass's state, or null for a run configured without it, including every run recorded before it existed. */
+  /**
+   * The read-only report of a run continued into the fix pass, with when
+   * the continuation was recorded (R6, R7 of fix pass continuation); null
+   * for a run never continued. The continuation clears `report`, so the
+   * second report takes its place and this one stays beside it.
+   */
+  readonly continuedFrom: { readonly report: ReportWritten; readonly at: string } | null;
+  /** The fix pass's state, or null for a run configured without it and not continued into it, including every run recorded before it existed. */
   readonly fix: FixState | null;
   /** The survey's state, or null for a run configured before the survey existed, whose survey phase is skipped. */
   readonly survey: SurveyState | null;
@@ -266,6 +276,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     ranking: null,
     decisions: null,
     report: null,
+    continuedFrom: null,
     fix: payload.fix ? emptyFixState() : null,
     survey: surveyed ? emptySurveyState() : null,
   };
@@ -322,7 +333,7 @@ function reopened(review: ReviewState, drafts: FoldDrafts, phase: Phase, key: st
 }
 
 /** The unit records with every failure of `phase`'s units forgotten; what they answered stays. */
-function withFreshAttempts(review: ReviewState, drafts: FoldDrafts, phase: Phase): ReviewState['units'] {
+export function withFreshAttempts(review: ReviewState, drafts: FoldDrafts, phase: Phase): ReviewState['units'] {
   const { units, ofPhase } = writableUnits(review, drafts, phase);
   for (const [key, state] of Object.entries(ofPhase)) {
     if (state.failures.length > 0) ofPhase[key] = { answeredBy: state.answeredBy, failures: [] };
@@ -330,7 +341,7 @@ function withFreshAttempts(review: ReviewState, drafts: FoldDrafts, phase: Phase
   return units;
 }
 
-/** Why a run skips a phase, which only its configuration decides (`configure`). */
+/** Why a run skips a phase, which only its configuration decides (`configure`); a fix phase is skipped no longer once `fix.pinned` continues the run, which is what changes its configuration. */
 function skipReason(phase: Phase): string {
   if (phase === 'survey') return 'it was configured before the survey existed';
   if (phase === 'decision') return 'it was configured before the decision step existed';
@@ -343,6 +354,8 @@ const phaseStarted: Reducer<PhaseStarted> = (state, payload, event, drafts) => {
   if (phase.status === 'completed' || phase.status === 'degraded') throw invalid(event, `starts phase ${payload.phase} again after it ${phase.status}`);
   if (phase.status === 'skipped') throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase)}`);
   if (payload.attempt !== phase.attempt + 1) throw invalid(event, `starts phase ${payload.phase} at attempt ${String(payload.attempt)} after attempt ${String(phase.attempt)}`);
+  // The baseline runs the planned checks, so they are planned before it starts: at configuration, in the survey, or with the pin that continues a read-only run (TD3 of fix pass continuation).
+  if (payload.phase === 'baseline-checks' && (review.fix?.checks.planned ?? null) === null) throw invalid(event, 'starts baseline-checks before its checks are planned');
   for (const earlier of phases.slice(0, phases.indexOf(payload.phase))) {
     const status = review.phases[earlier].status;
     if (status !== 'completed' && status !== 'degraded' && status !== 'skipped') throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status}`);

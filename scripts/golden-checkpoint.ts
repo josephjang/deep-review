@@ -883,7 +883,7 @@ try {
       patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
     }, 4);
   });
-  // A seventh run with claims, every event at the version the engine now
+  // A ninth run with claims, every event at the version the engine now
   // writes: a fix run of two clusters, one finding per batch. c1-1 claims a
   // shared test file and applies SCAN-1; c2-1's claim of it is refused, its
   // marker on c1's own file is left out of the ledger as lost, and it
@@ -1071,6 +1071,168 @@ try {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run with claims\n'),
       statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: spend(22), budgetApplied: true },
       patches: ['guard', 'check the guard', 'keep the attempt', 'stop passing the null'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
+    }, 4);
+  });
+  // A tenth run, read-only and continued into the fix pass (R6 of fix pass
+  // continuation), every event at the version the engine now writes: its
+  // review ranks two findings, the decider fixes the first and leaves the
+  // second, and its read-only report is written; then the same command
+  // with --fix pins the fix pass, with no check settled by a flag, and
+  // raises the run budget; the survey is asked again for the checks alone,
+  // its convention source standing; and the fix pass runs one fixer, which
+  // applies the first finding, to a second report with its one patch.
+  const continuedRun = checkpoint.createRun({ worktree: '/fixture/continued' });
+  const continued = new ReviewHistory(checkpoint, continuedRun.id, checkpoint.append(continuedRun.id, continuedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  continued.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.301',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: [
+      pinned('surveyor', 'strong', 'medium'),
+      pinned('triage', 'strong'),
+      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
+      pinned('deduplication', 'strong'),
+      pinned('verifier', 'strong'),
+      pinned('sweep', 'strong'),
+      pinned('merge-rank', 'strong'),
+      pinned('decider', 'strong', 'high', 1_800_000),
+      pinned('fixer', 'strong', 'high', 1_800_000),
+    ],
+    rolesDigest: 'b'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 60,
+    fix: false,
+    checks: null,
+    fixes: null,
+    survey: { userRules: 'judge' },
+    codex: null,
+  }, 5);
+  const contributing = { path: 'CONTRIBUTING.md', level: 'repository', governs: 'code style and tests', appliesTo: null, grounds: null };
+  continued.phaseV5('survey', () => {
+    continued.launch('701', 'surveyor survey:survey');
+    continued.finishWorker('701');
+    continued.add('survey.recorded', { workerId: continued.id('701'), conventions: [contributing], userRules: [], checks: null, note: '' });
+  });
+  continued.phaseV5('triage', () => {
+    continued.launch('702', 'triage triage:SCAN');
+    continued.finishWorker('702');
+    continued.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: continued.id('702'), candidates: [continued.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  continued.phaseV5('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = String(710 + finderAngles.indexOf(angle));
+      continued.launch(tag, `finder-${angle} finders:${angle}`);
+      continued.finishWorker(tag);
+      continued.add('candidates.recorded', { phase: 'finders', key: angle, workerId: continued.id(tag), candidates: angle === 'DESIGN' ? [continued.candidate('DESIGN-1', 'DESIGN', 1)] : [], leads: null });
+    }
+  });
+  continued.phaseV5('deduplication', () => {
+    continued.launch('720', 'deduplication deduplication:deduplication');
+    continued.finishWorker('720');
+    continued.add('deduplication.recorded', { phase: 'deduplication', workerId: continued.id('720'), groups: [] });
+  });
+  continued.phaseV5('verification', () => {
+    continued.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'SCAN-1'] }] });
+    continued.launch('721', 'verifier verification:g1');
+    continued.finishWorker('721');
+    continued.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: continued.id('721'), verdicts: [
+      { id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'Not CONFIRMED: the helper reads better, which is a matter of taste.' },
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives' },
+    ] });
+  });
+  continued.phaseV5('sweep', () => {
+    continued.launch('730', 'sweep sweep:sweep');
+    continued.finishWorker('730');
+    continued.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: continued.id('730'), candidates: [], leads: null });
+  });
+  continued.phaseV5('sweep-deduplication', () => {});
+  continued.phaseV5('sweep-verification', () => continued.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  continued.phaseV5('merge-rank', () => {
+    continued.launch('740', 'merge-rank merge-rank:merge-rank');
+    continued.finishWorker('740');
+    continued.add('ranking.recorded', { workerId: continued.id('740'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one helper reads better' },
+    ] });
+  });
+  continued.phaseV5('decision', () => {
+    continued.launch('745', 'decider decision:decision');
+    continued.finishWorker('745');
+    continued.add('decisions.recorded', { workerId: continued.id('745'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: null },
+      { id: 'DESIGN-1', decision: 'leave', grounds: 'the helper would edit only lines the change does not touch', fix: null, leave: { reason: 'outside-change-not-regression', supersededBy: null }, ask: null, departure: null },
+    ] });
+  });
+  const continuedSpend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+  continued.phaseV5('report', () => {
+    const workersPerPhase: Partial<Record<Phase, number>> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1 };
+    const read = phases.filter((phase) => !['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks'].includes(phase));
+    continued.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture read-only report of a run continued later\n'),
+      statistics: { phases: read.map((phase) => ({ phase, ...continuedSpend(workersPerPhase[phase] ?? 0) })), total: continuedSpend(16), budgetApplied: true },
+      patches: [],
+    }, 4);
+  });
+  // The same command with --fix, and no --check or --no-check: the fix pass is pinned with the policy's timeout and batch size, and the survey asked for every kind.
+  continued.add('fix.pinned', { checks: { timeoutMs: 1_200_000 }, fixes: { batchSize: 4 }, plannedChecks: null });
+  continued.add('limits.changed', { concurrency: 4, runBudgetUsd: 80 });
+  const continuedChecks = { build: 'npm run build', test: 'npm test' };
+  continued.phaseV5('survey', () => {
+    continued.launch('751', 'surveyor survey:survey');
+    continued.finishWorker('751');
+    // The convention source stands as the read-only survey recorded it; the answer adds the checks.
+    continued.add('survey.recorded', {
+      workerId: continued.id('751'),
+      conventions: [contributing],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: continuedChecks.build, basis: 'stated', source: { path: 'CONTRIBUTING.md', quote: '`npm run build`' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'the build typechecks' },
+        { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no linter' },
+        { kind: 'test', command: continuedChecks.test, basis: 'stated', source: { path: 'CONTRIBUTING.md', quote: '`npm test`' }, missingTool: null, reason: null },
+      ],
+      note: 'checks only; the conventions stand',
+    });
+    continued.add('checks.planned', { checks: [
+      { kind: 'build', command: continuedChecks.build, origin: 'survey', reason: null, source: { path: 'CONTRIBUTING.md', quote: '`npm run build`', basis: 'stated' } },
+      { kind: 'typecheck', command: null, origin: 'none', reason: 'the build typechecks', source: null },
+      { kind: 'lint', command: null, origin: 'none', reason: 'the project has no linter', source: null },
+      { kind: 'test', command: continuedChecks.test, origin: 'survey', reason: null, source: { path: 'CONTRIBUTING.md', quote: '`npm test`', basis: 'stated' } },
+    ] }, 2);
+  });
+  continued.phaseV5('baseline-checks', () => {
+    continued.check('baseline-checks', 'build', continuedChecks.build, 'passed');
+    continued.check('baseline-checks', 'test', continuedChecks.test, 'passed');
+  });
+  continued.phaseV5('fixes', () => {
+    continued.add('fixes.planned', {
+      routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'DESIGN-1', route: 'held' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] }],
+    });
+    continued.launch('760', 'fixer fixes:c1-1');
+    continued.finishWorker('760');
+    continued.add('fix.recorded', { phase: 'fixes', key: 'c1-1', workerId: continued.id('760'), findings: [finding('SCAN-1', 'applied', ['src/changed.ts'], 'fix: Guard the null in changed()')], drift: [], tests: [], suite: { result: 'pass', command: continuedChecks.test, failures: '' }, violations: [] });
+    continued.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1-1', workerId: continued.id('760') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
+      { path: 'src/changed.ts', status: 'modified', before: continued.frozen('after\n'), beforeSymlink: false, symlink: false, after: continued.frozen('after; // guarded\n') },
+    ] });
+    continued.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
+  }, 'completed', { end: true });
+  continued.phaseV5('checks', () => {
+    continued.check('checks', 'build', continuedChecks.build, 'passed');
+    continued.check('checks', 'test', continuedChecks.test, 'passed');
+  });
+  continued.phaseV5('repair', () => {});
+  continued.phaseV5('repair-checks', () => {});
+  continued.phaseV5('report', () => {
+    // Both passes counted: the survey's two surveyors, and the one fixer.
+    const workersPerPhase: Partial<Record<Phase, number>> = { survey: 2, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1, fixes: 1 };
+    continued.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run continued into the fix pass\n'),
+      statistics: { phases: phases.map((phase) => ({ phase, ...continuedSpend(workersPerPhase[phase] ?? 0), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: continuedSpend(18), budgetApplied: true },
+      patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
     }, 4);
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');

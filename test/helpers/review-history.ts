@@ -441,20 +441,24 @@ export function withSurvey(history: History, survey: (history: History) => Histo
 /** The commands a quiet survey of a fix run chooses, as `surveyedCheck` states them: the ones these histories run, npm's build, lint and test, and no typecheck. */
 const quietCommands: readonly (readonly [kind: string, command: string | null])[] = [['build', 'npm run build'], ['typecheck', null], ['lint', 'npm run lint'], ['test', 'npm run test']];
 
+/** The checks a quiet survey of a fix run answers, one per kind. */
+export const quietSurveyedChecks = (): Record<string, unknown>[] => quietCommands.map(([kind, command]) => surveyedCheck(kind, command));
+
+/** The plan those checks give, as `checks.planned@2` records it. */
+export const quietPlannedChecks = {
+  checks: quietCommands.map(([kind, command]) => (command === null
+    ? { kind, command: null, origin: 'none', reason: `no ${kind} step`, source: null }
+    : { kind, command, origin: 'survey', reason: null, source: { path: '.github/workflows/ci.yml', quote: `run: ${command}`, basis: 'stated' } })),
+};
+
 /**
  * A survey that names no convention source and, in a fix run, chooses
  * `quietCommands` and plans them, so a surveyed fix run runs the checks
  * the unsurveyed histories pinned.
  */
 export const quietSurvey = (fix: boolean) => (history: History): History => {
-  history.start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(80), fix ? { checks: quietCommands.map(([kind, command]) => surveyedCheck(kind, command)) } : {}));
-  if (fix) {
-    history.add('checks.planned', {
-      checks: quietCommands.map(([kind, command]) => (command === null
-        ? { kind, command: null, origin: 'none', reason: `no ${kind} step`, source: null }
-        : { kind, command, origin: 'survey', reason: null, source: { path: '.github/workflows/ci.yml', quote: `run: ${command}`, basis: 'stated' } })),
-    }, 2);
-  }
+  history.start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(80), fix ? { checks: quietSurveyedChecks() } : {}));
+  if (fix) history.add('checks.planned', quietPlannedChecks, 2);
   return history.finish('survey');
 };
 
@@ -514,3 +518,44 @@ export function decidedOf(history: History, decided: readonly unknown[] | null =
   const fix = (configuredEvent?.payload as { fix?: boolean } | undefined)?.fix === true;
   return withDecisions(withSurvey(history, quietSurvey(fix)), decided);
 }
+
+/** A read-only run as the engine now records one: surveyed, decided as `decided` says, and its report written. */
+export const readOnlyReported = (decided: readonly unknown[] = decisions): History => decidedOf(reported(), decided);
+
+/** The fix pass a read-only run is continued into, as `fix.pinned@1` records it: the policy's timeout and batch size, and the flags' plan of the checks or none. */
+export const pin = (plannedChecks: readonly unknown[] | null = null): Record<string, unknown> => ({ checks: { timeoutMs: 300_000 }, fixes: { batchSize: 4 }, plannedChecks });
+
+/** Every kind settled by a flag, as a plan made with the pin records it: a command for each, none for typecheck, which `--no-check` drops. */
+export const flagPlan = [
+  { kind: 'build', command: 'npm run build', origin: 'flag', reason: null, source: null },
+  { kind: 'typecheck', command: null, origin: 'flag', reason: 'dropped by --no-check', source: null },
+  { kind: 'lint', command: 'npm run lint', origin: 'flag', reason: null, source: null },
+  { kind: 'test', command: 'npm run test', origin: 'flag', reason: null, source: null },
+];
+
+/** The read-only run continued into the fix pass, with its checks left to the survey (R6 of fix pass continuation). */
+export const continuedRun = (decided: readonly unknown[] = decisions): History => readOnlyReported(decided).add('fix.pinned', pin());
+
+/** The continued run's survey asked again, at its second attempt: the conventions the first answer named stand, the answer adds the checks, and they are planned. */
+export const continuedSurvey = (history: History): History =>
+  history.start('survey', 2).worker(81, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(81), { checks: quietSurveyedChecks() })).add('checks.planned', quietPlannedChecks, 2).finish('survey', 'completed', 2);
+
+/** The continued run through its fix pass to its second report, with the one patch of c1-1's revision. */
+export const continuedToReport = (): History =>
+  checksPhase(
+    checksPhase(continuedSurvey(continuedRun()), 'baseline-checks')
+      .start('fixes')
+      .add('fixes.planned', fixPlan)
+      .worker(50, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(50)))
+      .add('tree.revised', fixRevision(worker(50)))
+      .add('fixes.replanned', noSecondRound)
+      .add('worktree.checked', endCheck('fixes'), 2)
+      .finish('fixes'),
+    'checks',
+  )
+    .start('repair').finish('repair')
+    .start('repair-checks').finish('repair-checks')
+    .start('report', 2)
+    .add('report.written', { report: reference('9', 4096), statistics, patches: [reference('1')] }, 4)
+    .finish('report', 'completed', 2);

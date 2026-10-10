@@ -13,6 +13,7 @@ import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded
 import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastClaimOf, lastRun, repairTargets, roundOf, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { lastSurvey } from '../checkpoint/survey-state.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
@@ -294,8 +295,25 @@ export interface TaskOptions {
 }
 
 /**
+ * What the survey of a read-only run continued into the fix pass stands
+ * on while its checks are unplanned (R4, PD5 of fix pass continuation):
+ * the last answer it recorded, whose convention sources and user-level
+ * decisions every worker of the review was held to, so its surveyor is
+ * asked for the checks alone. Null for a run never continued, and once
+ * the checks are planned.
+ */
+export function standingSurvey(review: ReviewState): SurveyRecorded | null {
+  if (review.continuedFrom === null || (review.fix?.checks.planned ?? null) !== null) return null;
+  const answer = review.survey === null ? null : lastSurvey(review.survey);
+  // A run that went on without its survey is continued only with its checks planned (`fix.pinned`), so a continued run asking its survey again has an answer.
+  if (answer === null) throw new Error('A continued run asks its survey for the checks with no answer of it recorded');
+  return answer;
+}
+
+/**
  * The surveyor's task: what the invocation knows, read against the pinned
- * policy and whether the run fixes. The reviewer's authorship (two git
+ * policy and whether the run fixes, and for a continued run what its
+ * survey recorded, which stands. The reviewer's authorship (two git
  * commands) is passed as a getter, so it is read only by a task that
  * prints it, the one that offers a user-level file.
  */
@@ -312,6 +330,7 @@ function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
     offered: offeredUserFiles(setting, inputs),
     policySettlesUserRules: setting !== 'judge' && inputs.userFiles.length > 0,
     elevatedSandbox: pinnedWindowsSandbox(review.configuration, inputs.platform) === 'elevated',
+    standing: standingSurvey(review),
     get authorship() {
       return inputs.authorship;
     },
@@ -529,7 +548,7 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
   switch (unit.phase) {
     case 'survey': {
       const output = receipt.output as SurveyorOutput;
-      const checked = checkSurveyAnswer(output, { worktree, lookup: worktreeLookup(worktree), setting: review.configuration.survey.userRules, fix: review.fix !== null, inputs: context.survey() });
+      const checked = checkSurveyAnswer(output, { worktree, lookup: worktreeLookup(worktree), setting: review.configuration.survey.userRules, fix: review.fix !== null, inputs: context.survey(), standing: standingSurvey(review) });
       return { kind: 'survey.recorded', version: 1, payload: { workerId: receipt.workerId, ...checked } };
     }
     case 'triage': {

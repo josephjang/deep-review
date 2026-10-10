@@ -1,6 +1,6 @@
-import type { FrozenFile, ScopeState } from '../checkpoint/events.ts';
+import type { FrozenFile, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
 import { sha256Hex } from '../evidence/store.ts';
-import { readWorktree } from './capture.ts';
+import { readWorktree, resolveScopeRequest } from './capture.ts';
 import * as gitApi from './git.ts';
 
 /** How one scope file in the worktree relates to its frozen after state. */
@@ -40,6 +40,42 @@ export function compareWorktree(scope: ScopeState, worktree: string): WorktreeCo
     .filter((path) => !covered.has(path))
     .sort();
   return { files, outside };
+}
+
+/** The most paths a reason names before it counts the rest. */
+const namedPaths = 3;
+
+/** Paths as a reason names them: the first few, and how many more. */
+const pathList = (paths: readonly string[]): string => `${paths.slice(0, namedPaths).join(', ')}${paths.length > namedPaths ? `, and ${String(paths.length - namedPaths)} more` : ''}`;
+
+/**
+ * Whether a request names, in the repository as it is now, the change a
+ * scope captured and left unchanged since (R2, PD3, TD4 of fix pass
+ * continuation): null when it does, else the first reason it does not, as
+ * one sentence, in this order. The request, resolved as the capture
+ * resolves it (`resolveScopeRequest`), has another mode or base; it names
+ * other paths, a file added since or one no longer changed; one of the
+ * scope's files differs from what the scope froze, by `changedSince`,
+ * which the caller gives so the files are compared as the run compares
+ * them before every phase, as git would store them (R22 of the fix
+ * pass); or `HEAD` moved from the scope's head. A request the tree
+ * refutes throws what the capture would.
+ */
+export function scopeMatches(request: ScopeRequest, scope: ScopeState, worktree: string, changedSince: (scope: ScopeState) => readonly string[]): string | null {
+  const resolved = resolveScopeRequest(worktree, request);
+  if (resolved.mode !== scope.mode || resolved.base !== scope.base) return `its scope is ${scope.mode} ${scope.base}..${scope.head}, not the one named`;
+  const captured = new Set(scope.files.map((file) => file.path));
+  const named = new Set(resolved.changes.map((change) => change.path));
+  const added = [...named].filter((path) => !captured.has(path));
+  const gone = [...captured].filter((path) => !named.has(path));
+  if (added.length > 0 || gone.length > 0) {
+    const differences = [...(added.length === 0 ? [] : [`${pathList(added)} changed since and not in it`]), ...(gone.length === 0 ? [] : [`${pathList(gone)} in it and no longer changed`])];
+    return `its files are not the change named: ${differences.join('; ')}`;
+  }
+  const changed = changedSince(scope);
+  if (changed.length > 0) return `${String(changed.length)} of its files changed since: ${pathList(changed)}`;
+  if (resolved.guard.head !== scope.head) return `HEAD is ${resolved.guard.head}, not ${scope.head}`;
+  return null;
 }
 
 /**

@@ -38,12 +38,13 @@ describe('checkSurveyAnswer', () => {
   afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
 
   /** The context of a read-only run under `judge` with the user-level file offered, unless `change` says otherwise. */
-  const context = (change: { setting?: UserRulesSetting; fix?: boolean; flags?: CheckFlags; userFiles?: string[]; hints?: SurveyInputs['hints'] } = {}): SurveyCheckContext => ({
+  const context = (change: { setting?: UserRulesSetting; fix?: boolean; flags?: CheckFlags; userFiles?: string[]; hints?: SurveyInputs['hints']; standing?: SurveyCheckContext['standing'] } = {}): SurveyCheckContext => ({
     worktree,
     lookup: worktreeLookup(worktree),
     setting: change.setting ?? 'judge',
     fix: change.fix ?? false,
     inputs: { platform: 'linux', flags: change.flags ?? noCheckFlags, userFiles: change.userFiles ?? [userFile], hints: change.hints ?? [], authorship: { identity: 'unset' } },
+    standing: change.standing ?? null,
   });
   /** The context of a fix run whose flags settle build and typecheck, with a hint for lint. */
   const fixing = (change: Parameters<typeof context>[0] = {}): SurveyCheckContext =>
@@ -201,6 +202,44 @@ describe('checkSurveyAnswer', () => {
     refuses(checks(stated('lint', null, { basis: 'stated' }), stated('test', null)), fixing(), /neither a source nor a basis/);
     refuses(checks(stated('lint', null), stated('test', 'npm test', { basis: 'hint' })), fixing(), /the engine gave no hinted command for test/);
     refuses(checks(stated('lint', 'npx eslint .', { basis: 'hint' }), stated('test', null)), fixing(), /is not the hint's "npm run lint"/);
+  });
+
+  // R4, PD5, TD5 of fix pass continuation: a continued run's surveyor is asked for the checks alone.
+  describe('of a read-only run continued into the fix pass', () => {
+    const standing = {
+      conventions: [{ path: 'AGENTS.md', level: 'repository' as const, governs: 'comments', appliesTo: null, grounds: null }],
+      userRules: [{ path: '/elsewhere/AGENTS.md', applied: false, reason: 'not the reviewer\'s repository' }],
+    };
+    const continued = (change: Parameters<typeof context>[0] = {}): SurveyCheckContext => fixing({ standing, ...change });
+
+    it('records the standing conventions and user-level decisions with the answer\'s checks and note', () => {
+      const checked = checkSurveyAnswer(answer({ checks: [stated('lint', 'eslint .'), stated('test', null)], note: 'CI runs eslint' }), continued());
+      assert.deepEqual(checked, {
+        conventions: standing.conventions,
+        userRules: standing.userRules,
+        checks: [stated('lint', 'eslint .'), { kind: 'test', command: null, basis: null, source: null, missingTool: null, reason: 'no test step' }],
+        note: 'CI runs eslint',
+      });
+    });
+
+    it('holds the checks to what a fix run\'s answer is held to: every unsettled kind, none a flag settles', () => {
+      refuses(answer({ checks: [stated('lint', null)] }), continued(), /chooses nothing for test/);
+      refuses(answer({ checks: [stated('lint', null), stated('test', null), stated('build', 'make')] }), continued(), /chooses build, which a flag settles/);
+      refuses(answer(), continued(), /chooses no checks, and this run fixes/);
+    });
+
+    it('refuses an answer that names a convention source or a user-level decision of its own, whatever the policy, as a failed attempt', () => {
+      const message = /^The answer names conventions or user-level decisions, which this continued run recorded already and does not ask for$/;
+      const checks = [stated('lint', null), stated('test', null)];
+      refuses(answer({ checks, conventions: [{ path: 'AGENTS.md', level: 'repository', governs: 'comments', appliesTo: null, grounds: null }] }), continued(), message);
+      refuses(answer({ checks, userRules: [{ path: userFile, applied: false, reason: 'r' }] }), continued(), message);
+      refuses(answer({ checks, userRules: [{ path: userFile, applied: true, reason: 'r' }] }), continued({ setting: 'apply' }), message);
+    });
+
+    it('never offers or decides a user-level file, which the read-only survey decided', () => {
+      // Under judge the file is offered to a fresh survey and must be decided; a continued run's answer decides nothing.
+      assert.doesNotThrow(() => checkSurveyAnswer(answer({ checks: [stated('lint', null), stated('test', null)] }), continued({ setting: 'judge', userFiles: [userFile] })));
+    });
   });
 });
 

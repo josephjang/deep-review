@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
-import { askDecision, configurationV3, configured, decidedOf, decisions, fixRun, History, ranked, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
+import { askDecision, configurationV3, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -276,5 +276,28 @@ describe('the Decisions section (R8 of the decision step)', () => {
     assert.doesNotMatch(render(reported().fold()), /Decisions|^Decision: /m);
     const nothing = decidedOf(reported()).fold();
     assert.doesNotMatch(render({ ...nothing, review: { ...nothing.review!, ranking: [], decisions: null } }), /## Decisions/);
+  });
+});
+
+// R7 of fix pass continuation.
+describe('the report of a run continued into the fix pass', () => {
+  const evidencePath = (artifact: { sha256: string; bytes: number }): string => `/evidence/${artifact.sha256.slice(0, 8)}-${String(artifact.bytes)}`;
+  const fix = { evidencePath, patches: ['/evidence/patch-1'] };
+
+  it('says in its header when the run was continued and where its read-only report is, after the roles digest', () => {
+    const state = continuedToReport().fold();
+    const report = renderReport(state, { engine: '0.0.0+dev', statistics, fix });
+    const at = state.review!.continuedFrom!.at;
+    assert.match(report, new RegExp(`^Roles digest: d{64}\\nContinued: into the fix pass on ${at.replaceAll('.', '\\.')}, after the read-only report at /evidence/eeeeeeee-2048\\nFindings: `, 'm'));
+    assert.match(report, /^## Fixes$/m, 'a full fix run\'s report');
+  });
+
+  it('has no such line for a run never continued, read-only or fixing', () => {
+    assert.doesNotMatch(renderReport(readOnlyReported().fold(), { engine: '0.0.0+dev', statistics }), /^Continued:/m);
+    assert.doesNotMatch(renderReport(fixRun().fold(), { engine: '0.0.0+dev', statistics, fix }), /^Continued:/m);
+  });
+
+  it('is rendered only as a fix run\'s, which names where its evidence is', () => {
+    assert.throws(() => renderReport(continuedToReport().fold(), { engine: '0.0.0+dev', statistics }), /A continued run is a fix run/);
   });
 });

@@ -8,7 +8,8 @@ import { attemptFailedV5, eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { noCheckFlags } from '../../src/review/checks/discover.ts';
-import { contributionOf, groupCandidates, invocationFor, taskFor, type PhaseContext } from '../../src/review/phases.ts';
+import { lastSurvey } from '../../src/checkpoint/survey-state.ts';
+import { contributionOf, groupCandidates, invocationFor, standingSurvey, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import type { SurveyInputs } from '../../src/review/survey.ts';
 import { outputSchemaOf } from '../../src/review/schemas.ts';
 import { fixPlanOf, type Unit } from '../../src/review/steps.ts';
@@ -16,7 +17,7 @@ import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
-import { baselined, checksPhase, configuration, configured, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, ranked, ranking, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withFixPass, worker } from '../helpers/review-history.ts';
+import { baselined, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -216,6 +217,20 @@ describe('the surveyor\'s task', () => {
     assert.match(all, /Every kind is settled, so return `checks` empty\./);
     assert.throws(() => taskFor(unit('survey', 'survey', 'surveyor'), fixing), /needs it/);
   });
+
+  it('asks a continued run\'s surveyor for the checks alone, its survey standing, until the checks are planned (R4 of fix pass continuation)', () => {
+    const continued = continuedRun().start('survey', 2);
+    const task = taskFor(unit('survey', 'survey', 'surveyor'), continued.review(), { survey: inputs({ flags: { commands: { build: 'make' }, dropped: [] }, hints }) });
+    assert.match(task, /^This run was reviewed read-only and is now continued into the fix pass\./);
+    assert.match(task, /^Convention sources recorded:\n- none$/m, 'the quiet survey recorded none');
+    assert.match(task, /^Kinds to choose: typecheck, lint, test$/m);
+    assert.deepEqual(standingSurvey(continued.review()), lastSurvey(continued.review().survey!));
+    // Once planned, or on a run never continued, the survey stands on nothing.
+    assert.equal(standingSurvey(continuedSurvey(continuedRun()).review()), null);
+    assert.equal(standingSurvey(readOnlyReported().review()), null);
+    assert.equal(standingSurvey(surveyConfiguredFix().start('survey').review()), null);
+    assert.doesNotMatch(taskFor(unit('survey', 'survey', 'surveyor'), surveyConfiguredFix().review(), { survey: inputs() }), /continued into the fix pass/);
+  });
 });
 
 describe('contributionOf', () => {
@@ -241,6 +256,18 @@ describe('contributionOf', () => {
     const unresolvable = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, conventions: [{ ...answer.conventions[0], path: '/foo\u0000bar' }] }), surveyConfigured().start('survey').fold(), worktree);
     assert.equal(unresolvable.kind, 'attempt.failed');
     assert.match((unresolvable.payload as { reason: string }).reason, /^structural check: The convention source "\/foo\\u0000bar" contains a NUL character$/);
+  });
+
+  it('records a continued run\'s survey answer with the conventions its survey recorded, and fails one that names its own (R4 of fix pass continuation)', () => {
+    const standing = { conventions: [{ path: 'src/a.ts', level: 'repository', governs: 'how a.ts is written', appliesTo: null, grounds: null }], userRules: [] };
+    const readOnly = withDecisions(withSurvey(reported(), (history) => history.start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', { workerId: worker(80), checks: null, note: '', ...standing }).finish('survey')));
+    const continued = readOnly.add('fix.pinned', pin()).start('survey', 2).fold();
+    const checks = [{ kind: 'build', command: null, basis: null, source: null, missingTool: null, reason: 'none' }, { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'none' }, { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'none' }, { kind: 'test', command: null, basis: null, source: null, missingTool: null, reason: 'none' }];
+    const event = contribution(unit('survey', 'survey', 'surveyor'), receipt({ conventions: [], userRules: [], checks, note: 'checks only' }), continued, worktree);
+    assert.deepEqual(event, { kind: 'survey.recorded', version: 1, payload: { workerId: '00000000-0000-4000-8000-0000000000aa', ...standing, checks, note: 'checks only' } });
+    const own = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...standing, checks, note: '' }), continued, worktree);
+    assert.equal(own.kind, 'attempt.failed');
+    assert.match((own.payload as { reason: string }).reason, /^structural check: The answer names conventions or user-level decisions, which this continued run recorded already and does not ask for$/);
   });
 
   it('records a failed attempt for a receipt that did not complete, with the outcome and error', () => {

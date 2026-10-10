@@ -1392,6 +1392,26 @@ export const claimsLostV1 = z.strictObject({
 });
 export type ClaimsLost = z.infer<typeof claimsLostV1>;
 
+/**
+ * A complete read-only run continued into the fix pass (R6, TD1 to TD3 of
+ * fix pass continuation): from this event on, the run fixes. It carries
+ * what a fix run pins at configuration and a read-only run never did, the
+ * per-check timeout and the fixer batch size, as the policy gives them at
+ * the continuation, with the schemas of `review.configured@2`'s blocks;
+ * and, when the operator's flags settled every kind, the checks planned
+ * from them alone, one flag entry per kind in the order the kinds run,
+ * else null, and the run's survey is asked for them.
+ */
+export const fixPinnedV1 = z.strictObject({
+  checks: reviewConfiguredV2.shape.checks.unwrap(),
+  fixes: reviewConfiguredV2.shape.fixes.unwrap(),
+  plannedChecks: checksPlannedV2.shape.checks.nullable(),
+}).refine((pinned) => pinned.plannedChecks === null || pinned.plannedChecks.every((check, index) => check.kind === vocabularyV3.checkKinds[index] && check.origin === 'flag'), {
+  message: 'checks planned with the pin are the flags\', one per kind in the order the kinds run',
+  path: ['plannedChecks'],
+});
+export type FixPinned = z.infer<typeof fixPinnedV1>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -1427,6 +1447,7 @@ export const eventRegistry = defineRegistry({
   'decisions.recorded': { 1: { schema: decisionsRecordedV1 } },
   'files.claimed': { 1: { schema: filesClaimedV1 } },
   'claims.lost': { 1: { schema: claimsLostV1 } },
+  'fix.pinned': { 1: { schema: fixPinnedV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

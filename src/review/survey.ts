@@ -73,6 +73,13 @@ export interface SurveyCheckContext {
   /** Whether the run fixes, and so asks for checks (PD10). */
   readonly fix: boolean;
   readonly inputs: SurveyInputs;
+  /**
+   * The convention sources and user-level decisions a read-only run
+   * continued into the fix pass recorded, which stand, so the answer gives
+   * the checks alone (R4, PD5 of fix pass continuation); null for every
+   * other survey.
+   */
+  readonly standing: Pick<SurveyRecorded, 'conventions' | 'userRules'> | null;
 }
 
 /** Why the survey refuses a path into the git directory: a surveyor names the repository's files, and git's own are none of them. */
@@ -179,14 +186,27 @@ function checkSurveyedCheck(check: SurveyorCheckOutput, context: SurveyCheckCont
  * regular file of the repository or an offered user-level file, no
  * source or decision twice, every offered file decided once and listed
  * exactly when applied; in a fix run one check for each kind no flag
- * settles, and in a run without one no checks.
+ * settles, and in a run without one no checks. A continued run's answer
+ * names no convention source and no user-level decision, which stand as
+ * the run recorded them and are what it records with the checks (R4, TD5
+ * of fix pass continuation).
  */
 export function checkSurveyAnswer(output: SurveyorOutput, context: SurveyCheckContext): Omit<SurveyRecorded, 'workerId'> {
+  if (context.standing !== null) {
+    if (!context.fix) throw new Error('A survey asked for the checks alone is a continued run\'s, which fixes');
+    if (output.conventions.length > 0 || output.userRules.length > 0) throw new StructuralCheckError('The answer names conventions or user-level decisions, which this continued run recorded already and does not ask for');
+    return { conventions: context.standing.conventions, userRules: context.standing.userRules, checks: checkChecks(output, context), note: output.note };
+  }
   const { conventions, userRules } = checkConventions(output, context);
   if (!context.fix) {
     if (output.checks !== null) throw new StructuralCheckError('The answer chooses checks, and this run does not fix, so it runs none');
     return { conventions, userRules, checks: null, note: output.note };
   }
+  return { conventions, userRules, checks: checkChecks(output, context), note: output.note };
+}
+
+/** A fix run's checks of an answer, checked (R4, R5, R8, R11): one for each kind no flag settles, in run order. */
+function checkChecks(output: SurveyorOutput, context: SurveyCheckContext): SurveyedCheck[] {
   const answered = output.checks;
   if (answered === null) throw new StructuralCheckError('The answer chooses no checks, and this run fixes');
   requireOnce(answered.map((check) => check.kind), 'The check kind');
@@ -195,8 +215,7 @@ export function checkSurveyAnswer(output: SurveyorOutput, context: SurveyCheckCo
   if (settled.length > 0) throw new StructuralCheckError(`The answer chooses ${settled.join(', ')}, which a flag settles`);
   const missing = wanted.filter((kind) => !answered.some((check) => check.kind === kind));
   if (missing.length > 0) throw new StructuralCheckError(`The answer chooses nothing for ${missing.join(', ')}`);
-  const checks = checkKinds.flatMap((kind) => answered.filter((check) => check.kind === kind)).map((check) => checkSurveyedCheck(check, context));
-  return { conventions, userRules, checks, note: output.note };
+  return checkKinds.flatMap((kind) => answered.filter((check) => check.kind === kind)).map((check) => checkSurveyedCheck(check, context));
 }
 
 /** The reason a kind dropped by `--no-check` has no command. */

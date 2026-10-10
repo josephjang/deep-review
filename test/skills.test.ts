@@ -40,12 +40,15 @@ describe('the skill texts', () => {
     it(`${name}: passes --fix only when asked, warns that the workers edit the tree, and commits only through the engine (R14 of the fix pass)`, () => {
       const text = read(path);
       assert.match(text, /When the user asks for the findings to be\s+fixed or applied, add `--fix`/);
-      // The survey chooses the checks; a flag settles only a kind the user names (R5 of the repository survey).
-      assert.match(text, /The engine surveys the repository for\s+its checks itself/);
-      assert.match(text, /add `--check <kind>=<command>` only for a check\s+command the user names, and `--no-check <kind>` only for a check the\s+user says to skip/);
-      assert.match(text, /each settles its kind over the survey/);
+      // The survey chooses the checks; a flag settles only a kind the user names (R5 of the repository survey). The words matter, not where the text wraps.
+      assert.match(text, /The engine surveys\s+the\s+repository\s+for\s+its\s+checks\s+itself/);
+      assert.match(text, /add\s+`--check <kind>=<command>`\s+only\s+for\s+a\s+check\s+command\s+the\s+user\s+names,\s+and\s+`--no-check <kind>`\s+only\s+for\s+a\s+check\s+the\s+user\s+says\s+to\s+skip/);
+      assert.match(text, /each\s+settles\s+its\s+kind\s+over\s+the\s+survey/);
       assert.match(text, /tell the\s+user that the engine's workers will edit the working tree, that it\s+runs the check commands it chose from the repository, and that the\s+run commits nothing/);
       assert.match(text, /Without such a request, do not pass `--fix`/);
+      // A finished read-only run of the unchanged change is continued, not reviewed again (R11 of fix pass continuation); the warning still comes before the command.
+      assert.match(text, /When a read-only run of the same\s+change has finished and the change is unchanged since, the same\s+command with `--fix` continues that run and reviews nothing again,\s+so the fixes are of the findings the user read\./);
+      assert.ok(text.indexOf('continues that run') < text.indexOf('Before you run it, tell the'), 'the continuation is said before the warning, which still precedes the command');
       assert.match(text, /the fixes are in the working tree, uncommitted, one\s+patch per finding/);
       assert.match(text, /offer\s+to commit them/);
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" commit`), 'the commit subcommand of the same bundle');
