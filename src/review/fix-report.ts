@@ -8,7 +8,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, clusterOf, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -263,29 +263,33 @@ function finalStatus(files: PathRevisions['files']): string {
 
 /**
  * Which clusters held a path in the fixes phase, round by round (R1, R3 of
- * commit series integrity): its owner by the plan, or else the cluster
- * that claimed it last in that round, marked as a claim or a late claim;
- * `nobody` for a path no cluster held, such as one only a check wrote.
+ * commit series integrity), from each planned round's holders as
+ * `holdersKeyedBy` gives them, built once for every path: its owner by the
+ * plan, or else the cluster that claimed it last in that round, marked as
+ * a claim or a late claim; `nobody` for a path no cluster held, such as one
+ * only a check wrote.
  */
-function heldBy(fix: FixState, path: string): string {
-  const holders = ([1, 2] as const).flatMap((round) => {
-    const plan = planOfRound(fix, round);
-    if (plan === null) return [];
-    const owner = plan.clusters.find((cluster) => cluster.files.includes(path));
-    if (owner !== undefined) return [owner.id];
-    const claim = lastClaimOf(fix, round, path);
-    return claim === undefined ? [] : [`${claim.cluster} (${claim.claimedAt === null ? 'claimed late' : 'claimed'})`];
-  });
-  return holders.length === 0 ? 'nobody' : [...new Set(holders)].join(', ');
+function heldBy(fix: FixState): (path: string) => string {
+  const rounds = ([1, 2] as const).flatMap((round) => (planOfRound(fix, round) === null ? [] : [{ round, held: holdersKeyedBy(fix, round, (path) => path) }]));
+  return (path) => {
+    const holders = rounds.flatMap(({ round, held }) => {
+      const holder = held.get(path);
+      if (holder === undefined) return [];
+      if (holder.by === 'plan') return [holder.cluster];
+      return [`${holder.cluster} (${lastClaimOf(fix, round, path)?.claimedAt === null ? 'claimed late' : 'claimed'})`];
+    });
+    return holders.length === 0 ? 'nobody' : [...new Set(holders)].join(', ');
+  };
 }
 
 /** The Changed files section: every path a revision names, once, with its final status, who changed it and who held it, then the patch series. */
 function changedFilesSection(fix: FixState, patches: readonly string[]): string[] {
   const revised = revisionsByPath(fix.revisions);
+  const holderOf = heldBy(fix);
   const paths = [...revised.keys()].sort();
   const rows = paths.map((path) => {
     const { by, files } = revised.get(path)!;
-    return `| ${tableCell(path)} | ${finalStatus(files)} | ${tableCell([...by].join(', '))} | ${tableCell(heldBy(fix, path))} |`;
+    return `| ${tableCell(path)} | ${finalStatus(files)} | ${tableCell([...by].join(', '))} | ${tableCell(holderOf(path))} |`;
   });
   const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}): ${patches[index] ?? 'not written'}`);
   return [

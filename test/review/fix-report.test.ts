@@ -95,6 +95,14 @@ describe('the report of a fix run', () => {
     assert.match(render({ ...fixRun().fold(), review: { ...review, fix: late } }), /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
   });
 
+  it('names a path\'s owner by the plan as its holder over a later claim of it, as the fold judges who holds it', () => {
+    const review = fixRun().review();
+    const fix = review.fix!;
+    const plan = { ...fix.plan!, clusters: [...fix.plan!.clusters, { id: 'c2', findingIds: [], files: [] }] };
+    const claimed = { ...fix, plan, claims: [{ path: 'src/a.ts', cluster: 'c2', key: 'c2-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }] };
+    assert.match(render({ ...fixRun().fold(), review: { ...review, fix: claimed } }), /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \| c1 \|$/m);
+  });
+
   it('names a late claim and a lost claim in Limitations, with who holds a lost claim\'s path (R6, F9 of commit series integrity)', () => {
     const review = fixRun().review();
     const fix = { ...review.fix!, claims: [{ path: 'docs/late.md', cluster: 'c1', key: 'c1-1', round: 1 as const, claimedAt: null }], lostClaims: [{ path: 'src/a.ts', claimedAt: null, reason: 'owned' as const, holder: 'c1', unit: 'c2-1', cluster: 'c2' }, { path: 'docs/x.md', claimedAt: '2026-10-09T01:00:00.000Z', reason: 'unplanned' as const, holder: null, unit: 'c9-1', cluster: 'c9' }] };
