@@ -274,7 +274,8 @@ function checksBlock(checks: readonly PlannedCheck[], failing: readonly Baseline
 /**
  * The claim rule (R1, R8 of commit series integrity), with the command
  * quoted as the fixer must run it, before the first edit for a finding of
- * every file outside its own that the finding needs.
+ * every file outside its own that the finding needs. A `'` in the path is
+ * the fixer's to escape, since only it knows which shell runs the command.
  */
 function claimBlock(command: string): string {
   return [
@@ -284,6 +285,7 @@ function claimBlock(command: string): string {
     '',
     'It claims the file for your cluster until your cluster\'s last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial. Report every file you edit or create under the finding it served.',
     `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
+    'A path that holds a `\'` must have that quote escaped as your shell requires inside single quotes, `\'\\\'\'` in bash and `\'\'` in PowerShell, so the path stays one argument and the command runs as written.',
     'Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0.',
   ].join('\n');
 }

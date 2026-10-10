@@ -972,6 +972,20 @@ describe('the fixer\'s commands', () => {
     }
   });
 
+  it('hands node a path holding a \' as one argument, in bash, once the fixer escapes it as the claim rule says', (t) => {
+    if (spawnSync('bash', ['-c', 'node --version'], { windowsHide: true }).status !== 0) return t.skip('no bash here runs node');
+    const scratch = mkdtempSync(join(tmpdir(), 'deep-review-claim-quoting-'));
+    try {
+      const entry = join(scratch, 'main.mjs');
+      writeFileSync(entry, 'process.stdout.write(JSON.stringify(process.argv.slice(2)));');
+      const result = spawnSync('bash', ['-c', claimCommandFor(entry, 'c1-1', scratch).replace(claimPathPlaceholder, "docs/it'\\''s.md")], { encoding: 'utf8', windowsHide: true });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), ['claim', '--path', "docs/it's.md", '--unit', 'c1-1', '--in', scratch]);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it('quotes the snapshot command\'s directory beside its index placeholder', () => {
     assert.equal(snapshotCommandFor('/engine/main.mjs', '/scratch/w1/snapshots'), 'node "/engine/main.mjs" snapshot --finding <index> --into "/scratch/w1/snapshots"');
   });
