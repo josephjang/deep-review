@@ -233,11 +233,30 @@ function revisedBy(revision: TreeRevised): string {
   }
 }
 
+/** What the revisions did to one path: who revised it and its entries, each in ledger order. */
+interface PathRevisions {
+  readonly by: Set<string>;
+  readonly files: TreeRevised['files'][number][];
+}
+
+/** Every path the revisions name, with what they did to it, in one pass over them however many paths a check revision brings. */
+function revisionsByPath(revisions: readonly TreeRevised[]): Map<string, PathRevisions> {
+  const paths = new Map<string, PathRevisions>();
+  for (const revision of revisions) {
+    for (const file of revision.files) {
+      const entry = paths.get(file.path) ?? { by: new Set<string>(), files: [] };
+      entry.by.add(revisedBy(revision));
+      entry.files.push(file);
+      paths.set(file.path, entry);
+    }
+  }
+  return paths;
+}
+
 /** The status a path ends the run with: created, modified or deleted against what it held before its first revision, or removed again when it was created and then deleted. */
-function finalStatus(fix: FixState, path: string): string {
-  const touching = fix.revisions.flatMap((revision) => revision.files.filter((file) => file.path === path));
-  const existedBefore = (touching[0]?.before ?? null) !== null;
-  const existsAfter = (touching.at(-1)?.after ?? null) !== null;
+function finalStatus(files: PathRevisions['files']): string {
+  const existedBefore = (files[0]?.before ?? null) !== null;
+  const existsAfter = (files.at(-1)?.after ?? null) !== null;
   if (existedBefore) return existsAfter ? 'modified' : 'deleted';
   return existsAfter ? 'created' : 'created, then deleted';
 }
@@ -262,10 +281,11 @@ function heldBy(fix: FixState, path: string): string {
 
 /** The Changed files section: every path a revision names, once, with its final status, who changed it and who held it, then the patch series. */
 function changedFilesSection(fix: FixState, patches: readonly string[]): string[] {
-  const paths = [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file) => file.path)))].sort();
+  const revised = revisionsByPath(fix.revisions);
+  const paths = [...revised.keys()].sort();
   const rows = paths.map((path) => {
-    const by = [...new Set(fix.revisions.filter((revision) => revision.files.some((file) => file.path === path)).map(revisedBy))];
-    return `| ${tableCell(path)} | ${finalStatus(fix, path)} | ${tableCell(by.join(', '))} | ${tableCell(heldBy(fix, path))} |`;
+    const { by, files } = revised.get(path)!;
+    return `| ${tableCell(path)} | ${finalStatus(files)} | ${tableCell([...by].join(', '))} | ${tableCell(heldBy(fix, path))} |`;
   });
   const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}): ${patches[index] ?? 'not written'}`);
   return [
