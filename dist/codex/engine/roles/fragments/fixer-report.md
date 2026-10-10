@@ -27,7 +27,9 @@ gave it, with:
 - `note`: one sentence. For `applied`, what changed; for `deferred`,
   which criterion; for `blocked`, the file it needs or the unresolved
   edit anchor.
-- `files`: every file you edited or created for this finding.
+- `files`: every file you edited or created for this finding; for an
+  already-applied finding whose edits an earlier attempt left, the files
+  that hold those edits.
 - `message`: for every finding that names files, its commit message,
   whatever its status, a `subject` of at most 72 characters with no
   trailing period and a `body` that says why, in the style the
