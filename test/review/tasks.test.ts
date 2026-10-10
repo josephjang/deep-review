@@ -68,7 +68,46 @@ describe('the survey task', () => {
     policySettlesUserRules: true,
     authorship: { identity: 'unset' },
     elevatedSandbox: false,
+    standing: null,
   };
+
+  // R4, PD5 of fix pass continuation.
+  describe('of a read-only run continued into the fix pass', () => {
+    const standing = {
+      conventions: [{ path: 'AGENTS.md', level: 'repository' as const, governs: 'comments and commits', appliesTo: null, grounds: null }, { path: '/home/u/.codex/AGENTS.md', level: 'user' as const, governs: 'the reviewer\'s rules', appliesTo: null, grounds: 'the reviewer authors this repository' }],
+      userRules: [{ path: '/home/u/.codex/AGENTS.md', applied: true, reason: 'the reviewer authors this repository' }],
+    };
+    const continued: SurveyTaskInput = { ...input, offered: ['/home/u/.codex/AGENTS.md'], policySettlesUserRules: false, settled: [{ kind: 'build', command: 'make' }], unsettled: ['typecheck', 'lint', 'test'], standing };
+
+    it('lists the recorded sources and user-level decisions as standing, asks them back empty, and offers no file', () => {
+      const task = surveyTask(continued);
+      assert.match(task, /^This run was reviewed read-only and is now continued into the fix pass\..*answer only the second question your role prompt defines: which commands are its checks\. Return `conventions` and `userRules` empty\.$/m);
+      assert.match(task, /^Convention sources recorded:\n- AGENTS\.md \(repository\): comments and commits\n- \/home\/u\/\.codex\/AGENTS\.md \(user\): the reviewer's rules$/m);
+      assert.match(task, /^User-level rules files decided:\n- \/home\/u\/\.codex\/AGENTS\.md: applied, the reviewer authors this repository$/m);
+      assert.doesNotMatch(task, /User-level rules files offered/, 'nothing is offered to judge again');
+      assert.doesNotMatch(task, /Survey this repository as a new contributor would/);
+    });
+
+    it('asks for the kinds no flag settles, as a fix run\'s task does, hints and the shell included', () => {
+      const task = surveyTask(continued);
+      const fresh = surveyTask({ ...continued, standing: null });
+      const checksOf = (text: string): string => text.slice(text.indexOf('Kinds to choose:'));
+      assert.equal(checksOf(task), checksOf(fresh), 'the checks part is a fix run\'s, word for word');
+      assert.match(task, /^Kinds to choose: typecheck, lint, test$/m);
+      assert.match(task, /^- build: `make` \(--check\)$/m);
+      assert.match(task, /^- lint: `npm run lint` \(the package\.json script/m);
+    });
+
+    it('says when the run recorded no convention source and decided no user-level file', () => {
+      const task = surveyTask({ ...continued, standing: { conventions: [], userRules: [] } });
+      assert.match(task, /^Convention sources recorded:\n- none$/m);
+      assert.doesNotMatch(task, /User-level rules files decided/);
+    });
+
+    it('is a fix run\'s task only', () => {
+      assert.throws(() => surveyTask({ ...continued, fix: false }), /continued run's, which fixes/);
+    });
+  });
 
   it('looks a tool up as the check\'s shell resolves it: where.exe on Windows, command -v elsewhere', () => {
     assert.match(surveyTask({ ...input, platform: 'win32' }), /as `cmd\.exe \/d \/s \/c "<command>"`[^\n]*, with `where\.exe <tool>`, and judge the lookup by whether it succeeded/);
