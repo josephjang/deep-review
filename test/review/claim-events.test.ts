@@ -158,6 +158,10 @@ describe('lateClaim', () => {
     assert.equal(filesClaimedV1.safeParse(late!.payload).success, true);
     assert.equal(lateClaim(settledNothing(state(), false), 'c1-1', ['a:b.txt', long]), null);
   });
+
+  it('refuses a key the fix plan has no batch for', () => {
+    assert.throws(() => lateClaim(settledNothing(state(), false), 'c9-1', ['docs/new.md']), /The fix plan has no batch c9-1/);
+  });
 });
 
 describe('heldOf', () => {
