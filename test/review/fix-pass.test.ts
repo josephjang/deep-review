@@ -331,10 +331,13 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
     });
     const pending = box.fix('claude');
-    await until(() => box.checkpoint.foldRuns().some((run) => run.review?.fix?.answers.fixes['c2-1'] !== undefined), 'c2-1\'s answer on the ledger', 120_000);
-    // c1 reaches into the settled c2's file and says nothing of it.
-    write(box.repo, 'src/b.ts', 'export const b = "clobbered";\n');
-    writeFileSync(marker, '');
+    try {
+      await until(() => box.checkpoint.foldRuns().some((run) => run.review?.fix?.answers.fixes['c2-1'] !== undefined), 'c2-1\'s answer on the ledger', 120_000);
+      // c1 reaches into the settled c2's file and says nothing of it.
+      write(box.repo, 'src/b.ts', 'export const b = "clobbered";\n');
+    } finally {
+      writeFileSync(marker, '');
+    }
     const blocked = await pending;
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'drift' && blocked.blocker.phase === 'fixes', JSON.stringify(blocked));
     const named = /src\/b\.ts \(modified; expected at (.+)\)$/.exec(blocked.kind === 'blocked' ? blocked.blocker.detail : '');
@@ -433,11 +436,16 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const marker = join(box.directory, 'c1-may-answer');
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { waitFor: marker, output: fixerAnswer([{ status: 'deferred', files: [] }]) } });
     const pending = box.fix('claude');
-    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1' && worker.status === 'running')), 'the c1 fixer on the ledger', 120_000);
-    const head = git(box.repo, 'rev-parse', 'HEAD');
-    git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit during the run');
-    const moved = git(box.repo, 'rev-parse', 'HEAD');
-    writeFileSync(marker, '');
+    let head: string;
+    let moved: string;
+    try {
+      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1' && worker.status === 'running')), 'the c1 fixer on the ledger', 120_000);
+      head = git(box.repo, 'rev-parse', 'HEAD');
+      git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit during the run');
+      moved = git(box.repo, 'rev-parse', 'HEAD');
+    } finally {
+      writeFileSync(marker, '');
+    }
     const blocked = await pending;
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'drift', JSON.stringify(blocked));
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.detail.includes(`HEAD is ${moved}, the run expects ${head}`), JSON.stringify(blocked));
@@ -507,10 +515,14 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB } }], waitFor: c2MayAnswer, output: fixerAnswer([{ files: ['src/b.ts'] }]) },
     });
     const pending = box.fix('claude');
-    await until(() => existsSync(join(box.repo, 'src', 'b.ts')) && readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8') === fixedB, 'c2-1\'s edit in the tree', 120_000);
-    writeFileSync(c1MayDie, '');
-    await until(() => box.checkpoint.foldRuns().some((run) => (run.review?.units.fixes['c1-1']?.failures.length ?? 0) > 0), 'c1-1\'s failed attempt on the ledger', 120_000);
-    writeFileSync(c2MayAnswer, '');
+    try {
+      await until(() => existsSync(join(box.repo, 'src', 'b.ts')) && readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8') === fixedB, 'c2-1\'s edit in the tree', 120_000);
+      writeFileSync(c1MayDie, '');
+      await until(() => box.checkpoint.foldRuns().some((run) => (run.review?.units.fixes['c1-1']?.failures.length ?? 0) > 0), 'c1-1\'s failed attempt on the ledger', 120_000);
+    } finally {
+      // Whichever marker a failed wait left unwritten, so that no fixer is left waiting.
+      for (const marker of [c1MayDie, c2MayAnswer]) if (!existsSync(marker)) writeFileSync(marker, '');
+    }
     report(await pending);
     const fix = box.run().review!.fix!;
     assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [
