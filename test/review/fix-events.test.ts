@@ -127,4 +127,20 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
     assert.deepEqual(attempt.claims.map((event) => (event.payload as FilesClaimed).files.map((file) => file.path)), [['agents.md']]);
     assert.deepEqual(attempt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['src/a.ts'], 'the sibling\'s deletion of AGENTS.md is not this attempt\'s');
   });
+
+  // R5: a sibling's claim keeps its file out of an attempt's revisions for the whole round, since the
+  // attempt's snapshots may predate the sibling's edit, which its revision has already recorded (gate run 55ecace9).
+  for (const [name, settle] of [
+    ['still running', (history: History): History => history],
+    ['settled with its answer', (history: History): History => history.worker(61, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(61), {
+      key: 'c2-1',
+      findings: [{ ...finding('SWEEP-1', 'applied', 'fix(b): Drop AGENTS.md'), file: 'src/b.ts', files: ['src/b.ts', 'AGENTS.md'] }],
+    }))],
+  ] as const) {
+    it(`leaves out of a failed attempt's revisions a file a sibling claimed, the sibling ${name}`, () => {
+      const state = stateOf(settle(running().add('files.claimed', claimed('c2-1', 'c2', ['AGENTS.md']))));
+      const attempt = attemptRevisionEvents(contextOf(state, folding([])), 'fixes', 'c1-1', worker(60), 'it died');
+      assert.deepEqual(attempt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['src/a.ts'], 'the sibling\'s deletion of AGENTS.md is not this attempt\'s');
+    });
+  }
 });
