@@ -216,6 +216,15 @@ export class ReviewSandbox {
     });
   }
 
+  /**
+   * The labels of the workers the ledger shows running, across every run,
+   * read in one fold; a worker launched without a label counts as ''. A test
+   * polls it to act while a worker it scripted to wait is on the ledger.
+   */
+  runningWorkers(): string[] {
+    return this.checkpoint.foldRuns().flatMap((run) => Object.values(run.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label ?? ''));
+  }
+
   /** The one run of the checkpoint, folded. */
   run(): RunState {
     const runs = this.checkpoint.foldRuns();

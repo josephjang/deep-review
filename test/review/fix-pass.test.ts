@@ -58,9 +58,12 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     let settled = false;
     const pending = box.fix('claude');
     pending.then(() => (settled = true), () => (settled = true));
-    const running = (label: string): boolean => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === label && worker.status === 'running'));
+    const bothFixersRunning = (): boolean => {
+      const running = box.runningWorkers();
+      return running.includes('fixer fixes:c1-1') && running.includes('fixer fixes:c2-1');
+    };
     try {
-      await until(() => settled || (running('fixer fixes:c1-1') && running('fixer fixes:c2-1')), 'both fixers running', 120_000);
+      await until(() => settled || bothFixersRunning(), 'both fixers running', 120_000);
     } finally {
       writeFileSync(bothRunning, '');
     }
@@ -437,7 +440,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     let head: string;
     let moved: string;
     try {
-      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1' && worker.status === 'running')), 'the c1 fixer on the ledger', 120_000);
+      await until(() => box.runningWorkers().includes('fixer fixes:c1-1'), 'the c1 fixer on the ledger', 120_000);
       head = git(box.repo, 'rev-parse', 'HEAD');
       git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit during the run');
       moved = git(box.repo, 'rev-parse', 'HEAD');

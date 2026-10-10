@@ -482,7 +482,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // survey answered: an edit made before the capture would be part of the scope, and one made while the
     // surveyor ran would block the survey instead.
     try {
-      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running' && worker.launch.label === 'triage triage:SCAN')), 'the triage worker on the ledger', 120_000);
+      await until(() => box.runningWorkers().includes('triage triage:SCAN'), 'the triage worker on the ledger', 120_000);
       write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     } finally {
       writeFileSync(marker, '');
@@ -530,7 +530,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const pending = box.review('claude');
     const removals = 'finder-REMOVALS finders:REMOVALS';
     try {
-      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === removals && worker.status === 'running')), 'the REMOVALS worker on the ledger', 120_000);
+      await until(() => box.runningWorkers().includes(removals), 'the REMOVALS worker on the ledger', 120_000);
       write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     } finally {
       writeFileSync(marker, '');
@@ -565,13 +565,12 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const pending = box.review('claude', { flags: { concurrency: 2 } }, { FAKE_UNQUALIFIED_WHEN: broken });
     pending.then(() => (settled = true), () => (settled = true));
     try {
-      const running = (): string[] => box.checkpoint.foldRuns().flatMap((run) => Object.values(run.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label ?? ''));
-      await until(() => running().length === 2, 'REMOVALS and RIPPLE running', 120_000);
+      await until(() => box.runningWorkers().length === 2, 'REMOVALS and RIPPLE running', 120_000);
       writeFileSync(broken, '');
       writeFileSync(rippleMayAnswer, '');
       await until(() => settled || box.logs.some((line) => /waiting for 1 worker in flight/.test(line)), 'the launcher error', 120_000);
       assert.equal(settled, false, 'the review does not end while REMOVALS runs');
-      assert.deepEqual(running(), ['finder-REMOVALS finders:REMOVALS']);
+      assert.deepEqual(box.runningWorkers(), ['finder-REMOVALS finders:REMOVALS']);
     } finally {
       writeFileSync(removalsMayAnswer, '');
     }
@@ -597,7 +596,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const pending = box.review('claude', { preflightOptions: { timeoutMs: loadedRunnerTimeoutMs, maxOutputBytes } }, { FAKE_PADDED_WHEN: padded });
     pending.then(() => (settled = true), () => (settled = true));
     try {
-      await until(() => settled || box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'surveyor survey:survey' && worker.status === 'running')), 'the surveyor on the ledger', 120_000);
+      await until(() => settled || box.runningWorkers().includes('surveyor survey:survey'), 'the surveyor on the ledger', 120_000);
       writeFileSync(padded, '');
     } finally {
       writeFileSync(surveyorMayAnswer, '');
@@ -867,7 +866,7 @@ describe('runReview, alone in its process', { timeout: 600_000 }, () => {
       const pending = box.review('claude', { flags: { concurrency: 1 } });
       let state: RunState;
       try {
-        await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 120_000);
+        await until(() => box.runningWorkers().length > 0, 'the triage worker on the ledger', 120_000);
         assert.ok(process.listenerCount('SIGINT') > signalListeners, 'an interruption releases the held lock');
         state = box.run();
         box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'abandoned under the worker' } }]);
