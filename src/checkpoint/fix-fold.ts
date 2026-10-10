@@ -12,7 +12,7 @@
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, firstRoundHolders, firstRoundSettled, heldByOthers, holdersOf, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, firstRoundHolders, firstRoundSettled, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -301,7 +301,7 @@ const filesClaimed: Reducer<FilesClaimed> = (state, payload, event) => {
   if (batch === null) throw invalid(event, `claims files for ${payload.key}, which the plan does not have`);
   if (batch.cluster !== payload.cluster) throw invalid(event, `claims files for ${payload.key} under cluster ${payload.cluster}, not its cluster ${batch.cluster}`);
   const round = roundOf(fix, payload.key);
-  const holders = holdersOf(fix, round);
+  const holders = holdersKeyedBy(fix, round, (path) => path);
   const settled = settledClusters(fix, round);
   for (const file of payload.files) {
     const holder = holders.get(file.path);

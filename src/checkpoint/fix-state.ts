@@ -184,7 +184,7 @@ export function claimsOfRound(fix: FixState, round: 1 | 2): RecordedClaim[] {
   return fix.claims.filter((claim) => claim.round === round);
 }
 
-/** The last claim of a path in a round by a cluster other than `except`, settled or not, as `holdersOf` names a claimed path's holder. */
+/** The last claim of a path in a round by a cluster other than `except`, settled or not, as `holdersKeyedBy` names a claimed path's holder. */
 export function lastClaimOf(fix: FixState, round: 1 | 2, path: string, except?: string): RecordedClaim | undefined {
   return claimsOfRound(fix, round).findLast((claim) => claim.path === path && claim.cluster !== except);
 }
@@ -195,24 +195,17 @@ export function settledClusters(fix: FixState, round: 1 | 2): Set<string> {
   return new Set(clusters.filter((cluster) => batches.filter((batch) => batch.cluster === cluster.id).every((batch) => batchSettled(fix, batch.key))).map((cluster) => cluster.id));
 }
 
-/**
- * Who holds each path in a round: its owner by the round's plan, and for a
- * path no cluster owns, the cluster whose claim of it came last, settled or
- * not (R3 of commit series integrity).
- */
-export function holdersOf(fix: FixState, round: 1 | 2): Map<string, PathHolder> {
-  return new Map([...holdersKeyedBy(fix, round, (path) => path)].map(([path, { cluster, by }]) => [path, { cluster, by }]));
-}
-
 /** A round's holder of a path, with the path as the plan or the holder's last claim spells it. */
 export interface SpelledHolder extends PathHolder {
   readonly path: string;
 }
 
 /**
- * The holders of a round as `holdersOf` gives them, keyed by `keyOf`, the
- * path as the engine compares it, such as lowercased where the worktree's
- * file system folds case (TD4 of commit series integrity): an owner by the
+ * Who holds each path in a round (R3 of commit series integrity): its
+ * owner by the round's plan, and for a path no cluster owns, the cluster
+ * whose claim of it came last, settled or not. Keyed by `keyOf`, the path
+ * as the engine compares it: the exact path for the fold, or lowercased
+ * where the worktree's file system folds case (TD4), where an owner by the
  * plan still wins over a claim spelled otherwise, so two spellings of one
  * file never give it two holders.
  */
