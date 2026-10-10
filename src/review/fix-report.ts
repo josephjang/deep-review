@@ -300,6 +300,18 @@ export function fixHeaderLine(review: ReviewState): string | null {
 }
 
 /**
+ * The strays the run left: every path a worktree check found, less those
+ * its first check found, which were there before the run, and less those a
+ * revision holds, such as a fixer's build of `dist/` that the tail check
+ * revision rewrote (PD9 of commit series integrity).
+ */
+function strayedInRun(checks: ReviewState['checks'], revisions: FixState['revisions']): string[] {
+  const before = new Set(checks[0]?.strays ?? []);
+  const revised = new Set(revisions.flatMap((revision) => revision.files.map((file) => file.path)));
+  return [...new Set(checks.flatMap((check) => check.strays))].filter((path) => !before.has(path) && !revised.has(path)).sort();
+}
+
+/**
  * The lines the fix pass adds to Limitations: violations, late and lost
  * claims, strays, the checks not available, and the fixers' validation
  * and suite lines.
@@ -329,7 +341,7 @@ export function fixLimitations(review: ReviewState): string[] {
   });
   for (const claim of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim.path)} by ${claim.key}, edited before it was claimed (R6 of commit series integrity).`);
   for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lostClaimWords(lost.holder)}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
-  const strays = [...new Set(review.checks.flatMap((check) => check.strays))].sort();
+  const strays = strayedInRun(review.checks, fix.revisions);
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);
   // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).

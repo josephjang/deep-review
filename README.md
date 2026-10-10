@@ -316,7 +316,9 @@ them, so a formatter turning a CRLF checkout to LF changes nothing. A file
 another cluster owns or has claimed that a fixer reports editing is
 recorded as a violation, a file nobody held that a fixer edited without
 claiming it as a late claim, a file no answer names as a stray, and none
-of them stops the run. A check that rewrites tracked files, a build that
+of them stops the run. A tracked file outside the change that a fixer's
+own tool rewrote and nobody claimed, such as `dist/` after a fixer ran
+the build, is a stray too, in no fixer's commit. A check that rewrites tracked files, a build that
 regenerates `dist/`, is recorded as the check's revision, judged against
 a list of every tracked file taken just before it, so the rebuilt
 tracked files are the series' last commit rather than a change left in

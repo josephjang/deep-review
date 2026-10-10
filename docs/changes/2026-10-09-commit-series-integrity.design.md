@@ -372,7 +372,13 @@ round's last claim of it, whether that cluster has settled or not
 for a new claim (PD3) but not for an attempt, whose snapshots may
 predate the holder's edit that the holder's revision has recorded, and
 would undo it (amended 2026-10-10, after the gate; see Verification).
-Its comment is rewritten to say so, and the #23 link goes.
+A candidate that git tracks and the expected tree does not hold is a
+tool's leftover and is left out too, unless the cluster owns or claimed
+it (PD9 as amended); `straysOf` lists such a file with the untracked
+strays, and the report's strays line names every stray the run's first
+check did not find and no revision holds, so a leftover the tail check
+revision took is not named. Its comment is rewritten to say so, and the
+#23 link goes.
 `fixAnswerEvents` is unchanged in its paths:
 the owned files and every file the answer names already cover the
 cluster's claims, which a fixer names under the finding they served.
@@ -985,3 +991,14 @@ refused is not on the ledger.
   command and is named for the operator. A check that creates new
   tracked files cannot exist, since a new file is untracked until added;
   such output stays a stray, listed and not committed.
+- A leftover is a stray only while no revision holds its path (PD9 as
+  amended). Once a check revision has taken `dist/`, at the baseline or
+  after the fixes, the file is in the expected tree, so a repair worker
+  that builds again and leaves the output is drift at the repair's end,
+  as any edit of an expected file it does not report would be. The
+  repair runs only when a check fails after the fixes, and its worker
+  has the fixer's role, whose prompt tells it to restore a tool's output
+  (R7). A tracked
+  file outside the change that was already changed when the run started
+  is a stray from the first check on and is not named as one the run
+  left.

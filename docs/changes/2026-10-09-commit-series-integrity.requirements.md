@@ -267,7 +267,12 @@ two clusters in either run (review of 2026-10-09, F11).
   path its snapshots listed or git reports changed that no other
   cluster of the round owns or claimed, less the strays and the files
   git ignores as today. A sibling's edit of a file the sibling claimed
-  is never attributed to the attempt.
+  is never attributed to the attempt, whether the sibling has settled
+  or not. A tracked file outside the change that the attempt's cluster
+  did not claim is a tool's leftover, such as a build's `dist/`, and is
+  not taken either (PD9). (Amended 2026-10-10 after the gate, which
+  found an attempt taking a settled sibling's claimed file and a
+  fixer's build of `dist/`.)
 - **R6: A fixer's edit of a file it neither owns nor claimed is observed,
   not reverted.** When an answer names a file another cluster of the
   round holds, by ownership or by claim, it is recorded as an ownership
@@ -583,6 +588,17 @@ two clusters in either run (review of 2026-10-09, F11).
     treat every edit; the tail revision overwrites it with the output of
     the final tree, so the head is right, and whether the middle commit
     still passes `npm run check` is counted by the gate.
+  - *A leftover nobody claimed is in no fixer's revision.* (Amended
+    2026-10-10 after the gate.) A tracked file outside the change that a
+    fixer's tool rewrote and no cluster claimed, `dist/` after a fixer's
+    own build, is neither taken by an attempt's revisions nor, since it
+    stays outside the expected tree, compared by the worktree check: it
+    is a stray. The tail check revision takes it when a check rewrites
+    it; one no check rewrites is named in Limitations with the other
+    strays and left in the tree, uncommitted. On the gate an attempt
+    took the build's `dist/` into its revision, which put it in the
+    expected tree, and a later fixer's build then stopped the run on
+    drift; the rule closes both.
   Rebuilding generated trees inside the commit command, once per
   revision, was weighed and set aside: it needs each revision's tree
   laid out and built, and once the repository asks for `verify` at heads

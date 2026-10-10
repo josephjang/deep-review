@@ -67,6 +67,15 @@ describe('the report of a fix run', () => {
     assert.match(report, /^- Worktree checks: \d+, none found a difference from what the run expected\.$/m);
   });
 
+  it('names as strays only what the run left: not a file there before it, nor a leftover a later revision took (PD9 of commit series integrity)', () => {
+    const review = fixRun().review();
+    const [first, ...rest] = review.checks;
+    const checks = [{ ...first!, strays: ['before.txt'] }, ...rest.map((check) => ({ ...check, strays: [...check.strays, 'before.txt', 'src/a.ts', 'dist/a.js'] }))];
+    const strays = fixLimitations({ ...review, checks }).filter((line) => line.startsWith('- Files no answer names'));
+    // src/a.ts is in a revision, as dist/ is once the tail check revision rewrites it; dist/a.js here is in none.
+    assert.deepEqual(strays, ['- Files no answer names, left in the tree and in no patch: dist/a.js, notes.txt.']);
+  });
+
   it('names who held each changed path by claim, late claim or plan, round by round (R3 of commit series integrity)', () => {
     const review = fixRun().review();
     const fix = review.fix!;

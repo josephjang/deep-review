@@ -184,13 +184,15 @@ export function changedPaths(worktree: string): string[] {
   return gitApi.changedAgainstHead(worktree);
 }
 
-/** The paths git reports as untracked, ignored ones excepted, that the run does not expect: files nobody accounts for, listed and never drift. */
+/**
+ * The paths git reports as untracked or changed, ignored ones excepted,
+ * that the run does not expect: files nobody accounts for, listed and
+ * never drift. A tracked one is a tool's leftover, such as a fixer's build
+ * of `dist/`, which no fix or attempt revision takes and a check's tail
+ * revision may (PD9 of commit series integrity).
+ */
 export function straysOf(worktree: string, expected: ExpectedTree): string[] {
-  return gitApi
-    .status(worktree)
-    .filter((entry) => entry.code === '??' && !expected.has(entry.path))
-    .map((entry) => entry.path)
-    .sort();
+  return [...new Set(gitApi.status(worktree).filter((entry) => !expected.has(entry.path)).map((entry) => entry.path))].sort();
 }
 
 /**
