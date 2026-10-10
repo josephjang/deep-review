@@ -176,9 +176,9 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const owned = ownedFiles(fix, phase, unit.key);
   const settle = settleOf(context, phase, unit.key);
   const resolved = resolveFixerAnswer(output, { worktree, lookup: answerLookup(settle, phase, unit.key, worktree), owned, claimed: claimedFiles(settle.state, phase, unit.key), othersHeld: othersHeld(settle.state, phase, unit.key) });
-  const late = phase === 'fixes' ? lateClaim(settle, unit.key, resolved.named) : null;
-  const claims = [...settle.events, ...(late === null ? [] : [late])];
-  const claimed = claimedFiles(late === null ? settle.state : foldedWith(settle.state, [late]), phase, unit.key);
+  const late = phase === 'fixes' ? lateClaim(settle, unit.key, resolved.named) : [];
+  const claims = [...settle.events, ...late];
+  const claimed = claimedFiles(foldedWith(settle.state, late), phase, unit.key);
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
   const base = baseOf(context);

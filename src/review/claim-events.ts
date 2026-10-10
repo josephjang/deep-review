@@ -250,10 +250,11 @@ export function isPending(settle: ClaimSettle, path: string): boolean {
  * claimed late nor, with no holder on the ledger, a violation; its marker
  * settles at the next settle. A path a claim cannot record, as
  * `isClaimablePath` judges it, such as a POSIX `a:b.txt`, is left
- * unclaimed; the answer's revision still records its edit. Null when
- * there is none.
+ * unclaimed; the answer's revision still records its edit. The files go
+ * in path order into consecutive events of at most `maxClaimFilesPerEvent`,
+ * as an answer may name more; none when there is no late claim.
  */
-export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<string>): NewEvent | null {
+export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<string>): NewEvent[] {
   const fix = requireFix(settle.state);
   const batch = batchOfUnit(settle.state, key);
   const round = roundOf(fix, key);
@@ -261,6 +262,5 @@ export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<stri
   const holders = holdersKeyedBy(fix, round, keyOf);
   const settled = settledClusters(fix, round);
   const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled) === null).sort();
-  if (free.length === 0) return null;
-  return { kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key, cluster: batch.cluster, files: free.map((path) => ({ path, claimedAt: null })) } satisfies FilesClaimed };
+  return perEvent(free).map((paths): NewEvent => ({ kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key, cluster: batch.cluster, files: paths.map((path) => ({ path, claimedAt: null })) } satisfies FilesClaimed }));
 }

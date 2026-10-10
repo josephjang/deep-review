@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { claimsLostV1, filesClaimedV1, maxClaimFilesPerEvent } from '../../src/checkpoint/events.ts';
+import { claimsLostV1, filesClaimedV1, maxClaimFilesPerEvent, type FilesClaimed } from '../../src/checkpoint/events.ts';
 import { claimRefusal, heldByOthers } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { heldOf, isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
+import { foldedWith, heldOf, isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
 import { markerHash, type LiveClaim } from '../../src/review/claims.ts';
 import { baselined, claimed, fixAnswer, type History, worker } from '../helpers/review-history.ts';
 
@@ -23,6 +23,7 @@ const marker = (path: string, unit: string, cluster: string, generation = 1, cla
 const live = (...markers: LiveClaim[]): LiveClaims => ({ markers, caseInsensitive: false });
 const kinds = (events: readonly NewEvent[]): [string, unknown][] => events.map((event) => [event.kind, event.payload]);
 const shared = 'test/shared.test.ts';
+const filesOf = (event: NewEvent): FilesClaimed['files'] => (event.payload as FilesClaimed).files;
 
 describe('settleClaims', () => {
   it('records every marker the ledger does not hold, under its own unit, a running sibling\'s included, and folds it (R3, F1)', () => {
@@ -106,7 +107,7 @@ describe('settleClaims', () => {
     const history = running().add('files.claimed', claimed('c2-1', 'c2', ['SRC/A.ts']));
     const folded: LiveClaims = { markers: [{ whole: true, hash: markerHash('src/A.ts', true), generation: 1, path: 'src/A.ts', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' }], caseInsensitive: true };
     assert.deepEqual(kinds(settleClaims(history.fold(), 'c1-1', folded, worktree).events), [['claims.lost', { phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/a.ts', claimedAt: '2026-10-09T01:00:01.000Z', reason: 'owned', holder: 'c1' }] }]]);
-    assert.equal(lateClaim(settledNothing(history.fold(), true), 'c2-1', ['Src/A.ts']), null, 'nor is it free for a late claim');
+    assert.deepEqual(lateClaim(settledNothing(history.fold(), true), 'c2-1', ['Src/A.ts']), [], 'nor is it free for a late claim');
   });
 
   it('splits a unit\'s claims, and its lost markers, of more files than an event holds into consecutive events the ledger takes', () => {
@@ -136,27 +137,36 @@ describe('lateClaim', () => {
   const state = (): RunState => running().add('files.claimed', claimed('c2-1', 'c2', [shared])).add('files.claimed', claimed('c1-1', 'c1', ['docs/mine.md'])).fold();
 
   it('claims for the answering batch\'s cluster, with no time, each named file nobody holds (R6)', () => {
-    assert.deepEqual(lateClaim(settledNothing(state(), false), 'c1-1', ['src/a.ts', 'src/b.ts', shared, 'docs/mine.md', 'docs/new.md', 'docs/a.md']), { kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key: 'c1-1', cluster: 'c1', files: [{ path: 'docs/a.md', claimedAt: null }, { path: 'docs/new.md', claimedAt: null }] } });
-    assert.equal(lateClaim(settledNothing(state(), false), 'c1-1', ['src/a.ts', shared]), null, 'its own file and a sibling\'s claim are no late claim');
+    assert.deepEqual(lateClaim(settledNothing(state(), false), 'c1-1', ['src/a.ts', 'src/b.ts', shared, 'docs/mine.md', 'docs/new.md', 'docs/a.md']), [{ kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key: 'c1-1', cluster: 'c1', files: [{ path: 'docs/a.md', claimedAt: null }, { path: 'docs/new.md', claimedAt: null }] } }]);
+    assert.deepEqual(lateClaim(settledNothing(state(), false), 'c1-1', ['src/a.ts', shared]), [], 'its own file and a sibling\'s claim are no late claim');
   });
 
   it('claims a file only a settled cluster held', () => {
     const settled = running().add('files.claimed', claimed('c2-1', 'c2', [shared])).worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), { key: 'c2-1', findings: [{ id: 'SWEEP-1', status: 'deferred', file: 'src/b.ts', line: 1, note: 'n', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] })).fold();
-    assert.deepEqual((lateClaim(settledNothing(settled, false), 'c1-1', [shared])?.payload as { files: unknown[] }).files, [{ path: shared, claimedAt: null }]);
+    assert.deepEqual(lateClaim(settledNothing(settled, false), 'c1-1', [shared]).map(filesOf), [[{ path: shared, claimedAt: null }]]);
   });
 
   it('leaves out a named file a sibling\'s marker not yet whole is claiming, which its next settle records (F13)', () => {
     const settle = settleClaims(running().fold(), 'c1-1', live({ whole: false, hash: markerHash('docs/x.md', false), generation: 1 }), worktree);
-    assert.deepEqual((lateClaim(settle, 'c1-1', ['docs/x.md', 'docs/new.md'])?.payload as { files: unknown[] }).files, [{ path: 'docs/new.md', claimedAt: null }]);
-    assert.equal(lateClaim(settle, 'c1-1', ['docs/x.md']), null);
+    assert.deepEqual(lateClaim(settle, 'c1-1', ['docs/x.md', 'docs/new.md']).map(filesOf), [[{ path: 'docs/new.md', claimedAt: null }]]);
+    assert.deepEqual(lateClaim(settle, 'c1-1', ['docs/x.md']), []);
   });
 
   it('leaves out a named file a claim cannot record, such as a POSIX a:b.txt, so the event it makes is one the ledger takes', () => {
     const long = `docs/${'x'.repeat(1000)}.md`;
     const late = lateClaim(settledNothing(state(), false), 'c1-1', ['a:b.txt', long, 'docs/new.md']);
-    assert.deepEqual((late?.payload as { files: unknown[] }).files, [{ path: 'docs/new.md', claimedAt: null }]);
-    assert.equal(filesClaimedV1.safeParse(late!.payload).success, true);
-    assert.equal(lateClaim(settledNothing(state(), false), 'c1-1', ['a:b.txt', long]), null);
+    assert.deepEqual(late.map(filesOf), [[{ path: 'docs/new.md', claimedAt: null }]]);
+    assert.equal(filesClaimedV1.safeParse(late[0]!.payload).success, true);
+    assert.deepEqual(lateClaim(settledNothing(state(), false), 'c1-1', ['a:b.txt', long]), []);
+  });
+
+  it('splits a late claim of more files than an event holds into consecutive events in path order, each one the ledger takes, which fold to every file', () => {
+    const named = Array.from({ length: maxClaimFilesPerEvent + 1 }, (_, index) => `docs/f${String(index).padStart(4, '0')}.md`);
+    const late = lateClaim(settledNothing(state(), false), 'c1-1', [...named].reverse());
+    assert.deepEqual(late.map((event) => filesOf(event).map((file) => file.path)), [named.slice(0, maxClaimFilesPerEvent), named.slice(maxClaimFilesPerEvent)]);
+    for (const event of late) assert.equal(filesClaimedV1.safeParse(event.payload).success, true);
+    const claims = foldedWith(state(), late).review!.fix!.claims.filter((claim) => claim.claimedAt === null);
+    assert.deepEqual(claims.map((claim) => [claim.key, claim.cluster, claim.path]), named.map((path) => ['c1-1', 'c1', path]));
   });
 
   it('refuses a key the fix plan has no batch for', () => {

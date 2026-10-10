@@ -228,7 +228,11 @@ append, before the unit's own `fix.recorded@1`, `attempt.failed@5` or
   marker's time; plus, for an answered unit, one entry with
   `claimedAt: null` for each named file nobody holds that the cluster
   never claimed, the late claim of R6, logged as "claimed late". Nothing
-  is appended when there is none. (Amended 2026-10-09, review F1: as
+  is appended when there is none. A unit's claims, or its late claim,
+  of more files than the 2000 an event holds, as an answer naming a
+  codemod's files may make, go in order into consecutive events of at
+  most `maxClaimFilesPerEvent`, and lost markers likewise (amended
+  2026-10-10, after the gate). (Amended 2026-10-09, review F1: as
   first written, only the settling unit's own cluster's markers were
   appended, so the fold could not check a violation against a claim a
   running sibling had made, since that claim reached the ledger only at
