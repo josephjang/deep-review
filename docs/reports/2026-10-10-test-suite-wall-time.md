@@ -366,16 +366,17 @@ the workers finish does not change the outcome.
 
 - **Change.** `ReviewSandbox.keep()` copies the whole sandbox,
   repository and checkpoint included, beside it, and `restore()` puts it
-  back at the same path. The six commit tests that start from the
+  back at the same path. The eight commit tests that start from the
   default run move into one nested describe, which makes the run once in
   `before` and restores it in `beforeEach`. It restores at the same path
   because `commitRun` refuses a run reviewed in another worktree
   (`src/review/commit.ts`), and for the same reason the describe sets
   `concurrency: 1`; without it, it would inherit its parent's 4.
-- **Measured.** The file runs 8 reviews instead of 13. The file alone,
-  alternating: 52 and 55 s before, 35 and 38 s after, all 11 tests
-  passing each time.
-- **Risk.** The six tests share one state between restores; a test that
+- **Measured.** As committed, the file runs 8 reviews instead of 15. The
+  times were measured when six tests shared the run and the file ran 8
+  reviews instead of 13: the file alone, alternating, took 52 and 55 s
+  before and 35 and 38 s after, every test passing each time.
+- **Risk.** The eight tests share one state between restores; a test that
   wrote outside the sandbox directory would leak into the next.
 - **Takes.** The two files above, tests only.
 - **Status.** Committed; see "Decisions".
