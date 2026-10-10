@@ -892,18 +892,18 @@ otherwise:
 
 The gate of R10 is filled in this form:
 
-| | `71ae22a2`, parallel | `8dbe23ad`, one at a time | The gate |
-|---|---|---|---|
-| Concurrency in the fix pass | 4 | 1 | 4 |
-| Engine commits, green alone | 13 of 23 | 16 of 17 | 39 of 40 |
-| Commits holding another cluster's edit (pass: 0) | 10 of 23 | 0 of 17 | 2 of 40 |
-| Red commits inside one batch (pass: each explained) | 0 of 23 | 1 of 17 | 1 of 40 |
-| Fixer workers | 14 | 13 | 19 |
-| Claims made, refused, late | | | 38, 0, 0 |
-| Second round | 7 findings, 2 batches | 6 findings, 2 batches | 10 findings, 3 batches |
-| Left blocked by a second-round refusal | 0 | 0 | 0 |
-| Fixes phase, wall seconds | 3905 | 5964 | 8849 |
-| The run: workers, USD | 48, 37.86 | 47, 32.34 | 59, 55.53 |
+| | `71ae22a2`, parallel | `8dbe23ad`, one at a time | The gate, `55ecace9` | Again, `0e9a9662` |
+|---|---|---|---|---|
+| Concurrency in the fix pass | 4 | 1 | 4 | 4 |
+| Engine commits, green alone | 13 of 23 | 16 of 17 | 39 of 40 | 38 of 38 |
+| Commits holding another cluster's edit (pass: 0) | 10 of 23 | 0 of 17 | 2 of 40 | 0 of 38 |
+| Red commits inside one batch (pass: each explained) | 0 of 23 | 1 of 17 | 1 of 40 | 0 of 38 |
+| Fixer workers | 14 | 13 | 19 | 20 |
+| Claims made, refused, late | | | 38, 0, 0 | 25, 0, 0 |
+| Second round | 7 findings, 2 batches | 6 findings, 2 batches | 10 findings, 3 batches | 11 findings, 3 batches |
+| Left blocked by a second-round refusal | 0 | 0 | 0 | 0 |
+| Fixes phase, wall seconds | 3905 | 5964 | 8849 | 7702 |
+| The run: workers, USD | 48, 37.86 | 47, 32.34 | 59, 55.53 | 57, 46.26 |
 
 The gate passes when the first of the two added rows is zero and every
 commit of the second has its cause named (R10, F10); the first row is
@@ -968,6 +968,35 @@ it was left running afterwards; its retry answered. One worker's cost
 went unreported, so the run cost more than 55.53 USD. No claim was
 refused at a settle and no violation was recorded; a claim the command
 refused is not on the ledger.
+
+**The gate again passes.** The fixes the first gate named were made on
+2026-10-10 (`902f40a`, an attempt keeps a settled sibling's claimed
+file out; `b232494`, the R11 test orders its settles; `00f2445`, a
+tool's unclaimed leftover is a stray, in no fixer's revision; `81b7551`,
+`dist/` rebuilt), and the gate ran again as run `0e9a9662` on the engine
+built at `81b7551`, on the whole element from `eec946a`, with the same
+paths, `test/atomic-write.test.ts` added, the same checks and budget. A
+run before it, `e21b026d`, is not counted: Claude Code's session limit
+failed every fixer twice before it could edit, so every batch was left
+not attempted; the engine took the limit for the unit's fault, not the
+environment's, and spent both attempts at once.
+
+The reviewers found 36 findings; the decision fixed 27, left 4 and
+asked 5, whose defaults applied. The fix pass applied 21 and found 6
+already applied; every check passed before and after the fixes, and no
+worktree check found a difference. `deep-review commit` made 38 commits,
+`2640646` to `7007e9e`, the build check's rewrite of `dist/`, where
+`npm run verify` passed. No commit holds a path its cluster neither
+owned nor claimed: three fixers ran past their timeout, `c5-1`, `c6-1`
+and `c12-1`, and the eight revisions their attempts left hold their own
+clusters' paths only. No fixer's build was left in the tree, so no
+leftover was a stray.
+
+Each commit passed `npm run check` alone. Checked two at a time, seven
+failed by time alone, on a machine other work was loading: suites past
+their 600 s and 900 s limits with tests cancelled, a fake runtime's
+preflight past 10 s, and a worker relaunched when it ran late; each of
+the seven passed checked again alone, in 448 to 468 s.
 
 ## Risks & Migration
 
