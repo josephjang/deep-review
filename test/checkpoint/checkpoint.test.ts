@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { Checkpoint, evidenceDirectoryName } from '../../src/checkpoint/checkpoint.ts';
+import { Checkpoint, evidenceDirectoryName, isUnreadable } from '../../src/checkpoint/checkpoint.ts';
 import {
   EvidenceError,
   InvalidHistoryError,
@@ -13,7 +13,9 @@ import {
   StaleRevisionError,
   UnknownEventError,
   UnknownRunError,
+  UnreadableRunError,
 } from '../../src/checkpoint/errors.ts';
+import { runModel } from '../../src/checkpoint/fold.ts';
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
@@ -133,6 +135,69 @@ describe('Checkpoint', () => {
     assert.throws(() => checkpoint.append(created.id, 1, [{ kind: 'test.note', version: 1, payload: { text: 'x', extra: true } }]), InvalidPayloadError);
     assert.throws(() => checkpoint.append(created.id, 1, []), InvalidPayloadError);
     assert.equal(checkpoint.fold(created.id).lastSequence, 1);
+  });
+
+  describe('a run holding an event this engine does not declare', () => {
+    // The writer is a build whose model has test.note@1; the reader is the engine's own model, which lacks it.
+    const written = (): { readable: string; unreadable: string } => {
+      const writer = open({ engine: '9.9.9-writer' });
+      const readable = writer.createRun({ worktree: '/readable' }).id;
+      const unreadable = writer.createRun({ worktree: '/unreadable' });
+      writer.append(unreadable.id, unreadable.lastSequence, [{ kind: 'test.note', version: 1, payload: { text: 'only the writer knows this' } }]);
+      writer.close();
+      opened.splice(0);
+      return { readable, unreadable: unreadable.id };
+    };
+    const reader = (): Checkpoint => open({ engine: '1.0.0-reader', model: runModel });
+    const unknown = { sequence: 3, kind: 'test.note', version: 1, engine: '9.9.9-writer' };
+    const isTheRefusal = (runId: string) => (error: unknown): boolean =>
+      error instanceof UnreadableRunError
+      && error.runId === runId
+      && error.engine === '1.0.0-reader'
+      && JSON.stringify(error.unknown) === JSON.stringify(unknown)
+      && error.message === `run ${runId} cannot be read: it holds test.note@1 at sequence 3, written by engine 9.9.9-writer, which this engine (1.0.0-reader) does not declare; an engine that declares it, such as the one that wrote it, can read the run`;
+
+    it('is listed as unreadable, in ledger order, beside the runs this engine folds', () => {
+      const { readable, unreadable } = written();
+      const checkpoint = reader();
+      const runs = checkpoint.listRuns();
+      assert.deepEqual(runs.map((run) => run.id), [readable, unreadable]);
+      assert.equal(isUnreadable(runs[0]!), false);
+      assert.deepEqual(runs[0], checkpoint.fold(readable));
+      assert.deepEqual(runs[1], { id: unreadable, unreadable: unknown });
+      assert.equal(isUnreadable(runs[1]!), true);
+    });
+
+    it('is refused by fold, foldRuns and append, naming the event, the writing engine and this one, and nothing is written', () => {
+      const { readable, unreadable } = written();
+      const checkpoint = reader();
+      assert.throws(() => checkpoint.fold(unreadable), isTheRefusal(unreadable));
+      assert.throws(() => checkpoint.foldRuns(), isTheRefusal(unreadable));
+      assert.throws(() => checkpoint.append(unreadable, 3, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'from the older engine' } }]), isTheRefusal(unreadable));
+      assert.equal(checkpoint.ledger.lastSequence(unreadable), 3, 'the refused append wrote nothing');
+      assert.equal(checkpoint.append(readable, 1, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'readable' } }]).status, 'abandoned', 'a readable run beside it still takes events');
+    });
+
+    it('leaves an append that offers an event this engine does not declare refused by UnknownEventError', () => {
+      const { readable } = written();
+      const checkpoint = reader();
+      assert.throws(() => checkpoint.append(readable, 1, [{ kind: 'test.note', version: 1, payload: { text: 'x' } }]), UnknownEventError);
+      assert.equal(checkpoint.ledger.lastSequence(readable), 1);
+    });
+
+    it('lists and folds every run when the reader knows every event', () => {
+      const { readable, unreadable } = written();
+      const checkpoint = open({ engine: '9.9.9-writer' });
+      assert.deepEqual(checkpoint.listRuns(), checkpoint.foldRuns());
+      assert.deepEqual(checkpoint.foldRuns().map((run) => run.id), [readable, unreadable]);
+    });
+
+    it('still refuses an invalid history while listing, rather than calling the run unreadable', () => {
+      const checkpoint = open();
+      const created = checkpoint.createRun({ worktree: '/repo' });
+      checkpoint.ledger.write((tx) => tx.insertEvent({ runId: created.id, kind: 'run.created', version: 1, payload: '{"worktree":"/again"}', recordedAt: '2026-09-26T00:00:59.000Z', engine: '0.0.0-test' }));
+      assert.throws(() => checkpoint.listRuns(), InvalidHistoryError);
+    });
   });
 
   it('refuses events on an abandoned run inside the transaction', () => {

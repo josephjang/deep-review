@@ -3,7 +3,7 @@ import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { Checkpoint } from '../src/checkpoint/checkpoint.ts';
+import { Checkpoint, isUnreadable } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { maxConcurrency } from '../src/review/policy.ts';
@@ -11,7 +11,7 @@ import { checkKinds, finderAngles } from '../src/review/vocabulary.ts';
 import { fixerAnswer } from './helpers/fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex, isAlive, until } from './helpers/launcher.ts';
 import { write } from './helpers/repository.ts';
-import { fakeCheckCommand, ReviewSandbox } from './helpers/review-sandbox.ts';
+import { fakeCheckCommand, otherEngine, ReviewSandbox } from './helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../src/cli.ts');
 
@@ -91,7 +91,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(missing.status, 2);
     assert.match(missing.stderr, /is not a file; pass --executable/);
     // The executable is resolved once the engine knows the run is new, which takes the checkpoint; the refusal comes before a run is created.
-    assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
+    assert.deepEqual(box.checkpoint.foldRuns(), [], 'no run was created');
     assert.equal(run('status').stdout, 'No active run.\n');
   });
 
@@ -122,7 +122,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     const fresh = review('--executable', shim, '--last-commit');
     assert.equal(fresh.status, 2, fresh.stderr);
     assert.match(fresh.stderr, /^blocked \(runtime-unqualified\): .*claude\.cmd is a \.cmd shim, which cannot be spawned without a shell/);
-    assert.equal(box.checkpoint.listRuns().length, 1, 'no new run was created');
+    assert.equal(box.checkpoint.foldRuns().length, 1, 'no new run was created');
   });
 
   it('says there is no run before any review, in text and JSON, and finds the repository through --repo given absolute or relative', () => {
@@ -181,8 +181,8 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.match(again.stderr, /a new run needs its scope/);
     const second = run(...claudeFlags('--ref', 'HEAD~1', '--path', 'src'));
     assert.equal(second.status, 0, second.stderr);
-    assert.equal(box.checkpoint.listRuns().length, 2);
-    assert.deepEqual(box.checkpoint.listRuns()[1]!.scope?.request, { ref: 'HEAD~1', paths: ['src'] });
+    assert.equal(box.checkpoint.foldRuns().length, 2);
+    assert.deepEqual(box.checkpoint.foldRuns()[1]!.scope?.request, { ref: 'HEAD~1', paths: ['src'] });
     // An id the checkpoint does not hold is a command-line mistake, for status and abandon alike.
     for (const args of [['status', '--run', 'nope'], ['abandon', '--run', 'nope', '--reason', 'gone']]) {
       const unknown = run(...args);
@@ -211,7 +211,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     assert.equal(resumed.status, 0, resumed.stderr);
     assert.match(resumed.stderr, /is active; its scope flags are ignored and the run continues/);
     assert.match(resumed.stderr, /phase triage: re-entered \(attempt 2\), clearing the worker-failed blocker/);
-    assert.equal(box.checkpoint.listRuns().length, 1);
+    assert.equal(box.checkpoint.foldRuns().length, 1);
   });
 
   it('captures the scope the command names for an active run that has none yet, and refuses one without scope flags', () => {
@@ -225,7 +225,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     const scoped = run(...claudeFlags('--ref', 'HEAD~1', '--path', 'src'));
     assert.equal(scoped.status, 0, scoped.stderr);
     assert.doesNotMatch(scoped.stderr, /scope flags are ignored/);
-    assert.equal(box.checkpoint.listRuns().length, 1, 'the scopeless run continued');
+    assert.equal(box.checkpoint.foldRuns().length, 1, 'the scopeless run continued');
     assert.deepEqual(box.checkpoint.fold(runId).scope?.request, { ref: 'HEAD~1', paths: ['src'] }, 'the scope asked for, not an automatic one');
   });
 
@@ -263,8 +263,38 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     box.script({});
     const fresh = run(...claudeFlags('--last-commit'));
     assert.equal(fresh.status, 0, fresh.stderr);
-    assert.equal(box.checkpoint.listRuns().length, 2);
+    assert.equal(box.checkpoint.foldRuns().length, 2);
     assert.match(run('status', '--run', runId).stdout, /: abandoned \(stuck\)\n/);
+  });
+
+  // Issue #37: a run another engine build wrote, holding an event this engine does not declare, stopped every command that picks a run.
+  it('passes over a run this engine cannot read when a command looks for its run, and refuses it by name with exit 1', () => {
+    const unreadable = box.unreadableRun();
+    const reason = `it holds phase.finished@99 at sequence 2, written by engine ${otherEngine}, which this engine (`;
+    const passedOver = `run ${unreadable}: passed over: ${reason}`;
+    const status = run('status');
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(status.stdout, 'No active run.\n');
+    assert.ok(status.stderr.startsWith(passedOver) && status.stderr.endsWith('such as the one that wrote it, can read the run\n'), status.stderr);
+    assert.equal(status.stderr.split('\n').length, 2, 'one line');
+    const json = run('status', '--json');
+    assert.equal(json.status, 0, json.stderr);
+    assert.equal(JSON.parse(json.stdout), null, 'stdout stays JSON, the line goes to stderr');
+    assert.ok(json.stderr.startsWith(passedOver), json.stderr);
+    const abandon = run('abandon', '--reason', 'which one');
+    assert.equal(abandon.status, 1, abandon.stderr);
+    assert.ok(abandon.stderr.startsWith(passedOver) && abandon.stderr.includes('\nno active run to abandon\n'), abandon.stderr);
+    for (const args of [['status', '--run', unreadable], ['abandon', '--run', unreadable, '--reason', 'from the older engine'], ['commit', '--run', unreadable]]) {
+      const named = run(...args);
+      assert.equal(named.status, 1, `${args.join(' ')}: ${named.stderr}`);
+      assert.ok(named.stderr.startsWith(`UnreadableRunError: run ${unreadable} cannot be read: ${reason}`), `${args.join(' ')}: ${named.stderr}`);
+    }
+    box.script({});
+    const review = run(...claudeFlags('--last-commit'));
+    assert.equal(review.status, 0, review.stderr);
+    assert.ok(review.stderr.startsWith(passedOver), review.stderr);
+    assert.equal(box.checkpoint.ledger.lastSequence(unreadable), 2, 'nothing was appended to the run passed over');
+    assert.deepEqual(box.checkpoint.listRuns().map((listed) => isUnreadable(listed)), [true, false], 'the review ran a run of its own');
   });
 
   it('exits 2 on a refusal that has no blocker code, as on one that has', () => {
@@ -293,7 +323,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     const answered = (): string[] => {
       const checkpoint = Checkpoint.open(root, { engine: 'test-observer' });
       try {
-        const run = checkpoint.listRuns()[0];
+        const run = checkpoint.foldRuns()[0];
         return run?.review === null || run?.review === undefined ? [] : Object.entries(run.review.units.finders).filter(([, unit]) => unit.answeredBy !== null).map(([angle]) => `finders:${angle}`);
       } finally {
         checkpoint.close();
@@ -302,7 +332,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
     const runningOnLedger = (): number => {
       const checkpoint = Checkpoint.open(root, { engine: 'test-observer' });
       try {
-        return Object.values(checkpoint.listRuns()[0]?.workers ?? {}).filter((worker) => worker.status === 'running').length;
+        return Object.values(checkpoint.foldRuns()[0]?.workers ?? {}).filter((worker) => worker.status === 'running').length;
       } finally {
         checkpoint.close();
       }
@@ -331,7 +361,7 @@ describe('the deep-review command', { timeout: 900_000 }, () => {
       else assert.ok(launches >= 1 && launches <= 2, `${angle}: ${String(launches)} launches`);
     }
     assert.equal(after.review!.report !== null, true);
-    assert.equal(box.checkpoint.listRuns().length, 1, 'the same run continued');
+    assert.equal(box.checkpoint.foldRuns().length, 1, 'the same run continued');
     assert.ok(!isAlive(child.pid!));
   });
 

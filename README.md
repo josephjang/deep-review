@@ -63,9 +63,11 @@ in. Inside are `ledger.sqlite`, an append-only event ledger, and
 `artifacts/`, a content-addressed evidence store whose blobs are verified on
 every read. Run state is never stored; it is folded from the run's events,
 each of which has a kind, a schema version and the engine version that
-wrote it. A newer engine always reads an older ledger; an older engine
-refuses a newer one by name. See
-`docs/changes/2026-09-26-checkpoint-ledger.md` for the reasoning.
+wrote it. A newer engine always reads an older ledger. An older engine
+refuses a newer ledger schema by name, and passes over a run holding an
+event it does not know, naming the engine that wrote it. See
+`docs/changes/2026-09-26-checkpoint-ledger.md` and
+`docs/changes/2026-10-10-unreadable-runs.md` for the reasoning.
 
 The change a run reviews is captured once, as a `scope.captured` event: the
 mode it was named in (the last commit of a clean tree, the dirty worktree,

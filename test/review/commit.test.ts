@@ -3,13 +3,14 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
-import { ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { otherEngine, ReviewSandbox } from '../helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../../src/cli.ts');
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure` });
@@ -126,6 +127,53 @@ describe('deep-review commit', { timeout: 900_000 }, () => {
     assert.equal(box.run().review!.fix!.commits, null, 'nothing was recorded');
   });
 
+  it('passes over a run this engine cannot read when it picks the run, commits the newest one it can, and refuses the unreadable run by name', async () => {
+    const runId = await fixRun();
+    // Newer in the ledger than the fix run, so a choice of the newest run that ignored readability would take it.
+    const unreadable = box.unreadableRun();
+    const sequence = box.checkpoint.ledger.lastSequence(unreadable);
+    const logs: string[] = [];
+    const log = (line: string): void => {
+      logs.push(line);
+    };
+    assert.throws(
+      () => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: unreadable, log }),
+      (error: unknown) => error instanceof UnreadableRunError && error.runId === unreadable && error.unknown.engine === otherEngine && error.unknown.sequence === sequence,
+    );
+    assert.deepEqual(logs, [], 'a named run is refused, not passed over');
+    const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo, log });
+    assert.equal(outcome.runId, runId);
+    assert.deepEqual(outcome.commits.map((commit) => commit.subject), ['fix(a): Return 0 for a null text', 'fix(b): Import parse']);
+    assert.deepEqual(logs, [`run ${unreadable}: passed over: it holds phase.finished@99 at sequence ${String(sequence)}, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`]);
+    assert.equal(box.checkpoint.ledger.lastSequence(unreadable), sequence, 'nothing was appended to the run passed over');
+  });
+
+  it('refuses the chosen run by name when another engine makes it unreadable before its lock is taken, and commits nothing', async () => {
+    const runId = await fixRun();
+    const head = git(box.repo, 'rev-parse', 'HEAD');
+    // The engine that wrote the run appends an event this one does not declare right after the choice, before the run lock.
+    let acted = false;
+    const late = new Proxy(box.checkpoint, {
+      get(target, property): unknown {
+        if (property === 'listRuns') {
+          return (): ReturnType<typeof target.listRuns> => {
+            const runs = target.listRuns();
+            if (!acted) {
+              acted = true;
+              box.addUnknownEvent(runId);
+            }
+            return runs;
+          };
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    assert.throws(() => commitRun({ checkpoint: late, worktree: box.repo }), (error: unknown) => error instanceof UnreadableRunError && error.runId === runId && error.unknown.engine === otherEngine);
+    assert.equal(acted, true);
+    assert.equal(git(box.repo, 'rev-parse', 'HEAD'), head, 'no commit was made');
+  });
+
   it('refuses a run without a report, one without the fix pass, and one that changed no file', async () => {
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.fix('claude')).kind, 'blocked');
@@ -133,12 +181,12 @@ describe('deep-review commit', { timeout: 900_000 }, () => {
     box.checkpoint.append(box.run().id, box.run().lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'next case' } }]);
     box.script({});
     assert.equal((await box.review('claude')).kind, 'report');
-    const readOnly = box.checkpoint.listRuns().at(-1)!.id;
+    const readOnly = box.checkpoint.foldRuns().at(-1)!.id;
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: readOnly }), refused(/ran without --fix/));
     // A fix run whose fixer found its finding already applied, and changed nothing.
     box.script({ ...twoFixes, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) }, 'fixer:fixes:c2-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
     assert.equal((await box.fix('claude')).kind, 'report');
-    const unchanged = box.checkpoint.listRuns().at(-1)!.id;
+    const unchanged = box.checkpoint.foldRuns().at(-1)!.id;
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: unchanged }), refused(/changed no file, so there is nothing to commit/));
   });
 

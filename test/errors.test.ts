@@ -10,6 +10,7 @@ import {
   StaleRevisionError,
   UnknownEventError,
   UnknownRunError,
+  UnreadableRunError,
   UnsupportedSchemaError,
 } from '../src/checkpoint/errors.ts';
 import { EngineError } from '../src/errors.ts';
@@ -34,6 +35,7 @@ const otherCheckpointErrors = (): Error[] => [
   new InvalidPayloadError('p'),
   new UnknownRunError('r'),
   new InvalidHistoryError('h'),
+  new UnreadableRunError('r', { sequence: 2, kind: 'k', version: 2, engine: 'w' }, 'e'),
 ];
 
 describe('the engine error hierarchy', () => {
@@ -88,6 +90,7 @@ describe('the engine error hierarchy', () => {
     assert.equal(new InvalidPolicyError('x').name, 'InvalidPolicyError');
     assert.equal(new StructuralCheckError('x').name, 'StructuralCheckError');
     assert.equal(new ReviewRefusedError('x').name, 'ReviewRefusedError');
+    assert.equal(new UnreadableRunError('r', { sequence: 2, kind: 'k', version: 2, engine: 'w' }, 'e').name, 'UnreadableRunError');
   });
 
   it('carries a blocker code on a review refusal only when one applies', () => {

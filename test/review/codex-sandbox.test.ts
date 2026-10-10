@@ -231,7 +231,7 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     const pinned = box.run();
     box.checkpoint.append(pinned.id, pinned.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'start again with a sandbox that runs the build' } }]);
     assert.equal((await box.fix('codex', { platform: 'win32', flags: { codexWindowsSandbox: 'none' } })).kind, 'blocked');
-    const active = findActiveRun(box.checkpoint);
+    const active = findActiveRun(box.checkpoint, (line) => box.logs.push(line));
     assert.ok(active !== null && active.id !== runId, 'a new run');
     assert.deepEqual(active.review!.configuration.codex, { windowsSandbox: 'none' });
     assert.equal(warnings().length, 2, 'the new run does not warn');

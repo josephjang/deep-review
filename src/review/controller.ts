@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, DecisionsRecorded, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
 import { revisionMessageOf } from '../checkpoint/fix-state.ts';
+import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
@@ -42,6 +43,7 @@ import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
+import { passedOverLine, readableRuns } from './runs.ts';
 import { prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
@@ -146,18 +148,43 @@ export function isResumable(run: RunState): boolean {
   return run.status === 'active' && (run.review === null || run.review.report === null);
 }
 
-/** The active runs a review may resume: those without a report. */
-export function resumableRuns(checkpoint: Checkpoint): RunState[] {
-  return checkpoint.listRuns().filter(isResumable);
+/**
+ * The active runs a review may resume: those without a report. A run
+ * holding an event this engine does not declare is passed over with a
+ * line on `log`, and is never called closed: whether the unknown event
+ * closed it, this engine cannot know.
+ */
+export function resumableRuns(checkpoint: Checkpoint, log: (line: string) => void): RunState[] {
+  return readableRuns(checkpoint, log).filter(isResumable);
 }
 
-/** The one run to resume, or null when there is none; two are refused, naming them. */
-export function findActiveRun(checkpoint: Checkpoint): RunState | null {
-  const runs = resumableRuns(checkpoint);
+/**
+ * The one run to resume, or null when there is none; two are refused,
+ * naming them. A run this engine cannot read takes no part in the choice
+ * (`resumableRuns`); if it is in fact active, the engine that can read it
+ * meets it beside any run started here, and refuses the two by this guard.
+ */
+export function findActiveRun(checkpoint: Checkpoint, log: (line: string) => void): RunState | null {
+  const runs = resumableRuns(checkpoint, log);
   if (runs.length > 1) {
     throw new ReviewRefusedError(`${String(runs.length)} runs are active (${runs.map((run) => run.id).join(', ')}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\``);
   }
   return runs[0] ?? null;
+}
+
+/**
+ * The found run folded again under its lock, or null when an engine that
+ * declares events this one does not appended one to it since the find: the
+ * run is then passed over, with the same line the find gives such a run.
+ */
+function refoldUnderLock(checkpoint: Checkpoint, runId: string, log: (line: string) => void): RunState | null {
+  try {
+    return checkpoint.fold(runId);
+  } catch (error) {
+    if (!(error instanceof UnreadableRunError)) throw error;
+    log(passedOverLine(runId, error.unknown, error.engine));
+    return null;
+  }
 }
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
@@ -643,20 +670,22 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release: ReleaseLock | null = null;
   try {
-    let found = findActiveRun(checkpoint);
+    let found = findActiveRun(checkpoint, log);
     // The checkpoint is shared by every worktree of the repository, while a run's scope, worktree checks and workers belong to the worktree it was created in.
     if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
       throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
     }
     if (found !== null) {
       release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
-      // Read again under the lock: what the find returned may predate the last appends of the engine that held it.
-      found = checkpoint.fold(found.id);
-      if (!isResumable(found)) {
+      // Read again under the lock: what the find returned may predate the last appends of the engine that held it, which may be a build that declares events this one does not.
+      found = refoldUnderLock(checkpoint, found.id, log);
+      if (found !== null && !isResumable(found)) {
         log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken; a new run is created`);
+        found = null;
+      }
+      if (found === null) {
         release();
         release = null;
-        found = null;
       }
     }
     const pinned = found?.review?.configuration ?? null;

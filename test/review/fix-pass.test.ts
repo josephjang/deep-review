@@ -320,7 +320,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
     });
     const pending = box.fix('claude');
-    await until(() => box.checkpoint.listRuns().some((run) => run.review?.fix?.answers.fixes['c2-1'] !== undefined), 'c2-1\'s answer on the ledger', 120_000);
+    await until(() => box.checkpoint.foldRuns().some((run) => run.review?.fix?.answers.fixes['c2-1'] !== undefined), 'c2-1\'s answer on the ledger', 120_000);
     // c1 reaches into the settled c2's file and says nothing of it.
     write(box.repo, 'src/b.ts', 'export const b = "clobbered";\n');
     writeFileSync(marker, '');
@@ -416,7 +416,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const marker = join(box.directory, 'c1-may-answer');
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { waitFor: marker, output: fixerAnswer([{ status: 'deferred', files: [] }]) } });
     const pending = box.fix('claude');
-    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1' && worker.status === 'running')), 'the c1 fixer on the ledger', 120_000);
+    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1' && worker.status === 'running')), 'the c1 fixer on the ledger', 120_000);
     const head = git(box.repo, 'rev-parse', 'HEAD');
     git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit during the run');
     const moved = git(box.repo, 'rev-parse', 'HEAD');
@@ -489,7 +489,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
     const pending = box.fix('claude');
     await until(() => existsSync(join(box.repo, 'src', 'b.ts')) && readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8') === fixedB, 'c2-1\'s edit in the tree', 120_000);
     writeFileSync(c1MayDie, '');
-    await until(() => box.checkpoint.listRuns().some((run) => (run.review?.units.fixes['c1-1']?.failures.length ?? 0) > 0), 'c1-1\'s failed attempt on the ledger', 120_000);
+    await until(() => box.checkpoint.foldRuns().some((run) => (run.review?.units.fixes['c1-1']?.failures.length ?? 0) > 0), 'c1-1\'s failed attempt on the ledger', 120_000);
     writeFileSync(c2MayAnswer, '');
     report(await pending);
     const fix = box.run().review!.fix!;
@@ -663,7 +663,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/caller.ts': 'import { parse } from \'./a.ts\';\nexport const n = parse(\'\');\n' } }], output: fixerAnswer([{ files: ['src/caller.ts'] }]) },
     });
     report(await box.fix('claude'));
-    const edited = box.checkpoint.listRuns().at(-1)!;
+    const edited = box.checkpoint.foldRuns().at(-1)!;
     assert.deepEqual(edited.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/caller.ts modified']]);
     const patch = box.checkpoint.evidence.read(edited.review!.report!.patches[0]!).toString('utf8');
     assert.doesNotMatch(patch, /new file mode/);

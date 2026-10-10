@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { z } from 'zod';
 import { InvalidHistoryError, UnknownEventError } from '../../src/checkpoint/errors.ts';
 import { accessSchema, effortSchema, eventRegistry, workerLaunchedV1 } from '../../src/checkpoint/events.ts';
-import { applyEvent, defineModel, foldRun, reducers, runModel, type DecodedEvent } from '../../src/checkpoint/fold.ts';
+import { applyEvent, defineModel, firstUnknownEvent, foldRun, reducers, runModel, type DecodedEvent } from '../../src/checkpoint/fold.ts';
 import { defineRegistry, registryIdentity, registryKeys } from '../../src/checkpoint/registry.ts';
 import { testModel } from '../helpers/model.ts';
 
@@ -116,6 +116,34 @@ describe('foldRun', () => {
     const state = foldRun([created(), event(2, 'test.note', { text: 'hi' })], testModel);
     assert.equal(state.lastSequence, 2);
     assert.throws(() => foldRun([created(), event(2, 'test.note', { text: 'hi' })]), UnknownEventError);
+  });
+});
+
+describe('firstUnknownEvent', () => {
+  it('is null for a history the model knows, and for no history', () => {
+    assert.equal(firstUnknownEvent([created(), event(2, 'run.abandoned', { reason: 'r' })]), null);
+    assert.equal(firstUnknownEvent([]), null);
+  });
+
+  it('names the first unknown event: its sequence, kind, version and the engine that wrote it', () => {
+    const newer = { ...event(3, 'run.abandoned', { reason: 'r' }, 2), engine: '9.9.9+newer' };
+    const later = { ...event(4, 'run.mystery', {}), engine: '9.9.9+other' };
+    assert.deepEqual(firstUnknownEvent([created(), event(2, 'run.abandoned', { reason: 'r' }), newer, later]), { sequence: 3, kind: 'run.abandoned', version: 2, engine: '9.9.9+newer' });
+    assert.deepEqual(firstUnknownEvent([created(), later]), { sequence: 4, kind: 'run.mystery', version: 1, engine: '9.9.9+other' });
+  });
+
+  it('decides what is known by the model given, as the fold does', () => {
+    const history = [created(), event(2, 'test.note', { text: 'hi' })];
+    assert.deepEqual(firstUnknownEvent(history, runModel), { sequence: 2, kind: 'test.note', version: 1, engine: '0.0.0' });
+    assert.throws(() => foldRun(history, runModel), UnknownEventError);
+    assert.equal(firstUnknownEvent(history, testModel), null);
+    assert.equal(foldRun(history, testModel).lastSequence, 2);
+  });
+
+  it('does not judge payloads: a known event with a bad payload is for the fold to refuse', () => {
+    const history = [created(), event(2, 'run.abandoned', { reason: 1 })];
+    assert.equal(firstUnknownEvent(history), null);
+    assert.throws(() => foldRun(history), InvalidHistoryError);
   });
 });
 

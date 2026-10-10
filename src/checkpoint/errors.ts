@@ -48,6 +48,43 @@ export class UnknownEventError extends CheckpointError {
   }
 }
 
+/**
+ * An event of a run whose kind and version a model does not declare, and
+ * the engine that wrote it. It lives here rather than beside the fold so
+ * that the error naming it needs no import from the fold, which imports
+ * this module.
+ */
+export interface UnknownEvent {
+  readonly sequence: number;
+  readonly kind: string;
+  readonly version: number;
+  readonly engine: string;
+}
+
+/**
+ * Why a run holding `unknown` cannot be read by the engine `reader`: one
+ * sentence, shared by the error that refuses a named run and the line a
+ * command prints for a run it passes over. The writing engine is named and
+ * not called newer, because an engine identity orders nothing.
+ */
+export function unreadableRunReason(unknown: UnknownEvent, reader: string): string {
+  return `it holds ${unknown.kind}@${String(unknown.version)} at sequence ${String(unknown.sequence)}, written by engine ${unknown.engine}, which this engine (${reader}) does not declare; an engine that declares it, such as the one that wrote it, can read the run`;
+}
+
+/** The run holds an event this engine does not declare, so it cannot be folded, resumed or appended to. */
+export class UnreadableRunError extends CheckpointError {
+  override readonly name = 'UnreadableRunError';
+  readonly runId: string;
+  readonly unknown: UnknownEvent;
+  readonly engine: string;
+  constructor(runId: string, unknown: UnknownEvent, engine: string) {
+    super(`run ${runId} cannot be read: ${unreadableRunReason(unknown, engine)}`);
+    this.runId = runId;
+    this.unknown = unknown;
+    this.engine = engine;
+  }
+}
+
 /** A payload failed the schema its kind and version declare. */
 export class InvalidPayloadError extends CheckpointError {
   override readonly name = 'InvalidPayloadError';

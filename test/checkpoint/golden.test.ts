@@ -79,7 +79,7 @@ describe('golden checkpoints', () => {
       const expected = JSON.parse(readFileSync(join(copy, 'expected.json'), 'utf8')) as Expected;
       const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
       opened.push(checkpoint);
-      const runs = checkpoint.listRuns();
+      const runs = checkpoint.foldRuns();
       if (name === fixtures.at(-1)) assert.deepEqual(runs, expected.runs);
       else {
         // An older fixture was recorded by an engine whose state had fewer

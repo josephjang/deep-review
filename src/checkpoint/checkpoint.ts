@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { collectArtifactReferences } from '../evidence/references.ts';
 import { EvidenceStore } from '../evidence/store.ts';
-import { InvalidPayloadError, RunClosedError, StaleRevisionError, UnknownEventError, UnknownRunError } from './errors.ts';
-import { applyEvent, foldRun, runModel, type DecodedEvent, type RunModel, type RunState } from './fold.ts';
+import { InvalidPayloadError, RunClosedError, StaleRevisionError, UnknownEventError, UnknownRunError, UnreadableRunError, type UnknownEvent } from './errors.ts';
+import { applyEvent, firstUnknownEvent, foldRun, runModel, type DecodedEvent, type RunModel, type RunState } from './fold.ts';
 import { Ledger, type EventRow, type LedgerOptions } from './ledger.ts';
 import { lookupEvent } from './registry.ts';
 
@@ -16,6 +16,19 @@ export interface NewEvent {
   readonly version: number;
   readonly payload: unknown;
 }
+
+/** A run holding an event this engine does not declare: listed by id, never folded. */
+export interface UnreadableRun {
+  readonly id: string;
+  /** The run's first event this engine does not declare, and the engine that wrote it. */
+  readonly unreadable: UnknownEvent;
+}
+
+/** A run as `listRuns` gives it: folded, or unreadable to this engine. */
+export type ListedRun = RunState | UnreadableRun;
+
+/** Whether a listed run is one this engine cannot read. */
+export const isUnreadable = (run: ListedRun): run is UnreadableRun => 'unreadable' in run;
 
 export interface CheckpointOptions extends LedgerOptions {
   /** Version of the engine writing, recorded on every event. */
@@ -79,13 +92,30 @@ export class Checkpoint {
     });
   }
 
-  /** The run's state from every event it has. */
+  /** The run's state from every event it has; a run holding an event this engine does not declare is refused by `UnreadableRunError`. */
   fold(runId: string): RunState {
     if (!this.ledger.hasRun(runId)) throw new UnknownRunError(runId);
-    return foldRun(this.ledger.events(runId).map(decode), this.#model);
+    return this.#readable(runId, this.ledger.events(runId).map(decode));
   }
 
-  listRuns(): RunState[] {
+  /**
+   * Every run of the ledger, in ledger order: its state, or an unreadable
+   * entry for a run holding an event this engine does not declare. It
+   * never throws for such a run, which another engine build may have
+   * written into this shared ledger; any other failure to fold still
+   * throws. A command that picks a run reads this and passes the
+   * unreadable ones over.
+   */
+  listRuns(): ListedRun[] {
+    return this.ledger.listRuns().map((run): ListedRun => {
+      const events = this.ledger.events(run.id).map(decode);
+      const unknown = firstUnknownEvent(events, this.#model);
+      return unknown === null ? foldRun(events, this.#model) : { id: run.id, unreadable: unknown };
+    });
+  }
+
+  /** Every run's state, in ledger order, refusing the first run this engine cannot read with `UnreadableRunError`; for callers that need every run, where `listRuns` is for a command that picks one. */
+  foldRuns(): RunState[] {
     return this.ledger.listRuns().map((run) => this.fold(run.id));
   }
 
@@ -103,7 +133,7 @@ export class Checkpoint {
       if (!tx.hasRun(runId)) throw new UnknownRunError(runId);
       const actual = tx.lastSequence(runId);
       if (actual !== expectedLastSequence) throw new StaleRevisionError(runId, expectedLastSequence, actual);
-      let state = foldRun(tx.events(runId).map(decode), this.#model);
+      let state = this.#readable(runId, tx.events(runId).map(decode));
       if (state.status !== 'active') throw new RunClosedError(`Run ${runId} is ${state.status} and accepts no events`);
       for (const row of rows) {
         const sequence = tx.insertEvent(row);
@@ -112,6 +142,13 @@ export class Checkpoint {
       }
       return state;
     });
+  }
+
+  /** Fold a run's events, refusing a run holding an event this engine does not declare by the engine that wrote it. */
+  #readable(runId: string, events: readonly DecodedEvent[]): RunState {
+    const unknown = firstUnknownEvent(events, this.#model);
+    if (unknown !== null) throw new UnreadableRunError(runId, unknown, this.engine);
+    return foldRun(events, this.#model);
   }
 
   /** Validate one event against the registry and its evidence against the store, and shape its ledger row. */

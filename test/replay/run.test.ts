@@ -82,7 +82,7 @@ describe('replayVerifier', () => {
   function replayedPrompts(output: string): { label: string | null; prompt: string; model: string; access: string }[] {
     const checkpoint = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: '0.0.0-test' });
     try {
-      return checkpoint.listRuns().flatMap((run) => Object.values(run.workers)).map((worker) => ({
+      return checkpoint.foldRuns().flatMap((run) => Object.values(run.workers)).map((worker) => ({
         label: worker.launch.label,
         prompt: withoutScratchNote(checkpoint.evidence.read(worker.launch.prompt).toString('utf8'), worker.launch.scratch),
         model: worker.launch.model,

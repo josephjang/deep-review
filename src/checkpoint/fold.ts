@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { InvalidHistoryError, UnknownEventError } from './errors.ts';
+import { InvalidHistoryError, UnknownEventError, type UnknownEvent } from './errors.ts';
 import {
   eventRegistry,
   type EventRegistry,
@@ -13,7 +13,7 @@ import {
   type workerLaunchedV1,
   type workerLostV4,
 } from './events.ts';
-import { lookupEvent, registryKeys, type Registry, type RegistryKey } from './registry.ts';
+import { lookupEvent, registryKeys, type EventDefinition, type Registry, type RegistryKey } from './registry.ts';
 import { fixReducers } from './fix-fold.ts';
 import { reviewReducers, unitOfLostWorker, withFailure, type ReviewState } from './review-fold.ts';
 import { surveyReducers } from './survey-fold.ts';
@@ -212,13 +212,29 @@ export function foldRun(events: readonly DecodedEvent[], model: RunModel = runMo
  * one event to a state it holds leaves it out.
  */
 export function applyEvent(state: RunState | undefined, event: DecodedEvent, model: RunModel = runModel, drafts: FoldDrafts = new FoldDrafts()): RunState {
-  const key = `${event.kind}@${String(event.version)}`;
-  const definition = lookupEvent(model.registry, event.kind, event.version);
-  const reduce = model.reducers[key] as Reducer<unknown> | undefined;
-  if (definition === undefined || reduce === undefined) throw new UnknownEventError(event.kind, event.version);
-  const parsed = definition.schema.safeParse(event.payload);
-  if (!parsed.success) throw new InvalidHistoryError(`Event ${String(event.sequence)} (${key}) has a payload its schema rejects: ${parsed.error.message}`);
-  return reduce(state, parsed.data, event, drafts);
+  const known = declaration(model, event.kind, event.version);
+  if (known === undefined) throw new UnknownEventError(event.kind, event.version);
+  const parsed = known.definition.schema.safeParse(event.payload);
+  if (!parsed.success) throw new InvalidHistoryError(`Event ${String(event.sequence)} (${event.kind}@${String(event.version)}) has a payload its schema rejects: ${parsed.error.message}`);
+  return known.reduce(state, parsed.data, event, drafts);
+}
+
+/**
+ * The first event, in the order given, whose kind and version the model
+ * does not declare, with the engine that wrote it; null when the model
+ * knows every event. It decides what is known as `applyEvent` does, so a
+ * history it passes is one `foldRun` meets no unknown event in.
+ */
+export function firstUnknownEvent(events: readonly DecodedEvent[], model: RunModel = runModel): UnknownEvent | null {
+  const event = events.find((candidate) => declaration(model, candidate.kind, candidate.version) === undefined);
+  return event === undefined ? null : { sequence: event.sequence, kind: event.kind, version: event.version, engine: event.engine };
+}
+
+/** The schema and reducer the model has for `kind@version`, or undefined when it lacks either. */
+function declaration(model: RunModel, kind: string, version: number): { readonly definition: EventDefinition; readonly reduce: Reducer<unknown> } | undefined {
+  const definition = lookupEvent(model.registry, kind, version);
+  const reduce = model.reducers[`${kind}@${String(version)}`] as Reducer<unknown> | undefined;
+  return definition === undefined || reduce === undefined ? undefined : { definition, reduce };
 }
 
 /** For reducers of every kind but creation: the run must already exist. */

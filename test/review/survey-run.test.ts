@@ -153,7 +153,7 @@ describe('the repository survey in a run', { timeout: 600_000 }, () => {
 
     box.checkpoint.append(box.run().id, box.run().lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'next case' } }]);
     report(await box.review('claude'));
-    const ignored = box.checkpoint.listRuns().at(-1)!;
+    const ignored = box.checkpoint.foldRuns().at(-1)!;
     assert.deepEqual(ignored.review!.configuration.survey, { userRules: 'ignore' });
     assert.deepEqual(ignored.review!.survey!.answers[0]!.userRules, [{ path: userFile, applied: false, reason: 'ignored by the policy value ignore' }]);
     assert.ok(!box.promptOf(ignored, 'triage triage:SCAN').includes(userFile), 'no worker hears of an ignored file');

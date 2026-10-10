@@ -132,8 +132,8 @@ choice.
 - No silencing of the passed-over line, and no record that it was shown.
   It is printed by every command that passes the run over (Risks).
 - No change to the event registry, the ledger DDL or any event, so no
-  new golden fixture; `dist/` is built from `skill/` only and does not
-  change.
+  new golden fixture. The skill text does not change; the engine bundled
+  under `dist/` is rebuilt, because it is built from `src/`.
 - No change to `--run` with an id the ledger does not hold, which stays
   a usage error, or to the refusal of a run active in another worktree.
 
@@ -201,7 +201,9 @@ flowchart LR
   is taken, because another engine appended to it in between, the
   review prints the passed-over line, releases the lock and creates a
   new run, as it does today for a run that stopped being resumable in
-  that window.
+  that window. `commit` without `--run` in the same window fails with
+  `UnreadableRunError` and commits nothing: the run it chose is the
+  one the operator meant, and an older run in its place would not be.
 - R8: `status --run <id>`, `abandon --run <id>` and `commit --run <id>`
   on an unreadable run exit 1 with
   `UnreadableRunError: run <id> cannot be read: <reason>` on stderr.
@@ -365,4 +367,53 @@ sequenceDiagram
 
 ## Verification
 
-No checks have run yet.
+Run on Windows with Node 26 on 2026-10-10, against the change as
+committed.
+
+- **The reproducing test failed first.** The first test of
+  `a run this engine cannot read` in `test/review/controller.test.ts`,
+  a ledger holding one run with `phase.finished@99` written by another
+  engine, run against the engine before this change, failed with
+  `UnknownEventError: Event kind phase.finished version 99 is not in
+  this engine's registry`, the error of issue #37. It passes after it.
+- **R1.** `test/checkpoint/fold.test.ts`, `firstUnknownEvent`: null for
+  a known history and for none; the first unknown event with its
+  sequence, kind, version and engine; `test.note@1` unknown to the
+  engine's model and known to the test model, as the fold decides; a
+  known event with a bad payload left to the fold.
+- **R2 to R5.** `test/checkpoint/checkpoint.test.ts`, `a run holding an
+  event this engine does not declare`: a run written by a model that
+  declares `test.note@1` and read by the engine's model is listed as
+  unreadable in ledger order beside a folded run; `fold`, `foldRuns`
+  and `append` refuse it with `UnreadableRunError`, whose fields and
+  whole message are checked, and the refused append writes nothing; an
+  append offering an undeclared event is still `UnknownEventError`; an
+  invalid history still throws `InvalidHistoryError` from `listRuns`.
+  `test/errors.test.ts` holds `UnreadableRunError` to the engine error
+  hierarchy and its name.
+- **R6 and R7, `review`.** `test/review/controller.test.ts`: the run is
+  passed over with the exact line and a new run reviews; a readable
+  active run beside it resumes; two readable active runs beside it are
+  refused naming only those two; a run made unreadable between the find
+  and the lock is passed over, its lock released, and a new run reviews.
+  The tests of the same window that existed before pass unchanged.
+- **R6 and R7, `commit`.** `test/review/commit.test.ts`: without
+  `--run` the newest readable fix run is committed and the unreadable
+  run, newer in the ledger, is passed over with the exact line; named,
+  it is refused with `UnreadableRunError`; made unreadable between the
+  choice and the lock, it is refused and no commit is made.
+- **R8 and R9.** `test/cli.test.ts` spawns the command: `status` prints
+  `No active run.` with one line on stderr and exits 0; `status --json`
+  prints `null`; `abandon` refuses with `no active run to abandon`
+  after the line; `status --run`, `abandon --run` and `commit --run`
+  exit 1 with `UnreadableRunError: run <id> cannot be read:`; `review`
+  reviews to a report with the line first on stderr, and nothing is
+  appended to the unreadable run. The refusal of two active runs keeps
+  its exact stderr.
+- **R10.** `README.md` says it, and points at this proposal.
+- **The suite.** `npm run check` passes: lint, typecheck and 1656
+  tests, 1637 passing and 19 skipped by their own platform conditions
+  (symlinks, POSIX signals, case-insensitive file systems), none of
+  them touched here. The golden test passes with no new fixture.
+  `npm run verify` passes after `npm run build` rewrote the two engine
+  bundles under `dist/`.

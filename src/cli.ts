@@ -236,6 +236,7 @@ function commit(values: Values, io: CommandIo, root: string, worktree: string): 
     const outcome = commitRun({
       checkpoint,
       worktree,
+      log: (line) => io.stderr(`${line}\n`),
       ...(values.run === undefined ? {} : { runId: values.run }),
       ...(values['change-message'] === undefined ? {} : { changeMessage: values['change-message'] }),
     });
@@ -339,9 +340,14 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   }
 }
 
-/** The run a command names with --run, or else the active run, null when there is none; an id the checkpoint does not hold is a usage error. */
-function resolveRun(checkpoint: Checkpoint, run: string | undefined): RunState | null {
-  if (run === undefined) return findActiveRun(checkpoint);
+/**
+ * The run a command names with --run, or else the active run, null when
+ * there is none; an id the checkpoint does not hold is a usage error. A
+ * run this engine cannot read is passed over with a line on stderr when
+ * the active run is looked for, and refused when it is named.
+ */
+function resolveRun(checkpoint: Checkpoint, run: string | undefined, io: CommandIo): RunState | null {
+  if (run === undefined) return findActiveRun(checkpoint, (line) => io.stderr(`${line}\n`));
   try {
     return checkpoint.fold(run);
   } catch (error) {
@@ -357,7 +363,7 @@ function status(values: Values, io: CommandIo, root: string): number {
     return 0;
   }
   try {
-    const state = resolveRun(checkpoint, values.run);
+    const state = resolveRun(checkpoint, values.run, io);
     if (state === null) {
       io.stdout(values.json === true ? 'null\n' : 'No active run.\n');
       return 0;
@@ -379,7 +385,7 @@ function abandon(values: Values, io: CommandIo, root: string): number {
     // Under the start lock, as a review finds or creates its run: an engine resuming the run cannot slip between the find and the append.
     const releaseStart = acquireStartLock(checkpoint.root);
     try {
-      const found = resolveRun(checkpoint, values.run);
+      const found = resolveRun(checkpoint, values.run, io);
       if (found === null) throw new UsageError('no active run to abandon');
       const release = acquireRunLock(checkpoint.root, found.id);
       try {

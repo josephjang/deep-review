@@ -878,7 +878,7 @@ try {
     }, 4);
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
-  const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
+  const expected = { runs: checkpoint.foldRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);
   writeFileSync(join(output, 'identity.json'), `${JSON.stringify(checkpointIdentity(), null, 2)}\n`);
 } finally {

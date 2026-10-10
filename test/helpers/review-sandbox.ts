@@ -26,6 +26,12 @@ export const checkTimeoutMs = 10_000;
 /** The stand-in check command, steered by FAKE_CHECKS (see fake-check.mjs). */
 export const fakeCheck = resolve(import.meta.dirname, 'fake-check.mjs');
 
+/** The engine that writes the events `addUnknownEvent` inserts: a build that declares one this engine does not. */
+export const otherEngine = '9.9.9+newer';
+
+/** The event `addUnknownEvent` inserts: a kind this engine declares, at a version it does not, which is what a build with a newer registry writes. */
+export const unknownEvent = { kind: 'phase.finished', version: 99 } as const;
+
 /** The engine's own entry from the sources, which a fixer's snapshot command runs. */
 export const cliEntry = resolve(import.meta.dirname, '../../src/cli.ts');
 
@@ -134,9 +140,25 @@ export class ReviewSandbox {
 
   /** The one run of the checkpoint, folded. */
   run(): RunState {
-    const runs = this.checkpoint.listRuns();
+    const runs = this.checkpoint.foldRuns();
     if (runs.length !== 1) throw new Error(`Expected one run, found ${String(runs.length)}`);
     return runs[0]!;
+  }
+
+  /**
+   * Insert past the registry, as another engine build would, an event this
+   * engine does not declare onto the run, which makes it unreadable here.
+   * The ledger takes any JSON payload; only the fold checks it.
+   */
+  addUnknownEvent(runId: string): void {
+    this.checkpoint.ledger.write((tx) => tx.insertEvent({ runId, ...unknownEvent, payload: '{}', recordedAt: new Date().toISOString(), engine: otherEngine }));
+  }
+
+  /** A run of this repository that another engine build made unreadable here: created, then given an event this engine does not declare. Returns its id. */
+  unreadableRun(): string {
+    const { id } = this.checkpoint.createRun({ worktree: this.repo });
+    this.addUnknownEvent(id);
+    return id;
   }
 
   /** The run's events as kind and parsed payload. */

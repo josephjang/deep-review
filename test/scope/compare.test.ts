@@ -79,10 +79,10 @@ describe('compareWorktree', () => {
   });
 
   it('writes nothing to the checkpoint', () => {
-    const before = checkpoint.ledger.lastSequence(checkpoint.listRuns()[0]!.id);
+    const before = checkpoint.ledger.lastSequence(checkpoint.foldRuns()[0]!.id);
     write(repo, 'edit.txt', 'e3\n');
     compareWorktree(scope, repo);
-    assert.equal(checkpoint.ledger.lastSequence(checkpoint.listRuns()[0]!.id), before);
+    assert.equal(checkpoint.ledger.lastSequence(checkpoint.foldRuns()[0]!.id), before);
   });
   it('compares the scope files as compareWorktree does, reading only them, so a copy of the tree outside its repository compares too', () => {
     write(repo, 'edit.txt', 'e3\n');

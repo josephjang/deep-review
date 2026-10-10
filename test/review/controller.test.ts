@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
+import type { Checkpoint, ListedRun } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { presurveyRulesFiles, type ReviewOutcome } from '../../src/review/controller.ts';
@@ -18,7 +18,7 @@ import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { fakeCheckCommand, ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { fakeCheckCommand, otherEngine, ReviewSandbox } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
@@ -91,7 +91,7 @@ const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => void): {
   const proxy = new Proxy(checkpoint, {
     get(target, property): unknown {
       if (property === 'listRuns') {
-        return (): RunState[] => {
+        return (): ListedRun[] => {
           const runs = target.listRuns();
           if (!acted) {
             acted = true;
@@ -279,7 +279,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     state = box.run();
     assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 2 });
     assert.equal(state.review!.blocker, null);
-    assert.equal(box.checkpoint.listRuns().length, 1, 'the same run continued');
+    assert.equal(box.checkpoint.foldRuns().length, 1, 'the same run continued');
     assert.ok(box.logs.some((line) => /^phase triage: re-entered \(attempt 2\), clearing the worker-failed blocker$/.test(line)));
   });
 
@@ -500,7 +500,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     // edit waits for the triage worker on the ledger, which launches only after the scope is captured and the
     // survey answered: an edit made before the capture would be part of the scope, and one made while the
     // surveyor ran would block the survey instead.
-    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running' && worker.launch.label === 'triage triage:SCAN')), 'the triage worker on the ledger', 60_000);
+    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running' && worker.launch.label === 'triage triage:SCAN')), 'the triage worker on the ledger', 60_000);
     write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     writeFileSync(marker, '');
     const blocked = await pending;
@@ -544,7 +544,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
     const pending = box.review('claude');
     const removals = 'finder-REMOVALS finders:REMOVALS';
-    await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === removals && worker.status === 'running')), 'the REMOVALS worker on the ledger', 60_000);
+    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === removals && worker.status === 'running')), 'the REMOVALS worker on the ledger', 60_000);
     write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     writeFileSync(marker, '');
     const blocked = await pending;
@@ -577,7 +577,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const signalListeners = process.listenerCount('SIGINT');
     try {
       const pending = box.review('claude', { flags: { concurrency: 1 } });
-      await until(() => box.checkpoint.listRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
+      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
       assert.ok(process.listenerCount('SIGINT') > signalListeners, 'an interruption releases the held lock');
       const state = box.run();
       box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'abandoned under the worker' } }]);
@@ -603,7 +603,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const pending = box.review('claude', { flags: { concurrency: 2 } }, { FAKE_UNQUALIFIED_WHEN: broken });
     pending.then(() => (settled = true), () => (settled = true));
     try {
-      const running = (): string[] => box.checkpoint.listRuns().flatMap((run) => Object.values(run.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label ?? ''));
+      const running = (): string[] => box.checkpoint.foldRuns().flatMap((run) => Object.values(run.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label ?? ''));
       await until(() => running().length === 2, 'REMOVALS and RIPPLE running', 60_000);
       writeFileSync(broken, '');
       writeFileSync(rippleMayAnswer, '');
@@ -670,7 +670,7 @@ describe('runReview', { timeout: 600_000 }, () => {
       throw new ReviewRefusedError('the executable was refused', 'runtime-unqualified');
     };
     await assert.rejects(box.review('claude', { executable: refused }), (error: unknown) => error instanceof ReviewRefusedError && error.message === 'the executable was refused');
-    assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
+    assert.deepEqual(box.checkpoint.foldRuns(), [], 'no run was created');
     assert.equal(lockFree(() => acquireStartLock(box.checkpoint.root)), true, 'the start lock is released');
     let resolved = 0;
     const resolve = (): string => {
@@ -714,7 +714,7 @@ describe('runReview', { timeout: 600_000 }, () => {
   it('refuses an unqualified runtime before any run exists', async () => {
     await assert.rejects(box.review('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && /lacks flags the adapter uses/.test(error.message)
       && error.message.endsWith('; fix the runtime installation or pass --executable with a qualifying binary, then run the command again'));
-    assert.deepEqual(box.checkpoint.listRuns(), []);
+    assert.deepEqual(box.checkpoint.foldRuns(), []);
   });
 
   it('finds or creates the run under the start lock, so an engine starting meanwhile is refused and creates no run of its own', async () => {
@@ -722,7 +722,7 @@ describe('runReview', { timeout: 600_000 }, () => {
     const release = acquireStartLock(box.checkpoint.root);
     try {
       await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'lock-held' && new RegExp(`^engine ${String(process.pid)} is starting or ending a run in this repository`).test(error.message));
-      assert.deepEqual(box.checkpoint.listRuns(), [], 'no run was created');
+      assert.deepEqual(box.checkpoint.foldRuns(), [], 'no run was created');
     } finally {
       release();
     }
@@ -781,12 +781,72 @@ describe('runReview', { timeout: 600_000 }, () => {
     const outcome = await box.review('claude', { checkpoint: late.checkpoint });
     assert.equal(late.acted(), true);
     report(outcome);
-    const runs = box.checkpoint.listRuns();
+    const runs = box.checkpoint.foldRuns();
     assert.deepEqual(runs.map((run) => [run.id === first.id, run.status]), [[true, 'abandoned'], [false, 'active']]);
     assert.equal(outcome.runId, runs[1]!.id, 'the review ran a run of its own');
     assert.equal(box.checkpoint.fold(first.id).lastSequence, first.lastSequence + 1, 'nothing but the close was appended to the first run');
     assert.ok(box.logs.includes(`run ${first.id}: abandoned before its lock was taken; a new run is created`), box.logs.join('\n'));
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, first.id)), true, 'its lock is released');
+  });
+
+  // Issue #37: one run another engine build wrote, holding an event this engine does not declare, stopped every review of the repository.
+  describe('a run this engine cannot read', () => {
+    const passedOver = (runId: string): string[] => box.logs.filter((line) => line.startsWith(`run ${runId}: passed over: `));
+
+    it('is passed over, with one line naming its event and the engine that wrote it, and the review runs a run of its own', async () => {
+      const unreadable = box.unreadableRun();
+      box.script({});
+      const outcome = await box.review('claude');
+      report(outcome);
+      assert.notEqual(outcome.runId, unreadable);
+      assert.deepEqual(passedOver(unreadable), [`run ${unreadable}: passed over: it holds phase.finished@99 at sequence 2, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`]);
+      assert.equal(box.checkpoint.ledger.lastSequence(unreadable), 2, 'nothing was appended to the run passed over');
+      assert.deepEqual(box.checkpoint.listRuns().map((run) => run.id), [unreadable, outcome.runId]);
+    });
+
+    it('takes no part in finding the run to resume: the readable active run beside it resumes', async () => {
+      box.script({ triage: { exit: 2 } });
+      assert.equal((await box.review('claude')).kind, 'blocked');
+      const first = box.run();
+      const unreadable = box.unreadableRun();
+      // Sequences are global to the ledger, so the run's last one follows the blocked run's events.
+      const before = box.checkpoint.ledger.lastSequence(unreadable);
+      box.script({});
+      const outcome = await box.review('claude');
+      report(outcome);
+      assert.equal(outcome.runId, first.id, 'the blocked run resumed');
+      assert.equal(passedOver(unreadable).length, 1, box.logs.join('\n'));
+      assert.equal(box.checkpoint.ledger.lastSequence(unreadable), before, 'nothing was appended to the run passed over');
+    });
+
+    it('takes no part in the refusal of two active runs, which names the readable ones only', async () => {
+      box.script({ triage: { exit: 2 } });
+      assert.equal((await box.review('claude')).kind, 'blocked');
+      const first = box.run().id;
+      box.unreadableRun();
+      const second = box.checkpoint.createRun({ worktree: box.repo }).id;
+      await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.message.startsWith(`2 runs are active (${first}, ${second});`));
+    });
+
+    it('is passed over when another engine makes the found run unreadable before its lock is taken, and the lock is released', async () => {
+      box.script({ triage: { exit: 2 } });
+      assert.equal((await box.review('claude')).kind, 'blocked');
+      const first = box.run();
+      // The engine that held the run appends an event this one does not declare right after the find.
+      const late = afterFind(box.checkpoint, () => {
+        box.addUnknownEvent(first.id);
+      });
+      box.script({});
+      const outcome = await box.review('claude', { checkpoint: late.checkpoint });
+      assert.equal(late.acted(), true);
+      report(outcome);
+      assert.notEqual(outcome.runId, first.id, 'the review ran a run of its own');
+      assert.equal(box.checkpoint.ledger.lastSequence(first.id), first.lastSequence + 1, 'nothing but the event of the other engine was appended to the found run');
+      assert.equal(passedOver(first.id).length, 1, box.logs.join('\n'));
+      assert.ok(passedOver(first.id)[0]!.includes(`it holds phase.finished@99 at sequence ${String(first.lastSequence + 1)}, written by engine ${otherEngine},`), box.logs.join('\n'));
+      assert.ok(!box.logs.some((line) => line.includes('before its lock was taken')), box.logs.join('\n'));
+      assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, first.id)), true, 'its lock is released');
+    });
   });
 });
 

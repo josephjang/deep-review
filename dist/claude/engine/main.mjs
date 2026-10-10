@@ -19742,6 +19742,21 @@ var UnknownEventError = class extends CheckpointError {
     this.version = version2;
   }
 };
+function unreadableRunReason(unknown2, reader) {
+  return `it holds ${unknown2.kind}@${String(unknown2.version)} at sequence ${String(unknown2.sequence)}, written by engine ${unknown2.engine}, which this engine (${reader}) does not declare; an engine that declares it, such as the one that wrote it, can read the run`;
+}
+var UnreadableRunError = class extends CheckpointError {
+  name = "UnreadableRunError";
+  runId;
+  unknown;
+  engine;
+  constructor(runId, unknown2, engine) {
+    super(`run ${runId} cannot be read: ${unreadableRunReason(unknown2, engine)}`);
+    this.runId = runId;
+    this.unknown = unknown2;
+    this.engine = engine;
+  }
+};
 var InvalidPayloadError = class extends CheckpointError {
   name = "InvalidPayloadError";
 };
@@ -21778,13 +21793,20 @@ function foldRun(events, model = runModel) {
   return state;
 }
 function applyEvent(state, event, model = runModel, drafts = new FoldDrafts()) {
-  const key = `${event.kind}@${String(event.version)}`;
-  const definition = lookupEvent(model.registry, event.kind, event.version);
-  const reduce = model.reducers[key];
-  if (definition === void 0 || reduce === void 0) throw new UnknownEventError(event.kind, event.version);
-  const parsed = definition.schema.safeParse(event.payload);
-  if (!parsed.success) throw new InvalidHistoryError(`Event ${String(event.sequence)} (${key}) has a payload its schema rejects: ${parsed.error.message}`);
-  return reduce(state, parsed.data, event, drafts);
+  const known = declaration(model, event.kind, event.version);
+  if (known === void 0) throw new UnknownEventError(event.kind, event.version);
+  const parsed = known.definition.schema.safeParse(event.payload);
+  if (!parsed.success) throw new InvalidHistoryError(`Event ${String(event.sequence)} (${event.kind}@${String(event.version)}) has a payload its schema rejects: ${parsed.error.message}`);
+  return known.reduce(state, parsed.data, event, drafts);
+}
+function firstUnknownEvent(events, model = runModel) {
+  const event = events.find((candidate) => declaration(model, candidate.kind, candidate.version) === void 0);
+  return event === void 0 ? null : { sequence: event.sequence, kind: event.kind, version: event.version, engine: event.engine };
+}
+function declaration(model, kind, version2) {
+  const definition = lookupEvent(model.registry, kind, version2);
+  const reduce = model.reducers[`${kind}@${String(version2)}`];
+  return definition === void 0 || reduce === void 0 ? void 0 : { definition, reduce };
 }
 function requireState(state, event) {
   if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
@@ -21974,6 +21996,7 @@ function asEventRow(row) {
 
 // src/checkpoint/checkpoint.ts
 var evidenceDirectoryName = "artifacts";
+var isUnreadable = (run2) => "unreadable" in run2;
 var Checkpoint = class _Checkpoint {
   root;
   ledger;
@@ -22015,12 +22038,28 @@ var Checkpoint = class _Checkpoint {
       return foldRun([decode3({ ...row, sequence })], this.#model);
     });
   }
-  /** The run's state from every event it has. */
+  /** The run's state from every event it has; a run holding an event this engine does not declare is refused by `UnreadableRunError`. */
   fold(runId) {
     if (!this.ledger.hasRun(runId)) throw new UnknownRunError(runId);
-    return foldRun(this.ledger.events(runId).map(decode3), this.#model);
+    return this.#readable(runId, this.ledger.events(runId).map(decode3));
   }
+  /**
+   * Every run of the ledger, in ledger order: its state, or an unreadable
+   * entry for a run holding an event this engine does not declare. It
+   * never throws for such a run, which another engine build may have
+   * written into this shared ledger; any other failure to fold still
+   * throws. A command that picks a run reads this and passes the
+   * unreadable ones over.
+   */
   listRuns() {
+    return this.ledger.listRuns().map((run2) => {
+      const events = this.ledger.events(run2.id).map(decode3);
+      const unknown2 = firstUnknownEvent(events, this.#model);
+      return unknown2 === null ? foldRun(events, this.#model) : { id: run2.id, unreadable: unknown2 };
+    });
+  }
+  /** Every run's state, in ledger order, refusing the first run this engine cannot read with `UnreadableRunError`; for callers that need every run, where `listRuns` is for a command that picks one. */
+  foldRuns() {
     return this.ledger.listRuns().map((run2) => this.fold(run2.id));
   }
   /**
@@ -22037,7 +22076,7 @@ var Checkpoint = class _Checkpoint {
       if (!tx.hasRun(runId)) throw new UnknownRunError(runId);
       const actual = tx.lastSequence(runId);
       if (actual !== expectedLastSequence) throw new StaleRevisionError(runId, expectedLastSequence, actual);
-      let state = foldRun(tx.events(runId).map(decode3), this.#model);
+      let state = this.#readable(runId, tx.events(runId).map(decode3));
       if (state.status !== "active") throw new RunClosedError(`Run ${runId} is ${state.status} and accepts no events`);
       for (const row of rows) {
         const sequence = tx.insertEvent(row);
@@ -22046,6 +22085,12 @@ var Checkpoint = class _Checkpoint {
       }
       return state;
     });
+  }
+  /** Fold a run's events, refusing a run holding an event this engine does not declare by the engine that wrote it. */
+  #readable(runId, events) {
+    const unknown2 = firstUnknownEvent(events, this.#model);
+    if (unknown2 !== null) throw new UnreadableRunError(runId, unknown2, this.engine);
+    return foldRun(events, this.#model);
   }
   /** Validate one event against the registry and its evidence against the store, and shape its ledger row. */
   #row(runId, event) {
@@ -27691,19 +27736,41 @@ function renderReport(state, input2) {
   return [header, ...decisions === null ? [] : [decisions], anglesSection, ...conventions === null ? [] : [conventions], findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
 }
 
+// src/review/runs.ts
+function readableRuns(checkpoint, log) {
+  const readable = [];
+  for (const run2 of checkpoint.listRuns()) {
+    if (isUnreadable(run2)) log(passedOverLine(run2.id, run2.unreadable, checkpoint.engine));
+    else readable.push(run2);
+  }
+  return readable;
+}
+function passedOverLine(runId, unknown2, reader) {
+  return `run ${runId}: passed over: ${unreadableRunReason(unknown2, reader)}`;
+}
+
 // src/review/controller.ts
 function isResumable(run2) {
   return run2.status === "active" && (run2.review === null || run2.review.report === null);
 }
-function resumableRuns(checkpoint) {
-  return checkpoint.listRuns().filter(isResumable);
+function resumableRuns(checkpoint, log) {
+  return readableRuns(checkpoint, log).filter(isResumable);
 }
-function findActiveRun(checkpoint) {
-  const runs = resumableRuns(checkpoint);
+function findActiveRun(checkpoint, log) {
+  const runs = resumableRuns(checkpoint, log);
   if (runs.length > 1) {
     throw new ReviewRefusedError(`${String(runs.length)} runs are active (${runs.map((run2) => run2.id).join(", ")}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\``);
   }
   return runs[0] ?? null;
+}
+function refoldUnderLock(checkpoint, runId, log) {
+  try {
+    return checkpoint.fold(runId);
+  } catch (error62) {
+    if (!(error62 instanceof UnreadableRunError)) throw error62;
+    log(passedOverLine(runId, error62.unknown, error62.engine));
+    return null;
+  }
 }
 var seconds = (ms) => `${(ms / 1e3).toFixed(1)} s`;
 var usd3 = (value) => value === null ? "" : `, ${value.toFixed(2)} USD`;
@@ -28015,18 +28082,20 @@ async function openRun(context) {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release = null;
   try {
-    let found = findActiveRun(checkpoint);
+    let found = findActiveRun(checkpoint, log);
     if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
       throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
     }
     if (found !== null) {
       release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
-      found = checkpoint.fold(found.id);
-      if (!isResumable(found)) {
+      found = refoldUnderLock(checkpoint, found.id, log);
+      if (found !== null && !isResumable(found)) {
         log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken; a new run is created`);
+        found = null;
+      }
+      if (found === null) {
         release();
         release = null;
-        found = null;
       }
     }
     const pinned = found?.review?.configuration ?? null;
@@ -28224,9 +28293,9 @@ function requireCommittable(run2) {
   if (reason !== null) throw new ReviewRefusedError(reason);
   return run2;
 }
-function chooseRun(checkpoint, runId) {
+function chooseRun(checkpoint, runId, log) {
   if (runId !== void 0) return requireCommittable(checkpoint.fold(runId));
-  const found = checkpoint.listRuns().filter((run2) => whyNotCommittable(run2) === null).at(-1);
+  const found = readableRuns(checkpoint, log).filter((run2) => whyNotCommittable(run2) === null).at(-1);
   if (found === void 0) throw new ReviewRefusedError("no completed fix run has changes left to commit; name one with --run <id>");
   return found;
 }
@@ -28314,9 +28383,13 @@ function refuse(run2, worktree, changeMessage, match) {
 }
 function commitRun(options2) {
   const { checkpoint, worktree } = options2;
+  const log = options2.log ?? ((line) => {
+    process.stderr.write(`${line}
+`);
+  });
   const releaseStart = acquireStartLock(checkpoint.root);
   try {
-    const chosen = chooseRun(checkpoint, options2.runId);
+    const chosen = chooseRun(checkpoint, options2.runId, log);
     const release = acquireRunLock(checkpoint.root, chosen.id);
     try {
       const run2 = requireCommittable(checkpoint.fold(chosen.id));
@@ -28609,6 +28682,8 @@ function commit(values, io, root, worktree) {
     const outcome = commitRun({
       checkpoint,
       worktree,
+      log: (line) => io.stderr(`${line}
+`),
       ...values.run === void 0 ? {} : { runId: values.run },
       ...values["change-message"] === void 0 ? {} : { changeMessage: values["change-message"] }
     });
@@ -28703,8 +28778,9 @@ action: ${outcome.blocker.action}
     checkpoint.close();
   }
 }
-function resolveRun(checkpoint, run2) {
-  if (run2 === void 0) return findActiveRun(checkpoint);
+function resolveRun(checkpoint, run2, io) {
+  if (run2 === void 0) return findActiveRun(checkpoint, (line) => io.stderr(`${line}
+`));
   try {
     return checkpoint.fold(run2);
   } catch (error62) {
@@ -28719,7 +28795,7 @@ function status2(values, io, root) {
     return 0;
   }
   try {
-    const state = resolveRun(checkpoint, values.run);
+    const state = resolveRun(checkpoint, values.run, io);
     if (state === null) {
       io.stdout(values.json === true ? "null\n" : "No active run.\n");
       return 0;
@@ -28741,7 +28817,7 @@ function abandon(values, io, root) {
   try {
     const releaseStart = acquireStartLock(checkpoint.root);
     try {
-      const found = resolveRun(checkpoint, values.run);
+      const found = resolveRun(checkpoint, values.run, io);
       if (found === null) throw new UsageError("no active run to abandon");
       const release = acquireRunLock(checkpoint.root, found.id);
       try {

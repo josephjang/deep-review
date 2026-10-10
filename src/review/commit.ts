@@ -19,6 +19,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
+import { readableRuns } from './runs.ts';
 import { rankedFindings } from './state.ts';
 import { gitContent } from './content.ts';
 import { compareExpected, expectedTree, worktreeReader, type ExpectedFile, type ExpectedMatch } from './tree.ts';
@@ -33,6 +34,8 @@ export interface CommitOptions {
   readonly changeMessage?: string;
   /** Called after every object is built and before the ref moves; a test makes a commit there to see the move refused. */
   readonly beforeMove?: () => void;
+  /** Where a line for each run passed over is written; stderr when absent. */
+  readonly log?: (line: string) => void;
 }
 
 /** One commit the command made, as it prints it. */
@@ -84,10 +87,15 @@ function requireCommittable(run: RunState): RunState {
   return run;
 }
 
-/** The run to commit: the one named, which must be committable, or the newest committable run of the repository. */
-function chooseRun(checkpoint: Checkpoint, runId: string | undefined): RunState {
+/**
+ * The run to commit: the one named, which must be committable and which
+ * `fold` refuses when this engine cannot read it, or the newest committable
+ * run of the repository among those this engine can read, the others
+ * passed over with a line on `log`.
+ */
+function chooseRun(checkpoint: Checkpoint, runId: string | undefined, log: (line: string) => void): RunState {
   if (runId !== undefined) return requireCommittable(checkpoint.fold(runId));
-  const found = checkpoint.listRuns().filter((run) => whyNotCommittable(run) === null).at(-1);
+  const found = readableRuns(checkpoint, log).filter((run) => whyNotCommittable(run) === null).at(-1);
   if (found === undefined) throw new ReviewRefusedError('no completed fix run has changes left to commit; name one with --run <id>');
   return found;
 }
@@ -216,9 +224,12 @@ function refuse(run: RunState, worktree: string, changeMessage: string | undefin
  */
 export function commitRun(options: CommitOptions): CommitOutcome {
   const { checkpoint, worktree } = options;
+  const log = options.log ?? ((line: string): void => {
+    process.stderr.write(`${line}\n`);
+  });
   const releaseStart = acquireStartLock(checkpoint.root);
   try {
-    const chosen = chooseRun(checkpoint, options.runId);
+    const chosen = chooseRun(checkpoint, options.runId, log);
     const release = acquireRunLock(checkpoint.root, chosen.id);
     try {
       // Read again under the run's lock, as every writer does: another command may have committed it since it was chosen.
