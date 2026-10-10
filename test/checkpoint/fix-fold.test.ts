@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
@@ -439,6 +439,15 @@ describe('the claims fold', () => {
     const claims = [{ path: 'docs/z.md', cluster: 'c1' }, { path: shared, cluster: 'c2' }, { path: 'docs/z.md', cluster: 'c1' }, { path: 'docs/a.md', cluster: 'c1' }];
     assert.deepEqual(secondRoundFiles({ id: 'c1', files: ['src/a.ts'] }, claims, [shared, 'src/a.ts']), ['docs/a.md', 'docs/z.md', 'src/a.ts', shared]);
     assert.deepEqual(secondRoundFiles({ id: 'c1', files: [] }, [], []), [], 'a cluster with no files, claims or needs has none');
+  });
+
+  it('takes a path into the second round only when a first-round cluster other than the finding\'s own held it, by plan or by any claim (R4)', () => {
+    const holders = firstRoundHolders([{ id: 'c1', files: ['src/a.ts'] }, { id: 'c2', files: ['src/b.ts'] }], [{ path: shared, cluster: 'c1' }, { path: shared, cluster: 'c2' }, { path: 'docs/c1.md', cluster: 'c1' }]);
+    assert.equal(heldByAnother(holders, 'src/b.ts', 'c1'), true, 'another cluster owns it');
+    assert.equal(heldByAnother(holders, shared, 'c1'), true, 'another cluster claimed it too');
+    assert.equal(heldByAnother(holders, 'src/a.ts', 'c1'), false, 'only its own cluster owns it');
+    assert.equal(heldByAnother(holders, 'docs/c1.md', 'c1'), false, 'only its own cluster claimed it');
+    assert.equal(heldByAnother(holders, 'docs/free.md', 'c1'), false, 'nobody held it');
   });
 
   it('refuses a second round for a file only the finding\'s own cluster claimed, or nobody held', () => {

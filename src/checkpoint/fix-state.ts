@@ -303,6 +303,17 @@ export function firstRoundHolders(clusters: readonly { readonly id: string; read
   return holders;
 }
 
+/**
+ * Whether a first-round cluster other than `own` held a path, among the
+ * `holders` `firstRoundHolders` gives (R4 of commit series integrity): a
+ * finding blocked on such paths alone is the second round's. The planner
+ * takes findings by it and the fold holds a recorded plan to it, so the
+ * two cannot drift apart.
+ */
+export function heldByAnother(holders: ReadonlyMap<string, ReadonlySet<string>>, path: string, own: string): boolean {
+  return [...(holders.get(path) ?? [])].some((cluster) => cluster !== own);
+}
+
 /** A finding's last recorded answer in the fixes phase, the second round's over the first's, with the batch that gave it; null when none answered it. */
 export function lastAnswerOf(fix: FixState, id: string): { readonly batch: string; readonly finding: FixedFinding } | null {
   for (const batch of [...allBatches(fix)].reverse()) {
