@@ -8,7 +8,7 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, clusterOf, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -270,7 +270,7 @@ function finalStatus(files: PathRevisions['files']): string {
  * only a check wrote.
  */
 function heldBy(fix: FixState): (path: string) => string {
-  const rounds = ([1, 2] as const).flatMap((round) => (planOfRound(fix, round) === null ? [] : [{ round, held: holdersKeyedBy(fix, round, (path) => path) }]));
+  const rounds = ([1, 2] as const).flatMap((round) => (planOfRound(fix, round) === null ? [] : [{ round, held: holdersKeyedBy(fix, round, exactPath) }]));
   return (path) => {
     const holders = rounds.flatMap(({ round, held }) => {
       const holder = held.get(path);

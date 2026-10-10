@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
@@ -352,14 +352,13 @@ describe('the claims fold', () => {
   /** c1-1 answers, which settles c1, its one batch. */
   const c1Settled = (history: History, files: string[] = []): History => history.worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'applied', files)));
   const shared = 'test/shared.test.ts';
-  const exact = (path: string): string => path;
 
   it('folds a claim into the fix state and makes its cluster the file\'s holder, which no sibling may edit while it runs', () => {
     const fix = running().add('files.claimed', claimed('c1-1', 'c1', [shared])).review().fix!;
     assert.deepEqual(fix.claims, [{ path: shared, cluster: 'c1', key: 'c1-1', round: 1, claimedAt: '2026-10-09T01:00:00.000Z' }]);
-    assert.deepEqual([...holdersKeyedBy(fix, 1, exact)], [['src/a.ts', { path: 'src/a.ts', cluster: 'c1', by: 'plan' }], ['src/b.ts', { path: 'src/b.ts', cluster: 'c2', by: 'plan' }], [shared, { path: shared, cluster: 'c1', by: 'claim' }]]);
-    assert.deepEqual([...heldByOthers(fix, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }], [shared, { cluster: 'c1', by: 'claim' }]]);
-    assert.deepEqual([...heldByOthers(fix, 'c1-1')], [['src/b.ts', { cluster: 'c2', by: 'plan' }]], 'a cluster\'s own claims are its own');
+    assert.deepEqual([...holdersKeyedBy(fix, 1, exactPath)], [['src/a.ts', { path: 'src/a.ts', cluster: 'c1', by: 'plan' }], ['src/b.ts', { path: 'src/b.ts', cluster: 'c2', by: 'plan' }], [shared, { path: shared, cluster: 'c1', by: 'claim' }]]);
+    assert.deepEqual([...heldByOthers(fix, 'c2-1', exactPath)], [['src/a.ts', { cluster: 'c1', by: 'plan' }], [shared, { cluster: 'c1', by: 'claim' }]]);
+    assert.deepEqual([...heldByOthers(fix, 'c1-1', exactPath)], [['src/b.ts', { cluster: 'c2', by: 'plan' }]], 'a cluster\'s own claims are its own');
     assert.deepEqual(clusterClaims(fix, 1, 'c1'), [shared]);
     assert.deepEqual([...settledClusters(fix, 1)], []);
   });
@@ -368,13 +367,13 @@ describe('the claims fold', () => {
     const settled = c1Settled(running().add('files.claimed', claimed('c1-1', 'c1', [shared])), [shared]);
     const before = settled.review().fix!;
     assert.deepEqual([...settledClusters(before, 1)], ['c1']);
-    assert.deepEqual([...heldByOthers(before, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }]], 'owned files stay owned for the round; claimed ones end with the settle');
-    assert.deepEqual([...heldInRoundByOthers(before, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }], [shared, { cluster: 'c1', by: 'claim' }]], 'an attempt still leaves out what the settled cluster claimed (R5)');
+    assert.deepEqual([...heldByOthers(before, 'c2-1', exactPath)], [['src/a.ts', { cluster: 'c1', by: 'plan' }]], 'owned files stay owned for the round; claimed ones end with the settle');
+    assert.deepEqual([...heldInRoundByOthers(before, 'c2-1', exactPath)], [['src/a.ts', { cluster: 'c1', by: 'plan' }], [shared, { cluster: 'c1', by: 'claim' }]], 'an attempt still leaves out what the settled cluster claimed (R5)');
     const after = settled.add('files.claimed', claimed('c2-1', 'c2', [shared], '2026-10-09T02:00:00.000Z')).review().fix!;
-    assert.deepEqual(holdersKeyedBy(after, 1, exact).get(shared), { path: shared, cluster: 'c2', by: 'claim' });
+    assert.deepEqual(holdersKeyedBy(after, 1, exactPath).get(shared), { path: shared, cluster: 'c2', by: 'claim' });
     assert.equal(after.claims.length, 2);
-    assert.deepEqual([...heldInRoundByOthers(after, 'c2-1')], [['src/a.ts', { cluster: 'c1', by: 'plan' }]], 'a file c2 claimed after c1 settled is c2\'s own');
-    assert.deepEqual([...heldInRoundByOthers(after, 'c1-1')], [['src/b.ts', { cluster: 'c2', by: 'plan' }], [shared, { cluster: 'c2', by: 'claim' }]]);
+    assert.deepEqual([...heldInRoundByOthers(after, 'c2-1', exactPath)], [['src/a.ts', { cluster: 'c1', by: 'plan' }]], 'a file c2 claimed after c1 settled is c2\'s own');
+    assert.deepEqual([...heldInRoundByOthers(after, 'c1-1', exactPath)], [['src/b.ts', { cluster: 'c2', by: 'plan' }], [shared, { cluster: 'c2', by: 'claim' }]]);
   });
 
   it('gives a path\'s last claim of a round, or the last by a cluster other than the one named, with its time', () => {
@@ -416,7 +415,7 @@ describe('the claims fold', () => {
     const reclaimed = violated.worker(51, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(51), answerOf('c2-1', 'SWEEP-1', 'applied', ['src/b.ts', shared])))
       .add('files.claimed', claimed('c1-1', 'c1', [shared], '2026-10-09T02:00:00.000Z'))
       .review().fix!;
-    assert.deepEqual(holdersKeyedBy(reclaimed, 1, exact).get(shared), { path: shared, cluster: 'c1', by: 'claim' });
+    assert.deepEqual(holdersKeyedBy(reclaimed, 1, exactPath).get(shared), { path: shared, cluster: 'c1', by: 'claim' });
     assert.deepEqual(reclaimed.violationHolders['c1-1']?.[shared], { cluster: 'c2', by: 'claim' });
     assert.deepEqual(running().worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), answerOf('c1-1', 'RIPPLE-1', 'applied', ['src/a.ts']))).review().fix!.violationHolders, {}, 'an answer without a violation keeps none');
   });
@@ -469,8 +468,8 @@ describe('the claims fold', () => {
       .add('files.claimed', claimed('c3-1', 'c3', [shared, 'docs/c3.md']))
       .review().fix!;
     assert.deepEqual(fix.claims.slice(1).map((claim) => [claim.path, claim.round]), [[shared, 2], ['docs/c3.md', 2]]);
-    assert.deepEqual(holdersKeyedBy(fix, 2, exact).get(shared), { path: shared, cluster: 'c3', by: 'claim' });
-    assert.deepEqual(holdersKeyedBy(fix, 1, exact).get(shared), { path: shared, cluster: 'c2', by: 'claim' });
+    assert.deepEqual(holdersKeyedBy(fix, 2, exactPath).get(shared), { path: shared, cluster: 'c3', by: 'claim' });
+    assert.deepEqual(holdersKeyedBy(fix, 1, exactPath).get(shared), { path: shared, cluster: 'c2', by: 'claim' });
   });
 
   const refusals: [name: string, build: () => History, message: RegExp][] = [

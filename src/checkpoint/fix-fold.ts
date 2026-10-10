@@ -12,7 +12,7 @@
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -231,7 +231,7 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   const given = payload.findings.map((finding) => finding.id);
   if (given.length !== ids.length || !ids.every((id) => given.includes(id))) throw invalid(event, `answers [${given.join(', ')}] for ${payload.phase}:${payload.key}, which holds [${ids.join(', ')}]`);
   // A violation is a reported file another cluster of the unit's round holds, by the plan or by a claim folded before the answer (R6 of commit series integrity), and that holder is kept with it; the repair, the only unit of its phase, has none.
-  const others = payload.phase === 'fixes' ? heldByOthers(fix, payload.key) : new Map<string, PathHolder>();
+  const others = payload.phase === 'fixes' ? heldByOthers(fix, payload.key, exactPath) : new Map<string, PathHolder>();
   const named = new Set(payload.findings.flatMap((finding) => finding.files));
   const holders: [string, PathHolder][] = [];
   for (const path of payload.violations) {
@@ -301,7 +301,7 @@ const filesClaimed: Reducer<FilesClaimed> = (state, payload, event) => {
   if (batch === null) throw invalid(event, `claims files for ${payload.key}, which the plan does not have`);
   if (batch.cluster !== payload.cluster) throw invalid(event, `claims files for ${payload.key} under cluster ${payload.cluster}, not its cluster ${batch.cluster}`);
   const round = roundOf(fix, payload.key);
-  const holders = holdersKeyedBy(fix, round, (path) => path);
+  const holders = holdersKeyedBy(fix, round, exactPath);
   const settled = settledClusters(fix, round);
   for (const file of payload.files) {
     const holder = holders.get(file.path);
