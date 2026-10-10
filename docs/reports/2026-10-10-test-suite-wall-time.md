@@ -31,6 +31,11 @@ three kinds of failure the serial suite had hidden: timeouts sized for
 serial runs, a test that asserts on process-wide state, and a test that
 infers concurrency from event order. Each was fixed at its cause.
 
+A fifth lever, added after the decisions below, turns on Node's compile
+cache for every process the suite starts: on top of the committed
+levers it cut the CPU the run's Node processes used by 38% and the wall
+time by about 17%.
+
 Three decisions were left to the author: whether a preflight that times
 out should disqualify the runtime mid-run; a change proposal for lever
 C, which changes observable behavior; and whether the concurrency stays
@@ -221,7 +226,8 @@ measured while the files ran at once.
 
 Each lever: what changed, what it measured, its risk, what it takes, and
 where it stands. They were applied in the order A, B, C, D, each on top
-of the ones before. Lever A took four steps, A1 to A4, because each run
+of the ones before; E came after the decisions, on top of what was
+committed. Lever A took four steps, A1 to A4, because each run
 of the suite exposed a failure the step before had not (Figure 3).
 
 ```mermaid
@@ -439,6 +445,44 @@ C. The times are means measured with the fake runtimes.
 - **Takes.** The four helper files, tests only.
 - **Status.** Committed; see "Decisions".
 
+### E. Node's compile cache for every process the suite starts
+
+- **Change.** `test/helpers/compile-cache.ts` turns on Node's on-disk
+  compile cache for the test process and, through `NODE_COMPILE_CACHE`,
+  for every Node process it starts; `test/setup.ts` calls it. The
+  default directory is `node_modules/.cache/node-compile-cache`, which
+  git ignores and `npm ci` clears. A directory `NODE_COMPILE_CACHE`
+  already names is kept, made absolute: the fakes run in sandbox
+  worktrees, and Node reads a relative directory against each process's
+  own working directory. `NODE_DISABLE_COMPILE_CACHE`, whatever its
+  value, leaves the cache off, as it does for Node itself.
+- **Evidence.** A full run starts 6,404 Node processes: 4,392 of
+  `fake-claude.ts`, 1,394 of `fake-codex.ts`, 107 of `src/cli.ts`, and
+  the test files and checks. Each compiled the same TypeScript modules
+  from scratch. Loading a fake worker's modules took 193 to 295 ms
+  without the cache and 144 to 213 ms with it, and `src/cli.ts --help`
+  366 to 417 ms against 251 to 346 ms.
+- **Measured.** The full suite with the cache off and on, alternating,
+  the cache emptied before each run that used it. With `cpu-total.mjs`
+  (appendix) summing every Node process's CPU:
+
+| Run | Off: Node CPU | Off: wall | On: Node CPU | On: wall |
+|---|---|---|---|---|
+| 1 | 858 s | 190 s | 527 s | 158 s |
+| 2 | 873 s | 204 s | 539 s | 168 s |
+
+  The CPU of `fake-claude.ts` alone fell from 508 to 278 s. Three
+  earlier pairs measured by wall time only came out at 273, 193 and
+  324 s off against 179, 261 and 196 s on: one pair reversed, as other
+  work on the machine moved the wall times, which is why the CPU sum is
+  the measure here. Every run passed.
+- **Risk.** The cache under `node_modules/` grows as sources change,
+  until the next `npm ci`; Node keys its entries by content, so a stale
+  one is not used.
+- **Takes.** The helper, `test/setup.ts`, and six tests in
+  `test/compile-cache.test.ts`, tests only.
+- **Status.** Committed; see "Decisions".
+
 ## Final comparison
 
 With A4, B, C and D applied, the suite's median fell from 297 s to
@@ -551,6 +595,8 @@ Settled by the author on 2026-10-10, after the report was written.
    `test/helpers/review-sandbox.ts`; the experiment's
    `SANDBOX_CONCURRENCY` variable is gone. Whether 2 is faster on an idle
    machine stays among the open questions.
+5. **Lever E was added afterwards**, at the author's request, as
+   `81a8faf`, on top of the commits above.
 
 ## Appendix: measurement scripts
 
@@ -699,6 +745,34 @@ while (-not (Test-Path $Stop)) {
   Add-Content -Path $Out -Value "$cpu $node $git"
   Start-Sleep -Seconds 2
 }
+```
+
+`cpu-total.mjs` sums the CPU of a whole run's Node processes, the fakes
+and the CLI included, for lever E: given through `NODE_OPTIONS`, every
+Node process appends its own CPU milliseconds and entry script to the
+file `CPU_TOTAL_OUT` names.
+
+```sh
+CPU_TOTAL_OUT=cpu.txt NODE_OPTIONS="--import=file:///<tools>/cpu-total.mjs" node --import ./test/setup.ts --test "test/**/*.test.ts"
+awk '{ s += $1 } END { printf "%d processes, %.0f s of CPU\n", NR, s / 1000 }' cpu.txt
+```
+
+```js
+// Preload, given through NODE_OPTIONS so every Node process of a run loads
+// it: at exit, append this process's own CPU milliseconds (user + system)
+// and its entry script to the file CPU_TOTAL_OUT names. Summing the file
+// gives the CPU the run's Node processes used, which other load on the
+// machine moves far less than wall time.
+import { appendFileSync } from 'node:fs';
+import { basename } from 'node:path';
+
+const out = process.env.CPU_TOTAL_OUT;
+process.on('exit', () => {
+  if (out === undefined) return;
+  const { user, system } = process.cpuUsage();
+  const entry = process.argv.slice(1).find((arg) => !arg.startsWith('-')) ?? '';
+  appendFileSync(out, `${Math.round((user + system) / 1000)} ${basename(entry.replaceAll('\\', '/'))}\n`);
+});
 ```
 
 ### Microbenchmarks
