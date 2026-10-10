@@ -375,7 +375,8 @@ describe('the fixer\'s task', () => {
     assert.doesNotMatch(task, /may already hold part of this work/);
     assert.match(fixerTask({ ...input, mayHoldWork: true }), /The tree may already hold part of this work: an earlier worker on it did not finish\. Verify each finding against the code before applying it/);
     assert.doesNotMatch(fixerTask({ ...input, mayHoldWork: true }), /An earlier attempt left edits/, 'no finding has an attempt\'s recorded edits');
-    assert.match(fixerTask({ ...input, mayHoldWork: true, unfinished: ['RIPPLE-1', 'SWEEP-1'] }), /never apply a change on top of itself\. An earlier attempt left edits for RIPPLE-1, SWEEP-1, recorded as that attempt's work; for each of these you report `already-applied`, give the `message` its commit will carry, as for an applied finding\.$/m);
+    assert.match(fixerTask({ ...input, mayHoldWork: true, unfinished: ['RIPPLE-1', 'SWEEP-1'] }), /never apply a change on top of itself\. An earlier attempt left edits for RIPPLE-1, SWEEP-1, recorded as that attempt's work; for each of these you report `already-applied` with the `files` that hold its edits, and give the `message` its commit will carry, as for an applied finding\.$/m);
+    assert.match(fixerTask(input), /a one-sentence `note`; the `files` you edited or created for it, or that hold an earlier attempt's edits for it; a `message`/, 'an already-applied finding with a message names its earlier attempt\'s files (R11)');
     assert.match(fixerTask(input), /a `message` for every finding that names files, whatever its status, [^;]*, a blocked or deferred finding's saying the change is partial and what it waits for, and null for a finding that names no file;/);
     assert.doesNotMatch(fixerTask(input), /null for a deferred or blocked one/);
   });
@@ -412,7 +413,8 @@ describe('the repair task', () => {
     assert.match(task, /with that check's index in place of <index>/);
     assert.match(task, /Verify each check against the code/);
     assert.match(task, /The `message` of an applied check describes what the repair changed\./);
-    assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied`, give the `message` its commit will carry, as for an applied check\./);
+    assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied` with the `files` that hold its edits, and give the `message` its commit will carry, as for an applied check\./);
+    assert.match(task, /the `files` you edited or created for it, or that hold an earlier attempt's edits for it;/);
   });
 
   it('gives a check that failed before the fixes too its output then, and tells the worker to fix only the failures it does not show (R24)', () => {
