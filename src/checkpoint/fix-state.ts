@@ -200,11 +200,14 @@ export interface SpelledHolder extends PathHolder {
   readonly path: string;
 }
 
+/** The key of a path compared exactly, as the fold compares paths: the path itself. */
+export const exactPath = (path: string): string => path;
+
 /**
  * Who holds each path in a round (R3 of commit series integrity): its
  * owner by the round's plan, and for a path no cluster owns, the cluster
  * whose claim of it came last, settled or not. Keyed by `keyOf`, the path
- * as the engine compares it: the exact path for the fold, or lowercased
+ * as the engine compares it: `exactPath` for the fold, or lowercased
  * where the worktree's file system folds case (TD4), where an owner by the
  * plan still wins over a claim spelled otherwise, so two spellings of one
  * file never give it two holders.
@@ -254,10 +257,10 @@ export function secondRoundFiles(own: { readonly id: string; readonly files: rea
  * batch runs (R1, R6 of commit series integrity): every path another
  * cluster owns, and every path another cluster that has not settled holds
  * by its last claim; a settled cluster's claimed files are free again
- * (PD3). The repair, the only unit of its phase, has none. Keyed by the
- * exact path, as the fold compares paths, or by `keyOf`.
+ * (PD3). The repair, the only unit of its phase, has none. Keyed by
+ * `keyOf`, as `holdersKeyedBy` is.
  */
-export function heldByOthers(fix: FixState, key: string, keyOf: (path: string) => string = (path) => path): Map<string, PathHolder> {
+export function heldByOthers(fix: FixState, key: string, keyOf: (path: string) => string): Map<string, PathHolder> {
   return othersOfRound(fix, key, keyOf, settledClusters(fix, roundOf(fix, key)));
 }
 
@@ -269,8 +272,9 @@ export function heldByOthers(fix: FixState, key: string, keyOf: (path: string) =
  * for a new claim (PD3), but not for an attempt's revisions: the
  * attempt's snapshots may predate the holder's edit, which the holder's
  * revision has already recorded, and taking the file would undo it.
+ * Keyed by `keyOf`, as `holdersKeyedBy` is.
  */
-export function heldInRoundByOthers(fix: FixState, key: string, keyOf: (path: string) => string = (path) => path): Map<string, PathHolder> {
+export function heldInRoundByOthers(fix: FixState, key: string, keyOf: (path: string) => string): Map<string, PathHolder> {
   return othersOfRound(fix, key, keyOf, new Set());
 }
 

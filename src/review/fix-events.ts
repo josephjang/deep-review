@@ -12,7 +12,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { batchOf, clusterClaims, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { batchOf, clusterClaims, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
@@ -89,9 +89,9 @@ function settleOf(context: RevisionContext, phase: EditingPhase, key: string): C
 /** A path as a settle compares it: lowercased where the worktree's file system folds case. */
 const keyOfSettle = (settle: ClaimSettle) => (path: string): string => pathKey(path, settle.caseInsensitive);
 
-/** The files every other cluster of a fixes-phase unit's round holds now, by the plan or by a claim of a cluster not yet settled (PD3), in the run as the settle leaves it, keyed by the exact path or by `keyOf`; the repair has none. */
-function othersHeld(state: RunState, phase: EditingPhase, key: string, keyOf?: (path: string) => string): Map<string, PathHolder> {
-  return phase === 'repair' ? new Map() : heldByOthers(requireFix(state), key, keyOf);
+/** The files every other cluster of a fixes-phase unit's round holds now, by the plan or by a claim of a cluster not yet settled (PD3), in the run as the settle leaves it, keyed by the exact path, as the fold judges the answer's violations; the repair has none. */
+function othersHeld(state: RunState, phase: EditingPhase, key: string): Map<string, PathHolder> {
+  return phase === 'repair' ? new Map() : heldByOthers(requireFix(state), key, exactPath);
 }
 
 /** The files every other cluster of a fixes-phase unit's round has held, settled or not (R5), in the run as the settle leaves it, keyed by `keyOf`; the repair has none. */

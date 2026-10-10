@@ -209,8 +209,10 @@ claimedAt }`), `FixState.claims`, and `holdersKeyedBy(fix, round,
 keyOf)`: a map from each path, keyed as `keyOf` gives it, to `{ path,
 cluster, by: 'plan' | 'claim' }` over the round's clusters' files and
 its recorded claims, the latest claim of a path being its holder (the
-fold keys by the exact path; a separate `holdersOf` that only dropped
-`path` was removed, 2026-10-10, review DESIGN-5), and
+fold keys by the exact path, `exactPath`; a separate `holdersOf` that
+only dropped `path` was removed, 2026-10-10, review DESIGN-5;
+`heldByOthers` and `heldInRoundByOthers` take `keyOf` as required too,
+so every caller states exact or folded comparison, review DESIGN-6), and
 `settledClusters(fix, round)`, the clusters whose every batch of the
 round has answered or is not attempted. `othersOwned`
 in `fix-events.ts` becomes `othersHeld(state, phase, key, dir)`: the

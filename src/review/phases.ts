@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
-import { clusterClaims, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastClaimOf, lastRun, repairTargets, roundOf, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastClaimOf, lastRun, repairTargets, roundOf, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
@@ -195,7 +195,7 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
   const fix = review.fix!;
   const round = roundOf(fix, batch.key);
   const othersHeld = new Map<string, Pick<SpelledHolder, 'path' | 'by'>[]>();
-  for (const [path, holder] of heldByOthers(fix, batch.key)) othersHeld.set(holder.cluster, [...(othersHeld.get(holder.cluster) ?? []), { path, by: holder.by }]);
+  for (const [path, holder] of heldByOthers(fix, batch.key, exactPath)) othersHeld.set(holder.cluster, [...(othersHeld.get(holder.cluster) ?? []), { path, by: holder.by }]);
   if (editing.claimCommand === null) throw new Error(`The fixer of ${batch.key} needs its claim command`);
   const ranked = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));

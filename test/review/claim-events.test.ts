@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
 import { claimsLostV1, filesClaimedV1, maxClaimFilesPerEvent, type FilesClaimed } from '../../src/checkpoint/events.ts';
-import { claimRefusal, heldByOthers } from '../../src/checkpoint/fix-state.ts';
+import { claimRefusal, exactPath, heldByOthers } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { foldedWith, heldOf, isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
 import { markerHash, type LiveClaim } from '../../src/review/claims.ts';
@@ -36,7 +36,7 @@ describe('settleClaims', () => {
       ['files.claimed', { phase: 'fixes', key: 'c2-1', cluster: 'c2', files: [{ path: shared, claimedAt: '2026-10-09T01:00:01.000Z' }] }],
     ]);
     assert.deepEqual(settle.state.review!.fix!.claims.map((claim) => [claim.path, claim.key]).sort(), [['docs/a.md', 'c1-1'], [shared, 'c2-1']]);
-    assert.deepEqual(heldByOthers(settle.state.review!.fix!, 'c1-1').get(shared), { cluster: 'c2', by: 'claim' }, 'the answer is judged against the sibling\'s claim');
+    assert.deepEqual(heldByOthers(settle.state.review!.fix!, 'c1-1', exactPath).get(shared), { cluster: 'c2', by: 'claim' }, 'the answer is judged against the sibling\'s claim');
     assert.equal(state.review!.fix!.claims.length, 0, 'the fold it was given is left as it was');
   });
 
