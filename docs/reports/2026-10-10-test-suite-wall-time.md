@@ -570,17 +570,18 @@ Settled by the author on 2026-10-10, after the report was written.
 
 1. **Levers A, B and D are committed**, A with A4's change to the
    preflight options. In order:
-   - `0b1f20a` passes the preflight options to every worker's preflight
+   - `6eb9c56` passes the preflight options to every worker's preflight
      (A4).
-   - `04e093b` names issue #34 in the comment on `refusalOf`.
-   - `dcf663b` fixes failure 3's race (A3).
-   - `2a1f31c` sizes the sandbox's timeouts (A2).
-   - `ee4f2d3` gives each test a sandbox and runs a file's tests four at
+   - `2937020` names issue #34 in the comment on `refusalOf`.
+   - `e51d6f1` fixes failure 3's race (A3).
+   - `4a4b85b` sizes the sandbox's timeouts (A2).
+   - `acc41cc` gives each test a sandbox and runs a file's tests four at
      a time, moving failure 2's test to a describe of its own (A1, A3).
-   - `8bcd681` builds the commit tests' shared run once (B).
-   - `e7ed484` answers the fakes' probes without the worker code (D).
+   - `8006daa` builds the commit tests' shared run once (B).
+   - `a6358f6` answers the fakes' probes without the worker code (D).
 
-   `npm run check` and `npm run verify` passed at `e7ed484`.
+   `npm run check` and `npm run verify` passed on these commits as first
+   written, before the branch was rebased.
 2. **Lever C is not taken.** Its gain is too small to be worth a change
    in observable behavior: with D a probe is short, and C would save one
    probe per worker, about 5 to 10% of the suite by estimate. The final
@@ -596,7 +597,7 @@ Settled by the author on 2026-10-10, after the report was written.
    `SANDBOX_CONCURRENCY` variable is gone. Whether 2 is faster on an idle
    machine stays among the open questions.
 5. **Lever E was added afterwards**, at the author's request, as
-   `81a8faf`, on top of the commits above.
+   `9ec0506`, on top of the commits above.
 
 ## Appendix: measurement scripts
 
