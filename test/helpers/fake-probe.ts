@@ -1,8 +1,9 @@
 // What the fake runtime CLIs answer to the preflight's probes, `--version`
 // and `--help`, kept apart from fake-runtime.ts so that a probe loads no
-// more than this: the engine starts two probes before every worker, and the
-// scripts and answers fake-runtime.ts imports (zod among them) are what
-// made a probe slow to start. See fake-runtime.ts for the variables a test
+// more than this: the engine starts two probes before every Claude worker and
+// four before every Codex worker, and the scripts and answers
+// fake-runtime.ts imports (zod among them) are what made a probe slow to
+// start. See fake-runtime.ts for the variables a test
 // steers the fakes with; these read FAKE_VERSION, FAKE_UNQUALIFIED_WHEN and
 // FAKE_HELP_OMIT.
 import { existsSync } from 'node:fs';
