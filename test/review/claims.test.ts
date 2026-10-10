@@ -323,6 +323,23 @@ describe('claims', () => {
     assert.equal(caseInsensitiveFileSystem(uncased, volume(['1', '.git'], true)), true);
   });
 
+  it('probes through an entry under the root when the root\'s parent may be passed through but not listed, and passes on any other failure', () => {
+    const root = join(directory, 'Repo');
+    const denied = (code: string, listing: readonly string[], found: (path: string) => boolean) => ({
+      list: (path: string) => {
+        if (path === directory) throw Object.assign(new Error(`${code}: scandir`), { code });
+        return listing;
+      },
+      stat: (path: string) => (found(path) ? statSync(directory) : undefined),
+    });
+    for (const code of ['EACCES', 'EPERM']) {
+      assert.equal(caseInsensitiveFileSystem(root, denied(code, ['.git'], (path) => path === join(root, '.GIT'))), true, code);
+      assert.equal(caseInsensitiveFileSystem(root, denied(code, ['.git', '.GIT'], () => true)), false, `${code}: both spellings under the root are two entries`);
+      assert.equal(caseInsensitiveFileSystem(root, denied(code, ['.git'], () => false)), false, code);
+    }
+    assert.throws(() => caseInsensitiveFileSystem(root, denied('EIO', ['.git'], () => true)), /EIO/);
+  });
+
   describe('deep-review claim', () => {
     const run = (cwd: string, ...args: string[]) => spawnSync(process.execPath, [cli, 'claim', ...args], { cwd, env: baseEnvironment, encoding: 'utf8' });
     const claimArgs = (path: string, unit: string): string[] => ['--path', path, '--unit', unit, '--in', dir];

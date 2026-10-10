@@ -203,17 +203,32 @@ function foldsCase(fs: CaseProbeFileSystem, directory: string, listing: readonly
   return fs.stat(join(directory, flipped)) !== undefined;
 }
 
+/** A directory's entries, or undefined when the engine may pass through it but not read it, as under a parent of mode 0711 another user owns. */
+function readableListing(fs: CaseProbeFileSystem, directory: string): readonly string[] | undefined {
+  try {
+    return fs.list(directory);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EACCES' || code === 'EPERM') return undefined;
+    throw error;
+  }
+}
+
 /**
  * Whether the worktree's file system folds case: the worktree root looked
  * up with the case of its last segment's ASCII letters flipped, or, when
- * that segment has none, the first entry under the root that has one (`.git`
- * always does). Where nothing can be probed, the platform's default. One
- * answer for the whole worktree (TD4), though Windows can make a single
- * directory case-sensitive.
+ * that segment has none or the root's parent cannot be listed, the first
+ * entry under the root that has one (`.git` always does). Where nothing can
+ * be probed, the platform's default. One answer for the whole worktree
+ * (TD4), though Windows can make a single directory case-sensitive.
  */
 export function caseInsensitiveFileSystem(worktree: string, fs: CaseProbeFileSystem = caseProbeFileSystem): boolean {
   const name = basename(worktree);
-  if (flipCase(name) !== name) return foldsCase(fs, dirname(worktree), fs.list(dirname(worktree)), name);
+  if (flipCase(name) !== name) {
+    const parent = dirname(worktree);
+    const siblings = readableListing(fs, parent);
+    if (siblings !== undefined) return foldsCase(fs, parent, siblings, name);
+  }
   const listing = fs.list(worktree);
   const entry = listing.find((candidate) => flipCase(candidate) !== candidate);
   if (entry !== undefined) return foldsCase(fs, worktree, listing, entry);
