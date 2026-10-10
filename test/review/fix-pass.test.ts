@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
-import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { until } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
-import { ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** A candidate as a finder returns it. */
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
@@ -36,10 +35,6 @@ const fixedB = 'import { parse } from \'./a.ts\';\n\nexport const b = parse("x")
 const testA = 'import { parse } from \'../src/a.ts\';\nif (parse(null) !== 0) throw new Error(\'null\');\n';
 
 describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
-  const report = (outcome: ReviewOutcome): string => {
-    assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
-    return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
-  };
   /** Set the sandbox policy's fixer batch size, which the next run created pins. */
   const setPolicyBatchSize = (box: ReviewSandbox, batchSize: number): void => {
     box.editPolicy((policy) => ({ ...policy, fixes: { batchSize } }));
@@ -67,7 +62,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     } finally {
       writeFileSync(bothRunning, '');
     }
-    const text = report(await pending);
+    const text = reportText(await pending);
     const state = box.run();
     const review = state.review!;
     assert.equal(review.configuration.fix, true);
@@ -152,7 +147,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
         output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix: First' }, { files: ['src/a.ts'], subject: 'fix: Second' }, { files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix: Third' }]),
       },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const revisions = state.review!.fix!.revisions;
     assert.deepEqual(revisions.map((revision) => [revision.change.findings, revision.change.message.subject, revision.files.map((file) => file.path)]), [
@@ -186,7 +181,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
       'fixer:fixes:c1-2': { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], note: 'the guard c1-1 added covers it' }]) },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
     assert.deepEqual(fix.plan!.clusters.map((cluster) => [cluster.id, cluster.findingIds]), [['c1', ['SCAN-1', 'SCAN-2']]]);
@@ -214,7 +209,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       // The first batch alone spends past the budget, so its cluster's second batch is never launched.
       'fixer:fixes:c1-1': { costUsd: 5, edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
     });
-    const text = report(await box.fix('claude', { flags: { budgetUsd: 1 } }));
+    const text = reportText(await box.fix('claude', { flags: { budgetUsd: 1 } }));
     const state = box.run();
     const fix = state.review!.fix!;
     assert.deepEqual(Object.keys(fix.answers.fixes), ['c1-1']);
@@ -240,7 +235,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
       'fixer:fixes:c3-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/b.ts': guardedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts', 'src/b.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
     });
-    const text = report(await box.fix('claude'));
+    const text = reportText(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
     assert.deepEqual(fix.secondRound, {
@@ -286,7 +281,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
       'fixer:fixes:c2-1': { output: fixerAnswer([{ status: 'deferred', files: [] }]) },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
     assert.deepEqual(fix.revisions.map((revision) => [revision.source.kind, revision.files.map((file) => file.path)]), [['fix', ['src/a.ts']]], 'the build\'s rewrite is no revision');
@@ -302,7 +297,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       // The change deletes src/gone.ts; c1 brings it back, a file no cluster owns.
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/gone.ts': 'export const gone = 2;\n' } }], output: fixerAnswer([{ files: ['src/gone.ts'] }]) },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/gone.ts created']]);
     assert.ok(state.review!.checks.every((check) => !check.drifted));
@@ -316,7 +311,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/a.ts', 'src/b.ts'] }]) },
       'fixer:fixes:c2-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) },
     });
-    report(await box.fix('claude', { flags: { concurrency: 1 } }));
+    reportText(await box.fix('claude', { flags: { concurrency: 1 } }));
     const state = box.run();
     assert.deepEqual(state.review!.fix!.answers.fixes['c1-1']!.violations, ['src/b.ts']);
     assert.deepEqual(state.review!.fix!.revisions[0]!.files.map((file) => file.path), ['src/a.ts', 'src/b.ts']);
@@ -348,7 +343,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(end.moment, 'end');
     // Restored from the path the blocker named, the run completes.
     writeFileSync(join(box.repo, 'src', 'b.ts'), readFileSync(named[1]!));
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     assert.equal(box.run().review!.phases.fixes.status, 'completed');
   });
 
@@ -358,7 +353,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       ...reviewScript,
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'notes.txt': 'scratch left in the tree\n' } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     assert.ok(state.review!.checks.some((check) => check.phase === 'fixes' && check.moment === 'end' && check.strays.includes('notes.txt')), JSON.stringify(state.review!.checks));
     assert.ok(state.review!.checks.every((check) => !check.drifted));
@@ -373,7 +368,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
       'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [], note: 'every failure was there before the fixes' }]) },
     });
-    const text = report(await box.fix('claude'));
+    const text = reportText(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
     assert.equal(fix.checks.runs['baseline-checks'].find((run) => run.kind === 'lint')?.outcome, 'failed');
@@ -391,7 +386,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     box.checks({ lint: ['fail', 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     assert.ok(!Object.values(box.run().workers).some((worker) => worker.launch.label === 'fixer repair:repair'));
   });
 
@@ -403,7 +398,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// BROKEN\n` } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
       'fixer:repair:repair': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Drop the line that broke the test' }]) },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
     assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'test')?.outcome, 'failed');
@@ -426,7 +421,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// BROKEN\n` } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
       'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [] }]) },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const fix = box.run().review!.fix!;
     assert.equal(fix.checks.runs['repair-checks'].find((run) => run.kind === 'test')?.outcome, 'failed');
     assert.equal(box.run().review!.phases['repair-checks'].status, 'completed');
@@ -459,7 +454,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       ...reviewScript,
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// half done\n` } }], exit: 3 },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
     assert.equal(fix.notAttempted.fixes['c1-1']?.cause, 'failures');
@@ -490,7 +485,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
         { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'] }]) },
       ],
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const failed = box.events(state.id).filter(([kind, payload]) => kind === 'attempt.failed' && payload.key === 'c1-1');
     assert.equal(failed.length, 1);
@@ -524,7 +519,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       // Whichever marker a failed wait left unwritten, so that no fixer is left waiting.
       for (const marker of [c1MayDie, c2MayAnswer]) if (!existsSync(marker)) writeFileSync(marker, '');
     }
-    report(await pending);
+    reportText(await pending);
     const fix = box.run().review!.fix!;
     assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind, revision.change.findings, revision.files.map((file) => file.path)]), [
       ['attempt', ['SCAN-1'], ['src/a.ts']],
@@ -544,7 +539,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
         { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
       ],
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const listings = readdirSync(box.scratchRoot, { recursive: true, encoding: 'utf8' }).filter((path) => basename(path) === '0.json');
     assert.ok(listings.some((path) => Object.hasOwn((JSON.parse(readFileSync(join(box.scratchRoot, path), 'utf8')) as { paths: Record<string, unknown> }).paths, 'debug.log')), `a listing names the log: ${listings.join(', ')}`);
     const fix = box.run().review!.fix!;
@@ -562,7 +557,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
         { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }, { status: 'already-applied', files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Stop other() passing null' }]) },
       ],
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const fix = state.review!.fix!;
     const [first, retry] = Object.values(state.workers).filter((worker) => worker.launch.label === 'fixer fixes:c1-1');
@@ -592,7 +587,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     box.checks({ lint: [{ write: { 'src/a.ts': 'export const formatted = true;\n' } }, 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     const revision = state.review!.fix!.revisions.find((candidate) => candidate.source.kind === 'check');
     assert.deepEqual(revision === undefined ? null : [revision.phase, revision.source, revision.files.map((file) => file.path), revision.change.message.subject], ['baseline-checks', { kind: 'check', check: 'lint' }, ['src/a.ts'], 'chore: apply the lint check\'s rewrite']);
@@ -604,7 +599,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     box.checks({ build: ['fail', 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const fix = box.run().review!.fix!;
     assert.deepEqual(fix.checks.runs['baseline-checks'].map((run) => [run.kind, run.outcome, run.error]), [['build', 'failed', null], ['typecheck', 'skipped', 'build failed'], ['lint', 'skipped', 'build failed'], ['test', 'skipped', 'build failed']]);
     assert.deepEqual(fix.checks.runs.checks.map((run) => run.outcome), ['passed', 'passed', 'passed', 'passed']);
@@ -614,7 +609,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
   it('runs a fix pass on the fake Codex to its report, with no budget', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
-    report(await box.fix('codex'));
+    reportText(await box.fix('codex'));
     const state = box.run();
     assert.equal(state.review!.configuration.runBudgetUsd, null);
     assert.equal(state.review!.fix!.revisions.length, 1);
@@ -629,7 +624,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       surveyor: { output: { conventions: [], userRules: [], checks: [script('build', 'hint'), script('lint', 'stated'), script('test', 'stated')], note: '' } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
     });
-    report(await box.review('claude', { fix: { commands: {}, dropped: ['typecheck'] } }));
+    reportText(await box.review('claude', { fix: { commands: {}, dropped: ['typecheck'] } }));
     const state = box.run();
     const planned = state.review!.fix!.checks.planned!;
     assert.equal(planned.manager, null, 'a version 2 plan names no package manager');
@@ -652,7 +647,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     git(box.repo, 'add', 'yarn.lock');
     git(box.repo, 'commit', '-q', '--amend', '--no-edit');
     box.script(reviewScript);
-    report(await box.review('claude', { fix: { commands: {}, dropped: [] } }));
+    reportText(await box.review('claude', { fix: { commands: {}, dropped: [] } }));
     const state = box.run();
     assert.match(box.promptOf(state, 'surveyor survey:survey'), /^- test: none \(the package\.json script `test`, but the lock files name more than one package manager \(yarn\.lock, package-lock\.json\)/m);
     // The fake surveyor chose no command, so no hinted command ran: a hint is a guess, never a plan.
@@ -664,7 +659,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     write(box.repo, 'src/c.ts', 'export const c = 1;\n');
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     assert.equal(state.scope!.mode, 'worktree');
     const clone = join(box.directory, 'clone');
@@ -693,7 +688,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads } },
       'fixer:fixes:c1-1': [{ output: fixerAnswer([{ status: 'deferred', files: [] }]) }],
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const untouched = box.run();
     assert.deepEqual(untouched.review!.fix!.plan!.clusters, [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/caller.ts'] }]);
     assert.deepEqual(box.events(untouched.id).filter(([kind]) => kind === 'attempt.failed'), [], 'an untouched owned file outside the change is no unreported edit');
@@ -704,7 +699,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/caller.ts': 'import { parse } from \'./a.ts\';\nexport const n = parse(\'\');\n' } }], output: fixerAnswer([{ files: ['src/caller.ts'] }]) },
     });
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const edited = box.checkpoint.foldRuns().at(-1)!;
     assert.deepEqual(edited.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/caller.ts modified']]);
     const patch = box.checkpoint.evidence.read(edited.review!.report!.patches[0]!).toString('utf8');
@@ -720,7 +715,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the run pinned the policy\'s batch size');
     setPolicyBatchSize(box, 4);
     box.script(reviewScript);
-    report(await box.review('claude', { fix: { commands: { test: 'echo other' }, dropped: [] } }));
+    reportText(await box.review('claude', { fix: { commands: { test: 'echo other' }, dropped: [] } }));
     assert.ok(box.logs.some((line) => /keeps the checks it pinned; --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
     assert.ok(box.run().review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag' && check.command !== 'echo other'));
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the resumed run kept the size it started with');
@@ -731,7 +726,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.review('claude')).kind, 'blocked');
     box.script(reviewScript);
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     assert.equal(box.run().review!.fix, null, 'the read-only run stays read-only');
     assert.ok(box.logs.some((line) => /is pinned without the fix pass; --fix, --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
   });
@@ -741,7 +736,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.fix('claude')).kind, 'blocked');
     box.script(reviewScript);
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     assert.notEqual(box.run().review!.fix, null);
     assert.ok(box.logs.some((line) => /is pinned to the fix pass and continues it; the absence of --fix is ignored$/.test(line)), box.logs.join('\n'));
   });

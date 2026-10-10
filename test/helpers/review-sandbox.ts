@@ -1,6 +1,7 @@
 // A repository with a change, a checkpoint, a roles directory whose policy
 // has timeouts that fit a test, and the fake runtimes, so a whole review runs
 // through the controller in a test. The fakes are scripted per role and unit.
+import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -77,6 +78,12 @@ export const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => v
     },
   });
   return { checkpoint: proxy, acted: () => acted };
+};
+
+/** The text of the report a run ended with; fails the test when the run ended otherwise. */
+export const reportText = (outcome: ReviewOutcome): string => {
+  assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
+  return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
 };
 
 /**

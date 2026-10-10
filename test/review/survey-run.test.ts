@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import type { ReviewOutcome } from '../../src/review/controller.ts';
 import type { PolicyFile } from '../../src/review/policy.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
-import { fakeCheckCommand, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { fakeCheckCommand, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** A surveyed check of the sandbox's package.json: the stand-in check's command, stated, with the tool given missing. */
 const fromPackage = (kind: 'build' | 'typecheck' | 'lint' | 'test', missingTool: string | null = null, command: string = fakeCheckCommand(kind)): Record<string, unknown> =>
@@ -15,10 +14,6 @@ const fromPackage = (kind: 'build' | 'typecheck' | 'lint' | 'test', missingTool:
 const halfFlagged = { commands: { build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck') }, dropped: [] as ('build' | 'typecheck' | 'lint' | 'test')[] };
 
 describe('the repository survey in a run', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
-  const report = (outcome: ReviewOutcome): string => {
-    assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
-    return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
-  };
   const surveyors = (box: ReviewSandbox): number => Object.values(box.run().workers).filter((worker) => worker.launch.label === 'surveyor survey:survey').length;
 
   it('blocks a fix run on a check whose tool is missing before any other worker, and goes on without it after --no-check, with no new survey (R15, PD12, TD7)', async (t) => {
@@ -35,7 +30,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     assert.equal(Object.values(box.run().workers).length, 1, 'only the surveyor was paid for');
     assert.equal(box.run().review!.fix!.checks.planned, null, 'nothing is planned while a defined check cannot run');
     // The operator goes without lint: the flags of the next invocation settle the block, and the recorded survey plans the rest.
-    report(await box.review('claude', { fix: { ...halfFlagged, dropped: ['lint'] } }));
+    reportText(await box.review('claude', { fix: { ...halfFlagged, dropped: ['lint'] } }));
     const state = box.run();
     assert.equal(surveyors(box), 1, 'the survey is not repeated when the flags settle its block');
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 2 });
@@ -52,7 +47,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     ] });
     const blocked = await box.review('claude', { fix: halfFlagged });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
-    report(await box.review('claude', { fix: halfFlagged }));
+    reportText(await box.review('claude', { fix: halfFlagged }));
     const state = box.run();
     assert.equal(surveyors(box), 2, 'the operator installed the tool and ran again: a fresh surveyor looked');
     assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', 'ruff is installed now']);
@@ -66,7 +61,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
       { output: { conventions: [{ path: 'CONTRIBUTING.md', level: 'repository', governs: 'style', appliesTo: null, grounds: null }], userRules: [], checks: null, note: '' } },
       { output: { conventions: [{ path: 'AGENTS.md', level: 'repository', governs: 'how globs are quoted', appliesTo: null, grounds: null }], userRules: [], checks: null, note: '' } },
     ] });
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     const state = box.run();
     assert.equal(surveyors(box), 2);
     assert.match(box.events(state.id).find(([kind]) => kind === 'attempt.failed')?.[1].reason as string, /^structural check: The convention source "CONTRIBUTING\.md" is not a regular file of the repository$/);
@@ -76,7 +71,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
   it('goes on without a read-only review\'s survey that fails twice, CONVENTIONS not run and the sweep told (R9, PD6)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({ surveyor: { exit: 2 } });
-    const text = report(await box.review('claude'));
+    const text = reportText(await box.review('claude'));
     const state = box.run();
     assert.equal(state.review!.phases.survey.status, 'degraded');
     assert.match(state.review!.survey!.failure!.reason, /^2 attempts did not complete: /);
@@ -95,7 +90,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     if (blocked.kind === 'blocked') assert.equal(blocked.blocker.action, surveyWorkerFailedAction);
     assert.equal(surveyors(box), 2);
     // Three kinds settled run the surveyor again; four let the run go on without it.
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     assert.equal(surveyors(box), 2, 'no surveyor once the flags settle every check');
     assert.equal(state.review!.phases.survey.status, 'degraded');
@@ -119,7 +114,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
       checks: null,
       note: '',
     } } });
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     const state = box.run();
     assert.deepEqual(state.review!.configuration.survey, { userRules: 'judge' });
     assert.ok(box.promptOf(state, 'surveyor survey:survey').includes(`User-level rules files offered:\n- ${userFile}\n`));
@@ -146,11 +141,11 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     // The resumed run keeps the value it pinned, whatever the policy file says now.
     setUserRules('ignore');
     box.script({});
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     assert.deepEqual(box.run().review!.configuration.survey, { userRules: 'apply' });
 
     box.checkpoint.append(box.run().id, box.run().lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'next case' } }]);
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     const ignored = box.checkpoint.foldRuns().at(-1)!;
     assert.deepEqual(ignored.review!.configuration.survey, { userRules: 'ignore' });
     assert.deepEqual(ignored.review!.survey!.answers[0]!.userRules, [{ path: userFile, applied: false, reason: 'ignored by the policy value ignore' }]);

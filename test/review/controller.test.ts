@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { presurveyRulesFiles, type ReviewOutcome } from '../../src/review/controller.ts';
+import { presurveyRulesFiles } from '../../src/review/controller.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
@@ -19,7 +19,7 @@ import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { paddedVersionBytes } from '../helpers/fake-probe.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { afterFind, fakeCheckCommand, loadedRunnerTimeoutMs, otherEngine, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { afterFind, fakeCheckCommand, loadedRunnerTimeoutMs, otherEngine, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
@@ -82,16 +82,12 @@ const lockFree = (acquire: () => ReleaseLock): boolean => {
 };
 
 describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
-  const report = (outcome: ReviewOutcome): string => {
-    assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
-    return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
-  };
 
   it('reviews a change through every phase on the fake Claude and writes the report', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script(fullScript);
     const outcome = await box.review('claude');
-    const text = report(outcome);
+    const text = reportText(outcome);
     const state = box.run();
     assert.equal(state.review?.report !== null, true);
     // A run without --fix surveys first, decides its findings, skips the five phases of the fix pass, and has no fix state.
@@ -187,7 +183,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
   it('reviews on the fake Codex, with no budget and no cost, and the report says the budget did not apply', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({});
-    const text = report(await box.review('codex'));
+    const text = reportText(await box.review('codex'));
     const state = box.run();
     assert.equal(state.review?.configuration.runtime, 'codex');
     assert.equal(state.review?.configuration.runBudgetUsd, null);
@@ -203,7 +199,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const box = ReviewSandbox.forTest(t);
     box.script({ 'finder-FOOTGUNS': { exit: 3 }, 'finder-DESIGN': [{ malformed: true }, { hang: true }] });
     box.shortenTimeout('finder-DESIGN');
-    const text = report(await box.review('claude'));
+    const text = reportText(await box.review('claude'));
     const state = box.run();
     assert.deepEqual(Object.keys(state.review!.anglesNotRun).sort(), ['DESIGN', 'FOOTGUNS']);
     assert.match(state.review!.anglesNotRun.FOOTGUNS!, /^2 attempts did not complete: failed: The worker exited with code 3; failed: The worker exited with code 3$/);
@@ -218,7 +214,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
   it('marks a group unverified when its verifier fails twice, and its candidates carry PLAUSIBLE unverified into the report', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({ triage: { output: { candidates: [found('src/a.ts', 2, 'null deref'), found('src/b.ts', 1, 'b calls parse')], leads: noLeads } }, 'verifier:verification:g2': { exit: 1 } });
-    const text = report(await box.review('claude'));
+    const text = reportText(await box.review('claude'));
     const state = box.run();
     assert.deepEqual(state.review!.plans.verification, [{ id: 'g1', candidateIds: ['SCAN-1'] }, { id: 'g2', candidateIds: ['SCAN-2'] }]);
     assert.deepEqual(state.review!.unverifiedGroups.verification, { g2: '2 attempts did not complete: failed: The worker exited with code 1; failed: The worker exited with code 1' });
@@ -246,7 +242,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     box.script({});
     // The run keeps the scope it captured: the command's is never resolved, and the log says it is ignored.
     const scope = { named: true, request: (): never => assert.fail('a run that captured its scope asked for another') };
-    report(await box.review('claude', { scope }));
+    reportText(await box.review('claude', { scope }));
     assert.ok(box.logs.includes(`run ${state.id} is active; its scope flags are ignored and the run continues`));
     state = box.run();
     assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 2 });
@@ -266,7 +262,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.equal(failed.review!.decisions, null, 'nothing is decided, and nothing is reported');
     assert.equal(Object.values(failed.workers).filter((worker) => worker.launch.label === 'decider decision:decision').length, 2);
     box.script(fullScript);
-    const text = report(await box.review('claude'));
+    const text = reportText(await box.review('claude'));
     const decided = box.run();
     assert.deepEqual(decided.review!.phases.decision, { status: 'completed', attempt: 2 });
     assert.deepEqual(decided.review!.decisions?.map((decision) => decision.decision), ['fix', 'ask']);
@@ -276,7 +272,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
   it('decides nothing and launches no decider for a run whose ranking holds no finding', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({});
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     const state = box.run();
     assert.deepEqual(state.review!.phases.decision, { status: 'completed', attempt: 1 });
     assert.equal(state.review!.decisions, null);
@@ -303,7 +299,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const readOnly = box.checkpoint.createRun({ worktree: box.repo });
     box.checkpoint.append(readOnly.id, captureScope(box.checkpoint, readOnly.id, { paths: [] }).lastSequence, [{ kind: 'review.configured', version: 4, payload: { ...pinned, fix: false, checks: null, fixes: null } }]);
     box.script({});
-    const text = report(await box.review('claude'));
+    const text = reportText(await box.review('claude'));
     assert.equal(box.checkpoint.fold(readOnly.id).review!.phases.decision.status, 'skipped');
     assert.doesNotMatch(text, /^## Decisions$/m);
   });
@@ -318,7 +314,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     git(box.repo, 'config', 'log.date', 'not-a-date-format');
     assert.throws(() => git(box.repo, 'log', '-1', 'HEAD', '--'), 'git log fails in the repository');
     box.script({});
-    report(await box.fix('claude'));
+    reportText(await box.fix('claude'));
     const state = box.run();
     assert.equal(state.review!.phases.survey.status, 'degraded');
     assert.match(state.review!.survey!.failure!.reason, /^the survey blocked, /);
@@ -342,7 +338,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const blocked = await box.review('claude', { fix: { commands: { build: flags.commands.build!, typecheck: flags.commands.typecheck! }, dropped: [] } });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
     // The resume answers the block with --no-check lint, and gives neither of the --check flags the survey was asked with.
-    report(await box.review('claude', { fix: { commands: {}, dropped: ['lint'] } }));
+    reportText(await box.review('claude', { fix: { commands: {}, dropped: ['lint'] } }));
     const state = box.run();
     assert.ok(box.logs.includes(`run ${state.id}: its survey was asked with --check or --no-check settling build, typecheck, which this invocation leaves unsettled, so the survey is asked again for them; give those flags again to keep them`), box.logs.join('\n'));
     assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', 'asked again']);
@@ -380,7 +376,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const userFile = join(box.home, '.claude', 'CLAUDE.md');
     write(box.home, '.claude/CLAUDE.md', '# the reviewer\'s rules\n');
     box.script({ surveyor: { exit: 2 } });
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     const state = box.run();
     assert.equal(state.review!.phases.survey.status, 'degraded');
     const failed = box.events(state.id).filter(([kind]) => kind === 'survey.failed');
@@ -426,7 +422,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual(limitsChanges(), [{ concurrency: 4, runBudgetUsd: 30 }, { concurrency: 4, runBudgetUsd: 20 }]);
     assert.ok(box.logs.includes(`run ${state.id}: limits in force: concurrency 4, run budget 20.00 USD`), box.logs.join('\n'));
 
-    const text = report(await box.review('claude', { flags: { budgetUsd: 1000, concurrency: 2 } }));
+    const text = reportText(await box.review('claude', { flags: { budgetUsd: 1000, concurrency: 2 } }));
     state = box.run();
     assert.equal(state.review!.phases.finders.attempt, 5);
     assert.deepEqual(state.review!.limits, { concurrency: 2, runBudgetUsd: 1000 });
@@ -445,7 +441,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'worker-failed', JSON.stringify(blocked));
     assert.equal(box.run().review!.configuration.runBudgetUsd, null, 'the run is pinned without a budget');
     assert.deepEqual(box.run().review!.limits, { concurrency: 4, runBudgetUsd: null });
-    const text = report(await box.review('claude', { flags: { budgetUsd: 500 } }));
+    const text = reportText(await box.review('claude', { flags: { budgetUsd: 500 } }));
     const state = box.run();
     assert.deepEqual(state.review!.limits, { concurrency: 4, runBudgetUsd: 500 });
     assert.equal(state.review!.report!.statistics.budgetApplied, true, 'the budget in force was checked before every launch of the second invocation');
@@ -513,7 +509,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // Restored from the path the blocker named.
     writeFileSync(join(box.repo, 'src', 'b.ts'), readFileSync(expectedAt));
     box.script({});
-    const text = report(await box.review('claude'));
+    const text = reportText(await box.review('claude'));
     state = box.run();
     assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 3 });
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'triage triage:SCAN').length, 2, 'the triage is launched once more');
@@ -546,7 +542,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
 
     write(box.repo, 'src/b.ts', original);
     box.script({});
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     const after = box.run();
     assert.equal(Object.values(after.workers).filter((worker) => worker.launch.label === removals).length, 2, 'REMOVALS ran once more');
     assert.equal(typeof after.review!.units.finders.REMOVALS?.answeredBy, 'string', 'and its answer is recorded');
@@ -619,7 +615,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
       && error.message === `run ${runId} is active in worktree ${box.repo}, not ${otherRoot}; run the command there, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\``);
     assert.equal(Object.values(box.run().workers).length, 3, 'nothing ran in the other worktree');
     // The run's own worktree still resumes it.
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
   });
 
   it('resumes a configured run from its pinned configuration, whatever the policy file, the model flags and the executable say now', async (t) => {
@@ -630,7 +626,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // A policy file that no longer resolves, a model flag and an executable that would not qualify: a pinned run reads none of them.
     writeFileSync(join(box.rolesRoot, policyFileName), JSON.stringify({ schemaVersion: 1, roles: {}, runtimes: {}, concurrency: 4 }));
     box.script({});
-    report(await box.review('claude', { executable: join(box.directory, 'absent'), executableArgs: [], flags: { strongModel: 'another-model' } }));
+    reportText(await box.review('claude', { executable: join(box.directory, 'absent'), executableArgs: [], flags: { strongModel: 'another-model' } }));
     const state = box.run();
     assert.deepEqual(state.review!.configuration, pinned);
     assert.ok(Object.values(state.workers).every((worker) => worker.launch.executable === pinned.executable && worker.launch.model !== 'another-model'), 'every worker ran the pinned executable and models');
@@ -668,7 +664,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.equal(resolved, 1, 'a new run resolves it once');
     assert.equal(box.run().review!.configuration.executable, process.execPath, 'and pins what it resolved');
     box.script({});
-    report(await box.review('claude', { executable: () => assert.fail('a configured run resolved the command\'s executable') }));
+    reportText(await box.review('claude', { executable: () => assert.fail('a configured run resolved the command\'s executable') }));
   });
 
   it('refuses to resume a run whose role prompts changed since it was configured, naming both digests', async (t) => {
@@ -718,7 +714,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
       release();
     }
     box.script({});
-    report(await box.review('claude'));
+    reportText(await box.review('claude'));
     assert.equal(lockFree(() => acquireStartLock(box.checkpoint.root)), true, 'the start lock is released once the run is locked');
   });
 
@@ -754,7 +750,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
       target.append(runId, target.fold(runId).lastSequence, [{ kind: 'worker.finished', version: 1, payload: frozenFinish(target, worker(91)) }]);
     });
     box.script({});
-    report(await box.review('claude', { checkpoint: late.checkpoint }));
+    reportText(await box.review('claude', { checkpoint: late.checkpoint }));
     assert.equal(late.acted(), true);
     const state = box.run();
     assert.equal(state.workers[worker(91)]?.status, 'finished', 'the late finish stands');
@@ -774,7 +770,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     box.script({});
     const outcome = await box.review('claude', { checkpoint: late.checkpoint });
     assert.equal(late.acted(), true);
-    report(outcome);
+    reportText(outcome);
     const runs = box.checkpoint.foldRuns();
     assert.deepEqual(runs.map((run) => [run.id === first.id, run.status]), [[true, 'abandoned'], [false, 'active']]);
     assert.equal(outcome.runId, runs[1]!.id, 'the review ran a run of its own');
@@ -792,7 +788,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
       const unreadable = box.unreadableRun();
       box.script({});
       const outcome = await box.review('claude');
-      report(outcome);
+      reportText(outcome);
       assert.notEqual(outcome.runId, unreadable);
       assert.deepEqual(passedOver(box, unreadable), [`run ${unreadable}: passed over: it holds phase.finished@99 at sequence 2, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`]);
       assert.equal(box.checkpoint.ledger.lastSequence(unreadable), 2, 'nothing was appended to the run passed over');
@@ -809,7 +805,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
       const before = box.checkpoint.ledger.lastSequence(unreadable);
       box.script({});
       const outcome = await box.review('claude');
-      report(outcome);
+      reportText(outcome);
       assert.equal(outcome.runId, first.id, 'the blocked run resumed');
       assert.equal(passedOver(box, unreadable).length, 1, box.logs.join('\n'));
       assert.equal(box.checkpoint.ledger.lastSequence(unreadable), before, 'nothing was appended to the run passed over');
@@ -837,7 +833,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
       box.script({});
       const outcome = await box.review('claude', { checkpoint: late.checkpoint });
       assert.equal(late.acted(), true);
-      report(outcome);
+      reportText(outcome);
       assert.notEqual(outcome.runId, first.id, 'the review ran a run of its own');
       assert.equal(box.checkpoint.ledger.lastSequence(first.id), first.lastSequence + 1, 'nothing but the event of the other engine was appended to the found run');
       // The same line the find gives such a run, naming this engine as the reader and the other as the writer.
