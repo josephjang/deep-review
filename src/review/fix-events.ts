@@ -245,11 +245,14 @@ export interface AttemptEvents {
  * the sibling's edit would otherwise undo it. A claim lost with the directory
  * (R12 of commit series integrity), or one a resumed engine cannot read
  * because its directory was cleaned while it was down, leaves that edit to
- * whichever attempt settles first, as the design's Verification accepts;
- * an edit by a fixer that ignored the claim rule is still attributed as
- * git reports it. A worker with no scratch, or one the operating system
- * cleaned, gives only the last. The expected tree then holds the attempt's
- * work, so the retry's snapshots attribute only its own.
+ * whichever attempt settles first, as the design's Verification accepts.
+ * An edit by a fixer that ignored the claim rule is still attributed as
+ * git reports it only for a file in the change or a new untracked one; its
+ * unclaimed edit of a tracked file outside the change is a leftover, left
+ * out as above (R5), and stays in the tree as a stray. A worker with no
+ * scratch, or one the operating system cleaned, gives only the last. The
+ * expected tree then holds the attempt's work, so the retry's snapshots
+ * attribute only its own.
  */
 export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): AttemptEvents {
   const { state, worktree, evidence } = context;
