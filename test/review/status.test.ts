@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { describeRun } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { askDecision, configured, decidedOf, decisions, History, launch, mergeRanked, reported, triaged, worker } from '../helpers/review-history.ts';
+import { askDecision, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, triaged, worker } from '../helpers/review-history.ts';
 
 /** An evidence path that names the reference, so a test sees which one was asked for. */
 const evidencePath = (reference: { sha256: string; bytes: number }): string => `/evidence/${reference.sha256.slice(0, 8)}-${String(reference.bytes)}`;
@@ -19,7 +19,7 @@ describe('describeRun', () => {
       'Workers: 0 running, 0 finished, 0 lost',
       'Spend: none',
     ]);
-    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, decisions: null, fix: null, patches: [], commits: null, review: null });
+    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, continuedFrom: null, decisions: null, fix: null, patches: [], commits: null, review: null });
   });
 
   it('names the reason of an abandoned run on its first line', () => {
@@ -106,3 +106,27 @@ describe('describeRun', () => {
   });
 });
 
+
+// R7 of fix pass continuation.
+describe('describeRun of a run continued into the fix pass', () => {
+  it('names the read-only report beside the current state while the continuation runs, and beside the second report once written', () => {
+    const running = describeRun(continuedRun().fold(), claudeAdapter, evidencePath);
+    const at = continuedRun().fold().review!.continuedFrom!.at;
+    const first = evidencePath(reference('e', 2048));
+    assert.ok(running.lines.includes(`Continued from: ${first}, into the fix pass on ${at}`), running.lines.join('\n'));
+    assert.ok(!running.lines.some((line) => line.startsWith('Report: ')), 'no report while the continuation runs');
+    assert.deepEqual(running.json.continuedFrom, { report: first, at });
+    assert.equal(running.json.report, null);
+    assert.equal(running.json.status, 'active');
+    const done = describeRun(continuedToReport().fold(), claudeAdapter, evidencePath);
+    assert.deepEqual(done.json.continuedFrom, { report: first, at });
+    assert.equal(done.json.report, evidencePath(reference('9', 4096)));
+    assert.ok(done.lines.indexOf(`Continued from: ${first}, into the fix pass on ${at}`) === done.lines.indexOf(`Report: ${evidencePath(reference('9', 4096))}`) - 1, 'the read-only report, then the second');
+  });
+
+  it('names none for a run never continued', () => {
+    const described = describeRun(readOnlyReported().fold(), claudeAdapter, evidencePath);
+    assert.equal(described.json.continuedFrom, null);
+    assert.ok(!described.lines.some((line) => line.startsWith('Continued from:')));
+  });
+});

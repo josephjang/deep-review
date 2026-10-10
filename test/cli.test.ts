@@ -34,6 +34,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.match(help.stdout, /deep-review review {2}--runtime claude\|codex/);
     assert.ok(help.stdout.includes(`[--concurrency 1..${String(maxConcurrency)}]`), 'the usage names the bound the flag is checked against');
     assert.ok(help.stdout.includes('[--codex-windows-sandbox unelevated|elevated|none]'), 'the usage names the Codex Windows sandboxes');
+    assert.ok(help.stdout.includes('[--fix [--fresh] [--check <kind>=<command>]... [--no-check <kind>]...]'), 'the usage names --fresh with --fix');
     assert.match(help.stdout, /deep-review claim   --path <path> --unit <key> --in <dir>/, 'the usage names the claim command a fixer runs');
   });
 
@@ -64,6 +65,9 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [claudeFlags(box, '--last-commit', '--fix', '--check', 'lint'), /--check takes <kind>=<command>, not "lint"/],
       [claudeFlags(box, '--last-commit', '--fix', '--check', 'lint= '), /--check lint= needs a command/],
       [['status', '--fix'], /--fix does not apply to status/],
+      // R2 of fix pass continuation: --fresh declines a continuation, which only --fix makes.
+      [claudeFlags(box, '--last-commit', '--fresh'), /--fresh applies only with --fix/],
+      [['status', '--fresh'], /--fresh does not apply to status/],
       [claudeFlags(box, '--last-commit', '--codex-windows-sandbox', 'elevated'), /--codex-windows-sandbox applies only to runtime codex, not claude/],
       [claudeFlags(box, '--last-commit', '--codex-windows-sandbox', 'full'), /--codex-windows-sandbox must be one of unelevated, elevated, none, not "full"/],
       [['review', '--runtime', 'codex', '--executable', process.execPath, '--executable-arg', fakeCodex, '--roles', box.rolesRoot, '--last-commit', '--codex-windows-sandbox', ''], /--codex-windows-sandbox must be one of unelevated, elevated, none, not ""/],
@@ -241,7 +245,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.deepEqual(box.checkpoint.fold(runId).scope?.request, { ref: 'HEAD~1', paths: ['src'] }, 'the scope asked for, not an automatic one');
   });
 
-  it('refuses to abandon a run another engine holds, abandons it once released, and then starts a new run', async (t) => {
+  it('refuses to abandon a run another engine holds, abandons it once released, then starts a new run, and with --fix --fresh one more beside the finished one', async (t) => {
 
     const box = ReviewSandbox.forTest(t);
     box.script({ triage: { exit: 2 } });
@@ -279,6 +283,12 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(fresh.status, 0, fresh.stderr);
     assert.equal(box.checkpoint.foldRuns().length, 2);
     assert.match((await run(box, 'status', '--run', runId)).stdout, /: abandoned \(stuck\)\n/);
+    // --fresh reaches the engine: the finished read-only run just written is not continued (R2 of fix pass continuation).
+    box.script({ triage: { exit: 2 } });
+    const declined = await run(box, ...claudeFlags(box, '--last-commit', '--fix', '--fresh'));
+    assert.equal(declined.status, 2, declined.stderr);
+    assert.match(declined.stderr, /^--fresh: no finished run is considered; a new run is created$/m);
+    assert.equal(box.checkpoint.foldRuns().length, 3);
   });
 
   // Issue #37: a run another engine build wrote, holding an event this engine does not declare, stopped every command that picks a run.

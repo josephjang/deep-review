@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { PolicyFile } from '../../src/review/policy.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
+import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { deciderAnswer } from '../helpers/fake-runtime.ts';
 import { fakeCheckCommand, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** A surveyed check of the sandbox's package.json: the stand-in check's command, stated, with the tool given missing. */
@@ -150,5 +152,47 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     assert.deepEqual(ignored.review!.configuration.survey, { userRules: 'ignore' });
     assert.deepEqual(ignored.review!.survey!.answers[0]!.userRules, [{ path: userFile, applied: false, reason: 'ignored by the policy value ignore' }]);
     assert.ok(!box.promptOf(ignored, 'triage triage:SCAN').includes(userFile), 'no worker hears of an ignored file');
+  });
+
+  // R4 of fix pass continuation: the survey of a read-only run continued into the fix pass.
+  describe('of a read-only run continued into the fix pass', () => {
+    /** A review whose triage finds one defect in src/a.ts, which the decider decides to fix. */
+    const oneFix = { triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null })) } }, decider: { output: deciderAnswer([{}]) } };
+
+    it('refuses to continue a run that went on without its survey until the flags settle every check, then continues it with no surveyor, its survey as it degraded', async (t) => {
+      const box = ReviewSandbox.forTest(t, { ...oneFix, surveyor: { exit: 2 } });
+      reportText(await box.review('claude'));
+      const finished = box.run();
+      assert.equal(finished.review!.phases.survey.status, 'degraded');
+      await assert.rejects(box.review('claude', { fix: halfFlagged }), (error: unknown) => error instanceof ReviewRefusedError
+        && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for lint, test, or start a new run with --fresh`);
+      assert.equal(box.run().lastSequence, finished.lastSequence, 'the run stays complete, nothing appended');
+      reportText(await box.fix('claude'));
+      const state = box.run();
+      assert.equal(state.id, finished.id);
+      assert.equal(surveyors(box), 2, 'the two failed surveyors of the review, and none since');
+      assert.deepEqual(state.review!.phases.survey, { status: 'degraded', attempt: 1 });
+      assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
+      assert.notEqual(state.review!.continuedFrom, null);
+    });
+
+    it('blocks a continued run whose surveyor names a missing tool, and asks the checks alone again on the re-entry (R15 of the repository survey)', async (t) => {
+      const box = ReviewSandbox.forTest(t, oneFix);
+      reportText(await box.review('claude'));
+      box.script({ ...oneFix, surveyor: [
+        { output: { conventions: [], userRules: [], checks: [fromPackage('lint', 'ruff', 'ruff check .'), fromPackage('test')], note: '' } },
+        { output: { conventions: [], userRules: [], checks: [fromPackage('lint'), fromPackage('test')], note: 'ruff is installed now' } },
+      ] });
+      const blocked = await box.review('claude', { fix: halfFlagged });
+      assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable' && blocked.blocker.phase === 'survey', JSON.stringify(blocked));
+      reportText(await box.review('claude', { fix: halfFlagged }));
+      const state = box.run();
+      assert.equal(surveyors(box), 3, 'the review\'s surveyor, and two asked for the checks');
+      assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', '', 'ruff is installed now']);
+      const prompts = Object.values(state.workers).filter((worker) => worker.launch.label === 'surveyor survey:survey').map((worker) => box.checkpoint.evidence.read(worker.launch.prompt).toString('utf8'));
+      assert.doesNotMatch(prompts[0]!, /continued into the fix pass/);
+      for (const prompt of prompts.slice(1)) assert.match(prompt, /^This run was reviewed read-only and is now continued into the fix pass\./m);
+      assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => check.origin), ['flag', 'flag', 'survey', 'survey']);
+    });
   });
 });
