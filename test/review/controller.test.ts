@@ -438,10 +438,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
 
   it('applies a budget given on a resume to a run pinned without one, and the report says it applied', async (t) => {
     const box = ReviewSandbox.forTest(t);
-    const policyPath = join(box.rolesRoot, policyFileName);
-    const policy = JSON.parse(readFileSync(policyPath, 'utf8')) as { runtimes: { claude: { runBudgetUsd: number | null } } };
-    policy.runtimes.claude.runBudgetUsd = null;
-    writeFileSync(policyPath, JSON.stringify(policy, null, 2));
+    box.editPolicy((policy) => ({ ...policy, runtimes: { ...policy.runtimes, claude: { ...policy.runtimes.claude!, runBudgetUsd: null } } }));
     // The triage fails twice, which blocks the first invocation, then answers.
     box.script({ '*': { costUsd: 1 }, triage: [{ malformed: true, costUsd: 1 }, { malformed: true, costUsd: 1 }, { costUsd: 1 }] });
     const blocked = await box.review('claude');

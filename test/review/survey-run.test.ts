@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
-import { policyFileName } from '../../src/review/policy.ts';
+import type { PolicyFile } from '../../src/review/policy.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { fakeCheckCommand, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
@@ -132,9 +132,8 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     const userFile = join(box.home, '.claude', 'CLAUDE.md');
     mkdirSync(join(box.home, '.claude'), { recursive: true });
     writeFileSync(userFile, '# the reviewer\'s rules\n');
-    const setUserRules = (userRules: string): void => {
-      const path = join(box.rolesRoot, policyFileName);
-      writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), survey: { userRules } }, null, 2));
+    const setUserRules = (userRules: PolicyFile['survey']['userRules']): void => {
+      box.editPolicy((policy) => ({ ...policy, survey: { userRules } }));
     };
     setUserRules('apply');
     box.script({ triage: { exit: 2 } });

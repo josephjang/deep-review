@@ -3,7 +3,6 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
-import { policyFileName } from '../../src/review/policy.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
@@ -43,8 +42,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
   };
   /** Set the sandbox policy's fixer batch size, which the next run created pins. */
   const setPolicyBatchSize = (box: ReviewSandbox, batchSize: number): void => {
-    const policyFile = join(box.rolesRoot, policyFileName);
-    writeFileSync(policyFile, JSON.stringify({ ...JSON.parse(readFileSync(policyFile, 'utf8')), fixes: { batchSize } }, null, 2));
+    box.editPolicy((policy) => ({ ...policy, fixes: { batchSize } }));
   };
 
   it('fixes the fixer-routed findings, one cluster per file, runs the checks before and after, and records each finding\'s edits as a revision', async (t) => {
