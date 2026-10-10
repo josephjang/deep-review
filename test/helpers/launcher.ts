@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -92,6 +93,32 @@ export function isAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
+}
+
+/** How a process node() ran ended and what it printed, as `spawnSync` reports them. */
+export interface Finished {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/**
+ * Run this Node with `args` to its end. Unlike `spawnSync` it does not
+ * block this process while the command runs, so a file's other tests run
+ * meanwhile. Its stdin is empty, as `spawnSync` leaves it with no input.
+ */
+export function node(args: readonly string[], options: { readonly cwd: string; readonly env: NodeJS.ProcessEnv }): Promise<Finished> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, { cwd: options.cwd, env: options.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.once('error', reject);
+    child.once('close', (status) => {
+      resolve({ status, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
+    });
+  });
 }
 
 /** A temporary worktree, a checkpoint beside it and one active run, with helpers to launch fakes into it. */

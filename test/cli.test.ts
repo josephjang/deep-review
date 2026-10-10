@@ -9,37 +9,11 @@ import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { maxConcurrency } from '../src/review/policy.ts';
 import { checkKinds, finderAngles } from '../src/review/vocabulary.ts';
 import { fixerAnswer } from './helpers/fake-runtime.ts';
-import { baseEnvironment, fakeClaude, fakeCodex, isAlive, until } from './helpers/launcher.ts';
+import { baseEnvironment, fakeClaude, fakeCodex, type Finished, isAlive, node, until } from './helpers/launcher.ts';
 import { write } from './helpers/repository.ts';
 import { fakeCheckCommand, otherEngine, ReviewSandbox, sandboxConcurrency } from './helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../src/cli.ts');
-
-/** How a process this file ran ended and what it printed, as `spawnSync` reports them. */
-interface Finished {
-  readonly status: number | null;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-/**
- * Run this Node with `args` to its end. Unlike `spawnSync` it does not
- * block this process while the command runs, so the file's other tests run
- * meanwhile. Its stdin is empty, as `spawnSync` leaves it with no input.
- */
-function node(args: readonly string[], options: { readonly cwd: string; readonly env: NodeJS.ProcessEnv }): Promise<Finished> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, args, { cwd: options.cwd, env: options.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.once('error', reject);
-    child.once('close', (status) => {
-      resolve({ status, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
-    });
-  });
-}
 
 describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
   const environment = (box: ReviewSandbox): NodeJS.ProcessEnv => ({ ...baseEnvironment, FAKE_SCRIPT: box.scriptFile, FAKE_CHECKS: box.checksFile, HOME: box.home, USERPROFILE: box.home });

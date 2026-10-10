@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
@@ -8,7 +7,7 @@ import { commitRun } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { baseEnvironment } from '../helpers/launcher.ts';
+import { baseEnvironment, type Finished, node } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
 import { afterFind, otherEngine, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
@@ -197,17 +196,17 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       assert.equal(readFileSync(join(box.repo, 'notes.txt'), 'utf8'), 'mine\n');
     });
 
-    it('prints each commit and says no hook ran, exits 2 on a refusal, and 1 on a usage mistake', () => {
+    it('prints each commit and says no hook ran, exits 2 on a refusal, and 1 on a usage mistake', async () => {
       const environment = { ...baseEnvironment, HOME: box.home, USERPROFILE: box.home };
-      const run = (...args: string[]) => spawnSync(process.execPath, [cli, 'commit', ...args], { cwd: box.repo, env: environment, encoding: 'utf8' });
-      assert.equal(run('--change-message', 'x').status, 2);
-      assert.match(run('--json').stderr, /--json does not apply to commit/);
-      assert.equal(run('--run', 'no-such-run').status, 1);
-      const made = run();
+      const run = (...args: string[]): Promise<Finished> => node([cli, 'commit', ...args], { cwd: box.repo, env: environment });
+      assert.equal((await run('--change-message', 'x')).status, 2);
+      assert.match((await run('--json')).stderr, /--json does not apply to commit/);
+      assert.equal((await run('--run', 'no-such-run')).status, 1);
+      const made = await run();
       assert.equal(made.status, 0, made.stderr);
       assert.match(made.stdout, /^[0-9a-f]{12} fix\(a\): Return 0 for a null text\n[0-9a-f]{12} fix\(b\): Import parse\n$/);
       assert.match(made.stderr, /2 commits created; no commit hook ran/);
-      assert.equal(run().status, 2, 'a second invocation is refused');
+      assert.equal((await run()).status, 2, 'a second invocation is refused');
     });
 
     it('passes over a run this engine cannot read when it picks the run, commits the newest one it can, and refuses the unreadable run by name', () => {
