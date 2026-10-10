@@ -5,7 +5,7 @@
  * index (TD4), and describes the same fields its output schema demands
  * (R4). The closing sentence is appended by the prompt composer.
  */
-import { appliedOptionOf, type PlannedCheck } from '../checkpoint/fix-state.ts';
+import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
 import type { Lead, RecordedDecision } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
@@ -395,7 +395,7 @@ export interface FixerTaskInput {
   /** The files the cluster has claimed so far in its round, which it holds as it owns its own (R1 of commit series integrity). */
   readonly claimed: readonly string[];
   /** The files every other cluster of the round owns, or has claimed and holds while it has not settled, cluster by cluster. */
-  readonly othersHeld: readonly { readonly cluster: string; readonly files: readonly { readonly path: string; readonly by: 'plan' | 'claim' }[] }[];
+  readonly othersHeld: readonly { readonly cluster: string; readonly files: readonly Pick<SpelledHolder, 'path' | 'by'>[] }[];
   readonly checks: readonly PlannedCheck[];
   /** The snapshot command, holding `snapshotIndexPlaceholder` for the index. */
   readonly snapshotCommand: string;
