@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError } from '../../src/checkpoint/errors.ts';
 import type { ScopeFile, ScopeRequest, ScopeState } from '../../src/checkpoint/events.ts';
+import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { captureScope, freezeLimitBytes, maxScopeFiles, validateScopePath } from '../../src/scope/capture.ts';
+import { captureScope, freezeLimitBytes, maxScopeFiles, resolveScopeRequest, validateScopePath } from '../../src/scope/capture.ts';
 import { CaptureRacedError, InvalidScopeRequestError, ScopeAlreadyCapturedError } from '../../src/scope/errors.ts';
 import * as gitApi from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
@@ -373,5 +374,44 @@ describe('captureScope', () => {
     opened.push(reopened);
     assert.deepEqual(reopened.fold(runId).scope, scope);
     mkdirSync(join(sandbox, 'unused'));
+  });
+
+  // TD4 of fix pass continuation: the capture's first half, which the comparison with a captured scope calls too.
+  describe('resolveScopeRequest', () => {
+    it('resolves a request to the mode, base, head, spelled request and paths the capture then records, writing nothing', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'src/a.txt': '1\n', 'src/b.txt': '1\n', 'docs/c.txt': '1\n' });
+      write(repo, 'src/a.txt', '2\n');
+      remove(repo, 'src/b.txt');
+      write(repo, 'src/new.txt', 'n\n');
+      write(repo, 'docs/c.txt', '2\n');
+      const request: ScopeRequest = { paths: ['src\\'] };
+      const resolved = resolveScopeRequest(repo, request);
+      assert.deepEqual(resolved.changes, [
+        { path: 'src/a.txt', status: 'modified', untracked: false },
+        { path: 'src/b.txt', status: 'deleted', untracked: false },
+        { path: 'src/new.txt', status: 'added', untracked: true },
+      ]);
+      assert.equal(existsSync(join(locateCheckpoint(repo).root, ledgerFileName)), false, 'no checkpoint was written');
+      const { scope } = capture(repo, request);
+      assert.deepEqual({ mode: resolved.mode, base: resolved.base, head: resolved.guard.head, request: resolved.request, paths: resolved.changes.map((change) => change.path) }, { mode: scope.mode, base: scope.base, head: scope.head, request: scope.request, paths: scope.files.map((file) => file.path) });
+      assert.deepEqual(scope.request, { paths: ['src'] }, 'the spelling the capture records');
+    });
+
+    it('lists no untracked file in last-commit mode, and the commit it diffs to', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': '1\n' });
+      write(repo, 'a.txt', '2\n');
+      const head = commitAll(repo, 'second');
+      const resolved = resolveScopeRequest(repo, noRequest);
+      assert.equal(resolved.mode, 'last-commit');
+      assert.equal(resolved.target, head);
+      assert.deepEqual(resolved.changes, [{ path: 'a.txt', status: 'modified', untracked: false }]);
+    });
+
+    it('refuses what the capture refuses: a path that names nothing in the change, and a ref and a range together', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': '1\n' });
+      write(repo, 'a.txt', '2\n');
+      assert.throws(() => resolveScopeRequest(repo, { paths: ['missing'] }), /Scope path names nothing in the change: missing/);
+      assert.throws(() => resolveScopeRequest(repo, { ref: 'HEAD', range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }), InvalidScopeRequestError);
+    });
   });
 });

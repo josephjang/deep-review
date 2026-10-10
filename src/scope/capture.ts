@@ -22,6 +22,13 @@ interface WorktreeEntry {
   readonly symlink: boolean;
 }
 
+/** One changed path of the change a request names: its status, and whether git tracks it, which an untracked file of `worktree`, `ref` or `range` mode is not. */
+export interface ChangedPath {
+  readonly path: string;
+  readonly status: ScopeFile['status'];
+  readonly untracked: boolean;
+}
+
 /** Everything the capture learned about one path before any evidence is stored. */
 interface Observation {
   readonly path: string;
@@ -31,10 +38,52 @@ interface Observation {
 }
 
 /**
- * Capture the change a run reviews: choose the mode, list every changed
- * path, freeze its before and after bytes, store the patch, and append one
- * `scope.captured` event. Nothing is written to the ledger unless every
- * check passes and the repository did not move meanwhile.
+ * The change a request names in a repository as it is now: the request as
+ * the capture records it, its mode, base and head, the commit a
+ * `last-commit` scope diffs to or null, `HEAD` and the index as the
+ * resolution found them, and every changed path in path order. Nothing is
+ * read beyond the names, so it is the capture's first half and all a
+ * comparison with a captured scope needs (TD4 of fix pass continuation).
+ */
+export interface ResolvedScope {
+  readonly request: ScopeRequest;
+  readonly mode: ScopeMode;
+  readonly base: string;
+  readonly target: string | null;
+  readonly guard: { readonly head: string; readonly index: string };
+  readonly changes: readonly ChangedPath[];
+}
+
+/**
+ * Resolve a request as the capture does, writing nothing: validate it,
+ * spell its paths as the capture records them, refuse a repository state
+ * the capture cannot record, choose the mode against `HEAD` and the tree,
+ * and list every changed path, each requested path matching one and no
+ * more paths than the capture accepts. Throws what the capture throws for
+ * a request the tree refutes.
+ */
+export function resolveScopeRequest(repo: string, input: ScopeRequest): ResolvedScope {
+  validateRequest(input);
+  // Backslashes become slashes once, here: a path typed Windows-style must
+  // select the same file on every platform, and git pathspecs want slashes.
+  const request = normalizeRequest(input);
+  refuseUnsupportedState(repo);
+  const guardBefore = guard(repo);
+  const { mode, base, target } = chooseMode(repo, request, guardBefore.head);
+  const changes = listChanges(repo, mode, base, target, request.paths);
+  requirePathsMatched(request.paths, changes);
+  if (changes.length > maxScopeFiles) {
+    throw new UnsupportedRepositoryStateError(`The change touches ${String(changes.length)} paths, more than the ${String(maxScopeFiles)} the capture accepts`);
+  }
+  return { request, mode, base, target, guard: guardBefore, changes };
+}
+
+/**
+ * Capture the change a run reviews: resolve the request to its mode and
+ * every changed path (`resolveScopeRequest`), freeze each path's before
+ * and after bytes, store the patch, and append one `scope.captured` event.
+ * Nothing is written to the ledger unless every check passes and the
+ * repository did not move meanwhile.
  */
 export function captureScope(checkpoint: Checkpoint, runId: string, input: ScopeRequest): RunState {
   const state = checkpoint.fold(runId);
@@ -44,19 +93,8 @@ export function captureScope(checkpoint: Checkpoint, runId: string, input: Scope
   if (locateCheckpoint(repo).root !== checkpoint.root) {
     throw new InvalidScopeRequestError(`Worktree ${repo} belongs to a different checkpoint than ${checkpoint.root}`);
   }
-  validateRequest(input);
-  // Backslashes become slashes once, here: a path typed Windows-style must
-  // select the same file on every platform, and git pathspecs want slashes.
-  const request = normalizeRequest(input);
-  refuseUnsupportedState(repo);
-
-  const guardBefore = guard(repo);
-  const { mode, base, target } = chooseMode(repo, request, guardBefore.head);
-  const observations = observe(repo, mode, base, target, request.paths);
-  requirePathsMatched(request.paths, observations);
-  if (observations.length > maxScopeFiles) {
-    throw new UnsupportedRepositoryStateError(`The change touches ${String(observations.length)} paths, more than the ${String(maxScopeFiles)} the capture accepts`);
-  }
+  const { request, mode, base, target, guard: guardBefore, changes } = resolveScopeRequest(repo, input);
+  const observations = observe(repo, base, changes);
 
   const files = observations.map((observation) => freezeObservation(checkpoint.evidence, observation));
   const patch = checkpoint.evidence.put(buildPatch(repo, mode, base, target, request.paths, observations));
@@ -116,29 +154,34 @@ function chooseMode(repo: string, request: ScopeRequest, currentHead: string): {
   return { mode: 'worktree', base: currentHead, target: null };
 }
 
-/** List every changed path with its before and after contents, reading the repository but writing nothing. */
-function observe(repo: string, mode: ScopeMode, base: string, target: string | null, paths: readonly string[]): Observation[] {
-  const observations = new Map<string, Observation>();
-  const changed = gitApi.diffNameStatus(repo, base, target, paths);
-  const atBase = gitApi.treeEntries(repo, base, changed.map((entry) => entry.path));
-  for (const entry of changed) {
-    const status = statusOf(entry.code, entry.path);
-    const baseEntry = atBase.get(entry.path);
-    const before = baseEntry === undefined ? null : readBase(repo, base, baseEntry);
-    const after = readWorktree(repo, entry.path);
-    if (status !== 'deleted' && after === null) throw new CaptureRacedError(`${entry.path} is reported ${status} but is not in the worktree`);
-    observations.set(entry.path, { path: entry.path, status, before, after });
-  }
+/** List every changed path, tracked ones by git's diff and, outside `last-commit` mode, untracked ones, in path order; reads only names. */
+function listChanges(repo: string, mode: ScopeMode, base: string, target: string | null, paths: readonly string[]): ChangedPath[] {
+  const changes = new Map<string, ChangedPath>();
+  for (const entry of gitApi.diffNameStatus(repo, base, target, paths)) changes.set(entry.path, { path: entry.path, status: statusOf(entry.code, entry.path), untracked: false });
   if (mode !== 'last-commit') {
     for (const path of gitApi.untrackedEntries(repo, paths)) {
       if (path.endsWith('/')) throw new UnsupportedRepositoryStateError(`Embedded repositories are unsupported: ${path}`);
       validateScopePath(path);
-      const after = readWorktree(repo, path);
-      if (after === null) throw new CaptureRacedError(`${path} is untracked but is not in the worktree`);
-      observations.set(path, { path, status: 'added', before: null, after });
+      changes.set(path, { path, status: 'added', untracked: true });
     }
   }
-  return [...observations.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return [...changes.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/** Read each changed path's before and after contents, in the order given, reading the repository but writing nothing; an untracked file has no before state. */
+function observe(repo: string, base: string, changes: readonly ChangedPath[]): Observation[] {
+  const atBase = gitApi.treeEntries(repo, base, changes.filter((change) => !change.untracked).map((change) => change.path));
+  return changes.map(({ path, status, untracked }): Observation => {
+    const after = readWorktree(repo, path);
+    if (untracked) {
+      if (after === null) throw new CaptureRacedError(`${path} is untracked but is not in the worktree`);
+      return { path, status, before: null, after };
+    }
+    const baseEntry = atBase.get(path);
+    const before = baseEntry === undefined ? null : readBase(repo, base, baseEntry);
+    if (status !== 'deleted' && after === null) throw new CaptureRacedError(`${path} is reported ${status} but is not in the worktree`);
+    return { path, status, before, after };
+  });
 }
 
 function statusOf(code: string, path: string): ScopeFile['status'] {
@@ -177,9 +220,9 @@ function sameEntry(a: WorktreeEntry | null, b: WorktreeEntry | null): boolean {
 }
 
 /** Every requested path must select at least one changed path, as itself or as a directory prefix. */
-function requirePathsMatched(paths: readonly string[], observations: readonly Observation[]): void {
+function requirePathsMatched(paths: readonly string[], changes: readonly ChangedPath[]): void {
   for (const prefix of paths) {
-    const matched = observations.some((observation) => observation.path === prefix || observation.path.startsWith(`${prefix}/`));
+    const matched = changes.some((change) => change.path === prefix || change.path.startsWith(`${prefix}/`));
     if (!matched) throw new InvalidScopeRequestError(`Scope path names nothing in the change: ${prefix}`);
   }
 }
