@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,6 +8,16 @@ import { describe, it } from 'node:test';
 import { compileCacheDirectory, defaultCompileCacheDirectory } from './helpers/compile-cache.ts';
 
 const setup = pathToFileURL(resolve(import.meta.dirname, 'setup.ts')).href;
+
+/**
+ * A new temporary directory by its real path. A process started in it
+ * reports its working directory with every link resolved (on macOS the
+ * temporary directory sits under /var, a link to /private/var), so a path
+ * the test expects is built from the same form.
+ */
+function temporaryDirectory(): string {
+  return realpathSync.native(mkdtempSync(join(tmpdir(), 'compile-cache-')));
+}
 
 /** This process's environment without either compile cache variable, so a child starts as a developer's shell would. */
 function plainEnvironment(): NodeJS.ProcessEnv {
@@ -58,7 +68,7 @@ describe('compileCacheDirectory', () => {
 
 describe('the compile cache test/setup.ts turns on', () => {
   it('serves the test process and every Node process it starts, in whatever directory that one runs', () => {
-    const elsewhere = mkdtempSync(join(tmpdir(), 'compile-cache-'));
+    const elsewhere = temporaryDirectory();
     try {
       const seen = preloaded(resolve(import.meta.dirname, '..'), plainEnvironment(), elsewhere);
       assert.equal(seen.variable, defaultCompileCacheDirectory);
@@ -70,8 +80,8 @@ describe('the compile cache test/setup.ts turns on', () => {
   });
 
   it('hands its children a relative NODE_COMPILE_CACHE resolved against its own working directory', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'compile-cache-'));
-    const elsewhere = mkdtempSync(join(tmpdir(), 'compile-cache-'));
+    const cwd = temporaryDirectory();
+    const elsewhere = temporaryDirectory();
     try {
       const seen = preloaded(cwd, { ...plainEnvironment(), NODE_COMPILE_CACHE: 'cache' }, elsewhere);
       const expected = resolve(cwd, 'cache');
@@ -85,7 +95,7 @@ describe('the compile cache test/setup.ts turns on', () => {
   });
 
   it('turns nothing on when NODE_DISABLE_COMPILE_CACHE is set', () => {
-    const elsewhere = mkdtempSync(join(tmpdir(), 'compile-cache-'));
+    const elsewhere = temporaryDirectory();
     try {
       const seen = preloaded(resolve(import.meta.dirname, '..'), { ...plainEnvironment(), NODE_DISABLE_COMPILE_CACHE: '1' }, elsewhere);
       assert.deepEqual(seen, { own: null, variable: null, child: null });
