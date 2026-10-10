@@ -52,14 +52,29 @@ export function writeFileAtomic(file: string, text: string, rename: (from: strin
 }
 
 /**
+ * Remove a temporary file, leaving it where Windows refuses while antivirus
+ * or an indexer holds it: it only tidies, and no reader takes it for the
+ * file it was written for, so its removal must not turn a created file
+ * into a failure.
+ */
+function removeIfAble(temporary: string): void {
+  try {
+    rmSync(temporary, { force: true });
+  } catch {
+    // Left behind under its temporary name.
+  }
+}
+
+/**
  * Create `file` holding `text`, only if no file of that name exists, and
  * whole: written under a temporary name beside it, then hard-linked to its
  * name, so a process killed or a disk filled while writing leaves no file
  * under the name, and a reader never sees it before its content. False
  * when `file` exists already. Where the file system has no hard links, it
  * is created under `wx` and written, which a kill can still tear. The
- * temporary file is removed whatever happened; `link` stands in for the
- * file system's in tests.
+ * temporary file is removed whatever happened, as far as the file system
+ * lets it be, and its removal never decides the outcome; `link` stands in
+ * for the file system's in tests.
  */
 export function createFileExclusive(file: string, text: string, link: (from: string, to: string) => void = linkSync): boolean {
   const temporary = temporaryFor(file);
@@ -74,7 +89,7 @@ export function createFileExclusive(file: string, text: string, link: (from: str
       if (code === undefined || !noHardLinks.has(code)) throw error;
     }
   } finally {
-    rmSync(temporary, { force: true });
+    removeIfAble(temporary);
   }
   try {
     writeFileSync(file, text, { flag: 'wx' });
