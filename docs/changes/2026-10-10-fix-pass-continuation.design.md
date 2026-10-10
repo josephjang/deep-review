@@ -138,39 +138,56 @@ flowchart TD
   `reviewStatus === 'complete'`, `review.fix === null`,
   `phases.decision.status !== 'skipped'` and `sameDirectory(run.worktree,
   context.worktree)`, newest last; the newest is tried first.
-- The match is `scopeMatches(request, scope, worktree)` in
-  `src/scope/compare.ts`: the request resolved as `captureScope`
-  resolves it (TD4) gives the same `mode`, `base`, `head` and set of
-  paths as the captured scope, and `compareWorktree(scope, worktree)`
-  finds no drifted file and `HEAD` at the head. It returns the first
-  reason it fails, in that order, as one sentence: `its scope is
-  <mode> <base>..<head>, not the one named`, `<n> of its files changed
-  since`, `HEAD is <sha>, not <head>`. A run configured before the
-  decision step is not a candidate and is named with that reason when
-  it is the newest finished read-only run of the worktree.
+- The match is `scopeMatches(request, scope, worktree, changedSince)`
+  in `src/scope/compare.ts`: the request resolved as `captureScope`
+  resolves it (TD4) gives the same `mode` and `base` and the same set
+  of paths as the captured scope, `changedSince` finds no file of the
+  scope changed, and `HEAD` is at the scope's head. The controller
+  passes as `changedSince` the worktree check's own comparison,
+  `findDrift` with the run's git content match, so the files are
+  compared as git would store them. It returns the first reason it
+  fails, in that order, as one sentence: `its scope is <mode>
+  <base>..<head>, not the one named`, `its files are not the change
+  named: <paths> changed since and not in it; <paths> in it and no
+  longer changed`, `<n> of its files changed since: <paths>`, `HEAD is
+  <sha>, not <head>`. The head is compared last, not with the mode and
+  base: the request resolves its head to `HEAD`, so a head compared
+  first would leave the last reason unreachable. A run configured
+  before the decision step is not a candidate and is named with that
+  reason when it is the newest finished read-only run of the worktree.
 - When none matches: `log('--fix: no finished read-only run of this
   worktree reviewed this change as it is; a new run is created')`, then
-  `run <id>: not continued: <reason>` for the newest finished read-only
-  run of the worktree when there is one. With `--fresh`:
-  `--fresh: no finished run is considered; a new run is created`.
+  `run <id>: not continued: <reason>` for the newest complete run of
+  the worktree configured without the fix pass, continued since or not,
+  when there is one: a continued run with `it was continued into the
+  fix pass already` (R8), a run configured before the decision step
+  with `it was configured before the decision step, which a fix run
+  routes its findings by`, any other with its `scopeMatches` reason.
+  With `--fresh`: `--fresh: no finished run is considered; a new run
+  is created`; with `--fresh` and an active run, which is resumed,
+  `run <id> is active and resumes; --fresh is ignored`.
 - The lock and the second fold follow the resume path: another engine
   may have continued the run between the find and the lock, in which
   case it is resumable now and in this worktree, and `openRun` resumes
   it rather than creating a second active run; a run that no longer
-  qualifies for any other reason (abandoned, or an event this engine
+  qualifies for any other reason (abandoned, or continued and finished
+  by another engine, each named with `run <id>: <which> before its lock
+  was taken; a new run is created`, or holding an event this engine
   does not know, passed over with its line) releases the lock and a new
   run is created.
-- `resumePinned(run, pinned, context, { action: 'fresh' })` runs the
-  pinned checks of R3 (TD6). The decision-step guard inside it cannot
+- `resumePinned(run, pinned, context, 'continue')` runs the pinned
+  checks of R3 (TD6), after the runtime is held to the pinned one with
+  `--fresh` as the way out. The decision-step guard inside it cannot
   fire, since a candidate was configured with the step.
-- `fixPlanOf` needs the batch size the run has not pinned yet, so the
-  routing alone is computed: `planFixes(rankedFindings(review),
-  review.decisions ?? [], batchSize)` with the policy's batch size, and
-  the continuation is refused when no route is `fixer`:
+- `fixPlanOf` needs the batch size the run has not pinned yet, and the
+  batch size changes no route, so the routing alone is computed: each
+  recorded decision's `routeOfDecision`, the one rule `planFixes`
+  routes by. The continuation is refused when none is `fixer`:
   `run <id> has no finding to fix: <n> decided fix, <m> left, <k> asked
   with the code kept; nothing to continue; start a new run with --fresh
-  to review it again`, a `ReviewRefusedError` (exit 2). Nothing is
-  appended.
+  to review it again`, with `its review ranked no finding` in place of
+  the counts for an empty ranking, a `ReviewRefusedError` (exit 2).
+  Nothing is appended.
 - `openRun` returns, in place of `configure`, a `continuation:
   { pin: FixPinned, report: string } | null`; the controller appends the
   pin where it appends the configuration today, before `recordLimits`,
@@ -187,16 +204,19 @@ flowchart TD
   PlannedCheckV2[] | null }`, the first two with the schemas of
   `reviewConfiguredV2`'s blocks, the third `checksPlannedV2`'s array or
   null; the schema requires, when it is an array, one entry per kind
-  with origin `flag`, since a plan made with the pin comes from the
-  flags alone.
+  in the order the kinds run, each with origin `flag`, since a plan
+  made with the pin comes from the flags alone. The per-check timeout
+  and the batch size are the policy file's, `readPolicy(rolesRoot)`,
+  under the roles the run's digest was just held to.
 - the reducer `fixPinned` in `src/checkpoint/fix-fold.ts` requires a
   configured run with `report !== null`, `fix === null`, `status ===
   'active'`, `survey !== null`, and `decisions !== null` whenever the
   ranking holds a finding (a run configured before the decision step
   is refused, as `resumePinned` refuses it: `continues a run configured
   before the decision step, which routed by verdict and angle`). When
-  `survey.failure !== null` it requires `plannedChecks`, and refuses
-  `plannedChecks` that lack a kind or name one twice. Its effect:
+  `survey.failure !== null` it requires `plannedChecks`; a plan that
+  lacks a kind or names one twice is refused by the schema before the
+  reducer sees it. Its effect:
 
 ```mermaid
 stateDiagram-v2
@@ -312,7 +332,8 @@ sequenceDiagram
   is computed from every worker of the run, so the survey row counts
   both attempts and the total is the run's.
 - `describeRun` in `src/review/status.ts` adds `Continued from:
-  <path>` when set and `continuedFrom: { report: <path>, at }` to the
+  <path>, into the fix pass on <recordedAt>` when set, before the
+  `Report` line, and `continuedFrom: { report: <path>, at }` to the
   JSON, beside the existing `report`, which is the second report or
   null while the continuation runs.
 
@@ -383,12 +404,17 @@ fold as before.
   `baseline-checks` states the invariant for every path.
 - **TD4: The scope comparison is extracted from `captureScope`, not
   written beside it.** `captureScope` resolves a request to its mode,
-  base, head and file list and then freezes; the resolution moves to a
-  function the capture and `scopeMatches` both call, so the two cannot
-  disagree about what the flags name. The byte comparison is
-  `compareWorktree`, which the worktree check already uses, so "the
-  same contents" means what it means before every phase (R22 of the
-  fix pass).
+  base, head and file list and then freezes; the resolution moves to
+  `resolveScopeRequest`, which lists the changed paths by name and
+  which the capture and `scopeMatches` both call, so the two cannot
+  disagree about what the flags name. The byte comparison is the
+  worktree check's, `findDrift` with the run's git content match,
+  which the controller passes to `scopeMatches`, so "the same contents"
+  means what it means before every phase (R22 of the fix pass).
+  `compareWorktree`, which this decision first named, compares raw
+  bytes and is not what the worktree check uses: it would have refused
+  to continue a CRLF checkout a formatter rewrote to LF, which the run
+  itself does not call drift.
 - **TD5: The checks-only survey is task text and a structural check, not
   a new role or a new fragment.** A `checks-surveyor` role would need a
   policy entry, a manifest entry, a pinned role on every configuration
@@ -397,12 +423,17 @@ fold as before.
   to return, and the engine refuses an answer that ignores it, as it
   refuses every answer it cannot use; it does not silently drop
   conventions the model returns.
-- **TD6: `resumePinned` takes the action text as a parameter.** Its
-  refusals end in "or abandon it with `deep-review abandon ...`", which
-  is wrong for a complete run; a copy of the function for the
-  continuation was rejected, since the checks are the same and would
-  drift. The one parameter chooses between the abandon action and
-  `--fresh`.
+- **TD6: `resumePinned` takes the use as a parameter.** Its refusals
+  end in "or abandon it with `deep-review abandon ...`", which is wrong
+  for a complete run; a copy of the function for the continuation was
+  rejected, since the checks are the same and would drift. The one
+  parameter, `'resume'` or `'continue'`, chooses between the abandon
+  action and `--fresh`, and leaves out of a continuation the resume's
+  lines about `--fix` and the check flags, which describe a run whose
+  fix pass was pinned at configuration and would tell a continued run
+  that `--fix` is ignored. The runtime refusal, which `openRun` makes
+  before `resumePinned` for a resume, is one function both call with
+  their way out.
 - **TD7: The survey phase is reopened by the pin, not started by a
   special case in `phaseStarted`.** Letting `phaseStarted` accept a
   completed survey when the run fixes and its checks are unplanned was

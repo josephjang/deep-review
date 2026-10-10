@@ -139,11 +139,11 @@ the checks.
   git would store them (R22 of the fix pass), with `HEAD` at the scope's
   head. The log names the run it continues, where its read-only report
   is, and the run's spend so far against the budget in force. When no
-  run qualifies, the log says so, names the newest finished read-only
-  run of this worktree with the first reason it does not qualify (the
-  scope differs, a file changed since, `HEAD` moved, or it was
-  configured before the decision step), and a new run is created as
-  today. `--fresh` declines a continuation: a new run is created and
+  run qualifies, the log says so, names the newest finished run of this
+  worktree configured without the fix pass with the first reason it
+  does not qualify (the scope differs, a file changed since, `HEAD`
+  moved, it was configured before the decision step, or it was
+  continued already), and a new run is created as today. `--fresh` declines a continuation: a new run is created and
   the log says no finished run was considered. `--fresh` without
   `--fix` is a usage error. An active run is still resumed first,
   `--fresh` or not; it is dropped by `abandon`, as today.
@@ -183,8 +183,9 @@ the checks.
   finding of the run routes to a fixer by its decision (every finding
   was left, or asked with an applied option that keeps the code, or the
   ranking is empty), the command refuses with exit 2, naming the run and
-  the counts, and saying that `--fresh` starts a new run; nothing is
-  appended to the run and no check runs.
+  the counts, or that its review ranked no finding, and saying that
+  `--fresh` starts a new run; nothing is appended to the run and no
+  check runs.
 - **R6: The ledger records the continuation as one event after the
   report, and every older ledger still reads.** One event records that
   the run now fixes, with the per-check timeout and fixer batch size
