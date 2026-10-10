@@ -10,7 +10,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { runReview, type ReviewOptions, type ReviewOutcome } from '../../src/review/controller.ts';
 import type { CheckFlags } from '../../src/review/checks/discover.ts';
-import { policyFileName, readPolicy } from '../../src/review/policy.ts';
+import { policyFileName, readPolicy, type PolicyFile } from '../../src/review/policy.ts';
 import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
@@ -140,9 +140,11 @@ export class ReviewSandbox {
     // The repository's roles with a policy whose timeouts fit a test.
     this.rolesRoot = join(this.directory, 'roles');
     cpSync(repositoryRolesRoot(), this.rolesRoot, { recursive: true });
-    const policy = readPolicy(this.rolesRoot);
-    const roles = Object.fromEntries(Object.entries(policy.roles).map(([role, entry]) => [role, { ...entry, timeoutMs: workerTimeoutMs }]));
-    writeFileSync(join(this.rolesRoot, policyFileName), JSON.stringify({ ...policy, roles, checks: { timeoutMs: checkTimeoutMs } }, null, 2));
+    this.editPolicy((policy) => ({
+      ...policy,
+      roles: Object.fromEntries(Object.entries(policy.roles).map(([role, entry]) => [role, { ...entry, timeoutMs: workerTimeoutMs }])),
+      checks: { timeoutMs: checkTimeoutMs },
+    }));
     this.scriptFile = join(this.directory, 'script.json');
     this.checksFile = join(this.directory, 'checks.json');
     this.scratchRoot = join(this.directory, 'scratch');
@@ -154,10 +156,15 @@ export class ReviewSandbox {
 
   /** Give `role` the hang timeout in the runs created from now on, for a test that scripts one of its workers to hang. */
   shortenTimeout(role: string): void {
-    const policy = readPolicy(this.rolesRoot);
-    if (!Object.hasOwn(policy.roles, role)) throw new Error(`The policy has no role ${role}`);
-    const roles = { ...policy.roles, [role]: { ...policy.roles[role]!, timeoutMs: hangTimeoutMs } };
-    writeFileSync(join(this.rolesRoot, policyFileName), JSON.stringify({ ...policy, roles }, null, 2));
+    this.editPolicy((policy) => {
+      if (!Object.hasOwn(policy.roles, role)) throw new Error(`The policy has no role ${role}`);
+      return { ...policy, roles: { ...policy.roles, [role]: { ...policy.roles[role]!, timeoutMs: hangTimeoutMs } } };
+    });
+  }
+
+  /** Rewrite the sandbox's policy file as `edit` returns it, for the runs created from now on. */
+  editPolicy(edit: (policy: PolicyFile) => PolicyFile): void {
+    writeFileSync(join(this.rolesRoot, policyFileName), JSON.stringify(edit(readPolicy(this.rolesRoot)), null, 2));
   }
 
   /** Write the script the fakes answer from; the attempt counters start over. */
