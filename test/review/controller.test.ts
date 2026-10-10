@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
+import { maxStraysPerCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { claimCommandFor, presurveyRulesFiles, snapshotCommandFor, type ReviewOutcome } from '../../src/review/controller.ts';
 import { claimPathPlaceholder } from '../../src/review/tasks.ts';
@@ -21,7 +22,7 @@ import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { fakeCheckCommand, ReviewSandbox } from '../helpers/review-sandbox.ts';
-import { git, write } from '../helpers/repository.ts';
+import { commitAll, git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
 const pinnedAction = (state: RunState): string => {
@@ -538,6 +539,20 @@ describe('runReview', { timeout: 600_000 }, () => {
     assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'attempt.failed'), []);
     // The survey's one check; triage attempt 1 has its clean check at the start and the drifted one before its answer; attempts 2 and 3 one each; nine more phases, the decision among them.
     assert.match(text, /- Worktree checks: 14, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
+  });
+
+  it('records the first strays in path order up to the event\'s cap and logs how many more, so a tree with more tracked edits outside the scope is still reviewed', async () => {
+    // One more tracked file than a check lists, committed after the change and then edited: a ref review scoped to src/ expects none of them.
+    const outside = Array.from({ length: maxStraysPerCheck + 1 }, (_, index) => `bulk/f${String(index).padStart(4, '0')}.txt`);
+    for (const path of outside) write(box.repo, path, 'x\n');
+    commitAll(box.repo, 'files outside the scope');
+    for (const path of outside) write(box.repo, path, 'y\n');
+    box.script(fullScript);
+    report(await box.review('claude', { scope: { named: true, request: () => ({ ref: 'HEAD~2', paths: ['src'] }) } }));
+    const checks = box.run().review!.checks;
+    assert.ok(checks.length > 0);
+    for (const check of checks) assert.deepEqual(check.strays, outside.slice(0, maxStraysPerCheck), `${check.phase} ${check.moment}`);
+    assert.ok(box.logs.some((line) => line.startsWith('phase triage: files no worker accounts for: bulk/f0000.txt, ') && line.endsWith(`, ${outside[maxStraysPerCheck - 1]!}, and 1 more the check does not list`)), 'the log names how many strays the check leaves out');
   });
 
   it('sets aside a finder\'s answer when a scope file changes while it runs, lets the others settle, and relaunches it without using an attempt', async () => {

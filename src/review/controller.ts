@@ -361,7 +361,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       const found = findDrift(state, options.worktree, content.match);
       if (drifted(found)) {
         log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-        state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 4, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found) }]);
+        state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 4, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload }]);
         return;
       }
     }
@@ -480,9 +480,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         case 'check-worktree': {
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
-          const check = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
+          const { payload: check, unlisted } = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check)}`);
-          if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}`);
+          if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}${unlisted === 0 ? '' : `, and ${String(unlisted)} more the check does not list`}`);
           state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 4, payload: check }]);
           break;
         }

@@ -583,6 +583,9 @@ export const phaseFinishedV2 = z.strictObject({
   path: ['blocker'],
 });
 
+/** The most strays one `worktree.checked` event lists; a check records the first of them in path order. */
+export const maxStraysPerCheck = 2000;
+
 /**
  * The worktree compared with what the run expects (R7 of the fix pass):
  * when in the attempt, each expected file that differs with the state the
@@ -598,7 +601,7 @@ export const worktreeCheckedV2 = z.strictObject({
   drifted: z.boolean(),
   head: z.strictObject({ expected: commitId, actual: commitId }).nullable(),
   files: z.array(z.strictObject({ path: z.string().min(1), outcome: z.enum(['modified', 'deleted', 'restored']), expected: frozenFileSchema.nullable() })).max(2000),
-  strays: z.array(z.string().min(1)).max(2000),
+  strays: z.array(z.string().min(1)).max(maxStraysPerCheck),
 }).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
   message: 'drifted exactly when some file differs or HEAD moved',
   path: ['drifted'],
