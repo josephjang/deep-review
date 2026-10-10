@@ -26,6 +26,16 @@ const longestWaitMs = 50;
 
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
 
+/** A replace still refused as busy once its retries ran out: the file keeps what it held, and `code` is the last refusal's. */
+export class ReplaceBusyError extends Error {
+  override readonly name = 'ReplaceBusyError';
+  readonly code: string;
+  constructor(file: string, cause: NodeJS.ErrnoException & { code: string }) {
+    super(`${file} could not be replaced, still busy after ${String(replaceBudgetMs)} ms: ${cause.message}`, { cause });
+    this.code = cause.code;
+  }
+}
+
 /**
  * A fresh temporary name beside `file` to write it under: no reader takes it
  * for `file`, since it does not end as `file` does. The random part keeps
@@ -37,8 +47,10 @@ const temporaryFor = (file: string): string => `${file}.${String(process.pid)}.$
 /**
  * Write `text` to `file` whole: to a temporary name beside it, then renamed
  * over it, so a reader never sees half of it. A rename refused as busy is
- * tried again, waiting a little longer each time, for a bounded time;
- * `rename` stands in for the file system's in tests.
+ * tried again, waiting a little longer each time, for a bounded time, and
+ * throws `ReplaceBusyError` once that time is out; a rename that fails
+ * removes the temporary file as far as the file system lets it. `rename`
+ * stands in for the file system's in tests.
  */
 export function writeFileAtomic(file: string, text: string, rename: (from: string, to: string) => void = renameSync): void {
   const temporary = temporaryFor(file);
@@ -50,7 +62,14 @@ export function writeFileAtomic(file: string, text: string, rename: (from: strin
       return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === undefined || !busyReplace.has(code) || Date.now() >= deadline) throw error;
+      if (code === undefined || !busyReplace.has(code)) {
+        removeIfAble(temporary);
+        throw error;
+      }
+      if (Date.now() >= deadline) {
+        removeIfAble(temporary);
+        throw new ReplaceBusyError(file, error as NodeJS.ErrnoException & { code: string });
+      }
     }
     Atomics.wait(sleeper, 0, 0, wait);
   }

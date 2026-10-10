@@ -3,7 +3,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { createFileExclusive, writeFileAtomic } from '../src/atomic-write.ts';
+import { createFileExclusive, ReplaceBusyError, writeFileAtomic } from '../src/atomic-write.ts';
 
 describe('writeFileAtomic', () => {
   let directory: string;
@@ -61,13 +61,14 @@ describe('writeFileAtomic', () => {
     writeFileSync(file, 'old\n');
     const lasting = failing('EPERM', Number.POSITIVE_INFINITY);
     const started = Date.now();
-    assert.throws(() => writeFileAtomic(file, 'new\n', lasting.rename), { code: 'EPERM' });
+    assert.throws(() => writeFileAtomic(file, 'new\n', lasting.rename), (error: unknown) => error instanceof ReplaceBusyError && error.code === 'EPERM');
     assert.ok(lasting.calls.count > 1, 'retried before giving up');
     assert.ok(Date.now() - started < 5000, 'within a bounded time');
     const other = failing('EXDEV', Number.POSITIVE_INFINITY);
-    assert.throws(() => writeFileAtomic(file, 'new\n', other.rename), { code: 'EXDEV' });
+    assert.throws(() => writeFileAtomic(file, 'new\n', other.rename), (error: unknown) => !(error instanceof ReplaceBusyError) && (error as NodeJS.ErrnoException).code === 'EXDEV');
     assert.equal(other.calls.count, 1);
     assert.equal(readFileSync(file, 'utf8'), 'old\n');
+    assert.deepEqual(readdirSync(directory), ['held.json'], 'neither failure leaves its temporary file');
   });
 });
 

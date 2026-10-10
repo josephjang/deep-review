@@ -11,7 +11,7 @@
 import { claimsOfRound, roundOf } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { heldOf, type ClaimsAccess } from './claim-events.ts';
-import { claimsDirectoryFor, claimsDirectoryIntact, ClaimsDirectoryLostError, prepareClaims, readClaims } from './claims.ts';
+import { claimsDirectoryFor, claimsDirectoryIntact, ClaimsDirectoryLostError, heldFileName, prepareClaims, readClaims } from './claims.ts';
 import type { ClaimsContext } from './phases.ts';
 
 /** What the claims directories of a run are kept with. */
@@ -27,6 +27,8 @@ export interface ClaimsDirectoriesOptions {
   /** The command a fixer runs to claim a file, for its unit and its round's directory. */
   readonly command: (key: string, directory: string) => string;
   readonly log: (line: string) => void;
+  /** Stands in for the file system's rename of `held.json` in tests. */
+  readonly rename?: (from: string, to: string) => void;
 }
 
 /** What a settling fixes-phase unit is recorded with, both from one reading of its round's directory. */
@@ -46,7 +48,8 @@ export interface ClaimsDirectories {
    * again once it settles: what the claim command is told of the round, as
    * the fold has it now, and every claim of the round the ledger holds,
    * seeded back where the directory lost it. False, the loss recorded, when
-   * this engine prepared it before and it is no longer intact.
+   * this engine prepared it before and it is no longer intact. An earlier
+   * `held.json` that stayed busy is kept and logged, and the unit goes on.
    */
   readonly prepare: (key: string) => boolean;
   /**
@@ -91,7 +94,8 @@ export function claimsDirectories(options: ClaimsDirectoriesOptions): ClaimsDire
     const round = roundOf(fix, key);
     const directory = directoryOf(key);
     try {
-      prepareClaims(directory, heldOf(fix, round, options.worktree, caseInsensitive()), claimsOfRound(fix, round).map((claim) => ({ path: claim.path, cluster: claim.cluster, unit: claim.key, claimedAt: claim.claimedAt })), prepared.has(directory));
+      const refreshed = prepareClaims(directory, heldOf(fix, round, options.worktree, caseInsensitive()), claimsOfRound(fix, round).map((claim) => ({ path: claim.path, cluster: claim.cluster, unit: claim.key, claimedAt: claim.claimedAt })), prepared.has(directory), options.rename);
+      if (!refreshed) log(`phase fixes: ${heldFileName} in ${directory} stayed busy and was not refreshed for ${key}; claims read the earlier one until the next prepare`);
     } catch (error) {
       if (!(error instanceof ClaimsDirectoryLostError)) throw error;
       lose(error.directory);

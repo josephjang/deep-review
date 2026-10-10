@@ -994,7 +994,12 @@ refused is not on the ledger.
   listed as settled, and a late claim holds its file, from the settle
   that recorded it; only a claim the command makes while that settle is
   being appended still reads the earlier `held.json` and is refused, and
-  its finding goes to the second round.
+  its finding goes to the second round. A `held.json` whose replace stays
+  busy past `writeFileAtomic`'s retries, as while antivirus holds it on
+  Windows, is kept the same way: `prepareClaims` returns false, the engine
+  logs that it was not refreshed, the seeding goes on and the next
+  prepare writes it afresh, rather than ending the run (2026-10-10,
+  review SCAN-8).
 - Two spellings of one path that differ in more than slashes or case
   (TD4) make two markers until the engine resolves them at the answer;
   the fold refuses the second claim, the violation rule then applies,
