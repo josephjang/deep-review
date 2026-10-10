@@ -10,7 +10,7 @@
  */
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { isClaimablePath, maxClaimFilesPerEvent, type ClaimsLost, type FilesClaimed } from '../checkpoint/events.ts';
-import { batchOf, claimRefusal, claimsOfRound, holdersKeyedBy, planOfRound, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, holdersKeyedBy, planOfRound, roundOf, settledClusters, type FixState, type PlannedBatch, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { applyEvent, type RunState } from '../checkpoint/fold.ts';
 import { markerHash, pathKey, type Held, type LiveClaim } from './claims.ts';
 import { StructuralCheckError } from './errors.ts';
@@ -45,10 +45,18 @@ export interface ClaimSettle {
 /** The settle of a unit with no directory to read: nothing recorded, nothing pending, and paths compared as the worktree's file system compares them, as a late claim compares them. */
 export const settledNothing = (state: RunState, caseInsensitive: boolean): ClaimSettle => ({ events: [], state, pending: new Set(), caseInsensitive });
 
-function requireFix(state: RunState): FixState {
+/** The run's fix pass; throws for a run not configured with it. */
+export function requireFix(state: RunState): FixState {
   const fix = state.review?.fix ?? null;
   if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
   return fix;
+}
+
+/** The planned batch a fixes-phase unit key names, of either round; the plan is recorded before any batch launches. */
+export function batchOfUnit(state: RunState, key: string): PlannedBatch {
+  const batch = batchOf(requireFix(state), key);
+  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
+  return batch;
 }
 
 /**
@@ -247,8 +255,7 @@ export function isPending(settle: ClaimSettle, path: string): boolean {
  */
 export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<string>): NewEvent | null {
   const fix = requireFix(settle.state);
-  const batch = batchOf(fix, key);
-  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
+  const batch = batchOfUnit(settle.state, key);
   const round = roundOf(fix, key);
   const keyOf = (path: string): string => pathKey(path, settle.caseInsensitive);
   const holders = holdersKeyedBy(fix, round, keyOf);
