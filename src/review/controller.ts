@@ -365,8 +365,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         return;
       }
     }
-    const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : claims;
-    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling, survey: surveyInputs, claimsLost: phase === 'fixes' && directories.lost() !== null });
+    const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : { access: claims, lost: false };
+    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
     for (const event of events) {
       for (const line of claimLines(event)) log(line);
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
