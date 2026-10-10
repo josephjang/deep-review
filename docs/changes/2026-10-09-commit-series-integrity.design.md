@@ -1012,4 +1012,8 @@ refused is not on the ledger.
   (R7). A tracked
   file outside the change that was already changed when the run started
   is a stray from the first check on and is not named as one the run
-  left.
+  left. Since every such file is a stray, a check lists the first
+  `maxStraysPerCheck` (2000, the cap `worktree.checked` already had) in
+  path order and its log line counts the rest, so a tree with more
+  is still checked; a stray past the cap is not known to the run as
+  one the first check found (amended 2026-10-10, after the gate).

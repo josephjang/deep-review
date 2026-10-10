@@ -9,7 +9,7 @@
  * replacement is told to expect; the check at the phase's end compares
  * every expected file.
  */
-import type { WorktreeCheckV4 } from '../checkpoint/events.ts';
+import { maxStraysPerCheck, type WorktreeCheckV4 } from '../checkpoint/events.ts';
 import { isNotAttempted, ownedFiles } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered } from '../checkpoint/review-fold.ts';
@@ -49,21 +49,38 @@ export function findDrift(state: RunState, worktree: string, match: ExpectedMatc
 
 export const drifted = (found: DriftFound): boolean => found.files.length > 0 || found.head !== null;
 
-/** The `worktree.checked@4` payload of a check: what it found, and the strays git reports at that moment. */
-export function worktreeChecked(state: RunState, worktree: string, phase: Phase, attempt: number, moment: WorktreeCheckV4['moment'], found: DriftFound): WorktreeCheckV4 {
+/** A check to record: its `worktree.checked@4` payload, and how many strays past `maxStraysPerCheck` the payload leaves out. */
+export interface WorktreeCheck {
+  readonly payload: WorktreeCheckV4;
+  readonly unlisted: number;
+}
+
+/**
+ * The check of what a check found, with the strays git reports at that
+ * moment: the first `maxStraysPerCheck` in path order, the most the event
+ * holds, so a tree with more of them, such as a formatter's run over the
+ * repository, is still checked. A stray past the cap is not known to the
+ * run, so the first check does not record it as one the run found before
+ * any fixer ran.
+ */
+export function worktreeChecked(state: RunState, worktree: string, phase: Phase, attempt: number, moment: WorktreeCheckV4['moment'], found: DriftFound): WorktreeCheck {
+  const strays = straysOf(worktree, expectedTreeOf(state));
   return {
-    phase,
-    attempt,
-    moment,
-    drifted: drifted(found),
-    head: found.head,
-    files: found.files.map((file) => ({ path: file.path, outcome: file.outcome, expected: file.expected })),
-    strays: straysOf(worktree, expectedTreeOf(state)),
+    payload: {
+      phase,
+      attempt,
+      moment,
+      drifted: drifted(found),
+      head: found.head,
+      files: found.files.map((file) => ({ path: file.path, outcome: file.outcome, expected: file.expected })),
+      strays: strays.slice(0, maxStraysPerCheck),
+    },
+    unlisted: Math.max(0, strays.length - maxStraysPerCheck),
   };
 }
 
 /** The check a phase's attempt makes at its start or end: an editing phase's start leaves its unsettled units' files out (TD3). */
-export function phaseCheck(state: RunState, worktree: string, phase: Phase, attempt: number, moment: 'start' | 'end', match: ExpectedMatch): WorktreeCheckV4 {
+export function phaseCheck(state: RunState, worktree: string, phase: Phase, attempt: number, moment: 'start' | 'end', match: ExpectedMatch): WorktreeCheck {
   const excluded = moment === 'start' ? unsettledFiles(state, phase) : new Set<string>();
   return worktreeChecked(state, worktree, phase, attempt, moment, findDrift(state, worktree, match, excluded));
 }
