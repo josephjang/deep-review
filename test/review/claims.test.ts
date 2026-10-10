@@ -158,12 +158,21 @@ describe('claims', () => {
       assert.equal(markerName('Docs/Notes.md', 1, true), markerName('docs/notes.md', 1, true));
     });
 
-    it('refuses a path outside the repository, under .git, absolute or empty, with the reason', () => {
-      for (const path of ['../outside.ts', 'src/../../x', '.git/config', 'src/.GIT/x', '/etc/passwd', 'C:/x.ts', 'c:\\x.ts', '', '.', 'src//a.ts', 'src/']) {
+    it('refuses a path outside the repository, under .git, absolute outside the worktree or empty, with the reason', () => {
+      for (const path of ['../outside.ts', 'src/../../x', '.git/config', 'src/.GIT/x', '/etc/passwd', 'C:/x.ts', 'c:\\x.ts', '', '.', 'src//a.ts', 'src/', join(directory, 'outside.ts'), repo, join(repo, '.git', 'config')]) {
         assert.throws(() => claimFile(dir, path, 'c1-1'), InvalidScopeRequestError, JSON.stringify(path));
       }
       assert.deepEqual(markerFiles(), []);
       assert.equal(normalizeClaimPath('./src/./a.ts'), 'src/a.ts');
+    });
+
+    it('reads an absolute path inside the worktree and a spelling with spaces around it as the answer reads them, so both meet the relative path\'s marker', () => {
+      assert.deepEqual(claimFile(dir, join(repo, 'src', 'a.ts'), 'c1-1'), { kind: 'owned', path: 'src/a.ts', cluster: 'c1' });
+      assert.deepEqual(claimFile(dir, join(repo, 'test', 'shared.test.ts'), 'c1-1', at('2026-10-09T01:00:00.000Z')), { kind: 'claimed', path: 'test/shared.test.ts', cluster: 'c1', generation: 1, created: true });
+      assert.deepEqual(claimFile(dir, 'test/shared.test.ts ', 'c2-1'), { kind: 'refused', path: 'test/shared.test.ts', holder: 'c1', by: 'claim' });
+      assert.deepEqual(claimFile(dir, ` ${join(repo, 'test', 'shared.test.ts')}\t`, 'c2-1'), { kind: 'refused', path: 'test/shared.test.ts', holder: 'c1', by: 'claim' });
+      assert.deepEqual(claimFile(dir, join(repo, 'docs', 'new.md'), 'c2-1').kind, 'claimed', 'a file the worktree does not hold yet');
+      assert.deepEqual(markerFiles(), [markerName('docs/new.md', 1, false), markerName('test/shared.test.ts', 1, false)].sort());
     });
 
     it('refuses a path longer than a marker records, which would hold the path with a marker never whole, and claims one at the cap', () => {
@@ -328,6 +337,15 @@ describe('claims', () => {
       assert.match(nested.stderr, /run the claim command from the repository root/);
       assert.deepEqual(markerFiles(), []);
       assert.equal(run(directory, ...claimArgs('docs/a.md', 'c1-1')).status, 0, 'outside the worktree the path is still the repository\'s');
+    });
+
+    it('exits 0 for an absolute path inside the worktree, the spelling a fixer edits by, naming the repository path', () => {
+      const absolute = run(repo, ...claimArgs(join(repo, 'docs', 'b.md'), 'c1-1'));
+      assert.equal(absolute.status, 0, absolute.stderr);
+      assert.equal(absolute.stdout, 'claim docs/b.md: claimed for your cluster c1\n');
+      const outside = run(repo, ...claimArgs(join(directory, 'b.md'), 'c1-1'));
+      assert.equal(outside.status, 1);
+      assert.match(outside.stderr, /^InvalidScopeRequestError: A claimed path must be inside the worktree/);
     });
 
     it('refuses missing, repeated and foreign flags with the usage', () => {
