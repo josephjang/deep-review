@@ -4,7 +4,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
+import { Checkpoint, type ListedRun } from '../../src/checkpoint/checkpoint.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { runReview, type ReviewOptions, type ReviewOutcome } from '../../src/review/controller.ts';
@@ -37,6 +37,33 @@ export const cliEntry = resolve(import.meta.dirname, '../../src/cli.ts');
 
 /** The command line of the stand-in check of one kind, with this Node, quoted for either platform shell. */
 export const fakeCheckCommand = (kind: CheckKind): string => `"${process.execPath}" "${fakeCheck}" ${kind}`;
+
+/**
+ * The checkpoint as a command that picks a run sees it, with `act` run once
+ * right after the first `listRuns`: another writer appending between the
+ * find of the run and the take of its lock. Every other member goes to the
+ * checkpoint itself, whose private fields a proxy receiver would not reach.
+ */
+export const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => void): { checkpoint: Checkpoint; acted: () => boolean } => {
+  let acted = false;
+  const proxy = new Proxy(checkpoint, {
+    get(target, property): unknown {
+      if (property === 'listRuns') {
+        return (): ListedRun[] => {
+          const runs = target.listRuns();
+          if (!acted) {
+            acted = true;
+            act(target);
+          }
+          return runs;
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  return { checkpoint: proxy, acted: () => acted };
+};
 
 export class ReviewSandbox {
   readonly directory: string;

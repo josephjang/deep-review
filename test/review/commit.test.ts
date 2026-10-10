@@ -10,7 +10,7 @@ import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
-import { otherEngine, ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { afterFind, otherEngine, ReviewSandbox } from '../helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../../src/cli.ts');
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure` });
@@ -152,25 +152,11 @@ describe('deep-review commit', { timeout: 900_000 }, () => {
     const runId = await fixRun();
     const head = git(box.repo, 'rev-parse', 'HEAD');
     // The engine that wrote the run appends an event this one does not declare right after the choice, before the run lock.
-    let acted = false;
-    const late = new Proxy(box.checkpoint, {
-      get(target, property): unknown {
-        if (property === 'listRuns') {
-          return (): ReturnType<typeof target.listRuns> => {
-            const runs = target.listRuns();
-            if (!acted) {
-              acted = true;
-              box.addUnknownEvent(runId);
-            }
-            return runs;
-          };
-        }
-        const value: unknown = Reflect.get(target, property, target);
-        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-      },
+    const late = afterFind(box.checkpoint, () => {
+      box.addUnknownEvent(runId);
     });
-    assert.throws(() => commitRun({ checkpoint: late, worktree: box.repo }), (error: unknown) => error instanceof UnreadableRunError && error.runId === runId && error.unknown.engine === otherEngine);
-    assert.equal(acted, true);
+    assert.throws(() => commitRun({ checkpoint: late.checkpoint, worktree: box.repo }), (error: unknown) => error instanceof UnreadableRunError && error.runId === runId && error.unknown.engine === otherEngine);
+    assert.equal(late.acted(), true);
     assert.equal(git(box.repo, 'rev-parse', 'HEAD'), head, 'no commit was made');
   });
 

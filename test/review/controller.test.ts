@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { Checkpoint, ListedRun } from '../../src/checkpoint/checkpoint.ts';
+import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { presurveyRulesFiles, type ReviewOutcome } from '../../src/review/controller.ts';
@@ -18,7 +18,7 @@ import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { fakeCheckCommand, otherEngine, ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { afterFind, fakeCheckCommand, otherEngine, ReviewSandbox } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
@@ -78,33 +78,6 @@ const lockFree = (acquire: () => ReleaseLock): boolean => {
     if (error instanceof ReviewRefusedError && error.code === 'lock-held') return false;
     throw error;
   }
-};
-
-/**
- * The checkpoint as a review sees it, with `act` run once right after the
- * first `listRuns`: another writer appending between the find of the run
- * and the take of its lock. Every other member goes to the checkpoint
- * itself, whose private fields a proxy receiver would not reach.
- */
-const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => void): { checkpoint: Checkpoint; acted: () => boolean } => {
-  let acted = false;
-  const proxy = new Proxy(checkpoint, {
-    get(target, property): unknown {
-      if (property === 'listRuns') {
-        return (): ListedRun[] => {
-          const runs = target.listRuns();
-          if (!acted) {
-            acted = true;
-            act(target);
-          }
-          return runs;
-        };
-      }
-      const value: unknown = Reflect.get(target, property, target);
-      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-    },
-  });
-  return { checkpoint: proxy, acted: () => acted };
 };
 
 describe('runReview', { timeout: 600_000 }, () => {
