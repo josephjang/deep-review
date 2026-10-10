@@ -110,13 +110,15 @@ export class ReviewSandbox {
    * A sandbox for the test `t` alone, closed when `t` ends. A file whose
    * tests run concurrently gives each its own this way: one sandbox shared
    * through a variable that each test's hook reassigns would let one test
-   * act on, and close, another's.
+   * act on, and close, another's. With `script`, the fakes answer from it,
+   * as box.script(script) would set.
    */
-  static forTest(t: TestContext): ReviewSandbox {
+  static forTest(t: TestContext, script?: Script): ReviewSandbox {
     const box = new ReviewSandbox();
     t.after(() => {
       box.close();
     });
+    if (script !== undefined) box.script(script);
     return box;
   }
 

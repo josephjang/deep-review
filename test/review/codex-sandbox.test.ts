@@ -38,8 +38,7 @@ interface Spied {
 describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
   /** A sandbox for the test `t` alone, whose triage fails twice, so each invocation stops after the survey with the run still active. */
   const spied = (t: TestContext): Spied => {
-    const box = ReviewSandbox.forTest(t);
-    box.script({ triage: { exit: 2 } });
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
     const launched: Launch[] = [];
     /** The engine's runtimes, each command recording what the launch's plan pinned before the adapter builds it. */
     const spying = (adapter: RuntimeAdapter): RuntimeAdapter => ({
@@ -214,13 +213,12 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
 describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Codex sandbox)', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
   /** A sandbox for the test `t` alone, with one finding for one fixer, and a lint check failing before and after the fixes, so a repair worker runs too. */
   const sandbox = (t: TestContext): ReviewSandbox => {
-    const box = ReviewSandbox.forTest(t);
-    box.checks({ lint: 'fail' });
-    box.script({
+    const box = ReviewSandbox.forTest(t, {
       triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n\nexport function other() {\n  return parse(null);\n}\n' } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
       'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [], note: 'every failure was there before the fixes' }]) },
     });
+    box.checks({ lint: 'fail' });
     return box;
   };
 
@@ -300,14 +298,10 @@ describe('the surveyor of an elevated run (R12 of the Codex sandbox)', { timeout
    * A sandbox for the test `t` alone. The flags settle three kinds and leave test to the surveyor, whose task then says how
    * to look a tool up; the triage fails twice, so the run stops after the survey.
    */
-  const sandbox = (t: TestContext): ReviewSandbox => {
-    const box = ReviewSandbox.forTest(t);
-    box.script({
-      surveyor: { output: { conventions: [], userRules: [], checks: [{ kind: 'test', command: fakeCheckCommand('test'), basis: 'stated', source: { path: 'package.json', quote: '"test": "node ..."' }, missingTool: null, reason: null }], note: '' } },
-      triage: { exit: 2 },
-    });
-    return box;
-  };
+  const sandbox = (t: TestContext): ReviewSandbox => ReviewSandbox.forTest(t, {
+    surveyor: { output: { conventions: [], userRules: [], checks: [{ kind: 'test', command: fakeCheckCommand('test'), basis: 'stated', source: { path: 'package.json', quote: '"test": "node ..."' }, missingTool: null, reason: null }], note: '' } },
+    triage: { exit: 2 },
+  });
 
   const threeSettled = { commands: { build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck'), lint: fakeCheckCommand('lint') }, dropped: [] };
   const surveyorPrompt = (box: ReviewSandbox): string => box.promptOf(box.run(), 'surveyor survey:survey');
