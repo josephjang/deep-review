@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -19,11 +19,11 @@ const worktree = '/no/such/worktree';
 const running = (): History => baselined().start('fixes').add('fixes.planned', twoClusterPlan);
 
 /** The claims directories of a run in a fresh scratch, with the lines they log; the scratch is removed after `body`. */
-function withDirectories(state: RunState, body: (directories: ClaimsDirectories, round: string, logged: string[]) => void): void {
+function withDirectories(state: RunState, body: (directories: ClaimsDirectories, round: string, logged: string[]) => void, rename?: (from: string, to: string) => void): void {
   const scratchBase = mkdtempSync(join(tmpdir(), 'deep-review-claims-directories-'));
   const logged: string[] = [];
   try {
-    const directories = claimsDirectories({ scratchBase, runId: state.id, worktree, state: () => state, caseInsensitive: () => false, command: (key, directory) => `claim ${key} ${directory}`, log: (line) => logged.push(line) });
+    const directories = claimsDirectories({ scratchBase, runId: state.id, worktree, state: () => state, caseInsensitive: () => false, command: (key, directory) => `claim ${key} ${directory}`, log: (line) => logged.push(line), ...(rename === undefined ? {} : { rename }) });
     body(directories, claimsDirectoryFor(scratchBase, state.id, 1), logged);
   } finally {
     rmSync(scratchBase, { recursive: true, force: true });
@@ -71,6 +71,23 @@ describe('claimsDirectories', () => {
         });
       }
     }
+  });
+
+  it('keeps and logs an earlier held.json whose replace stays busy, and the directory stays prepared', () => {
+    let busy = false;
+    const rename = (from: string, to: string): void => {
+      if (busy) throw Object.assign(new Error('EBUSY: resource busy or locked, rename'), { code: 'EBUSY' });
+      renameSync(from, to);
+    };
+    withDirectories(running().fold(), (directories, round, logged) => {
+      assert.equal(directories.prepare('c1-1'), true);
+      const earlier = readHeld(round);
+      busy = true;
+      assert.equal(directories.prepare('c2-1'), true, 'the unit goes on');
+      assert.deepEqual(readHeld(round), earlier);
+      assert.equal(directories.lost(), null);
+      assert.deepEqual(logged, [`phase fixes: ${heldFileName} in ${round} stayed busy and was not refreshed for c2-1; claims read the earlier one until the next prepare`]);
+    }, rename);
   });
 
   it('records a settle from one reading of its directory, which a removal after it does not change', () => {

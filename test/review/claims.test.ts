@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { ReplaceBusyError } from '../../src/atomic-write.ts';
 import { caseInsensitiveFileSystem, claimFile, ClaimRequestError, claimsDirectoryFor, claimsDirectoryIntact, ClaimsDirectoryLostError, heldFileName, markerHash, markerName, normalizeClaimPath, prepareClaims, readClaims, readHeld, tornMarkerAfterMs, type Held } from '../../src/review/claims.ts';
 import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
@@ -32,7 +33,7 @@ describe('claims', () => {
     caseInsensitive: false,
     ...overrides,
   });
-  const prepare = (overrides: Partial<Held> = {}, recorded: Parameters<typeof prepareClaims>[2] = []): void => prepareClaims(dir, round(overrides), recorded, false);
+  const prepare = (overrides: Partial<Held> = {}, recorded: Parameters<typeof prepareClaims>[2] = []): boolean => prepareClaims(dir, round(overrides), recorded, false);
   const markerFiles = (): string[] => readdirSync(dir).filter((name) => name !== heldFileName).sort();
   const at = (iso: string) => (): Date => new Date(iso);
 
@@ -88,6 +89,26 @@ describe('claims', () => {
       assert.deepEqual(claims.map((claim) => claim.generation), [1, 2]);
       const seeded = claims[1]!;
       assert.equal(seeded.whole && seeded.cluster, 'c2');
+    });
+
+    it('keeps the earlier held.json when its replace stays busy, removes the temporary file and still seeds the ledger\'s claims', () => {
+      const busy = (): void => {
+        throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+      };
+      assert.equal(prepareClaims(dir, round(), [], false), true);
+      assert.equal(prepareClaims(dir, round({ settled: ['c2'] }), [{ path: 'docs/a.md', cluster: 'c1', unit: 'c1-1', claimedAt: null }], true, busy), false);
+      assert.deepEqual(readHeld(dir), round(), 'the earlier held.json, not refreshed');
+      assert.deepEqual(markerFiles(), [markerName('docs/a.md', 1, false)], 'seeded, and no temporary file left');
+    });
+
+    it('throws a busy replace when there is no earlier held.json to keep, and any other replace error', () => {
+      const failing = (code: string) => (): void => {
+        throw Object.assign(new Error(`${code}: rename`), { code });
+      };
+      assert.throws(() => prepareClaims(dir, round(), [], false, failing('EBUSY')), (error: unknown) => error instanceof ReplaceBusyError && error.code === 'EBUSY');
+      assert.equal(claimsDirectoryIntact(dir), false);
+      prepare();
+      assert.throws(() => prepareClaims(dir, round(), [], true, failing('EXDEV')), { code: 'EXDEV' });
     });
 
     it('refuses a directory it prepared before and that is gone, creating nothing (R12)', () => {

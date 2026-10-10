@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, type Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { z } from 'zod';
-import { createFileExclusive, writeFileAtomic } from '../atomic-write.ts';
+import { createFileExclusive, ReplaceBusyError, writeFileAtomic } from '../atomic-write.ts';
 import type { PathHolder } from '../checkpoint/fix-state.ts';
 import { EngineError } from '../errors.ts';
 import { canonicalPath, isInside } from '../paths.ts';
@@ -366,11 +366,22 @@ export interface RecordedMarker {
  * `expectExisting` says this engine prepared the directory before, so a
  * directory no longer intact, gone or without its `held.json`, is a loss
  * (R12) and throws `ClaimsDirectoryLostError` without writing anything.
+ * False when an earlier `held.json` stayed busy past the retries and was
+ * kept: a claim reads it until the next prepare, the staleness a claim
+ * made while a settle is appended already has, and the seeding goes on.
+ * `rename` stands in for the file system's in tests.
  */
-export function prepareClaims(dir: string, held: Held, recorded: readonly RecordedMarker[], expectExisting: boolean): void {
+export function prepareClaims(dir: string, held: Held, recorded: readonly RecordedMarker[], expectExisting: boolean, rename?: (from: string, to: string) => void): boolean {
   if (expectExisting && !claimsDirectoryIntact(dir)) throw new ClaimsDirectoryLostError(dir);
   mkdirSync(dir, { recursive: true });
-  writeFileAtomic(join(dir, heldFileName), `${JSON.stringify(held)}\n`);
+  const heldFile = join(dir, heldFileName);
+  let refreshed = true;
+  try {
+    writeFileAtomic(heldFile, `${JSON.stringify(held)}\n`, rename);
+  } catch (error) {
+    if (!(error instanceof ReplaceBusyError) || !existsSync(heldFile)) throw error;
+    refreshed = false;
+  }
   const latest = new Map<string, RecordedMarker>();
   for (const claim of recorded) latest.set(markerHash(claim.path, held.caseInsensitive), claim);
   for (const [hash, claim] of latest) {
@@ -380,6 +391,7 @@ export function prepareClaims(dir: string, held: Held, recorded: readonly Record
     let generation = markers.length + 1;
     while (!createMarker(dir, hash, generation, marker)) generation += 1;
   }
+  return refreshed;
 }
 
 /** What a claim came to. */
