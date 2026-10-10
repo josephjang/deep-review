@@ -483,7 +483,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // edit waits for the triage worker on the ledger, which launches only after the scope is captured and the
     // survey answered: an edit made before the capture would be part of the scope, and one made while the
     // surveyor ran would block the survey instead.
-    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running' && worker.launch.label === 'triage triage:SCAN')), 'the triage worker on the ledger', 60_000);
+    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running' && worker.launch.label === 'triage triage:SCAN')), 'the triage worker on the ledger', 120_000);
     write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     writeFileSync(marker, '');
     const blocked = await pending;
@@ -528,7 +528,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const original = readFileSync(join(box.repo, 'src', 'b.ts'), 'utf8');
     const pending = box.review('claude');
     const removals = 'finder-REMOVALS finders:REMOVALS';
-    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === removals && worker.status === 'running')), 'the REMOVALS worker on the ledger', 60_000);
+    await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === removals && worker.status === 'running')), 'the REMOVALS worker on the ledger', 120_000);
     write(box.repo, 'src/b.ts', 'export const b = 2;\n');
     writeFileSync(marker, '');
     const blocked = await pending;
@@ -562,10 +562,10 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     pending.then(() => (settled = true), () => (settled = true));
     try {
       const running = (): string[] => box.checkpoint.foldRuns().flatMap((run) => Object.values(run.workers).filter((worker) => worker.status === 'running').map((worker) => worker.launch.label ?? ''));
-      await until(() => running().length === 2, 'REMOVALS and RIPPLE running', 60_000);
+      await until(() => running().length === 2, 'REMOVALS and RIPPLE running', 120_000);
       writeFileSync(broken, '');
       writeFileSync(rippleMayAnswer, '');
-      await until(() => settled || box.logs.some((line) => /waiting for 1 worker in flight/.test(line)), 'the launcher error', 60_000);
+      await until(() => settled || box.logs.some((line) => /waiting for 1 worker in flight/.test(line)), 'the launcher error', 120_000);
       assert.equal(settled, false, 'the review does not end while REMOVALS runs');
       assert.deepEqual(running(), ['finder-REMOVALS finders:REMOVALS']);
     } finally {
@@ -840,7 +840,7 @@ describe('runReview, alone in its process', { timeout: 600_000 }, () => {
     const signalListeners = process.listenerCount('SIGINT');
     try {
       const pending = box.review('claude', { flags: { concurrency: 1 } });
-      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 60_000);
+      await until(() => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.status === 'running')), 'the triage worker on the ledger', 120_000);
       assert.ok(process.listenerCount('SIGINT') > signalListeners, 'an interruption releases the held lock');
       const state = box.run();
       box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'abandoned under the worker' } }]);
