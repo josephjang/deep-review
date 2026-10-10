@@ -12,11 +12,11 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { batchOf, clusterClaims, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type FixState, type PathHolder, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { clusterClaims, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type PathHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
-import { foldedWith, holderSpelled, isPending, lateClaim, settleClaims, settledNothing, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
+import { batchOfUnit, foldedWith, holderSpelled, isPending, lateClaim, requireFix, settleClaims, settledNothing, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
 import { pathKey } from './claims.ts';
 import { expectedTreeOf } from './drift.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
@@ -53,19 +53,6 @@ function baseOf(context: RevisionContext): BaseReader {
   const head = context.state.scope?.head;
   if (head === undefined) throw new Error(`Run ${context.state.id} has no scope`);
   return headStates(context.worktree, head, context.evidence);
-}
-
-function requireFix(state: RunState): FixState {
-  const fix = state.review?.fix ?? null;
-  if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
-  return fix;
-}
-
-/** The planned batch a fixes-phase unit key names, of either round; the plan is recorded before any batch launches. */
-function batchOfUnit(state: RunState, key: string): PlannedBatch {
-  const batch = batchOf(requireFix(state), key);
-  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
-  return batch;
 }
 
 /** The ids a unit answers for, in the order its task numbers them: its batch's findings, or for the repair the check kinds it repairs. */
