@@ -959,9 +959,12 @@ describe('the fixer\'s commands', () => {
     const scratch = mkdtempSync(join(tmpdir(), 'deep-review-claim-quoting-'));
     try {
       for (const name of ['a$b `c` \\d', "it's"]) {
-        const entry = join(scratch, name, 'main.mjs');
+        // Node refuses to load a module whose path holds a backslash where it is no separator (ERR_INVALID_MODULE_SPECIFIER on Linux and macOS),
+        // so the entry's directory leaves it out; the directory argument, which node only passes on, keeps it.
+        const entryDirectory = join(scratch, name.replaceAll('\\', ''));
+        const entry = join(entryDirectory, 'main.mjs');
         const into = join(scratch, name, 'round-1');
-        mkdirSync(join(scratch, name), { recursive: true });
+        mkdirSync(entryDirectory, { recursive: true });
         writeFileSync(entry, 'process.stdout.write(JSON.stringify(process.argv.slice(2)));');
         const result = spawnSync('bash', ['-c', claimCommandFor(entry, 'c1-1', into).replace(claimPathPlaceholder, 'docs/a.md')], { encoding: 'utf8', windowsHide: true });
         assert.equal(result.status, 0, `${name}: ${result.stderr}`);
