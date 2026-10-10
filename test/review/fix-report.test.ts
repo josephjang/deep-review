@@ -76,6 +76,16 @@ describe('the report of a fix run', () => {
     assert.deepEqual(strays, ['- Files no answer names, left in the tree and in no patch: dist/a.js, notes.txt.']);
   });
 
+  it('names as strays what the last check still found, not a leftover a check found mid-run that a fixer then restored', () => {
+    const review = fixRun().review();
+    // From the fixes phase's end check the checks find the rebuilt dist/x.js; the report's start check, the last, no longer does.
+    const from = review.checks.findIndex((check) => check.phase === 'fixes' && check.moment === 'end');
+    const checks = review.checks.map((check, index) => (index >= from && index < review.checks.length - 1 ? { ...check, strays: [...check.strays, 'dist/x.js'] } : check));
+    assert.ok(from > 0 && checks.at(-1)!.strays.includes('notes.txt'), 'notes.txt stays in the tree to the end');
+    const strays = fixLimitations({ ...review, checks }).filter((line) => line.startsWith('- Files no answer names'));
+    assert.deepEqual(strays, ['- Files no answer names, left in the tree and in no patch: notes.txt.']);
+  });
+
   it('names who held each changed path by claim, late claim or plan, round by round (R3 of commit series integrity)', () => {
     const review = fixRun().review();
     const fix = review.fix!;

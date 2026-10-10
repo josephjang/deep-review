@@ -109,12 +109,13 @@ export class History {
    * Start a phase at the given attempt and record a clean worktree check
    * for it: at version 1 for a read-only phase, as the histories here were
    * recorded, version 2 for a phase of the fix pass, and version 3 for the
-   * survey, which only version 3 can name.
+   * survey, which only version 3 can name. `strays` are the files the
+   * check lists that nobody accounts for, which version 1 never records.
    */
-  start(phase: string, attempt = 1): this {
+  start(phase: string, attempt = 1, strays: readonly string[] = []): this {
     const version = phaseVersion(phase);
     if (version === 1) return this.add('phase.started', { phase, attempt }).add('worktree.checked', { phase, attempt, drifted: false, files: [] });
-    return this.add('phase.started', { phase, attempt }, version).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays: [] }, version);
+    return this.add('phase.started', { phase, attempt }, version).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, version);
   }
   finish(phase: string, outcome = 'completed', attempt = 1, blocker: unknown = null): this {
     return this.add('phase.finished', { phase, attempt, outcome, blocker }, phaseVersion(phase));
@@ -354,8 +355,8 @@ export const fixed = (baseline: Readonly<Record<string, string>> = {}): History 
 /**
  * A whole fix run up to its report: the lint check rewrites the changed
  * file at baseline and test fails there; c1 applies RIPPLE-1 with a
- * correction, a validation, a drift line and a test, and leaves a stray;
- * lint fails after the fixes, the repair makes it pass and finds every
+ * correction, a validation, a drift line and a test, and leaves a stray,
+ * which every later worktree check lists; lint fails after the fixes, the repair makes it pass and finds every
  * failure of test there before the fixes, and test still fails; SWEEP-1
  * is held for the author.
  */
@@ -387,23 +388,25 @@ export function fixRun(): History {
     ] })
     .add('worktree.checked', { ...endCheck('fixes'), strays: ['notes.txt'] }, 2)
     .finish('fixes')
-    .start('checks')
+    .start('checks', 1, ['notes.txt'])
     .add('check.ran', checkRun('checks', 'build'))
     .add('check.ran', checkRun('checks', 'lint', 'failed'))
     .add('check.ran', checkRun('checks', 'test', 'failed'))
     .finish('checks')
-    .start('repair')
+    .start('repair', 1, ['notes.txt'])
     .worker(60, 'fixer repair:repair')
     .add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'lint', status: 'applied', file: 'src/a.ts', line: 4, note: 'formatted the guard', message: { subject: 'style: Format the guard', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }, { id: 'test', status: 'deferred', file: 'test/a.test.ts', line: null, note: 'every failure was there before the fixes', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] })
     .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['lint'], message: { subject: 'style: Format the guard', body: 'Why.' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('8') } }] })
-    .add('worktree.checked', endCheck('repair'), 2)
+    .add('worktree.checked', { ...endCheck('repair'), strays: ['notes.txt'] }, 2)
     .finish('repair')
-    .start('repair-checks')
+    .start('repair-checks', 1, ['notes.txt'])
     .add('check.ran', checkRun('repair-checks', 'build'))
     .add('check.ran', checkRun('repair-checks', 'lint'))
     .add('check.ran', checkRun('repair-checks', 'test', 'failed'))
     .finish('repair-checks')
-    .start('report');
+    // The report's start check, the run's last, at version 2, since version 1 records no strays.
+    .add('phase.started', { phase: 'report', attempt: 1 })
+    .add('worktree.checked', { phase: 'report', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: ['notes.txt'] }, 2);
 }
 
 export const fixStatistics = {
