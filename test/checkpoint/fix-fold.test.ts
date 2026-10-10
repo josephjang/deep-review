@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered } from '../../src/checkpoint/review-fold.ts';
+import { reviewStatus } from '../../src/review/state.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
 import {
@@ -13,6 +14,8 @@ import {
   checksPhase,
   claimed,
   configured,
+  continuedRun,
+  continuedToReport,
   decidedOf,
   decisions,
   endCheck,
@@ -20,14 +23,23 @@ import {
   fixed,
   fixPlan,
   fixRevision,
+  flagPlan,
   History,
   launch,
   mergeRanked,
+  pin,
   plannedChecks,
+  quietPlannedChecks,
+  quietSurvey,
+  ranked,
+  readOnlyReported,
   reference,
   reported,
   statistics,
+  surveyAnswer,
+  withDecisions,
   withFixPass,
+  withSurvey,
   worker,
 } from '../helpers/review-history.ts';
 
@@ -472,7 +484,7 @@ describe('the claims fold', () => {
     assert.deepEqual(holdersKeyedBy(fix, 1, exactPath).get(shared), { path: shared, cluster: 'c2', by: 'claim' });
   });
 
-  const refusals: [name: string, build: () => History, message: RegExp][] = [
+  const claimRefusals: [name: string, build: () => History, message: RegExp][] = [
     ['a claim before the plan', () => baselined().start('fixes').add('files.claimed', claimed('c1-1', 'c1', [shared])), /claims files for c1-1, which the plan does not have/],
     ['a claim by a unit the plan lacks', () => running().add('files.claimed', claimed('c9-1', 'c9', [shared])), /claims files for c9-1, which the plan does not have/],
     ['a claim under another cluster\'s name', () => running().add('files.claimed', claimed('c1-1', 'c2', [shared])), /claims files for c1-1 under cluster c2, not its cluster c1/],
@@ -485,6 +497,95 @@ describe('the claims fold', () => {
     ['a claim of a path outside the repository', () => running().add('files.claimed', claimed('c1-1', 'c1', ['../x.ts'])), /schema rejects/],
     ['a claim on a read-only run', () => mergeRanked().add('files.claimed', claimed('c1-1', 'c1', [shared])), /configured without the fix pass/],
     ['a lost claim while the fixes phase is not running', () => fixed().add('claims.lost', { phase: 'fixes', unit: 'c1-1', cluster: 'c1', files: [{ path: 'x', claimedAt: null, reason: 'unplanned', holder: null }] }), /while it is completed/],
+  ];
+  for (const [name, build, message] of claimRefusals) {
+    it(`refuses ${name}`, () => {
+      assert.throws(() => build().fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), name);
+    });
+  }
+});
+
+// R6, TD3, TD7 of fix pass continuation: a complete read-only run, surveyed and decided, continued into the fix pass by fix.pinned.
+describe('the continuation into the fix pass', () => {
+  it('folds a read-only run continued with no planned checks into a fix run whose survey, fix phases and report are open again', () => {
+    const before = readOnlyReported().review();
+    const history = continuedRun();
+    const run = history.fold();
+    const review = run.review!;
+    assert.deepEqual(review.configuration, { ...before.configuration, fix: true, checks: { timeoutMs: 300_000 }, fixes: { batchSize: 4 } }, 'the configuration reads as a fix run\'s');
+    assert.equal((history.events.find((event) => event.kind === 'review.configured')!.payload as { fix: boolean }).fix, false, 'the recorded configuration is unchanged');
+    for (const phase of fixPhases) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 }, phase);
+    assert.deepEqual(review.phases.report, { status: 'pending', attempt: 1 }, 'the report is pending at its attempt, so its next start is the second');
+    assert.deepEqual(review.phases.survey, { status: 'pending', attempt: 1 }, 'the survey is asked for the checks');
+    assert.deepEqual(review.phases.decision, before.phases.decision, 'the read-only phases stay as they finished');
+    assert.deepEqual(review.fix, emptyFixState());
+    assert.equal(review.report, null);
+    assert.deepEqual(review.continuedFrom, { report: before.report, at: history.events.at(-1)!.recordedAt });
+    assert.deepEqual(review.ranking, before.ranking);
+    assert.deepEqual(review.decisions, before.decisions);
+    assert.deepEqual(review.survey, before.survey, 'the recorded survey stands');
+    assert.equal(reviewStatus(run), 'active', 'an active run again, which a review resumes');
+  });
+
+  it('plans the flags\' checks with the pin and leaves the survey completed when they settle every kind (TD3)', () => {
+    const review = readOnlyReported().add('fix.pinned', pin(flagPlan)).review();
+    assert.deepEqual(review.fix?.checks.planned, { checks: flagPlan, manager: null });
+    assert.deepEqual(review.phases.survey, { status: 'completed', attempt: 1 });
+    assert.deepEqual(review.phases.report, { status: 'pending', attempt: 1 });
+  });
+
+  it('gives the survey\'s unit fresh attempts, so the read-only survey\'s failures do not exhaust the surveyor asked for the checks', () => {
+    const failedFirst = (history: History): History => history
+      .start('survey')
+      .add('attempt.failed', { phase: 'survey', key: 'survey', workerId: worker(79), reason: 'failed: the answer does not match the output schema' }, 4)
+      .worker(80, 'surveyor survey:survey')
+      .add('survey.recorded', surveyAnswer(worker(80)))
+      .finish('survey');
+    const readOnly = withDecisions(withSurvey(reported(), failedFirst));
+    assert.equal(readOnly.review().units.survey.survey?.failures.length, 1);
+    const pinned = readOnly.add('fix.pinned', pin());
+    assert.deepEqual(pinned.review().units.survey.survey, { answeredBy: worker(80), failures: [] }, 'failures forgotten, the answer kept until the attempt starts');
+    assert.equal(pinned.start('survey', 2).review().units.survey.survey?.answeredBy, null, 'the second attempt opens the unit');
+  });
+
+  it('folds the fix run that follows: a raised budget, the survey\'s checks at its second attempt, the fix phases and a second report', () => {
+    const limited = continuedRun().add('limits.changed', { concurrency: 2, runBudgetUsd: 90 });
+    assert.deepEqual(limited.review().limits, { concurrency: 2, runBudgetUsd: 90 }, 'the limits change once the report is cleared');
+    const run = continuedToReport().fold();
+    const review = run.review!;
+    assert.deepEqual(review.phases.survey, { status: 'completed', attempt: 2 });
+    assert.equal(review.survey?.answers.length, 2);
+    assert.deepEqual(review.fix?.checks.planned, { ...quietPlannedChecks, manager: null });
+    assert.deepEqual(review.fix?.plan, fixPlan);
+    assert.equal(review.fix?.revisions.length, 1);
+    assert.deepEqual(review.phases.report, { status: 'completed', attempt: 2 });
+    assert.deepEqual(review.report?.patches, [reference('1')]);
+    assert.deepEqual(review.continuedFrom?.report.report, reference('e', 2048), 'the read-only report stays beside the second');
+    assert.equal(reviewStatus(run), 'complete');
+  });
+
+  const failedSurvey = (history: History): History => history
+    .start('survey')
+    .add('survey.failed', { reason: 'the surveyor failed twice', conventions: [{ path: '/home/u/CLAUDE.md', level: 'user', governs: 'the reviewer\'s own rules', appliesTo: null, grounds: 'applied by the policy value apply' }], userRules: [{ path: '/home/u/CLAUDE.md', applied: true, reason: 'applied by the policy value apply' }] })
+    .finish('survey', 'degraded');
+  const withoutSurvey = (): History => withDecisions(withSurvey(reported(), failedSurvey, 'apply'));
+
+  it('continues a run that went on without its survey only with the checks planned, its survey left as it degraded', () => {
+    const review = withoutSurvey().add('fix.pinned', pin(flagPlan)).review();
+    assert.deepEqual(review.phases.survey, { status: 'degraded', attempt: 1 });
+    assert.deepEqual(review.fix?.checks.planned?.checks, flagPlan);
+  });
+
+  const refusals: [name: string, build: () => History, message: RegExp][] = [
+    ['a pin before the report', () => decidedOf(ranked()).add('fix.pinned', pin()), /continues into the fix pass before its report/],
+    ['a second pin', () => continuedRun().add('fix.pinned', pin()), /continues into the fix pass before its report/],
+    ['a pin after the continued run\'s second report', () => continuedToReport().add('fix.pinned', pin()), /continues into the fix pass a run that fixes already/],
+    ['a pin on an abandoned run', () => readOnlyReported().add('run.abandoned', { reason: 'r' }).add('fix.pinned', pin()), /was abandoned/],
+    ['a pin of a run configured before the survey', () => reported().add('fix.pinned', pin()), /configured before the survey existed/],
+    ['a pin of a run configured before the decision step with findings ranked', () => withSurvey(reported(), quietSurvey(false)).add('fix.pinned', pin()), /continues a run configured before the decision step, which routed by verdict and angle/],
+    ['a pin of a run that went on without its survey with no checks planned', () => withoutSurvey().add('fix.pinned', pin()), /continues a run that went on without its survey with no checks planned/],
+    ['a pin whose plan names the survey\'s checks', () => readOnlyReported().add('fix.pinned', pin(quietPlannedChecks.checks)), /schema rejects/],
+    ['the baseline started before the checks are planned', () => continuedRun().start('baseline-checks'), /starts baseline-checks before its checks are planned/],
   ];
   for (const [name, build, message] of refusals) {
     it(`refuses ${name}`, () => {

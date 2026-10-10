@@ -8,13 +8,15 @@
  * check whose phase is not running, two runs of one kind in a phase, an
  * answer for a unit that does not exist, a revision no answer or check
  * accounts for, commits on a run without a report, a claim of a file
- * another cluster holds (R3 of commit series integrity).
+ * another cluster holds (R3 of commit series integrity), a continuation
+ * into the fix pass of a run that has no report or fixes already (R6 of
+ * fix pass continuation).
  */
-import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
-import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase, type Phase } from '../review/vocabulary.ts';
+import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
+import { batchOf, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
-import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
+import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
 
 /** The run, which must be configured for review with the fix pass. */
@@ -333,6 +335,42 @@ const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
   return withFix(current, review, { ...fix, notAttempted }, event);
 };
 
+/**
+ * A complete read-only run continued into the fix pass (R6, TD1, TD3, TD7
+ * of fix pass continuation): once, on an active run that has its report,
+ * fixes nothing yet, was surveyed, and decided every ranked finding, since
+ * a fix run routes its findings by their decisions (R6 of the decision
+ * step); and with the checks planned when the run went on without its
+ * survey, which can then record no answer. The configuration reads as a
+ * fix run's with the pinned timeout and batch size, the recorded
+ * `review.configured` unchanged; the fix state starts empty, with the
+ * pin's checks planned when it carries them; the five fix phases are
+ * pending; the report phase is pending at its attempt, so its next start
+ * is the next attempt, and the first report is kept beside the state; and
+ * when the checks are not planned, the survey is pending at its attempt
+ * too, its unit with fresh attempts, so the surveyor asked for the checks
+ * is not out of attempts from the read-only survey's failures. This is the
+ * one reducer that moves a phase out of `skipped` or `completed`.
+ */
+const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
+  const { current, review } = requireReview(state, event);
+  if (current.status !== 'active') throw invalid(event, `continues into the fix pass a run that is ${current.status}`);
+  if (review.report === null) throw invalid(event, 'continues into the fix pass before its report');
+  if (review.fix !== null) throw invalid(event, 'continues into the fix pass a run that fixes already');
+  if (review.survey === null) throw invalid(event, 'continues into the fix pass a run configured before the survey existed');
+  if ((review.ranking?.length ?? 0) > 0 && review.decisions === null) throw invalid(event, 'continues a run configured before the decision step, which routed by verdict and angle');
+  if (review.survey.failure !== null && payload.plannedChecks === null) throw invalid(event, 'continues a run that went on without its survey with no checks planned');
+  const empty = emptyFixState();
+  const fix: FixState = payload.plannedChecks === null ? empty : { ...empty, checks: { ...empty.checks, planned: { checks: payload.plannedChecks, manager: null } } };
+  const reopened: Phase[] = ['report', ...(payload.plannedChecks === null ? ['survey' as const] : [])];
+  const phaseStates = { ...review.phases };
+  for (const phase of fixPhases) phaseStates[phase] = { status: 'pending', attempt: 0 };
+  for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
+  const units = payload.plannedChecks === null ? withFreshAttempts(review, drafts, 'survey') : review.units;
+  const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes };
+  return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt } }, event);
+};
+
 const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   if (review.report === null) throw invalid(event, 'creates commits before its report');
@@ -359,4 +397,5 @@ export const fixReducers = {
   'commits.created@1': commitsCreated,
   'files.claimed@1': filesClaimed,
   'claims.lost@1': claimsLost,
+  'fix.pinned@1': fixPinned,
 } as const;

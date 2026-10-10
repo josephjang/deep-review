@@ -159,6 +159,32 @@ describe('golden checkpoints', () => {
     });
   }
 
+  // The run continued into the fix pass, which every fixture from schema-1-10 on holds (R6 of fix pass continuation).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 10)) {
+    it(`folds ${name}'s continued run as a fix run, its read-only report beside its second`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const run = checkpoint.foldRuns().find((candidate) => candidate.worktree === '/fixture/continued');
+      assert.ok(run?.review !== null && run?.review !== undefined, 'the fixture holds the continued run');
+      const { review } = run;
+      assert.equal(review.configuration.fix, true, 'the configuration folds as a fix run\'s');
+      assert.deepEqual(review.configuration.checks, { timeoutMs: 1_200_000 }, 'with the timeout the pin carries');
+      assert.deepEqual(review.configuration.fixes, { batchSize: 4 });
+      assert.ok(review.continuedFrom !== null, 'the read-only report is kept');
+      assert.deepEqual(review.continuedFrom.report.patches, [], 'the read-only report has no patch');
+      assert.notDeepEqual(review.continuedFrom.report.report, review.report?.report, 'the second report is another artifact');
+      assert.deepEqual(review.phases.survey, { status: 'completed', attempt: 2 }, 'the survey asked again for the checks');
+      assert.equal(review.survey?.answers.length, 2);
+      assert.deepEqual(review.survey?.answers[1]?.conventions, review.survey?.answers[0]?.conventions, 'the conventions stand');
+      assert.deepEqual(review.phases.report, { status: 'completed', attempt: 2 });
+      assert.equal(review.report?.patches.length, 1, 'the second report has the fixer\'s patch');
+      assert.equal(review.fix?.revisions.length, 1);
+      assert.equal(review.limits.runBudgetUsd, 80, 'the budget raised after the pin is in force');
+    });
+  }
+
   it('matches the newest fixture\'s identity, so a schema or registry change needs a new fixture', () => {
     const newest = fixtures.at(-1)!;
     const recorded = JSON.parse(readFileSync(join(fixturesRoot, newest, 'identity.json'), 'utf8')) as CheckpointIdentity;

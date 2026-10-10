@@ -24,6 +24,13 @@ describe('the review fold', () => {
     assert.deepEqual(review.plans, { verification: null, 'sweep-verification': null });
     assert.equal(review.ranking, null);
     assert.equal(review.report, null);
+    assert.equal(review.continuedFrom, null, 'no run is configured continued; only fix.pinned continues one (R6 of fix pass continuation)');
+  });
+
+  it('leaves a read-only run never continued with no read-only report beside its report', () => {
+    const review = decidedOf(reported()).review();
+    assert.notEqual(review.report, null);
+    assert.equal(review.continuedFrom, null);
   });
 
   it('folds the Codex Windows sandbox version 4 pinned, and reads an earlier Codex run on Windows as unelevated and any other run as pinning none (R3 of the Codex sandbox)', () => {
