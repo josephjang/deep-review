@@ -9,11 +9,12 @@ import { EvidenceStore } from '../../src/evidence/store.ts';
 import { foldedWith, type ClaimsAccess } from '../../src/review/claim-events.ts';
 import { markerHash, type LiveClaim } from '../../src/review/claims.ts';
 import { unsettledFiles } from '../../src/review/drift.ts';
-import { attemptRevisionEvents, fixAnswerEvents, revisionMessage, type RevisionContext } from '../../src/review/fix-events.ts';
+import { attemptRevisionEvents, checkRevision, fixAnswerEvents, revisionMessage, type RevisionContext } from '../../src/review/fix-events.ts';
+import { prepareCheckManifest } from '../../src/review/snapshot.ts';
 import { rawMatch } from '../../src/review/tree.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { fixerAnswer } from '../helpers/fake-runtime.ts';
-import { git, remove, repositoryWith } from '../helpers/repository.ts';
+import { git, remove, repositoryWith, write } from '../helpers/repository.ts';
 import { baselined, claimed, fixAnswer, fixPlan, type History, worker } from '../helpers/review-history.ts';
 
 const finding = (id: string, status: FixedFinding['status'], subject: string | null = null): FixedFinding => ({
@@ -154,5 +155,39 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
     assert.deepEqual(unclaimed.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['src/a.ts']);
     const claimedByIt = attemptRevisionEvents(contextOf(stateOf(running().add('files.claimed', claimed('c1-1', 'c1', ['AGENTS.md']))), folding([])), 'fixes', 'c1-1', worker(60), 'it died');
     assert.deepEqual(claimedByIt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['AGENTS.md', 'src/a.ts']);
+  });
+});
+
+describe('checkRevision (PD9 of commit series integrity)', () => {
+  let directory: string;
+  let repo: string;
+  beforeEach(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-check-revision-')));
+    // docs/notes.md and dist/a.js are tracked and outside the scope, whose one file, src/a.ts, differs on disk from what the run expects of it.
+    repo = repositoryWith(join(directory, 'repo'), { 'docs/notes.md': 'notes\n', 'dist/a.js': 'a\n', 'src/a.ts': 'a\n' });
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /** The run in its checks phase, its first worktree check having listed `strays`, its scope's head the repository's. */
+  const contextOf = (strays: readonly string[]): RevisionContext => {
+    const state = baselined().fold();
+    const [first, ...rest] = state.review!.checks;
+    const review = { ...state.review!, checks: [{ ...first!, strays: [...strays] }, ...rest] };
+    return { state: { ...state, review, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } }, worktree: repo, evidence: new EvidenceStore(join(directory, 'evidence')), match: rawMatch, claims: { live: () => null, caseInsensitive: () => false } };
+  };
+  const pathsOf = (event: ReturnType<typeof checkRevision>): string[] => (event === null ? [] : (event.payload as TreeRevised).files.map((file) => file.path));
+
+  it('leaves out a tracked file the user had changed before the run, even when the check rewrites it, and takes a tool\'s rewrite of a clean one', () => {
+    // The user's uncommitted work, there before the run's first check listed it as a stray.
+    write(repo, 'docs/notes.md', 'notes\nthe user\'s unfinished line\n');
+    const manifest = prepareCheckManifest(join(directory, 'manifest'), repo);
+    // The check formats the user's file and rebuilds dist/.
+    write(repo, 'docs/notes.md', 'notes\n\nthe user\'s unfinished line\n');
+    write(repo, 'dist/a.js', 'rebuilt a\n');
+    assert.deepEqual(pathsOf(checkRevision(contextOf(['docs/notes.md']), 'checks', 'lint', 'npm run lint', manifest)), ['dist/a.js', 'src/a.ts'], 'the user\'s file is in no check revision');
+    // Had the first check found docs/notes.md unchanged, its rewrite would be the check's alone.
+    assert.deepEqual(pathsOf(checkRevision(contextOf([]), 'checks', 'lint', 'npm run lint', manifest)), ['dist/a.js', 'docs/notes.md', 'src/a.ts']);
   });
 });
