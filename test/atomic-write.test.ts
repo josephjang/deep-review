@@ -109,7 +109,7 @@ describe('createFileExclusive', () => {
   });
 
   it('creates the file under wx where the file system has no hard links, still once', () => {
-    for (const code of ['EPERM', 'ENOTSUP', 'EXDEV']) {
+    for (const code of ['EPERM', 'ENOTSUP', 'EXDEV', 'EACCES', 'EISDIR']) {
       rmSync(file, { force: true });
       const { calls, link } = refusing(code);
       assert.equal(createFileExclusive(file, `${code}\n`, link), true, code);

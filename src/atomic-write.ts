@@ -10,8 +10,13 @@ import { linkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 /** The codes Windows raises for a rename over a file another process has open, or antivirus is scanning; the replace goes through once that handle closes. */
 const busyReplace = new Set(['EPERM', 'EBUSY', 'EACCES']);
 
-/** Error codes a filesystem without hard links raises from linkSync. */
-export const noHardLinks: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'EINVAL', 'ENOSYS']);
+/**
+ * Error codes a filesystem without hard links raises from linkSync, with
+ * EACCES and EISDIR, what a sandbox or a volume refusing link() raises
+ * (EISDIR is libuv's name for Windows' ERROR_INVALID_FUNCTION). Where the
+ * directory itself is unwritable, the fallback throws that error again.
+ */
+export const noHardLinks: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'EINVAL', 'ENOSYS', 'EACCES', 'EISDIR']);
 
 /** How long a refused replace is retried before its error is thrown. */
 const replaceBudgetMs = 500;
