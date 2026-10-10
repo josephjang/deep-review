@@ -609,7 +609,7 @@ describe('the fix pass', { timeout: 900_000 }, () => {
       assert.deepEqual(fix.answers.fixes['c3-1']!.violations, [], 'the second round owns the file the first round claimed');
       assert.match(box.promptOf(state, 'fixer fixes:c3-1'), /no other worker edits:\n- src\/b\.ts\n- test\/shared\.test\.ts\n/);
       assert.match(box.promptOf(state, 'fixer fixes:c3-1'), /^ {4}first round: blocked, needing test\/shared\.test\.ts \(which c1 had claimed\): the fix needs the shared test, which c1 claimed$/m);
-      assert.match(box.promptOf(state, 'fixer fixes:c2-1'), /^ {4}node ".*cli\.ts" claim --path '<path>' --unit c2-1 --in ".*round-1"$/m);
+      assert.match(box.promptOf(state, 'fixer fixes:c2-1'), /^ {4}node '.*cli\.ts' claim --path '<path>' --unit c2-1 --in '.*round-1'$/m);
       // Each round claimed in its own directory.
       assert.equal(box.markers(1).length, 1);
       assert.equal(box.markers(2).length, 1);
