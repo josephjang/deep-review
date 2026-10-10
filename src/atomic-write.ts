@@ -4,6 +4,7 @@
  * engine rewrites it at a launch, and a claim's marker, which a sibling's
  * command reads while it is created (`src/review/claims.ts`).
  */
+import { randomBytes } from 'node:crypto';
 import { linkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 
 /** The codes Windows raises for a rename over a file another process has open, or antivirus is scanning; the replace goes through once that handle closes. */
@@ -20,8 +21,13 @@ const longestWaitMs = 50;
 
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
 
-/** The temporary name beside `file` this process writes it under: no reader takes it for `file`, since it does not end as `file` does. */
-const temporaryFor = (file: string): string => `${file}.${String(process.pid)}.tmp`;
+/**
+ * A fresh temporary name beside `file` to write it under: no reader takes it
+ * for `file`, since it does not end as `file` does. The random part keeps
+ * two writers apart even when they share a pid, as claim commands in
+ * sandboxes with their own PID namespaces can.
+ */
+const temporaryFor = (file: string): string => `${file}.${String(process.pid)}.${randomBytes(6).toString('hex')}.tmp`;
 
 /**
  * Write `text` to `file` whole: to a temporary name beside it, then renamed
