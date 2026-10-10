@@ -1,10 +1,6 @@
 // What the fake runtime CLIs share. A fake is run as `node fake-<runtime>.ts
 // <args>`, so the launcher spawns it exactly as it spawns a real CLI, and
 // is steered by environment variables the test sets:
-//   FAKE_VERSION     version output instead of the runtime's usual one
-//   FAKE_UNQUALIFIED_WHEN  a file; while it exists the version output names another
-//                    program, so a preflight made then fails
-//   FAKE_HELP_OMIT   a flag to leave out of every help text
 //   FAKE_RECORD      file to write what the fake received as JSON
 //   FAKE_WAIT_FOR    file to wait for before answering
 //   FAKE_STDOUT      stdout to print instead of a successful answer; {session} becomes the session id
@@ -15,14 +11,15 @@
 //   FAKE_HUGE_STREAM `stderr` to print FAKE_HUGE there; stdout by default
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 //   FAKE_SCRIPT      a JSON file scripting the answer per review role and unit; see scriptedStep
-// The answers to the preflight's probes, which read the first three, are in
-// fake-probe.ts; a fake loads this module only to act as a worker.
+// The answers to the preflight's probes are in fake-probe.ts, which lists the
+// variables they read; a fake loads this module only to act as a worker.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
-import { environment } from './fake-probe.ts';
+
+const environment = process.env;
 
 /**
  * One edit a scripted fixer makes before it answers, in order: files

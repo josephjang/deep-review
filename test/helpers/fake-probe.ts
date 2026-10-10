@@ -3,9 +3,12 @@
 // more than this: the engine starts two probes before every Claude worker and
 // four before every Codex worker, and the scripts and answers
 // fake-runtime.ts imports (zod among them) are what made a probe slow to
-// start. See fake-runtime.ts for the variables a test
-// steers the fakes with; these read FAKE_VERSION, FAKE_UNQUALIFIED_WHEN and
-// FAKE_HELP_OMIT.
+// start. The answers read these environment variables, which a test sets;
+// fake-runtime.ts lists those a worker reads:
+//   FAKE_VERSION     version output instead of the runtime's usual one
+//   FAKE_UNQUALIFIED_WHEN  a file; while it exists the version output names another
+//                    program, so a preflight made then fails
+//   FAKE_HELP_OMIT   a flag to leave out of every help text
 import { existsSync } from 'node:fs';
 
 export const environment = process.env;
