@@ -998,6 +998,13 @@ their 600 s and 900 s limits with tests cancelled, a fake runtime's
 preflight past 10 s, and a worker relaunched when it ran late; each of
 the seven passed checked again alone, in 448 to 468 s.
 
+The per-commit checks ran on Windows only. Continuous integration then
+failed the head on Linux and macOS in one test `82dfe13` added, which
+loaded a node entry from a directory whose name held a backslash: node
+refuses such a module path where the backslash is no separator, and
+Windows reads it as one. The test, not the engine, was at fault, and
+`90ace12` keeps the backslash out of the entry's directory.
+
 ## Risks & Migration
 
 - A run configured before this change and still active resumes only
