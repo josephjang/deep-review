@@ -60,13 +60,16 @@ const fileStatSchema = z.tuple([z.number().int().nonnegative(), z.number()]).nul
 /**
  * The tree as the engine saw it when it launched the worker: the worktree,
  * the paths the run expects, every file git does not ignore with its size
- * and time, and what git ignores, a directory with a trailing slash.
+ * and time, and what git ignores, a directory with a trailing slash. A
+ * check's manifest also holds `hashes`, the content hash of each file whose
+ * time was racy when it was taken.
  */
 export const snapshotManifestSchema = z.strictObject({
   worktree: z.string().min(1),
   expected: z.array(z.string()),
   files: z.record(z.string(), fileStatSchema),
   ignored: z.array(z.string()),
+  hashes: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)).optional(),
 });
 export type SnapshotManifest = z.infer<typeof snapshotManifestSchema>;
 
@@ -225,16 +228,34 @@ export function writeManifest(into: string, manifest: SnapshotManifest): void {
 }
 
 /**
+ * How close to the manifest's taking a file's time must be for a rewrite
+ * to keep it, as on FAT's 2 s clock: such a file's time is racy, so the
+ * check's manifest records its hash, as git does for a racily clean entry.
+ */
+const racyWindowMs = 2000;
+
+/** The hash of what a path holds, a symlink's target text for a symlink, or null for nothing. */
+function hashOf(worktree: string, path: string): string | null {
+  const entry = readTreeEntry(worktree, path);
+  return entry === null ? null : sha256(entry.bytes);
+}
+
+/**
  * The tracked files whose size or time differ from the manifest's, or
- * that are gone, sorted: what changed since it was taken among the files
- * it lists, and nothing it does not list, so a file new since is not one
+ * that are gone, or whose hash differs from the one it recorded for a
+ * racy time, sorted: what changed since it was taken among the files it
+ * lists, and nothing it does not list, so a file new since is not one
  * (PD9 of commit series integrity). Reads the file system only.
  */
 export function changedListed(manifest: SnapshotManifest): string[] {
   return Object.entries(manifest.files)
     .filter(([path, before]) => {
       const now = statOf(manifest.worktree, path);
-      return before === null ? now !== null : statDiffers(before, now);
+      if (before === null) return now !== null;
+      if (statDiffers(before, now)) return true;
+      // A same-size rewrite within the clock's granularity keeps both; only the bytes tell.
+      const hashes = manifest.hashes ?? {};
+      return Object.hasOwn(hashes, path) && hashOf(manifest.worktree, path) !== hashes[path];
     })
     .map(([path]) => path)
     .sort();
@@ -243,11 +264,22 @@ export function changedListed(manifest: SnapshotManifest): string[] {
 /**
  * Write the manifest a check that may write the tree is compared with
  * after it runs (PD9 of commit series integrity): every tracked file with
- * its size and time, taken just before the check, into `into`, never the
- * worktree; and return it.
+ * its size and time, taken just before the check, and the hash of each
+ * whose time is within `racyWindowMs` of then or later, which a rewrite
+ * of the same size could leave as it is, into `into`, never the worktree;
+ * and return it.
  */
 export function prepareCheckManifest(into: string, worktree: string): SnapshotManifest {
-  const manifest: SnapshotManifest = { worktree, expected: [], files: statMapOf(worktree, gitApi.trackedFiles(worktree)), ignored: [] };
+  const takenAt = Date.now();
+  const files = statMapOf(worktree, gitApi.trackedFiles(worktree));
+  // fromEntries defines each path as an own property, so no path name can reach the object's prototype.
+  const hashes = Object.fromEntries(
+    Object.entries(files).flatMap(([path, stat]): [string, string][] => {
+      const hash = stat === null || stat[1] < takenAt - racyWindowMs ? null : hashOf(worktree, path);
+      return hash === null ? [] : [[path, hash]];
+    }),
+  );
+  const manifest: SnapshotManifest = { worktree, expected: [], files, ignored: [], hashes };
   writeManifest(into, manifest);
   return manifest;
 }
