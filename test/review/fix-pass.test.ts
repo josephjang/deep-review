@@ -1308,6 +1308,18 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.equal(box.run().review!.fix, null);
   });
 
+  it('refuses a continuation whose pinned executable no longer qualifies, as a resume is refused, and leaves the run complete (R3)', async (t) => {
+    const box = ReviewSandbox.forTest(t, continuedScript);
+    await readOnly(box);
+    const state = box.run();
+    // An update replaced the pinned binary with one lacking a flag the adapter uses.
+    await assert.rejects(box.fix('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified'
+      && /lacks flags the adapter uses/.test(error.message)
+      && error.message.includes(`the executable run ${state.id} is pinned to`));
+    assert.equal(box.run().lastSequence, state.lastSequence, 'nothing was appended');
+    assert.equal(box.run().review!.fix, null);
+  });
+
   const refusesNothingToFix = async (t: TestContext, decided: Parameters<typeof deciderAnswer>[0] | null, counts: string): Promise<void> => {
     const box = ReviewSandbox.forTest(t, decided === null ? {} : { ...reviewScript, decider: { output: deciderAnswer(decided) } });
     await readOnly(box);
