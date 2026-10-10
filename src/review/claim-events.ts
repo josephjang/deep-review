@@ -9,7 +9,7 @@
  * an attempt by is exactly what the fold checks them against (TD5).
  */
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { isClaimablePath, type ClaimsLost, type FilesClaimed } from '../checkpoint/events.ts';
+import { isClaimablePath, maxClaimFilesPerEvent, type ClaimsLost, type FilesClaimed } from '../checkpoint/events.ts';
 import { batchOf, claimRefusal, claimsOfRound, holdersKeyedBy, planOfRound, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { applyEvent, type RunState } from '../checkpoint/fold.ts';
 import { markerHash, pathKey, type Held, type LiveClaim } from './claims.ts';
@@ -123,11 +123,19 @@ interface Lost extends Accepted {
   readonly holder: string | null;
 }
 
+/** Files split into consecutive runs of at most `maxClaimFilesPerEvent`, in order, one per claims event, as the schemas cap an event's files. */
+function perEvent<T>(files: readonly T[]): T[][] {
+  const runs: T[][] = [];
+  for (let start = 0; start < files.length; start += maxClaimFilesPerEvent) runs.push(files.slice(start, start + maxClaimFilesPerEvent));
+  return runs;
+}
+
 /**
  * Group claims into `files.claimed@1` events, one per claiming unit where
  * the order allows: a claim joins its unit's last event unless a later
  * event of the settle claimed the same path, so the events fold in the
- * order the claims were judged in.
+ * order the claims were judged in. A group of more files than an event
+ * holds is split into consecutive events.
  */
 function claimedEvents(accepted: readonly Accepted[]): NewEvent[] {
   const events: { unit: string; cluster: string; files: { path: string; claimedAt: string | null }[]; paths: Set<string> }[] = [];
@@ -141,21 +149,21 @@ function claimedEvents(accepted: readonly Accepted[]): NewEvent[] {
       target.paths.add(claim.path);
     }
   }
-  return events.map((event): NewEvent => ({ kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key: event.unit, cluster: event.cluster, files: event.files } satisfies FilesClaimed }));
+  return events.flatMap((event) => perEvent(event.files).map((files): NewEvent => ({ kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key: event.unit, cluster: event.cluster, files } satisfies FilesClaimed })));
 }
 
-/** Group lost markers into `claims.lost@1` events, one per unit and cluster the markers named, in the order they were judged. */
+/** Group lost markers into `claims.lost@1` events, one per unit and cluster the markers named, in the order they were judged, a group of more files than an event holds split into consecutive events. */
 function lostEvents(lost: readonly Lost[]): NewEvent[] {
   const groups = new Map<string, Lost[]>();
   for (const marker of lost) {
     const name = `${marker.unit}\0${marker.cluster}`;
     groups.set(name, [...(groups.get(name) ?? []), marker]);
   }
-  return [...groups.values()].map((markers): NewEvent => ({
+  return [...groups.values()].flatMap((markers) => perEvent(markers).map((run): NewEvent => ({
     kind: 'claims.lost',
     version: 1,
-    payload: { phase: 'fixes', unit: markers[0]!.unit, cluster: markers[0]!.cluster, files: markers.map(({ path, claimedAt, reason, holder }) => ({ path, claimedAt, reason, holder })) } satisfies ClaimsLost,
-  }));
+    payload: { phase: 'fixes', unit: run[0]!.unit, cluster: run[0]!.cluster, files: run.map(({ path, claimedAt, reason, holder }) => ({ path, claimedAt, reason, holder })) } satisfies ClaimsLost,
+  })));
 }
 
 /** Order markers as they were made: a path's generations in turn, then by time, a time-less seeded one first. */

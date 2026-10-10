@@ -1346,6 +1346,9 @@ export function isClaimablePath(path: string): boolean {
 /** A repository-relative path as a claim records it, as `isClaimablePath` allows. */
 const claimedPathSchema = z.string().min(1).max(1000).refine(isClaimablePath, { message: 'a claimed path is relative to the repository, inside it and outside .git' });
 
+/** The most files one `files.claimed` or `claims.lost` event holds; more are split across consecutive events. */
+export const maxClaimFilesPerEvent = 2000;
+
 /** No path twice in a claims event's files. */
 const pathsOnce = <T extends { readonly path: string }>(files: readonly T[]): boolean => new Set(files.map((file) => file.path)).size === files.length;
 
@@ -1361,7 +1364,7 @@ export const filesClaimedV1 = z.strictObject({
   phase: z.literal('fixes'),
   key: batchKeySchemaV2,
   cluster: clusterIdSchemaV2,
-  files: z.array(z.strictObject({ path: claimedPathSchema, claimedAt: z.iso.datetime().nullable() })).min(1).max(2000),
+  files: z.array(z.strictObject({ path: claimedPathSchema, claimedAt: z.iso.datetime().nullable() })).min(1).max(maxClaimFilesPerEvent),
 }).refine((claimed) => pathsOnce(claimed.files), { message: 'each file is claimed once', path: ['files'] });
 export type FilesClaimed = z.infer<typeof filesClaimedV1>;
 
@@ -1382,7 +1385,7 @@ export const claimsLostV1 = z.strictObject({
     claimedAt: z.iso.datetime().nullable(),
     reason: z.enum(vocabularyV5.lostClaimReasons),
     holder: clusterIdSchemaV2.nullable(),
-  }).refine((file) => (file.reason === 'unplanned') === (file.holder === null), { message: 'a holder is named exactly when the unit is the plan\'s', path: ['holder'] })).min(1).max(2000),
+  }).refine((file) => (file.reason === 'unplanned') === (file.holder === null), { message: 'a holder is named exactly when the unit is the plan\'s', path: ['holder'] })).min(1).max(maxClaimFilesPerEvent),
 });
 export type ClaimsLost = z.infer<typeof claimsLostV1>;
 

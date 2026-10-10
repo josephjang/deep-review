@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { filesClaimedV1 } from '../../src/checkpoint/events.ts';
+import { claimsLostV1, filesClaimedV1, maxClaimFilesPerEvent } from '../../src/checkpoint/events.ts';
 import { claimRefusal, heldByOthers } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { heldOf, isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
@@ -107,6 +107,15 @@ describe('settleClaims', () => {
     const folded: LiveClaims = { markers: [{ whole: true, hash: markerHash('src/A.ts', true), generation: 1, path: 'src/A.ts', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' }], caseInsensitive: true };
     assert.deepEqual(kinds(settleClaims(history.fold(), 'c1-1', folded, worktree).events), [['claims.lost', { phase: 'fixes', unit: 'c2-1', cluster: 'c2', files: [{ path: 'src/a.ts', claimedAt: '2026-10-09T01:00:01.000Z', reason: 'owned', holder: 'c1' }] }]]);
     assert.equal(lateClaim(settledNothing(history.fold(), true), 'c2-1', ['Src/A.ts']), null, 'nor is it free for a late claim');
+  });
+
+  it('splits a unit\'s claims, and its lost markers, of more files than an event holds into consecutive events the ledger takes', () => {
+    const paths = Array.from({ length: maxClaimFilesPerEvent + 1 }, (_, index) => `docs/f${String(index)}.md`);
+    const settle = settleClaims(running().fold(), 'c1-1', live(...paths.map((path) => marker(path, 'c1-1', 'c1')), ...paths.map((path) => marker(path, 'c9-1', 'c9'))), worktree);
+    assert.deepEqual(settle.events.map((event) => [event.kind, (event.payload as { files: unknown[] }).files.length]), [['claims.lost', maxClaimFilesPerEvent], ['claims.lost', 1], ['files.claimed', maxClaimFilesPerEvent], ['files.claimed', 1]]);
+    for (const event of settle.events) assert.equal((event.kind === 'files.claimed' ? filesClaimedV1 : claimsLostV1).safeParse(event.payload).success, true, event.kind);
+    assert.deepEqual(settle.state.review!.fix!.claims.map((claim) => claim.path).sort(), [...paths].sort(), 'every claim is folded');
+    assert.equal(settle.state.review!.fix!.lostClaims.length, paths.length, 'and every lost marker');
   });
 
   it('records a marker by the exact path it names where the file system does not fold case, though the worktree holds a file spelled otherwise', () => {
