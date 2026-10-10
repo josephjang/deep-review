@@ -652,10 +652,12 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     it('commits the edits of a finding blocked by a claim refused after its first edit under the fixer\'s message, which says the change is partial (R11)', async (t) => {
       const box = ReviewSandbox.forTest(t);
       const c1Claimed = join(box.directory, 'c1-claimed');
+      const c1MayAnswer = join(box.directory, 'c1-may-answer');
       const partial = 'fix(b): Import parse, without the shared test c1 holds';
       box.script({
         ...reviewScript,
-        'fixer:fixes:c1-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, [shared]: sharedV1 }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts', shared], subject: 'fix(a): Return 0 for a null text' }]) },
+        // c1 answers only once c2 has, so c1 holds the test when c2 claims it and the settles come in one order.
+        'fixer:fixes:c1-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, [shared]: sharedV1 }, snapshot: 0 }], waitFor: c1MayAnswer, output: fixerAnswer([{ files: ['src/a.ts', shared], subject: 'fix(a): Return 0 for a null text' }]) },
         // c2 edits its own file, then finds the test it also needs claimed, and reports the finding blocked with the edit it made.
         'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB } }, { waitFor: c1Claimed, claims: [shared], expectClaim: 'refused' }], output: fixerAnswer([{ status: 'blocked', files: ['src/b.ts'], requiredFiles: [shared], subject: partial, body: 'Partial: the test of the import waits for test/shared.test.ts, which c1 claimed.' }]) },
         'fixer:fixes:c3-1': { edits: [{ writes: { [shared]: sharedV2 }, snapshot: 0 }], output: fixerAnswer([{ status: 'applied', files: [shared], subject: 'test(b): Cover the import of parse' }]) },
@@ -663,17 +665,19 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       const pending = box.fix('claude');
       await claimMade(box);
       writeFileSync(c1Claimed, '');
+      await answeredOnLedger(box, 'c2-1');
+      writeFileSync(c1MayAnswer, '');
       reportText(await pending);
       const state = box.run();
       assert.deepEqual(state.review!.fix!.answers.fixes['c2-1']!.findings.map((finding) => [finding.status, finding.files, finding.message?.subject ?? null]), [['blocked', ['src/b.ts'], partial]]);
       assert.deepEqual(revised(state).map(([, key, findings, paths]) => [key, findings, paths]), [
-        ['c1-1', ['SCAN-1'], ['src/a.ts', shared]],
         ['c2-1', ['SCAN-2'], ['src/b.ts']],
+        ['c1-1', ['SCAN-1'], ['src/a.ts', shared]],
         ['c3-1', ['SCAN-2'], [shared]],
       ]);
       // The commit command commits the partial change under the fixer's message, and the second round's completion after it.
       commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
-      assert.deepEqual(git(box.repo, 'log', '--format=%s', '-3').split('\n').reverse(), ['fix(a): Return 0 for a null text', partial, 'test(b): Cover the import of parse']);
+      assert.deepEqual(git(box.repo, 'log', '--format=%s', '-3').split('\n').reverse(), [partial, 'fix(a): Return 0 for a null text', 'test(b): Cover the import of parse']);
     });
 
     it('records an edit of a file a still-running sibling claimed as a violation, the sibling\'s claim reaching the ledger with that answer (R3, R6)', async (t) => {
