@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { changedListed, prepareCheckManifest, prepareSnapshots, readManifest, readSnapshot, snapshotListingSchema, takeSnapshot } from '../../src/review/snapshot.ts';
+import { changedListed, prepareCheckManifest, prepareSnapshots, readManifest, readSnapshot, snapshotListingSchema, statOf, takeSnapshot } from '../../src/review/snapshot.ts';
 import { trackedFiles } from '../../src/scope/git.ts';
 import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
@@ -162,6 +162,22 @@ describe('snapshots', () => {
       remove(repo, 'src/b.ts');
       write(repo, 'dist/new.js', 'new\n');
       assert.deepEqual(changedListed(manifest), ['src/a.ts', 'src/b.ts']);
+    });
+
+    it('names a same-size rewrite that left the time as it was, by the hash of a file whose time was racy', () => {
+      // A clock as coarse as FAT's: the check's rewrite lands in the tick the file already had.
+      const tick = Math.floor(Date.now() / 1000);
+      const old = tick - 60;
+      for (const path of ['src/a.ts', 'src/b.ts']) utimesSync(join(repo, path), tick, tick);
+      for (const path of ['.gitignore', 'src/back.ts']) utimesSync(join(repo, path), old, old);
+      const manifest = prepareCheckManifest(join(directory, 'scratch', 'check'), repo);
+      assert.deepEqual(Object.keys(manifest.hashes ?? {}).sort(), ['src/a.ts', 'src/b.ts'], 'a file with an old time keeps no hash');
+      write(repo, 'src/a.ts', 'A\n');
+      write(repo, 'src/b.ts', 'b\n');
+      for (const path of ['src/a.ts', 'src/b.ts']) utimesSync(join(repo, path), tick, tick);
+      assert.deepEqual(manifest.files['src/a.ts'], statOf(repo, 'src/a.ts'), 'size and time are as the manifest recorded them');
+      assert.deepEqual(changedListed(manifest), ['src/a.ts'], 'src/b.ts, rewritten with the same bytes, did not change');
+      assert.deepEqual(changedListed(readManifest(join(directory, 'scratch', 'check'))!), ['src/a.ts'], 'and the manifest written keeps the hashes');
     });
   });
 
