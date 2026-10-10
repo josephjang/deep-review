@@ -1332,11 +1332,19 @@ export const attemptFailedV5 = z.strictObject({
 });
 export type AttemptFailed = z.infer<typeof attemptFailedV5>;
 
-/** A repository-relative path as a claim records it: inside the tree, outside `.git`, with no empty, `.` or `..` segment. */
-const claimedPathSchema = z.string().min(1).max(1000).refine((path) => {
+/**
+ * Whether a claim can record a path: repository-relative, at most 1000
+ * characters, inside the tree, outside `.git`, with no empty, `.` or `..`
+ * segment and no drive-like prefix, so not `a:b.txt` though a POSIX file
+ * system holds it.
+ */
+export function isClaimablePath(path: string): boolean {
   const parts = path.split('/');
-  return !path.includes('\\') && !path.includes('\0') && !/^[a-zA-Z]:/.test(path) && parts.every((part) => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git');
-}, { message: 'a claimed path is relative to the repository, inside it and outside .git' });
+  return path.length >= 1 && path.length <= 1000 && !path.includes('\\') && !path.includes('\0') && !/^[a-zA-Z]:/.test(path) && parts.every((part) => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git');
+}
+
+/** A repository-relative path as a claim records it, as `isClaimablePath` allows. */
+const claimedPathSchema = z.string().min(1).max(1000).refine(isClaimablePath, { message: 'a claimed path is relative to the repository, inside it and outside .git' });
 
 /** No path twice in a claims event's files. */
 const pathsOnce = <T extends { readonly path: string }>(files: readonly T[]): boolean => new Set(files.map((file) => file.path)).size === files.length;

@@ -9,7 +9,7 @@
  * an attempt by is exactly what the fold checks them against (TD5).
  */
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { ClaimsLost, FilesClaimed } from '../checkpoint/events.ts';
+import { isClaimablePath, type ClaimsLost, type FilesClaimed } from '../checkpoint/events.ts';
 import { batchOf, claimRefusal, claimsOfRound, holdersKeyedBy, planOfRound, roundOf, settledClusters, type FixState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { applyEvent, type RunState } from '../checkpoint/fold.ts';
 import { markerHash, pathKey, type Held, type LiveClaim } from './claims.ts';
@@ -232,7 +232,10 @@ export function isPending(settle: ClaimSettle, path: string): boolean {
  * time, since it was edited before it was claimed. A path the settle left
  * pending is held by a cluster not yet known (F13), so it is neither
  * claimed late nor, with no holder on the ledger, a violation; its marker
- * settles at the next settle. Null when there is none.
+ * settles at the next settle. A path a claim cannot record, as
+ * `isClaimablePath` judges it, such as a POSIX `a:b.txt`, is left
+ * unclaimed; the answer's revision still records its edit. Null when
+ * there is none.
  */
 export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<string>): NewEvent | null {
   const fix = requireFix(settle.state);
@@ -242,7 +245,7 @@ export function lateClaim(settle: ClaimSettle, key: string, named: Iterable<stri
   const keyOf = (path: string): string => pathKey(path, settle.caseInsensitive);
   const holders = holdersKeyedBy(fix, round, keyOf);
   const settled = settledClusters(fix, round);
-  const free = [...new Set(named)].filter((path) => !isPending(settle, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled) === null).sort();
+  const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled) === null).sort();
   if (free.length === 0) return null;
   return { kind: 'files.claimed', version: 1, payload: { phase: 'fixes', key, cluster: batch.cluster, files: free.map((path) => ({ path, claimedAt: null })) } satisfies FilesClaimed };
 }

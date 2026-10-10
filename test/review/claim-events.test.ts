@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
+import { filesClaimedV1 } from '../../src/checkpoint/events.ts';
 import { claimRefusal, heldByOthers } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { heldOf, isPending, lateClaim, settleClaims, settledNothing, type LiveClaims } from '../../src/review/claim-events.ts';
@@ -139,6 +140,14 @@ describe('lateClaim', () => {
     const settle = settleClaims(running().fold(), 'c1-1', live({ whole: false, hash: markerHash('docs/x.md', false), generation: 1 }), worktree);
     assert.deepEqual((lateClaim(settle, 'c1-1', ['docs/x.md', 'docs/new.md'])?.payload as { files: unknown[] }).files, [{ path: 'docs/new.md', claimedAt: null }]);
     assert.equal(lateClaim(settle, 'c1-1', ['docs/x.md']), null);
+  });
+
+  it('leaves out a named file a claim cannot record, such as a POSIX a:b.txt, so the event it makes is one the ledger takes', () => {
+    const long = `docs/${'x'.repeat(1000)}.md`;
+    const late = lateClaim(settledNothing(state(), false), 'c1-1', ['a:b.txt', long, 'docs/new.md']);
+    assert.deepEqual((late?.payload as { files: unknown[] }).files, [{ path: 'docs/new.md', claimedAt: null }]);
+    assert.equal(filesClaimedV1.safeParse(late!.payload).success, true);
+    assert.equal(lateClaim(settledNothing(state(), false), 'c1-1', ['a:b.txt', long]), null);
   });
 });
 
