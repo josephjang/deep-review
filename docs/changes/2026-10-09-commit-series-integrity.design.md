@@ -205,11 +205,14 @@ sibling needs to know.
 ### What a cluster holds (R1, R3, R6)
 
 `fix-state.ts` gains `RecordedClaim` (`{ path, cluster, key, round,
-claimedAt }`), `FixState.claims`, and `holdersOf(fix, round)`: a map
-from path to `{ cluster, by: 'plan' | 'claim' }` over the round's
-clusters' files and its recorded claims, the latest claim of a path
-being its holder, and `settledClusters(fix, round)`, the clusters whose
-every batch of the round has answered or is not attempted. `othersOwned`
+claimedAt }`), `FixState.claims`, and `holdersKeyedBy(fix, round,
+keyOf)`: a map from each path, keyed as `keyOf` gives it, to `{ path,
+cluster, by: 'plan' | 'claim' }` over the round's clusters' files and
+its recorded claims, the latest claim of a path being its holder (the
+fold keys by the exact path; a separate `holdersOf` that only dropped
+`path` was removed, 2026-10-10, review DESIGN-5), and
+`settledClusters(fix, round)`, the clusters whose every batch of the
+round has answered or is not attempted. `othersOwned`
 in `fix-events.ts` becomes `othersHeld(state, phase, key, dir)`: the
 fold's holders of the round, overlaid by the live markers of the
 directory, less the unit's own cluster and less the claims of settled
@@ -698,7 +701,7 @@ readable, and no kind the corpus holds changes shape here.
   unit and blocks the phase as a lost worker does; every existing
   history folds with `fault: 'unit'`.
 - `test/checkpoint/fix-fold.test.ts`: claims fold into `FixState.claims`
-  and `holdersOf`, lost claims into `FixState.lostClaims` and are refused
+  and `holdersKeyedBy`, lost claims into `FixState.lostClaims` and are refused
   outside a running fixes phase; refusals for a claim before the plan, by a unit the
   plan lacks, under another cluster's name, of a file a cluster of the
   round owns, of a file another cluster claimed, of a file claimed
