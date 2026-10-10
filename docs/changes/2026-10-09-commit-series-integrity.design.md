@@ -812,9 +812,9 @@ the engine or a fragment.
 
 ### Implementation
 
-The element was built in commits `cd6f421` (the claim command) to
-`f0c13e6` (the last prompt fragment), on `dfa6614`, the design as
-amended for the ledger versions, and `754fdd7`, which added the
+The element was built in commits `b9bf401` (the claim command) to
+`8338df8` (the last prompt fragment), on `86c7f96`, the design as
+amended for the ledger versions, and `f6421d3`, which added the
 second-round task's naming of a claimed file the series had left out;
 the rebuild of `dist/` follows them. Each commit passed `npm run
 check` on Windows as it was made, on `2163eab`. The series was then
@@ -827,14 +827,20 @@ series is tested at its head, and looked back over only when the head
 fails. Continuous integration runs on the three platforms for the
 pushed head.
 
+The whole series, both gates' commits included, was rebased again on
+2026-10-10 onto `d9e3ccc`, and the hashes in this section are the
+rebased ones: each names the same change as the commit the gates ran
+on and checked, now on that base, where `npm run check` and `npm run
+verify` passed at the head.
+
 The roles digest a run configured from the repository's roles pins:
 
 | After | Digest |
 |---|---|
-| `dfa6614`, before the series | `c5db64a859bd6800f11e35df517d5223e921db30f0279c233a641c74605b1c71` |
-| `4e53473`, `fixer-role.md` | `8f2bb7d8004479651c010be6660cbe0cef74b4a91c2494474964fe54a451b6a4` |
-| `0a20a48`, `fixer-apply.md` | `b6ad355c8253d43a89dfe2954e3db0e1ceca0ba67bf819cc057d4778580ef78f` |
-| `f0c13e6`, `fixer-report.md` | `18060bc439c642a4fa4e2c31e60d53e14045f202084162025370deac8aa12ea0` |
+| `86c7f96`, before the series | `c5db64a859bd6800f11e35df517d5223e921db30f0279c233a641c74605b1c71` |
+| `5c07a9f`, `fixer-role.md` | `8f2bb7d8004479651c010be6660cbe0cef74b4a91c2494474964fe54a451b6a4` |
+| `95f8de3`, `fixer-apply.md` | `b6ad355c8253d43a89dfe2954e3db0e1ceca0ba67bf819cc057d4778580ef78f` |
+| `8338df8`, `fixer-report.md` | `18060bc439c642a4fa4e2c31e60d53e14045f202084162025370deac8aa12ea0` |
 
 Decided at implementation, 2026-10-09, where the design said less or
 otherwise:
@@ -917,39 +923,39 @@ tail revision makes current (PD9); nothing is rebuilt by hand, and it is
 never run under `git rebase --exec` (#27).
 
 The gate ran on 2026-10-10 as run `55ecace9`: the engine built at
-`89b2e30` on Claude Code 2.1.295, on this element's change from
+`b42b66d` on Claude Code 2.1.295, on this element's change from
 `eec946a`, with the source, test, role and script paths in scope and the
 proposal, `dist/` and the golden fixtures left out, the four checks
 named by flag, the build check among them, and a budget of 150 USD. The
 reviewers found 38 findings; the decision fixed 31, left 5 and asked 2,
 whose defaults applied. The fix pass applied 31 and found 2 already
 applied, and every check passed before and after the fixes.
-`deep-review commit` made 40 commits, with no hand edit, from `2a25cb6`
-to `538ef73`, the build check's rewrite of `dist/`; `npm run verify`
+`deep-review commit` made 40 commits, with no hand edit, from `842ed91`
+to `381fc36`, the build check's rewrite of `dist/`; `npm run verify`
 passed there.
 
 **The gate does not pass.** Two commits hold a path their cluster
 neither owned nor claimed, both from the attempt of `c3-2` that ran past
 its timeout:
 
-- `6d14108`, the attempt's revision of FOOTGUNS-2, holds
+- `7a48007`, the attempt's revision of FOOTGUNS-2, holds
   `test/checkpoint/events-vocabulary.test.ts`, which `c11` had claimed
   and whose edit `c11-1` had already recorded, and holds it as the
   attempt's snapshot had read it, before that edit: the commit takes
-  `c11`'s new test out again, and `a3cd21d` puts it back. The cause is in
+  `c11`'s new test out again, and `60c4de0` puts it back. The cause is in
   the engine: the attempt's paths leave out the paths `heldByOthers`
   names, and that set drops a settled cluster's claims (PD3), so once
   `c11` had settled its file was no longer kept from the attempt. R5
   asks that a sibling's claimed file never be attributed to an attempt,
   settled or not.
-- `a3cd21d`, the attempt's revision after its last snapshot, holds that
+- `60c4de0`, the attempt's revision after its last snapshot, holds that
   file again and the four `dist/` files a fixer's `npm run build` had
   left, a build of the tree with its siblings' edits half made. R5 lets
   an attempt take a path no other cluster holds, and PD9 accepted a
   generator's output in a revision; R10's first row counts it all the
   same.
 
-The red commit, `37c4b82`, the revision of SCAN-2 in batch `c1-1`,
+The red commit, `db338e8`, the revision of SCAN-2 in batch `c1-1`,
 fails one test under the full suite, the R11 test of `fix-pass`, whose
 two fixers settle in an order the test does not fix: it passed ten runs
 of ten alone at that commit and at the head. The race is in the test
@@ -970,11 +976,11 @@ refused at a settle and no violation was recorded; a claim the command
 refused is not on the ledger.
 
 **The gate again passes.** The fixes the first gate named were made on
-2026-10-10 (`902f40a`, an attempt keeps a settled sibling's claimed
-file out; `b232494`, the R11 test orders its settles; `00f2445`, a
-tool's unclaimed leftover is a stray, in no fixer's revision; `81b7551`,
+2026-10-10 (`caf414d`, an attempt keeps a settled sibling's claimed
+file out; `b51eb46`, the R11 test orders its settles; `07d3df6`, a
+tool's unclaimed leftover is a stray, in no fixer's revision; `5abf7cf`,
 `dist/` rebuilt), and the gate ran again as run `0e9a9662` on the engine
-built at `81b7551`, on the whole element from `eec946a`, with the same
+built at `5abf7cf`, on the whole element from `eec946a`, with the same
 paths, `test/atomic-write.test.ts` added, the same checks and budget. A
 run before it, `e21b026d`, is not counted: Claude Code's session limit
 failed every fixer twice before it could edit, so every batch was left
@@ -985,7 +991,7 @@ The reviewers found 36 findings; the decision fixed 27, left 4 and
 asked 5, whose defaults applied. The fix pass applied 21 and found 6
 already applied; every check passed before and after the fixes, and no
 worktree check found a difference. `deep-review commit` made 38 commits,
-`2640646` to `7007e9e`, the build check's rewrite of `dist/`, where
+`6ed4463` to `2e0561a`, the build check's rewrite of `dist/`, where
 `npm run verify` passed. No commit holds a path its cluster neither
 owned nor claimed: three fixers ran past their timeout, `c5-1`, `c6-1`
 and `c12-1`, and the eight revisions their attempts left hold their own
@@ -999,11 +1005,11 @@ preflight past 10 s, and a worker relaunched when it ran late; each of
 the seven passed checked again alone, in 448 to 468 s.
 
 The per-commit checks ran on Windows only. Continuous integration then
-failed the head on Linux and macOS in one test `82dfe13` added, which
+failed the head on Linux and macOS in one test `71ab276` added, which
 loaded a node entry from a directory whose name held a backslash: node
 refuses such a module path where the backslash is no separator, and
 Windows reads it as one. The test, not the engine, was at fault, and
-`90ace12` keeps the backslash out of the entry's directory.
+`17fee41` keeps the backslash out of the entry's directory.
 
 ## Risks & Migration
 
