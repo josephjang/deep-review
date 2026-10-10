@@ -27,6 +27,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, type Stats 
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { z } from 'zod';
 import { createFileExclusive, writeFileAtomic } from '../atomic-write.ts';
+import type { PathHolder } from '../checkpoint/fix-state.ts';
 import { EngineError } from '../errors.ts';
 import { canonicalPath, isInside } from '../paths.ts';
 import { validateScopePath } from '../scope/capture.ts';
@@ -388,7 +389,7 @@ export type ClaimOutcome =
   /** The unit's cluster holds the path by a claim: made now, or before. */
   | { readonly kind: 'claimed'; readonly path: string; readonly cluster: string; readonly generation: number; readonly created: boolean }
   /** Another cluster owns the path or holds it by a claim. */
-  | { readonly kind: 'refused'; readonly path: string; readonly holder: string; readonly by: 'plan' | 'claim' }
+  | { readonly kind: 'refused'; readonly path: string; readonly holder: string; readonly by: PathHolder['by'] }
   /** A sibling is still writing the path's latest marker, so its cluster is not known yet. */
   | { readonly kind: 'held-by-unknown'; readonly path: string };
 
