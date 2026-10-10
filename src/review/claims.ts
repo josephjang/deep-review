@@ -23,11 +23,11 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, type Stats } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { z } from 'zod';
 import { createFileExclusive, writeFileAtomic } from '../atomic-write.ts';
 import { EngineError } from '../errors.ts';
-import { isInside } from '../paths.ts';
+import { canonicalPath, isInside } from '../paths.ts';
 import { validateScopePath } from '../scope/capture.ts';
 import { InvalidScopeRequestError } from '../scope/errors.ts';
 
@@ -127,6 +127,34 @@ export function normalizeClaimPath(raw: string): string {
   if (path.split('/').some((part) => part === '' || part === '.')) throw new InvalidScopeRequestError(`A claimed path must name a file: ${raw}`);
   if (path.length > claimedPathMax) throw new InvalidScopeRequestError(`A claimed path must not be longer than ${String(claimedPathMax)} characters, and this one has ${String(path.length)}`);
   return path;
+}
+
+/** Whether a spelling with slashes for backslashes is rooted, at `/` or at a drive such as `C:`, as an answer's reported path is judged. */
+const rooted = (name: string): boolean => name.startsWith('/') || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute(name);
+
+/**
+ * The repository path a fixer's spelling names, as `resolveReportedPath`
+ * resolves the same spelling in its answer, so a claim and the answer name
+ * one file: trimmed, and an absolute path inside the worktree taken
+ * relative to it; then normalized by `normalizeClaimPath`. An absolute path
+ * outside the worktree, or one the file system cannot resolve, is refused.
+ */
+function resolveClaimPath(worktree: string, raw: string): string {
+  const trimmed = raw.trim();
+  const slashed = trimmed.replaceAll('\\', '/');
+  if (!rooted(slashed)) return normalizeClaimPath(trimmed);
+  if (slashed.includes('\0')) throw new InvalidScopeRequestError(`A claimed path must not hold a NUL: ${JSON.stringify(raw)}`);
+  let inside: string;
+  try {
+    inside = relative(canonicalPath(worktree), canonicalPath(slashed));
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (typeof code !== 'string') throw error;
+    throw new InvalidScopeRequestError(`A claimed path cannot be resolved: ${raw}: ${code}`, { cause: error });
+  }
+  // Judged by whole segments, as `isInside` does, so a child named `..tmp` is inside while `..` is not.
+  if (inside === '' || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) throw new InvalidScopeRequestError(`A claimed path must be inside the worktree ${worktree}: ${raw}`);
+  return normalizeClaimPath(inside);
 }
 
 /** A name with the case of its ASCII letters flipped: each has one letter of the other case, which every file system that folds case folds back, where `ß` uppercases to `SS`. */
@@ -337,7 +365,8 @@ function judged(path: string, cluster: string, marker: LiveClaim, created: boole
 }
 
 /**
- * Claim one path for the cluster of `unit` (R1, R2): `owned` for a file of
+ * Claim one path for the cluster of `unit` (R1, R2), read as the fixer's
+ * answer reads it (`resolveClaimPath`): `owned` for a file of
  * its own cluster, refused naming the owner for another cluster's file;
  * else the path's latest marker decides. The unit's own cluster's marker is
  * `claimed`; no marker, or one of a cluster `held.json` lists as settled,
@@ -356,7 +385,7 @@ export function claimFile(dir: string, rawPath: string, unit: string, now: () =>
   const cluster = held.units[unit]!;
   // A settled cluster runs no batch, and a marker it made now would read as one that holds nothing.
   if (held.settled.includes(cluster)) throw new ClaimRequestError(`unit ${unit}'s cluster ${cluster} has settled, so it claims nothing more`);
-  const path = normalizeClaimPath(rawPath);
+  const path = resolveClaimPath(held.worktree, rawPath);
   const owner = ownerOf(held, path);
   if (owner === cluster) return { kind: 'owned', path, cluster };
   if (owner !== null) return { kind: 'refused', path, holder: owner, by: 'plan' };
