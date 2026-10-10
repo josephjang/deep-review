@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -134,13 +134,25 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
     ['still running', (history: History): History => history],
     ['settled with its answer', (history: History): History => history.worker(61, 'fixer fixes:c2-1').add('fix.recorded', fixAnswer(worker(61), {
       key: 'c2-1',
-      findings: [{ ...finding('SWEEP-1', 'applied', 'fix(b): Drop AGENTS.md'), file: 'src/b.ts', files: ['src/b.ts', 'AGENTS.md'] }],
+      findings: [{ ...finding('SWEEP-1', 'applied', 'docs(b): Note the import'), file: 'src/b.ts', files: ['src/b.ts', 'docs/b.md'] }],
     }))],
   ] as const) {
     it(`leaves out of a failed attempt's revisions a file a sibling claimed, the sibling ${name}`, () => {
-      const state = stateOf(settle(running().add('files.claimed', claimed('c2-1', 'c2', ['AGENTS.md']))));
+      // Untracked files, so only the sibling's claim keeps docs/b.md out, not the rule for a tracked leftover; notes.md, which nobody claimed, is still the attempt's.
+      writeFileSync(join(repo, 'notes.md'), 'c1\n');
+      mkdirSync(join(repo, 'docs'));
+      writeFileSync(join(repo, 'docs', 'b.md'), 'b\n');
+      const state = stateOf(settle(running().add('files.claimed', claimed('c2-1', 'c2', ['docs/b.md']))));
       const attempt = attemptRevisionEvents(contextOf(state, folding([])), 'fixes', 'c1-1', worker(60), 'it died');
-      assert.deepEqual(attempt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['src/a.ts'], 'the sibling\'s deletion of AGENTS.md is not this attempt\'s');
+      assert.deepEqual(attempt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['notes.md', 'src/a.ts'], 'the sibling\'s docs/b.md is not this attempt\'s');
     });
   }
+
+  it('leaves out of a failed attempt\'s revisions a tracked file outside the change that its cluster did not claim, a tool\'s leftover, and takes it once claimed (PD9)', () => {
+    // AGENTS.md is tracked, outside the scope, and deleted on disk, as a build would rewrite dist/.
+    const unclaimed = attemptRevisionEvents(contextOf(stateOf(running()), folding([])), 'fixes', 'c1-1', worker(60), 'it died');
+    assert.deepEqual(unclaimed.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['src/a.ts']);
+    const claimedByIt = attemptRevisionEvents(contextOf(stateOf(running().add('files.claimed', claimed('c1-1', 'c1', ['AGENTS.md']))), folding([])), 'fixes', 'c1-1', worker(60), 'it died');
+    assert.deepEqual(claimedByIt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['AGENTS.md', 'src/a.ts']);
+  });
 });

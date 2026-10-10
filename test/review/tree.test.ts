@@ -212,6 +212,13 @@ describe('the worktree as the tree reads it', () => {
     assert.deepEqual(straysOf(repo, tree), ['scratch.txt']);
   });
 
+  it('lists as strays the tracked files changed outside what the run expects, a tool\'s leftovers, and not one it expects (PD9 of commit series integrity)', () => {
+    write(repo, '.gitignore', 'build/\nout/\n');
+    write(repo, 'src/a.ts', 'changed\n');
+    const tree = new Map([['src/a.ts', { frozen: blob('a\n'), symlink: false }]]);
+    assert.deepEqual(straysOf(repo, tree), ['.gitignore'], 'src/a.ts is expected, so it is compared, never a stray');
+  });
+
   it('reads the base of a path as the scope\'s head commit holds it, whatever the worktree holds now, and nothing where it holds none', () => {
     const evidence = new EvidenceStore(join(directory, 'evidence'));
     const head = git(repo, 'rev-parse', 'HEAD');

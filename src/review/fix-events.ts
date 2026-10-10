@@ -234,7 +234,11 @@ export interface AttemptEvents {
  * every path its snapshots listed or git reports changed that no other
  * cluster of its round has held, by the plan or by a claim, settled or
  * not, nor a sibling is claiming now, less the strays the run had already
- * listed, which the attempt did not make, and the files git ignores. So a
+ * listed, which the attempt did not make, the files git ignores, and the
+ * tracked files outside the change it neither owns nor claimed: those are
+ * a tool's leftovers, such as a build's `dist/`, which the tail check
+ * revision takes if a check rewrites them and Limitations names otherwise
+ * (PD9 of commit series integrity, amended after the gate). So a
  * sibling's edit of a file the sibling claimed is never this attempt's
  * while that claim is on the ledger or in the round's directory, even once
  * the sibling has settled, when a snapshot of this attempt taken before
@@ -259,12 +263,16 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   // A sibling's file stays out for the whole round, its holder settled or not (R5): this attempt's snapshots may predate the sibling's recorded edit.
   const others = othersHeldInRound(settle.state, phase, key, keyOf);
   const strays = new Set(state.review!.checks.flatMap((check) => check.strays));
-  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle, path) && !strays.has(path));
+  const expected = expectedTreeOf(state);
+  // A tracked file outside the change that nobody claimed is a leftover, a build's dist/ say, and no attempt's work (PD9).
+  const tracked = new Set(gitApi.trackedFiles(worktree));
+  const leftover = (path: string): boolean => tracked.has(path) && !expected.has(path);
+  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle, path) && !strays.has(path) && !leftover(path));
   // A snapshot lists what changed on disk, ignored files a fixer wrote included; those are no work of the run (R23).
   const ignored = new Set(gitApi.ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...claimedFiles(settle.state, phase, key), ...listed], ids, context.match);
+  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...ownedFiles(fix, phase, key), ...claimedFiles(settle.state, phase, key), ...listed], ids, context.match);
   const who = phase === 'repair' ? 'the repair' : `batch ${key}`;
   const why = truncated(reason, 1000);
   return { claims: settle.events, revisions: revisions.map((revision): NewEvent => {
