@@ -21101,12 +21101,16 @@ function secondRoundFiles(own2, claims, requiredFiles) {
   return [.../* @__PURE__ */ new Set([...own2.files, ...pathsClaimedBy(claims, own2.id), ...requiredFiles])].sort();
 }
 function heldByOthers(fix, key, keyOf = (path) => path) {
+  return othersOfRound(fix, key, keyOf, settledClusters(fix, roundOf(fix, key)));
+}
+function heldInRoundByOthers(fix, key, keyOf = (path) => path) {
+  return othersOfRound(fix, key, keyOf, /* @__PURE__ */ new Set());
+}
+function othersOfRound(fix, key, keyOf, released) {
   const own2 = clusterOfBatch(fix, key)?.id;
-  const round = roundOf(fix, key);
-  const settled2 = settledClusters(fix, round);
   const held = /* @__PURE__ */ new Map();
-  for (const [path, { cluster, by }] of holdersKeyedBy(fix, round, keyOf)) {
-    if (cluster === own2 || by === "claim" && settled2.has(cluster)) continue;
+  for (const [path, { cluster, by }] of holdersKeyedBy(fix, roundOf(fix, key), keyOf)) {
+    if (cluster === own2 || by === "claim" && released.has(cluster)) continue;
     held.set(path, { cluster, by });
   }
   return held;
@@ -25433,7 +25437,7 @@ function changedPaths(worktree) {
   return changedAgainstHead(worktree);
 }
 function straysOf(worktree, expected) {
-  return status(worktree).filter((entry) => entry.code === "??" && !expected.has(entry.path)).map((entry) => entry.path).sort();
+  return [...new Set(status(worktree).filter((entry) => !expected.has(entry.path)).map((entry) => entry.path))].sort();
 }
 function reviseFrom(evidence, read, expected, base, paths, match = rawMatch) {
   const revised = [];
@@ -26693,6 +26697,9 @@ var keyOfSettle = (settle3) => (path) => pathKey(path, settle3.caseInsensitive);
 function othersHeld(state, phase, key, keyOf) {
   return phase === "repair" ? /* @__PURE__ */ new Map() : heldByOthers(requireFix3(state), key, keyOf);
 }
+function othersHeldInRound(state, phase, key, keyOf) {
+  return phase === "repair" ? /* @__PURE__ */ new Map() : heldInRoundByOthers(requireFix3(state), key, keyOf);
+}
 function answerLookup(settle3, phase, key, worktree) {
   const lookup = worktreeLookup(worktree);
   if (phase === "repair") return lookup;
@@ -26784,13 +26791,16 @@ function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const into = scratch === null ? null : join20(scratch, snapshotsDirectoryName);
   const settle3 = settleOf(context, phase, key);
   const keyOf = keyOfSettle(settle3);
-  const others = othersHeld(settle3.state, phase, key, keyOf);
+  const others = othersHeldInRound(settle3.state, phase, key, keyOf);
   const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
-  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle3, path) && !strays.has(path));
+  const expected = expectedTreeOf(state);
+  const tracked = new Set(trackedFiles(worktree));
+  const leftover = (path) => tracked.has(path) && !expected.has(path);
+  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle3, path) && !strays.has(path) && !leftover(path));
   const ignored = new Set(ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expectedTreeOf(state), baseOf(context), [...ownedFiles(fix, phase, key), ...claimedFiles(settle3.state, phase, key), ...listed], ids, context.match);
+  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...ownedFiles(fix, phase, key), ...claimedFiles(settle3.state, phase, key), ...listed], ids, context.match);
   const who = phase === "repair" ? "the repair" : `batch ${key}`;
   const why = truncated(reason, 1e3);
   return { claims: settle3.events, revisions: revisions.map((revision) => {
@@ -28215,6 +28225,11 @@ function fixHeaderLine(review2) {
   const counts = ["applied", "already applied", "deferred", "blocked", "not attempted", ...held].map((outcome) => `${String(outcomes.filter((candidate) => candidate === outcome).length)} ${outcome}`);
   return `Fix pass: ${counts.join(", ")}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? "" : "es"}; the edits are in the working tree, uncommitted`;
 }
+function strayedInRun(checks, revisions) {
+  const before = new Set(checks[0]?.strays ?? []);
+  const revised = new Set(revisions.flatMap((revision) => revision.files.map((file2) => file2.path)));
+  return [...new Set(checks.flatMap((check2) => check2.strays))].filter((path) => !before.has(path) && !revised.has(path)).sort();
+}
 function fixLimitations(review2) {
   const fix = review2.fix;
   if (fix === null) return [];
@@ -28238,7 +28253,7 @@ function fixLimitations(review2) {
   });
   for (const claim3 of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim3.path)} by ${claim3.key}, edited before it was claimed (R6 of commit series integrity).`);
   for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lostClaimWords(lost.holder)}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
-  const strays = [...new Set(review2.checks.flatMap((check2) => check2.strays))].sort();
+  const strays = strayedInRun(review2.checks, fix.revisions);
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(", ")}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check2) => check2.command === null);
   if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check2) => `${check2.kind} (${inlineText(droppedByOperator(review2.survey, check2) ?? check2.reason ?? "no command")})`).join("; ")}.`);
