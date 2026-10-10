@@ -193,9 +193,9 @@ function snapshotCommand(prompt: string): { entry: string; into: string } {
   return { entry: match[1]!, into: match[2]! };
 }
 
-/** The claim command a fixer's prompt quotes: the engine's entry, the unit and the directory, with `<path>` for the file. */
+/** The claim command a fixer's prompt quotes: the engine's entry, the unit and the directory, with `<path>` for the file; a test's scratch holds no `'`, so both paths are single-quoted. */
 function claimCommand(prompt: string): { entry: string; unit: string; into: string } {
-  const match = /^ {4}node "([^"]+)" claim --path '<path>' --unit (\S+) --in "([^"]+)"$/m.exec(prompt);
+  const match = /^ {4}node '([^']+)' claim --path '<path>' --unit (\S+) --in '([^']+)'$/m.exec(prompt);
   if (match === null) throw new Error('The prompt quotes no claim command');
   return { entry: match[1]!, unit: match[2]!, into: match[3]! };
 }

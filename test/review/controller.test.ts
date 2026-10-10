@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -932,9 +933,27 @@ describe('presurveyRulesFiles', () => {
 });
 
 describe('the fixer\'s commands', () => {
-  it('quotes the claim command\'s path placeholder and directory, and names the unit', () => {
-    assert.equal(claimCommandFor('/engine/main.mjs', 'c8-1', '/scratch/key/claims/run/round-1'), 'node "/engine/main.mjs" claim --path \'<path>\' --unit c8-1 --in "/scratch/key/claims/run/round-1"');
-    assert.ok(claimCommandFor('/e', 'c1-1', '/d').includes(`'${claimPathPlaceholder}'`), 'a path with a space stays one argument, and one with $ or a backtick is not expanded by bash or PowerShell');
+  it('single-quotes the claim command\'s entry, path placeholder and directory, and names the unit', () => {
+    assert.equal(claimCommandFor('/engine/main.mjs', 'c8-1', '/scratch/key/claims/run/round-1'), 'node \'/engine/main.mjs\' claim --path \'<path>\' --unit c8-1 --in \'/scratch/key/claims/run/round-1\'');
+    assert.ok(claimCommandFor('/e', 'c1-1', '/d').includes(`'${claimPathPlaceholder}'`), 'a path with a space stays one argument');
+  });
+
+  it('hands the claim command\'s entry and directory to node as written, in bash, when they hold $, a backtick, \\ or a \'', (t) => {
+    if (spawnSync('bash', ['-c', 'node --version'], { windowsHide: true }).status !== 0) return t.skip('no bash here runs node');
+    const scratch = mkdtempSync(join(tmpdir(), 'deep-review-claim-quoting-'));
+    try {
+      for (const name of ['a$b `c` \\d', "it's"]) {
+        const entry = join(scratch, name, 'main.mjs');
+        const into = join(scratch, name, 'round-1');
+        mkdirSync(join(scratch, name), { recursive: true });
+        writeFileSync(entry, 'process.stdout.write(JSON.stringify(process.argv.slice(2)));');
+        const result = spawnSync('bash', ['-c', claimCommandFor(entry, 'c1-1', into).replace(claimPathPlaceholder, 'docs/a.md')], { encoding: 'utf8', windowsHide: true });
+        assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+        assert.deepEqual(JSON.parse(result.stdout), ['claim', '--path', 'docs/a.md', '--unit', 'c1-1', '--in', into], name);
+      }
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 
   it('quotes the snapshot command\'s directory beside its index placeholder', () => {

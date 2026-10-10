@@ -286,15 +286,25 @@ export function snapshotCommandFor(engineEntry: string, into: string): string {
 }
 
 /**
+ * One of the engine's own paths quoted for a fixer's shell: single quotes,
+ * which bash and PowerShell alike take as written, so a space, `$`, a
+ * backtick or `\` in a scratch or install path reaches the command intact;
+ * double quotes only for a path that itself holds a `'`, which neither
+ * shell can put inside single quotes without an escape of its own.
+ */
+const shellQuoted = (path: string): string => (path.includes("'") ? `"${path}"` : `'${path}'`);
+
+/**
  * The command a fixer runs to claim a file for its cluster (R1, R2 of
- * commit series integrity): as the snapshot command is built, with the
- * unit's key, the round's claims directory and the path placeholder the
- * task asks the fixer to fill in, single-quoted so a path with a space
- * stays one argument and one with `$`, a backtick or `\` reaches the
- * command as written, in bash and in PowerShell alike.
+ * commit series integrity): `node` as for the snapshot command, the
+ * engine's entry and the round's claims directory each quoted by
+ * `shellQuoted`, the unit's key, and the path placeholder the task asks the
+ * fixer to fill in, single-quoted so a path with a space stays one argument.
+ * A path the fixer puts there that holds a `'` must have it escaped as the
+ * fixer's shell requires, which the engine, not knowing that shell, cannot.
  */
 export function claimCommandFor(engineEntry: string, unit: string, into: string): string {
-  return `node "${engineEntry}" claim --path '${claimPathPlaceholder}' --unit ${unit} --in "${into}"`;
+  return `node ${shellQuoted(engineEntry)} claim --path '${claimPathPlaceholder}' --unit ${unit} --in ${shellQuoted(into)}`;
 }
 
 /** Run a review to its report or its blocker. */
