@@ -122,13 +122,16 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
   describe('from one fix run of twoFixes', { concurrency: 1 }, () => {
     let box: ReviewSandbox;
     let runId: string;
+    let restored = false;
     before(async () => {
       box = new ReviewSandbox();
       runId = await fixRun(box);
       box.keep();
     });
     beforeEach(() => {
-      box.restore();
+      // The first test runs on the sandbox exactly as keep() copied it, so only the later ones need it put back.
+      if (restored) box.restore();
+      restored = true;
     });
     after(() => {
       box.close();
