@@ -168,7 +168,14 @@ seven findings in two batches to nine in three.
   that name, refuses the path as held by a cluster not yet known,
   `othersHeld` counts it as held the same way, and the append of R3
   leaves the marker for the next settle, when it is whole (2026-10-09,
-  review F13).
+  review F13). A marker still not whole a minute after it was last
+  written, by its mtime, is torn instead: its claimant was killed
+  between the `wx` open and the write, which `createFileExclusive`
+  cannot rule out there, and nobody will finish it. A torn marker holds
+  nothing: `claimFile` judges the path by its latest marker that is not
+  torn and creates the next generation above it, and `readClaims`
+  leaves it out, so a settle no longer leaves its path pending. It is
+  never deleted (2026-10-10, review SCAN-3).
 
 `src/cli.ts` gains `claim --path <path> --unit <key> --in <dir>
 [--repo <dir>]`, listed with `snapshot` as run by a fix worker, with
