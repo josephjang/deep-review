@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { caseInsensitiveFileSystem, claimFile, ClaimRequestError, claimsDirectoryFor, claimsDirectoryIntact, ClaimsDirectoryLostError, heldFileName, markerHash, markerName, normalizeClaimPath, prepareClaims, readClaims, readHeld, type Held } from '../../src/review/claims.ts';
+import { caseInsensitiveFileSystem, claimFile, ClaimRequestError, claimsDirectoryFor, claimsDirectoryIntact, ClaimsDirectoryLostError, heldFileName, markerHash, markerName, normalizeClaimPath, prepareClaims, readClaims, readHeld, tornMarkerAfterMs, type Held } from '../../src/review/claims.ts';
 import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 import { baseEnvironment } from '../helpers/launcher.ts';
 import { repositoryWith } from '../helpers/repository.ts';
@@ -219,6 +219,37 @@ describe('claims', () => {
       prepare({ settled: ['c1', 'c2'] });
       assert.equal(claimFile(dir, 'docs/half.md', 'c3-1').kind, 'held-by-unknown', 'whoever writes it has not settled as far as anyone knows');
       assert.deepEqual(readClaims(dir, false).map((claim) => [claim.whole, claim.generation]), [[false, 1], [false, 1]]);
+    });
+
+    it('takes a marker still not whole a minute after it was last written for torn, which holds nothing, and claims the path above it', () => {
+      const written = new Date('2026-10-09T01:00:00.000Z');
+      const torn = (path: string, text: string): void => {
+        const file = join(dir, markerName(path, 1, false));
+        writeFileSync(file, text);
+        utimesSync(file, written, written);
+      };
+      const after = (ms: number) => (): Date => new Date(written.getTime() + ms);
+      torn('docs/empty.md', '');
+      torn('docs/half.md', '{"path":"docs/half.md","clus');
+      assert.deepEqual(claimFile(dir, 'docs/empty.md', 'c1-1', after(tornMarkerAfterMs - 1)), { kind: 'held-by-unknown', path: 'docs/empty.md' }, 'a sibling may still be writing it');
+      assert.equal(readClaims(dir, false, after(tornMarkerAfterMs - 1)).length, 2);
+      assert.deepEqual(readClaims(dir, false, after(tornMarkerAfterMs)), [], 'a settle leaves neither pending');
+      assert.deepEqual(claimFile(dir, 'docs/empty.md', 'c1-1', after(tornMarkerAfterMs)), { kind: 'claimed', path: 'docs/empty.md', cluster: 'c1', generation: 2, created: true });
+      assert.deepEqual(claimFile(dir, 'docs/empty.md', 'c2-1', after(tornMarkerAfterMs)), { kind: 'refused', path: 'docs/empty.md', holder: 'c1', by: 'claim' }, 'the marker above the torn one holds the path');
+      assert.deepEqual(readClaims(dir, false, after(tornMarkerAfterMs)).map((claim) => [claim.generation, claim.whole && claim.cluster]), [[2, 'c1']]);
+      assert.ok(existsSync(join(dir, markerName('docs/empty.md', 1, false))), 'the torn marker is never deleted');
+    });
+
+    it('judges a path by its latest marker that is not torn, so a torn marker above a holder frees nothing', () => {
+      prepare({}, [{ path: 'docs/x.md', cluster: 'c2', unit: 'c2-1', claimedAt: null }]);
+      const file = join(dir, markerName('docs/x.md', 2, false));
+      writeFileSync(file, '');
+      const written = new Date('2026-10-09T01:00:00.000Z');
+      utimesSync(file, written, written);
+      const later = (): Date => new Date(written.getTime() + tornMarkerAfterMs);
+      assert.deepEqual(claimFile(dir, 'docs/x.md', 'c1-1', later), { kind: 'refused', path: 'docs/x.md', holder: 'c2', by: 'claim' });
+      prepare({ settled: ['c2'] });
+      assert.deepEqual(claimFile(dir, 'docs/x.md', 'c1-1', later), { kind: 'claimed', path: 'docs/x.md', cluster: 'c1', generation: 3, created: true });
     });
 
     it('takes a temporary file a claimant killed while writing left behind for no marker, so the path stays free', () => {

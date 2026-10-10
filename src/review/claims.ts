@@ -19,7 +19,8 @@
  * one path in one instant aim at one name, and one of them is refused. The
  * command reads no ledger and starts no process, so it runs under every
  * sandbox the snapshot command runs under; the engine never deletes a
- * marker.
+ * marker. A marker still not whole `tornMarkerAfterMs` after it was last
+ * written is torn, its claimant killed before it wrote, and holds nothing.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, type Stats } from 'node:fs';
@@ -94,6 +95,17 @@ export type Marker = z.infer<typeof markerSchema>;
 export type LiveClaim =
   | ({ readonly whole: true; readonly hash: string; readonly generation: number } & Marker)
   | { readonly whole: false; readonly hash: string; readonly generation: number };
+
+/**
+ * How long a marker may stay not whole before it is torn: a claimant on a
+ * file system without hard links writes its marker the moment it creates it
+ * under `wx`, so a marker still not whole a minute after it was last written
+ * was left by a claimant killed between the two, and nobody will finish it.
+ */
+export const tornMarkerAfterMs = 60_000;
+
+/** A marker as its name is read: live, or torn, which holds nothing and only keeps its generation's name taken. */
+type ReadMarker = LiveClaim | 'torn';
 
 const markerNamePattern = /^([0-9a-f]{64})\.([1-9][0-9]{0,8})\.json$/;
 
@@ -241,13 +253,15 @@ export function readHeld(dir: string): Held {
 /**
  * One marker read by its name: whole, or not yet whole when it is empty,
  * not JSON, not a marker, or a marker whose path is not one the command
- * writes or does not hash to its name, which no claim made; undefined when
- * there is no such file.
+ * writes or does not hash to its name, which no claim made; torn when it is
+ * not whole `tornMarkerAfterMs` after it was last written, as of `now`;
+ * undefined when there is no such file.
  */
-function readMarker(dir: string, hash: string, generation: number, caseInsensitive: boolean): LiveClaim | undefined {
+function readMarker(dir: string, hash: string, generation: number, caseInsensitive: boolean, now: Date): ReadMarker | undefined {
+  const file = join(dir, `${hash}.${String(generation)}.json`);
   let text: string;
   try {
-    text = readFileSync(join(dir, `${hash}.${String(generation)}.json`), 'utf8');
+    text = readFileSync(file, 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw error;
@@ -256,8 +270,10 @@ function readMarker(dir: string, hash: string, generation: number, caseInsensiti
     const parsed = markerSchema.safeParse(JSON.parse(text));
     if (parsed.success && namesItsPath(parsed.data.path, hash, caseInsensitive)) return { whole: true, hash, generation, ...parsed.data };
   } catch {
-    // Not whole JSON: a sibling on a file system without hard links created it under `wx` and is still writing it.
+    // Not whole JSON: a sibling on a file system without hard links created it under `wx` and is still writing it, or was killed before it wrote.
   }
+  const written = statSync(file, { throwIfNoEntry: false })?.mtimeMs;
+  if (written !== undefined && now.getTime() - written >= tornMarkerAfterMs) return 'torn';
   return { whole: false, hash, generation };
 }
 
@@ -271,11 +287,11 @@ function namesItsPath(path: string, hash: string, caseInsensitive: boolean): boo
   }
 }
 
-/** A path's markers, from generation 1 up to the first missing one, read by name. */
-function markersOf(dir: string, hash: string, caseInsensitive: boolean): LiveClaim[] {
-  const markers: LiveClaim[] = [];
+/** A path's markers, from generation 1 up to the first missing one, read by name as of `now`, a torn one in its generation's place. */
+function markersOf(dir: string, hash: string, caseInsensitive: boolean, now: Date): ReadMarker[] {
+  const markers: ReadMarker[] = [];
   for (let generation = 1; ; generation += 1) {
-    const marker = readMarker(dir, hash, generation, caseInsensitive);
+    const marker = readMarker(dir, hash, generation, caseInsensitive, now);
     if (marker === undefined) return markers;
     markers.push(marker);
   }
@@ -288,11 +304,13 @@ function createMarker(dir: string, hash: string, generation: number, marker: Mar
 
 /**
  * Every marker in the directory, by hash then generation, judged whole as
- * `claimFile` judges it on a file system that folds case or not. A
- * directory that is gone throws `ClaimsDirectoryLostError`; a file whose
- * name is not a marker's, `held.json` included, is not a claim.
+ * `claimFile` judges it on a file system that folds case or not, as of
+ * `now`. A torn marker is left out, since it holds nothing, so a settle
+ * leaves its path pending no longer. A directory that is gone throws
+ * `ClaimsDirectoryLostError`; a file whose name is not a marker's,
+ * `held.json` included, is not a claim.
  */
-export function readClaims(dir: string, caseInsensitive: boolean): LiveClaim[] {
+export function readClaims(dir: string, caseInsensitive: boolean, now: () => Date = () => new Date()): LiveClaim[] {
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -300,12 +318,13 @@ export function readClaims(dir: string, caseInsensitive: boolean): LiveClaim[] {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') throw new ClaimsDirectoryLostError(dir);
     throw error;
   }
+  const time = now();
   const claims: LiveClaim[] = [];
   for (const name of names) {
     const match = markerNamePattern.exec(name);
     if (match === null) continue;
-    const marker = readMarker(dir, match[1]!, Number(match[2]), caseInsensitive);
-    if (marker !== undefined) claims.push(marker);
+    const marker = readMarker(dir, match[1]!, Number(match[2]), caseInsensitive, time);
+    if (marker !== undefined && marker !== 'torn') claims.push(marker);
   }
   return claims.sort((a, b) => (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : a.generation - b.generation));
 }
@@ -339,8 +358,8 @@ export function prepareClaims(dir: string, held: Held, recorded: readonly Record
   const latest = new Map<string, RecordedMarker>();
   for (const claim of recorded) latest.set(markerHash(claim.path, held.caseInsensitive), claim);
   for (const [hash, claim] of latest) {
-    const markers = markersOf(dir, hash, held.caseInsensitive);
-    if (markers.some((marker) => marker.whole && marker.cluster === claim.cluster && marker.unit === claim.unit && marker.claimedAt === claim.claimedAt)) continue;
+    const markers = markersOf(dir, hash, held.caseInsensitive, new Date());
+    if (markers.some((marker) => marker !== 'torn' && marker.whole && marker.cluster === claim.cluster && marker.unit === claim.unit && marker.claimedAt === claim.claimedAt)) continue;
     const marker: Marker = { path: claim.path, cluster: claim.cluster, unit: claim.unit, claimedAt: claim.claimedAt };
     let generation = markers.length + 1;
     while (!createMarker(dir, hash, generation, marker)) generation += 1;
@@ -365,7 +384,7 @@ function ownerOf(held: Held, path: string): string | null {
   return null;
 }
 
-/** What a holding marker means for a claim by `cluster`. */
+/** What a holding marker means for a claim by `cluster`: one not yet whole, and not yet torn, is a sibling's still being written. */
 function judged(path: string, cluster: string, marker: LiveClaim, created: boolean): ClaimOutcome {
   if (!marker.whole) return { kind: 'held-by-unknown', path };
   return marker.cluster === cluster ? { kind: 'claimed', path, cluster, generation: marker.generation, created } : { kind: 'refused', path, holder: marker.cluster, by: 'claim' };
@@ -379,7 +398,9 @@ function judged(path: string, cluster: string, marker: LiveClaim, created: boole
  * `claimed`; no marker, or one of a cluster `held.json` lists as settled,
  * makes the next generation exclusively, and a sibling that made the same
  * one first refuses the claim naming that sibling; a marker not yet whole
- * is `held-by-unknown`; any other is refused naming its cluster. A
+ * is `held-by-unknown`; any other is refused naming its cluster. A torn
+ * marker holds nothing: the latest marker that is not torn decides, and a
+ * claim goes on above a torn one. A
  * directory or `held.json` that is gone throws `ClaimsDirectoryLostError`,
  * a directory inside the worktree and a path outside the repository
  * `InvalidScopeRequestError`, a unit the round lacks or one whose cluster
@@ -397,12 +418,15 @@ export function claimFile(dir: string, rawPath: string, unit: string, now: () =>
   if (owner === cluster) return { kind: 'owned', path, cluster };
   if (owner !== null) return { kind: 'refused', path, holder: owner, by: 'plan' };
   const hash = markerHash(path, held.caseInsensitive);
-  const markers = markersOf(dir, hash, held.caseInsensitive);
-  const latest = markers.at(-1);
+  const time = now();
+  const markers = markersOf(dir, hash, held.caseInsensitive, time);
+  const latest = markers.findLast((read) => read !== 'torn');
   if (latest !== undefined && !(latest.whole && held.settled.includes(latest.cluster))) return judged(path, cluster, latest, false);
-  const generation = markers.length + 1;
-  const marker: Marker = { path, cluster, unit, claimedAt: now().toISOString() };
-  if (createMarker(dir, hash, generation, marker)) return { kind: 'claimed', path, cluster, generation, created: true };
-  // A sibling created the same generation first: its marker holds the path, whole or still being written.
-  return judged(path, cluster, readMarker(dir, hash, generation, held.caseInsensitive) ?? { whole: false, hash, generation }, false);
+  const marker: Marker = { path, cluster, unit, claimedAt: time.toISOString() };
+  for (let generation = markers.length + 1; ; generation += 1) {
+    if (createMarker(dir, hash, generation, marker)) return { kind: 'claimed', path, cluster, generation, created: true };
+    // A sibling created the same generation first: its marker holds the path, whole or still being written, unless it is torn.
+    const raced = readMarker(dir, hash, generation, held.caseInsensitive, time);
+    if (raced !== 'torn') return judged(path, cluster, raced ?? { whole: false, hash, generation }, false);
+  }
 }
