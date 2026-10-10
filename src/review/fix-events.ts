@@ -294,18 +294,24 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
  * `manifest`, taken just before the check, so a generated tree outside the
  * scope is recorded, and committed at the series' tail, rather than left
  * changed in the worktree; a file new since the check is not listed, and
- * a file changed before it and left alone is not either. The state before
- * a path the run expects nothing of is the scope's head's, so a fixer's
- * edit of such a file that it neither claimed nor named, and that the
- * check then rewrote, is kept in this revision under the check's subject
- * and named nowhere apart (PD9; whether to name or leave out such an edit
- * is the author's open question). Without a manifest, the expected files
- * alone.
+ * a file changed before it and left alone is not either. A tracked file
+ * outside the change that the run's first worktree check listed as a
+ * stray held the user's own change before the run, so it is left out even
+ * when the check rewrites it, and stays in the worktree uncommitted. The
+ * state before a path the run expects nothing of is the scope's head's, so
+ * a fixer's edit of such a file that it neither claimed nor named, and
+ * that the check then rewrote, is kept in this revision under the check's
+ * subject and named nowhere apart (PD9; whether to name or leave out such
+ * an edit is the author's open question). Without a manifest, the expected
+ * files alone.
  */
 export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...(manifest === null ? [] : changedListed(manifest))], context.match);
+  // A stray at the run's first check is the user's uncommitted work, which no revision may commit (as strayedInRun in fix-report.ts reads them).
+  const before = new Set(state.review!.checks[0]?.strays ?? []);
+  const listed = manifest === null ? [] : changedListed(manifest).filter((path) => !before.has(path));
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...listed], context.match);
   if (files.length === 0) return null;
   const payload: TreeRevised = {
     phase,

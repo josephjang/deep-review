@@ -402,7 +402,11 @@ leaves it changed in the worktree and in no revision. Now:
   the check is not listed), freezing them as today; the before state of
   a path the expected tree does not hold is the head's, as a fixer's is.
   A tracked file the user changed before the run and the check left
-  alone is not listed, since it did not change during the check.
+  alone is not listed, since it did not change during the check. One the
+  check rewrites is left out too: a tracked file outside the change that
+  the run's first worktree check listed as a stray held the user's own
+  change, so it is in no check revision and stays in the worktree
+  uncommitted.
 - The revision's message is unchanged, `chore: apply the <kind> check's
   rewrite`; the report's Changed files shows the check as the source,
   and the commit command commits the revision in ledger order, after
