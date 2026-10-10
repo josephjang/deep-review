@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, linkSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -133,6 +133,28 @@ describe('createFileExclusive', () => {
     assert.notEqual(temporaries[0], temporaries[1]);
     for (const temporary of temporaries) assert.ok(temporary.startsWith(`${file}.${String(process.pid)}.`) && temporary.endsWith('.tmp'), temporary);
     assert.deepEqual(readdirSync(directory), ['marker.json']);
+  });
+
+  it('reports the file created when its temporary file cannot be removed, on either path', () => {
+    // A directory under the temporary name makes its removal throw, as an antivirus hold does on Windows.
+    const unremovable = (from: string): void => {
+      rmSync(from);
+      mkdirSync(from);
+    };
+    const linked = (from: string, to: string): void => {
+      linkSync(from, to);
+      unremovable(from);
+    };
+    assert.equal(createFileExclusive(file, 'linked\n', linked), true);
+    assert.equal(readFileSync(file, 'utf8'), 'linked\n');
+    rmSync(directory, { recursive: true });
+    mkdirSync(directory);
+    const refused = (from: string): void => {
+      unremovable(from);
+      throw Object.assign(new Error('EPERM: link'), { code: 'EPERM' });
+    };
+    assert.equal(createFileExclusive(file, 'written\n', refused), true);
+    assert.equal(readFileSync(file, 'utf8'), 'written\n');
   });
 
   it('throws any other link error, creating nothing and removing the temporary file', () => {
