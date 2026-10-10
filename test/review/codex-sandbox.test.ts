@@ -22,8 +22,10 @@ interface Launch {
 /** A test's sandbox, the runtimes that record its launches, and the helpers that read them. */
 interface Spied {
   readonly box: ReviewSandbox;
-  /** Every launch since the last reset, in order; a test resets it by emptying it in place. */
-  readonly launched: Launch[];
+  /** Every launch since the last reset, in order; a test resets it through resetLaunches. */
+  readonly launched: readonly Launch[];
+  /** Forget the launches so far, so the helpers that read them see only the ones after. */
+  readonly resetLaunches: () => void;
   readonly runtimes: RuntimeRegistry;
   /** The distinct pinned options the launches since the last reset were handed, in the order first seen; at least one worker launched. */
   readonly launchedWith: () => unknown[];
@@ -51,6 +53,9 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     return {
       box,
       launched,
+      resetLaunches: () => {
+        launched.length = 0;
+      },
       runtimes,
       launchedWith: () => {
         assert.ok(launched.length > 0, 'a worker launched');
@@ -99,14 +104,14 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
   });
 
   it('refuses a resume that asks for another sandbox, by name, and resumes one that asks for the same or says nothing', async (t) => {
-    const { box, launched, launchedWith, codex } = spied(t);
+    const { box, resetLaunches, launchedWith, codex } = spied(t);
     await codex({ flags: { codexWindowsSandbox: 'elevated' } });
     const runId = box.run().id;
     const sequence = box.run().lastSequence;
     await assert.rejects(codex({ flags: { codexWindowsSandbox: 'none' } }), (error: unknown) => error instanceof ReviewRefusedError
       && error.message === `run ${runId} is pinned to the Codex Windows sandbox elevated, not none; run it with --codex-windows-sandbox elevated or without the flag, or abandon it with \`deep-review abandon --run ${runId} --reason <text>\``);
     assert.equal(box.run().lastSequence, sequence, 'the refusal recorded nothing');
-    launched.length = 0;
+    resetLaunches();
     assert.equal((await codex({ flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
     assert.equal((await codex()).kind, 'blocked');
     assert.equal(box.run().id, runId, 'the same run resumed');
@@ -115,12 +120,12 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
   });
 
   it('names the flag as ignored on the resume of a run configured off Windows, there and on Windows', async (t) => {
-    const { box, launched, launchedWith, codex } = spied(t);
+    const { box, resetLaunches, launchedWith, codex } = spied(t);
     await codex({ platform: 'linux' });
     const runId = box.run().id;
     assert.equal((await codex({ platform: 'linux', flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
     assert.ok(box.logs.includes(`--codex-windows-sandbox applies on Windows only; it is ignored on linux, where every Codex worker of run ${runId} runs as without it`), box.logs.join('\n'));
-    launched.length = 0;
+    resetLaunches();
     assert.equal((await codex({ flags: { codexWindowsSandbox: 'elevated' } })).kind, 'blocked');
     assert.equal(box.run().id, runId, 'the same run resumed');
     assert.equal(box.run().review!.configuration.codex, null);
@@ -130,7 +135,7 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
 
   // Only a Windows worktree reads as a run on Windows, so the older run this stands in for exists only on a Windows host.
   it('resumes a Codex run configured on Windows before the setting existed under the unelevated sandbox', { skip: process.platform !== 'win32' && 'only a Windows worktree folds to the unelevated sandbox' }, async (t) => {
-    const { box, launched, launchedWith, codex, configured } = spied(t);
+    const { box, resetLaunches, launchedWith, codex, configured } = spied(t);
     await codex({ flags: { codexWindowsSandbox: 'none' } });
     // Stand in for an older engine on Windows: the same configuration at version 3, without the setting, on a run of its own.
     const pinned = { ...configured() };
@@ -140,7 +145,7 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     const older = box.checkpoint.createRun({ worktree: box.repo });
     const captured = captureScope(box.checkpoint, older.id, { paths: [] });
     box.checkpoint.append(older.id, captured.lastSequence, [{ kind: 'review.configured', version: 3, payload: pinned }]);
-    launched.length = 0;
+    resetLaunches();
     await assert.rejects(codex({ flags: { codexWindowsSandbox: 'none' } }), (error: unknown) => error instanceof ReviewRefusedError && /is pinned to the Codex Windows sandbox unelevated, not none/.test(error.message));
     await codex();
     assert.deepEqual(box.checkpoint.fold(older.id).review!.configuration.codex, { windowsSandbox: 'unelevated' });
