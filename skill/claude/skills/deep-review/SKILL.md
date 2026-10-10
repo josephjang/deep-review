@@ -18,11 +18,15 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    user limited the review to. Pass `--budget-usd <usd>` only when the
    user names a run budget; the default is 60 USD.
 2. Decide whether to fix. When the user asks for the findings to be
-   fixed or applied, add `--fix`. The engine surveys the repository for
-   its checks itself; add `--check <kind>=<command>` only for a check
-   command the user names, and `--no-check <kind>` only for a check the
-   user says to skip (kind `build`, `typecheck`, `lint` or `test`):
-   each settles its kind over the survey. Before you run it, tell the
+   fixed or applied, add `--fix`. When a read-only run of the same
+   change has finished and the change is unchanged since, the same
+   command with `--fix` continues that run and reviews nothing again,
+   so the fixes are of the findings the user read. The engine surveys
+   the repository for its checks itself; add
+   `--check <kind>=<command>` only for a check command the user names,
+   and `--no-check <kind>` only for a check the user says to skip (kind
+   `build`, `typecheck`, `lint` or `test`): each settles its kind over
+   the survey. Before you run it, tell the
    user that the engine's workers will edit the working tree, that it
    runs the check commands it chose from the repository, and that the
    run commits nothing. Without such a request, do not pass `--fix`: the
