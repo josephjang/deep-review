@@ -320,15 +320,17 @@ export function fixHeaderLine(review: ReviewState): string | null {
 }
 
 /**
- * The strays the run left: every path a worktree check found, less those
- * its first check found, which were there before the run, and less those a
- * revision holds, such as a fixer's build of `dist/` that the tail check
- * revision rewrote (PD9 of commit series integrity).
+ * The strays the run left: every path its last worktree check found, less
+ * those its first check found, which were there before the run, and less
+ * those a revision holds, such as a fixer's build of `dist/` that the tail
+ * check revision rewrote (PD9 of commit series integrity). A path only an
+ * earlier check found, such as a tracked leftover a fixer then restored,
+ * is no longer in the tree.
  */
 function strayedInRun(checks: ReviewState['checks'], revisions: FixState['revisions']): string[] {
   const before = new Set(checks[0]?.strays ?? []);
   const revised = new Set(revisions.flatMap((revision) => revision.files.map((file) => file.path)));
-  return [...new Set(checks.flatMap((check) => check.strays))].filter((path) => !before.has(path) && !revised.has(path)).sort();
+  return (checks.at(-1)?.strays ?? []).filter((path) => !before.has(path) && !revised.has(path)).sort();
 }
 
 /**
