@@ -17,8 +17,9 @@ import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/re
 import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
+import { paddedVersionBytes } from '../helpers/fake-probe.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { afterFind, fakeCheckCommand, otherEngine, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { afterFind, fakeCheckCommand, loadedRunnerTimeoutMs, otherEngine, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
@@ -585,6 +586,27 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual(Object.values(state.workers).filter((worker) => worker.status !== 'finished'), [], 'no worker is left running on the ledger');
     assert.notEqual(state.review!.units.finders.REMOVALS?.answeredBy ?? null, null, 'the answer REMOVALS gave while the review wound down is recorded');
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released after the last worker');
+  });
+
+  it('gives the preflight before every worker the limits the review was given, not the preflight\'s own', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const surveyorMayAnswer = join(box.directory, 'surveyor-may-answer');
+    const padded = join(box.directory, 'version-padded');
+    // Above the help text, so the preflights at startup and before the surveyor pass; below the version output padded once the surveyor runs, which the preflight's own limit accepts.
+    const maxOutputBytes = 4096;
+    assert.ok(maxOutputBytes < paddedVersionBytes);
+    box.script({ surveyor: { waitFor: surveyorMayAnswer } });
+    let settled = false;
+    const pending = box.review('claude', { preflightOptions: { timeoutMs: loadedRunnerTimeoutMs, maxOutputBytes } }, { FAKE_PADDED_WHEN: padded });
+    pending.then(() => (settled = true), () => (settled = true));
+    try {
+      await until(() => settled || box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === 'surveyor survey:survey' && worker.status === 'running')), 'the surveyor on the ledger', 120_000);
+      writeFileSync(padded, '');
+    } finally {
+      writeFileSync(surveyorMayAnswer, '');
+    }
+    await assert.rejects(pending, (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified' && error.message.includes(`--version: it printed more than ${String(maxOutputBytes)} bytes`));
+    assert.deepEqual(Object.values(box.run().workers).map((worker) => worker.launch.label), ['surveyor survey:survey'], 'the triage was refused at its preflight');
   });
 
   it('refuses to resume a run from another worktree of the repository, naming the run\'s worktree', async (t) => {
