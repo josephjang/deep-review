@@ -265,7 +265,7 @@ export class ReviewSandbox {
    */
   keep(): void {
     this.#closeCheckpoint();
-    rmSync(this.#kept, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    this.#remove(this.#kept);
     cpSync(this.directory, this.#kept, { recursive: true, preserveTimestamps: true });
   }
 
@@ -273,15 +273,20 @@ export class ReviewSandbox {
   restore(): void {
     if (!existsSync(this.#kept)) throw new Error('restore() needs a copy made by keep()');
     this.#closeCheckpoint();
-    rmSync(this.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    this.#remove(this.directory);
     cpSync(this.#kept, this.directory, { recursive: true, preserveTimestamps: true });
     this.logs.length = 0;
   }
 
   close(): void {
     this.#closeCheckpoint();
-    rmSync(this.directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-    rmSync(this.#kept, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    this.#remove(this.directory);
+    this.#remove(this.#kept);
+  }
+
+  /** Remove `path` and everything under it, retrying while Windows still holds a file in it locked. */
+  #remove(path: string): void {
+    rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 
   /** Close the checkpoint this sandbox opened, if it did; the next use opens it again. */
