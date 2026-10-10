@@ -56,10 +56,13 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': testA }, snapshot: 0 }], waitFor: bothRunning, output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
       'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], waitFor: bothRunning, output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
     });
+    // A run that ends early ends the wait too, so its own outcome or error is what fails the test, at once.
+    let settled = false;
     const pending = box.fix('claude');
+    pending.then(() => (settled = true), () => (settled = true));
     const running = (label: string): boolean => box.checkpoint.foldRuns().some((run) => Object.values(run.workers).some((worker) => worker.launch.label === label && worker.status === 'running'));
     try {
-      await until(() => running('fixer fixes:c1-1') && running('fixer fixes:c2-1'), 'both fixers running', 120_000);
+      await until(() => settled || (running('fixer fixes:c1-1') && running('fixer fixes:c2-1')), 'both fixers running', 120_000);
     } finally {
       writeFileSync(bothRunning, '');
     }
