@@ -287,9 +287,10 @@ const interrupted = (state: UnitState | undefined): boolean => state?.failures.s
 
 /**
  * What a unit out of attempts records, or null when it blocks its phase
- * instead: its role's degradation (`degradationOf`), unless a worker lost
- * with its engine is among its failures. An interruption is not the unit
- * failing, so it never costs coverage: such a unit blocks with
+ * instead: its role's degradation (`degradationOf`), unless an
+ * interruption, a worker lost with its engine or an attempt whose claims
+ * directory was removed, is among its failures. An interruption is not
+ * the unit failing, so it never costs coverage: such a unit blocks with
  * `worker-failed` whatever its role, and the operator's next run gives it
  * fresh attempts.
  */
