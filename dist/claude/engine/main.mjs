@@ -27753,11 +27753,8 @@ function passedOverLine(runId, unknown2, reader) {
 function isResumable(run2) {
   return run2.status === "active" && (run2.review === null || run2.review.report === null);
 }
-function resumableRuns(checkpoint, log) {
-  return readableRuns(checkpoint, log).filter(isResumable);
-}
 function findActiveRun(checkpoint, log) {
-  const runs = resumableRuns(checkpoint, log);
+  const runs = readableRuns(checkpoint, log).filter(isResumable);
   if (runs.length > 1) {
     throw new ReviewRefusedError(`${String(runs.length)} runs are active (${runs.map((run2) => run2.id).join(", ")}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\``);
   }

@@ -149,23 +149,17 @@ export function isResumable(run: RunState): boolean {
 }
 
 /**
- * The active runs a review may resume: those without a report. A run
- * holding an event this engine does not declare is passed over with a
- * line on `log`, and is never called closed: whether the unknown event
- * closed it, this engine cannot know.
- */
-export function resumableRuns(checkpoint: Checkpoint, log: (line: string) => void): RunState[] {
-  return readableRuns(checkpoint, log).filter(isResumable);
-}
-
-/**
  * The one run to resume, or null when there is none; two are refused,
- * naming them. A run this engine cannot read takes no part in the choice
- * (`resumableRuns`); if it is in fact active, the engine that can read it
- * meets it beside any run started here, and refuses the two by this guard.
+ * naming them. The candidates are the active runs a review may resume:
+ * those without a report. A run holding an event this engine does not
+ * declare is passed over with a line on `log` and takes no part in the
+ * choice. It is never called closed: whether the unknown event closed it,
+ * this engine cannot know. If it is in fact active, the engine that can
+ * read it meets it beside any run started here, and refuses the two by
+ * this guard.
  */
 export function findActiveRun(checkpoint: Checkpoint, log: (line: string) => void): RunState | null {
-  const runs = resumableRuns(checkpoint, log);
+  const runs = readableRuns(checkpoint, log).filter(isResumable);
   if (runs.length > 1) {
     throw new ReviewRefusedError(`${String(runs.length)} runs are active (${runs.map((run) => run.id).join(', ')}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\``);
   }
