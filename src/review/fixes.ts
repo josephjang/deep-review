@@ -10,7 +10,7 @@
  * answers; each plan is recorded once and resumed from the ledger.
  */
 import type { FixedFinding, FixesPlanned } from '../checkpoint/events.ts';
-import { firstRoundHolders, routeOfDecision, secondRoundFiles, type RecordedClaim, type RoutedDecision } from '../checkpoint/fix-state.ts';
+import { firstRoundHolders, heldByAnother, routeOfDecision, secondRoundFiles, type RecordedClaim, type RoutedDecision } from '../checkpoint/fix-state.ts';
 import type { CandidateState } from '../checkpoint/review-fold.ts';
 import { unlocatedSpellingIn } from './grouping.ts';
 import type { ReportFinding } from './state.ts';
@@ -158,7 +158,7 @@ export function planSecondRound(plan: Pick<FixPlan, 'routes' | 'clusters'>, answ
     const answer = own === undefined ? null : answerOf(route.id);
     if (own === undefined || answer === null || answer.status !== 'blocked' || answer.requiredFiles.length === 0) return [];
     const needed = [...new Set(answer.requiredFiles)];
-    if (!needed.every((path) => [...(heldBy.get(path) ?? [])].some((cluster) => cluster !== own.id))) return [];
+    if (!needed.every((path) => heldByAnother(heldBy, path, own.id))) return [];
     return [{ id: route.id, requiredFiles: needed, files: secondRoundFiles(own, claims, needed) }];
   });
   const first = plan.clusters.length;

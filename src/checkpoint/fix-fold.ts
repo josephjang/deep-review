@@ -12,7 +12,7 @@
  */
 import { batchKeySchema, clusterIdSchema, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase } from '../review/vocabulary.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, firstRoundHolders, firstRoundSettled, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import { batchOf, claimRefusal, claimsOfRound, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -148,7 +148,7 @@ const fixesReplanned: Reducer<FixesReplanned> = (state, payload, event) => {
     if (new Set(entry.requiredFiles).size !== entry.requiredFiles.length || !entry.requiredFiles.every((path) => answer.requiredFiles.includes(path)) || !answer.requiredFiles.every((path) => entry.requiredFiles.includes(path))) {
       throw invalid(event, `gives finding ${entry.id} the files [${entry.requiredFiles.join(', ')}], not the ones it was blocked on [${answer.requiredFiles.join(', ')}]`);
     }
-    const foreign = entry.requiredFiles.filter((path) => ![...(heldBy.get(path) ?? [])].some((cluster) => cluster !== own.id));
+    const foreign = entry.requiredFiles.filter((path) => !heldByAnother(heldBy, path, own.id));
     if (foreign.length > 0) throw invalid(event, `takes finding ${entry.id} into its second round for ${foreign.join(', ')}, which no other first-round cluster owned or claimed`);
     filesOf.set(entry.id, secondRoundFiles(own, claims, entry.requiredFiles));
   }
