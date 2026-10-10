@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { after, before, beforeEach, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it, type TestContext } from 'node:test';
 import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
@@ -33,11 +33,16 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
     return box.run().id;
   };
+  /** A sandbox for the test `t` alone, holding a fix run of `script` to its report. */
+  const fixedBox = async (t: TestContext, script?: Script): Promise<ReviewSandbox> => {
+    const box = ReviewSandbox.forTest(t);
+    await fixRun(box, script);
+    return box;
+  };
   const refused = (pattern: RegExp) => (error: unknown): boolean => error instanceof ReviewRefusedError && pattern.test(error.message);
 
   it('commits an unfinished attempt\'s edits with the message the retry gave on verifying them, its trailer saying so, and its leftovers under the engine\'s', async (t) => {
-    const box = ReviewSandbox.forTest(t);
-    await fixRun(box, {
+    const box = await fixedBox(t, {
       triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads } },
       'fixer:fixes:c1-1': [
         // The first attempt snapshots its finding, writes a test after the snapshot, and dies.
@@ -92,9 +97,8 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
   });
 
   it('refuses a revised file too large to have been frozen, before any object is written', async (t) => {
-    const box = ReviewSandbox.forTest(t);
     const big = 'x'.repeat(freezeLimitBytes + 1);
-    await fixRun(box, {
+    const box = await fixedBox(t, {
       triage: { output: { candidates: [found('src/a.ts', 2, 'needs a big table')], leads: noLeads } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/table.txt': big } }], output: fixerAnswer([{ files: ['src/a.ts', 'src/table.txt'] }]) },
     });
