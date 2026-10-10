@@ -176,7 +176,7 @@ function refoldUnderLock(checkpoint: Checkpoint, runId: string, log: (line: stri
     return checkpoint.fold(runId);
   } catch (error) {
     if (!(error instanceof UnreadableRunError)) throw error;
-    log(passedOverLine(runId, error.unknown, error.engine));
+    log(passedOverLine(runId, error.unknown, error.reader));
     return null;
   }
 }

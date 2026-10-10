@@ -19749,12 +19749,12 @@ var UnreadableRunError = class extends CheckpointError {
   name = "UnreadableRunError";
   runId;
   unknown;
-  engine;
-  constructor(runId, unknown2, engine) {
-    super(`run ${runId} cannot be read: ${unreadableRunReason(unknown2, engine)}`);
+  reader;
+  constructor(runId, unknown2, reader) {
+    super(`run ${runId} cannot be read: ${unreadableRunReason(unknown2, reader)}`);
     this.runId = runId;
     this.unknown = unknown2;
-    this.engine = engine;
+    this.reader = reader;
   }
 };
 var InvalidPayloadError = class extends CheckpointError {
@@ -27765,7 +27765,7 @@ function refoldUnderLock(checkpoint, runId, log) {
     return checkpoint.fold(runId);
   } catch (error62) {
     if (!(error62 instanceof UnreadableRunError)) throw error62;
-    log(passedOverLine(runId, error62.unknown, error62.engine));
+    log(passedOverLine(runId, error62.unknown, error62.reader));
     return null;
   }
 }

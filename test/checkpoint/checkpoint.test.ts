@@ -153,7 +153,7 @@ describe('Checkpoint', () => {
     const isTheRefusal = (runId: string) => (error: unknown): boolean =>
       error instanceof UnreadableRunError
       && error.runId === runId
-      && error.engine === '1.0.0-reader'
+      && error.reader === '1.0.0-reader'
       && JSON.stringify(error.unknown) === JSON.stringify(unknown)
       && error.message === `run ${runId} cannot be read: it holds test.note@1 at sequence 3, written by engine 9.9.9-writer, which this engine (1.0.0-reader) does not declare; an engine that declares it, such as the one that wrote it, can read the run`;
 

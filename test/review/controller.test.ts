@@ -815,8 +815,8 @@ describe('runReview', { timeout: 600_000 }, () => {
       report(outcome);
       assert.notEqual(outcome.runId, first.id, 'the review ran a run of its own');
       assert.equal(box.checkpoint.ledger.lastSequence(first.id), first.lastSequence + 1, 'nothing but the event of the other engine was appended to the found run');
-      assert.equal(passedOver(first.id).length, 1, box.logs.join('\n'));
-      assert.ok(passedOver(first.id)[0]!.includes(`it holds phase.finished@99 at sequence ${String(first.lastSequence + 1)}, written by engine ${otherEngine},`), box.logs.join('\n'));
+      // The same line the find gives such a run, naming this engine as the reader and the other as the writer.
+      assert.deepEqual(passedOver(first.id), [`run ${first.id}: passed over: it holds phase.finished@99 at sequence ${String(first.lastSequence + 1)}, written by engine ${otherEngine}, which this engine (0.0.0-test) does not declare; an engine that declares it, such as the one that wrote it, can read the run`], box.logs.join('\n'));
       assert.ok(!box.logs.some((line) => line.includes('before its lock was taken')), box.logs.join('\n'));
       assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, first.id)), true, 'its lock is released');
     });

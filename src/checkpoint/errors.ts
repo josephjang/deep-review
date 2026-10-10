@@ -76,12 +76,12 @@ export class UnreadableRunError extends CheckpointError {
   override readonly name = 'UnreadableRunError';
   readonly runId: string;
   readonly unknown: UnknownEvent;
-  readonly engine: string;
-  constructor(runId: string, unknown: UnknownEvent, engine: string) {
-    super(`run ${runId} cannot be read: ${unreadableRunReason(unknown, engine)}`);
+  readonly reader: string;
+  constructor(runId: string, unknown: UnknownEvent, reader: string) {
+    super(`run ${runId} cannot be read: ${unreadableRunReason(unknown, reader)}`);
     this.runId = runId;
     this.unknown = unknown;
-    this.engine = engine;
+    this.reader = reader;
   }
 }
 
