@@ -21007,8 +21007,12 @@ var blockerActions = {
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
 };
 var surveyWorkerFailedAction = "run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without surveying again, with the convention sources of an earlier survey of this run if one answered, and with none otherwise, or abandon the run";
-function pinnedRuntimeAction(runId, executable) {
-  return `make ${executable}, the executable run ${runId} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one; a configured run ignores --executable`;
+function wayOut(runId, use) {
+  return use === "resume" ? `abandon it with \`deep-review abandon --run ${runId} --reason <text>\`` : "start a new run with --fresh";
+}
+function pinnedRuntimeAction(runId, executable, use) {
+  const newRun = use === "resume" ? `abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one` : wayOut(runId, use);
+  return `make ${executable}, the executable run ${runId} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or ${newRun}; a configured run ignores --executable`;
 }
 var checkKinds = ["build", "typecheck", "lint", "test"];
 var checkKindSchema = external_exports.enum(checkKinds);
@@ -21248,6 +21252,10 @@ function repositoryLocation(candidate) {
 }
 function rawLocation(candidate) {
   return `${candidate.rawFile}:${String(candidate.rawLine)}`;
+}
+function preRunStrays(review2) {
+  const continued = review2.continuedFrom === null ? [] : review2.checks[review2.continuedFrom.checkCount]?.strays ?? [];
+  return /* @__PURE__ */ new Set([...review2.checks[0]?.strays ?? [], ...continued]);
 }
 function poolPhases(phase) {
   return phase === "deduplication" || phase === "verification" ? ["triage", "finders"] : ["sweep"];
@@ -21867,14 +21875,23 @@ var fixPinned = (state, payload, event, drafts) => {
   if ((review2.ranking?.length ?? 0) > 0 && review2.decisions === null) throw invalid(event, "continues a run configured before the decision step, which routed by verdict and angle");
   if (review2.survey.failure !== null && payload.plannedChecks === null) throw invalid(event, "continues a run that went on without its survey with no checks planned");
   const empty = emptyFixState();
-  const fix = payload.plannedChecks === null ? empty : { ...empty, checks: { ...empty.checks, planned: { checks: payload.plannedChecks, manager: null } } };
-  const reopened2 = ["report", ...payload.plannedChecks === null ? ["survey"] : []];
+  let fix;
+  let reopened2;
+  let units;
+  if (payload.plannedChecks === null) {
+    fix = empty;
+    reopened2 = ["report", "survey"];
+    units = withFreshAttempts(review2, drafts, "survey");
+  } else {
+    fix = { ...empty, checks: { ...empty.checks, planned: { checks: payload.plannedChecks, manager: null } } };
+    reopened2 = ["report"];
+    units = review2.units;
+  }
   const phaseStates = { ...review2.phases };
   for (const phase of fixPhases) phaseStates[phase] = { status: "pending", attempt: 0 };
   for (const phase of reopened2) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
-  const units = payload.plannedChecks === null ? withFreshAttempts(review2, drafts, "survey") : review2.units;
   const configuration = { ...review2.configuration, fix: true, checks: payload.checks, fixes: payload.fixes };
-  return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review2.report, at: event.recordedAt } }, event);
+  return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review2.report, at: event.recordedAt, checkCount: review2.checks.length } }, event);
 };
 var commitsCreated = (state, payload, event) => {
   const { current, review: review2, fix } = requireFix(state, event);
@@ -24411,8 +24428,7 @@ function normalizeRequest(request) {
 // src/scope/compare.ts
 var namedPaths = 3;
 var pathList = (paths) => `${paths.slice(0, namedPaths).join(", ")}${paths.length > namedPaths ? `, and ${String(paths.length - namedPaths)} more` : ""}`;
-function scopeMatches(request, scope, worktree, changedSince2) {
-  const resolved = resolveScopeRequest(worktree, request);
+function scopeMismatch(resolved, scope, changedSince2) {
   if (resolved.mode !== scope.mode || resolved.base !== scope.base) return `its scope is ${scope.mode} ${scope.base}..${scope.head}, not the one named`;
   const captured = new Set(scope.files.map((file2) => file2.path));
   const named = new Set(resolved.changes.map((change) => change.path));
@@ -26970,7 +26986,7 @@ The files are recorded as its snapshot of ${id} held them.`, bodyLength) };
 function checkRevision(context, phase, kind, command, manifest) {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  const before = new Set(state.review.checks[0]?.strays ?? []);
+  const before = preRunStrays(state.review);
   const listed = manifest === null ? [] : changedListed(manifest).filter((path) => !before.has(path));
   const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...listed], context.match);
   if (files.length === 0) return null;
@@ -27364,8 +27380,8 @@ function standingLines(standing) {
     "This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.",
     "",
     "Convention sources recorded:",
-    ...standing.conventions.length === 0 ? ["- none"] : standing.conventions.map((source) => `- ${source.path} (${source.level}): ${source.governs}`),
-    ...standing.userRules.length === 0 ? [] : ["", "User-level rules files decided:", ...standing.userRules.map((rule) => `- ${rule.path}: ${rule.applied ? "applied" : "not applied"}, ${rule.reason}`)]
+    ...standing.conventions.length === 0 ? ["- none"] : standing.conventions.map((source) => `- ${inlineText(source.path)} (${source.level}): ${inlineText(source.governs)}`),
+    ...standing.userRules.length === 0 ? [] : ["", "User-level rules files decided:", ...standing.userRules.map((rule) => `- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`)]
   ];
 }
 function authorshipLine(authorship) {
@@ -28206,13 +28222,30 @@ function conventionsReportSection(review2) {
     lines.push(`The reviewer's own rules files, under the policy value \`${setting}\`:`, "");
     for (const rule of userRules) lines.push(`- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`);
   }
+  if (review2.continuedFrom !== null) return [...lines, ...continuedSurveyLines(survey)];
   const answers = survey.answers;
   if (answers.length > 1) {
     const blocked = survey.lastBlock?.code === "check-unavailable" ? "; it last blocked on a check this machine could not run, and" : ";";
     lines.push("", `The survey answered ${String(answers.length)} times${blocked} the last answer is shown.`);
   }
-  const note = answers.at(-1)?.note.trim() ?? "";
-  if (note !== "") lines.push("", `Surveyor's note: ${inlineText(note)}`);
+  lines.push(...noteLines("Surveyor's note", answers.at(-1)));
+  return lines;
+}
+function noteLines(label, answer) {
+  const note = answer?.note.trim() ?? "";
+  return note === "" ? [] : ["", `${label}: ${inlineText(note)}`];
+}
+function continuedSurveyLines(survey) {
+  const reviewed = survey.answers.filter((answer) => answer.checks === null);
+  const continued = survey.answers.filter((answer) => answer.checks !== null);
+  const lines = [];
+  if (reviewed.length > 1) lines.push("", `The review's survey answered ${String(reviewed.length)} times; the conventions of its last answer are shown.`);
+  if (continued.length > 0) {
+    const times = continued.length === 1 ? "once" : `${String(continued.length)} times`;
+    const blocked = survey.lastBlock?.code === "check-unavailable" ? "; it last blocked on a check this machine could not run" : "";
+    lines.push("", `The continuation into the fix pass asked the survey for the checks alone ${times}, the conventions standing${blocked}.`);
+  }
+  lines.push(...noteLines("Surveyor's note on the conventions", reviewed.at(-1)), ...noteLines("Surveyor's note on the checks", continued.at(-1)));
   return lines;
 }
 function surveyLimitations(review2) {
@@ -28417,10 +28450,10 @@ function fixHeaderLine(review2) {
   const counts = ["applied", "already applied", "deferred", "blocked", "not attempted", ...held].map((outcome) => `${String(outcomes.filter((candidate) => candidate === outcome).length)} ${outcome}`);
   return `Fix pass: ${counts.join(", ")}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? "" : "es"}; the edits are in the working tree, uncommitted`;
 }
-function strayedInRun(checks, revisions) {
-  const before = new Set(checks[0]?.strays ?? []);
+function strayedInRun(review2, revisions) {
+  const before = preRunStrays(review2);
   const revised = new Set(revisions.flatMap((revision) => revision.files.map((file2) => file2.path)));
-  return (checks.at(-1)?.strays ?? []).filter((path) => !before.has(path) && !revised.has(path)).sort();
+  return (review2.checks.at(-1)?.strays ?? []).filter((path) => !before.has(path) && !revised.has(path)).sort();
 }
 function fixLimitations(review2) {
   const fix = review2.fix;
@@ -28445,7 +28478,7 @@ function fixLimitations(review2) {
   });
   for (const claim3 of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim3.path)} by ${claim3.key}, edited before it was claimed (R6 of commit series integrity).`);
   for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lostClaimWords(lost.holder)}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
-  const strays = strayedInRun(review2.checks, fix.revisions);
+  const strays = strayedInRun(review2, fix.revisions);
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(", ")}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check2) => check2.command === null);
   if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check2) => `${check2.kind} (${inlineText(droppedByOperator(review2.survey, check2) ?? check2.reason ?? "no command")})`).join("; ")}.`);
@@ -28978,7 +29011,7 @@ async function runReview(options2) {
     }
   } catch (error62) {
     const configuration = state.review?.configuration ?? null;
-    throw refusalOf(error62, configuration === null ? null : { runId, executable: configuration.executable });
+    throw refusalOf(error62, configuration === null ? null : { runId, executable: configuration.executable, use: "resume" });
   } finally {
     if (inFlight.size > 0) log(`run ${runId}: waiting for ${String(inFlight.size)} worker${inFlight.size === 1 ? "" : "s"} in flight`);
     while (inFlight.size > 0) {
@@ -28994,7 +29027,7 @@ async function runReview(options2) {
 }
 function refusalOf(error62, pinned) {
   if (!(error62 instanceof PreflightError)) return error62;
-  const action = pinned === null ? blockerActions["runtime-unqualified"] : pinnedRuntimeAction(pinned.runId, pinned.executable);
+  const action = pinned === null ? blockerActions["runtime-unqualified"] : pinnedRuntimeAction(pinned.runId, pinned.executable, pinned.use);
   return new ReviewRefusedError(`${error62.message}; ${action}`, "runtime-unqualified");
 }
 async function nextSettled(inFlight) {
@@ -29010,11 +29043,8 @@ function unelevatedEditorsWarning(runId) {
 function pinnedRuntimeOptionsOf(configuration) {
   return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };
 }
-function wayOut(runId, use) {
-  return use === "resume" ? `abandon it with \`deep-review abandon --run ${runId} --reason <text>\`` : "start a new run with --fresh";
-}
 function continuable(runs, worktree) {
-  return finishedReadOnly(runs, worktree).filter((run2) => run2.review.fix === null && run2.review.phases.decision.status !== "skipped");
+  return finishedReadOnly(runs, worktree).filter((run2) => notContinuable(run2) === null);
 }
 function finishedReadOnly(runs, worktree) {
   return runs.filter((run2) => reviewStatus(run2) === "complete" && run2.review !== null && (run2.review.fix === null || run2.review.continuedFrom !== null) && sameDirectory(run2.worktree, worktree)).reverse();
@@ -29036,8 +29066,9 @@ async function openRun(context) {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release = null;
   try {
-    const runs = readableRuns(checkpoint, log);
+    let runs = readableRuns(checkpoint, log);
     let found = activeRunAmong(runs);
+    const fixing = (context.fix ?? null) !== null;
     if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
       throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
     }
@@ -29045,7 +29076,9 @@ async function openRun(context) {
       release = releaseOnExit(acquireRunLock(checkpoint.root, found.id));
       found = refoldUnderLock(checkpoint, found.id, log);
       if (found !== null && !isResumable(found)) {
-        log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken; a new run is created`);
+        const refolded = found;
+        runs = runs.map((run2) => run2.id === refolded.id ? refolded : run2);
+        log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken${fixing ? "" : "; a new run is created"}`);
         found = null;
       }
       if (found === null) {
@@ -29055,7 +29088,7 @@ async function openRun(context) {
     }
     if (found !== null && context.fresh === true) log(`run ${found.id} is active and resumes; --fresh is ignored`);
     const scopeRequestOf2 = once(() => context.scope.request());
-    if (found === null && (context.fix ?? null) !== null) {
+    if (found === null && fixing) {
       const chosen = chooseContinuation(runs, context, scopeRequestOf2);
       if (chosen !== null) {
         release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
@@ -29109,9 +29142,10 @@ function chooseContinuation(runs, context, request) {
     context.log("--fresh: no finished run is considered; a new run is created");
     return null;
   }
+  const resolved = once(() => resolveScopeRequest(context.worktree, request()));
   const reasons = /* @__PURE__ */ new Map();
   for (const run2 of continuable(runs, context.worktree)) {
-    const reason = scopeMatches(request(), run2.scope, context.worktree, () => findDrift(run2, context.worktree, context.match).files.map((file2) => file2.path));
+    const reason = scopeMismatch(resolved(), run2.scope, () => findDrift(run2, context.worktree, context.match).files.map((file2) => file2.path));
     if (reason === null) return run2;
     reasons.set(run2.id, reason);
   }
@@ -29127,14 +29161,19 @@ function chooseContinuation(runs, context, request) {
 async function continuationOf(run2, context) {
   const review2 = run2.review;
   const flags = context.fix;
-  refuseOtherRuntime(run2.id, review2.configuration, context.runtime, wayOut(run2.id, "continue"));
-  await resumePinned(run2, review2.configuration, context, "continue");
   const nothing = nothingToFix(run2);
-  if (nothing !== null) throw new ReviewRefusedError(`run ${run2.id} has no finding to fix: ${nothing}; nothing to continue; start a new run with --fresh to review it again`);
+  if (nothing !== null) throw new ReviewRefusedError(`run ${run2.id} has no finding to fix: ${nothing}; nothing to continue; ${wayOut(run2.id, "continue")} to review it again`);
   const unsettled = unsettledKinds(flags);
   if ((review2.survey?.failure ?? null) !== null && unsettled.length > 0) {
-    throw new ReviewRefusedError(`run ${run2.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for ${unsettled.join(", ")}, or start a new run with --fresh`);
+    throw new ReviewRefusedError(`run ${run2.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for ${unsettled.join(", ")}, or ${wayOut(run2.id, "continue")}`);
   }
+  refuseOtherRuntime(run2.id, review2.configuration, context.runtime, wayOut(run2.id, "continue"));
+  const spend = budgetSpendOf(run2, context.adapter);
+  const { runBudgetUsd } = limitsInForce(review2.configuration, context.flags, context.adapter);
+  if (spend.usd !== null && runBudgetUsd !== null && spend.usd >= runBudgetUsd) {
+    throw new ReviewRefusedError(`run ${run2.id} ${budgetBlocker({ ...spend, usd: spend.usd }, runBudgetUsd).detail}, so no fixer could launch; nothing to continue; run it again with --budget-usd above ${spend.usd.toFixed(2)}, or ${wayOut(run2.id, "continue")}`);
+  }
+  await resumePinned(run2, review2.configuration, context, "continue");
   const policy = readPolicy(context.rolesRoot);
   const plannedChecks = unsettled.length === 0 ? [...resolveChecks(null, flags).checks] : null;
   return {
@@ -29170,13 +29209,14 @@ async function resumePinned(run2, pinned, context, use) {
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
   if (use === "resume") resumedFixFlags(run2, pinned, context);
-  await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
+  await qualify2(context.adapter, pinned.executable, pinned.executableArgs, context, { runId, use });
 }
 function resumedFixFlags(run2, pinned, context) {
   const runId = run2.id;
   const fix = context.fix ?? null;
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
-  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ", --check and --no-check are" : " is"} ignored; once its report is written, run again with --fix to continue it into the fix pass`);
+  const howContinued = run2.review?.phases.decision.status === "skipped" ? "" : "; once its report is written, run again with --fix to continue it into the fix pass";
+  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ", --check and --no-check are" : " is"} ignored${howContinued}`);
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
   const planned = (run2.review?.fix?.checks.planned ?? null) !== null;
   if (pinned.fix && checkFlags && planned) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
@@ -29193,11 +29233,11 @@ function droppedSinceSurvey(survey, flags) {
   if (checks === null) return [];
   return checkKinds.filter((kind) => !checks.some((check2) => check2.kind === kind) && (flags === null || !isSettled(flags, kind)));
 }
-async function qualify2(adapter, executable, executableArgs, context, runId) {
+async function qualify2(adapter, executable, executableArgs, context, pinnedBy) {
   try {
     return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
   } catch (error62) {
-    throw refusalOf(error62, runId === null ? null : { runId, executable });
+    throw refusalOf(error62, pinnedBy === null ? null : { ...pinnedBy, executable });
   }
 }
 function append(checkpoint, state, events) {
@@ -29312,7 +29352,7 @@ function requireCommittable(run2) {
 }
 function chooseRun(checkpoint, runId, log) {
   if (runId !== void 0) return requireCommittable(checkpoint.fold(runId));
-  const found = readableRuns(checkpoint, log).filter((run2) => whyNotCommittable(run2) === null).at(-1);
+  const found = readableRuns(checkpoint, log).filter((run2) => whyNotCommittable(run2) === null).reduce((last, run2) => last === void 0 || run2.lastSequence > last.lastSequence ? run2 : last, void 0);
   if (found === void 0) throw new ReviewRefusedError("no completed fix run has changes left to commit; name one with --run <id>");
   return found;
 }
