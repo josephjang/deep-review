@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import type { Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
+import type { Answer, Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { inlineText } from './markdown.ts';
@@ -376,6 +376,9 @@ export interface TaskCandidate {
 /** A decision a fixer is given: a fix, or an ask whose default it applies; a finding left goes to no fixer. */
 export type FixerDecision = Exclude<RecordedDecision, { readonly decision: 'leave' }>;
 
+/** The rule a fix departs from, as its decision names it. */
+type FixerDeparture = NonNullable<Extract<RecordedDecision, { readonly decision: 'fix' }>['departure']>;
+
 /** A finding as a fixer's task gives it. */
 export interface FixerTaskFinding {
   readonly id: string;
@@ -402,6 +405,24 @@ export interface FixerTaskFinding {
    * (R4 of commit series integrity); null in the first round.
    */
   readonly firstRound: { readonly note: string; readonly requiredFiles: readonly { readonly path: string; readonly claimedBy: string | null }[] } | null;
+  /** The author's answer to the finding's question or departure, which the fixer makes the tree hold (R4, R7 of answers); null for a finding nobody answered. */
+  readonly answered: AnsweredFinding | null;
+}
+
+/**
+ * What a fixer is told of a person's answer to a finding (R4, R5, R7 of
+ * answers): the answer and the note; for an option, its text, the rule the
+ * decider wrote for it and whether it edits, as the report gives them to
+ * the person; and what the run did with the finding before, the last
+ * fixer's status and note and the files of its revisions, or null when no
+ * fixer saw it. A departure's rule, source and reason are in the finding's
+ * decided lines already.
+ */
+export interface AnsweredFinding {
+  readonly answer: Answer;
+  readonly note: string | null;
+  readonly option: { readonly option: string; readonly rule: string; readonly edits: boolean } | null;
+  readonly before: { readonly status: string; readonly note: string; readonly files: readonly string[] } | null;
 }
 
 /** A finding an earlier batch of the same cluster worked, as a later batch is told it. */
@@ -414,8 +435,10 @@ export interface FixerTaskEarlier {
 }
 
 export interface FixerTaskInput {
+  /** Whether the fixer is an answer pass's (R5 of answers): it works the answered findings alone, owns every file the run revised, may edit any other, and claims nothing. */
+  readonly answerPass: boolean;
   readonly cluster: string;
-  /** The batch of the cluster this fixer works (R18 of the fix pass). */
+  /** The batch of the cluster this fixer works (R18 of the fix pass), or the answer pass's unit key. */
   readonly batch: string;
   /** Whether the batch belongs to the second round, whose findings were blocked in the first on files they now own (R21). */
   readonly secondRound: boolean;
@@ -430,8 +453,8 @@ export interface FixerTaskInput {
   readonly checks: readonly PlannedCheck[];
   /** The snapshot command, holding `snapshotIndexPlaceholder` for the index. */
   readonly snapshotCommand: string;
-  /** The claim command, holding `claimPathPlaceholder` for the path. */
-  readonly claimCommand: string;
+  /** The claim command, holding `claimPathPlaceholder` for the path; null for an answer pass, which claims nothing. */
+  readonly claimCommand: string | null;
   /** Whether an earlier worker on this cluster may have left part of its work in the tree. */
   readonly mayHoldWork: boolean;
   /** The findings an earlier attempt of this batch left recorded edits for, whose message a verifying fixer gives. */
@@ -460,8 +483,13 @@ function candidateLines(head: string, candidate: TaskCandidate): string[] {
   ];
 }
 
-/** What a fixer is told was decided for a finding (R7 of the decision step): the approach, or the default an ask applied, with the grounds, what was rejected and any rule departed from. */
-function decidedLines(decision: FixerDecision): string[] {
+/**
+ * What a fixer is told was decided for a finding (R7 of the decision
+ * step): the approach, or the default an ask applied, with the grounds,
+ * what was rejected and any rule departed from; then, for a finding the
+ * author answered, the answer (`answeredLines`).
+ */
+function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null): string[] {
   if (decision.decision === 'fix') {
     const { fix, departure } = decision;
     return [
@@ -469,6 +497,7 @@ function decidedLines(decision: FixerDecision): string[] {
       `        approach: ${fix.approach}`,
       ...(fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join('; ')}`]),
       ...(departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`]),
+      ...(answered === null ? [] : answeredLines(answered, departure)),
     ];
   }
   const { ask } = decision;
@@ -477,8 +506,44 @@ function decidedLines(decision: FixerDecision): string[] {
     `    decided: ask the author, applying a default now. ${decision.grounds}`,
     `        apply: ${appliedOptionOf(ask).option}`,
     `        the question the author answers later: ${ask.question} The other options: ${others.join('; ')}`,
+    ...(answered === null ? [] : answeredLines(answered, null)),
   ];
 }
+
+/**
+ * What a fixer is told of the author's answer to a finding (R4, R7 of
+ * answers, TD9), by the answer's kind: the option chosen, its text and the
+ * rule the decider wrote for it, given as what the option means; that the
+ * fix is to follow the rule it departed from, as its source states it; or
+ * that the departure stands. Then the note, and what the run did with the
+ * finding before. Nothing here asks for a rule to be written or forbids it
+ * (PD3).
+ */
+function answeredLines(answered: AnsweredFinding, departure: FixerDeparture | null): string[] {
+  const note = answered.note === null ? '' : ` Note: ${answered.note}`;
+  const line = `${answerLine(answered, departure)}${note}`;
+  const before = answered.before;
+  const did = before === null ? 'no fixer saw it before' : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? '' : `, in ${before.files.join(', ')}`}`;
+  return [`        ${line}`, `        before the answer: ${did}`];
+}
+
+/** The author's answer as a fixer's task words it, by its kind. */
+function answerLine(answered: AnsweredFinding, departure: FixerDeparture | null): string {
+  const answer = answered.answer;
+  switch (answer.kind) {
+    case 'option':
+      if (answered.option === null) throw new Error('An answered option carries the option it chose');
+      return `answered by the author: option ${String(answer.option + 1)}, "${answered.option.option}", for which the decider wrote the rule "${answered.option.rule}".`;
+    case 'reject':
+      if (departure === null) throw new Error('A rejected departure is a fix that departs from a rule');
+      return `the author rejected the departure: follow the rule "${departure.rule}" as ${departure.source} states it, and restore what the fix changed in that statement.`;
+    case 'accept':
+      return 'the author accepted the departure.';
+  }
+}
+
+/** What a fixer's task says of the findings the author answered: make the tree hold the answer, which takes the place of the default, and say in the message which question was answered and how (R4, R7 of answers). It says nothing about stating a rule (PD3). */
+const answeredRule = 'A finding marked "answered by the author", or whose departure the author rejected or accepted, carries the author\'s answer, given after the run\'s report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding\'s files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message\'s `body`, say which question was answered and how.';
 
 /** What a fixer's task says of the decisions it carries: apply them, and defer only by the role prompt's criteria, never over a choice the decision made (R7, R12 of the decision step). */
 const decidedRule = 'Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message\'s `body`.';
@@ -492,19 +557,40 @@ export function fixerTask(input: FixerTaskInput): string {
     `    reason: ${finding.reason}`,
     ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
-    ...(finding.decision === null ? [] : decidedLines(finding.decision)),
+    ...(finding.decision === null ? [] : decidedLines(finding.decision, finding.answered)),
     ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
     ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file) => (file.claimedBy === null ? file.path : `${file.path} (which ${file.claimedBy} had claimed)`)).join(', ')}: ${finding.firstRound.note}`]),
   ].join('\n'));
   const decided = input.findings.some((finding) => finding.decision !== null);
+  const answered = input.findings.some((finding) => finding.answered !== null);
   const others = input.othersHeld.filter((cluster) => cluster.files.length > 0);
   const held = [...input.owned, ...input.claimed.filter((path) => !input.owned.includes(path)).map((path) => `${path} (claimed)`)];
+  if (input.answerPass !== (input.claimCommand === null)) throw new Error('An answer pass alone claims nothing, and every fixes-phase batch claims through its command');
+  const unit = input.answerPass ? `Answer pass ${input.batch}` : `Cluster ${input.cluster}, batch ${input.batch}${input.secondRound ? ', in the second round' : ''}`;
+  // A batch owns its cluster's files and claims others; an answer pass owns what the run revised and may edit any other file, as the repair may.
+  const ownership = input.claimCommand === null
+    ? [
+        'Files you own: every file the run revised, and the files these findings are located in.',
+        fileList(held),
+        '',
+        'You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served.',
+      ]
+    : [
+        'Files you own while this batch runs, which no other worker edits:',
+        fileList(held),
+        '',
+        'Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:',
+        others.length === 0 ? '(none)' : others.flatMap((cluster) => cluster.files.map((file) => `- ${file.path} (${cluster.cluster}${file.by === 'claim' ? ', claimed' : ''})`)).join('\n'),
+        '',
+        claimBlock(input.claimCommand),
+      ];
   return [
-    `Cluster ${input.cluster}, batch ${input.batch}${input.secondRound ? ', in the second round' : ''}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
+    `${unit}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
     '',
     ...findings,
     '',
     ...(decided ? [decidedRule, ''] : []),
+    ...(answered ? [answeredRule, ''] : []),
     ...(input.secondRound ? ['Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.', ''] : []),
     ...(input.earlier.length === 0
       ? []
@@ -515,13 +601,7 @@ export function fixerTask(input: FixerTaskInput): string {
           input.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? '' : `: ${entry.note}`}`).join('\n'),
           '',
         ]),
-    'Files you own while this batch runs, which no other worker edits:',
-    fileList(held),
-    '',
-    'Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:',
-    others.length === 0 ? '(none)' : others.flatMap((cluster) => cluster.files.map((file) => `- ${file.path} (${cluster.cluster}${file.by === 'claim' ? ', claimed' : ''})`)).join('\n'),
-    '',
-    claimBlock(input.claimCommand),
+    ...ownership,
     '',
     checksBlock(input.checks, input.baselineFailures),
     '',

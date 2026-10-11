@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { claimPathPlaceholder, codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type FixerDecision, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { claimPathPlaceholder, codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type FixerDecision, type FixerTaskFinding, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -243,6 +243,7 @@ describe('the fixer\'s task', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
   const claim = `node "/engine/main.mjs" claim --path '${claimPathPlaceholder}' --unit c1-2 --in "/scratch/claims/run/round-1"`;
   const input: FixerTaskInput = {
+    answerPass: false,
     cluster: 'c1',
     batch: 'c1-2',
     secondRound: false,
@@ -254,6 +255,7 @@ describe('the fixer\'s task', () => {
         decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' } },
         supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing' }],
         firstRound: null,
+        answered: null,
       },
       {
         id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, summary: 's', reason: 'r',
@@ -265,6 +267,7 @@ describe('the fixer\'s task', () => {
         },
         supersedes: [],
         firstRound: null,
+        answered: null,
       },
     ],
     earlier: [],
@@ -432,6 +435,63 @@ describe('the fixer\'s task', () => {
     assert.match(fixerTask(input), /a one-sentence `note`; the `files` you edited or created for it, or that hold an earlier attempt's edits for it; a `message`/, 'an already-applied finding with a message names its earlier attempt\'s files (R11)');
     assert.match(fixerTask(input), /a `message` for every finding that names files, whatever its status, [^;]*, a blocked or deferred finding's saying the change is partial and what it waits for, and null for a finding that names no file;/);
     assert.doesNotMatch(fixerTask(input), /null for a deferred or blocked one/);
+  });
+});
+
+describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)', () => {
+  const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
+  const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE' as const, location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED' as const, unverified: false, evidence: 'line 4 uses text!' };
+  const departing: FixerDecision = { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'docs/parse.md', reason: 'other() is a caller it never trusted' } };
+  const asking: FixerDecision = {
+    id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
+    ask: { question: 'Should b log?', options: [{ option: 'stay quiet', cost: 'c', rule: 'b never logs', edits: false }, { option: 'log once', cost: 'one line per run', rule: 'b logs once per run', edits: true }], recommended: 1, applied: 0, searched: ['docs'] },
+  };
+  const finding = (id: string, decision: FixerDecision, answered: AnsweredFinding | null): FixerTaskFinding => ({
+    id, severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 's', reason: 'r', primary: { ...candidate, id }, members: [], decision, supersedes: [], firstRound: null, answered,
+  });
+  const option: AnsweredFinding = { answer: { kind: 'option', option: 1 }, note: 'the operator reads the log', option: { option: 'log once', rule: 'b logs once per run', edits: true }, before: null };
+  const rejected: AnsweredFinding = { answer: { kind: 'reject' }, note: null, option: null, before: { status: 'applied', note: 'guarded the null', files: ['docs/parse.md', 'src/a.ts'] } };
+  const accepted: AnsweredFinding = { answer: { kind: 'accept' }, note: 'right call', option: null, before: { status: 'applied', note: 'guarded the null', files: [] } };
+  const pass: FixerTaskInput = {
+    answerPass: true, cluster: 'answers', batch: 'pass-1', secondRound: false,
+    findings: [finding('RIPPLE-1', departing, rejected), finding('SWEEP-1', asking, option)],
+    earlier: [], owned: ['docs/parse.md', 'src/a.ts'], claimed: [], othersHeld: [],
+    checks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null, source: null }],
+    snapshotCommand: snapshot, claimCommand: null, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false,
+  };
+  /** A fixes-phase batch of the same findings, as a continued run's fixer is given them. */
+  const batch = (findings: readonly FixerTaskFinding[]): FixerTaskInput => ({ ...pass, answerPass: false, cluster: 'c1', batch: 'c1-1', claimCommand: 'node claim', findings });
+
+  it('tells each answer by its kind: the option chosen with its text and rule, the rejected departure\'s rule and source, or an accepted one, with the note', () => {
+    const task = fixerTask(pass);
+    assert.match(task, /^ {8}answered by the author: option 2, "log once", for which the decider wrote the rule "b logs once per run"\. Note: the operator reads the log$/m);
+    assert.match(task, /^ {8}the author rejected the departure: follow the rule "parse trusts its callers" as docs\/parse\.md states it, and restore what the fix changed in that statement\.$/m);
+    assert.match(fixerTask({ ...pass, findings: [finding('RIPPLE-1', departing, accepted)] }), /^ {8}the author accepted the departure\. Note: right call$/m);
+  });
+
+  it('tells what the run did with each finding before the answer, or that no fixer saw it', () => {
+    const task = fixerTask(pass);
+    assert.match(task, /^ {8}departs from: parse trusts its callers \(docs\/parse\.md\): other\(\) is a caller it never trusted\n {8}the author rejected the departure: [^\n]*\n {8}before the answer: the run's last fixer of it answered applied: guarded the null, in docs\/parse\.md, src\/a\.ts$/m);
+    assert.match(task, /^ {8}before the answer: no fixer saw it before$/m);
+    assert.match(fixerTask({ ...pass, findings: [finding('RIPPLE-1', departing, accepted)] }), /^ {8}before the answer: the run's last fixer of it answered applied: guarded the null$/m, 'no files, none named');
+  });
+
+  it('asks the fixer to make the tree hold the answer in place of the default, and says nothing of writing a rule (PD3)', () => {
+    const task = fixerTask(pass);
+    assert.match(task, /carries the author's answer, given after the run's report: it takes the place of the default the decision named\. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding's files and whatever else it needs/);
+    assert.match(task, /In the message's `body`, say which question was answered and how\./);
+    for (const steer of [/write (?:the|a) rule/i, /record (?:the|a) rule/i, /AGENTS\.md|CLAUDE\.md/, /convention source/i, /do not (?:write|amend|change) (?:the|a|any) (?:rule|statement)/i]) assert.doesNotMatch(task, steer, steer.source);
+    assert.doesNotMatch(fixerTask(batch(pass.findings.map((entry) => ({ ...entry, answered: null })))), /answered by the author|carries the author's answer|before the answer/, 'a task with no answer says nothing of answers');
+    assert.match(fixerTask(batch([finding('SWEEP-1', asking, option)])), /^ {8}answered by the author: option 2/m, 'a fixes-phase batch of a continued run is told an answer given before it');
+  });
+
+  it('heads an answer pass\'s task as the pass, owns what the run revised, frees every other file, and gives no claim command', () => {
+    const task = fixerTask(pass);
+    assert.match(task, /^Answer pass pass-1: 2 findings, numbered \[0\] to \[1\], in the order to apply them\.$/m);
+    assert.match(task, /^Files you own: every file the run revised, and the files these findings are located in\.\n- docs\/parse\.md\n- src\/a\.ts\n\nYou may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served\.$/m);
+    assert.doesNotMatch(task, /claim|Files other clusters own|Cluster answers/);
+    assert.throws(() => fixerTask({ ...pass, claimCommand: 'node claim' }), /An answer pass alone claims nothing/);
+    assert.throws(() => fixerTask({ ...batch(pass.findings), claimCommand: null }), /An answer pass alone claims nothing/);
   });
 });
 

@@ -10,7 +10,8 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
-import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastClaimOf, lastRun, repairTargets, roundOf, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
+import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, roundOf, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -48,7 +49,7 @@ import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey
 import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, type ReportFinding, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type BaselineFailure, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
+import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /**
@@ -104,7 +105,7 @@ export function groupCandidates(review: ReviewState, phase: VerificationPhase, g
 /** What an editing unit's task names beyond the fold: the command that takes a snapshot into its directory, the claim command, and what its sandbox will not run. */
 export interface EditingTaskInput {
   readonly snapshotCommand: string;
-  /** The command a fixer runs to claim a file, holding `claimPathPlaceholder` for the path; null for the repair, which claims nothing. */
+  /** The command a fixer runs to claim a file, holding `claimPathPlaceholder` for the path; null for the repair and an answer pass, which claim nothing. */
   readonly claimCommand: string | null;
   /** Whether the worker runs in Codex's unelevated Windows sandbox, whose limit its task states (R6 of the Codex sandbox). */
   readonly unelevatedSandbox: boolean;
@@ -175,7 +176,33 @@ export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
   }));
 }
 
-/** A fixer's task over its batch, from the plan, the ranked findings, their decisions and the pinned checks. */
+/**
+ * What a fixer is told of the author's answer to a finding (R4, R5, R7 of
+ * answers), from its standing answer: the answer and its note, for an
+ * option its text, rule and whether it edits, and what the run did with
+ * the finding before, the last fixer answer and the files of that unit's
+ * revisions for it, or none when no fixer saw it. Null for a finding
+ * nobody answered, or whose answer the tree already holds, which owes no
+ * edit and so is no fixer's to apply.
+ */
+function answeredFor(review: ReviewState, decision: FixerDecision | null, id: string): AnsweredFinding | null {
+  const standing = standingAnswer(review, id);
+  if (standing === null || standing.appliedBy !== null || decision === null) return null;
+  const answer = standing.answer;
+  const chosen = answer.kind === 'option' && decision.decision === 'ask' ? (decision.ask.options[answer.option] ?? null) : null;
+  if (answer.kind === 'option' && chosen === null) throw new Error(`Finding ${id} is answered with an option its decision does not offer`);
+  const fix = review.fix;
+  const last = fix === null ? null : lastAnswerOf(fix, id);
+  const files = last === null || fix === null ? [] : [...new Set(fix.revisions.filter((revision) => revision.phase === last.phase && revision.source.kind !== 'check' && revision.source.key === last.key && revision.change.findings.includes(id)).flatMap((revision) => revision.files.map((file) => file.path)))].sort();
+  return {
+    answer,
+    note: standing.note,
+    option: chosen === null ? null : { option: chosen.option, rule: chosen.rule, edits: chosen.edits },
+    before: last === null ? null : { status: last.finding.status, note: last.finding.note, files },
+  };
+}
+
+/** A fixer's task over its batch, from the plan, the ranked findings, their decisions and the answers the author gave before the fix pass, and the pinned checks. */
 function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'pathOf'>): string {
   const plan = fixPlanOf(review);
   const second = review.fix?.secondRound ?? null;
@@ -203,24 +230,14 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
   const findings = batch.findingIds.map((id): FixerTaskFinding => {
     const entry = ranked.get(id);
     if (entry === undefined) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
+    const decision = decidedFor(review, decided, id);
     return {
-      id,
-      severity: entry.finding.severity,
-      verdict: entry.resolution.verdict,
-      unverified: entry.resolution.unverified,
-      summary: entry.finding.summary,
-      reason: entry.finding.reason,
-      primary: taskCandidate(entry.primary),
-      members: entry.members.map(taskCandidate),
-      decision: decidedFor(review, decided, id),
-      supersedes: (review.decisions ?? []).filter((decision) => decision.leave?.supersededBy === id).flatMap((decision) => {
-        const left = ranked.get(decision.id);
-        return left === undefined ? [] : [{ id: decision.id, location: describeLocation(left.primary), summary: left.finding.summary }];
-      }),
+      ...taskFinding(review, ranked, entry, decision),
       firstRound: inSecondRound ? firstRoundBlock(review, plan.batches, id, blockedOn.get(id) ?? []) : null,
     };
   });
   return fixerTask({
+    answerPass: false,
     cluster: cluster.id,
     batch: batch.key,
     secondRound: inSecondRound,
@@ -240,15 +257,82 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
 }
 
 /**
+ * One finding as a fixer's task gives it, but for what the first round
+ * said of it: its claim, its candidates, its decision, the findings left
+ * because its fix removes them, and the author's answer when one is owed.
+ */
+function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFinding>, entry: ReportFinding, decision: FixerDecision | null): Omit<FixerTaskFinding, 'firstRound'> {
+  const id = entry.finding.id;
+  return {
+    id,
+    severity: entry.finding.severity,
+    verdict: entry.resolution.verdict,
+    unverified: entry.resolution.unverified,
+    summary: entry.finding.summary,
+    reason: entry.finding.reason,
+    primary: taskCandidate(entry.primary),
+    members: entry.members.map(taskCandidate),
+    decision,
+    supersedes: (review.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
+      const leftEntry = ranked.get(left.id);
+      return leftEntry === undefined ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary }];
+    }),
+    answered: answeredFor(review, decision, id),
+  };
+}
+
+/**
+ * The answer pass's fixer's task (R5, R7 of answers, PD5): the pass's
+ * findings in rank order, each with its decision, what the run did with
+ * it and the author's answer; the files every revision of the run changed
+ * and the files the findings are located in, which it owns, with any other
+ * file free to edit, as the repair has; no claim; the checks, the
+ * snapshot command, and whether an earlier attempt of this pass may have
+ * left its work in the tree.
+ */
+function answerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'pathOf'>): string {
+  const pass = passOf(review, unit.key);
+  if (pass === null) throw new Error(`The answer pass ${unit.key} is not recorded`);
+  const ranked = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
+  const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
+  const findings = [...ranked.values()].filter((entry) => pass.ids.includes(entry.finding.id)).map((entry): FixerTaskFinding => {
+    const decision = decidedFor(review, decided, entry.finding.id, true);
+    const finding = { ...taskFinding(review, ranked, entry, decision), firstRound: null };
+    if (finding.answered === null) throw new Error(`Finding ${entry.finding.id} is in answer pass ${unit.key} with no answer owing an edit`);
+    return finding;
+  });
+  // An earlier attempt of this pass, not an earlier pass, may have left its work: an earlier pass's edits are recorded revisions the task names as the files owned.
+  const mayHold = review.phases.answer.attempt > pass.openedAt.answer + 1 || (review.units.answer[unit.key]?.failures.length ?? 0) > 0;
+  return fixerTask({
+    answerPass: true,
+    cluster: 'answers',
+    batch: unit.key,
+    secondRound: false,
+    findings,
+    earlier: [],
+    owned: ownedFiles(review, 'answer', unit.key),
+    claimed: [],
+    othersHeld: [],
+    checks: review.fix?.checks.planned?.checks ?? [],
+    snapshotCommand: editing.snapshotCommand,
+    claimCommand: null,
+    unelevatedSandbox: editing.unelevatedSandbox,
+    mayHoldWork: mayHold,
+    unfinished: unfinishedIds(review, 'answer', unit.key),
+    baselineFailures: baselineFailuresOf(review, evidence),
+  });
+}
+
+/**
  * The decision a fixer is told for a finding of its batch: the recorded
  * one, or none in a run configured before the decision step, whose plan
  * was made without decisions. A decided run that recorded none for a
  * finding it gives a fixer, or left it, is a plan the engine cannot have
  * made.
  */
-function decidedFor(review: ReviewState, decided: ReadonlyMap<string, RecordedDecision>, id: string): FixerDecision | null {
+function decidedFor(review: ReviewState, decided: ReadonlyMap<string, RecordedDecision>, id: string, answered = false): FixerDecision | null {
   const decision = decided.get(id) ?? null;
-  if (decision === null && review.phases.decision.status !== 'skipped') throw new Error(`Finding ${id} goes to a fixer with no decision recorded for it`);
+  if (decision === null && (answered || review.phases.decision.status !== 'skipped')) throw new Error(`Finding ${id} goes to a fixer with no decision recorded for it`);
   if (decision?.decision === 'leave') throw new Error(`Finding ${id} goes to a fixer though its decision leaves it`);
   return decision;
 }
@@ -378,7 +462,8 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       if (evidence === null) throw new Error('The repair task quotes frozen logs and needs the evidence store');
       return repairTaskOf(review, requireEditing(), evidence);
     case 'answer':
-      throw new Error('The answer pass\'s task is not built yet');
+      if (evidence === null) throw new Error('The answer pass\'s task names the baseline checks\' frozen outputs and needs the evidence store');
+      return answerTaskOf(unit, review, requireEditing(), evidence);
     case 'baseline-checks':
     case 'checks':
     case 'repair-checks':

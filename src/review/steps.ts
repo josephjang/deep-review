@@ -8,8 +8,8 @@
  */
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV2 } from '../checkpoint/events.ts';
-import { currentPass } from '../checkpoint/answer-state.ts';
-import { claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
+import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
+import { checksFloor, claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { unsettledKinds, type CheckFlags } from './checks/discover.ts';
@@ -102,8 +102,9 @@ export function groupsOf(review: ReviewState, phase: VerificationPhase): readonl
 }
 
 /**
- * The fix plan: the recorded one, or the one the ranked findings and their
- * decisions give in batches of the pinned size (R6 of the decision step).
+ * The fix plan: the recorded one, or the one the ranked findings, their
+ * decisions and the answers a person gave before the fix pass give in
+ * batches of the pinned size (R6 of the decision step, R4 of answers).
  * A run whose ranking holds findings but no decision cannot be planned: a
  * fix run configured before the decision step is refused before it
  * resumes (`resumePinned`), so this is never reached from a ledger.
@@ -114,7 +115,7 @@ export function fixPlanOf(review: ReviewState): FixPlan {
   if (batchSize === undefined) throw new Error('A fix plan needs the batch size a fixing run pins');
   const findings = rankedFindings(review);
   if (findings.length > 0 && review.decisions === null) throw new Error('A fix plan routes each finding by its decision, and the run recorded none');
-  return planFixes(findings, review.decisions ?? [], batchSize);
+  return planFixes(findings, review.decisions ?? [], batchSize, standingAnswers(review));
 }
 
 /** The second round's plan (R21 of the fix pass; R4 of commit series integrity): the one the first round's answers and claims give, in batches of the pinned size; the first round must be planned. */
@@ -412,14 +413,20 @@ export function claimsLostBlocker(directory: string): Blocker {
   return { code: 'claims-lost', detail: truncated(`the claims directory ${directory} was removed while the run was editing`, maxRecordedTextLength), action: blockerActions['claims-lost'] };
 }
 
+/** Whether the answer pass with this unit key revised the tree: its fixer's answer, or an attempt of it that ended without one. */
+const passRevised = (fix: FixState, key: string): boolean => fix.revisions.some((revision) => revision.phase === 'answer' && revision.source.kind !== 'check' && revision.source.key === key);
+
 /**
  * The check a checks phase runs next (R9, R10, PD7 of the fix pass), or
  * null when none is due: the first available kind in the order `build`,
  * `typecheck`, `lint`, `test` that has no run in this phase, one at a time;
  * once `build` ran and did not pass, each later kind is skipped with the
  * reason instead. The three after `build` never wait on one another. The
- * `checks` phase runs only when the fixes changed the tree, and
- * `repair-checks` only when the repair phase had a unit.
+ * `checks` phase runs only when the fixes changed the tree,
+ * `repair-checks` only when the repair phase had a unit, and
+ * `answer-checks` only when the current answer pass changed it, and then
+ * every check again, its runs for an earlier pass not counting
+ * (`checksFloor`; R5 of answers).
  */
 export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | null {
   const fix = review.fix;
@@ -427,9 +434,14 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
   if (fix === null || planned === null) return null;
   if (phase === 'checks' && !fix.revisions.some((revision) => revision.phase === 'fixes')) return null;
   if (phase === 'repair-checks' && repairTargets(fix).length === 0) return null;
-  const build = lastRun(fix, phase, 'build');
+  if (phase === 'answer-checks') {
+    const pass = currentPass(review);
+    if (pass === null || !passRevised(fix, pass.key)) return null;
+  }
+  const floor = checksFloor(review, phase);
+  const build = lastRun(fix, phase, 'build', floor);
   for (const check of planned.checks) {
-    if (check.command === null || lastRun(fix, phase, check.kind) !== null) continue;
+    if (check.command === null || lastRun(fix, phase, check.kind, floor) !== null) continue;
     const skip = check.kind !== 'build' && build !== null && build.outcome !== 'passed' ? `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}` : null;
     return { kind: check.kind, command: check.command, skip };
   }

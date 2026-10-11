@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { noCheckFlags } from '../../src/review/checks/discover.ts';
-import { fixPlanOf, nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
-import { askDecision, baselined, checkRun, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
+import { dueCheck, fixPlanOf, nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
+import { answer, answerableDecisions, askDecision, decidedFixRun, flagPlan, passAnswer, passRevision, passToReport, pin, readOnlyReported, type History, baselined, checkRun, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -238,5 +238,66 @@ describe('nextStep in the fix pass', () => {
     // The repair checks run only when the repair phase had a unit.
     const noRepair = checksPhase(fixed(), 'checks').start('repair').finish('repair').start('repair-checks');
     assert.deepEqual(nextStep(noRepair.review(), idle), { kind: 'finish-phase', phase: 'repair-checks', attempt: 1, outcome: 'completed', blocker: null });
+  });
+});
+
+describe('nextStep in an answer pass (R5 of answers)', () => {
+  /** The decided fix run answered on both findings and its pass opened. */
+  const opened = (): History => decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['RIPPLE-1', 'SWEEP-1'] });
+
+  it('starts the answer phase, gives it one fixer for the pass, and launches it', () => {
+    const history = opened();
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'start-phase', phase: 'answer', attempt: 1 });
+    history.start('answer');
+    assert.deepEqual(unitsOf(history.review(), 'answer'), [{ phase: 'answer', key: 'pass-1', role: 'fixer' }]);
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'launch', units: [{ phase: 'answer', key: 'pass-1', role: 'fixer' }] });
+    assert.deepEqual(unitsOf(decidedFixRun().review(), 'answer'), [], 'no pass, no unit');
+  });
+
+  it('blocks the pass at the run budget before its launch, never settling it as not attempted (TD8)', () => {
+    const history = opened().start('answer');
+    const spent = live({ spend: { usd: 31, charged: 0, lost: 0 } });
+    const step = nextStep(history.review(), spent);
+    assert.equal(step.kind, 'finish-phase');
+    assert.equal((step as { blocker: { code: string } }).blocker.code, 'budget');
+  });
+
+  it('blocks with worker-failed when the pass\'s fixer fails twice, and degrades nothing', () => {
+    const history = opened().start('answer')
+      .add('attempt.failed', { phase: 'answer', key: 'pass-1', workerId: worker(71), reason: 'failed', fault: 'unit' }, 6)
+      .add('attempt.failed', { phase: 'answer', key: 'pass-1', workerId: worker(72), reason: 'failed again', fault: 'unit' }, 6);
+    const step = nextStep(history.review(), idle);
+    assert.equal(step.kind, 'finish-phase');
+    assert.equal((step as { blocker: { code: string; detail: string } }).blocker.code, 'worker-failed');
+    assert.match((step as { blocker: { detail: string } }).blocker.detail, /^the fixer worker for answer:pass-1 failed twice: /);
+  });
+
+  it('checks the tree at the answer phase\'s end once its fixer answered, then finishes it', () => {
+    const history = opened().start('answer').worker(71, 'fixer answer:pass-1').add('fix.recorded', passAnswer(worker(71), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']]), 2).add('tree.revised', passRevision(worker(71), 1, 'RIPPLE-1'), 2);
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'check-worktree', phase: 'answer', attempt: 1, moment: 'end' });
+    history.add('worktree.checked', endCheck('answer'), 5);
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'finish-phase', phase: 'answer', attempt: 1, outcome: 'completed', blocker: null });
+  });
+
+  it('runs every check again after a pass that revised the tree, at each pass, and none after a pass that did not', () => {
+    const revised = opened().start('answer').worker(71, 'fixer answer:pass-1').add('fix.recorded', passAnswer(worker(71), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']]), 2).add('tree.revised', passRevision(worker(71), 1, 'RIPPLE-1'), 2).add('worktree.checked', endCheck('answer'), 5).finish('answer').start('answer-checks');
+    assert.deepEqual(dueCheck(revised.review(), 'answer-checks'), { kind: 'build', command: 'npm run build', skip: null });
+    const unrevised = opened().start('answer').worker(71, 'fixer answer:pass-1').add('fix.recorded', passAnswer(worker(71), 1, [['RIPPLE-1', 'deferred'], ['SWEEP-1', 'deferred']]), 2).add('worktree.checked', endCheck('answer'), 5).finish('answer').start('answer-checks');
+    assert.equal(dueCheck(unrevised.review(), 'answer-checks'), null);
+    assert.deepEqual(nextStep(unrevised.review(), idle), { kind: 'finish-phase', phase: 'answer-checks', attempt: 1, outcome: 'completed', blocker: null });
+    // The second pass runs them again, whatever the first ran.
+    const first = passToReport(opened(), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2);
+    const second = first.add('answer.pass', { ids: ['SWEEP-1'] }).start('answer', 2).worker(72, 'fixer answer:pass-2').add('fix.recorded', passAnswer(worker(72), 2, [['SWEEP-1', 'applied']]), 2).add('tree.revised', passRevision(worker(72), 2, 'SWEEP-1'), 2).add('worktree.checked', endCheck('answer', 2), 5).finish('answer', 'completed', 2).start('answer-checks', 2);
+    assert.deepEqual(dueCheck(second.review(), 'answer-checks'), { kind: 'build', command: 'npm run build', skip: null });
+    second.add('check.ran', checkRun('answer-checks', 'build', 'passed', 2), 2);
+    assert.deepEqual(dueCheck(second.review(), 'answer-checks'), { kind: 'lint', command: 'npm run lint', skip: null }, 'counted within the second pass');
+  });
+
+  it('plans a continued run\'s answered finding to a fixer, which its decision held', () => {
+    const continued = checksPhase(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('fix.pinned', pin(flagPlan)), 'baseline-checks').start('fixes');
+    const plan = fixPlanOf(continued.review());
+    assert.deepEqual(plan.routes, [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }]);
+    assert.deepEqual(plan.batches.map((entry) => entry.findingIds), [['RIPPLE-1'], ['SWEEP-1']]);
+    assert.doesNotThrow(() => continued.add('fixes.planned', plan).fold(), 'the fold holds the plan to the same rule');
   });
 });

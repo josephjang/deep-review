@@ -10,7 +10,8 @@
  * answers; each plan is recorded once and resumed from the ledger.
  */
 import type { FixedFinding, FixesPlanned } from '../checkpoint/events.ts';
-import { firstRoundHolders, heldByAnother, routeOfDecision, secondRoundFiles, type RecordedClaim, type RoutedDecision } from '../checkpoint/fix-state.ts';
+import type { AppliedBy } from '../checkpoint/answer-state.ts';
+import { firstRoundHolders, heldByAnother, routeOf, secondRoundFiles, type RecordedClaim, type RoutedDecision } from '../checkpoint/fix-state.ts';
 import type { CandidateState } from '../checkpoint/review-fold.ts';
 import { unlocatedSpellingIn } from './grouping.ts';
 import type { ReportFinding } from './state.ts';
@@ -54,8 +55,10 @@ const unlocatedKey = (spelling: string): string => `unlocated\0${spelling}`;
 const ownedPath = (key: string): string | null => (key.startsWith('located\0') ? key.slice('located\0'.length) : null);
 
 /**
- * Route the ranked findings by their decisions and cluster the
- * fixer-routed ones (R3). Every finding must have a decision, as the
+ * Route the ranked findings by their decisions and, for a finding a
+ * person answered before the fix pass, its standing answer (`routeOf`, R4
+ * of answers), and cluster the fixer-routed ones (R3). Every finding must
+ * have a decision, as the
  * decision phase records one per ranked finding; a finding with none is a
  * plan the engine cannot make, and throws. Each finding's keys are the
  * canonical file of its primary and of every member that is located, and
@@ -67,12 +70,12 @@ const ownedPath = (key: string): string | null => (key.startsWith('located\0') ?
  * it. Each cluster's findings are then cut, in that order, into batches of
  * at most `batchSize` (`batchesOf`).
  */
-export function planFixes(findings: readonly ReportFinding[], decisions: readonly RoutedDecision[], batchSize: number): FixPlan {
+export function planFixes(findings: readonly ReportFinding[], decisions: readonly RoutedDecision[], batchSize: number, answers: ReadonlyMap<string, { readonly appliedBy: AppliedBy }> = new Map()): FixPlan {
   const decided = new Map(decisions.map((decision) => [decision.id, decision]));
   const routes = findings.map((entry): PlannedRoute => {
     const decision = decided.get(entry.finding.id);
     if (decision === undefined) throw new Error(`Finding ${entry.finding.id} has no decision to route it by`);
-    return { id: entry.finding.id, route: routeOfDecision(decision) };
+    return { id: entry.finding.id, route: routeOf(decision, answers.get(entry.finding.id) ?? null) };
   });
   const toFixer = new Set(routes.filter((route) => route.route === 'fixer').map((route) => route.id));
   const routed = findings.filter((entry) => toFixer.has(entry.finding.id));

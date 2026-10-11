@@ -155,6 +155,16 @@ describe('planFixes', () => {
     assert.deepEqual(planOf([]), { routes: [], clusters: [], batches: [] });
   });
 
+  it('routes a finding whose answer owes an edit to a fixer, and one the tree holds by its decision (R4 of answers)', () => {
+    const findings = [finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')), finding(candidate('DESIGN-1', 'DESIGN', 'src/b.ts'), 'PLAUSIBLE')];
+    const decided = [{ id: 'SCAN-1', decision: 'fix' as const, ask: null }, ask('DESIGN-1', false)];
+    assert.deepEqual(planFixes(findings, decided, 4).routes.map((route) => route.route), ['fixer', 'held'], 'unanswered, the code-keeping ask is held');
+    const owed = planFixes(findings, decided, 4, new Map([['DESIGN-1', { appliedBy: null }]]));
+    assert.deepEqual(owed.routes, [{ id: 'SCAN-1', route: 'fixer' }, { id: 'DESIGN-1', route: 'fixer' }]);
+    assert.deepEqual(owed.clusters.map((cluster) => cluster.findingIds), [['SCAN-1'], ['DESIGN-1']], 'and clustered as any fixer-routed finding');
+    assert.deepEqual(planFixes(findings, decided, 4, new Map([['DESIGN-1', { appliedBy: 'tree' as const }]])).routes.map((route) => route.route), ['fixer', 'held'], 'a confirmed default stays held');
+  });
+
   it('routes every ranked finding once, in rank order, and clusters only the fixer-routed ones, one per file', () => {
     const plan = planOf([
       finding(candidate('SCAN-1', 'SCAN', 'src/a.ts')),

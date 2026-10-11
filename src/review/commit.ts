@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { CommitsCreated, FrozenFile, TreeRevised } from '../checkpoint/events.ts';
 import { revisionMessageOf } from '../checkpoint/fix-state.ts';
+import { attemptOwner } from './fix-events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
@@ -23,6 +24,7 @@ import { readableRuns } from './runs.ts';
 import { rankedFindings } from './state.ts';
 import { gitContent } from './content.ts';
 import { compareExpected, expectedTree, worktreeReader, type ExpectedFile, type ExpectedMatch } from './tree.ts';
+import type { EditingPhase } from './vocabulary.ts';
 
 export interface CommitOptions {
   readonly checkpoint: Checkpoint;
@@ -110,13 +112,14 @@ function bytesOf(checkpoint: Checkpoint, path: string, frozen: FrozenFile): Buff
   return checkpoint.evidence.read(frozen.blob);
 }
 
-/** What a revision of an editing phase's answer or attempt holds, as its trailer names it: the findings with their angle and verdict, or the checks the repair worked. */
+/** What a revision of an editing phase's answer or attempt holds, as its trailer names it: the findings with their angle and verdict, an answer pass's as the answers to them (R7 of answers), or the checks the repair worked. */
 function namedFindings(run: RunState, revision: TreeRevised): string {
   if (revision.phase === 'repair') return `repair of the ${revision.change.findings.join(', ')} check`;
   const findings = new Map(rankedFindings(run.review!).map((entry) => [entry.finding.id, entry]));
+  const answer = revision.phase === 'answer' ? 'answer to ' : '';
   return revision.change.findings.map((id) => {
     const entry = findings.get(id);
-    return entry === undefined ? id : `${id} (${entry.primary.angle}, ${entry.resolution.verdict})`;
+    return `${answer}${entry === undefined ? id : `${id} (${entry.primary.angle}, ${entry.resolution.verdict})`}`;
   }).join(', ');
 }
 
@@ -128,7 +131,7 @@ function trailer(run: RunState, revision: TreeRevised): string {
     case 'check':
       return `Deep-review: run ${run.id}, ${revision.source.check} check`;
     case 'attempt': {
-      const who = revision.source.key === 'repair' ? 'the repair' : `batch ${revision.source.key}`;
+      const who = attemptOwner(revision.phase as EditingPhase, revision.source.key);
       return revision.change.findings.length === 0
         ? `Deep-review: run ${run.id}, partial edits of an unfinished attempt of ${who}`
         : `Deep-review: run ${run.id}, ${namedFindings(run, revision)}, from an unfinished attempt of ${who}`;

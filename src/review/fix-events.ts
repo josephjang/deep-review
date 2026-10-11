@@ -66,11 +66,12 @@ export function unitIds(state: RunState, phase: EditingPhase, key: string): read
 
 /**
  * The claims a unit's settle records before its outcome, read from its
- * round's directory: none for the repair, which claims nothing and owns
- * every file it may edit (TD8 of the fix pass).
+ * round's directory: none for the repair or an answer pass, which claim
+ * nothing and own every file they may edit (TD8 of the fix pass, PD5 of
+ * answers).
  */
 function settleOf(context: RevisionContext, phase: EditingPhase, key: string): ClaimSettle {
-  if (phase === 'repair' || context.claims === null) return settledNothing(context.state, false);
+  if (phase !== 'fixes' || context.claims === null) return settledNothing(context.state, false);
   const live = context.claims.live(key);
   return live === null ? settledNothing(context.state, context.claims.caseInsensitive()) : settleClaims(context.state, key, live, context.worktree);
 }
@@ -78,14 +79,14 @@ function settleOf(context: RevisionContext, phase: EditingPhase, key: string): C
 /** A path as a settle compares it: lowercased where the worktree's file system folds case. */
 const keyOfSettle = (settle: ClaimSettle) => (path: string): string => pathKey(path, settle.caseInsensitive);
 
-/** The files every other cluster of a fixes-phase unit's round holds now, by the plan or by a claim of a cluster not yet settled (PD3), in the run as the settle leaves it, keyed by the exact path, as the fold judges the answer's violations; the repair has none. */
+/** The files every other cluster of a fixes-phase unit's round holds now, by the plan or by a claim of a cluster not yet settled (PD3), in the run as the settle leaves it, keyed by the exact path, as the fold judges the answer's violations; the repair and an answer pass, alone in the tree, have none. */
 function othersHeld(state: RunState, phase: EditingPhase, key: string): Map<string, PathHolder> {
-  return phase === 'repair' ? new Map() : heldByOthers(requireFix(state), key, exactPath);
+  return phase !== 'fixes' ? new Map() : heldByOthers(requireFix(state), key, exactPath);
 }
 
-/** The files every other cluster of a fixes-phase unit's round has held, settled or not (R5), in the run as the settle leaves it, keyed by `keyOf`; the repair has none. */
+/** The files every other cluster of a fixes-phase unit's round has held, settled or not (R5), in the run as the settle leaves it, keyed by `keyOf`; the repair and an answer pass have none. */
 function othersHeldInRound(state: RunState, phase: EditingPhase, key: string, keyOf: (path: string) => string): Map<string, PathHolder> {
-  return phase === 'repair' ? new Map() : heldInRoundByOthers(requireFix(state), key, keyOf);
+  return phase !== 'fixes' ? new Map() : heldInRoundByOthers(requireFix(state), key, keyOf);
 }
 
 /**
@@ -96,15 +97,15 @@ function othersHeldInRound(state: RunState, phase: EditingPhase, key: string, ke
  */
 function answerLookup(settle: ClaimSettle, phase: EditingPhase, key: string, worktree: string): RepoLookup {
   const lookup = worktreeLookup(worktree);
-  if (phase === 'repair') return lookup;
+  if (phase !== 'fixes') return lookup;
   const fix = requireFix(settle.state);
   const keyOf = keyOfSettle(settle);
   return holderSpelled(lookup, holdersKeyedBy(fix, roundOf(fix, key), keyOf), keyOf);
 }
 
-/** The files a unit's cluster claimed in its round, in the run as the settle leaves it; the repair claims none. */
+/** The files a unit's cluster claimed in its round, in the run as the settle leaves it; the repair and an answer pass claim none. */
 function claimedFiles(state: RunState, phase: EditingPhase, key: string): string[] {
-  if (phase === 'repair') return [];
+  if (phase !== 'fixes') return [];
   const fix = requireFix(state);
   return clusterClaims(fix, roundOf(fix, key), batchOfUnit(state, key).cluster);
 }
@@ -205,6 +206,18 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   ];
 }
 
+/** Whose attempt it was, as a revision of what it left names it: a fixes-phase batch, the repair, or an answer pass. */
+export function attemptOwner(phase: EditingPhase, key: string): string {
+  switch (phase) {
+    case 'fixes':
+      return `batch ${key}`;
+    case 'repair':
+      return 'the repair';
+    case 'answer':
+      return `the answer pass ${key}`;
+  }
+}
+
 /** What an attempt that ended without an answer leaves on the ledger: the claims its settle records, which go before its failure or loss, and the revisions of its edits, which go after. */
 export interface AttemptEvents {
   readonly claims: readonly NewEvent[];
@@ -263,7 +276,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
   const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...ownedFiles(state.review!, phase, key), ...claimedFiles(settle.state, phase, key), ...listed], ids, context.match);
-  const who = phase === 'repair' ? 'the repair' : `batch ${key}`;
+  const who = attemptOwner(phase, key);
   const why = truncated(reason, 1000);
   return { claims: settle.events, revisions: revisions.map((revision): NewEvent => {
     const id = revision.findings[0];

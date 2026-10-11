@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ListedRun } from '../../src/checkpoint/checkpoint.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
-import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
+import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
+import { commitAll, write } from '../helpers/repository.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** A review whose triage finds one defect in src/a.ts, which the decider decides to fix, every worker reporting 1 USD. */
@@ -11,6 +12,58 @@ const oneFix: Script = {
   triage: { costUsd: 1, output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null })) } },
   decider: { costUsd: 1, output: deciderAnswer([{}]) },
 };
+
+/** The same review, its one finding an ask whose default keeps the code, and the fixer of a continuation answering it applied with an edit of src/a.ts. */
+const oneQuestion: Script = {
+  ...oneFix,
+  decider: { costUsd: 1, output: deciderAnswer([{ decision: 'ask', edits: false }]) },
+  'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n\nexport function other() {\n  return parse(null);\n}\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Take the other way the author chose' }]) },
+};
+
+/** Record a person's answer on a run as `deep-review answer --record-only` would. */
+function answerOn(box: ReviewSandbox, runId: string, id: string, option: number): void {
+  box.checkpoint.append(runId, box.checkpoint.fold(runId).lastSequence, [{ kind: 'answer.recorded', version: 1, payload: { id, answer: { kind: 'option', option }, note: 'the author chose it' } }]);
+}
+
+// Answers: a read-only run's answers ride the continuation into the fix pass (R4, PD4 of answers).
+describe('the continuation of an answered read-only run', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
+  it('routes a held question whose answer owes an edit to a fixer, tells the fixer the answer, and marks it applied by that batch', async (t) => {
+    const box = ReviewSandbox.forTest(t, oneQuestion);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    const id = finished.review!.decisions![0]!.id;
+    await assert.rejects(box.fix('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.message.startsWith(`run ${finished.id} has no finding to fix: 0 decided fix, 0 left, 1 asked with the code kept`), 'unanswered, the question keeps the code');
+    answerOn(box, finished.id, id, 1);
+    reportText(await box.fix('claude'));
+    const state = box.run();
+    assert.equal(state.id, finished.id, 'the answered run is continued');
+    assert.deepEqual(state.review!.fix!.plan!.routes, [{ id, route: 'fixer' }]);
+    assert.match(box.promptOf(state, 'fixer fixes:c1-1'), /^ {8}answered by the author: option 2, "fake other way", for which the decider wrote the rule "fake rule for the other way"\. Note: the author chose it\n {8}before the answer: no fixer saw it before$/m);
+    assert.deepEqual(state.review!.answers.at(-1)!.appliedBy, { phase: 'fixes', key: 'c1-1' });
+  });
+
+  it('still finds nothing to fix when the answer confirms the default that keeps the code', async (t) => {
+    const box = ReviewSandbox.forTest(t, oneQuestion);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    answerOn(box, finished.id, finished.review!.decisions![0]!.id, 0);
+    assert.equal(box.run().review!.answers[0]!.appliedBy, 'tree');
+    await assert.rejects(box.fix('claude'), (error: unknown) => error instanceof ReviewRefusedError && error.message.includes('has no finding to fix'));
+  });
+
+  it('says the answers of a run it does not continue, its change having moved, stay with that run', async (t) => {
+    const box = ReviewSandbox.forTest(t, oneQuestion);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    answerOn(box, finished.id, finished.review!.decisions![0]!.id, 1);
+    write(box.repo, 'src/b.ts', 'export const b = 1;\n');
+    commitAll(box.repo, 'feat: Add b');
+    box.logs.length = 0;
+    reportText(await box.fix('claude'));
+    assert.ok(box.logs.includes(`run ${finished.id}: its answers to 1 finding stay recorded on it and do not carry to the new run`), box.logs.join('\n'));
+    assert.equal(box.checkpoint.foldRuns().length, 2, 'a new run');
+  });
+});
 
 // Fix pass continuation: what a finished read-only run is held to before it is continued.
 describe('the continuation of a finished read-only run', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {

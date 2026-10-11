@@ -15,7 +15,7 @@ import { rawMatch } from '../../src/review/tree.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { fixerAnswer } from '../helpers/fake-runtime.ts';
 import { git, remove, repositoryWith, write } from '../helpers/repository.ts';
-import { baselined, claimed, fixAnswer, fixPlan, type History, worker } from '../helpers/review-history.ts';
+import { answer, baselined, claimed, decidedFixRun, fixAnswer, fixPlan, type History, worker } from '../helpers/review-history.ts';
 
 const finding = (id: string, status: FixedFinding['status'], subject: string | null = null): FixedFinding => ({
   id, status, file: 'src/a.ts', line: 1, note: `${id} note`, message: subject === null ? null : { subject, body: `${subject}, because.` },
@@ -189,5 +189,62 @@ describe('checkRevision (PD9 of commit series integrity)', () => {
     assert.deepEqual(pathsOf(checkRevision(contextOf(['docs/notes.md']), 'checks', 'lint', 'npm run lint', manifest)), ['dist/a.js', 'src/a.ts'], 'the user\'s file is in no check revision');
     // Had the first check found docs/notes.md unchanged, its rewrite would be the check's alone.
     assert.deepEqual(pathsOf(checkRevision(contextOf([]), 'checks', 'lint', 'npm run lint', manifest)), ['dist/a.js', 'docs/notes.md', 'src/a.ts']);
+  });
+});
+
+describe('the events of an answer pass\'s fixer (R5 of answers)', () => {
+  let directory: string;
+  let repo: string;
+  beforeEach(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-answer-events-')));
+    repo = repositoryWith(join(directory, 'repo'), { 'src/a.ts': 'a\n', 'docs/parse.md': 'parse throws on a null input\n' });
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /** The decided fix run with RIPPLE-1's departure rejected, its pass open and its fixer launched, its scope's head the repository's. */
+  const passing = (): RunState => {
+    const state = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }).start('answer').worker(71, 'fixer answer:pass-1').fold();
+    return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
+  };
+  const contextOf = (state: RunState): RevisionContext => ({ state, worktree: repo, evidence: new EvidenceStore(join(directory, 'evidence')), match: rawMatch, claims: { live: () => null, caseInsensitive: () => false } });
+  const receipt = (paths: readonly string[]): WorkerReceipt => ({ workerId: worker(71), output: fixerAnswer([{ files: [...paths], subject: 'fix: Follow the rule parse throws on null' }]) }) as unknown as WorkerReceipt;
+
+  it('records the pass\'s answer under its key, claims nothing, judges no violation, and takes a file outside what it owns as named', () => {
+    write(repo, 'src/a.ts', 'a, restored\n');
+    write(repo, 'docs/parse.md', 'parse throws on a null input, as stated\n');
+    const events = fixAnswerEvents({ phase: 'answer', key: 'pass-1', role: 'fixer' }, receipt(['src/a.ts', 'docs/parse.md']), contextOf(passing()));
+    assert.deepEqual(events.filter((event) => event.kind === 'files.claimed' || event.kind === 'claims.lost'), [], 'an answer pass claims nothing');
+    const recorded = events.find((event) => event.kind === 'fix.recorded')!;
+    assert.equal(recorded.version, 2);
+    const payload = recorded.payload as FixRecorded;
+    assert.equal(payload.phase, 'answer');
+    assert.equal(payload.key, 'pass-1');
+    assert.deepEqual(payload.findings.map((entry) => [entry.id, entry.files]), [['RIPPLE-1', ['src/a.ts', 'docs/parse.md']]]);
+    assert.deepEqual(payload.violations, []);
+    const revisions = events.filter((event) => event.kind === 'tree.revised');
+    assert.ok(revisions.length > 0);
+    for (const event of revisions) {
+      assert.equal(event.version, 2);
+      const revision = event.payload as TreeRevised;
+      assert.equal(revision.phase, 'answer');
+      assert.deepEqual(revision.source, { kind: 'fix', key: 'pass-1', workerId: worker(71) });
+    }
+    assert.deepEqual([...new Set(revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)))].sort(), ['docs/parse.md', 'src/a.ts']);
+  });
+
+  it('refuses an answer that leaves out a file it owns whose bytes changed', () => {
+    write(repo, 'src/a.ts', 'a, restored\n');
+    assert.throws(() => fixAnswerEvents({ phase: 'answer', key: 'pass-1', role: 'fixer' }, receipt([]), contextOf(passing())), /names no finding for the owned or claimed file src\/a\.ts/);
+  });
+
+  it('records what an attempt of the pass left as its revision, naming the pass', () => {
+    write(repo, 'src/a.ts', 'a, half restored\n');
+    const attempt = attemptRevisionEvents(contextOf(passing()), 'answer', 'pass-1', worker(71), 'timeout: the worker ran past its timeout');
+    assert.deepEqual(attempt.claims, []);
+    const revision = attempt.revisions[0]!.payload as TreeRevised;
+    assert.equal(revision.phase, 'answer');
+    assert.match(revision.change.message.body, /^An attempt of the answer pass pass-1 ended without an answer/);
   });
 });

@@ -17,7 +17,7 @@ import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
-import { baselined, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
+import { answer, baselined, decidedFixRun, passToReport, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -75,6 +75,36 @@ describe('taskFor', () => {
   });
 });
 
+describe('the answer pass\'s task (R5, R7 of answers)', () => {
+  const opened = (): History => decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1, 'the operator reads it')).add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['SWEEP-1', 'RIPPLE-1'] }).start('answer');
+  const options = { editing: { snapshotCommand: 'snapshot', claimCommand: null, unelevatedSandbox: false }, evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' } };
+
+  it('gives the pass\'s findings in rank order, each with what the run did and the answer, and what the pass owns', () => {
+    const task = taskFor(unit('answer', 'pass-1', 'fixer'), opened().review(), options);
+    assert.match(task, /^Answer pass pass-1: 2 findings, numbered \[0\] to \[1\]/m);
+    assert.match(task, /^\[0\] RIPPLE-1 [\s\S]*\n\[1\] SWEEP-1 /m, 'in rank order, whatever order the pass names them in');
+    assert.match(task, /^ {8}the author rejected the departure: follow the rule "parse throws on a null input" as docs\/parse\.md states it/m);
+    assert.match(task, /^ {8}before the answer: the run's last fixer of it answered applied: RIPPLE-1 applied, in src\/a\.ts$/m);
+    assert.match(task, /^ {8}answered by the author: option 2, "accept it and return an empty result", for which the decider wrote the rule "parse accepts an empty input"\. Note: the operator reads it$/m);
+    assert.match(task, /^ {8}before the answer: no fixer saw it before$/m, 'SWEEP-1 was held');
+    assert.match(task, /^Files you own: [^\n]*\n- src\/a\.ts\n\nYou may edit any other file/m);
+    assert.doesNotMatch(task, /may already hold part of this work/);
+  });
+
+  it('warns of earlier work after a failed attempt of the pass, not after an earlier pass', () => {
+    const failed = opened().add('attempt.failed', { phase: 'answer', key: 'pass-1', workerId: worker(71), reason: 'failed', fault: 'unit' }, 6);
+    assert.match(taskFor(unit('answer', 'pass-1', 'fixer'), failed.review(), options), /may already hold part of this work/);
+    const second = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1).add('answer.pass', { ids: ['SWEEP-1'] }).start('answer', 2);
+    const task = taskFor(unit('answer', 'pass-2', 'fixer'), second.review(), options);
+    assert.doesNotMatch(task, /may already hold part of this work/, 'the first pass\'s attempt is not this one\'s');
+    assert.match(task, /^ {8}before the answer: the run's last fixer of it answered deferred: SWEEP-1 answered$/m, 'the first pass\'s answer is what the run did before');
+  });
+
+  it('refuses a pass the fold does not have', () => {
+    assert.throws(() => taskFor(unit('answer', 'pass-2', 'fixer'), opened().review(), options), /The answer pass pass-2 is not recorded/);
+  });
+});
+
 describe('invocationFor', () => {
   const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
   const context = (state = triaged().fold()): PhaseContext => ({
@@ -126,6 +156,12 @@ describe('invocationFor', () => {
     assert.equal('shared' in repair, false);
     assert.doesNotMatch(repair.prompt, / claim --path /);
     assert.equal('shared' in invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), context()), false);
+    const pass = invocationFor(unit('answer', 'pass-1', 'fixer'), context(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }).start('answer').fold()));
+    assert.equal(pass.access, 'edit', 'an answer pass edits');
+    assert.equal(pass.scratch, '/scratch/new');
+    assert.equal('shared' in pass, false, 'and claims nothing');
+    assert.equal(pass.label, 'fixer answer:pass-1');
+    assert.doesNotMatch(pass.prompt, / claim --path /);
   });
 
   it('gives the surveyor the scope block of its own phase, read-only, and every later worker the one of theirs (R7, TD10 of the repository survey)', () => {

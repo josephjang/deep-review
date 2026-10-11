@@ -16,7 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinned, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { revisionMessageOf, routeOfDecision } from '../checkpoint/fix-state.ts';
+import { standingAnswer } from '../checkpoint/answer-state.ts';
+import { revisionMessageOf, routeOf } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -769,11 +770,13 @@ function notContinuable(run: RunState): string | null {
 /**
  * The counts of a run's decisions that route no finding to a fixer, as a
  * continuation refuses them (R5, PD6 of fix pass continuation), or null
- * when some finding routes to one.
+ * when some finding routes to one, by its decision or by a person's answer
+ * that owes an edit (R4 of answers).
  */
 function nothingToFix(run: RunState): string | null {
-  const decisions = run.review?.decisions ?? [];
-  if (decisions.some((decision) => routeOfDecision(decision) === 'fixer')) return null;
+  const review = run.review;
+  const decisions = review?.decisions ?? [];
+  if (review !== null && decisions.some((decision) => routeOf(decision, standingAnswer(review, decision.id)) === 'fixer')) return null;
   if (decisions.length === 0) return 'its review ranked no finding';
   const counts = decisionCounts(decisions);
   return `${String(counts.fix)} decided fix, ${String(counts.leave)} left, ${String(counts.ask)} asked with the code kept`;
@@ -930,6 +933,11 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
     const reason = notContinuable(newest) ?? reasons.get(newest.id);
     if (reason === undefined) throw new Error(`Run ${newest.id} was neither tried nor ruled out as a continuation`);
     context.log(`run ${newest.id}: not continued: ${reason}`);
+  }
+  // Every continuable run was tried and does not match; a person's answers on one stay with it, and the new run does not carry them (R4 of answers).
+  for (const run of continuable(runs, context.worktree)) {
+    const answered = new Set(run.review?.answers.map((answer) => answer.id) ?? []).size;
+    if (answered > 0) context.log(`run ${run.id}: its answers to ${String(answered)} finding${answered === 1 ? '' : 's'} stay recorded on it and do not carry to the new run`);
   }
   return null;
 }
