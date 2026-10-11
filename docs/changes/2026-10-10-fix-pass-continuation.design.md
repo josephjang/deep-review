@@ -140,9 +140,10 @@ flowchart TD
   `reviewStatus === 'complete'`, `review.fix === null`,
   `phases.decision.status !== 'skipped'` and `sameDirectory(run.worktree,
   context.worktree)`, newest last; the newest is tried first.
-- The match is `scopeMatches(request, scope, worktree, changedSince)`
-  in `src/scope/compare.ts`: the request resolved as `captureScope`
-  resolves it (TD4) gives the same `mode` and `base` and the same set
+- The match is `scopeMismatch(resolved, scope, changedSince)` in
+  `src/scope/compare.ts`, null when the run matches: the request,
+  resolved once per command as `captureScope` resolves it (TD4), at
+  the first candidate, gives the same `mode` and `base` and the same set
   of paths as the captured scope, `changedSince` finds no file of the
   scope changed, and `HEAD` is at the scope's head. The controller
   passes as `changedSince` the worktree check's own comparison,
@@ -164,7 +165,7 @@ flowchart TD
   when there is one: a continued run with `it was continued into the
   fix pass already` (R8), a run configured before the decision step
   with `it was configured before the decision step, which a fix run
-  routes its findings by`, any other with its `scopeMatches` reason.
+  routes its findings by`, any other with its `scopeMismatch` reason.
   With `--fresh`: `--fresh: no finished run is considered; a new run
   is created`; with `--fresh` and an active run, which is resumed,
   `run <id> is active and resumes; --fresh is ignored`.
@@ -419,10 +420,10 @@ fold as before.
   written beside it.** `captureScope` resolves a request to its mode,
   base, head and file list and then freezes; the resolution moves to
   `resolveScopeRequest`, which lists the changed paths by name and
-  which the capture and `scopeMatches` both call, so the two cannot
-  disagree about what the flags name. The byte comparison is the
-  worktree check's, `findDrift` with the run's git content match,
-  which the controller passes to `scopeMatches`, so "the same contents"
+  which the capture and the controller's comparison both call, so the
+  two cannot disagree about what the flags name. The byte comparison is
+  the worktree check's, `findDrift` with the run's git content match,
+  which the controller passes to `scopeMismatch`, so "the same contents"
   means what it means before every phase (R22 of the fix pass).
   `compareWorktree`, which this decision first named, compares raw
   bytes and is not what the worktree check uses: it would have refused
@@ -489,7 +490,7 @@ fold as before.
   moved, another mode, another base, and a run configured before the
   decision step each create a new run with the exact reason line; two
   matching runs continue the newest; `--fresh` creates a new run with
-  its line; `--fresh` with an active run resumes it; `scopeMatches`
+  its line; `--fresh` with an active run resumes it; `scopeMismatch`
   returns each reason in order and null for a match.
 - **R3** (`fix-pass.test.ts`, `test/review/codex-sandbox.test.ts`): a
   different `--runtime`, a different `--codex-windows-sandbox` on

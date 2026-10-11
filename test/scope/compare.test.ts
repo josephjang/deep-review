@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import type { ScopeRequest, ScopeState } from '../../src/checkpoint/events.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
-import { captureScope, freezeLimitBytes } from '../../src/scope/capture.ts';
-import { compareScopeFiles, compareWorktree, scopeMatches } from '../../src/scope/compare.ts';
+import { captureScope, freezeLimitBytes, resolveScopeRequest } from '../../src/scope/capture.ts';
+import { compareScopeFiles, compareWorktree, scopeMismatch } from '../../src/scope/compare.ts';
 import { commitAll, git, remove, repositoryWith, write } from '../helpers/repository.ts';
 
 describe('compareWorktree', () => {
@@ -101,7 +101,7 @@ describe('compareWorktree', () => {
 });
 
 // R2, PD3, TD4 of fix pass continuation: whether a request names the change a scope captured, unchanged since.
-describe('scopeMatches', () => {
+describe('scopeMismatch', () => {
   let sandbox: string;
   let repo: string;
   const opened: Checkpoint[] = [];
@@ -121,7 +121,8 @@ describe('scopeMatches', () => {
   };
   /** The scope's files that differ from what it froze, by raw bytes: the run's own comparison asks git, which these tests do not need. */
   const rawChanges = (scope: ScopeState): string[] => compareScopeFiles(scope, repo).filter((file) => file.outcome !== 'unchanged').map((file) => file.path);
-  const matches = (request: ScopeRequest, scope: ScopeState): string | null => scopeMatches(request, scope, repo, rawChanges);
+  /** Resolve the request in the tree as it is, as the controller does once per command, and compare it with the scope. */
+  const matches = (request: ScopeRequest, scope: ScopeState): string | null => scopeMismatch(resolveScopeRequest(repo, request), scope, rawChanges);
 
   it('matches the request that captured the scope, in the tree it left', () => {
     write(repo, 'src/edit.txt', 'e2\n');
@@ -159,7 +160,7 @@ describe('scopeMatches', () => {
     const scope = captured({ paths: [] });
     write(repo, 'src/edit.txt', 'e3\n');
     assert.equal(matches({ paths: [] }, scope), '1 of its files changed since: src/edit.txt');
-    assert.equal(scopeMatches({ paths: [] }, scope, repo, () => []), null, 'the caller decides what counts as changed');
+    assert.equal(scopeMismatch(resolveScopeRequest(repo, { paths: [] }), scope, () => []), null, 'the caller decides what counts as changed');
     write(repo, 'src/edit.txt', 'e2\n');
     assert.equal(matches({ paths: [] }, scope), null, 'restored to the bytes the scope froze');
   });
@@ -182,6 +183,15 @@ describe('scopeMatches', () => {
     write(repo, 'notes.txt', 'n\n');
     assert.match(matches({ paths: [] }, scope)!, /^its files are not the change named/);
     assert.match(matches({ ref: 'HEAD', paths: [] }, scope)!, /^its scope is worktree/);
+  });
+
+  it('compares the resolution it is given, read once for every scope, not the tree as it is at the comparison', () => {
+    write(repo, 'src/edit.txt', 'e2\n');
+    const scope = captured({ paths: [] });
+    const resolved = resolveScopeRequest(repo, { paths: [] });
+    write(repo, 'notes.txt', 'n\n');
+    assert.equal(scopeMismatch(resolved, scope, rawChanges), null, 'the file added after the resolution is not seen');
+    assert.equal(scopeMismatch(resolveScopeRequest(repo, { paths: [] }), scope, rawChanges), 'its files are not the change named: notes.txt changed since and not in it');
   });
 
   it('throws what the capture throws for a request the tree refutes, writing nothing', () => {

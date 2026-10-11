@@ -1,6 +1,6 @@
-import type { FrozenFile, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
+import type { FrozenFile, ScopeState } from '../checkpoint/events.ts';
 import { sha256Hex } from '../evidence/store.ts';
-import { readWorktree, resolveScopeRequest } from './capture.ts';
+import { readWorktree, type ResolvedScope } from './capture.ts';
 import * as gitApi from './git.ts';
 
 /** How one scope file in the worktree relates to its frozen after state. */
@@ -49,20 +49,20 @@ const namedPaths = 3;
 const pathList = (paths: readonly string[]): string => `${paths.slice(0, namedPaths).join(', ')}${paths.length > namedPaths ? `, and ${String(paths.length - namedPaths)} more` : ''}`;
 
 /**
- * Whether a request names, in the repository as it is now, the change a
- * scope captured and left unchanged since (R2, PD3, TD4 of fix pass
- * continuation): null when it does, else the first reason it does not, as
- * one sentence, in this order. The request, resolved as the capture
- * resolves it (`resolveScopeRequest`), has another mode or base; it names
- * other paths, a file added since or one no longer changed; one of the
- * scope's files differs from what the scope froze, by `changedSince`,
- * which the caller gives so the files are compared as the run compares
- * them before every phase, as git would store them (R22 of the fix
- * pass); or `HEAD` moved from the scope's head. A request the tree
- * refutes throws what the capture would.
+ * Why a request, resolved in the repository as it is now as the capture
+ * resolves it (`resolveScopeRequest`), does not name the change a scope
+ * captured and left unchanged since (R2, PD3, TD4 of fix pass
+ * continuation): null when it does, else the first reason, as one
+ * sentence, in this order. The resolved request has another mode or base;
+ * it names other paths, a file added since or one no longer changed; one
+ * of the scope's files differs from what the scope froze, by
+ * `changedSince`, which the caller gives so the files are compared as the
+ * run compares them before every phase, as git would store them (R22 of
+ * the fix pass); or `HEAD` moved from the scope's head. The caller
+ * resolves the request once for every scope it compares, and a request
+ * the tree refutes throws there what the capture would.
  */
-export function scopeMatches(request: ScopeRequest, scope: ScopeState, worktree: string, changedSince: (scope: ScopeState) => readonly string[]): string | null {
-  const resolved = resolveScopeRequest(worktree, request);
+export function scopeMismatch(resolved: ResolvedScope, scope: ScopeState, changedSince: (scope: ScopeState) => readonly string[]): string | null {
   if (resolved.mode !== scope.mode || resolved.base !== scope.base) return `its scope is ${scope.mode} ${scope.base}..${scope.head}, not the one named`;
   const captured = new Set(scope.files.map((file) => file.path));
   const named = new Set(resolved.changes.map((change) => change.path));

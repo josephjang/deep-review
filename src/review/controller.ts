@@ -28,8 +28,8 @@ import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
-import { captureScope } from '../scope/capture.ts';
-import { scopeMatches } from '../scope/compare.ts';
+import { captureScope, resolveScopeRequest } from '../scope/capture.ts';
+import { scopeMismatch } from '../scope/compare.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, noCheckFlags, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
 import { claimsDirectories } from './claims-directories.ts';
@@ -903,7 +903,9 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * The finished read-only run a `review --fix` continues (R2, TD8 of fix
  * pass continuation): the newest that qualifies (`continuable`) whose
  * scope the command names, its files as git would store them what the run
- * froze and `HEAD` at its head (`scopeMatches`). None with `--fresh`,
+ * froze and `HEAD` at its head (`scopeMismatch`). The request is resolved
+ * once, at the first candidate, so a request the tree refutes throws
+ * there and none is resolved when no run qualifies. None with `--fresh`,
  * which says so. When none matches, the log says a new run is created,
  * and names the newest finished read-only run of this worktree with the
  * first reason it was not continued.
@@ -913,9 +915,10 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
     context.log('--fresh: no finished run is considered; a new run is created');
     return null;
   }
+  const resolved = once(() => resolveScopeRequest(context.worktree, request()));
   const reasons = new Map<string, string>();
   for (const run of continuable(runs, context.worktree)) {
-    const reason = scopeMatches(request(), run.scope!, context.worktree, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path));
+    const reason = scopeMismatch(resolved(), run.scope!, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path));
     if (reason === null) return run;
     reasons.set(run.id, reason);
   }
