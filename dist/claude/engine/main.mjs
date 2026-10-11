@@ -29785,14 +29785,7 @@ function requireAdmitted(run2, finding, answer2) {
   return decision;
 }
 function chooseAnswerRun(checkpoint, runId, worktree, log) {
-  if (runId !== void 0) {
-    try {
-      return checkpoint.fold(runId);
-    } catch (error62) {
-      if (error62 instanceof UnknownRunError) throw new ReviewRefusedError(error62.message);
-      throw error62;
-    }
-  }
+  if (runId !== void 0) return checkpoint.fold(runId);
   const found = readableRuns(checkpoint, log).filter((run2) => whyNotAnswerable(run2, worktree) === null).reduce((last, run2) => last === void 0 || run2.lastSequence > last.lastSequence ? run2 : last, void 0);
   if (found === void 0) throw new ReviewRefusedError("no complete run of this worktree has decisions to answer; name one with --run <id>");
   return found;
