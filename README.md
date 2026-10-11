@@ -51,6 +51,7 @@ test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
 test/fixtures/reports/   the report renderer's snapshots
 docs/changes/            change proposals, one per behavior change, in one file or a requirements and design pair
 docs/reports/            measurements of real runs and the levers they suggest, kept for later decisions
+docs/YYYY-MM-DD-vision.md  vision and design principles, dated; a later note supersedes an earlier one; .ko.md is the Korean copy
 AGENTS.md, CLAUDE.md     conventions every agent follows here
 ```
 
