@@ -1,8 +1,10 @@
 # Working in this repository
 
 Guidance for every agent, Claude Code and Codex alike, working here. It
-lives in one file so the two runtimes cannot drift; `CLAUDE.md` imports it.
-Read `README.md` first for the layout and the reasoning behind it.
+lives in this one file, which both runtimes read, so the two cannot
+drift. Read `README.md` first for the layout and the reasoning behind it,
+and the latest vision note, `docs/2026-10-11-vision.md`, for what
+deep-review must become.
 
 ## Environment
 
@@ -68,6 +70,15 @@ the practice at <https://github.com/josephjang/change-proposal>. The
 proposal holds the judgment the code cannot: why, what was left out, what
 was rejected, what was knowingly accepted. A change with no behavior change
 says so in its commit message instead.
+
+A proposal is written and reviewed against the latest vision note,
+`docs/YYYY-MM-DD-vision.md` (today `docs/2026-10-11-vision.md`), which
+states the vision, the premise and the design principles, and lists what
+makes a proposal go against them. Before writing a proposal, read the
+note; a proposal that departs from a principle names the principle and
+the reason, so the next note can revise the principle. A review of a
+proposal reads it against the note too, and names the principle a
+finding rests on.
 
 The Unified form, one file `YYYY-MM-DD-<slug>.md` titled
 `Change Proposal: <name>`, is the default. A change whose technical side
