@@ -5,6 +5,7 @@ import { describe, it, type TestContext } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { caseInsensitiveFileSystem, readClaims } from '../../src/review/claims.ts';
 import { commitRun } from '../../src/review/commit.ts';
+import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
@@ -1339,24 +1340,35 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     await refusesNothingToFix(t, null, 'its review ranked no finding');
   });
 
+  /**
+   * A --fix run of the script given, stopped by drift: once the worker
+   * `label` is running, its scripted wait on `marker` lets it answer after
+   * an empty commit moved HEAD; HEAD is reset to where it was, and the
+   * outcome returned.
+   */
+  const driftDuring = async (box: ReviewSandbox, label: string, marker: string, message: string): Promise<ReviewOutcome> => {
+    const pending = box.fix('claude');
+    let head: string;
+    try {
+      await until(() => box.runningWorkers().includes(label), `${label} on the ledger`, 120_000);
+      head = git(box.repo, 'rev-parse', 'HEAD');
+      git(box.repo, 'commit', '-q', '--allow-empty', '-m', message);
+    } finally {
+      writeFileSync(marker, '');
+    }
+    const outcome = await pending;
+    git(box.repo, 'reset', '-q', '--soft', head);
+    return outcome;
+  };
+
   it('resumes a continuation stopped in its fixes with the same command, as any fix run (R8)', async (t) => {
     const box = ReviewSandbox.forTest(t, continuedScript);
     await readOnly(box);
     const first = box.run();
     const marker = join(box.directory, 'c1-may-answer');
     box.script({ ...continuedScript, 'fixer:fixes:c1-1': { waitFor: marker, output: fixerAnswer([{ status: 'deferred', files: [] }]) } });
-    const pending = box.fix('claude');
-    let head: string;
-    try {
-      await until(() => box.runningWorkers().includes('fixer fixes:c1-1'), 'the c1 fixer on the ledger', 120_000);
-      head = git(box.repo, 'rev-parse', 'HEAD');
-      git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit during the run');
-    } finally {
-      writeFileSync(marker, '');
-    }
-    const blocked = await pending;
+    const blocked = await driftDuring(box, 'fixer fixes:c1-1', marker, 'a commit during the run');
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.phase === 'fixes' && blocked.blocker.code === 'drift', JSON.stringify(blocked));
-    git(box.repo, 'reset', '-q', '--soft', head);
     box.logs.length = 0;
     reportText(await box.fix('claude'));
     const state = box.run();
@@ -1378,19 +1390,9 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// BROKEN\n` } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
       'fixer:repair:repair': { waitFor: marker, edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Drop the line that broke the test' }]) },
     });
-    const pending = box.fix('claude');
-    let head: string;
-    try {
-      await until(() => box.runningWorkers().includes('fixer repair:repair'), 'the repair worker on the ledger', 120_000);
-      head = git(box.repo, 'rev-parse', 'HEAD');
-      git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit during the repair');
-    } finally {
-      writeFileSync(marker, '');
-    }
-    const blocked = await pending;
+    const blocked = await driftDuring(box, 'fixer repair:repair', marker, 'a commit during the repair');
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.phase === 'repair' && blocked.blocker.code === 'drift', JSON.stringify(blocked));
     assert.equal(box.run().review!.fix!.checks.runs.checks.find((run) => run.kind === 'test')?.outcome, 'failed', 'the checks after the fixes ran before the stop');
-    git(box.repo, 'reset', '-q', '--soft', head);
     box.logs.length = 0;
     reportText(await box.fix('claude'));
     const state = box.run();
