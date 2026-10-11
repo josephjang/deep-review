@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { ListedRun } from '../../src/checkpoint/checkpoint.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
@@ -49,6 +50,37 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     await assert.rejects(box.fix('claude', { fix: { commands: {}, dropped: ['build', 'typecheck'] } }, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError
       && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for lint, test, or start a new run with --fresh`);
     assert.equal(box.run().lastSequence, finished.lastSequence, 'nothing was appended');
+  });
+
+  it('continues a read-only run another engine finished between the find and the lock, rather than skipping it for the find\'s stale read', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    assert.equal((await box.review('claude')).kind, 'blocked');
+    // What the find of the next command reads: the run active, before the other engine resumes it to its report.
+    const found = box.checkpoint.listRuns();
+    box.script(oneFix);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    let served = false;
+    const late = new Proxy(box.checkpoint, {
+      get(target, property): unknown {
+        if (property === 'listRuns') {
+          return (): ListedRun[] => {
+            if (served) return target.listRuns();
+            served = true;
+            return found;
+          };
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    box.logs.length = 0;
+    reportText(await box.fix('claude', { checkpoint: late }));
+    assert.ok(served, 'the find read the run as active');
+    assert.equal(box.checkpoint.foldRuns().length, 1, 'no new run');
+    assert.ok(box.logs.includes(`run ${finished.id}: complete before its lock was taken`), box.logs.join('\n'));
+    assert.ok(!box.logs.some((line) => line.endsWith('a new run is created')), 'no line says a run is created');
+    assert.notEqual(box.run().review!.continuedFrom, null, 'the run just finished was continued');
   });
 
   it('says how to continue an active read-only run resumed with --fix only when it was configured with the decision step, which a continuation needs (R10)', async (t) => {

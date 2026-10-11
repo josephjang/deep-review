@@ -182,6 +182,13 @@ flowchart TD
   was taken; a new run is created`, or holding an event this engine
   does not know, passed over with its line) releases the lock and a new
   run is created.
+- A found active run that is no longer resumable once its lock is taken,
+  finished or abandoned by another engine after the find, is let go with
+  `run <id>: <status> before its lock was taken`, which adds `; a new
+  run is created` only without `--fix`. With `--fix`, its state as read
+  under the lock replaces the find's among the candidates, so a
+  read-only run that just finished is the one continued, not skipped
+  for an older one or a new run.
 - The refusals that read only the ledger and the flags come first, so
   a run refused anyway is not first refused for its executable, with
   advice to reinstall it, nor its preflight spawned. `fixPlanOf` needs

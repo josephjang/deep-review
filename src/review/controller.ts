@@ -791,8 +791,9 @@ function nothingToFix(run: RunState): string | null {
  * both find no run and create one each. A found run is read again once its
  * lock is held, since the engine that held the lock until a moment ago may
  * have appended after the find (a late worker finish, its report); one no
- * longer resumable is let go, and a run is created as if none had been
- * found. Everything that depends on the run is decided from that one read:
+ * longer resumable is let go, and the command goes on as if none had been
+ * found, with that run as it is now among the runs a `--fix` may
+ * continue. Everything that depends on the run is decided from that one read:
  *
  * - A run with no scope yet, new or left by a capture that failed, gets
  *   the command's scope request, resolved before a new run is created so
@@ -826,8 +827,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release: ReleaseLock | null = null;
   try {
-    const runs = readableRuns(checkpoint, log);
+    let runs = readableRuns(checkpoint, log);
     let found = activeRunAmong(runs);
+    // With --fix and no active run, a finished read-only run may be continued rather than a run created.
+    const fixing = (context.fix ?? null) !== null;
     // The checkpoint is shared by every worktree of the repository, while a run's scope, worktree checks and workers belong to the worktree it was created in.
     if (found !== null && !sameDirectory(found.worktree, context.worktree)) {
       throw new ReviewRefusedError(`run ${found.id} is active in worktree ${found.worktree}, not ${context.worktree}; run the command there, or abandon the run with \`deep-review abandon --run ${found.id} --reason <text>\``);
@@ -837,7 +840,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       // Read again under the lock: what the find returned may predate the last appends of the engine that held it, which may be a build that declares events this one does not.
       found = refoldUnderLock(checkpoint, found.id, log);
       if (found !== null && !isResumable(found)) {
-        log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken; a new run is created`);
+        // The run as it is now replaces what the find read, so a run another engine just finished is one a --fix may continue.
+        const refolded = found;
+        runs = runs.map((run) => (run.id === refolded.id ? refolded : run));
+        log(`run ${found.id}: ${reviewStatus(found)} before its lock was taken${fixing ? '' : '; a new run is created'}`);
         found = null;
       }
       if (found === null) {
@@ -848,7 +854,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     // An active run is resumed first, --fresh or not (R2 of fix pass continuation).
     if (found !== null && context.fresh === true) log(`run ${found.id} is active and resumes; --fresh is ignored`);
     const scopeRequestOf = once(() => context.scope.request());
-    if (found === null && (context.fix ?? null) !== null) {
+    if (found === null && fixing) {
       const chosen = chooseContinuation(runs, context, scopeRequestOf);
       if (chosen !== null) {
         release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
