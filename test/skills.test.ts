@@ -56,6 +56,20 @@ describe('the skill texts', () => {
       assert.match(text, /ask the user for\s+that commit's message before you run it/);
     });
 
+    it(`${name}: runs deep-review answer when the user answers a question or a departure, and says what each outcome means (R12 of answers)`, () => {
+      const text = read(path);
+      assert.match(text, /The report's Decisions section lists the questions the run asked and\s+the fixes that depart from a rule, each ending with the\s+`deep-review answer` command that answers it\./);
+      assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" answer --finding <id> --option <n>`), 'the answer subcommand of the same bundle');
+      assert.match(text, /`--accept` or `--reject` in place of `--option <n>` for a\s+departure, and `--note <text>` with what the user said beyond the\s+choice/);
+      assert.match(text, /as a background shell command with\s+the longest timeout you can/);
+      assert.match(text, /the last line of stdout is the new report's\s+path: show it as in step 4 and offer to commit the new edits as in\s+step 5/);
+      assert.match(text, /it says that `review --fix`\s+applies the answer: offer to run the step 3 command with `--fix`/);
+      assert.match(text, /When it says the tree already holds the answer, tell the user nothing\s+was applied/);
+      assert.match(text, /Exit code 2: show stderr verbatim and stop; when it says\s+the answer is recorded, the same command applies it once the cause\s+it names is gone/);
+      assert.ok(text.indexOf(' commit\n') < text.indexOf(' answer --finding') && text.indexOf(' answer --finding') < text.indexOf('Exit code 2: the run is blocked'), 'after the commit step, before the blocked run');
+      assert.doesNotMatch(text, /write the rule|record the rule/, 'nothing about writing a rule (PD3 of answers)');
+    });
+
     it(`${name}: answers a check-unavailable blocker with the flag the user chooses, after showing it (R15 of the repository survey)`, () => {
       const text = read(path);
       assert.match(text, /A `check-unavailable` blocker names a check the project defines whose\s+tool this machine lacks/);
