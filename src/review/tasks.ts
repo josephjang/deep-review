@@ -10,6 +10,7 @@ import { rawLocation, repositoryLocation, type CandidateState } from '../checkpo
 import type { Lead, RecordedDecision, SurveyRecorded } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
+import { inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
 
@@ -48,15 +49,17 @@ export interface SurveyTaskInput {
 /**
  * The opening of a continued run's survey task: what stands and that only
  * the checks are asked, in place of the survey of the conventions and the
- * user-level files offered.
+ * user-level files offered. The surveyor wrote each recorded field, so a
+ * newline in one is folded, as the scope block folds it, and cannot start
+ * a line of its own.
  */
 function standingLines(standing: Pick<SurveyRecorded, 'conventions' | 'userRules'>): string[] {
   return [
     'This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.',
     '',
     'Convention sources recorded:',
-    ...(standing.conventions.length === 0 ? ['- none'] : standing.conventions.map((source) => `- ${source.path} (${source.level}): ${source.governs}`)),
-    ...(standing.userRules.length === 0 ? [] : ['', 'User-level rules files decided:', ...standing.userRules.map((rule) => `- ${rule.path}: ${rule.applied ? 'applied' : 'not applied'}, ${rule.reason}`)]),
+    ...(standing.conventions.length === 0 ? ['- none'] : standing.conventions.map((source) => `- ${inlineText(source.path)} (${source.level}): ${inlineText(source.governs)}`)),
+    ...(standing.userRules.length === 0 ? [] : ['', 'User-level rules files decided:', ...standing.userRules.map((rule) => `- ${inlineText(rule.path)}: ${rule.applied ? 'applied' : 'not applied'}, ${inlineText(rule.reason)}`)]),
   ];
 }
 
