@@ -10,7 +10,6 @@
  * to there.
  */
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
-import { UnknownRunError } from '../checkpoint/errors.ts';
 import { answerWords, owedAnswers, sameAnswer, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import { admits } from '../checkpoint/answer-fold.ts';
 import type { Answer, RecordedDecision } from '../checkpoint/events.ts';
@@ -116,14 +115,8 @@ function requireAdmitted(run: RunState, finding: string, answer: Answer): Record
  * can read, the others passed over with a line on `log`.
  */
 export function chooseAnswerRun(checkpoint: Checkpoint, runId: string | undefined, worktree: string, log: (line: string) => void): RunState {
-  if (runId !== undefined) {
-    try {
-      return checkpoint.fold(runId);
-    } catch (error) {
-      if (error instanceof UnknownRunError) throw new ReviewRefusedError(error.message);
-      throw error;
-    }
-  }
+  // An id the checkpoint does not hold throws UnknownRunError, which the command reports as a usage mistake, as `commit` and `status` do.
+  if (runId !== undefined) return checkpoint.fold(runId);
   const found = readableRuns(checkpoint, log)
     .filter((run) => whyNotAnswerable(run, worktree) === null)
     .reduce<RunState | undefined>((last, run) => (last === undefined || run.lastSequence > last.lastSequence ? run : last), undefined);
