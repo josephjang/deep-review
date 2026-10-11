@@ -722,6 +722,18 @@ try {
   }, 4);
   unsandboxed.add('phase.started', { phase: 'survey', attempt: 1 }, 3);
   unsandboxed.add('run.abandoned', { reason: 'fixture run abandoned as its survey starts' });
+  // The roles of a run with the survey and the decision step, as the decided, claimed and continued runs pin them.
+  const decidedRoles = [
+    pinned('surveyor', 'strong', 'medium'),
+    pinned('triage', 'strong'),
+    ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
+    pinned('deduplication', 'strong'),
+    pinned('verifier', 'strong'),
+    pinned('sweep', 'strong'),
+    pinned('merge-rank', 'strong'),
+    pinned('decider', 'strong', 'high', 1_800_000),
+    pinned('fixer', 'strong', 'high', 1_800_000),
+  ];
   // An eighth run, configured at the version the engine now writes and
   // every event at the version it writes them: a Claude Code fix run with
   // the decision step. Its review ranks three findings; the decider fixes
@@ -737,17 +749,7 @@ try {
     executableArgs: [],
     version: '2.1.292',
     models: { strong: 'opus', fast: 'sonnet' },
-    roles: [
-      pinned('surveyor', 'strong', 'medium'),
-      pinned('triage', 'strong'),
-      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
-      pinned('deduplication', 'strong'),
-      pinned('verifier', 'strong'),
-      pinned('sweep', 'strong'),
-      pinned('merge-rank', 'strong'),
-      pinned('decider', 'strong', 'high', 1_800_000),
-      pinned('fixer', 'strong', 'high', 1_800_000),
-    ],
+    roles: decidedRoles,
     rolesDigest: '9'.repeat(64),
     concurrency: 4,
     runBudgetUsd: 60,
@@ -901,17 +903,7 @@ try {
     executableArgs: [],
     version: '2.1.297',
     models: { strong: 'opus', fast: 'sonnet' },
-    roles: [
-      pinned('surveyor', 'strong', 'medium'),
-      pinned('triage', 'strong'),
-      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
-      pinned('deduplication', 'strong'),
-      pinned('verifier', 'strong'),
-      pinned('sweep', 'strong'),
-      pinned('merge-rank', 'strong'),
-      pinned('decider', 'strong', 'high', 1_800_000),
-      pinned('fixer', 'strong', 'high', 1_800_000),
-    ],
+    roles: decidedRoles,
     rolesDigest: 'a'.repeat(64),
     concurrency: 4,
     runBudgetUsd: 60,
@@ -1089,17 +1081,7 @@ try {
     executableArgs: [],
     version: '2.1.301',
     models: { strong: 'opus', fast: 'sonnet' },
-    roles: [
-      pinned('surveyor', 'strong', 'medium'),
-      pinned('triage', 'strong'),
-      ...finderAngles.map((angle) => pinned(`finder-${angle}`, ['REMOVALS', 'DESIGN', 'ALTITUDE'].includes(angle) ? 'strong' : 'fast', angle === 'CONVENTIONS' ? 'medium' : 'high')),
-      pinned('deduplication', 'strong'),
-      pinned('verifier', 'strong'),
-      pinned('sweep', 'strong'),
-      pinned('merge-rank', 'strong'),
-      pinned('decider', 'strong', 'high', 1_800_000),
-      pinned('fixer', 'strong', 'high', 1_800_000),
-    ],
+    roles: decidedRoles,
     rolesDigest: 'b'.repeat(64),
     concurrency: 4,
     runBudgetUsd: 60,
