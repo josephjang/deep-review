@@ -150,15 +150,6 @@
       "lead-verify.md",
       "rubrics.md",
       "postreview-fix-test.md"
-    ],
-    "answer": [
-      "fixer-role.md",
-      "fixer-brief.md",
-      "fixer-apply.md",
-      "fixer-documentation.md",
-      "fixer-tests.md",
-      "fixer-validation.md",
-      "fixer-report.md"
     ]
   }
 }

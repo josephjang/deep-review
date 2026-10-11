@@ -16,7 +16,7 @@ const expectedRoles = [
   'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS',
   'deduplication', 'verifier', 'sweep', 'merge-rank',
   'decider',
-  'fixer', 'documentation', 'test-assessment', 'answer',
+  'fixer', 'documentation', 'test-assessment',
 ];
 
 /** The roles whose prompt opens with the lead reviewer's brief. */
@@ -66,8 +66,8 @@ describe('the repository\'s roles/', () => {
   /** Each role key whose manifest entry names `fragment`. */
   const keysNaming = (fragment: string): string[] => roles.filter((role) => role.fragments.some((named) => named.name === fragment)).map((role) => role.key);
 
-  /** The roles that run the fixer's prompt: the fix pass, documentation reconciliation and a steering answer. */
-  const fixerRoles = ['fixer', 'documentation', 'answer'];
+  /** The roles that run the fixer's prompt: the fix pass, its repair and an answer pass, and documentation reconciliation. */
+  const fixerRoles = ['fixer', 'documentation'];
 
   /**
    * Every place a fragment says that a role's prompt already carries some
@@ -126,14 +126,14 @@ describe('the repository\'s roles/', () => {
     assert.ok(returnFormat >= 0 && reconciliation > returnFormat, `reconciliation at ${String(reconciliation)}, return format at ${String(returnFormat)}`);
   });
 
-  it('ends the answer role with the fixer\'s return format, and tells it to dispatch no one', () => {
-    // A steering answer is carried out by one fixer, which edits and returns; the Step 3 actions that start fixers are not its task.
-    const answer = roles.find((role) => role.key === 'answer')!;
+  it('ends the fixer role with its return format, and tells it to dispatch no one', () => {
+    // The fixer edits and returns, in the fixes phase, the repair and an answer pass alike; starting other workers is the engine's job.
+    const fixer = roles.find((role) => role.key === 'fixer')!;
     const report = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'fixer-report.md'), 'utf8');
     const returnFormat = report.lastIndexOf('## Return format');
     assert.ok(returnFormat >= 0, 'fixer-report.md has no return format');
-    assert.ok(answer.prompt.endsWith(report.slice(returnFormat)), `answer ends with: ${answer.prompt.slice(-200)}`);
-    assert.doesNotMatch(answer.prompt, /\bdispatch/i);
+    assert.ok(fixer.prompt.endsWith(report.slice(returnFormat)), `the fixer ends with: ${fixer.prompt.slice(-200)}`);
+    assert.doesNotMatch(fixer.prompt, /\bdispatch/i);
   });
 
   it('gives every fixer role the fix pass\'s ownership rule: its own files while its batch runs, any file no cluster owns once claimed, never another cluster\'s owned or claimed file (R4, R18 of the fix pass; R1 of commit series integrity)', () => {
@@ -206,7 +206,7 @@ describe('the repository\'s roles/', () => {
   it('tells no worker that returns to the engine to dispatch other workers', () => {
     // The fixer roles each return one report; starting workers is the engine's job.
     const returning = roles.filter((role) => role.fragments[0]!.name === 'fixer-role.md');
-    assert.deepEqual(returning.map((role) => role.key), ['fixer', 'documentation', 'answer']);
+    assert.deepEqual(returning.map((role) => role.key), ['fixer', 'documentation']);
     assert.deepEqual(returning.filter((role) => /\bdispatch/i.test(role.prompt)).map((role) => role.key), []);
   });
 

@@ -128,7 +128,7 @@ caller builds the runtimes with. See
 
 A worker runs in a role: the surveyor, the `SCAN` triage, one of the
 ten finder angles, the verifier, the sweep, the decider, the fixer and
-the rest, twenty-one in all. Each role's prompt is assembled from the fragments
+the rest, twenty in all. Each role's prompt is assembled from the fragments
 under `roles/fragments/` in the order `roles/manifest.json` lists for
 it, joined with one blank line. The manifest is the only place
 composition is declared, and every fragment is held to a few invariants
