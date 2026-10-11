@@ -112,8 +112,8 @@ the checks.
   run's, over both passes (PD7).
 - **No change to a read-only run's events or report**, to a run started
   with `--fix`, to the fix pass's phases, routing, clustering, claims,
-  checks, patches or `commit`, or to any skill text beyond the step that
-  passes `--fix`.
+  checks or patches, to `commit` beyond the run it picks with no `--run`
+  (R9), or to any skill text beyond the step that passes `--fix`.
 - **No Codex gate.** The element is accepted on Claude Code, as the fix
   pass has been since the decision step (PD9).
 
@@ -218,6 +218,12 @@ the checks.
 - **R9: `deep-review commit` commits a continued run as it commits any
   fix run.** The commits are built from the run's revisions with the
   fixers' messages and the run's trailer, under the same refusals.
+  With no `--run`, `commit` picks the committable run that finished
+  last, its last event the latest in the ledger, rather than the one
+  created last: a continued run finishes after runs created later, and
+  creation order would commit an older fix run in its place. Before
+  continuation the two orders were the same, so every ledger written
+  before it picks the run it picked.
 - **R10: An active read-only run given `--fix` says how to continue.**
   The line a resumed read-only run logs for an ignored `--fix` adds
   that the run can be continued into the fix pass by running again with

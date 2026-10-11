@@ -384,8 +384,12 @@ sequenceDiagram
   run with a configuration that says so. `resumePinned`'s messages
   about the fix pass, the check flags and the pinned checks apply as
   they are.
-- `commit` is unchanged: `whyNotCommittable` sees fix state, a report
-  and revisions. The trailer names the run and the findings as before.
+- `commit` commits a continued run as it is: `whyNotCommittable` sees
+  fix state, a report and revisions, and the trailer names the run and
+  the findings as before. With no `--run`, `chooseRun` in
+  `src/review/commit.ts` takes the committable run with the highest
+  `lastSequence`, the one that finished last, in place of the last in
+  creation order (R9).
 - The line of an ignored `--fix` on a resumed read-only run becomes
   `run <id> is pinned without the fix pass; --fix[, --check and
   --no-check are] ignored; once its report is written, run again with
@@ -570,7 +574,9 @@ fold as before.
   second `--fix` on the finished continued run creates a new run, the
   reason line naming that it already fixed.
 - **R9** (`test/review/commit.test.ts`): `commit` on a continued run
-  builds one commit per revision with the run's trailer.
+  builds one commit per revision with the run's trailer; with no
+  `--run`, it commits a continued run that finished after a fix run
+  created later, not that fix run.
 - **R10** (`fix-pass.test.ts`): the resumed read-only run's line ends
   with the sentence on continuing.
 - **R11**: `npm run build` and `npm run verify` after the skill commit;
