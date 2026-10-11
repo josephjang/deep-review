@@ -8,7 +8,7 @@
  * configured before the survey existed has none of these, and its report
  * renders as it did before.
  */
-import type { ConventionSource, UserRuleDecision } from '../checkpoint/events.ts';
+import type { ConventionSource, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
 import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { conventionsKnown, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -64,7 +64,7 @@ export function unavailableCell(survey: SurveyState | null, check: PlannedCheck)
   return dropped === null ? `not available (${tableCell(check.origin)}: ${tableCell(check.reason ?? 'no command')})` : tableCell(dropped);
 }
 
-/** The Conventions section of a surveyed run: the sources, the user-level decisions under the pinned policy, and the surveyor's note; none for a run configured before the survey. */
+/** The Conventions section of a surveyed run: the sources, the user-level decisions under the pinned policy, and the surveyor's note, or for a continued run the review's and the continuation's apart; none for a run configured before the survey. */
 export function conventionsReportSection(review: ReviewState): string[] | null {
   const survey = review.survey;
   if (survey === null) return null;
@@ -102,14 +102,44 @@ export function conventionsReportSection(review: ReviewState): string[] | null {
     lines.push(`The reviewer's own rules files, under the policy value \`${setting}\`:`, '');
     for (const rule of userRules) lines.push(`- ${inlineText(rule.path)}: ${rule.applied ? 'applied' : 'not applied'}, ${inlineText(rule.reason)}`);
   }
+  if (review.continuedFrom !== null) return [...lines, ...continuedSurveyLines(survey)];
   const answers = survey.answers;
   // Answers multiply after a check-unavailable block, and also when an invocation dies between an answer and its plan and the next one's flags leave a kind uncovered; the fold keeps only the survey's last block, so only that is named.
   if (answers.length > 1) {
     const blocked = survey.lastBlock?.code === 'check-unavailable' ? '; it last blocked on a check this machine could not run, and' : ';';
     lines.push('', `The survey answered ${String(answers.length)} times${blocked} the last answer is shown.`);
   }
-  const note = answers.at(-1)?.note.trim() ?? '';
-  if (note !== '') lines.push('', `Surveyor's note: ${inlineText(note)}`);
+  lines.push(...noteLines('Surveyor\'s note', answers.at(-1)));
+  return lines;
+}
+
+/** A surveyor's note under `label`, or nothing when the answer has none. */
+function noteLines(label: string, answer: SurveyRecorded | undefined): string[] {
+  const note = answer?.note.trim() ?? '';
+  return note === '' ? [] : ['', `${label}: ${inlineText(note)}`];
+}
+
+/**
+ * The survey's answers of a read-only run continued into the fix pass
+ * (R4, PD5 of fix pass continuation), counted and noted apart: the
+ * review's, which chose no check as a read-only run's answers do and
+ * named the conventions the review was held to, and the continuation's,
+ * which chose the checks alone. The review's count is named only when it
+ * answered more than once; the continuation's, which is planned, is not
+ * a repeated survey. Only the continuation can block on a check this
+ * machine could not run, since only it asks for checks.
+ */
+function continuedSurveyLines(survey: SurveyState): string[] {
+  const reviewed = survey.answers.filter((answer) => answer.checks === null);
+  const continued = survey.answers.filter((answer) => answer.checks !== null);
+  const lines: string[] = [];
+  if (reviewed.length > 1) lines.push('', `The review's survey answered ${String(reviewed.length)} times; the conventions of its last answer are shown.`);
+  if (continued.length > 0) {
+    const times = continued.length === 1 ? 'once' : `${String(continued.length)} times`;
+    const blocked = survey.lastBlock?.code === 'check-unavailable' ? '; it last blocked on a check this machine could not run' : '';
+    lines.push('', `The continuation into the fix pass asked the survey for the checks alone ${times}, the conventions standing${blocked}.`);
+  }
+  lines.push(...noteLines('Surveyor\'s note on the conventions', reviewed.at(-1)), ...noteLines('Surveyor\'s note on the checks', continued.at(-1)));
   return lines;
 }
 

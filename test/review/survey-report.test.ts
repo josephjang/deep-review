@@ -6,8 +6,8 @@ import type { SurveyedCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { checkUnavailableBlocker } from '../../src/review/steps.ts';
-import { checkSourceCell, droppedByOperator, unavailableCell } from '../../src/review/survey-report.ts';
-import { History, fixRun, fixStatistics, reported, statistics, withSurvey, worker } from '../helpers/review-history.ts';
+import { checkSourceCell, conventionsReportSection, droppedByOperator, unavailableCell } from '../../src/review/survey-report.ts';
+import { History, continuedRun, continuedToReport, fixRun, fixStatistics, quietSurveyedChecks, reported, statistics, surveyAnswer, surveyedCheck, withSurvey, worker } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/survey.md');
 const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evidence/${blob.sha256.slice(0, 8)}`;
@@ -146,6 +146,61 @@ describe('the report of a surveyed run', () => {
     const older = renderReport(fixRun().fold(), { engine: '0.0.0+dev', statistics: fixStatistics, fix: { evidencePath, patches } });
     assert.ok(!older.includes('## Conventions'));
     assert.match(older, /^\| Check \| Command \| Before the fixes \|/m);
+  });
+});
+
+// R4, PD5 of fix pass continuation: the continuation's answer for the checks is planned, not a repeated survey, and the review's note on its conventions stays.
+describe('the Conventions section of a run continued into the fix pass', () => {
+  /** `history` with each survey answer's note as `notes` gives it by worker. */
+  const noted = (history: History, notes: Record<string, string>): History => {
+    const copy = new History();
+    for (const event of history.events) {
+      const payload = event.payload as { workerId?: string };
+      const note = event.kind === 'survey.recorded' && payload.workerId !== undefined ? notes[payload.workerId] : undefined;
+      copy.add(event.kind, note === undefined ? event.payload : { ...payload, note }, event.version);
+    }
+    return copy;
+  };
+  const conventionsOf = (report: string): string => report.slice(report.indexOf('\n## Conventions\n'), report.indexOf('\n## Findings\n'));
+
+  it('says the continuation asked for the checks alone, and shows the review\'s note on the conventions beside the note on the checks', () => {
+    const state = noted(continuedToReport(), { [worker(80)]: 'AGENTS.md imports the reviewer\'s rules', [worker(81)]: 'checks only; the conventions stand' }).fold();
+    const section = conventionsOf(renderReport(state, { engine: '0.0.0+dev', statistics, fix: { evidencePath, patches } }));
+    assert.doesNotMatch(section, /answered/, 'neither a repeated survey nor a review that answered twice');
+    assert.ok(section.endsWith([
+      '',
+      'The continuation into the fix pass asked the survey for the checks alone once, the conventions standing.',
+      '',
+      'Surveyor\'s note on the conventions: AGENTS.md imports the reviewer\'s rules',
+      '',
+      'Surveyor\'s note on the checks: checks only; the conventions stand',
+      '',
+    ].join('\n')), section);
+  });
+
+  it('counts the continuation\'s answers after a check it could not run, naming the block, and leaves out a note the review did not write', () => {
+    const missing = [surveyedCheck('build', 'npm run build'), surveyedCheck('typecheck', null), surveyedCheck('lint', 'ruff check .', 'ruff'), surveyedCheck('test', 'npm run test')];
+    const history = continuedRun()
+      .start('survey', 2).worker(81, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(81), { checks: missing, note: 'ruff is missing' }))
+      .finish('survey', 'blocked', 2, checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }]))
+      .start('survey', 3).worker(82, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(82), { checks: quietSurveyedChecks(), note: 'ruff is installed now' }));
+    const section = conventionsReportSection(history.review())!;
+    assert.deepEqual(section.slice(-4), [
+      '',
+      'The continuation into the fix pass asked the survey for the checks alone 2 times, the conventions standing; it last blocked on a check this machine could not run.',
+      '',
+      'Surveyor\'s note on the checks: ruff is installed now',
+    ]);
+    assert.ok(!section.some((line) => /answered|on the conventions/.test(line)), section.join('\n'));
+  });
+
+  it('counts the review\'s answers only when it answered more than once, and names no continuation the flags spared a surveyor', () => {
+    const review = continuedRun().review();
+    const answer = review.survey!.answers[0]!;
+    const twice = conventionsReportSection({ ...review, survey: { ...review.survey!, answers: [{ ...answer, note: 'first' }, { ...answer, note: 'second' }] } })!;
+    assert.deepEqual(twice.slice(-4), ['', 'The review\'s survey answered 2 times; the conventions of its last answer are shown.', '', 'Surveyor\'s note on the conventions: second']);
+    const once = conventionsReportSection(review)!;
+    assert.ok(!once.some((line) => /answered|continuation|note/.test(line)), once.join('\n'));
   });
 });
 
