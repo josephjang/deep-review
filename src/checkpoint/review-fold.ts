@@ -165,15 +165,30 @@ export interface ReviewState {
   readonly report: ReportWritten | null;
   /**
    * The read-only report of a run continued into the fix pass, with when
-   * the continuation was recorded (R6, R7 of fix pass continuation); null
-   * for a run never continued. The continuation clears `report`, so the
-   * second report takes its place and this one stays beside it.
+   * the continuation was recorded and how many worktree checks the run held
+   * then (R6, R7 of fix pass continuation); null for a run never continued.
+   * The continuation clears `report`, so the second report takes its place
+   * and this one stays beside it.
    */
-  readonly continuedFrom: { readonly report: ReportWritten; readonly at: string } | null;
+  readonly continuedFrom: { readonly report: ReportWritten; readonly at: string; readonly checkCount: number } | null;
   /** The fix pass's state, or null for a run configured without it and not continued into it, including every run recorded before it existed. */
   readonly fix: FixState | null;
   /** The survey's state, or null for a run configured before the survey existed, whose survey phase is skipped. */
   readonly survey: SurveyState | null;
+}
+
+/**
+ * The strays that held the user's own work before the run edited
+ * anything, which no revision commits and the report does not name as the
+ * run's: those the run's first worktree check found, and for a run
+ * continued into the fix pass those its first check since the continuation
+ * found, since the user may have changed a file outside the scope between
+ * the read-only report and the continuation, which compares only the
+ * scope's files (R2 of fix pass continuation).
+ */
+export function preRunStrays(review: Pick<ReviewState, 'checks' | 'continuedFrom'>): ReadonlySet<string> {
+  const continued = review.continuedFrom === null ? [] : review.checks[review.continuedFrom.checkCount]?.strays ?? [];
+  return new Set([...(review.checks[0]?.strays ?? []), ...continued]);
 }
 
 /** The candidate phases whose candidates a deduplication or verification phase works on. */

@@ -1231,6 +1231,27 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.notEqual(box.run().review!.report, null);
   });
 
+  it('counts the user\'s edits outside the --path filter since the read-only report as their own work, which no revision takes and the report names nowhere (R2)', async (t) => {
+    const box = ReviewSandbox.forTest(t, continuedScript);
+    const scope = { named: true, request: () => ({ ref: 'HEAD~1', paths: ['src'] }) };
+    reportText(await box.review('claude', { scope }));
+    const first = box.run();
+    // Edits outside src, which the continuation does not compare: a tracked file a formatter in lint rewrites at every run, and an untracked note.
+    const agents = readFileSync(join(box.repo, 'AGENTS.md'), 'utf8');
+    write(box.repo, 'AGENTS.md', `${agents}\nThe user's own rule.\n`);
+    write(box.repo, 'notes.txt', 'n\n');
+    box.checks({ lint: { write: { 'AGENTS.md': '# Rules, formatted\n' } } });
+    const text = reportText(await box.fix('claude', { scope }));
+    const state = box.run();
+    assert.equal(state.id, first.id, 'the run was continued');
+    const revised = state.review!.fix!.revisions.flatMap((revision) => revision.files.map((file) => file.path));
+    assert.deepEqual([...new Set(revised)].sort(), ['src/a.ts', 'src/b.ts'], 'no revision takes the user\'s AGENTS.md, which the lint check rewrote');
+    assert.doesNotMatch(text, /Files no answer names/, 'neither file is named as one the run left');
+    commitRun({ checkpoint: box.checkpoint, worktree: box.repo, log: () => {} });
+    assert.equal(git(box.repo, 'show', 'HEAD:AGENTS.md'), agents.trimEnd(), 'the commits leave AGENTS.md as the change had it');
+    assert.equal(readFileSync(join(box.repo, 'AGENTS.md'), 'utf8'), '# Rules, formatted\n', 'and it stays in the tree, uncommitted');
+  });
+
   /** A finished read-only run, then `change` to the repository, then --fix: the new run its triage stops early is created beside it, and the log says why. */
   const notContinued = async (t: TestContext, change: (box: ReviewSandbox) => void, worktreeMode = false): Promise<{ box: ReviewSandbox; first: RunState }> => {
     const box = ReviewSandbox.forTest(t, continuedScript);

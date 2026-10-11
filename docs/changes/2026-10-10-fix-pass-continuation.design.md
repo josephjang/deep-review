@@ -283,10 +283,18 @@ stateDiagram-v2
     gets fresh attempts (`withFreshAttempts`, as a blocked phase's
     re-entry gives), so an old failure does not exhaust the new
     surveyor.
-  - `continuedFrom` becomes `{ report, at: event.recordedAt }` with the
-    first `ReportWritten`, a new field of `ReviewState`, null until then;
-    `report` becomes null, so `isResumable`, `reviewStatus`, `nextStep`
-    and `limitsChanged` see an active run again.
+  - `continuedFrom` becomes `{ report, at: event.recordedAt,
+    checkCount }` with the first `ReportWritten` and the count of
+    worktree checks the run holds, a new field of `ReviewState`, null
+    until then; `report` becomes null, so `isResumable`, `reviewStatus`,
+    `nextStep` and `limitsChanged` see an active run again.
+  - The strays that held the user's own work, which `checkRevision`
+    leaves out of a check's revision and the report's strays line does
+    not name, are those of the run's first worktree check and of the
+    first check at index `checkCount` (`preRunStrays`). R2 compares only
+    the scope's files, so a file outside a `--path` filter that the user
+    changed after the read-only report is a stray of the continuation's
+    first check, left alone as a fresh fix run leaves it.
 - Guards elsewhere: `phaseStarted` refuses `baseline-checks` while
   `fix.checks.planned` is null (`starts baseline-checks before its checks
   are planned`), an invariant the planner already keeps and the pin

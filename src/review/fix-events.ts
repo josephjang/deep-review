@@ -14,6 +14,7 @@ import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
 import { clusterClaims, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type PathHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import { preRunStrays } from '../checkpoint/review-fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { batchOfUnit, foldedWith, holderSpelled, isPending, lateClaim, requireFix, settleClaims, settledNothing, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
@@ -286,8 +287,10 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
  * changed in the worktree; a file new since the check is not listed, and
  * a file changed before it and left alone is not either. A tracked file
  * outside the change that the run's first worktree check listed as a
- * stray held the user's own change before the run, so it is left out even
- * when the check rewrites it, and stays in the worktree uncommitted. The
+ * stray, or for a continued run its first check since the continuation,
+ * held the user's own change before the run edited anything
+ * (`preRunStrays`), so it is left out even when the check rewrites it,
+ * and stays in the worktree uncommitted. The
  * state before a path the run expects nothing of is the scope's head's, so
  * a fixer's edit of such a file that it neither claimed nor named, and
  * that the check then rewrote, is kept in this revision under the check's
@@ -298,8 +301,8 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
 export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
-  // A stray at the run's first check is the user's uncommitted work, which no revision may commit (as strayedInRun in fix-report.ts reads them).
-  const before = new Set(state.review!.checks[0]?.strays ?? []);
+  // A stray before the run edited anything is the user's uncommitted work, which no revision may commit (as strayedInRun in fix-report.ts reads them).
+  const before = preRunStrays(state.review!);
   const listed = manifest === null ? [] : changedListed(manifest).filter((path) => !before.has(path));
   const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...listed], context.match);
   if (files.length === 0) return null;

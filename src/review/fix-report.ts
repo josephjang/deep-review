@@ -10,7 +10,7 @@
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { allBatches, clusterOf, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import type { ReviewState } from '../checkpoint/review-fold.ts';
+import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { leftAs } from './decision-report.ts';
 import { inlineText, tableCell } from './markdown.ts';
@@ -325,16 +325,17 @@ export function fixHeaderLine(review: ReviewState): string | null {
 
 /**
  * The strays the run left: every path its last worktree check found, less
- * those its first check found, which were there before the run, and less
- * those a revision holds, such as a fixer's build of `dist/` that the tail
- * check revision rewrote (PD9 of commit series integrity). A path only an
- * earlier check found, such as a tracked leftover a fixer then restored,
- * is no longer in the tree.
+ * those that were there before the run edited anything (`preRunStrays`:
+ * its first check's, and a continued run's first since the continuation),
+ * and less those a revision holds, such as a fixer's build of `dist/` that
+ * the tail check revision rewrote (PD9 of commit series integrity). A path
+ * only an earlier check found, such as a tracked leftover a fixer then
+ * restored, is no longer in the tree.
  */
-function strayedInRun(checks: ReviewState['checks'], revisions: FixState['revisions']): string[] {
-  const before = new Set(checks[0]?.strays ?? []);
+function strayedInRun(review: ReviewState, revisions: FixState['revisions']): string[] {
+  const before = preRunStrays(review);
   const revised = new Set(revisions.flatMap((revision) => revision.files.map((file) => file.path)));
-  return (checks.at(-1)?.strays ?? []).filter((path) => !before.has(path) && !revised.has(path)).sort();
+  return (review.checks.at(-1)?.strays ?? []).filter((path) => !before.has(path) && !revised.has(path)).sort();
 }
 
 /**
@@ -367,7 +368,7 @@ export function fixLimitations(review: ReviewState): string[] {
   });
   for (const claim of fix.claims.filter((candidate) => candidate.claimedAt === null)) lines.push(`- Claimed late: ${inlineText(claim.path)} by ${claim.key}, edited before it was claimed (R6 of commit series integrity).`);
   for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lostClaimWords(lost.holder)}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
-  const strays = strayedInRun(review.checks, fix.revisions);
+  const strays = strayedInRun(review, fix.revisions);
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);
   // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).

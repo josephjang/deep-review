@@ -346,7 +346,9 @@ const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
  * `review.configured` unchanged; the fix state starts empty, with the
  * pin's checks planned when it carries them; the five fix phases are
  * pending; the report phase is pending at its attempt, so its next start
- * is the next attempt, and the first report is kept beside the state; and
+ * is the next attempt, and the first report is kept beside the state with
+ * the count of worktree checks so far, so the continuation's first check
+ * is known as the one whose strays held the user's work (`preRunStrays`); and
  * when the checks are not planned, the survey is pending at its attempt
  * too, its unit with fresh attempts, so the surveyor asked for the checks
  * is not out of attempts from the read-only survey's failures. This is the
@@ -379,7 +381,7 @@ const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
   for (const phase of fixPhases) phaseStates[phase] = { status: 'pending', attempt: 0 };
   for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes };
-  return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt } }, event);
+  return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
 };
 
 const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {

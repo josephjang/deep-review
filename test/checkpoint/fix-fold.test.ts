@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { clusterClaims, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
-import { isAnswered } from '../../src/checkpoint/review-fold.ts';
+import { isAnswered, preRunStrays } from '../../src/checkpoint/review-fold.ts';
 import { reviewStatus } from '../../src/review/state.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
@@ -520,11 +520,24 @@ describe('the continuation into the fix pass', () => {
     assert.deepEqual(review.phases.decision, before.phases.decision, 'the read-only phases stay as they finished');
     assert.deepEqual(review.fix, emptyFixState());
     assert.equal(review.report, null);
-    assert.deepEqual(review.continuedFrom, { report: before.report, at: history.events.at(-1)!.recordedAt });
+    assert.deepEqual(review.continuedFrom, { report: before.report, at: history.events.at(-1)!.recordedAt, checkCount: before.checks.length });
+    assert.ok(before.checks.length > 0, 'the read-only phases checked the worktree');
     assert.deepEqual(review.ranking, before.ranking);
     assert.deepEqual(review.decisions, before.decisions);
     assert.deepEqual(review.survey, before.survey, 'the recorded survey stands');
     assert.equal(reviewStatus(run), 'active', 'an active run again, which a review resumes');
+  });
+
+  it('counts the strays of the first worktree check since the pin as the user\'s work before the fix pass, and those of no later check (preRunStrays)', () => {
+    const pinned = readOnlyReported().add('fix.pinned', pin(flagPlan));
+    assert.deepEqual([...preRunStrays(pinned.review())], [], 'no check since the pin yet');
+    // The user edited docs/notes.md, outside the scope, after the read-only report; a fixer's build then left dist/x.js.
+    const started = pinned.start('baseline-checks', 1, ['docs/notes.md']);
+    assert.deepEqual([...preRunStrays(started.review())], ['docs/notes.md']);
+    const later = started.add('worktree.checked', { ...endCheck('baseline-checks'), strays: ['dist/x.js', 'docs/notes.md'] }, 2);
+    assert.deepEqual([...preRunStrays(later.review())], ['docs/notes.md']);
+    // A run never continued counts its first check's alone.
+    assert.deepEqual([...preRunStrays({ ...later.review(), continuedFrom: null })], []);
   });
 
   it('plans the flags\' checks with the pin and leaves the survey completed when they settle every kind (TD3)', () => {
