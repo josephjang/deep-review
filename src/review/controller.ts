@@ -56,7 +56,7 @@ import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit
 import { resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
-import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, type CheckKind, type CheckPhase, type Phase } from './vocabulary.ts';
+import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type CheckPhase, type Phase, type PinnedUse } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved when the run it acts on
@@ -646,9 +646,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       }
     }
   } catch (error) {
-    // A worker's own preflight failed: the runtime stopped qualifying mid-run (an update, a removed binary), which is refused as at startup, with the action for the executable the run pinned.
+    // A worker's own preflight failed: the runtime stopped qualifying mid-run (an update, a removed binary), which is refused as at startup, with the action for the executable the run pinned; the run is active, a continued one too once pinned, so it can be abandoned.
     const configuration = state.review?.configuration ?? null;
-    throw refusalOf(error, configuration === null ? null : { runId, executable: configuration.executable });
+    throw refusalOf(error, configuration === null ? null : { runId, executable: configuration.executable, use: 'resume' });
   } finally {
     // No way out of the loop leaves a worker running: after a launcher error,
     // a failed append or any other throw, the rest are awaited and their
@@ -671,16 +671,17 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 /**
  * A failed preflight as the `runtime-unqualified` refusal, with the
  * operator's action; any other error as it is. The action depends on
- * whether the executable was pinned: `pinned` names the configured run and
- * its executable, or is null for a run not yet configured, whose
+ * whether the executable was pinned: `pinned` names the configured run, its
+ * executable and whether it is resumed or continued, which names another
+ * way out (`wayOut`), or is null for a run not yet configured, whose
  * `--executable` still applies. A probe that only ran past its timeout is
  * refused the same way, with the reinstall action, although nothing showed
  * the executable stopped qualifying:
  * https://github.com/josephjang/deep-review/issues/34
  */
-function refusalOf(error: unknown, pinned: { readonly runId: string; readonly executable: string } | null): unknown {
+function refusalOf(error: unknown, pinned: { readonly runId: string; readonly executable: string; readonly use: PinnedUse } | null): unknown {
   if (!(error instanceof PreflightError)) return error;
-  const action = pinned === null ? blockerActions['runtime-unqualified'] : pinnedRuntimeAction(pinned.runId, pinned.executable);
+  const action = pinned === null ? blockerActions['runtime-unqualified'] : pinnedRuntimeAction(pinned.runId, pinned.executable, pinned.use);
   return new ReviewRefusedError(`${error.message}; ${action}`, 'runtime-unqualified');
 }
 
@@ -737,14 +738,6 @@ interface OpenedRun {
   readonly configure: ReviewConfiguration | null;
   /** The continuation to pin, for a finished read-only run this command continues into the fix pass, with where its read-only report is; null otherwise (R1 of fix pass continuation). */
   readonly continuation: { readonly pin: FixPinned; readonly report: string } | null;
-}
-
-/** How a configured run is held to what it pinned: resumed, or continued into the fix pass, whose refusals name another way out (TD6 of fix pass continuation). */
-type PinnedUse = 'resume' | 'continue';
-
-/** The way out a refusal of a pinned run names besides the flag that matches: abandoning an active run, or a new run for a finished one, which is not abandoned. */
-function wayOut(runId: string, use: PinnedUse): string {
-  return use === 'resume' ? `abandon it with \`deep-review abandon --run ${runId} --reason <text>\`` : 'start a new run with --fresh';
 }
 
 /**
@@ -1033,7 +1026,7 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
     context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
   }
   if (use === 'resume') resumedFixFlags(run, pinned, context);
-  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, runId);
+  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, { runId, use });
 }
 
 /**
@@ -1079,12 +1072,12 @@ function droppedSinceSurvey(survey: SurveyState | null, flags: CheckFlags | null
   return checkKinds.filter((kind) => !checks.some((check) => check.kind === kind) && (flags === null || !isSettled(flags, kind)));
 }
 
-/** Preflight the executable and return its version, or refuse with `runtime-unqualified`; `runId` names the configured run that pinned it, or is null for a new run. */
-async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: OpenContext, runId: string | null): Promise<string> {
+/** Preflight the executable and return its version, or refuse with `runtime-unqualified`; `pinnedBy` names the configured run that pinned it and how it is held to it, or is null for a new run. */
+async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: OpenContext, pinnedBy: { readonly runId: string; readonly use: PinnedUse } | null): Promise<string> {
   try {
     return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
   } catch (error) {
-    throw refusalOf(error, runId === null ? null : { runId, executable });
+    throw refusalOf(error, pinnedBy === null ? null : { ...pinnedBy, executable });
   }
 }
 

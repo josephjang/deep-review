@@ -154,7 +154,8 @@ the checks.
   the continuation with the same message, whose way out names
   `--roles <dir>` or the flag that matches and, in place of abandoning,
   `--fresh`; a pinned executable that no longer qualifies refuses as
-  today. `--strong-model` and `--fast-model` are named as ignored;
+  today, except that its action names `--fresh` in place of abandoning
+  the run. `--strong-model` and `--fast-model` are named as ignored;
   `--concurrency` and `--budget-usd` apply to the invocation as they
   apply to every invocation; `--check` and `--no-check` apply until the
   checks are planned, as in every fix run (TD6 of the repository

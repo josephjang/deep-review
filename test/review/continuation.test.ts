@@ -34,6 +34,17 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.ok(Object.values(state.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1'), 'the fixer launched');
   });
 
+  it('refuses a continuation whose pinned executable no longer qualifies with --fresh as the way out, since a complete run cannot be abandoned (R3, TD6)', async (t) => {
+    const box = ReviewSandbox.forTest(t, oneFix);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    const executable = finished.review!.configuration.executable;
+    await assert.rejects(box.fix('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError && error.code === 'runtime-unqualified'
+      && error.message.endsWith(`; make ${executable}, the executable run ${finished.id} is pinned to, qualify again (reinstall the runtime version the run started with) and run the command again, or start a new run with --fresh; a configured run ignores --executable`)
+      && !error.message.includes('abandon'));
+    assert.equal(box.run().lastSequence, finished.lastSequence, 'nothing was appended');
+  });
+
   it('refuses a run with nothing to fix for that, not for a pinned executable that no longer qualifies, whose preflight comes last', async (t) => {
     const box = ReviewSandbox.forTest(t, { ...oneFix, decider: { output: deciderAnswer([{ decision: 'leave' }]) } });
     reportText(await box.review('claude'));

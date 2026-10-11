@@ -468,7 +468,10 @@ fold as before.
   fix pass was pinned at configuration and would tell a continued run
   that `--fix` is ignored. The runtime refusal, which `openRun` makes
   before `resumePinned` for a resume, is one function both call with
-  their way out.
+  their way out. The use reaches the executable's preflight too,
+  through `qualify` and `refusalOf` to `pinnedRuntimeAction`, whose
+  action names `--fresh` for a continuation where a resume's names
+  abandoning the run and starting a new one.
 - **TD7: The survey phase is reopened by the pin, not started by a
   special case in `phaseStarted`.** Letting `phaseStarted` accept a
   completed survey when the run fixes and its checks are unplanned was
@@ -513,12 +516,13 @@ fold as before.
   matching runs continue the newest; `--fresh` creates a new run with
   its line; `--fresh` with an active run resumes it; `scopeMismatch`
   returns each reason in order and null for a match.
-- **R3** (`fix-pass.test.ts`, `test/review/codex-sandbox.test.ts`): a
-  different `--runtime`, a different `--codex-windows-sandbox` on
-  Windows, and roles that digest differently refuse with messages that
-  name `--fresh` and no `abandon`; `--strong-model` is named ignored;
-  `--check` and `--no-check` settle kinds in the continuation's survey;
-  a pinned executable that fails its preflight refuses as a resume does.
+- **R3** (`fix-pass.test.ts`, `test/review/codex-sandbox.test.ts`,
+  `test/review/continuation.test.ts`): a different `--runtime`, a
+  different `--codex-windows-sandbox` on Windows, roles that digest
+  differently, and a pinned executable that fails its preflight refuse
+  with messages that name `--fresh` and no `abandon`; `--strong-model`
+  is named ignored; `--check` and `--no-check` settle kinds in the
+  continuation's survey.
 - **R4** (`test/review/survey.test.ts`, `test/review/tasks.test.ts`,
   `test/review/survey-steps.test.ts`, `test/review/survey-run.test.ts`):
   the continuation task lists the standing sources and the kinds to
