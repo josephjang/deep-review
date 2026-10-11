@@ -749,12 +749,13 @@ function wayOut(runId: string, use: PinnedUse): string {
 
 /**
  * The finished runs a `review --fix` may continue (R2 of fix pass
- * continuation), newest first: complete runs of this worktree that ran
- * without the fix pass and were configured with the decision step, whose
- * decisions a fix run routes its findings by.
+ * continuation), newest first: the finished read-only runs of this
+ * worktree that `notContinuable` gives no reason against, so never
+ * continued and configured with the decision step, whose decisions a fix
+ * run routes its findings by.
  */
 function continuable(runs: readonly RunState[], worktree: string): RunState[] {
-  return finishedReadOnly(runs, worktree).filter((run) => run.review!.fix === null && run.review!.phases.decision.status !== 'skipped');
+  return finishedReadOnly(runs, worktree).filter((run) => notContinuable(run) === null);
 }
 
 /** The complete runs of this worktree configured without the fix pass, continued since or not, newest first: the ones a `review --fix` names when it continues none. */
@@ -764,7 +765,7 @@ function finishedReadOnly(runs: readonly RunState[], worktree: string): RunState
     .reverse();
 }
 
-/** Why a finished read-only run is not continued when it is not a candidate at all: it was continued already, or configured before the decision step. */
+/** Why a finished read-only run is not a candidate for a continuation at all, or null when it is one: it was continued already, or configured before the decision step. */
 function notContinuable(run: RunState): string | null {
   if (run.review?.continuedFrom !== null && run.review?.continuedFrom !== undefined) return 'it was continued into the fix pass already';
   if (run.review?.phases.decision.status === 'skipped') return 'it was configured before the decision step, which a fix run routes its findings by';
