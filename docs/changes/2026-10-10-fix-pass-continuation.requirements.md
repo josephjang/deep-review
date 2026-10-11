@@ -305,7 +305,8 @@ the checks.
   fixes as that run would, and a budget blocker's action already names
   `--budget-usd`. The continuation's log names the spend so far and the
   budget in force, so a person raises it before paying for a surveyor
-  that blocks.
+  that blocks. A run whose spend already reaches the budget in force is
+  refused before the pin, naming `--budget-usd`, and stays continuable.
 - **PD8: The roles digest must match.** Pinning the fix roles again
   with their own digest, so that a run reviewed under one plugin version
   could be fixed under the next, was rejected: the report says one
@@ -344,7 +345,12 @@ the checks.
 - Risk: a read-only run that spent near its budget blocks the
   continuation at its first launch. Accepted: the log names the spend
   and the budget before the launch, and the blocker's action names the
-  flag.
+  flag. A run whose spend already reaches the budget in force is
+  refused before the pin, naming `--budget-usd`, since a continuation
+  whose flags settle every check launches nothing before the fixes
+  phase, where the budget marks every fixer unattempted rather than
+  blocking; the run stays complete and can be continued with a higher
+  budget.
 - Risk: one more surveyor worker per continuation, at the policy's cap
   of 8 USD and the strong tier. Accepted against the alternatives of
   PD5; the worker reads CI and manifests, not the change.

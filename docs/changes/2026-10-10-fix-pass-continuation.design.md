@@ -129,9 +129,11 @@ flowchart TD
   still -- "yes" --> pins["resumePinned with the --fresh action:<br/>runtime, digest, sandbox, executable"]
   pins --> routed{"any finding routed<br/>to a fixer by its decision?"}
   routed -- "no" --> refuse["refuse: nothing to continue (R5)"]
-  routed -- "yes" --> pin["append fix.pinned@1"]
+  routed -- "yes" --> budget{"spend below the<br/>run budget in force?"}
+  budget -- "no" --> overspent["refuse: name --budget-usd"]
+  budget -- "yes" --> pin["append fix.pinned@1"]
   classDef bad stroke:#c62828,stroke-width:3px
-  class refuse bad
+  class refuse,overspent bad
 ```
 
 - The candidates come from `readableRuns`, in ledger order, filtered to
@@ -188,6 +190,17 @@ flowchart TD
   to review it again`, with `its review ranked no finding` in place of
   the counts for an empty ranking, a `ReviewRefusedError` (exit 2).
   Nothing is appended.
+- The run's spend, `budgetSpendOf` over both passes, is then held to
+  the run budget in force, `limitsInForce` of the configuration and the
+  flags. When it reaches the budget the continuation is refused before
+  the pin: `run <id> spent <x> USD of the <y> USD run budget, so no
+  fixer could launch; nothing to continue; run it again with
+  --budget-usd above <x>, or start a new run with --fresh`, a
+  `ReviewRefusedError` (exit 2). Flags that settle every check launch
+  nothing before the fixes phase, whose budget gate marks every fixer
+  unattempted rather than blocking, so a pinned run would write a
+  second report with no fix and could not be continued again. Nothing
+  is appended, and the run stays complete.
 - `openRun` returns, in place of `configure`, a `continuation:
   { pin: FixPinned, report: string } | null`; the controller appends the
   pin where it appends the configuration today, before `recordLimits`,

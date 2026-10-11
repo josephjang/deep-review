@@ -52,7 +52,7 @@ import { passedOverLine, readableRuns } from './runs.ts';
 import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
-import { nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
+import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
@@ -934,10 +934,11 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
  * continuation), or a refusal that leaves it complete: the run is held to
  * its runtime, roles digest, Codex Windows sandbox and executable as a
  * resume holds a run, with `--fresh` as the way out; a run whose decisions
- * route no finding to a fixer is refused, and so is one that went on
- * without its survey unless the flags settle every check. The pin carries
- * the policy's per-check timeout and batch size, and the flags' plan of
- * the checks when they settle every kind.
+ * route no finding to a fixer is refused, so is one whose spend already
+ * reaches the run budget in force, naming `--budget-usd`, and so is one
+ * that went on without its survey unless the flags settle every check.
+ * The pin carries the policy's per-check timeout and batch size, and the
+ * flags' plan of the checks when they settle every kind.
  */
 async function continuationOf(run: RunState, context: OpenContext): Promise<{ pin: FixPinned; report: string }> {
   const review = run.review!;
@@ -946,6 +947,12 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   await resumePinned(run, review.configuration, context, 'continue');
   const nothing = nothingToFix(run);
   if (nothing !== null) throw new ReviewRefusedError(`run ${run.id} has no finding to fix: ${nothing}; nothing to continue; start a new run with --fresh to review it again`);
+  // The run budget counts both passes (PD7), and a fixes phase that meets it marks every fixer unattempted rather than blocking, so a run already at its budget is refused while it can still be continued.
+  const spend = budgetSpendOf(run, context.adapter);
+  const { runBudgetUsd } = limitsInForce(review.configuration, context.flags, context.adapter);
+  if (spend.usd !== null && runBudgetUsd !== null && spend.usd >= runBudgetUsd) {
+    throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker({ ...spend, usd: spend.usd }, runBudgetUsd).detail}, so no fixer could launch; nothing to continue; run it again with --budget-usd above ${spend.usd.toFixed(2)}, or ${wayOut(run.id, 'continue')}`);
+  }
   const unsettled = unsettledKinds(flags);
   if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {
     throw new ReviewRefusedError(`run ${run.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for ${unsettled.join(', ')}, or start a new run with --fresh`);
