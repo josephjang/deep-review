@@ -250,7 +250,10 @@ the checks.
   twice. Target: the read-only run plus its continuation, which pays it
   once. Measured on the gate change as the spend of each pass the
   reports' Statistics give; the saving is the read-only pass's spend,
-  since that is what the fresh fix run would pay again.
+  since that is what the fresh fix run would pay again. Measured at the
+  gate on 2026-10-11: the read-only pass 34.76 USD, the continuation
+  23.71 USD, so the saving is an estimated 34.76 USD (the design's
+  Verification).
 
 ## Product Decisions
 

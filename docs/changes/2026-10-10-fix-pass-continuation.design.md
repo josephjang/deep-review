@@ -587,11 +587,104 @@ fold as before.
 
 ## Verification
 
-No checks have run yet. This section is filled by the commits that
-complete the element: the suite's counts at the series' head, the
-golden fixture's serial, and the gate run of R12 with both reports,
-each pass's spend and workers, the checks chosen and the author's
-reading of the fixes.
+### Implementation
+
+The element was built in commits `1f730da` (the pin event, its fold
+and the golden fixture) to `655a92f` (the README's wording), on
+`1a70599`, the proposal, over `3d38c1c`. `b6ffe6d` amended the design
+where the code needed something else, chiefly TD4: the scope
+comparison takes the caller's comparison of the files, since the
+worktree check compares them as git would store them. The golden
+fixture's serial is `schema-1-10`, with one continued run; the event
+and its fixture went into one commit, since a new event kind fails the
+golden identity test until its fixture exists. The gate's fixes follow
+(`25eb51f` to `fdf633b`), then the documentation the gate left stale
+(`528aa8b`, `3101fd8`, `768ee9c`) and the comments linking #44
+(`9728497`). At `9728497`, `npm run check` passed, 1917 tests in 284
+suites, 1898 passing, 19 skipped as the platform asks, none failing,
+and `npm run verify` passed; continuous integration passed there on
+Linux, macOS and Windows.
+
+The replay corpus of earlier gate runs, 13 runs in 10 checkpoints, was
+copied and folded by the engine at `1b9d8a9`: every run opened and
+folded, and none met the fold's new guard on the baseline checks.
+
+### The gate
+
+The gate of R12 ran on 2026-10-11 on this element's own change, from
+`3d38c1c` to `655a92f` with `--merge-base`, with the engine built at
+`655a92f` and copied out of the worktree, since the build check
+rewrites the worktree's `dist/`. The paths in scope were `src`,
+`scripts`, `README.md`, `skill` and the tests the change touched; the
+proposal, `dist/` and the golden fixtures were left out. It ran on
+Claude Code 2.1.296 with the strong model opus and the fast model
+sonnet.
+
+| | The read-only pass | The continuation |
+|---|---|---|
+| Command | `review` with the scope flags, the default budget of 60 USD | the same command with `--fix`, `--budget-usd 100`, and `--check` for build, typecheck and lint |
+| Workers | 32 | 13: one surveyor and 12 fixers |
+| Spend, USD | 34.76 | 23.71 (58.47 for the run) |
+| Report | the first, with 23 findings | the second, its header's `Continued:` line naming the first |
+
+The read-only pass found 23 findings, 12 confirmed and 11 plausible,
+and refuted 13 at verification. The decision step fixed 15, left 5 and
+asked 3, none of which held the run up. The report was read before the
+continuation, and no question was answered, so each default applied:
+REMOVALS-1 (what abandoning a blocked continuation gives up) and SCAN-5
+(whether the skills name `--fresh`) kept the code, and RIPPLE-3 (which
+run `commit` picks with no `--run`) edited it.
+
+The continuation's first line was `run 9b0f59a4-...: continued into the
+fix pass; its read-only report is <path>; spent 34.76 USD of the 100.00
+USD run budget`, the same run. No finder, verifier or decider ran
+again. The surveyor, asked for the checks alone, chose `npm test` for
+the test check from `package.json` (a stated source), and kept the four
+convention sources the review recorded; the other three checks came
+from the flags. The fix pass applied 16 findings, the 15 decided fix
+and RIPPLE-3's default, in 8 clusters and 10 batches with a second
+round of 2, none blocked or left not attempted; every check passed
+before and after the fixes, and 19 worktree checks found no
+difference. `deep-review commit` made 17 commits, `25eb51f` to
+`fdf633b`, the build check's rewrite of `dist/`, where `npm run check`
+and `npm run verify` passed. No commit holds a path its cluster neither
+owned nor claimed; 16 claims were made, none late or lost.
+
+The second report showed one of the gate's own findings at work: its
+Conventions section called the continuation's survey a repeated one
+("The survey answered 2 times; the last answer is shown") and dropped
+the review's note. RIPPLE-4 named that, and `1b8aea8` fixes it.
+
+The author's reading of the fixes, each against its finding:
+
+- Every fix does what its finding's decision asked, and none was
+  reverted. Two departed from the approach, each for a reason that
+  holds: RIPPLE-4 tells the review's survey answers from the
+  continuation's by their checks, a read-only answer having none,
+  instead of a new fold field; REMOVALS-3's test serves the find a
+  listing captured while the run was active, since the hook between
+  the find and the lock cannot drive another run to its report.
+- SCAN-1 adds a field the fold computes, `continuedFrom.checkCount`,
+  so the fixture's expected fold gained it; the events are unchanged.
+- RIPPLE-3 contradicted the requirements' Non-Goal of no change to
+  `commit`; `528aa8b` narrowed it and stated the choice in R9. The
+  fixers' notes named the README's sentence on resumed read-only runs
+  as stale, fixed in `768ee9c`, and PD3 gained what the fix pass does
+  with an edit outside the `--path` filter (`3101fd8`). A note naming
+  the commit series integrity design as stale was left, since that
+  design records its own element.
+
+A review of the change made by hand before the gate found what the
+engine's did not: a continuation appends its pin after `openRun` has
+released the start lock, while the run is still complete, so another
+engine can create a second active run in the worktree in between. It
+is filed as #44, and the code links it.
+
+The metric of the requirements: the read-only pass cost 34.76 USD and
+the continuation 23.71 USD. A fresh fix run of the same change would
+have paid a review again; taking that review's cost to be the read-only
+pass's, as the metric does, the saving is 34.76 USD. That figure is an
+estimate, since no fresh fix run of the change was made.
 
 ## Risks & Migration
 
