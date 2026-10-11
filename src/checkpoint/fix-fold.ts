@@ -361,12 +361,23 @@ const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
   if ((review.ranking?.length ?? 0) > 0 && review.decisions === null) throw invalid(event, 'continues a run configured before the decision step, which routed by verdict and angle');
   if (review.survey.failure !== null && payload.plannedChecks === null) throw invalid(event, 'continues a run that went on without its survey with no checks planned');
   const empty = emptyFixState();
-  const fix: FixState = payload.plannedChecks === null ? empty : { ...empty, checks: { ...empty.checks, planned: { checks: payload.plannedChecks, manager: null } } };
-  const reopened: Phase[] = ['report', ...(payload.plannedChecks === null ? ['survey' as const] : [])];
+  let fix: FixState;
+  let reopened: readonly Phase[];
+  let units: ReviewState['units'];
+  if (payload.plannedChecks === null) {
+    // The survey is asked again for the checks.
+    fix = empty;
+    reopened = ['report', 'survey'];
+    units = withFreshAttempts(review, drafts, 'survey');
+  } else {
+    // The flags planned every check with the pin, so the survey stays as it finished.
+    fix = { ...empty, checks: { ...empty.checks, planned: { checks: payload.plannedChecks, manager: null } } };
+    reopened = ['report'];
+    units = review.units;
+  }
   const phaseStates = { ...review.phases };
   for (const phase of fixPhases) phaseStates[phase] = { status: 'pending', attempt: 0 };
   for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
-  const units = payload.plannedChecks === null ? withFreshAttempts(review, drafts, 'survey') : review.units;
   const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes };
   return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt } }, event);
 };
