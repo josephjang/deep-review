@@ -126,14 +126,18 @@ flowchart TD
   lock --> still{"still complete,<br/>still read-only?"}
   still -- "resumable now<br/>(another engine continued it)" --> resume
   still -- "no longer qualifies" --> create
-  still -- "yes" --> pins["resumePinned with the --fresh action:<br/>runtime, digest, sandbox, executable"]
-  pins --> routed{"any finding routed<br/>to a fixer by its decision?"}
+  still -- "yes" --> routed{"any finding routed<br/>to a fixer by its decision?"}
   routed -- "no" --> refuse["refuse: nothing to continue (R5)"]
-  routed -- "yes" --> budget{"spend below the<br/>run budget in force?"}
+  routed -- "yes" --> surveyed{"surveyed, or every<br/>check settled by a flag?"}
+  surveyed -- "no" --> unsurveyed["refuse: name the unsettled kinds"]
+  surveyed -- "yes" --> runtime{"the pinned runtime?"}
+  runtime -- "no" --> otherRuntime["refuse: name --runtime and --fresh"]
+  runtime -- "yes" --> budget{"spend below the<br/>run budget in force?"}
   budget -- "no" --> overspent["refuse: name --budget-usd"]
-  budget -- "yes" --> pin["append fix.pinned@1"]
+  budget -- "yes" --> pins["resumePinned with the --fresh action:<br/>digest, sandbox, executable"]
+  pins --> pin["append fix.pinned@1"]
   classDef bad stroke:#c62828,stroke-width:3px
-  class refuse,overspent bad
+  class refuse,unsurveyed,otherRuntime,overspent bad
 ```
 
 - The candidates come from `readableRuns`, in ledger order, filtered to
@@ -178,11 +182,10 @@ flowchart TD
   was taken; a new run is created`, or holding an event this engine
   does not know, passed over with its line) releases the lock and a new
   run is created.
-- `resumePinned(run, pinned, context, 'continue')` runs the pinned
-  checks of R3 (TD6), after the runtime is held to the pinned one with
-  `--fresh` as the way out. The decision-step guard inside it cannot
-  fire, since a candidate was configured with the step.
-- `fixPlanOf` needs the batch size the run has not pinned yet, and the
+- The refusals that read only the ledger and the flags come first, so
+  a run refused anyway is not first refused for its executable, with
+  advice to reinstall it, nor its preflight spawned. `fixPlanOf` needs
+  the batch size the run has not pinned yet, and the
   batch size changes no route, so the routing alone is computed: each
   recorded decision's `routeOfDecision`, the one rule `planFixes`
   routes by. The continuation is refused when none is `fixer`:
@@ -190,8 +193,12 @@ flowchart TD
   with the code kept; nothing to continue; start a new run with --fresh
   to review it again`, with `its review ranked no finding` in place of
   the counts for an empty ranking, a `ReviewRefusedError` (exit 2).
-  Nothing is appended.
-- The run's spend, `budgetSpendOf` over both passes, is then held to
+  Nothing is appended. A run that went on without its survey is then
+  refused unless the flags settle every check (see the survey's second
+  question below).
+- The runtime is then held to the pinned one, with `--fresh` as the way
+  out, and the run's spend, `budgetSpendOf` over both passes with the
+  adapter of that runtime, is held to
   the run budget in force, `limitsInForce` of the configuration and the
   flags. When it reaches the budget the continuation is refused before
   the pin: `run <id> spent <x> USD of the <y> USD run budget, so no
@@ -202,6 +209,11 @@ flowchart TD
   unattempted rather than blocking, so a pinned run would write a
   second report with no fix and could not be continued again. Nothing
   is appended, and the run stays complete.
+- Last, `resumePinned(run, pinned, context, 'continue')` runs the
+  pinned checks of R3 (TD6), the roles digest, the sandbox and the
+  executable's preflight, with `--fresh` as the way out. The
+  decision-step guard inside it cannot fire, since a candidate was
+  configured with the step.
 - `openRun` returns, in place of `configure`, a `continuation:
   { pin: FixPinned, report: string } | null`; the controller appends the
   pin where it appends the configuration today, before `recordLimits`,

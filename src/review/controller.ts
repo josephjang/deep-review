@@ -934,32 +934,35 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
 
 /**
  * What continuing a finished read-only run pins (R3 to R6 of fix pass
- * continuation), or a refusal that leaves it complete: the run is held to
- * its runtime, roles digest, Codex Windows sandbox and executable as a
- * resume holds a run, with `--fresh` as the way out; a run whose decisions
- * route no finding to a fixer is refused, so is one whose spend already
- * reaches the run budget in force, naming `--budget-usd`, and so is one
- * that went on without its survey unless the flags settle every check.
+ * continuation), or a refusal that leaves it complete, in this order: a
+ * run whose decisions route no finding to a fixer is refused, and so is
+ * one that went on without its survey unless the flags settle every
+ * check; the run is held to its runtime; one whose spend already reaches
+ * the run budget in force is refused, naming `--budget-usd`; and the run
+ * is held to its roles digest, Codex Windows sandbox and executable as a
+ * resume holds a run, with `--fresh` as the way out. The executable's
+ * preflight comes last, so a run refused anyway does not spawn it.
  * The pin carries the policy's per-check timeout and batch size, and the
  * flags' plan of the checks when they settle every kind.
  */
 async function continuationOf(run: RunState, context: OpenContext): Promise<{ pin: FixPinned; report: string }> {
   const review = run.review!;
   const flags = context.fix!;
-  refuseOtherRuntime(run.id, review.configuration, context.runtime, wayOut(run.id, 'continue'));
-  await resumePinned(run, review.configuration, context, 'continue');
+  // The refusals that read only the ledger and the flags come first, so a run refused anyway is not first refused for its executable, nor its preflight spawned.
   const nothing = nothingToFix(run);
   if (nothing !== null) throw new ReviewRefusedError(`run ${run.id} has no finding to fix: ${nothing}; nothing to continue; start a new run with --fresh to review it again`);
-  // The run budget counts both passes (PD7), and a fixes phase that meets it marks every fixer unattempted rather than blocking, so a run already at its budget is refused while it can still be continued.
+  const unsettled = unsettledKinds(flags);
+  if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {
+    throw new ReviewRefusedError(`run ${run.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for ${unsettled.join(', ')}, or start a new run with --fresh`);
+  }
+  refuseOtherRuntime(run.id, review.configuration, context.runtime, wayOut(run.id, 'continue'));
+  // The run budget counts both passes (PD7), and a fixes phase that meets it marks every fixer unattempted rather than blocking, so a run already at its budget is refused while it can still be continued. Its spend is read with the adapter of the run's runtime, so after the runtime is held, and before the preflight.
   const spend = budgetSpendOf(run, context.adapter);
   const { runBudgetUsd } = limitsInForce(review.configuration, context.flags, context.adapter);
   if (spend.usd !== null && runBudgetUsd !== null && spend.usd >= runBudgetUsd) {
     throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker({ ...spend, usd: spend.usd }, runBudgetUsd).detail}, so no fixer could launch; nothing to continue; run it again with --budget-usd above ${spend.usd.toFixed(2)}, or ${wayOut(run.id, 'continue')}`);
   }
-  const unsettled = unsettledKinds(flags);
-  if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {
-    throw new ReviewRefusedError(`run ${run.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for ${unsettled.join(', ')}, or start a new run with --fresh`);
-  }
+  await resumePinned(run, review.configuration, context, 'continue');
   const policy = readPolicy(context.rolesRoot);
   const plannedChecks = unsettled.length === 0 ? [...resolveChecks(null, flags).checks] : null;
   return {

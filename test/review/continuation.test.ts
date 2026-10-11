@@ -33,6 +33,24 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.ok(Object.values(state.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1'), 'the fixer launched');
   });
 
+  it('refuses a run with nothing to fix for that, not for a pinned executable that no longer qualifies, whose preflight comes last', async (t) => {
+    const box = ReviewSandbox.forTest(t, { ...oneFix, decider: { output: deciderAnswer([{ decision: 'leave' }]) } });
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    await assert.rejects(box.fix('claude', {}, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError
+      && error.message === `run ${finished.id} has no finding to fix: 0 decided fix, 1 left, 0 asked with the code kept; nothing to continue; start a new run with --fresh to review it again`);
+    assert.equal(box.run().lastSequence, finished.lastSequence, 'nothing was appended');
+  });
+
+  it('refuses a run that went on without its survey for its unsettled checks, not for a pinned executable that no longer qualifies', async (t) => {
+    const box = ReviewSandbox.forTest(t, { ...oneFix, surveyor: { exit: 2 } });
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    await assert.rejects(box.fix('claude', { fix: { commands: {}, dropped: ['build', 'typecheck'] } }, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError
+      && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for lint, test, or start a new run with --fresh`);
+    assert.equal(box.run().lastSequence, finished.lastSequence, 'nothing was appended');
+  });
+
   it('says how to continue an active read-only run resumed with --fix only when it was configured with the decision step, which a continuation needs (R10)', async (t) => {
     const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
     assert.equal((await box.review('claude')).kind, 'blocked');

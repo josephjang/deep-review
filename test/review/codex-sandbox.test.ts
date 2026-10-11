@@ -10,7 +10,7 @@ import type { RuntimeAdapter } from '../../src/runtime/adapter.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { captureScope } from '../../src/scope/capture.ts';
-import { fixerAnswer } from '../helpers/fake-runtime.ts';
+import { deciderAnswer, fixerAnswer } from '../helpers/fake-runtime.ts';
 import { fakeCheckCommand, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** One launch as the spying runtimes saw it: the runtime and the pinned options its plan handed the adapter. */
@@ -120,7 +120,11 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
 
   it('refuses to continue a finished read-only run into the fix pass under another sandbox, naming --fresh rather than abandoning a run that is complete (R3 of fix pass continuation)', async (t) => {
     const { box, codex } = spied(t);
-    box.script({});
+    // A finding decided fix, so the continuation is refused for its sandbox, not for having nothing to fix, which is refused first.
+    box.script({
+      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      decider: { output: deciderAnswer([{}]) },
+    });
     reportText(await codex({ flags: { codexWindowsSandbox: 'elevated' } }));
     const finished = box.run();
     await assert.rejects(codex({ flags: { codexWindowsSandbox: 'none' }, fix: ReviewSandbox.checkFlags() }), (error: unknown) => error instanceof ReviewRefusedError
