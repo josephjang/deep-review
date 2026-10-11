@@ -16,7 +16,7 @@ const expectedRoles = [
   'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS',
   'deduplication', 'verifier', 'sweep', 'merge-rank',
   'decider',
-  'fixer', 'documentation', 'test-assessment', 'auditor', 'answer',
+  'fixer', 'documentation', 'test-assessment', 'answer',
 ];
 
 /** The roles whose prompt opens with the lead reviewer's brief. */
@@ -60,7 +60,6 @@ describe('the repository\'s roles/', () => {
     ['analyst-brief.md', /angles are defined below[\s\S]*output contract below\s+the angle definitions/, ['angles-analyst.md', 'finder-output.md']],
     ['scout-brief.md', /angles are defined below[\s\S]*output contract below\s+the angle definitions/, ['angles-scout.md', 'finder-output.md']],
     ['conventions-brief.md', /angle is defined below[\s\S]*output contract below\s+the angle definition/, ['angles-conventions.md', 'finder-output.md']],
-    ['auditor-brief.md', /three verdict definitions below/, ['step3-verdicts.md']],
     ['phase1-finders.md', /finder angles are defined below/, ['angles-scan.md', 'angles-analyst.md', 'angles-scout.md', 'angles-conventions.md']],
   ];
 
@@ -205,9 +204,9 @@ describe('the repository\'s roles/', () => {
   });
 
   it('tells no worker that returns to the engine to dispatch other workers', () => {
-    // The auditor and the fixer roles each return one report; starting workers is the engine's job.
-    const returning = roles.filter((role) => ['auditor-brief.md', 'fixer-role.md'].includes(role.fragments[0]!.name));
-    assert.deepEqual(returning.map((role) => role.key), ['fixer', 'documentation', 'auditor', 'answer']);
+    // The fixer roles each return one report; starting workers is the engine's job.
+    const returning = roles.filter((role) => role.fragments[0]!.name === 'fixer-role.md');
+    assert.deepEqual(returning.map((role) => role.key), ['fixer', 'documentation', 'answer']);
     assert.deepEqual(returning.filter((role) => /\bdispatch/i.test(role.prompt)).map((role) => role.key), []);
   });
 
@@ -409,7 +408,7 @@ describe('the repository\'s roles/', () => {
 
   it('gives the rules every rubric shares first, then each rubric as checks, grades and what separates them (R1, R2, R4 of the verifier rubric)', () => {
     const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
-    // The first section keeps the name the auditor's verdicts call the gate by, whatever stands between its two halves.
+    // The first section keeps the gate's name, "verify before you judge", whatever stands between its two halves.
     const headings = [...rubric.matchAll(/^### (.+)$/gm)].map((match) => match[1]!);
     const expected = [/^All rubrics .+ verify before you judge$/, /^Rubric for the correctness & cost angles$/, /^Rubric for the design & cleanup angles$/, /^Rubric for the CONVENTIONS angle$/];
     assert.equal(headings.length, expected.length, headings.join(' | '));
@@ -484,20 +483,6 @@ describe('the repository\'s roles/', () => {
     }
     const leadVerify = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'lead-verify.md'), 'utf8').replace(/\s+/g, ' ');
     assert.ok(leadVerify.includes('The other two go to the decision step, which decides what is done about the finding; each rubric says in its first lines what its PLAUSIBLE tells that step.'));
-  });
-
-  it('cites to the rubric\'s "verify before you judge" gate no feasibility rule the gate does not state', () => {
-    // The auditor's prompt does not carry the rubric, so its verdicts state the feasibility rule themselves; a sentence crediting it to the gate would be false.
-    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'rubrics.md'), 'utf8');
-    const gate = rubric.slice(rubric.indexOf('### All rubrics'), rubric.indexOf('### Rubric for the correctness & cost angles'));
-    assert.doesNotMatch(gate, /feasib/i);
-    const auditor = roles.find((role) => role.key === 'auditor')!;
-    assert.ok(!auditor.fragments.some((fragment) => fragment.name === 'rubrics.md'));
-    const prompt = auditor.prompt.replace(/\s+/g, ' ');
-    const citing = prompt.split(/(?<=\.) /).filter((sentence) => sentence.includes('"verify before you judge"'));
-    assert.ok(citing.length > 0, 'the auditor no longer names the gate');
-    for (const sentence of citing) assert.doesNotMatch(sentence, /feasib/i, sentence);
-    assert.ok(prompt.includes('Route a refactor here only once you\'ve confirmed it is feasible, by sketching its concrete target (an unworkable target is REFUTE)'));
   });
 
   it('names no mechanism of one runtime in any prompt', () => {
@@ -605,7 +590,7 @@ describe('scripts/roles.ts', () => {
     assert.equal(result.status, 0, result.stderr);
     const lines = result.stdout.trim().split('\n');
     assert.deepEqual(lines.slice(0, -1).map((line) => line.split('\t')[0]), expectedRoles);
-    assert.match(lines.at(-1)!, /^Wrote 22 prompts to /);
+    assert.match(lines.at(-1)!, new RegExp(`^Wrote ${String(expectedRoles.length)} prompts to `));
     assert.deepEqual(readdirSync(output).sort(), expectedRoles.map((key) => `${key}.md`).sort());
     for (const role of assembleRoles(repositoryRolesRoot())) {
       assert.equal(readFileSync(join(output, `${role.key}.md`), 'utf8'), role.prompt, role.key);

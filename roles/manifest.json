@@ -151,10 +151,6 @@
       "rubrics.md",
       "postreview-fix-test.md"
     ],
-    "auditor": [
-      "auditor-brief.md",
-      "step3-verdicts.md"
-    ],
     "answer": [
       "fixer-role.md",
       "fixer-brief.md",

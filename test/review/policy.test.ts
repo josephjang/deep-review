@@ -305,9 +305,9 @@ describe('resolvePolicy against the manifest and the runtime', () => {
     assert.throws(() => resolvePolicy(policy, roles, claudeAdapter, {}, 'win32'), /names documentation, which the review does not run/);
     const both = changed((copy) => {
       delete copy.roles.sweep;
-      copy.roles.auditor = { tier: 'strong', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 };
+      copy.roles['test-assessment'] = { tier: 'strong', effort: 'high', budgetUsd: 8, timeoutMs: 600_000 };
     });
-    assert.throws(() => resolvePolicy(both, roles, claudeAdapter, {}, 'win32'), /does not name sweep and names auditor/);
+    assert.throws(() => resolvePolicy(both, roles, claudeAdapter, {}, 'win32'), /does not name sweep and names test-assessment/);
   });
 
   it('refuses a policy role the manifest does not declare', () => {
@@ -407,6 +407,6 @@ describe('rolesDigest', () => {
 describe('pinnedRole', () => {
   it('names the role it cannot find and the roles it has', () => {
     const resolved = resolvePolicy(committed, roles, claudeAdapter, {}, 'win32');
-    assert.throws(() => pinnedRole(resolved.roles, 'auditor'), /pins no role auditor; it pins surveyor, triage, finder-REMOVALS/);
+    assert.throws(() => pinnedRole(resolved.roles, 'test-assessment'), /pins no role test-assessment; it pins surveyor, triage, finder-REMOVALS/);
   });
 });

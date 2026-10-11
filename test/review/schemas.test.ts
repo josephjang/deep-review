@@ -38,8 +38,8 @@ describe('the output schemas', () => {
 
   it('does not compile a role the review does not run, and gives the fixer its own schema', () => {
     // The typecheck is the assertion: the directive fails `npm run typecheck` if `outputSchemaOf` ever accepts a role outside `reviewRoles`.
-    // @ts-expect-error: the auditor is not run, so it has no output schema here
-    void (() => outputSchemaOf('auditor'));
+    // @ts-expect-error: the test-assessment role is not run, so it has no output schema here
+    void (() => outputSchemaOf('test-assessment'));
     assert.equal(outputSchemaOf('fixer'), fixerOutputSchema);
   });
 
