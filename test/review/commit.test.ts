@@ -6,7 +6,7 @@ import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
-import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
+import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { baseEnvironment, type Finished, node } from '../helpers/launcher.ts';
 import { git, write } from '../helpers/repository.ts';
 import { afterFind, otherEngine, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
@@ -56,6 +56,51 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[1]!.sha), /\n\nDeep-review: run [0-9a-f-]+, partial edits of an unfinished attempt of batch c1-1$/);
     assert.deepEqual(git(box.repo, 'diff-tree', '--no-commit-id', '--name-only', '-r', outcome.commits[1]!.sha).split('\n'), ['test/a.test.ts']);
     assert.equal(git(box.repo, 'status', '--porcelain'), '');
+  });
+
+  it('commits an answer pass\'s revisions as a later series from the last commit it made, without the change again (R6, R8 of answers)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n');
+    const ruled = 'export function parse(text: string | null) {\n  if (text === null) throw new Error(\'parse throws on a null input\');\n  return text.length;\n}\n';
+    const runId = await fixRun(box, {
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads } },
+      decider: { output: deciderAnswer([{ departs: true }]) },
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+      'fixer:answer:pass-1': { edits: [{ writes: { 'src/a.ts': ruled }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Throw on a null text, as the rule says' }]) },
+    });
+    const first = commitRun({ checkpoint: box.checkpoint, worktree: box.repo, changeMessage: 'feat: Accept a null text' });
+    assert.deepEqual(first.commits.map((commit) => commit.subject), ['feat: Accept a null text', 'fix(a): Return 0 for a null text']);
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId }), refused(/commits were already created, and it has no revision since/));
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo }), refused(/no completed fix run has changes left to commit/), 'with no --run, no run is committable');
+
+    // The author rejects the departure; the pass runs on the committed run, its HEAD the series' last commit, not the scope's head.
+    const id = box.run().review!.decisions![0]!.id;
+    box.checkpoint.append(runId, box.run().lastSequence, [{ kind: 'answer.recorded', version: 1, payload: { id, answer: { kind: 'reject' }, note: null } }, { kind: 'answer.pass', version: 1, payload: { ids: [id] } }]);
+    const outcome = await box.review('claude');
+    assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
+    const passed = box.run();
+    assert.equal(passed.review!.fix!.revisions.length, 2);
+    assert.deepEqual(passed.review!.answers[0]!.appliedBy, { phase: 'answer', key: 'pass-1' });
+    assert.ok(!passed.review!.checks.some((check) => check.drifted), 'HEAD at the last commit made for the run is no drift');
+
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, changeMessage: 'feat: Again' }), refused(/change was committed with its first series, so there is no change to commit first; leave out --change-message/));
+    // A commit on top moves HEAD past the run's head, which is refused naming the last commit made for the run.
+    write(box.repo, 'other.txt', 'x\n');
+    git(box.repo, 'add', 'other.txt');
+    git(box.repo, 'commit', '-q', '-m', 'chore: Add other');
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo }), refused(new RegExp(`^HEAD is [0-9a-f]+, not ${first.commits[1]!.sha}, the last commit made for run ${runId}; `)));
+    git(box.repo, 'reset', '-q', '--soft', 'HEAD~1');
+    const later = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
+    assert.equal(later.runId, runId, 'with no --run, the run with an uncommitted revision is chosen');
+    assert.deepEqual(later.commits.map((commit) => commit.subject), ['fix(a): Throw on a null text, as the rule says']);
+    assert.equal(git(box.repo, 'rev-parse', `${later.commits[0]!.sha}^`), first.commits[1]!.sha, 'built on the last commit of the first series');
+    assert.equal(git(box.repo, 'show', `${later.commits[0]!.sha}:src/a.ts`), ruled.trimEnd());
+    assert.match(git(box.repo, 'log', '-1', '--format=%B', later.commits[0]!.sha), new RegExp(`\\n\\nDeep-review: run ${runId}, answer to ${id} \\(SCAN, PLAUSIBLE\\)$`));
+    assert.deepEqual(later.unstaged, ['other.txt'], 'the file of the commit that was undone stays, unstaged');
+    assert.equal(git(box.repo, 'status', '--porcelain'), '?? other.txt');
+    const series = box.run().review!.fix!.commits;
+    assert.deepEqual(series.map((entry) => [entry.to, entry.commits.map((commit) => commit.revision)]), [[first.commits[1]!.sha, ['change', 0]], [later.commits[0]!.sha, [1]]]);
+    assert.equal(series[1]!.from, first.commits[1]!.sha);
   });
 
   it('commits the captured change first in worktree mode, from its frozen bytes, with the message given, and refuses without one', async (t) => {

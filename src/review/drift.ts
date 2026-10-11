@@ -1,7 +1,9 @@
 /**
  * The worktree check (R7, PD11, TD2, TD3 of the fix pass): the tree
  * compared with what the run expects, the scope's after states overlaid by
- * every revision, and `HEAD` with the scope's head. In a phase that reads,
+ * every revision, and `HEAD` with the run's head, the scope's head or the
+ * last commit `deep-review commit` made for the run (`runHead`, PD7 of
+ * answers). In a phase that reads,
  * every expected file is compared. In an editing phase the check at the
  * attempt's start leaves out the files of every unit that has no recorded
  * answer and has not failed, since a fixer editing its own files is the
@@ -10,7 +12,7 @@
  * every expected file.
  */
 import { maxStraysPerCheck, type WorktreeCheckV5 } from '../checkpoint/events.ts';
-import { isNotAttempted, ownedFiles } from '../checkpoint/fix-state.ts';
+import { isNotAttempted, ownedFiles, runHead } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered } from '../checkpoint/review-fold.ts';
 import { unitsOf } from './steps.ts';
@@ -41,10 +43,10 @@ export interface DriftFound {
   readonly head: WorktreeCheckV5['head'];
 }
 
-/** Compare the worktree with what the run expects by `match`, as git would store each file (R22), leaving out `excluded`; reads only the expected files and `HEAD`. */
+/** Compare the worktree with what the run expects by `match`, as git would store each file (R22), leaving out `excluded`, and `HEAD` with the run's head; reads only the expected files and `HEAD`. */
 export function findDrift(state: RunState, worktree: string, match: ExpectedMatch, excluded: ReadonlySet<string> = new Set()): DriftFound {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  return { files: compareExpected(expectedTreeOf(state), worktreeReader(worktree), excluded, match), head: headMoved(worktree, state.scope.head) };
+  return { files: compareExpected(expectedTreeOf(state), worktreeReader(worktree), excluded, match), head: headMoved(worktree, runHead(state)) };
 }
 
 export const drifted = (found: DriftFound): boolean => found.files.length > 0 || found.head !== null;

@@ -6,7 +6,10 @@
  * temporary index, commits with commit-tree), so no file of the worktree
  * is written and no hook runs; the branch, or a detached HEAD, moves once
  * at the end with a compare-and-swap against the head the command started
- * from, and the index is reset to it so the tree shows clean.
+ * from, and the index is reset to it so the tree shows clean. A run whose
+ * revisions were committed and that then gained revisions in an answer
+ * pass is committed again, as a later series from the last commit the
+ * first made (R8 of answers).
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -14,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { CommitsCreated, FrozenFile, TreeRevised } from '../checkpoint/events.ts';
-import { revisionMessageOf } from '../checkpoint/fix-state.ts';
+import { committedRevisions, revisionMessageOf, runHead } from '../checkpoint/fix-state.ts';
 import { attemptOwner } from './fix-events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
@@ -71,14 +74,19 @@ function git(worktree: string, args: readonly string[], options: { readonly env?
   }
 }
 
-/** Why a run cannot be committed, or null when it can: a fix run with its report, at least one revision, and no commits yet. */
+/**
+ * Why a run cannot be committed, or null when it can: a fix run with its
+ * report and a revision no series of commits holds yet, which is every
+ * revision of a run never committed and the revisions an answer pass
+ * added after its commits (R8 of answers).
+ */
 function whyNotCommittable(run: RunState): string | null {
   const fix = run.review?.fix ?? null;
   if (run.status !== 'active') return `run ${run.id} is ${run.status}; only a completed fix run is committed`;
   if (run.review === null || fix === null) return `run ${run.id} ran without --fix, so it has no fixes to commit`;
   if (run.review.report === null) return `run ${run.id} has no report yet; run the review to its report first`;
-  if (fix.commits.length > 0) return `run ${run.id}'s commits were already created: ${fix.commits.flatMap((series) => series.commits).map((commit) => commit.sha.slice(0, 12)).join(', ')}`;
   if (fix.revisions.length === 0) return `run ${run.id} changed no file, so there is nothing to commit`;
+  if (committedRevisions(fix) >= fix.revisions.length) return `run ${run.id}'s commits were already created, and it has no revision since: ${fix.commits.flatMap((series) => series.commits).map((commit) => commit.sha.slice(0, 12)).join(', ')}`;
   return null;
 }
 
@@ -199,24 +207,56 @@ function currentBranch(worktree: string): string {
 }
 
 /**
+ * The series of commits `commit` builds for a run now (R17 of the fix
+ * pass, R8 of answers): from the run's head, the scope's head for the
+ * first series and the last commit the series before made for a later
+ * one; the captured change first in worktree mode, by the first series
+ * only; then every revision no series holds yet, with its index among the
+ * run's revisions, in ledger order.
+ */
+interface Series {
+  readonly head: string;
+  readonly change: boolean;
+  readonly revisions: readonly { readonly index: number; readonly revision: TreeRevised }[];
+  /** Every path a commit of the series sets: the change's when it commits the change, and each revision's. */
+  readonly paths: ReadonlySet<string>;
+}
+
+function seriesOf(run: RunState): Series {
+  const scope = run.scope!;
+  const fix = run.review!.fix!;
+  const from = committedRevisions(fix);
+  const change = scope.mode === 'worktree' && fix.commits.length === 0;
+  const revisions = fix.revisions.slice(from).map((revision, offset) => ({ index: from + offset, revision }));
+  const paths = new Set([...(change ? scope.files.map((file) => file.path) : []), ...revisions.flatMap(({ revision }) => revision.files.map((file) => file.path))]);
+  return { head: runHead(run), change, revisions, paths };
+}
+
+/**
  * Refuse, naming the reason, before any object is written: a HEAD that is
- * not the scope's head; a revised path, or in worktree mode any path the
- * run expects, whose content differs from what the run recorded last, as
- * git would store each (R22 of the fix pass); a change message missing in
- * worktree mode or given in any other.
+ * not the run's head, the scope's head or, once the run has commits, the
+ * last of them (R8 of answers); a path the series commits, each revision's
+ * and in worktree mode for the first series every path of the change,
+ * whose content differs from what the run recorded last, as git would
+ * store each (R22 of the fix pass); a change message missing where the
+ * series commits the change first, or given where it does not.
  */
 function refuse(run: RunState, worktree: string, changeMessage: string | undefined, match: ExpectedMatch): void {
   const scope = run.scope!;
   const fix = run.review!.fix!;
+  const series = seriesOf(run);
   const head = git(worktree, ['rev-parse', 'HEAD']).trim();
-  if (head !== scope.head) throw new ReviewRefusedError(`HEAD is ${head}, not ${scope.head}, the head run ${run.id} reviewed; check that commit out, or commit the patch series by hand`);
-  if (scope.mode === 'worktree' && (changeMessage === undefined || changeMessage.trim() === '')) {
+  if (head !== series.head) {
+    const which = fix.commits.length === 0 ? `the head run ${run.id} reviewed` : `the last commit made for run ${run.id}`;
+    throw new ReviewRefusedError(`HEAD is ${head}, not ${series.head}, ${which}; check that commit out, or commit the patch series by hand`);
+  }
+  if (series.change && (changeMessage === undefined || changeMessage.trim() === '')) {
     throw new ReviewRefusedError(`run ${run.id} reviewed uncommitted changes, which are committed first as the change under review; give that commit's message with --change-message <text>`);
   }
   if (scope.mode !== 'worktree' && changeMessage !== undefined) throw new ReviewRefusedError(`run ${run.id} reviewed a committed change (${scope.mode}), so there is no change to commit first; leave out --change-message`);
+  if (scope.mode === 'worktree' && !series.change && changeMessage !== undefined) throw new ReviewRefusedError(`run ${run.id}'s change was committed with its first series, so there is no change to commit first; leave out --change-message`);
   const expected = expectedTree(scope, fix.revisions);
-  // The revised paths always; in worktree mode the change's own paths too, since its commit is built from their frozen bytes.
-  const committed = new Set([...fix.revisions.flatMap((revision) => revision.files.map((file) => file.path)), ...(scope.mode === 'worktree' ? scope.files.map((file) => file.path) : [])]);
+  const committed = series.paths;
   const differs = compareExpected(new Map([...expected].filter(([path]) => committed.has(path))), worktreeReader(worktree), new Set(), match);
   if (differs.length > 0) {
     throw new ReviewRefusedError(`the worktree no longer holds what run ${run.id} recorded at ${differs.map((file) => `${file.path} (${file.outcome})`).join(', ')}; undo those edits, or commit the patch series by hand`);
@@ -257,46 +297,47 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
   const { checkpoint, worktree } = options;
   const scope = run.scope!;
   const fix = run.review!.fix!;
-  // Every byte is read and checked before any object is written, so an unfreezable file refuses with nothing built.
-  for (const [path, file] of expectedTree(scope, fix.revisions)) if (file !== null) bytesOf(checkpoint, path, file.frozen);
+  const series = seriesOf(run);
+  // Every byte the series commits is read and checked before any object is written, so an unfreezable file refuses with nothing built.
+  for (const [path, file] of expectedTree(scope, fix.revisions)) if (file !== null && series.paths.has(path)) bytesOf(checkpoint, path, file.frozen);
 
   const temporary = mkdtempSync(join(tmpdir(), 'deep-review-commit-'));
   try {
-    const trees = new TreeBuilder(worktree, checkpoint, join(temporary, 'index'), scope.head);
+    // A later series starts from the tree of the last commit made for the run, which holds every revision before it (PD7 of answers).
+    const trees = new TreeBuilder(worktree, checkpoint, join(temporary, 'index'), series.head);
     const made: (CommitsCreated['commits'][number])[] = [];
-    let parent = scope.head;
+    let parent = series.head;
     const commit = (message: string, revision: number | 'change'): void => {
       const tree = trees.write();
       const sha = git(worktree, ['commit-tree', tree, '-p', parent, '-F', '-'], { input: message }).trim();
       made.push({ sha, revision, subject: subjectOf(message) });
       parent = sha;
     };
-    if (scope.mode === 'worktree') {
+    if (series.change) {
       for (const file of scope.files) trees.set(file.path, file.after === null ? null : { frozen: file.after, symlink: file.symlink });
       commit(messageOf(options.changeMessage!, '', null), 'change');
     }
-    fix.revisions.forEach((revision, index) => {
+    for (const { index, revision } of series.revisions) {
       for (const file of revision.files) trees.set(file.path, file.after === null ? null : { frozen: file.after, symlink: file.symlink });
       const message = revisionMessageOf(fix, revision);
       commit(messageOf(message.subject, message.body, trailer(run, revision)), index);
-    });
+    }
 
     // What the user had staged that no commit holds is unstaged by the reset below, and named; nothing is lost from the tree.
-    const committed = new Set([...(scope.mode === 'worktree' ? scope.files.map((file) => file.path) : []), ...fix.revisions.flatMap((revision) => revision.files.map((file) => file.path))]);
-    const staged = git(worktree, ['diff', '--cached', '--name-only', '-z', 'HEAD']).split('\0').filter((path) => path.length > 0 && !committed.has(path));
+    const staged = git(worktree, ['diff', '--cached', '--name-only', '-z', 'HEAD']).split('\0').filter((path) => path.length > 0 && !series.paths.has(path));
 
     options.beforeMove?.();
     const last = parent;
     const branch = currentBranch(worktree);
     try {
       // The compare-and-swap: the ref moves only from the head the command started from.
-      if (branch === '') git(worktree, ['update-ref', '--no-deref', '-m', `deep-review commit: run ${run.id}`, 'HEAD', last, scope.head]);
-      else git(worktree, ['update-ref', '-m', `deep-review commit: run ${run.id}`, branch, last, scope.head]);
+      if (branch === '') git(worktree, ['update-ref', '--no-deref', '-m', `deep-review commit: run ${run.id}`, 'HEAD', last, series.head]);
+      else git(worktree, ['update-ref', '-m', `deep-review commit: run ${run.id}`, branch, last, series.head]);
     } catch (error) {
       throw new ReviewRefusedError(`${branch === '' ? 'HEAD' : branch} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${(error as Error).message}`);
     }
     git(worktree, ['reset', '-q']);
-    const payload: CommitsCreated = { commits: made, from: scope.head, to: last };
+    const payload: CommitsCreated = { commits: made, from: series.head, to: last };
     const state = checkpoint.fold(run.id);
     checkpoint.append(run.id, state.lastSequence, [{ kind: 'commits.created', version: 1, payload }]);
     return { runId: run.id, commits: made.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: staged };

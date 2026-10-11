@@ -49,7 +49,13 @@ const subjectLength = 72;
 /** The longest commit body the ledger records. */
 const bodyLength = 4000;
 
-/** What the run expects of a path its expected tree does not name: what the scope's head commit held there. */
+/**
+ * What the run expects of a path its expected tree does not name: what
+ * the scope's head commit held there. The scope's head and not the run's:
+ * a commit `deep-review commit` made for the run changes only paths the
+ * expected tree names, so a path outside it holds at the run's head what
+ * it held at the scope's (PD7 of answers).
+ */
 function baseOf(context: RevisionContext): BaseReader {
   const head = context.state.scope?.head;
   if (head === undefined) throw new Error(`Run ${context.state.id} has no scope`);

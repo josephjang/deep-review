@@ -1459,7 +1459,7 @@ export const phaseFinishedV6 = z.strictObject({
 });
 export type PhaseFinished = z.infer<typeof phaseFinishedV6>;
 
-/** `worktree.checked` over the eighteen phases. */
+/** `worktree.checked` over the eighteen phases; from this version on, the head it expects is the run's head, the last commit `deep-review commit` made for the run once it made one (R6 of answers). */
 export const worktreeCheckedV5 = z.strictObject({
   ...worktreeCheckedV2.shape,
   phase: phaseSchemaV6,
