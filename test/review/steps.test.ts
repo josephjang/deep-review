@@ -388,7 +388,7 @@ describe('nextStep', () => {
     }
     assert.ok(!kinds.has('blocked') && !kinds.has('await'), [...kinds].join(', '));
     assert.deepEqual([...kinds].sort(), ['check-worktree', 'complete', 'degrade', 'finish-phase', 'launch', 'plan-verification', 'start-phase', 'write-report']);
-    assert.equal(phases.length, 16, 'the walk covers a run without the fix pass, the survey and the decision; the fix phases are walked by the fix planner tests, the survey by the survey planner tests, and the decision by the walk below');
+    assert.equal(phases.length, 18, 'the walk covers a run without the fix pass, the survey, the decision and the answer pass; the fix phases are walked by the fix planner tests, the survey by the survey planner tests, the decision by the walk below, and the answer pass by the answer planner tests');
   });
 
   it('gives a step at every prefix of a whole run with the survey and the decision, launching the decider once the ranking is recorded', () => {

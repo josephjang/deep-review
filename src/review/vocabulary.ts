@@ -62,19 +62,22 @@ export const isFinderRole = (role: ReviewRole): role is FinderRole => role.start
 /**
  * The phases of a review, in the order they run (R2 of the read-only
  * review, R1 of the fix pass, R1 of the repository survey, R1 of the
- * decision step): the survey, which a run configured before it existed
- * records as skipped, the read-only phases, the decision, which a run
- * configured before it existed records as skipped and every later run
- * runs, `--fix` or not, then the five of the fix pass, which a run without
- * `--fix` records as skipped, then `report`, a phase with no worker that
- * is started so the worktree check before the report has a phase to
- * block, and finished when the report is written.
+ * decision step, R9 of answers): the survey, which a run configured
+ * before it existed records as skipped, the read-only phases, the
+ * decision, which a run configured before it existed records as skipped
+ * and every later run runs, `--fix` or not, then the five of the fix pass,
+ * which a run without `--fix` records as skipped, then the two of the
+ * answer pass, which every run records as skipped and only an
+ * `answer.pass` opens, then `report`, a phase with no worker that is
+ * started so the worktree check before the report has a phase to block,
+ * and finished when the report is written.
  */
 export const phases = [
   'survey',
   'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
   'decision',
   'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+  'answer', 'answer-checks',
   'report',
 ] as const;
 export const phaseSchema = z.enum(phases);
@@ -84,13 +87,23 @@ export type Phase = z.infer<typeof phaseSchema>;
 export const fixPhases = ['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks'] as const;
 export type FixPhase = (typeof fixPhases)[number];
 
-/** The phases that run the repository's checks and no worker: before any edit, after the fixes, after the repair. */
-export const checkPhases = ['baseline-checks', 'checks', 'repair-checks'] as const;
+/**
+ * The two phases of the answer pass, in the order they run (R5 of
+ * answers): one fixer applies the answers that owe an edit, then the
+ * checks run again. Every configuration skips them; an `answer.pass` on a
+ * complete fix run opens them, so `configure` skips them and `fixPhases`
+ * does not hold them.
+ */
+export const answerPhases = ['answer', 'answer-checks'] as const;
+export type AnswerPhase = (typeof answerPhases)[number];
+
+/** The phases that run the repository's checks and no worker: before any edit, after the fixes, after the repair, after an answer pass. */
+export const checkPhases = ['baseline-checks', 'checks', 'repair-checks', 'answer-checks'] as const;
 export const checkPhaseSchema = z.enum(checkPhases);
 export type CheckPhase = z.infer<typeof checkPhaseSchema>;
 
-/** The phases whose workers edit the tree: one fixer per batch of a cluster's findings, then the one repair worker. */
-export const editingPhases = ['fixes', 'repair'] as const;
+/** The phases whose workers edit the tree: one fixer per batch of a cluster's findings, then the one repair worker, then an answer pass's one fixer. */
+export const editingPhases = ['fixes', 'repair', 'answer'] as const;
 export const editingPhaseSchema = z.enum(editingPhases);
 export type EditingPhase = z.infer<typeof editingPhaseSchema>;
 
@@ -99,6 +112,16 @@ export const isEditingPhase = (phase: Phase): phase is EditingPhase => (editingP
 
 /** The unit key of the one repair worker. */
 export const repairUnitKey = 'repair';
+
+/**
+ * The editing phases whose units the run budget settles as not attempted
+ * instead of blocking (R19 of the fix pass): the fixes and the repair, so
+ * their edits reach a report. The answer pass's one fixer blocks at the
+ * budget before its launch, as a reading phase's worker does (TD8 of
+ * answers).
+ */
+export const budgetDegradingPhases = ['fixes', 'repair'] as const satisfies readonly EditingPhase[];
+export const isBudgetDegradingPhase = (phase: Phase): phase is (typeof budgetDegradingPhases)[number] => (budgetDegradingPhases as readonly string[]).includes(phase);
 
 /** A fix cluster id as the plan assigns it: `c` and a number from 1, in the order of each cluster's best-ranked finding. */
 export const clusterIdSchema = z.string().regex(/^c[1-9][0-9]*$/, 'a cluster id is c and a number from 1');
@@ -276,6 +299,14 @@ export type Verdict = z.infer<typeof verdictSchema>;
 export const decisionKinds = ['fix', 'leave', 'ask'] as const;
 export const decisionKindSchema = z.enum(decisionKinds);
 export type DecisionKind = z.infer<typeof decisionKindSchema>;
+
+/**
+ * What a person's answer to a decided finding is (R1, R3 of answers, PD2):
+ * one of an ask's options, or the acceptance or the rejection of a fix's
+ * departure from a rule. Every reader of an answer switches on it.
+ */
+export const answerKinds = ['option', 'accept', 'reject'] as const;
+export type AnswerKind = (typeof answerKinds)[number];
 
 /** How many of the decisions are of each kind (R8 of the decision step). */
 export function decisionCounts(decisions: readonly { readonly decision: DecisionKind }[]): Record<DecisionKind, number> {

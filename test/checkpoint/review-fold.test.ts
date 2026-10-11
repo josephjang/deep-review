@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
-import { finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
+import { answerPhases, finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { History, askDecision, baselined, candidate, configuration, configurationV1, configured, decidedOf, decisions, finding, fixPlan, found, launch, leads, mergeRanked, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
@@ -10,12 +10,14 @@ describe('the review fold', () => {
     const before = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).fold();
     assert.equal(before.review, null);
     const review = configured().review();
-    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped, and without the survey and the decision step, which did not exist yet.
+    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped, without the survey and the decision step, which did not exist yet, and, as every run, with the answer pass's two phases skipped.
     assert.deepEqual(review.configuration, configuration);
     assert.equal(review.configuration.fix, false);
     assert.equal(review.fix, null);
     assert.deepEqual(review.limits, { concurrency: 4, runBudgetUsd: 30 }, 'the limits in force start as the pinned ones');
-    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: (fixPhases as readonly string[]).includes(phase) || phase === 'survey' || phase === 'decision' ? 'skipped' : 'pending', attempt: 0 }])));
+    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: [...fixPhases, ...answerPhases].includes(phase as never) || phase === 'survey' || phase === 'decision' ? 'skipped' : 'pending', attempt: 0 }])));
+    assert.deepEqual(review.answers, [], 'nobody has answered');
+    assert.deepEqual(review.answerPasses, []);
     assert.equal(review.decisions, null);
     assert.equal(review.survey, null);
     assert.equal(review.blocker, null);
@@ -172,7 +174,28 @@ describe('the review fold', () => {
     const review = reported().review();
     assert.deepEqual(review.ranking, ranking);
     assert.deepEqual(review.report, { report: reference('e', 2048), statistics, patches: [] }, 'version 1 of the report reads as one with no patch');
-    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+  });
+
+  it('skips the answer pass\'s two phases at every version of the configuration, fix run or not, which only an answer pass opens (R9 of answers)', () => {
+    const configuredAt = (version: number, payload: Record<string, unknown>): ReviewState => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', payload, version).review();
+    const v3 = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' } };
+    const fixing = { fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 } };
+    const payloads: [number, Record<string, unknown>][] = [
+      [1, configurationV1],
+      [2, { ...configurationV1, fix: false, checks: null, fixes: null }],
+      [2, { ...configurationV1, ...fixing }],
+      [3, v3],
+      [3, { ...v3, ...fixing }],
+      [4, { ...v3, codex: null }],
+      [5, { ...v3, codex: null }],
+      [5, { ...v3, ...fixing, codex: null }],
+    ];
+    for (const [version, payload] of payloads) {
+      const review = configuredAt(version, payload);
+      for (const phase of answerPhases) assert.deepEqual(review.phases[phase], { status: 'skipped', attempt: 0 }, `${phase} at version ${String(version)}, fix ${String(payload.fix ?? false)}`);
+    }
+    assert.throws(() => reported().start('answer').fold(), (error: unknown) => error instanceof InvalidHistoryError && /starts phase answer, which this run skips: no answer pass has opened it/.test(error.message));
   });
 
   it('runs the decision of a run configured at version 5, and skips it at version 4 and earlier, whatever else the run does (R10 of the decision step)', () => {

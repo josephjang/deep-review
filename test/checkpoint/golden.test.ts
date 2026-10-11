@@ -10,7 +10,7 @@ import { checkpointIdentity, type CheckpointIdentity } from '../../src/checkpoin
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ArtifactReference } from '../../src/evidence/store.ts';
-import { fixPhases } from '../../src/review/vocabulary.ts';
+import { answerPhases, fixPhases } from '../../src/review/vocabulary.ts';
 
 const fixturesRoot = resolve(import.meta.dirname, '../fixtures/checkpoints');
 /** Fixture directories are schema-<schema>-<serial>; the serial advances when the registry changes. */
@@ -78,6 +78,18 @@ function withFailureCauses(recorded: RunState): RunState {
   return { ...recorded, review: { ...review, units } } as unknown as RunState;
 }
 
+/**
+ * The run as recorded, its fix state's commits, which an engine recorded
+ * before answers as one series or null, in the shape the fold now gives: a
+ * list of every series, of that one or none (R8 of answers).
+ */
+function withCommitSeries(recorded: RunState): RunState {
+  const review = recorded.review as { readonly fix?: { readonly commits?: unknown } | null } | null;
+  const commits = review?.fix?.commits;
+  if (commits === undefined || Array.isArray(commits)) return recorded;
+  return { ...recorded, review: { ...review, fix: { ...review!.fix, commits: commits === null ? [] : [commits] } } } as unknown as RunState;
+}
+
 describe('golden checkpoints', () => {
   let sandbox: string;
   const opened: Checkpoint[] = [];
@@ -109,7 +121,7 @@ describe('golden checkpoints', () => {
         assert.equal(runs.length, expected.runs.length);
         for (const [index, recorded] of expected.runs.entries()) {
           const actual: Record<string, unknown> = { ...runs[index] };
-          assertHolds(actual, withFailureCauses(recorded), `${name} run ${String(index)}`);
+          assertHolds(actual, withCommitSeries(withFailureCauses(recorded)), `${name} run ${String(index)}`);
           // A run recorded before workers existed has none (R11 of the runtime adapter).
           if (!('workers' in recorded)) assert.deepEqual(actual.workers, {}, `${name} run ${String(index)} workers`);
           // A run recorded before reviews existed has no review (R10 of the read-only review).
@@ -137,6 +149,12 @@ describe('golden checkpoints', () => {
           if (review?.fix != null && recordedFix !== null && !('claims' in recordedFix)) {
             assert.deepEqual(review.fix.claims, [], `${name} run ${String(index)} fix.claims`);
             assert.deepEqual(review.fix.lostClaims, [], `${name} run ${String(index)} fix.lostClaims`);
+          }
+          // A review recorded before answers existed reads as one nobody answered, its answer pass's two phases skipped (R9 of answers).
+          if (review !== null && !('answers' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.deepEqual(review.answers, [], `${name} run ${String(index)} answers`);
+            assert.deepEqual(review.answerPasses, [], `${name} run ${String(index)} answerPasses`);
+            for (const phase of answerPhases) assert.equal(review.phases[phase].status, 'skipped', `${name} run ${String(index)} ${phase}`);
           }
           // A configuration recorded before the Codex Windows sandbox was pinned reads as unelevated for a Codex run on Windows, the only sandbox the engine used there then, and as none for a Codex run whose worktree is rooted at / or for another runtime (R3 of the Codex sandbox).
           const recordedConfiguration = (recorded as { review?: { configuration?: object } | null }).review?.configuration;

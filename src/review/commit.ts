@@ -75,7 +75,7 @@ function whyNotCommittable(run: RunState): string | null {
   if (run.status !== 'active') return `run ${run.id} is ${run.status}; only a completed fix run is committed`;
   if (run.review === null || fix === null) return `run ${run.id} ran without --fix, so it has no fixes to commit`;
   if (run.review.report === null) return `run ${run.id} has no report yet; run the review to its report first`;
-  if (fix.commits !== null) return `run ${run.id}'s commits were already created: ${fix.commits.commits.map((commit) => commit.sha.slice(0, 12)).join(', ')}`;
+  if (fix.commits.length > 0) return `run ${run.id}'s commits were already created: ${fix.commits.flatMap((series) => series.commits).map((commit) => commit.sha.slice(0, 12)).join(', ')}`;
   if (fix.revisions.length === 0) return `run ${run.id} changed no file, so there is nothing to commit`;
   return null;
 }

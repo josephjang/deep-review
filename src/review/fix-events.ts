@@ -12,7 +12,7 @@
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { clusterClaims, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, repairTargets, roundOf, type PathHolder } from '../checkpoint/fix-state.ts';
+import { clusterClaims, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, roundOf, unitIdsOf, type PathHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { preRunStrays } from '../checkpoint/review-fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
@@ -56,11 +56,12 @@ function baseOf(context: RevisionContext): BaseReader {
   return headStates(context.worktree, head, context.evidence);
 }
 
-/** The ids a unit answers for, in the order its task numbers them: its batch's findings, or for the repair the check kinds it repairs. */
+/** The ids a unit answers for, in the order its task numbers them (`unitIdsOf`): its batch's findings, the check kinds the repair repairs, or an answer pass's findings. Throws for a unit the run does not have. */
 export function unitIds(state: RunState, phase: EditingPhase, key: string): readonly string[] {
-  const fix = requireFix(state);
-  if (phase === 'repair') return repairTargets(fix);
-  return batchOfUnit(state, key).findingIds;
+  requireFix(state);
+  const ids = unitIdsOf(state.review!, phase, key);
+  if (ids === null) throw new Error(`Run ${state.id} has no unit ${phase}:${key} to answer for`);
+  return ids;
 }
 
 /**
@@ -157,11 +158,10 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
 export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: RevisionContext): NewEvent[] {
   const { state, worktree, evidence } = context;
   const phase = unit.phase as EditingPhase;
-  const fix = requireFix(state);
   const output = receipt.output as FixerOutput;
   const ids = unitIds(state, phase, unit.key);
   checkFixerAnswer(output, ids.length);
-  const owned = ownedFiles(fix, phase, unit.key);
+  const owned = ownedFiles(state.review!, phase, unit.key);
   const settle = settleOf(context, phase, unit.key);
   const resolved = resolveFixerAnswer(output, { worktree, lookup: answerLookup(settle, phase, unit.key, worktree), owned, claimed: claimedFiles(settle.state, phase, unit.key), othersHeld: othersHeld(settle.state, phase, unit.key) });
   const late = phase === 'fixes' ? lateClaim(settle, unit.key, resolved.named) : [];
@@ -196,10 +196,10 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    { kind: 'fix.recorded', version: 1, payload: recorded },
+    { kind: 'fix.recorded', version: 2, payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
-      version: 1,
+      version: 2,
       payload: { phase, source: { kind: 'fix', key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] } satisfies TreeRevised,
     })),
   ];
@@ -244,7 +244,6 @@ export interface AttemptEvents {
  */
 export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): AttemptEvents {
   const { state, worktree, evidence } = context;
-  const fix = requireFix(state);
   const ids = unitIds(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
@@ -263,7 +262,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   const ignored = new Set(gitApi.ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...ownedFiles(fix, phase, key), ...claimedFiles(settle.state, phase, key), ...listed], ids, context.match);
+  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...ownedFiles(state.review!, phase, key), ...claimedFiles(settle.state, phase, key), ...listed], ids, context.match);
   const who = phase === 'repair' ? 'the repair' : `batch ${key}`;
   const why = truncated(reason, 1000);
   return { claims: settle.events, revisions: revisions.map((revision): NewEvent => {
@@ -272,7 +271,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
       ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}\n\nThe files are recorded as it left them after its last snapshot; no finding accounts for them.`, bodyLength) }
       : { subject: truncated(`chore: keep the edits an unfinished attempt made for ${id}`, subjectLength), body: truncated(`An attempt of ${who} ended without an answer after snapshotting ${id}: ${why}\n\nThe files are recorded as its snapshot of ${id} held them.`, bodyLength) };
     const payload: TreeRevised = { phase, source: { kind: 'attempt', key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
-    return { kind: 'tree.revised', version: 1, payload };
+    return { kind: 'tree.revised', version: 2, payload };
   }) };
 }
 
@@ -312,5 +311,5 @@ export function checkRevision(context: RevisionContext, phase: TreeRevised['phas
     change: { findings: [], message: { subject: `chore: apply the ${kind} check's rewrite`, body: truncated(`The ${kind} check, \`${command}\`, rewrote these files when run ${state.id} ran it in ${phase}.`, bodyLength) } },
     files,
   };
-  return { kind: 'tree.revised', version: 1, payload };
+  return { kind: 'tree.revised', version: 2, payload };
 }

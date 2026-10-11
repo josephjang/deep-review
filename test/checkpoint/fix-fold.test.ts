@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, secondRoundFiles, settledClusters } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, runHead, secondRoundFiles, settledClusters, unitIdsOf } from '../../src/checkpoint/fix-state.ts';
+import { standingAnswer } from '../../src/checkpoint/answer-state.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered, preRunStrays } from '../../src/checkpoint/review-fold.ts';
 import { reviewStatus } from '../../src/review/state.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
 import {
+  answer,
+  answerableDecisions,
   askDecision,
   baselined,
   checkRun,
@@ -16,6 +19,7 @@ import {
   configured,
   continuedRun,
   continuedToReport,
+  decidedFixRun,
   decidedOf,
   decisions,
   endCheck,
@@ -27,6 +31,7 @@ import {
   History,
   launch,
   mergeRanked,
+  passToReport,
   pin,
   plannedChecks,
   quietPlannedChecks,
@@ -71,8 +76,8 @@ describe('the fix fold', () => {
     assert.deepEqual(fix.answers.fixes['c1-1'], fixAnswer(worker(50)));
     assert.deepEqual(fix.revisions, [fixRevision(worker(50))]);
     assert.deepEqual(fixesRevisedPaths(fix), ['src/a.ts']);
-    assert.deepEqual(ownedFiles(fix, 'fixes', 'c1-1'), ['src/a.ts']);
-    assert.deepEqual(ownedFiles(fix, 'repair', 'repair'), ['src/a.ts'], 'the repair owns everything the fixes revised');
+    assert.deepEqual(ownedFiles(review, 'fixes', 'c1-1'), ['src/a.ts']);
+    assert.deepEqual(ownedFiles(review, 'repair', 'repair'), ['src/a.ts'], 'the repair owns everything the fixes revised');
     assert.deepEqual(review.phases.checks, { status: 'completed', attempt: 1 });
   });
 
@@ -111,7 +116,8 @@ describe('the fix fold', () => {
     assert.deepEqual(fix.notAttempted.repair.repair, { cause: 'failures', reason: '2 attempts did not complete' });
     assert.equal(fix.revisions.length, 2);
     assert.deepEqual(review.report?.patches, [reference('1'), reference('2')]);
-    assert.equal(fix.commits?.to, commit('c'));
+    assert.equal(fix.commits.length, 1);
+    assert.equal(fix.commits[0]!.to, commit('c'));
     assert.equal(review.phases.repair.status, 'degraded');
   });
 
@@ -120,13 +126,14 @@ describe('the fix fold', () => {
       .add('tree.revised', attemptRevision(worker(51), ['RIPPLE-1']))
       .worker(52, 'fixer fixes:c1-1')
       .add('fix.recorded', fixAnswer(worker(52), { findings: [{ id: 'RIPPLE-1', status: 'already-applied', file: 'src/a.ts', line: 4, note: 'the guard the first attempt added holds', message, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }] }));
-    const fix = verified({ subject: 'fix: Guard the null', body: 'Why.' }).review().fix!;
+    const review = verified({ subject: 'fix: Guard the null', body: 'Why.' }).review();
+    const fix = review.fix!;
     assert.equal(fix.revisions.length, 1);
     assert.deepEqual(fix.revisions[0]!.source, { kind: 'attempt', key: 'c1-1', workerId: worker(51) });
     assert.deepEqual(revisionMessageOf(fix, fix.revisions[0]!), { subject: 'fix: Guard the null', body: 'Why.' }, 'the retry\'s message');
     const unverified = verified(null).review().fix!;
     assert.deepEqual(revisionMessageOf(unverified, unverified.revisions[0]!), { subject: 's', body: '' }, 'the attempt\'s own message when the retry gave none');
-    assert.deepEqual(ownedFiles(fix, 'fixes', 'c1-1'), ['src/a.ts']);
+    assert.deepEqual(ownedFiles(review, 'fixes', 'c1-1'), ['src/a.ts']);
   });
 
   // Both ranked findings to fixers, one cluster each: c1-1 answers RIPPLE-1 blocked on c2's src/b.ts, c2-1 applies SWEEP-1.
@@ -146,12 +153,13 @@ describe('the fix fold', () => {
   it('folds a second round, whose batch owns both files and whose answer is the finding\'s last (R21)', () => {
     const history = firstRoundDone().add('fixes.replanned', secondRound)
       .worker(52, 'fixer fixes:c3-1').add('fix.recorded', fixAnswer(worker(52), answerOf('c3-1', 'RIPPLE-1', 'applied', [], ['src/a.ts', 'src/b.ts'])));
-    const fix = history.review().fix!;
+    const review = history.review();
+    const fix = review.fix!;
     assert.deepEqual(fix.secondRound, secondRound);
-    assert.deepEqual(ownedFiles(fix, 'fixes', 'c3-1'), ['src/a.ts', 'src/b.ts']);
-    assert.equal(lastAnswerOf(fix, 'RIPPLE-1')?.batch, 'c3-1');
+    assert.deepEqual(ownedFiles(review, 'fixes', 'c3-1'), ['src/a.ts', 'src/b.ts']);
+    assert.equal(lastAnswerOf(fix, 'RIPPLE-1')?.key, 'c3-1');
     assert.equal(lastAnswerOf(fix, 'RIPPLE-1')?.finding.status, 'applied');
-    assert.equal(lastAnswerOf(fix, 'SWEEP-1')?.batch, 'c2-1');
+    assert.equal(lastAnswerOf(fix, 'SWEEP-1')?.key, 'c2-1');
     assert.deepEqual(firstRoundDone().add('fixes.replanned', { blocked: [], clusters: [], batches: [] }).review().fix!.secondRound, { blocked: [], clusters: [], batches: [] }, 'an empty round folds too');
   });
 
@@ -261,12 +269,42 @@ describe('the fix fold', () => {
     assert.doesNotThrow(() => complete().add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).fold());
     for (const [payload, message] of [
       [{ commits: [one], from: '2'.repeat(40), to: commit('b') }, /not \[change, 0\]/],
-      [{ commits: [change, one], from: '3'.repeat(40), to: commit('b') }, /not the scope's head/],
+      [{ commits: [change, one], from: '3'.repeat(40), to: commit('b') }, /creates commits on 3{40}, not the run's head 2{40}/],
       [{ commits: [change, one], from: '2'.repeat(40), to: commit('a') }, /not its last/],
     ] as const) {
       assert.throws(() => complete().add('commits.created', payload).fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message));
     }
-    assert.throws(() => complete().add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).fold(), /creates its commits twice/);
+    assert.throws(() => complete().add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).fold(), /not the run's head b{40}/, 'once a series exists, the run stands on its last commit');
+    assert.throws(() => complete().add('commits.created', { commits: [change, one], from: '2'.repeat(40), to: commit('b') }).add('commits.created', { commits: [{ ...one, sha: commit('c') }], from: commit('b'), to: commit('c') }).fold(), /when every one of its 1 revisions is committed/, 'a later series needs a revision no series holds');
+  });
+
+  it('folds a later series of commits from the last commit of the one before, of the revisions an answer pass added (R8 of answers)', () => {
+    const passed = passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }), 1, [['RIPPLE-1', 'applied']], 2);
+    const first = { commits: [{ sha: commit('a'), revision: 'change', subject: 'the change' }, { sha: commit('b'), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: commit('b') };
+    const history = decidedFixRun().add('commits.created', first);
+    // The same run, its first series committed before the answer.
+    const committed = new History();
+    for (const event of passed.events) {
+      committed.add(event.kind, event.payload, event.version);
+      if (event.kind === 'phase.finished' && (event.payload as { phase: string; attempt: number }).phase === 'report' && (event.payload as { attempt: number }).attempt === 1) committed.add('commits.created', first);
+    }
+    assert.equal(history.review().fix!.commits.length, 1);
+    const fix = committed.review().fix!;
+    assert.equal(committedRevisions(fix), 1, 'the first series holds revision 0');
+    assert.equal(runHead(committed.fold()), commit('b'), 'the run stands on the last commit of the first series');
+    const later = { commits: [{ sha: commit('c'), revision: 1, subject: 'fix: Answer RIPPLE-1' }], from: commit('b'), to: commit('c') };
+    const both = committed.clone().add('commits.created', later);
+    assert.deepEqual(both.review().fix!.commits.map((series) => series.to), [commit('b'), commit('c')]);
+    assert.equal(committedRevisions(both.review().fix!), 2);
+    assert.equal(runHead(both.fold()), commit('c'));
+    for (const [payload, message] of [
+      [{ ...later, from: '2'.repeat(40) }, /not the run's head b{40}/],
+      [{ ...later, commits: [{ sha: commit('c'), revision: 'change', subject: 'the change' }, ...later.commits] }, /not \[1\]/],
+      [{ ...later, commits: [{ ...later.commits[0]!, revision: 0 }] }, /not \[1\]/],
+    ] as const) {
+      assert.throws(() => committed.clone().add('commits.created', payload).fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), message.source);
+    }
+    assert.throws(() => both.clone().add('commits.created', { ...later, from: commit('c'), to: commit('d'), commits: [{ ...later.commits[0]!, sha: commit('d') }] }).fold(), /every one of its 2 revisions is committed/);
   });
 });
 
@@ -506,6 +544,47 @@ describe('the claims fold', () => {
 });
 
 // R6, TD3, TD7 of fix pass continuation: a complete read-only run, surveyed and decided, continued into the fix pass by fix.pinned.
+describe('answers in the fix state (R4, R5 of answers)', () => {
+  /** A plan that routes both findings to a fixer, one cluster each: RIPPLE-1 owning src/a.ts, SWEEP-1, unlocated, owning nothing. */
+  const bothPlan = {
+    routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
+    clusters: [{ id: 'c1', findingIds: ['RIPPLE-1'], files: ['src/a.ts'] }, { id: 'c2', findingIds: ['SWEEP-1'], files: [] }],
+    batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c2-1', cluster: 'c2', findingIds: ['SWEEP-1'] }],
+  };
+  /** A read-only run whose SWEEP-1, an ask that keeps the code, is answered with `option`, continued with the flags' checks and through its baseline. */
+  const answeredContinuation = (option: number): History => checksPhase(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', option)).add('fix.pinned', pin(flagPlan)), 'baseline-checks').start('fixes');
+
+  it('routes a finding whose answer owes an edit to a fixer, whatever its decision, and one the tree holds by its decision', () => {
+    assert.doesNotThrow(() => answeredContinuation(1).add('fixes.planned', bothPlan).fold(), 'option 2 of a code-keeping ask goes to a fixer');
+    assert.throws(() => answeredContinuation(1).add('fixes.planned', fixPlan).fold(), /routes SWEEP-1 held, which its ask decision and its answer do not/);
+    assert.doesNotThrow(() => answeredContinuation(0).add('fixes.planned', fixPlan).fold(), 'the default that keeps the code stays held');
+    assert.throws(() => answeredContinuation(0).add('fixes.planned', bothPlan).fold(), /routes SWEEP-1 fixer, which its ask decision and its answer do not/);
+  });
+
+  it('marks the answer applied by the fixes-phase batch that made its edit, and leaves one a fixer deferred owed', () => {
+    const planned = (): History => answeredContinuation(1).add('fixes.planned', bothPlan).worker(51, 'fixer fixes:c2-1');
+    const sweep = (status: string): Record<string, unknown> => fixAnswer(worker(51), { key: 'c2-1', findings: [{ id: 'SWEEP-1', status, file: 'src/a.ts', line: 3, note: 'answered', message: status === 'applied' ? { subject: 'fix: Accept an empty input', body: 'The author chose option 2.' } : null, files: status === 'applied' ? ['src/a.ts'] : [], corrections: [], validation: [], requiredFiles: [] }] });
+    assert.deepEqual(standingAnswer(planned().add('fix.recorded', sweep('applied'), 2).review(), 'SWEEP-1')?.appliedBy, { phase: 'fixes', key: 'c2-1' });
+    assert.equal(standingAnswer(planned().add('fix.recorded', sweep('deferred'), 2).review(), 'SWEEP-1')?.appliedBy, null);
+    assert.equal(standingAnswer(planned().add('fix.recorded', sweep('already-applied'), 2).review(), 'SWEEP-1')?.appliedBy !== null, true, 'found applied already, the tree holds it');
+  });
+
+  it('gives an answer pass its findings and every revised path with the files its findings are located in, and reads its answer as the last of the finding', () => {
+    const open = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['RIPPLE-1', 'SWEEP-1'] });
+    const review = open.review();
+    assert.deepEqual(unitIdsOf(review, 'answer', 'pass-1'), ['RIPPLE-1', 'SWEEP-1']);
+    assert.equal(unitIdsOf(review, 'answer', 'pass-2'), null, 'a key no pass has');
+    assert.equal(unitIdsOf(review, 'answer', 'c1-1'), null);
+    assert.deepEqual(ownedFiles(review, 'answer', 'pass-1'), ['src/a.ts'], 'the revised path, and RIPPLE-1 and its member are located in it; SWEEP-1 is unlocated');
+    const done = passToReport(open, 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2).review();
+    const fix = done.fix!;
+    assert.deepEqual(lastAnswerOf(fix, 'RIPPLE-1'), { phase: 'answer', key: 'pass-1', finding: fix.answers.answer['pass-1']!.findings[0] }, 'the answer of the pass over the one of c1-1');
+    assert.equal(lastAnswerOf(fix, 'SWEEP-1')?.finding.status, 'deferred', 'a held finding the pass worked');
+    assert.equal(lastAnswerOf(decidedFixRun().review().fix!, 'RIPPLE-1')?.phase, 'fixes');
+    assert.deepEqual(ownedFiles(done, 'answer', 'pass-1'), ['src/a.ts']);
+  });
+});
+
 describe('the continuation into the fix pass', () => {
   it('folds a read-only run continued with no planned checks into a fix run whose survey, fix phases and report are open again', () => {
     const before = readOnlyReported().review();

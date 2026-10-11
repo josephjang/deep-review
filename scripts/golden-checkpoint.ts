@@ -8,10 +8,10 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
-import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
+import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
-import { finderAngles, phases, type Angle, type Phase } from '../src/review/vocabulary.ts';
+import { finderAngles, type Angle, type Phase } from '../src/review/vocabulary.ts';
 
 const { values } = parseArgs({ options: { output: { type: 'string' } }, strict: true });
 if (values.output === undefined) throw new Error('--output DIRECTORY is required');
@@ -878,10 +878,10 @@ try {
   decided.phaseV4('repair-checks', () => {});
   decided.phaseV4('report', () => {
     const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, decision: 1, 'baseline-checks': 0, fixes: 1, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
+    const workersPerPhase: Record<(typeof reviewVocabularyV4.phases)[number], number> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, decision: 1, 'baseline-checks': 0, fixes: 1, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
     decided.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a decided run\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: spend(17), budgetApplied: true },
+      statistics: { phases: reviewVocabularyV4.phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: spend(17), budgetApplied: true },
       patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
     }, 4);
   });
@@ -1058,10 +1058,10 @@ try {
   claimed.phaseV5('repair-checks', () => {});
   claimed.phaseV5('report', () => {
     const spend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
-    const workersPerPhase: Record<Phase, number> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, decision: 1, 'baseline-checks': 0, fixes: 6, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
+    const workersPerPhase: Record<(typeof reviewVocabularyV4.phases)[number], number> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'sweep-deduplication': 0, 'sweep-verification': 0, 'merge-rank': 1, decision: 1, 'baseline-checks': 0, fixes: 6, checks: 0, repair: 0, 'repair-checks': 0, report: 0 };
     claimed.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run with claims\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: spend(22), budgetApplied: true },
+      statistics: { phases: reviewVocabularyV4.phases.map((phase) => ({ phase, ...spend(workersPerPhase[phase]), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: spend(22), budgetApplied: true },
       patches: ['guard', 'check the guard', 'keep the attempt', 'stop passing the null'].map((name) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${name}\n\n---\n`)),
     }, 4);
   });
@@ -1149,8 +1149,8 @@ try {
   });
   const continuedSpend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
   continued.phaseV5('report', () => {
-    const workersPerPhase: Partial<Record<Phase, number>> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1 };
-    const read = phases.filter((phase) => !['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks'].includes(phase));
+    const workersPerPhase: Partial<Record<(typeof reviewVocabularyV4.phases)[number], number>> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1 };
+    const read = reviewVocabularyV4.phases.filter((phase) => !['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks'].includes(phase));
     continued.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture read-only report of a run continued later\n'),
       statistics: { phases: read.map((phase) => ({ phase, ...continuedSpend(workersPerPhase[phase] ?? 0) })), total: continuedSpend(16), budgetApplied: true },
@@ -1210,10 +1210,10 @@ try {
   continued.phaseV5('repair-checks', () => {});
   continued.phaseV5('report', () => {
     // Both passes counted: the survey's two surveyors, and the one fixer.
-    const workersPerPhase: Partial<Record<Phase, number>> = { survey: 2, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1, fixes: 1 };
+    const workersPerPhase: Partial<Record<(typeof reviewVocabularyV4.phases)[number], number>> = { survey: 2, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1, fixes: 1 };
     continued.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run continued into the fix pass\n'),
-      statistics: { phases: phases.map((phase) => ({ phase, ...continuedSpend(workersPerPhase[phase] ?? 0), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: continuedSpend(18), budgetApplied: true },
+      statistics: { phases: reviewVocabularyV4.phases.map((phase) => ({ phase, ...continuedSpend(workersPerPhase[phase] ?? 0), ...(phase === 'baseline-checks' || phase === 'checks' ? { seconds: 8 } : {}) })), total: continuedSpend(18), budgetApplied: true },
       patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
     }, 4);
   });

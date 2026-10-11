@@ -9,7 +9,7 @@
  * replacement is told to expect; the check at the phase's end compares
  * every expected file.
  */
-import { maxStraysPerCheck, type WorktreeCheckV4 } from '../checkpoint/events.ts';
+import { maxStraysPerCheck, type WorktreeCheckV5 } from '../checkpoint/events.ts';
 import { isNotAttempted, ownedFiles } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered } from '../checkpoint/review-fold.ts';
@@ -31,14 +31,14 @@ export function unsettledFiles(state: RunState, phase: Phase): Set<string> {
   return new Set(
     unitsOf(review, phase)
       .filter((unit) => !isAnswered(review, phase, unit.key) && !isNotAttempted(fix, phase, unit.key))
-      .flatMap((unit) => ownedFiles(fix, phase, unit.key)),
+      .flatMap((unit) => ownedFiles(review, phase, unit.key)),
   );
 }
 
 /** What a check found: the expected files that differ and `HEAD` when it moved; it drifted when either is there. */
 export interface DriftFound {
   readonly files: readonly DriftedFile[];
-  readonly head: WorktreeCheckV4['head'];
+  readonly head: WorktreeCheckV5['head'];
 }
 
 /** Compare the worktree with what the run expects by `match`, as git would store each file (R22), leaving out `excluded`; reads only the expected files and `HEAD`. */
@@ -49,9 +49,9 @@ export function findDrift(state: RunState, worktree: string, match: ExpectedMatc
 
 export const drifted = (found: DriftFound): boolean => found.files.length > 0 || found.head !== null;
 
-/** A check to record: its `worktree.checked@4` payload, and how many strays past `maxStraysPerCheck` the payload leaves out. */
+/** A check to record: its `worktree.checked@5` payload, and how many strays past `maxStraysPerCheck` the payload leaves out. */
 export interface WorktreeCheck {
-  readonly payload: WorktreeCheckV4;
+  readonly payload: WorktreeCheckV5;
   readonly unlisted: number;
 }
 
@@ -63,7 +63,7 @@ export interface WorktreeCheck {
  * run, so the first check does not record it as one the run found before
  * any fixer ran.
  */
-export function worktreeChecked(state: RunState, worktree: string, phase: Phase, attempt: number, moment: WorktreeCheckV4['moment'], found: DriftFound): WorktreeCheck {
+export function worktreeChecked(state: RunState, worktree: string, phase: Phase, attempt: number, moment: WorktreeCheckV5['moment'], found: DriftFound): WorktreeCheck {
   const strays = straysOf(worktree, expectedTreeOf(state));
   return {
     payload: {

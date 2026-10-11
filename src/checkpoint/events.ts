@@ -724,7 +724,11 @@ export const checkRanV1 = z.strictObject({
   stdout: artifactReferenceSchema.nullable(),
   stderr: artifactReferenceSchema.nullable(),
   error: z.string().min(1).max(recordedTextLengthV1).nullable(),
-}).superRefine((check, context) => {
+}).superRefine(refineCheckRan);
+export type CheckRanV1 = z.infer<typeof checkRanV1>;
+
+/** Hold a check's run to its outcome, as every version of `check.ran` does: a skipped check alone has no process, and each outcome has its termination. */
+function refineCheckRan(check: Pick<CheckRanV1, 'outcome' | 'termination' | 'stdout' | 'stderr' | 'error' | 'exitCode'>, context: z.RefinementCtx): void {
   const skipped = check.outcome === 'skipped';
   if (skipped !== (check.termination === null) || skipped !== (check.stdout === null) || skipped !== (check.stderr === null)) {
     context.addIssue({ code: 'custom', message: 'a skipped check alone has no termination and no output', path: ['outcome'] });
@@ -733,8 +737,7 @@ export const checkRanV1 = z.strictObject({
   if (check.outcome === 'passed' && (check.termination !== 'exited' || check.exitCode !== 0)) context.addIssue({ code: 'custom', message: 'a passed check exited with code 0', path: ['outcome'] });
   if (check.outcome === 'timeout' && check.termination !== 'killed') context.addIssue({ code: 'custom', message: 'a check that timed out was killed', path: ['outcome'] });
   if (check.outcome === 'not-started' && check.termination !== 'not-started') context.addIssue({ code: 'custom', message: 'a check that did not start has the termination to say so', path: ['outcome'] });
-});
-export type CheckRan = z.infer<typeof checkRanV1>;
+}
 
 const commitMessageSchema = z.strictObject({ subject: z.string().min(1).max(200), body: z.string().max(4000) });
 
@@ -768,7 +771,6 @@ export const fixRecordedV1 = z.strictObject({
   message: 'each finding is answered once',
   path: ['findings'],
 });
-export type FixRecorded = z.infer<typeof fixRecordedV1>;
 
 /**
  * One path a revision changed: what it held before (null when nothing
@@ -813,13 +815,15 @@ export const treeRevisedV1 = z.strictObject({
   ]),
   change: z.strictObject({ findings: z.array(z.string().min(1)), message: commitMessageSchema }),
   files: z.array(revisedFileSchema).min(1).max(2000),
-}).superRefine((revision, context) => {
+}).superRefine(refineRevision);
+
+/** Hold a revision to its source, as every version of `tree.revised` does: no path twice, and the findings each kind of source may name. */
+function refineRevision(revision: Pick<z.infer<typeof treeRevisedV1>, 'files' | 'change' | 'source'>, context: z.RefinementCtx): void {
   if (new Set(revision.files.map((file) => file.path)).size !== revision.files.length) context.addIssue({ code: 'custom', message: 'each path is revised once', path: ['files'] });
   const named = revision.change.findings.length;
   const allowed = revision.source.kind === 'fix' ? named > 0 : revision.source.kind === 'check' ? named === 0 : named <= 1;
   if (!allowed) context.addIssue({ code: 'custom', message: 'a fix revision names a finding or more, a check\'s none, and an attempt\'s one or none', path: ['change'] });
-});
-export type TreeRevised = z.infer<typeof treeRevisedV1>;
+}
 
 /**
  * A unit of an editing phase is settled without an answer: it failed
@@ -1178,7 +1182,6 @@ export const phaseStartedV4 = z.strictObject({
   phase: phaseSchemaV4,
   attempt: z.number().int().min(1),
 });
-export type PhaseStarted = z.infer<typeof phaseStartedV4>;
 
 /** `phase.finished` over the sixteen phases, with the blocker codes of version 3, which the decision step does not widen. */
 export const phaseFinishedV4 = z.strictObject({
@@ -1219,7 +1222,6 @@ export const workerLostV4 = z.strictObject({
   message: 'a lost worker names both its phase and its unit key, or neither',
   path: ['key'],
 });
-export type WorkerLost = z.infer<typeof workerLostV4>;
 
 /** `report.written` over the sixteen phases: the statistics gain the decision's row. */
 export const reportWrittenV4 = z.strictObject({
@@ -1231,8 +1233,6 @@ export const reportWrittenV4 = z.strictObject({
   }),
   patches: z.array(artifactReferenceSchema).max(2000),
 });
-/** The report as the fold holds it: version 1 reads as a report with no patch. */
-export type ReportWritten = z.infer<typeof reportWrittenV4>;
 
 const decisionText = (max: number) => z.string().min(1).max(max);
 
@@ -1322,7 +1322,6 @@ export const phaseFinishedV5 = z.strictObject({
   message: 'a blocker is present exactly when the outcome is blocked',
   path: ['blocker'],
 });
-export type PhaseFinished = z.infer<typeof phaseFinishedV5>;
 
 /**
  * `attempt.failed` with its fault (R12 of commit series integrity): the
@@ -1335,7 +1334,6 @@ export const attemptFailedV5 = z.strictObject({
   ...attemptFailedV4.shape,
   fault: z.enum(vocabularyV5.attemptFaults),
 });
-export type AttemptFailed = z.infer<typeof attemptFailedV5>;
 
 /**
  * Whether a claim can record a path: repository-relative, at most 1000
@@ -1414,6 +1412,163 @@ export const fixPinnedV1 = z.strictObject({
 });
 export type FixPinned = z.infer<typeof fixPinnedV1>;
 
+/**
+ * The vocabulary version 6 of the review events records, and version 1 of
+ * the answers' events (R1, R5, R9 of answers): the eighteen phases, with
+ * the answer pass's `answer` and `answer-checks` after the repair's
+ * checks; the editing phases, with `answer`; the check phases, with
+ * `answer-checks`; and the three kinds of an answer. Frozen here for the
+ * reason `reviewVocabularyV1` is: a test holds it equal to today's
+ * vocabulary.
+ */
+export const reviewVocabularyV6 = {
+  phases: [
+    'survey',
+    'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+    'decision',
+    'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+    'answer', 'answer-checks',
+    'report',
+  ],
+  editingPhases: ['fixes', 'repair', 'answer'],
+  checkPhases: ['baseline-checks', 'checks', 'repair-checks', 'answer-checks'],
+  answerKinds: ['option', 'accept', 'reject'],
+} as const;
+
+const vocabularyV6 = reviewVocabularyV6;
+const phaseSchemaV6 = z.enum(vocabularyV6.phases);
+const editingPhaseSchemaV6 = z.enum(vocabularyV6.editingPhases);
+const checkPhaseSchemaV6 = z.enum(vocabularyV6.checkPhases);
+
+/** `phase.started` over the eighteen phases. */
+export const phaseStartedV5 = z.strictObject({
+  phase: phaseSchemaV6,
+  attempt: z.number().int().min(1),
+});
+export type PhaseStarted = z.infer<typeof phaseStartedV5>;
+
+/** `phase.finished` over the eighteen phases, with the blocker codes of version 5, which the answers do not widen. */
+export const phaseFinishedV6 = z.strictObject({
+  phase: phaseSchemaV6,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV5.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+export type PhaseFinished = z.infer<typeof phaseFinishedV6>;
+
+/** `worktree.checked` over the eighteen phases. */
+export const worktreeCheckedV5 = z.strictObject({
+  ...worktreeCheckedV2.shape,
+  phase: phaseSchemaV6,
+}).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
+  message: 'drifted exactly when some file differs or HEAD moved',
+  path: ['drifted'],
+});
+export type WorktreeCheckV5 = z.infer<typeof worktreeCheckedV5>;
+
+/** `attempt.failed` over the eighteen phases, with its fault as version 5 records it. */
+export const attemptFailedV6 = z.strictObject({
+  ...attemptFailedV5.shape,
+  phase: phaseSchemaV6,
+});
+export type AttemptFailed = z.infer<typeof attemptFailedV6>;
+
+/** `worker.lost` over the eighteen phases. */
+export const workerLostV5 = z.strictObject({
+  workerId: z.uuid(),
+  phase: phaseSchemaV6.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: z.string().min(1).max(1000),
+}).refine((lost) => (lost.phase === null) === (lost.key === null), {
+  message: 'a lost worker names both its phase and its unit key, or neither',
+  path: ['key'],
+});
+export type WorkerLost = z.infer<typeof workerLostV5>;
+
+/** `report.written` over the eighteen phases: the statistics gain the answer pass's rows. */
+export const reportWrittenV5 = z.strictObject({
+  report: artifactReferenceSchema,
+  statistics: z.strictObject({
+    phases: z.array(spendSchema.extend({ phase: phaseSchemaV6 })),
+    total: spendSchema,
+    budgetApplied: z.boolean(),
+  }),
+  patches: z.array(artifactReferenceSchema).max(2000),
+});
+/** The report as the fold holds it: version 1 reads as a report with no patch. */
+export type ReportWritten = z.infer<typeof reportWrittenV5>;
+
+/** `tree.revised` over the eighteen phases, so a revision of the answer pass and one of its checks can name their phase. */
+export const treeRevisedV2 = z.strictObject({
+  ...treeRevisedV1.shape,
+  phase: phaseSchemaV6,
+}).superRefine(refineRevision);
+export type TreeRevised = z.infer<typeof treeRevisedV2>;
+
+/** `fix.recorded` over the three editing phases, the answer pass's fixer among them. */
+export const fixRecordedV2 = z.strictObject({
+  ...fixRecordedV1.shape,
+  phase: editingPhaseSchemaV6,
+}).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+  message: 'each finding is answered once',
+  path: ['findings'],
+});
+export type FixRecorded = z.infer<typeof fixRecordedV2>;
+
+/** `check.ran` over the four check phases, the answer pass's checks among them. */
+export const checkRanV2 = z.strictObject({
+  ...checkRanV1.shape,
+  phase: checkPhaseSchemaV6,
+}).superRefine(refineCheckRan);
+export type CheckRan = z.infer<typeof checkRanV2>;
+
+/**
+ * What a person answered a decision with (R1, R3 of answers, TD9): the
+ * index, from 0, of one of an ask's options, or the acceptance or the
+ * rejection of a fix's departure from a rule. A further kind widens this
+ * union and is `answer.recorded@2`: an older engine must refuse a kind it
+ * does not know, as the strict union does.
+ */
+export const answerSchemaV1 = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('option'), option: z.number().int().min(0) }),
+  z.strictObject({ kind: z.literal('accept') }),
+  z.strictObject({ kind: z.literal('reject') }),
+]);
+export type Answer = z.infer<typeof answerSchemaV1>;
+
+/** The longest note an answer records, beside the choice, of what the person said. */
+export const answerNoteLengthV1 = 2000;
+
+/**
+ * A person's answer to one decided finding of a complete run (R1 of
+ * answers): the finding, by its primary candidate id, the answer, and the
+ * person's note, or null for none. It is the fact and the label, recorded
+ * before anything is edited; it moves no phase.
+ */
+export const answerRecordedV1 = z.strictObject({
+  id: candidateIdSchema,
+  answer: answerSchemaV1,
+  note: z.string().min(1).max(answerNoteLengthV1).nullable(),
+});
+export type AnswerRecorded = z.infer<typeof answerRecordedV1>;
+
+/**
+ * The answer pass of a complete fix run (R5 of answers): the answered
+ * findings whose standing answers owe an edit, which one fixer applies,
+ * each once. It opens the `answer` and `answer-checks` phases and the
+ * report again.
+ */
+export const answerPassV1 = z.strictObject({
+  ids: z.array(candidateIdSchema).min(1),
+}).refine((pass) => new Set(pass.ids).size === pass.ids.length, {
+  message: 'each finding is applied once',
+  path: ['ids'],
+});
+export type AnswerPassed = z.infer<typeof answerPassV1>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -1421,27 +1576,27 @@ export const eventRegistry = defineRegistry({
   'scope.captured': { 1: { schema: scopeCapturedV1 } },
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
-  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 } },
+  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 } },
   'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
-  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 } },
-  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 } },
+  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 } },
+  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 } },
-  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 } },
+  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
   'verdicts.recorded': { 1: { schema: verdictsRecordedV1 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
-  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 } },
+  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
   'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
   'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 } },
-  'check.ran': { 1: { schema: checkRanV1 } },
-  'fix.recorded': { 1: { schema: fixRecordedV1 } },
-  'tree.revised': { 1: { schema: treeRevisedV1 } },
+  'check.ran': { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 } },
+  'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 } },
+  'tree.revised': { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 } },
   'unit.unattempted': { 1: { schema: unitUnattemptedV1 } },
   'commits.created': { 1: { schema: commitsCreatedV1 } },
   'survey.recorded': { 1: { schema: surveyRecordedV1 } },
@@ -1450,6 +1605,8 @@ export const eventRegistry = defineRegistry({
   'files.claimed': { 1: { schema: filesClaimedV1 } },
   'claims.lost': { 1: { schema: claimsLostV1 } },
   'fix.pinned': { 1: { schema: fixPinnedV1 } },
+  'answer.recorded': { 1: { schema: answerRecordedV1 } },
+  'answer.pass': { 1: { schema: answerPassV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

@@ -79,8 +79,8 @@ function fateOf(review: ReviewState, fix: FixState, id: string): FindingFate {
   const firstBlockedOn = fix.secondRound?.blocked.find((entry) => entry.id === id)?.requiredFiles ?? null;
   const last = lastAnswerOf(fix, id);
   if (last !== null) {
-    const batch = allBatches(fix).find((candidate) => candidate.key === last.batch) ?? null;
-    const answeredInSecond = second !== null && last.batch === second.key;
+    const batch = last.phase === 'fixes' ? (allBatches(fix).find((candidate) => candidate.key === last.key) ?? null) : null;
+    const answeredInSecond = second !== null && last.key === second.key;
     const secondRoundSkipped = second !== null && !answeredInSecond ? notAttemptedNote(fix, 'fixes', second.key) : null;
     return { id, outcome: statusWords[last.finding.status], decision: null, batch, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped, superseder: null };
   }
@@ -173,7 +173,7 @@ function fixesSection(review: ReviewState, fix: FixState): string[] {
   return lines.filter((line, index) => line !== '' || lines[index - 1] !== '');
 }
 
-const phaseTitles: Readonly<Record<CheckPhase, string>> = { 'baseline-checks': 'Before the fixes', checks: 'After the fixes', 'repair-checks': 'After the repair' };
+const phaseTitles: Readonly<Record<CheckPhase, string>> = { 'baseline-checks': 'Before the fixes', checks: 'After the fixes', 'repair-checks': 'After the repair', 'answer-checks': 'After answers' };
 
 const runSeconds = (run: CheckRan): string => `${((Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000).toFixed(1)} s`;
 

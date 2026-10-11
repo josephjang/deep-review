@@ -8,6 +8,7 @@
  */
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV2 } from '../checkpoint/events.ts';
+import { currentPass } from '../checkpoint/answer-state.ts';
 import { claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -20,6 +21,7 @@ import { currentPhase, mergeRankInput, nextPendingPhase, rankedFindings, working
 import {
   blockerActions,
   finderAngles,
+  isBudgetDegradingPhase,
   isCheckPhase,
   isEditingPhase,
   maxRecordedTextLength,
@@ -124,7 +126,7 @@ export function secondRoundOf(review: ReviewState): SecondRoundPlan {
   return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize, claimsOfRound(fix, 1));
 }
 
-/** The units of a phase (R2; R1, R11, R18, R21 of the fix pass): what its workers are asked, in the order they are launched. */
+/** The units of a phase (R2; R1, R11, R18, R21 of the fix pass; R5 of answers): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
   const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
@@ -150,9 +152,15 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
       return [...fixPlanOf(review).batches, ...(review.fix?.secondRound?.batches ?? [])].map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
     case 'repair':
       return review.fix !== null && repairTargets(review.fix).length > 0 ? [{ phase, key: repairUnitKey, role: 'fixer' }] : [];
+    case 'answer': {
+      // One fixer for the current pass, the only one the phase runs; only an answer pass opens the phase, so it always has one.
+      const pass = currentPass(review);
+      return pass === null ? [] : [{ phase, key: pass.key, role: 'fixer' }];
+    }
     case 'baseline-checks':
     case 'checks':
     case 'repair-checks':
+    case 'answer-checks':
     case 'report':
       return [];
   }
@@ -220,7 +228,9 @@ function listWithin(items: readonly string[], limit: number): string {
  * not run, a verifier's group is unverified, a fixer's batch is not
  * attempted, and a read-only review goes on without its survey. Null for
  * every other role, the decider among them, since no fixer may act on a
- * finding nobody decided (R9 of the decision step), and for the survey of
+ * finding nobody decided (R9 of the decision step), the answer pass's
+ * fixer, since an answer is the person's act and nothing else waits on it
+ * (R5 of answers), and for the survey of
  * a fix run, which goes on only
  * with checks: its second failure blocks the run instead, unless this
  * invocation's flags settle every kind, when `surveyStep` plans their
@@ -250,6 +260,8 @@ function degradationOf(review: ReviewState, unit: Unit): DegradationTarget | nul
     case 'baseline-checks':
     case 'checks':
     case 'repair-checks':
+    case 'answer':
+    case 'answer-checks':
     case 'report':
       return null;
   }
@@ -538,8 +550,8 @@ export function nextStep(review: ReviewState, live: Live): Step {
     const countedUsd = live.spend.usd;
     if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
       const spend = { ...live.spend, usd: countedUsd };
-      // An editing phase stops launching instead and goes on to its report, so its edits are never left unreported (R19, PD16 of the fix pass).
-      if (isEditingPhase(phase)) return { kind: 'degrade', phase, degradations: budgetDegradations(review, units, live, budgetBlocker(spend, runBudgetUsd).detail) };
+      // The fixes and the repair stop launching instead and go on to the report, so their edits are never left unreported (R19, PD16 of the fix pass); the answer pass blocks before its one launch, as a reading phase does (TD8 of answers).
+      if (isBudgetDegradingPhase(phase)) return { kind: 'degrade', phase, degradations: budgetDegradations(review, units, live, budgetBlocker(spend, runBudgetUsd).detail) };
       return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(spend, runBudgetUsd) };
     }
     const capacity = concurrency - live.running.size;

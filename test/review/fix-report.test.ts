@@ -142,7 +142,7 @@ describe('the report of a fix run', () => {
     // A fix run whose revisions changed files but whose every kind had no command, as an operator without the project's tools runs one.
     const state = fixRun().fold();
     const fix = state.review!.fix!;
-    const noCommand = { ...fix, checks: { planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.map((check) => ({ ...check, command: null, origin: 'flag' as const, reason: 'dropped by --no-check' })) }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [] } } };
+    const noCommand = { ...fix, checks: { planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.map((check) => ({ ...check, command: null, origin: 'flag' as const, reason: 'dropped by --no-check' })) }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [], 'answer-checks': [] } } };
     const report = render({ ...state, review: { ...state.review!, fix: noCommand } });
     assert.ok(fix.revisions.length > 0, 'the fixes changed files');
     assert.doesNotMatch(report, /no fix changed a file/);
@@ -218,7 +218,8 @@ describe('status of a fix run', () => {
     assert.deepEqual(json.fix.batches, [{ key: 'c1-1', cluster: 'c1', state: 'answered', findings: ['RIPPLE-1'] }]);
     assert.deepEqual(json.fix.held, ['SWEEP-1']);
     assert.deepEqual(json.patches, ['/evidence/11111111', '/evidence/22222222', '/evidence/33333333']);
-    assert.equal(json.commits, null);
+    assert.deepEqual(json.commits, []);
+    assert.ok(!described.lines.some((line) => line.includes('answer-checks')), 'a run with no answer pass names no answer-pass check');
   });
 
   it('counts the claims made, by how many clusters, the late ones and the lost ones, and carries them in the JSON (R3 of commit series integrity)', () => {

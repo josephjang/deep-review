@@ -10,11 +10,13 @@
  * accounts for, commits on a run without a report, a claim of a file
  * another cluster holds (R3 of commit series integrity), a continuation
  * into the fix pass of a run that has no report or fixes already (R6 of
- * fix pass continuation).
+ * fix pass continuation), a series of commits that does not start at the
+ * run's head or commits nothing new (R8 of answers).
  */
-import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, repairUnitKey, type EditingPhase, type Phase } from '../review/vocabulary.ts';
+import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
+import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, repairTargets, roundOf, routeOfDecision, secondRoundFiles, settledClusters, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import { batchOf, checksFloor, claimRefusal, claimsOfRound, committedRevisions, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, roundOf, routeOf, runHead, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -27,15 +29,6 @@ function requireFix(state: RunState | undefined, event: DecodedEvent): { current
 }
 
 const withFix = (current: RunState, review: ReviewState, fix: FixState, event: DecodedEvent, units: ReviewState['units'] = review.units): RunState => withReview(current, { ...review, fix, units }, event);
-
-/** The ids a unit of an editing phase answers for: its batch's findings, or for the repair the kinds it repairs. Null for a unit the phase does not have. */
-function unitIds(fix: FixState, phase: EditingPhase, key: string): readonly string[] | null {
-  if (phase === 'repair') {
-    const targets = repairTargets(fix);
-    return key === repairUnitKey && targets.length > 0 ? targets : null;
-  }
-  return batchOf(fix, key)?.findingIds ?? null;
-}
 
 /** The checks of a version 1 plan, recorded at configuration by the manifest rules (R8 of the fix pass), on a run configured before the survey existed. */
 const checksPlannedV1: Reducer<ChecksPlannedV1> = (state, payload, event) => {
@@ -89,12 +82,13 @@ const fixesPlanned: Reducer<FixesPlanned> = (state, payload, event) => {
   if (new Set(routed).size !== routed.length || routed.length !== ranked.length || !ranked.every((id) => routed.includes(id))) {
     throw invalid(event, `routes [${routed.join(', ')}], which is not every ranked finding [${ranked.join(', ')}] once`);
   }
-  // A run with the decision step routes each finding by its recorded decision (R6 of the decision step); one configured before it routed by verdict and angle, which this fold does not recompute.
+  // A run with the decision step routes each finding by its recorded decision and standing answer (R6 of the decision step, R4 of answers); one configured before it routed by verdict and angle, which this fold does not recompute.
   if (review.phases.decision.status !== 'skipped') {
     if (ranked.length > 0 && review.decisions === null) throw invalid(event, 'plans its fixes before its findings are decided');
     for (const route of payload.routes) {
       const decision = review.decisions?.find((candidate) => candidate.id === route.id);
-      if (decision !== undefined && routeOfDecision(decision) !== route.route) throw invalid(event, `routes ${route.id} ${route.route}, which its ${decision.decision} decision does not`);
+      const answer = standingAnswer(review, route.id);
+      if (decision !== undefined && routeOf(decision, answer) !== route.route) throw invalid(event, `routes ${route.id} ${route.route}, which its ${decision.decision} decision${answer === null ? '' : ' and its answer'} do${answer === null ? 'es' : ''} not`);
     }
   }
   const toFixer = new Set(payload.routes.filter((route) => route.route === 'fixer').map((route) => route.id));
@@ -218,7 +212,8 @@ const checkRan: Reducer<CheckRan> = (state, payload, event) => {
   if (planned === undefined) throw invalid(event, `runs the ${payload.kind} check before the checks are planned`);
   if (planned.command === null) throw invalid(event, `runs the ${payload.kind} check, which has no command`);
   if (planned.command !== payload.command) throw invalid(event, `runs ${JSON.stringify(payload.command)} for the ${payload.kind} check, pinned as ${JSON.stringify(planned.command)}`);
-  if (lastRun(fix, payload.phase, payload.kind) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}`);
+  // Each check runs once in its phase, and in answer-checks once per answer pass (R5 of answers).
+  if (lastRun(fix, payload.phase, payload.kind, checksFloor(review, payload.phase)) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}${payload.phase === 'answer-checks' ? ' for one answer pass' : ''}`);
   const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], payload] };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);
 };
@@ -226,7 +221,7 @@ const checkRan: Reducer<CheckRan> = (state, payload, event) => {
 const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDrafts) => {
   const { current, review, fix } = requireFix(state, event);
   requireRunning(review, event, payload.phase);
-  const ids = unitIds(fix, payload.phase, payload.key);
+  const ids = unitIdsOf(review, payload.phase, payload.key);
   if (ids === null) throw invalid(event, `records an answer for ${payload.phase}:${payload.key}, which the phase does not have`);
   requireUnanswered(review, event, { phase: payload.phase, key: payload.key });
   if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `records an answer for ${payload.phase}:${payload.key} after it failed`);
@@ -243,7 +238,9 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   }
   const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
   const violationHolders = holders.length === 0 ? fix.violationHolders : { ...fix.violationHolders, [payload.key]: Object.fromEntries(holders) };
-  return withFix(current, review, { ...fix, answers, violationHolders }, event, answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId));
+  // A fixer that made the edit a person's answer owed applies that answer: a fixes-phase batch, for an answer a read-only run recorded before its continuation, or an answer pass (TD4 of answers). The repair answers checks, not findings.
+  const personAnswers = payload.phase === 'repair' ? review.answers : withApplied(review.answers, { phase: payload.phase, key: payload.key }, payload.findings);
+  return withReview(current, { ...review, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
 };
 
 const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {
@@ -271,7 +268,7 @@ const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {
     }
     case 'attempt': {
       if (!isEditingPhase(payload.phase)) throw invalid(event, `revises the tree for an attempt in ${payload.phase}, which no fixer runs in`);
-      const ids = unitIds(fix, payload.phase, source.key);
+      const ids = unitIdsOf(review, payload.phase, source.key);
       if (ids === null) throw invalid(event, `revises the tree for an attempt of ${payload.phase}:${source.key}, which the phase does not have`);
       // The attempt's failure, or its loss, is folded first, in the same append.
       if (!(review.units[payload.phase][source.key]?.failures ?? []).some((failure) => failure.workerId === source.workerId)) {
@@ -328,7 +325,7 @@ const claimsLost: Reducer<ClaimsLost> = (state, payload, event) => {
 const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   requireRunning(review, event, payload.phase);
-  if (unitIds(fix, payload.phase, payload.key) === null) throw invalid(event, `settles ${payload.phase}:${payload.key}, which the phase does not have`);
+  if (unitIdsOf(review, payload.phase, payload.key) === null) throw invalid(event, `settles ${payload.phase}:${payload.key}, which the phase does not have`);
   requireUnanswered(review, event, { phase: payload.phase, key: payload.key });
   if (isNotAttempted(fix, payload.phase, payload.key)) throw invalid(event, `settles ${payload.phase}:${payload.key} as not attempted twice`);
   const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: { cause: payload.cause, reason: payload.reason } } };
@@ -351,8 +348,11 @@ const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
  * is known as the one whose strays held the user's work (`preRunStrays`); and
  * when the checks are not planned, the survey is pending at its attempt
  * too, its unit with fresh attempts, so the surveyor asked for the checks
- * is not out of attempts from the read-only survey's failures. This is the
- * one reducer that moves a phase out of `skipped` or `completed`.
+ * is not out of attempts from the read-only survey's failures. The answer
+ * pass's phases stay skipped: the answers recorded on the run are read
+ * when the fixes phase plans its routes (R4 of answers). With
+ * `answer.pass`, this is one of the two reducers that move a phase out of
+ * `skipped` or `completed`.
  */
 const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
@@ -384,17 +384,27 @@ const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
   return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
 };
 
+/**
+ * A series of commits built from the run (R17 of the fix pass, R8 of
+ * answers): after a report, from the run's head, which is the scope's head
+ * for the first series and the last commit of the one before for a later
+ * one; the captured change first in worktree mode, by the first series
+ * only; then every revision no series holds yet, once each, in ledger
+ * order, and at least one of them.
+ */
 const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   if (review.report === null) throw invalid(event, 'creates commits before its report');
-  if (fix.commits !== null) throw invalid(event, 'creates its commits twice');
-  if (current.scope === null || payload.from !== current.scope.head) throw invalid(event, `creates commits on ${payload.from}, not the scope's head`);
-  // The captured change first in worktree mode, then every revision once, in ledger order.
-  const expected: (number | 'change')[] = [...(current.scope.mode === 'worktree' ? ['change' as const] : []), ...fix.revisions.map((_, index) => index)];
+  if (current.scope === null) throw invalid(event, 'creates commits before its scope is captured');
+  const head = runHead(current);
+  if (payload.from !== head) throw invalid(event, `creates commits on ${payload.from}, not the run's head ${head}`);
+  const from = committedRevisions(fix);
+  if (from >= fix.revisions.length) throw invalid(event, `creates commits when every one of its ${String(fix.revisions.length)} revisions is committed`);
+  const expected: (number | 'change')[] = [...(current.scope.mode === 'worktree' && fix.commits.length === 0 ? ['change' as const] : []), ...fix.revisions.slice(from).map((_, index) => from + index)];
   const given = payload.commits.map((commit) => commit.revision);
   if (given.length !== expected.length || given.some((revision, index) => revision !== expected[index])) throw invalid(event, `creates commits for [${given.join(', ')}], not [${expected.join(', ')}]`);
   if (payload.commits.at(-1)!.sha !== payload.to) throw invalid(event, 'moves the branch to a commit that is not its last');
-  return withFix(current, review, { ...fix, commits: payload }, event);
+  return withFix(current, review, { ...fix, commits: [...fix.commits, payload] }, event);
 };
 
 /** The fix pass's reducers, registered by `fold.ts` beside the review's. */
@@ -404,8 +414,11 @@ export const fixReducers = {
   'fixes.planned@1': fixesPlanned,
   'fixes.replanned@1': fixesReplanned,
   'check.ran@1': checkRan,
+  'check.ran@2': checkRan,
   'fix.recorded@1': fixRecorded,
+  'fix.recorded@2': fixRecorded,
   'tree.revised@1': treeRevised,
+  'tree.revised@2': treeRevised,
   'unit.unattempted@1': unitUnattempted,
   'commits.created@1': commitsCreated,
   'files.claimed@1': filesClaimed,

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { reviewVocabularyV1, type ReviewConfiguration, type ReviewConfigurationV1, type ReviewConfigurationV3, type ScopeState } from '../../src/checkpoint/events.ts';
 import { foldRun, type DecodedEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
-import { finderAngles, fixPhases } from '../../src/review/vocabulary.ts';
+import { answerPhases, finderAngles, fixPhases } from '../../src/review/vocabulary.ts';
 
 export const reference = (fill: string, bytes = 1): { sha256: string; bytes: number } => ({ sha256: fill.repeat(64), bytes });
 export const worker = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -93,8 +93,11 @@ export const unlocated = (id: string, angle: string): Record<string, unknown> =>
 
 export const leads = finderAngles.map((angle) => ({ angle, lead: angle === 'RIPPLE' ? 'the callers of parse()' : null }));
 
-/** The lowest version of the events that carry a phase that can name it: 4 for the decision, 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
-const phaseVersion = (phase: string): 1 | 2 | 3 | 4 => (phase === 'decision' ? 4 : phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
+/** The lowest version of `phase.started` and `worktree.checked` that can name a phase: 5 for the answer pass's, 4 for the decision, 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
+const phaseVersion = (phase: string): 1 | 2 | 3 | 4 | 5 => ((answerPhases as readonly string[]).includes(phase) ? 5 : phase === 'decision' ? 4 : phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
+
+/** The lowest version of `phase.finished` that can name a phase: 6 for the answer pass's, where it is a version past the start's, and the start's for the rest. */
+const finishVersion = (phase: string): number => ((answerPhases as readonly string[]).includes(phase) ? 6 : phaseVersion(phase));
 
 /** A history builder that numbers events as it goes, so a scenario reads as its event list. */
 export class History {
@@ -108,8 +111,8 @@ export class History {
   /**
    * Start a phase at the given attempt and record a clean worktree check
    * for it: at version 1 for a read-only phase, as the histories here were
-   * recorded, version 2 for a phase of the fix pass, and version 3 for the
-   * survey, which only version 3 can name. `strays` are the files the
+   * recorded, version 2 for a phase of the fix pass, version 3 for the
+   * survey, which only version 3 can name, and so on (`phaseVersion`). `strays` are the files the
    * check lists that nobody accounts for, which version 1 never records.
    */
   start(phase: string, attempt = 1, strays: readonly string[] = []): this {
@@ -118,7 +121,7 @@ export class History {
     return this.add('phase.started', { phase, attempt }, version).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, version);
   }
   finish(phase: string, outcome = 'completed', attempt = 1, blocker: unknown = null): this {
-    return this.add('phase.finished', { phase, attempt, outcome, blocker }, phaseVersion(phase));
+    return this.add('phase.finished', { phase, attempt, outcome, blocker }, finishVersion(phase));
   }
   /** Launch and finish one worker under a review label, so spend and lost-worker tests have a worker to count. */
   worker(n: number, label: string, change: Record<string, unknown> = {}, costUsd = 0.5, tokens = 100): this {
@@ -559,3 +562,79 @@ export const continuedToReport = (): History =>
     .start('report', 2)
     .add('report.written', { report: reference('9', 4096), statistics, patches: [reference('1')] }, 4)
     .finish('report', 'completed', 2);
+
+/** The rule RIPPLE-1's fix departs from in the answered histories, as `decisions.recorded@1` names a departure. */
+export const departure = { rule: 'parse throws on a null input', source: 'docs/parse.md', reason: 'every caller passes the null on an empty input' };
+
+/**
+ * The decisions of a fix run a person can answer: RIPPLE-1 as `ripple`
+ * says, a fix that departs from a rule unless another is given; SWEEP-1 an
+ * ask whose default keeps the code, so no fixer sees it.
+ */
+export const answerableDecisions = (ripple: Record<string, unknown> = { ...decisions[0], departure }): unknown[] => [ripple, askDecision('SWEEP-1', false)];
+
+/** The finding c1-1's fixer answers RIPPLE-1 with in the answered histories, with `status`. */
+const rippleAnswered = (status: string): Record<string, unknown> => ({ id: 'RIPPLE-1', status, file: 'src/a.ts', line: 4, note: `RIPPLE-1 ${status}`, message: status === 'applied' ? { subject: 'fix: Guard the null', body: 'Why.' } : null, files: status === 'applied' ? ['src/a.ts'] : [], corrections: [], validation: [], requiredFiles: [] });
+
+/**
+ * A decided fix run to its report, as the engine now records one: c1-1's
+ * fixer answers RIPPLE-1 with `status` and, when it applied it, revises
+ * src/a.ts; the checks run after a revision; the repair has nothing to
+ * repair; the report holds a patch per revision. SWEEP-1 is held.
+ */
+export function decidedFixRun(decided: readonly unknown[] = answerableDecisions(), status = 'applied'): History {
+  const applied = status === 'applied';
+  const history = checksPhase(decidedOf(withFixPass(mergeRanked()), decided), 'baseline-checks')
+    .start('fixes')
+    .add('fixes.planned', fixPlan)
+    .worker(50, 'fixer fixes:c1-1')
+    .add('fix.recorded', fixAnswer(worker(50), { findings: [rippleAnswered(status)] }));
+  if (applied) history.add('tree.revised', fixRevision(worker(50)));
+  history.add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+  const checked = applied ? checksPhase(history, 'checks') : history.start('checks').finish('checks');
+  return checked
+    .start('repair').finish('repair')
+    .start('repair-checks').finish('repair-checks')
+    .start('report')
+    .add('report.written', { report: reference('9', 4096), statistics, patches: applied ? [reference('1')] : [] }, 4)
+    .finish('report');
+}
+
+/** A person's answer as `answer.recorded@1` records it: an option by its index from 0, or accept or reject, with the note. */
+export const answer = (id: string, given: number | 'accept' | 'reject', note: string | null = null): Record<string, unknown> => ({ id, answer: typeof given === 'number' ? { kind: 'option', option: given } : { kind: given }, note });
+
+/** The answer pass's fixer's recorded answer for pass `n`, each finding with its status. */
+export const passAnswer = (workerId: string, n: number, findings: readonly (readonly [id: string, status: string])[]): Record<string, unknown> => ({
+  phase: 'answer', key: `pass-${String(n)}`, workerId,
+  findings: findings.map(([id, status]) => ({ id, status, file: 'src/a.ts', line: 4, note: `${id} answered`, message: status === 'applied' ? { subject: `fix: Answer ${id}`, body: 'The author answered.' } : null, files: status === 'applied' ? ['src/a.ts'] : [], corrections: [], validation: [], requiredFiles: [] })),
+  drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [],
+});
+
+/** The revision the answer pass `n` made of src/a.ts for one finding. */
+export const passRevision = (workerId: string, n: number, id: string, after = reference('6')): Record<string, unknown> => ({
+  phase: 'answer',
+  source: { kind: 'fix', key: `pass-${String(n)}`, workerId },
+  change: { findings: [id], message: { subject: `fix: Answer ${id}`, body: 'The author answered.' } },
+  files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('f') }, beforeSymlink: false, symlink: false, after: { blob: after } }],
+});
+
+/**
+ * The answer pass numbered `n` run on a history whose pass is open, to its
+ * report: its fixer answers each finding with its status and revises
+ * src/a.ts for each one it applied, the checks run again after a revision
+ * at the attempts the pass opened them at, and the next report is written
+ * with a patch per revision of the run, `patches` of them.
+ */
+export function passToReport(history: History, n: number, findings: readonly (readonly [id: string, status: string])[], patches: number): History {
+  const workerId = worker(70 + n);
+  history.start('answer', n).worker(70 + n, `fixer answer:pass-${String(n)}`).add('fix.recorded', passAnswer(workerId, n, findings), 2);
+  const applied = findings.filter(([, status]) => status === 'applied').map(([id]) => id);
+  for (const id of applied) history.add('tree.revised', passRevision(workerId, n, id), 2);
+  history.add('worktree.checked', endCheck('answer', n), 5).finish('answer', 'completed', n);
+  history.start('answer-checks', n);
+  if (applied.length > 0) for (const kind of ['build', 'lint', 'test']) history.add('check.ran', checkRun('answer-checks', kind, 'passed', n), 2);
+  return history.finish('answer-checks', 'completed', n)
+    .start('report', n + 1)
+    .add('report.written', { report: reference(String(n), 4096 + n), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String.fromCharCode(97 + index))) }, 5)
+    .finish('report', 'completed', n + 1);
+}

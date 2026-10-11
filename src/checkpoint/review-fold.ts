@@ -7,6 +7,7 @@
  * next is read from these by the planner, never stored.
  */
 import {
+  answerPhases,
   candidateIdPrefix,
   deduplicationPhases,
   finderAngles,
@@ -49,8 +50,9 @@ import type {
   VerdictsRecorded,
   VerificationPlanned,
   WorktreeCheckV1,
-  WorktreeCheckV4,
+  WorktreeCheckV5,
 } from './events.ts';
+import type { AnswerState } from './answer-state.ts';
 import { emptyFixState, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { emptySurveyState, surveyBlocker, type SurveyState } from './survey-state.ts';
@@ -59,10 +61,12 @@ import { emptySurveyState, surveyBlocker, type SurveyState } from './survey-stat
  * A phase's status; `skipped` is set at configuration and never started:
  * a fix phase of a run configured without the fix pass (TD9 of the fix
  * pass), the survey of a run configured before the survey existed, and
- * the decision of a run configured before the decision step existed. A
- * fix phase skipped so goes back to `pending` only when `fix.pinned`
- * continues the run into the fix pass, the one event that moves a phase
- * out of `skipped` or `completed` (TD7 of fix pass continuation).
+ * the decision of a run configured before the decision step existed, and
+ * the answer pass's two phases of every run. A fix phase skipped so goes
+ * back to `pending` only when `fix.pinned` continues the run into the fix
+ * pass (TD7 of fix pass continuation), and an answer phase only when
+ * `answer.pass` opens an answer pass (R5 of answers): the two events that
+ * move a phase out of `skipped` or `completed`.
  */
 export type PhaseStatus = 'pending' | 'running' | 'completed' | 'degraded' | 'blocked' | 'skipped';
 
@@ -130,11 +134,16 @@ export function rawLocation(candidate: Pick<RecordedCandidate, 'rawFile' | 'rawL
  * attempt's first, else before an answer; it recorded no head, no strays
  * and not the expected state of a file, which its files then lack.
  */
-export interface WorktreeCheckState extends Omit<WorktreeCheckV4, 'files'> {
-  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV4['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
+export interface WorktreeCheckState extends Omit<WorktreeCheckV5, 'files'> {
+  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV5['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
 }
 
-export interface ReviewState {
+/**
+ * The review's state. Beside the facts listed here it holds the answers a
+ * person recorded and the answer passes, every one in ledger order and
+ * empty for a run nobody answered (`AnswerState`, R9 of answers).
+ */
+export interface ReviewState extends AnswerState {
   readonly configuration: ReviewConfiguration;
   /** The concurrency and the run budget in force: the configuration's, until a `limits.changed` replaces them. */
   readonly limits: ReviewLimits;
@@ -168,7 +177,8 @@ export interface ReviewState {
    * the continuation was recorded and how many worktree checks the run held
    * then (R6, R7 of fix pass continuation); null for a run never continued.
    * The continuation clears `report`, so the second report takes its place
-   * and this one stays beside it.
+   * and this one stays beside it, as an answer pass keeps the report it
+   * replaces (`AnswerPass.reportBefore`).
    */
   readonly continuedFrom: { readonly report: ReportWritten; readonly at: string; readonly checkCount: number } | null;
   /** The fix pass's state, or null for a run configured without it and not continued into it, including every run recorded before it existed. */
@@ -266,15 +276,17 @@ export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, ke
 /**
  * The run is configured for review. A run without the fix pass records its
  * five phases skipped, a run configured before the survey existed its
- * survey, and one configured before the decision step its decision, so
- * the phase list is one rule for every run (TD9 of the fix pass); a run
- * with the fix pass or the survey starts its state of it empty.
+ * survey, one configured before the decision step its decision, and every
+ * run the answer pass's two phases, which only an `answer.pass` opens, so
+ * the phase list is one rule for every run (TD9 of the fix pass; R9 of
+ * answers); a run with the fix pass or the survey starts its state of it
+ * empty, and every run starts with no answer.
  */
 function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, surveyed: boolean, decided: boolean): RunState {
   if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, 'is configured for review before its scope is captured');
   if (state.review !== null) throw invalid(event, 'is configured for review twice');
-  const skipped = new Set<Phase>([...(payload.fix ? [] : fixPhases), ...(surveyed ? [] : ['survey' as const]), ...(decided ? [] : ['decision' as const])]);
+  const skipped = new Set<Phase>([...(payload.fix ? [] : fixPhases), ...(surveyed ? [] : ['survey' as const]), ...(decided ? [] : ['decision' as const]), ...answerPhases]);
   const review: ReviewState = {
     configuration: payload,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
@@ -294,6 +306,8 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     continuedFrom: null,
     fix: payload.fix ? emptyFixState() : null,
     survey: surveyed ? emptySurveyState() : null,
+    answers: [],
+    answerPasses: [],
   };
   return withReview(state, review, event);
 }
@@ -356,10 +370,11 @@ export function withFreshAttempts(review: ReviewState, drafts: FoldDrafts, phase
   return units;
 }
 
-/** Why a run skips a phase, which only its configuration decides (`configure`); a fix phase is skipped no longer once `fix.pinned` continues the run, which is what changes its configuration. */
+/** Why a run skips a phase (`configure`): its configuration, which `fix.pinned` changes for the fix phases, or for an answer phase that no answer pass has opened it. */
 function skipReason(phase: Phase): string {
   if (phase === 'survey') return 'it was configured before the survey existed';
   if (phase === 'decision') return 'it was configured before the decision step existed';
+  if ((answerPhases as readonly Phase[]).includes(phase)) return 'no answer pass has opened it';
   return 'it was configured without the fix pass';
 }
 
@@ -442,7 +457,7 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, 
   return withReview(current, { ...review, candidates, leads, units: answered(review, drafts, unit, payload.workerId) }, event);
 };
 
-/** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. */
+/** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. Version 6 widens the phases of version 5. */
 const attemptFailed: Reducer<Omit<AttemptFailed, 'fault'> & { readonly fault?: AttemptFailed['fault'] }> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
@@ -608,21 +623,25 @@ export const reviewReducers = {
   'phase.started@2': phaseStarted,
   'phase.started@3': phaseStarted,
   'phase.started@4': phaseStarted,
+  'phase.started@5': phaseStarted,
   'phase.finished@1': phaseFinished,
   'phase.finished@2': phaseFinished,
   'phase.finished@3': phaseFinished,
   'phase.finished@4': phaseFinished,
   'phase.finished@5': phaseFinished,
+  'phase.finished@6': phaseFinished,
   'worktree.checked@1': worktreeCheckedV1,
   'worktree.checked@2': worktreeChecked,
   'worktree.checked@3': worktreeChecked,
   'worktree.checked@4': worktreeChecked,
+  'worktree.checked@5': worktreeChecked,
   'candidates.recorded@1': candidatesRecorded,
   'attempt.failed@1': attemptFailed,
   'attempt.failed@2': attemptFailed,
   'attempt.failed@3': attemptFailed,
   'attempt.failed@4': attemptFailed,
   'attempt.failed@5': attemptFailed,
+  'attempt.failed@6': attemptFailed,
   'angle.failed@1': angleFailed,
   'deduplication.recorded@1': deduplicationRecorded,
   'verification.planned@1': verificationPlanned,
@@ -634,6 +653,7 @@ export const reviewReducers = {
   'report.written@2': reportWritten,
   'report.written@3': reportWritten,
   'report.written@4': reportWritten,
+  'report.written@5': reportWritten,
 } as const;
 
 /** Whether the unit `key` of `phase` has contributed: a worker's answer is recorded for it. */

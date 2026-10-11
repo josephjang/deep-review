@@ -377,9 +377,12 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
     case 'repair':
       if (evidence === null) throw new Error('The repair task quotes frozen logs and needs the evidence store');
       return repairTaskOf(review, requireEditing(), evidence);
+    case 'answer':
+      throw new Error('The answer pass\'s task is not built yet');
     case 'baseline-checks':
     case 'checks':
     case 'repair-checks':
+    case 'answer-checks':
       throw new Error(`The ${unit.phase} phase runs checks, not workers`);
     case 'report':
       throw new Error('The report phase has no worker');
@@ -428,7 +431,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
 
 /** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault, or for a unit that ran while its claims directory was removed, the environment's (R12 of commit series integrity). */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string, fault: AttemptFault): NewEvent {
-  return { kind: 'attempt.failed', version: 5, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
+  return { kind: 'attempt.failed', version: 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
@@ -598,10 +601,12 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
     }
     case 'fixes':
     case 'repair':
+    case 'answer':
       throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
     case 'baseline-checks':
     case 'checks':
     case 'repair-checks':
+    case 'answer-checks':
     case 'report':
       throw new Error(`The ${unit.phase} phase has no worker`);
   }

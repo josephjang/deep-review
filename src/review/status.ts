@@ -56,9 +56,9 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`]),
     ...(fix === null ? [] : fix.lines),
     ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
-    ...(review?.fix?.commits === null || review?.fix?.commits === undefined ? [] : [`Commits: ${String(review.fix.commits.commits.length)} created, ${review.fix.commits.from} to ${review.fix.commits.to}`]),
+    ...(review?.fix?.commits ?? []).map((series) => `Commits: ${String(series.commits.length)} created, ${series.from} to ${series.to}`),
   ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? null, review };
+  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], review };
   return { lines, json };
 }
 
@@ -79,17 +79,19 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
   const held = (fix.plan?.routes ?? []).filter((route) => route.route === 'held').map((route) => route.id);
   // A run with the decision step keeps a finding from every fixer by its decision; one configured before it held a finding for the author by verdict and angle.
   const heldWords = review.phases.decision.status === 'skipped' ? 'held for the author' : 'no fixer sees, as decided';
+  // The answer pass's checks are named once the run has had an answer pass, which alone runs them (R5 of answers).
+  const shown = checkPhases.filter((phase) => phase !== 'answer-checks' || review.answerPasses.length > 0);
   const checks = (fix.checks.planned?.checks ?? []).map((check) => ({
     kind: check.kind,
     command: check.command,
-    outcomes: Object.fromEntries(checkPhases.map((phase) => [phase, lastRun(fix, phase, check.kind)?.outcome ?? null])),
+    outcomes: Object.fromEntries(shown.map((phase) => [phase, lastRun(fix, phase, check.kind)?.outcome ?? null])),
   }));
   const claimingClusters = new Set(fix.claims.map((claim) => claim.cluster)).size;
   const late = fix.claims.filter((claim) => claim.claimedAt === null).length;
   const lines = [
     fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${batches.length === 0 ? 'no batch' : batches.map((batch) => `${batch.key} ${batch.state}`).join(', ')}; ${String(held.length)} ${heldWords}`,
     ...(fix.plan === null ? [] : [`Claims: ${String(fix.claims.length)} by ${String(claimingClusters)} cluster${claimingClusters === 1 ? '' : 's'}, ${String(late)} late, ${String(fix.lostClaims.length)} lost`]),
-    ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : checkPhases.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}`).join(', ')}`),
+    ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : shown.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}`).join(', ')}`),
   ];
   return { lines, json: { clusters, batches, held, claims: fix.claims, lostClaims: fix.lostClaims, checks, revisions: fix.revisions.length } };
 }

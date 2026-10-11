@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { appliedOptionOf, routeOfDecision, type RoutedDecision } from '../../src/checkpoint/fix-state.ts';
+import { appliedOptionOf, routeOf, routeOfDecision, type RoutedDecision } from '../../src/checkpoint/fix-state.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
 import { batchesOf, planFixes, planSecondRound, type FixPlan, type PlannedCluster } from '../../src/review/fixes.ts';
 import type { ReportFinding } from '../../src/review/state.ts';
@@ -65,6 +65,30 @@ describe('routeOfDecision (R6 of the decision step)', () => {
   it('refuses an ask that applies an option it does not offer', () => {
     const outside = ask('X-1', true);
     assert.throws(() => routeOfDecision({ ...outside, ask: { ...outside.ask, applied: 2 } }), /An ask applies option 2 of the 2 it offers/);
+  });
+});
+
+describe('routeOf (R4 of answers, TD4)', () => {
+  const owed = { appliedBy: null };
+  const held = { appliedBy: 'tree' as const };
+  const applied = { appliedBy: { phase: 'answer' as const, key: 'pass-1' } };
+
+  it('routes an unanswered finding by its decision alone', () => {
+    for (const decision of [{ id: 'X-1', decision: 'fix', ask: null } as const, { id: 'X-1', decision: 'leave', ask: null } as const, ask('X-1', true), ask('X-1', false)]) {
+      assert.equal(routeOf(decision, null), routeOfDecision(decision), decision.decision);
+    }
+  });
+
+  it('sends a finding whose answer owes an edit to a fixer, whatever its decision routes it to', () => {
+    assert.equal(routeOf(ask('X-1', false), owed), 'fixer', 'an ask that keeps the code, answered with another option');
+    assert.equal(routeOf(ask('X-1', true), owed), 'fixer', 'an ask whose default edits, which the decision routes there too');
+    assert.equal(routeOf({ id: 'X-1', decision: 'fix', ask: null }, owed), 'fixer', 'a rejected departure');
+  });
+
+  it('routes a finding whose answer the tree holds, or a fixer applied, by its decision', () => {
+    assert.equal(routeOf(ask('X-1', false), held), 'held', 'the default that keeps the code, confirmed');
+    assert.equal(routeOf({ id: 'X-1', decision: 'fix', ask: null }, held), 'fixer', 'an accepted departure goes to the fixer of its fix');
+    assert.equal(routeOf(ask('X-1', false), applied), 'held');
   });
 });
 

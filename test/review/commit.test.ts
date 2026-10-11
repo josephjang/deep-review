@@ -76,7 +76,7 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(git(box.repo, 'show', `${outcome.commits[0]!.sha}:src/c.ts`), 'export const c = 1;');
     assert.deepEqual(git(box.repo, 'diff-tree', '--no-commit-id', '--name-only', '-r', outcome.commits[1]!.sha).split('\n'), ['src/a.ts']);
     assert.equal(git(box.repo, 'status', '--porcelain'), '');
-    assert.equal(box.run().review!.fix!.commits!.commits[0]!.revision, 'change');
+    assert.equal(box.run().review!.fix!.commits[0]!.commits[0]!.revision, 'change');
   });
 
   it('refuses a run without a report, one without the fix pass, and one that changed no file', async (t) => {
@@ -178,7 +178,9 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       // Author and committer come from the user's configuration; the message carries the trailer.
       assert.equal(git(box.repo, 'log', '-1', '--format=%an <%ae> / %cn <%ce>'), 'Test <test@example.invalid> / Test <test@example.invalid>');
       assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[0]!.sha), /^fix\(a\): Return 0 for a null text\n\nWhy finding 0 changed\.\n\nDeep-review: run [0-9a-f-]+, SCAN-1 \(SCAN, PLAUSIBLE\)$/);
-      const commits = box.run().review!.fix!.commits!;
+      const series = box.run().review!.fix!.commits;
+      assert.equal(series.length, 1, 'one series');
+      const commits = series[0]!;
       assert.deepEqual(commits.commits.map((commit) => [commit.sha, commit.revision]), [[outcome.commits[0]!.sha, 0], [outcome.commits[1]!.sha, 1]]);
       assert.equal(commits.from, head);
       assert.equal(commits.to, outcome.commits[1]!.sha);
@@ -197,7 +199,7 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       write(box.repo, 'src/b.ts', fixedB);
       git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit after the run');
       assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo }), refused(/HEAD is [0-9a-f]+, not [0-9a-f]+, the head run .* reviewed/));
-      assert.equal(box.run().review!.fix!.commits, null, 'nothing was recorded');
+      assert.deepEqual(box.run().review!.fix!.commits, [], 'nothing was recorded');
     });
 
     it('leaves the ref where it is when a commit lands while the commits are built, and the built commits unreferenced', () => {
@@ -211,7 +213,7 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
         },
       }), refused(/refs\/heads\/main moved while the commits were built, so it was left where it is/));
       assert.equal(git(box.repo, 'rev-parse', 'HEAD'), landed);
-      assert.equal(box.run().review!.fix!.commits, null);
+      assert.deepEqual(box.run().review!.fix!.commits, []);
     });
 
     it('unstages a staged path no commit holds, naming it, and leaves its bytes in the tree', () => {

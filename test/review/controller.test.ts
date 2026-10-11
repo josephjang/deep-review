@@ -94,7 +94,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const state = box.run();
     assert.equal(state.review?.report !== null, true);
     // A run without --fix surveys first, decides its findings, skips the five phases of the fix pass, and has no fix state.
-    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
     assert.equal(state.review!.fix, null);
     assert.equal(state.review!.configuration.fix, false);
     // Workers: survey 1, triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1, decider 1.

@@ -4,13 +4,17 @@
  * of them, the plan of routes, clusters and batches and the second
  * round's, each fixer's recorded answer, every revision of the tree in
  * ledger order, the units settled without an answer, the files the
- * clusters claimed and the claims left out of the ledger, and the commits
- * built from the run afterwards. Facts as recorded; the planner reads what
- * to do next from them. The questions below are answered from this state
- * alone.
+ * clusters claimed and the claims left out of the ledger, and every
+ * series of commits built from the run afterwards (R8 of answers). Facts
+ * as recorded; the planner reads what to do next from them. The questions
+ * below are answered from this state alone, or with the review state
+ * beside it where an answer pass is concerned.
  */
-import { checkPhases, editingPhases, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
+import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
+import { currentPass, passOf, type AppliedBy } from './answer-state.ts';
 import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
+import type { RunState } from './fold.ts';
+import type { ReviewState } from './review-fold.ts';
 
 /**
  * One kind's check as the fold holds a plan, whichever version recorded
@@ -87,8 +91,8 @@ export interface FixState {
   readonly lostClaims: readonly LostClaim[];
   /** The holder each recorded violation was judged against when its answer folded, by fixes-phase unit key and then path; a later claim of the path does not change it (R6 of commit series integrity). */
   readonly violationHolders: Readonly<Record<string, Readonly<Record<string, PathHolder>>>>;
-  /** The commits built from the run after its report, or null until they are. */
-  readonly commits: CommitsCreated | null;
+  /** Every series of commits built from the run after a report, in ledger order: the first from the scope's head, each later one from the last commit of the one before (R8 of answers). Empty until `deep-review commit` builds one. */
+  readonly commits: readonly CommitsCreated[];
 }
 
 /** The fix state of a run just configured with the fix pass. */
@@ -103,13 +107,24 @@ export function emptyFixState(): FixState {
     claims: [],
     lostClaims: [],
     violationHolders: {},
-    commits: null,
+    commits: [],
   };
 }
 
-/** The last run of a kind's check in a checks phase, or null when it has none. */
-export function lastRun(fix: FixState, phase: CheckPhase, kind: CheckKind): CheckRan | null {
-  return fix.checks.runs[phase].findLast((run) => run.kind === kind) ?? null;
+/** The last run of a kind's check in a checks phase at an attempt past `after`, or null when it has none; any attempt by default. */
+export function lastRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRan | null {
+  return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > after) ?? null;
+}
+
+/**
+ * The attempt of a checks phase past which its runs are the current ones:
+ * for `answer-checks`, the attempt it was at when the current answer pass
+ * opened it, so each pass runs every check once again (R5 of answers);
+ * 0 for every other checks phase, which runs each check once in the run,
+ * whatever attempt it is re-entered at.
+ */
+export function checksFloor(review: Pick<ReviewState, 'answerPasses'>, phase: CheckPhase): number {
+  return phase === 'answer-checks' ? (currentPass(review)?.pass.openedAt.checks ?? 0) : 0;
 }
 
 /** Whether a kind's check failed or timed out before any edit (R10, R24 of the fix pass). */
@@ -318,12 +333,25 @@ export function heldByAnother(holders: ReadonlyMap<string, ReadonlySet<string>>,
   return [...(holders.get(path) ?? [])].some((cluster) => cluster !== own);
 }
 
-/** A finding's last recorded answer in the fixes phase, the second round's over the first's, with the batch that gave it; null when none answered it. */
-export function lastAnswerOf(fix: FixState, id: string): { readonly batch: string; readonly finding: FixedFinding } | null {
+/** The number of an answer pass's unit key, or null for a key no pass spells. */
+const passNumberOf = (key: string): number | null => (/^pass-[1-9][0-9]*$/.test(key) ? Number(key.slice('pass-'.length)) : null);
+
+/**
+ * A finding's last recorded fixer answer, with the phase and the unit key
+ * that gave it: an answer pass's over the fixes phase's, a later pass's
+ * over an earlier one's (R5, R10 of answers), and in the fixes phase the
+ * second round's over the first's; null when no fixer answered it.
+ */
+export function lastAnswerOf(fix: FixState, id: string): { readonly phase: 'fixes' | 'answer'; readonly key: string; readonly finding: FixedFinding } | null {
+  const passes = Object.keys(fix.answers.answer).filter((key) => passNumberOf(key) !== null).sort((a, b) => passNumberOf(b)! - passNumberOf(a)!);
+  for (const key of passes) {
+    const finding = fix.answers.answer[key]!.findings.find((candidate) => candidate.id === id);
+    if (finding !== undefined) return { phase: 'answer', key, finding };
+  }
   for (const batch of [...allBatches(fix)].reverse()) {
     if (!batch.findingIds.includes(id)) continue;
     const finding = fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id);
-    if (finding !== undefined) return { batch: batch.key, finding };
+    if (finding !== undefined) return { phase: 'fixes', key: batch.key, finding };
   }
   return null;
 }
@@ -347,9 +375,84 @@ export function fixesRevisedPaths(fix: FixState): string[] {
   return [...new Set(fix.revisions.filter((revision) => revision.phase === 'fixes').flatMap((revision) => revision.files.map((file) => file.path)))].sort();
 }
 
-/** The files a unit of an editing phase owns: its batch's cluster's files, or for the repair everything the fixes phase revised. */
-export function ownedFiles(fix: FixState, phase: EditingPhase, key: string): readonly string[] {
-  return phase === 'repair' ? fixesRevisedPaths(fix) : (clusterOfBatch(fix, key)?.files ?? []);
+/** Every path any revision of the run changed, sorted. */
+export function revisedPaths(fix: FixState): string[] {
+  return [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file) => file.path)))].sort();
+}
+
+/** The repository files the findings' candidates are located in, primaries and members, sorted; an unlocated candidate gives none. */
+function locatedFilesOf(review: Pick<ReviewState, 'ranking' | 'candidates'>, ids: readonly string[]): string[] {
+  const candidates = (review.ranking ?? []).filter((finding) => ids.includes(finding.id)).flatMap((finding) => [finding.id, ...finding.members]);
+  const files = candidates.flatMap((id) => {
+    const candidate = review.candidates[id];
+    return candidate === undefined || !candidate.located || candidate.file === null ? [] : [candidate.file];
+  });
+  return [...new Set(files)].sort();
+}
+
+/** The parts of a review state that say what an editing unit owns and answers for. */
+export type EditingUnitView = Pick<ReviewState, 'fix' | 'answerPasses' | 'ranking' | 'candidates'>;
+
+/**
+ * The files a unit of an editing phase owns: its batch's cluster's files;
+ * for the repair everything the fixes phase revised; and for an answer
+ * pass every path any revision of the run changed and the files its
+ * findings are located in (R5 of answers), since it is the only editor in
+ * the tree and may have to undo what a default's fixer did. None in a run
+ * without the fix pass.
+ */
+export function ownedFiles(review: EditingUnitView, phase: EditingPhase, key: string): readonly string[] {
+  const fix = review.fix;
+  if (fix === null) return [];
+  switch (phase) {
+    case 'fixes':
+      return clusterOfBatch(fix, key)?.files ?? [];
+    case 'repair':
+      return fixesRevisedPaths(fix);
+    case 'answer':
+      return [...new Set([...revisedPaths(fix), ...locatedFilesOf(review, passOf(review, key)?.ids ?? [])])].sort();
+  }
+}
+
+/**
+ * The ids a unit of an editing phase answers for, in the order its task
+ * numbers them: a fixes-phase batch's findings, the check kinds the
+ * repair repairs, or an answer pass's findings. Null for a unit the phase
+ * does not have: a batch the plan lacks, the repair with nothing to
+ * repair, a key no answer pass has, or any unit of a run without the fix
+ * pass. The fold and the events of a unit's work read it alike.
+ */
+export function unitIdsOf(review: Pick<ReviewState, 'fix' | 'answerPasses'>, phase: EditingPhase, key: string): readonly string[] | null {
+  const fix = review.fix;
+  if (fix === null) return null;
+  switch (phase) {
+    case 'fixes':
+      return batchOf(fix, key)?.findingIds ?? null;
+    case 'repair': {
+      const targets = repairTargets(fix);
+      return key === repairUnitKey && targets.length > 0 ? targets : null;
+    }
+    case 'answer':
+      return passOf(review, key)?.ids ?? null;
+  }
+}
+
+/**
+ * The commit the run's work stands on (R6, R8 of answers, PD7): the last
+ * commit of the last series `deep-review commit` built for the run, or,
+ * before any, the scope's head. The worktree check and `commit` compare
+ * `HEAD` with it, so a committed run can take an answer pass and a later
+ * series of commits.
+ */
+export function runHead(state: Pick<RunState, 'id' | 'scope' | 'review'>): string {
+  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  return state.review?.fix?.commits.at(-1)?.to ?? state.scope.head;
+}
+
+/** How many of the run's revisions the series built so far commit: each series commits every revision from where the one before ended, in ledger order, so this is one past the last revision any series holds, and 0 before any. */
+export function committedRevisions(fix: Pick<FixState, 'commits'>): number {
+  const indexes = fix.commits.flatMap((series) => series.commits.map((commit) => commit.revision)).filter((revision): revision is number => revision !== 'change');
+  return indexes.length === 0 ? 0 : Math.max(...indexes) + 1;
 }
 
 /**
@@ -393,8 +496,20 @@ export function appliedOptionOf(ask: DecidedAsk): DecidedAsk['options'][number] 
 }
 
 /**
- * A finding's route by its decision (R6 of the decision step), the one
- * rule the planner plans by and the fold holds a recorded plan to: a
+ * A finding's route by its decision and its standing answer (R4 of
+ * answers, TD4), the one rule the planner plans by and the fold holds a
+ * recorded plan to: a finding whose answer owes an edit goes to a fixer,
+ * whatever its decision, since the fixer makes the tree hold the answer;
+ * one with no answer, or one whose answer the tree already holds, routes
+ * by its decision (`routeOfDecision`).
+ */
+export function routeOf(decision: RoutedDecision, answer: { readonly appliedBy: AppliedBy } | null): FixesPlanned['routes'][number]['route'] {
+  return answer !== null && answer.appliedBy === null ? 'fixer' : routeOfDecision(decision);
+}
+
+/**
+ * A finding's route by its decision alone (R6 of the decision step), the
+ * rule for a finding nobody answered: a
  * `fix` goes to a fixer, and so does an `ask` whose applied default edits
  * the code, which the fixer applies while the question waits for the
  * author; a `leave`, and an `ask` whose default keeps the code as it is,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answerPhases, budgetDegradingPhases, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -76,9 +76,10 @@ describe('lostClaimWords', () => {
 });
 
 describe('the phases', () => {
-  it('are the survey, the read-only phases, the decision, the five of the fix pass, then the report', () => {
-    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'report']);
+  it('are the survey, the read-only phases, the decision, the five of the fix pass, the two of the answer pass, then the report', () => {
+    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'answer', 'answer-checks', 'report']);
     assert.deepEqual(fixPhases, phases.slice(10, 15));
+    assert.deepEqual(answerPhases, phases.slice(15, 17));
   });
 
   it('put the decision after merge and rank and before the fix pass, in no group of phases: it runs no check, edits nothing, and records no candidate, deduplication or verdict', () => {
@@ -87,10 +88,15 @@ describe('the phases', () => {
     for (const group of [fixPhases, checkPhases, editingPhases, candidatePhases, deduplicationPhases, verificationPhases]) assert.ok(!(group as readonly string[]).includes('decision'), group.join(', '));
   });
 
-  it('split the fix pass into the phases that run checks and the phases that edit', () => {
-    assert.deepEqual([...checkPhases, ...editingPhases].sort(), [...fixPhases].sort());
-    assert.deepEqual(phases.filter(isCheckPhase), ['baseline-checks', 'checks', 'repair-checks']);
-    assert.deepEqual(phases.filter(isEditingPhase), ['fixes', 'repair']);
+  it('split the fix pass and the answer pass into the phases that run checks and the phases that edit', () => {
+    assert.deepEqual([...checkPhases, ...editingPhases].sort(), [...fixPhases, ...answerPhases].sort());
+    assert.deepEqual(phases.filter(isCheckPhase), ['baseline-checks', 'checks', 'repair-checks', 'answer-checks']);
+    assert.deepEqual(phases.filter(isEditingPhase), ['fixes', 'repair', 'answer']);
+  });
+
+  it('let the run budget settle the fixes and the repair as not attempted, and block the answer pass before its launch (TD8 of answers)', () => {
+    assert.deepEqual(phases.filter(isBudgetDegradingPhase), ['fixes', 'repair']);
+    assert.deepEqual([...budgetDegradingPhases], ['fixes', 'repair']);
   });
 
   it('spell a cluster id c and a number from 1, and run the check kinds build first', () => {

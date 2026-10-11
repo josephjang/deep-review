@@ -11,9 +11,10 @@ import {
   type scopeCapturedV1,
   type workerFinishedV1,
   type workerLaunchedV1,
-  type workerLostV4,
+  type workerLostV5,
 } from './events.ts';
 import { lookupEvent, registryKeys, type EventDefinition, type Registry, type RegistryKey } from './registry.ts';
+import { answerReducers } from './answer-fold.ts';
 import { fixReducers } from './fix-fold.ts';
 import { reviewReducers, unitOfLostWorker, withFailure, type ReviewState } from './review-fold.ts';
 import { surveyReducers } from './survey-fold.ts';
@@ -154,7 +155,7 @@ const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payloa
  * attempt, marked lost, so that a unit out of attempts with a loss among
  * them blocks its phase instead of degrading (TD5 of the read-only review).
  */
-const workerLost: Reducer<z.infer<typeof workerLostV4>> = (state, payload, event, drafts) => {
+const workerLost: Reducer<z.infer<typeof workerLostV5>> = (state, payload, event, drafts) => {
   const current = requireState(state, event);
   const worker = Object.hasOwn(current.workers, payload.workerId) ? current.workers[payload.workerId] : undefined;
   if (worker === undefined) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} at sequence ${String(event.sequence)} without launching it`);
@@ -183,9 +184,11 @@ export const reducers = {
   'worker.lost@2': workerLost,
   'worker.lost@3': workerLost,
   'worker.lost@4': workerLost,
+  'worker.lost@5': workerLost,
   ...reviewReducers,
   ...fixReducers,
   ...surveyReducers,
+  ...answerReducers,
 } satisfies Record<RegistryKey<EventRegistry>, Reducer<never>>;
 
 /** The engine's own model: its registry with its reducers. */
