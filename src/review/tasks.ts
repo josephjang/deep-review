@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import type { Lead, RecordedDecision, SurveyRecorded } from '../checkpoint/events.ts';
+import type { Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { inlineText } from './markdown.ts';
@@ -43,7 +43,7 @@ export interface SurveyTaskInput {
    * asked for the checks alone (R4, PD5 of fix pass continuation); null
    * for every other survey, which answers both questions.
    */
-  readonly standing: Pick<SurveyRecorded, 'conventions' | 'userRules'> | null;
+  readonly standing: SurveyedSources | null;
 }
 
 /**
@@ -53,7 +53,7 @@ export interface SurveyTaskInput {
  * newline in one is folded, as the scope block folds it, and cannot start
  * a line of its own.
  */
-function standingLines(standing: Pick<SurveyRecorded, 'conventions' | 'userRules'>): string[] {
+function standingLines(standing: SurveyedSources): string[] {
   return [
     'This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.',
     '',

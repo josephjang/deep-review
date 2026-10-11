@@ -7,7 +7,7 @@
  * survey. Nothing here asks a model or runs a command.
  */
 import { isAbsolute, join } from 'node:path';
-import type { ConventionSource, PlannedCheckV2, SurveyedCheck, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
+import type { ConventionSource, PlannedCheckV2, SurveyedCheck, SurveyedSources, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
 import { canonicalPath, isFile, isInside } from '../paths.ts';
 import { flagSetting, isSettled, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
@@ -79,7 +79,7 @@ export interface SurveyCheckContext {
    * the checks alone (R4, PD5 of fix pass continuation); null for every
    * other survey.
    */
-  readonly standing: Pick<SurveyRecorded, 'conventions' | 'userRules'> | null;
+  readonly standing: SurveyedSources | null;
 }
 
 /** Why the survey refuses a path into the git directory: a surveyor names the repository's files, and git's own are none of them. */

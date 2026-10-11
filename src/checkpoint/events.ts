@@ -1077,6 +1077,8 @@ export const surveyRecordedV1 = z.strictObject({
   if (recorded.checks !== null && new Set(recorded.checks.map((check) => check.kind)).size !== recorded.checks.length) context.addIssue({ code: 'custom', message: 'each kind is answered once', path: ['checks'] });
 });
 export type SurveyRecorded = z.infer<typeof surveyRecordedV1>;
+/** What a recorded survey says of the conventions: its convention sources and user-level decisions, without its checks. */
+export type SurveyedSources = Pick<SurveyRecorded, 'conventions' | 'userRules'>;
 
 /**
  * The run goes on without the survey (R9, PD6): a read-only review whose
