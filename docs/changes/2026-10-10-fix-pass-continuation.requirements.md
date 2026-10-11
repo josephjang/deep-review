@@ -279,7 +279,13 @@ the checks.
   after reading the report wants the new tree reviewed, not the old one
   restored. The comparison is the one the run already makes before
   every phase, extended to the scope flags and the set of paths, so a
-  file added since the review is a change too.
+  file added since the review is a change too. It sees the scope's own
+  paths only: a file outside the `--path` filter, edited after the
+  report, does not stop a continuation. The fix pass takes such a file
+  for the person's own work, as a fix run does with a file changed
+  before it began: the first worktree check after the continuation
+  names it, no revision commits it, and the second report does not
+  name it as one the run left.
 - **PD4: Only a finished run is continued.** Letting a resumed
   read-only run take `--fix` at any point before the fix phases was
   rejected: the survey would have to be asked again mid-run for the
