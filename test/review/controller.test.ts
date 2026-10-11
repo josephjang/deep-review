@@ -19,7 +19,7 @@ import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
-import { fixPhases, phases } from '../../src/review/vocabulary.ts';
+import { answerPhases, fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { paddedVersionBytes } from '../helpers/fake-probe.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { afterFind, fakeCheckCommand, loadedRunnerTimeoutMs, otherEngine, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
@@ -106,14 +106,14 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // Every phase started after the previous one finished, and every phase's check came first.
     const events = box.events(state.id);
     const kinds = events.map(([kind]) => kind);
-    const run = phases.filter((phase) => !(fixPhases as readonly string[]).includes(phase));
+    const run = phases.filter((phase) => ![...fixPhases, ...answerPhases].includes(phase as never));
     const order = run.map((phase) => events.findIndex(([kind, payload]) => kind === 'phase.started' && payload.phase === phase));
     assert.ok(order.every((position) => position >= 0), 'every phase it runs started');
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
-    assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && (fixPhases as readonly string[]).includes(payload.phase as string)), 'no phase of the fix pass started');
+    assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && [...fixPhases, ...answerPhases].includes(payload.phase as never)), 'no phase of the fix pass or of an answer pass started');
     assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 11);
-    // The engine writes the fourth version of each kind that carries a phase, the fifth of the configuration, and the fifth of the two that carry a blocker code or a fault.
-    const written: Record<string, number> = { 'review.configured': 5, 'phase.started': 4, 'phase.finished': 5, 'worktree.checked': 4, 'attempt.failed': 5, 'report.written': 4 };
+    // The engine writes the version of each kind that carries a phase that can name the answer pass's phases, and the fifth of the configuration.
+    const written: Record<string, number> = { 'review.configured': 5, 'phase.started': 5, 'phase.finished': 6, 'worktree.checked': 5, 'attempt.failed': 6, 'report.written': 5 };
     assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => event.kind in written && event.version !== written[event.kind]).map((event) => `${event.kind}@${String(event.version)}`), []);
     assert.ok(kinds.includes('review.configured'));
     // The survey is recorded once, and a read-only run plans no check.
