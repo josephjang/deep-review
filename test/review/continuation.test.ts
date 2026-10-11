@@ -32,4 +32,29 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'unit.unattempted'), [], 'no fixer was left unattempted for the budget');
     assert.ok(Object.values(state.workers).some((worker) => worker.launch.label === 'fixer fixes:c1-1'), 'the fixer launched');
   });
+
+  it('says how to continue an active read-only run resumed with --fix only when it was configured with the decision step, which a continuation needs (R10)', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    assert.equal((await box.review('claude')).kind, 'blocked');
+    const current = box.run();
+    // The same run as an engine before the decision step configured it: review.configured@4 folds with the decision phase skipped.
+    const events = box.events(current.id);
+    const payloadOf = (kind: string): Record<string, unknown> => events.find(([candidate]) => candidate === kind)![1];
+    const legacy = box.checkpoint.createRun({ worktree: box.repo });
+    box.checkpoint.append(legacy.id, legacy.lastSequence, [{ kind: 'scope.captured', version: 1, payload: payloadOf('scope.captured') }, { kind: 'review.configured', version: 4, payload: payloadOf('review.configured') }]);
+    box.checkpoint.append(current.id, current.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'replaced by the legacy run' } }]);
+    assert.equal(box.checkpoint.fold(legacy.id).review?.phases.decision.status, 'skipped');
+    box.logs.length = 0;
+    assert.equal((await box.fix('claude')).kind, 'blocked');
+    assert.ok(box.logs.includes(`run ${legacy.id} is pinned without the fix pass; --fix, --check and --no-check are ignored`), box.logs.join('\n'));
+    assert.ok(!box.logs.some((line) => line.includes('to continue it into the fix pass')), 'no continuation is promised to a run that can never be continued');
+    // The current engine's run is promised one, as it can be continued once its report is written.
+    box.checkpoint.append(legacy.id, box.checkpoint.fold(legacy.id).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'done' } }]);
+    assert.equal((await box.review('claude')).kind, 'blocked');
+    const decided = box.checkpoint.foldRuns().at(-1)!;
+    assert.notEqual(decided.review?.phases.decision.status, 'skipped');
+    box.logs.length = 0;
+    assert.equal((await box.fix('claude')).kind, 'blocked');
+    assert.ok(box.logs.includes(`run ${decided.id} is pinned without the fix pass; --fix, --check and --no-check are ignored; once its report is written, run again with --fix to continue it into the fix pass`), box.logs.join('\n'));
+  });
 });

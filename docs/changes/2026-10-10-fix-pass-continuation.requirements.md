@@ -220,7 +220,8 @@ the checks.
 - **R10: An active read-only run given `--fix` says how to continue.**
   The line a resumed read-only run logs for an ignored `--fix` adds
   that the run can be continued into the fix pass by running again with
-  `--fix` once its report is written.
+  `--fix` once its report is written, when it was configured with the
+  decision step and so can be continued.
 - **R11: The skills and the README say it.** Both skill texts say
   that, after a read-only run, when the user asks for the findings to
   be fixed, the same command is run again with `--fix` and the engine

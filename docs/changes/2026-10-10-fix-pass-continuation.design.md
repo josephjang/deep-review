@@ -362,7 +362,9 @@ sequenceDiagram
 - The line of an ignored `--fix` on a resumed read-only run becomes
   `run <id> is pinned without the fix pass; --fix[, --check and
   --no-check are] ignored; once its report is written, run again with
-  --fix to continue it into the fix pass`.
+  --fix to continue it into the fix pass`. A run configured before the
+  decision step, which is never continued, keeps the line without the
+  clause after `ignored`.
 
 ### Skills, README, build (R11)
 

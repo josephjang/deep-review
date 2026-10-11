@@ -1029,16 +1029,18 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
 /**
  * What a resumed run says of `--fix`, `--check` and `--no-check`: whether
  * the run fixes is pinned at configuration (R1 of the fix pass), so a
- * read-only run names `--fix` ignored and how it is continued once its
- * report is written (R10 of fix pass continuation); the check flags settle
- * their kinds until the checks are planned (TD6 of the repository survey),
- * and are named and ignored after.
+ * read-only run names `--fix` ignored and, when it was configured with the
+ * decision step and so can be continued (`continuable`), how it is
+ * continued once its report is written (R10 of fix pass continuation);
+ * the check flags settle their kinds until the checks are planned (TD6 of
+ * the repository survey), and are named and ignored after.
  */
 function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: OpenContext): void {
   const runId = run.id;
   const fix = context.fix ?? null;
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
-  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored; once its report is written, run again with --fix to continue it into the fix pass`);
+  const howContinued = run.review?.phases.decision.status === 'skipped' ? '' : '; once its report is written, run again with --fix to continue it into the fix pass';
+  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored${howContinued}`);
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
   const planned = (run.review?.fix?.checks.planned ?? null) !== null;
   if (pinned.fix && checkFlags && planned) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
