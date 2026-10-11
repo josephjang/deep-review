@@ -8,8 +8,10 @@
  * decision step decided
  * (R8 of the decision step), and for a fix run (R13 of the fix
  * pass) its batches, its claims (R3 of commit series integrity), its
- * checks, its patches and its commits, as text lines and as JSON.
+ * checks, its patches and its commits, every series of them, and its
+ * answers and answer passes (R10 of answers), as text lines and as JSON.
  */
+import { answerWords, standingAnswers } from '../checkpoint/answer-state.ts';
 import { allBatches, allClusters, isNotAttempted, lastRun } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
@@ -54,12 +56,27 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(continuedFrom === null ? [] : [`Continued from: ${continuedFrom.report}, into the fix pass on ${continuedFrom.at}`]),
     ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
     ...(decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`]),
+    ...(review === null ? [] : answersLine(review)),
     ...(fix === null ? [] : fix.lines),
     ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
     ...(review?.fix?.commits ?? []).map((series) => `Commits: ${String(series.commits.length)} created, ${series.from} to ${series.to}`),
   ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], review };
+  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, answers: review?.answers ?? [], answerPasses: review?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], review };
   return { lines, json };
+}
+
+/**
+ * What `status` says of a run's answers (R10 of answers): each answered
+ * finding's standing answer, how many the tree holds, and the answer
+ * passes, the last one's time; nothing for a run nobody answered.
+ */
+function answersLine(review: ReviewState): string[] {
+  const standing = [...standingAnswers(review).values()];
+  if (standing.length === 0) return [];
+  const applied = standing.filter((answer) => answer.appliedBy !== null).length;
+  const last = review.answerPasses.at(-1);
+  const passes = last === undefined ? 'no pass' : `passes: ${String(review.answerPasses.length)}, the last on ${last.at}`;
+  return [`Answers: ${String(standing.length)} recorded (${standing.map((answer) => `${answer.id} ${answerWords(answer.answer)}`).join(', ')}), ${String(applied)} applied; ${passes}`];
 }
 
 /** A fixer batch's state as `status` names it: no worker yet, one running, its answer recorded, or not attempted after two failures. */

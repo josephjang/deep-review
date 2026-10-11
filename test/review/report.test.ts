@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
-import { askDecision, configurationV3, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -218,7 +218,39 @@ describe('the Decisions section (R8 of the decision step)', () => {
 
   it('lists each question as a checklist item, with its default, the option recommended, every option\'s cost and rule, where the decider looked and why', () => {
     const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
-    assert.match(report, /^### Questions for the author\n\nNone of these held the run up: each has a default, and an answer is needed only to go another way\. This run does not fix: no fixer ran, and the tree is unchanged\. Each option's rule is the line a convention source of the repository would state for it, so the next review settles the question alone\.\n\n- \[ \] 2\\\. SWEEP-1: Should parse accept an empty input\?\n  - Default: keep accepting it \(no edit\)\n  - Recommended: accept it and return an empty result\n  - Option 1: keep accepting it\. Costs: callers that pass one now see the change\. Rule: parse rejects an empty input\n  - Option 2: accept it and return an empty result\. Costs: an empty input passes silently\. Rule: parse accepts an empty input\n  - Looked in: the change's commit message; README\.md; test\/a\.test\.ts\n  - Grounds: nothing in the repository states which behavior is meant$/m);
+    assert.match(report, /^### Questions for the author\n\nNone of these held the run up: each has a default, and an answer is needed only to go another way\. This run does not fix: no fixer ran, and the tree is unchanged\. Each option's rule is the line a convention source of the repository would state for it\.\n\n- \[ \] 2\\\. SWEEP-1: Should parse accept an empty input\?\n  - Default: keep accepting it \(no edit\)\n  - Recommended: accept it and return an empty result\n  - Option 1: keep accepting it\. Costs: callers that pass one now see the change\. Rule: parse rejects an empty input\n  - Option 2: accept it and return an empty result\. Costs: an empty input passes silently\. Rule: parse accepts an empty input\n  - Looked in: the change's commit message; README\.md; test\/a\.test\.ts\n  - Grounds: nothing in the repository states which behavior is meant\n  - Answer with: `deep-review answer --finding SWEEP-1 --option <1\.\.2>`$/m);
+    assert.doesNotMatch(report, /next review settles the question alone/, 'nothing yet carries an answer to the next review (PD3 of answers)');
+  });
+
+  it('says once what an answer does and that the next review may ask again, when there is a question or a departure, and never without (R10 of answers)', () => {
+    const sentence = /^An answer given with `deep-review answer` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits `deep-review commit` commits, on top of any commits it already made for the run; on a run that only reviewed, by `review --fix`, which continues it\. Nothing yet carries an answer to the next review, which may ask the same question again\.$/gm;
+    assert.equal(render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold()).match(sentence)?.length, 1);
+    assert.equal(render(decidedOf(reported(), [departing, decisions[1]]).fold()).match(sentence)?.length, 1, 'a departure alone');
+    assert.equal(render(decidedOf(reported()).fold()).match(sentence), null, 'no question and no departure');
+  });
+
+  it('ends an unreviewed departure with the command that reviews it, and a reviewed one with the answer and what applied it', () => {
+    const readOnly = decidedOf(reported(), [departing, decisions[1]]);
+    assert.match(render(readOnly.fold()), /^ {2}- Departs from: [^\n]*\n {2}- Review with: `deep-review answer --finding RIPPLE-1 --accept` or `--reject`$/m);
+    const rejected = readOnly.clone().add('answer.recorded', { id: 'RIPPLE-1', answer: { kind: 'reject' }, note: 'the caller is still there' });
+    const at = rejected.events.at(-1)!.recordedAt;
+    assert.match(render(rejected.fold()), new RegExp(`^ {2}- Reviewed: rejected on ${at}; not yet applied\\. Note: the caller is still there$`, 'm'));
+  });
+
+  it('checks an answered question with the option chosen, when, and what applied it, the tree, a pass or nothing yet', () => {
+    const asked = decidedOf(reported(), [decisions[0], askDecision('SWEEP-1', false)]);
+    const recorded = (option: number): { report: string; at: string } => {
+      const history = asked.clone().add('answer.recorded', { id: 'SWEEP-1', answer: { kind: 'option', option }, note: null });
+      return { report: render(history.fold()), at: history.events.at(-1)!.recordedAt };
+    };
+    const held = recorded(0);
+    assert.match(held.report, /^- \[x\] 2\\\. SWEEP-1: Should parse accept an empty input\?$/m);
+    assert.match(held.report, new RegExp(`^ {2}- Answered: option 1 on ${held.at}; the option the tree held$`, 'm'));
+    assert.doesNotMatch(held.report, /Answer with:/);
+    const owed = recorded(1);
+    assert.match(owed.report, new RegExp(`^ {2}- Answered: option 2 on ${owed.at}; not yet applied$`, 'm'));
+    assert.match(owed.report, /^Answers: 1 recorded, 0 applied$/m, 'the header counts the answers');
+    assert.doesNotMatch(owed.report, /^Answered: /m, 'no pass yet');
   });
 
   it('says no question\'s default was applied, neither in a read-only run, which ran no fixer, nor in a fix run, whose Fixes says whether a fixer edited it', () => {
@@ -276,6 +308,52 @@ describe('the Decisions section (R8 of the decision step)', () => {
     assert.doesNotMatch(render(reported().fold()), /Decisions|^Decision: /m);
     const nothing = decidedOf(reported()).fold();
     assert.doesNotMatch(render({ ...nothing, review: { ...nothing.review!, ranking: [], decisions: null } }), /## Decisions/);
+  });
+});
+
+describe('a report after an answer pass (R10 of answers)', () => {
+  const evidencePath = (reference: { sha256: string }): string => `/evidence/${reference.sha256.slice(0, 8)}`;
+  /** The decided fix run, its departure rejected and SWEEP-1 answered with option 2, through a pass that applied the first and deferred the second, to its second report. */
+  const passed = (): History => passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['RIPPLE-1', 'SWEEP-1'] }), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2);
+  const render = (state: RunState): string => renderReport(state, { engine: '0.0.0+dev', statistics, fix: { evidencePath, patches: ['/evidence/p1', '/evidence/p2'] } });
+
+  it('says in the header how many answers the run holds, when the last pass ran and where the report before it is', () => {
+    const history = passed();
+    const pass = history.review().answerPasses[0]!;
+    const report = render(history.fold());
+    assert.match(report, /^Answers: 2 recorded, 1 applied$/m);
+    assert.ok(report.includes(`\nAnswered: the last pass on ${pass.at}, after the report at /evidence/99999999\n`), report);
+  });
+
+  it('marks each answer applied by the pass or still owed, and gives each finding the pass worked its outcome and patch', () => {
+    const report = render(passed().fold());
+    const at = passed().review().answerPasses[0]!.at;
+    assert.match(report, new RegExp(`^ {2}- Reviewed: rejected on [^;]+; applied by the answer pass of ${at}$`, 'm'));
+    assert.match(report, /^ {2}- Answered: option 2 on [^;]+; not yet applied$/m, 'the pass deferred it, so it is still owed');
+    assert.match(report, new RegExp(`^### 1\\. RIPPLE-1 applied\\n\\nNote: RIPPLE-1 answered\\nCommit message: fix: Answer RIPPLE-1\\nAnswer pass: pass-1, opened on ${at}; patch 2$`, 'm'));
+    assert.match(report, /^### 2\. SWEEP-1 deferred\n\nNote: SWEEP-1 answered\nAnswer pass: pass-1, opened on [^;]+; no patch$/m, 'a held finding the pass worked has the pass\'s outcome');
+    assert.match(report, /^What the fix pass, and the answer passes after it, did with each finding/m);
+  });
+
+  it('gives the Checks table the answer pass\'s column, and says the checks did not run after a pass that changed nothing', () => {
+    const report = render(passed().fold());
+    assert.match(report, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \| After answers \|$/m);
+    const quiet = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1);
+    const quietReport = renderReport(quiet.fold(), { engine: '0.0.0+dev', statistics, fix: { evidencePath, patches: ['/evidence/p1'] } });
+    assert.match(quietReport, /^- After answers: not run, since no answer pass changed a file\.$/m);
+    assert.doesNotMatch(render(decidedFixRun().fold()), /After answers/, 'a run with no pass has no such column or line');
+  });
+
+  it('says which patches are committed once deep-review commit built a series before the pass', () => {
+    const history = new History();
+    const first = { commits: [{ sha: 'a'.repeat(40), revision: 'change', subject: 'the change' }, { sha: 'b'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'b'.repeat(40) };
+    for (const event of passed().events) {
+      history.add(event.kind, event.payload, event.version);
+      if (event.kind === 'phase.finished' && (event.payload as { phase: string; attempt: number }).phase === 'report' && (event.payload as { attempt: number }).attempt === 1) history.add('commits.created', first);
+    }
+    const report = render(history.fold());
+    assert.match(report, /^Fix pass: [^\n]*; 2 patches; patch 1 is committed; patch 2, an answer pass's, is in the working tree, uncommitted$/m);
+    assert.match(report, /in rank order\. Patch 1 is committed; patch 2, an answer pass's, is in the working tree, uncommitted; a patch number/);
   });
 });
 

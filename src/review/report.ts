@@ -1,6 +1,6 @@
 /**
  * The report (R9, PD8 of the read-only review; R13 of the fix pass; R7
- * of the Codex sandbox; R7 of fix pass continuation):
+ * of the Codex sandbox; R7 of fix pass continuation; R10 of answers):
  * Markdown rendered by the engine from the fold alone, so two engines
  * render the same report from the same ledger and no model rewrites a
  * finding. Sections in order: the header, for a run with the decision
@@ -10,6 +10,7 @@
  * and Limitations.
  */
 import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend } from '../checkpoint/events.ts';
+import { standingAnswers } from '../checkpoint/answer-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
@@ -197,6 +198,25 @@ function continuedLine(review: ReviewState, input: ReportInput): string[] {
   return [`Continued: into the fix pass on ${review.continuedFrom.at}, after the read-only report at ${inlineText(input.fix.evidencePath(review.continuedFrom.report.report))}`];
 }
 
+/**
+ * The header's lines of a run a person answered (R10 of answers): how
+ * many answered findings it holds and how many of their answers the tree
+ * holds, and after an answer pass, when the last pass was opened and where
+ * the report it replaced is. None for a run nobody answered.
+ */
+function answersLines(review: ReviewState, input: ReportInput): string[] {
+  const standing = [...standingAnswers(review).values()];
+  if (standing.length === 0) return [];
+  const applied = standing.filter((answer) => answer.appliedBy !== null).length;
+  const lines = [`Answers: ${String(standing.length)} recorded, ${String(applied)} applied`];
+  const last = review.answerPasses.at(-1);
+  if (last !== undefined) {
+    if (input.fix === undefined) throw new Error('A run with an answer pass is a fix run, whose report names where its evidence is');
+    lines.push(`Answered: the last pass on ${last.at}, after the report at ${inlineText(input.fix.evidencePath(last.reportBefore.report))}`);
+  }
+  return lines;
+}
+
 /** Render the report from the fold. The run must be configured for review and have its scope. */
 export function renderReport(state: RunState, input: ReportInput): string {
   const review = state.review;
@@ -220,6 +240,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     ...continuedLine(review, input),
+    ...answersLines(review, input),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
     ...[fixHeaderLine(review)].filter((line) => line !== null),
   ];

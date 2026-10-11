@@ -8,7 +8,8 @@
  * of these, and its report renders as it did before the fix pass existed.
  */
 import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, clusterOf, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { passOf } from '../checkpoint/answer-state.ts';
+import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -16,7 +17,7 @@ import { leftAs } from './decision-report.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, droppedByOperator, unavailableCell } from './survey-report.ts';
-import { checkPhases, lostClaimWords, repairUnitKey, type CheckPhase } from './vocabulary.ts';
+import { checkPhases, lostClaimWords, repairUnitKey, type CheckPhase, type EditingPhase } from './vocabulary.ts';
 
 /**
  * What became of one ranked finding, as the report names it: a fixer's
@@ -51,6 +52,8 @@ interface FindingFate {
   readonly secondRoundSkipped: string | null;
   /** For a finding left as superseded, the finding whose fix was to remove it and what became of that one; null otherwise. */
   readonly superseder: { readonly id: string; readonly outcome: FindingOutcome } | null;
+  /** The answer pass whose fixer worked it last, with when the pass was opened, or null when no pass did (R10 of answers). */
+  readonly pass: { readonly key: string; readonly at: string } | null;
 }
 
 /**
@@ -67,26 +70,32 @@ function heldOutcome(decision: RecordedDecision | null): FindingOutcome {
 }
 
 function fateOf(review: ReviewState, fix: FixState, id: string): FindingFate {
+  const last = lastAnswerOf(fix, id);
+  // An answer pass's fixer worked it last, whatever its route was (R10 of answers).
+  if (last?.phase === 'answer') {
+    const pass = passOf(review, last.key);
+    if (pass === null) throw new Error(`Finding ${id} is answered by ${last.key}, which no answer pass has`);
+    return { id, outcome: statusWords[last.finding.status], decision: null, batch: null, answer: last.finding, reason: null, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: { key: last.key, at: pass.at } };
+  }
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? 'fixer';
   if (route === 'held') {
     const decision = review.decisions?.find((candidate) => candidate.id === id) ?? null;
     // The superseding finding is decided fix, so a fixer was given it and its fate is never held: this recursion ends there.
     const by = decision?.leave?.supersededBy ?? null;
     const superseder = by === null ? null : { id: by, outcome: fateOf(review, fix, by).outcome };
-    return { id, outcome: heldOutcome(decision), decision, batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null, superseder };
+    return { id, outcome: heldOutcome(decision), decision, batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null, superseder, pass: null };
   }
   const second = fix.secondRound?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const firstBlockedOn = fix.secondRound?.blocked.find((entry) => entry.id === id)?.requiredFiles ?? null;
-  const last = lastAnswerOf(fix, id);
   if (last !== null) {
-    const batch = last.phase === 'fixes' ? (allBatches(fix).find((candidate) => candidate.key === last.key) ?? null) : null;
+    const batch = allBatches(fix).find((candidate) => candidate.key === last.key) ?? null;
     const answeredInSecond = second !== null && last.key === second.key;
     const secondRoundSkipped = second !== null && !answeredInSecond ? notAttemptedNote(fix, 'fixes', second.key) : null;
-    return { id, outcome: statusWords[last.finding.status], decision: null, batch, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped, superseder: null };
+    return { id, outcome: statusWords[last.finding.status], decision: null, batch, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped, superseder: null, pass: null };
   }
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const reason = (batch === null ? null : notAttemptedNote(fix, 'fixes', batch.key)) ?? 'no fixer answered for it';
-  return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null };
+  return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: null };
 }
 
 /**
@@ -102,8 +111,8 @@ function supersededLine(leave: NonNullable<RecordedDecision['leave']>, supersede
   return `No fixer saw it: the decision step left it, ${leftAs(leave)}, ${outcome}.${landed ? '' : ` Its removal depended on ${superseder.id}'s fix, so this finding may still stand.`} See Decisions.`;
 }
 
-/** The 1-based numbers of the patches whose revisions hold a finding (or, for the repair, a check kind). */
-function patchesOf(fix: FixState, id: string, phase: 'fixes' | 'repair'): number[] {
+/** The 1-based numbers of the patches whose revisions of a phase hold a finding (or, for the repair, a check kind). */
+function patchesOf(fix: FixState, id: string, phase: EditingPhase): number[] {
   return fix.revisions.flatMap((revision, index) => (revision.phase === phase && revision.change.findings.includes(id) ? [index + 1] : []));
 }
 
@@ -126,6 +135,7 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
     const files = clusterOf(fix, fate.batch.cluster)?.files ?? [];
     lines.push(`Cluster: ${fate.batch.cluster}, batch ${fate.batch.key}${files.length === 0 ? ', owning no file' : ` (${files.map(inlineText).join(', ')})`}; ${patchNote(patchesOf(fix, fate.id, 'fixes'))}`);
   }
+  if (fate.pass !== null) lines.push(`Answer pass: ${fate.pass.key}, opened on ${fate.pass.at}; ${patchNote(patchesOf(fix, fate.id, 'answer'))}`);
   for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(', ')}`);
   if (fate.firstBlockedOn !== null) lines.push(`First blocked on: ${fate.firstBlockedOn.map(inlineText).join(', ')}, which the second round gave it`);
@@ -140,7 +150,7 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
  * tracked at https://github.com/josephjang/deep-review/issues/29
  */
 function answerLines(fix: FixState): string[] {
-  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair)];
+  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair), ...Object.values(fix.answers.answer)];
   const drift = answers.flatMap((answer) => answer.drift.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.what)} (${answer.key})`));
   const tests = answers.flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
   return [
@@ -150,6 +160,19 @@ function answerLines(fix: FixState): string[] {
 }
 
 /** The Fixes section: every ranked finding in rank order with its fate, the repair's checks, and the fixers' drift and test lines. */
+/** Where the run's edits are: every one in the working tree, uncommitted, or the ones `deep-review commit` committed and the rest (R8 of answers). */
+function committedWords(fix: FixState): string {
+  const committed = committedRevisions(fix);
+  if (committed === 0) return 'Every edit is in the working tree, uncommitted';
+  const total = fix.revisions.length;
+  /** Patches `from` to `to`, as a sentence's subject with its verb. */
+  const span = (from: number, to: number): string => (from === to ? `patch ${String(from)} is` : `patches ${String(from)} to ${String(to)} are`);
+  const done = span(1, committed);
+  const head = `${done.charAt(0).toUpperCase()}${done.slice(1)} committed`;
+  if (committed >= total) return head;
+  return `${head}; ${span(committed + 1, total).replace(/ (is|are)$/, ", an answer pass's, $1")} in the working tree, uncommitted`;
+}
+
 function fixesSection(review: ReviewState, fix: FixState): string[] {
   const findings = rankedFindings(review);
   const blocks = findings.flatMap((entry, index) => {
@@ -163,7 +186,7 @@ function fixesSection(review: ReviewState, fix: FixState): string[] {
   const lines = [
     '## Fixes',
     '',
-    'What the fix pass did with each finding, in rank order. Every edit is in the working tree, uncommitted; a patch number is one of the series under Changed files.',
+    `What the fix pass${review.answerPasses.length === 0 ? '' : ', and the answer passes after it,'} did with each finding, in rank order. ${committedWords(fix)}; a patch number is one of the series under Changed files.`,
     '',
     ...(findings.length === 0 ? ['No finding to fix.', ''] : blocks),
     ...repairLines,
@@ -192,7 +215,7 @@ function checkCell(run: CheckRan | null, evidencePath: (reference: { sha256: str
  * also says where each command came from (R10, R15 of the repository
  * survey); one configured before the survey renders as it did.
  */
-function checksSection(fix: FixState, survey: SurveyState | null, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
+function checksSection(fix: FixState, survey: SurveyState | null, answered: boolean, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
   const failedAtBaseline = (kind: string): boolean => ['failed', 'timeout', 'not-started'].includes(fix.checks.runs['baseline-checks'].find((run) => run.kind === kind)?.outcome ?? '');
@@ -208,6 +231,7 @@ function checksSection(fix: FixState, survey: SurveyState | null, evidencePath: 
     : [
         ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
         ...(fix.checks.runs['repair-checks'].length === 0 ? ['- After the repair: not run, since no check failed after the fixes.'] : []),
+        ...(answered && fix.checks.runs['answer-checks'].length === 0 ? ['- After answers: not run, since no answer pass changed a file.'] : []),
       ];
   // One list of columns gives the header and the separator, so the two cannot disagree on the count.
   const columns = ['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => phaseTitles[phase])];
@@ -305,7 +329,7 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [fixesSection(review, fix), checksSection(fix, review.survey, evidencePath), changedFilesSection(fix, patches)];
+  return [fixesSection(review, fix), checksSection(fix, review.survey, review.answerPasses.length > 0, evidencePath), changedFilesSection(fix, patches)];
 }
 
 /**
@@ -320,7 +344,7 @@ export function fixHeaderLine(review: ReviewState): string | null {
   const outcomes = rankedFindings(review).map((entry) => fateOf(review, fix, entry.finding.id).outcome);
   const held: readonly FindingOutcome[] = review.phases.decision.status === 'skipped' ? ['held for the author'] : ['left by decision', 'asked, kept as is'];
   const counts = (['applied', 'already applied', 'deferred', 'blocked', 'not attempted', ...held] as const).map((outcome) => `${String(outcomes.filter((candidate) => candidate === outcome).length)} ${outcome}`);
-  return `Fix pass: ${counts.join(', ')}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? '' : 'es'}; the edits are in the working tree, uncommitted`;
+  return `Fix pass: ${counts.join(', ')}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? '' : 'es'}; ${committedRevisions(fix) === 0 ? 'the edits are in the working tree, uncommitted' : committedWords(fix).replace(/^P/, 'p')}`;
 }
 
 /**
@@ -373,13 +397,13 @@ export function fixLimitations(review: ReviewState): string[] {
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);
   // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).
   if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check) => `${check.kind} (${inlineText(droppedByOperator(review.survey, check) ?? check.reason ?? 'no command')})`).join('; ')}.`);
-  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair)];
+  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair), ...Object.values(fix.answers.answer)];
   for (const answer of answers) {
     for (const finding of answer.findings) {
       for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);
     }
     const failures = answer.suite.failures.trim() === '' ? '' : `: ${inlineText(answer.suite.failures)}`;
-    lines.push(`- ${answer.key === repairUnitKey ? 'The repair' : `Fixer ${answer.key}`} ran its own suite: ${answer.suite.result}${answer.suite.command.trim() === '' ? '' : ` (${inlineText(answer.suite.command)})`}${failures}.`);
+    lines.push(`- ${answer.key === repairUnitKey ? 'The repair' : answer.phase === 'answer' ? `The fixer of the answer pass ${answer.key}` : `Fixer ${answer.key}`} ran its own suite: ${answer.suite.result}${answer.suite.command.trim() === '' ? '' : ` (${inlineText(answer.suite.command)})`}${failures}.`);
   }
   const oversized = fix.revisions.flatMap((revision) => revision.files.filter((file) => file.after !== null && 'oversized' in file.after).map((file) => file.path));
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(', ')}.`);

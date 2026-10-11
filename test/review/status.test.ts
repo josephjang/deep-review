@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { describeRun } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { askDecision, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, triaged, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, triaged, worker } from '../helpers/review-history.ts';
 
 /** An evidence path that names the reference, so a test sees which one was asked for. */
 const evidencePath = (reference: { sha256: string; bytes: number }): string => `/evidence/${reference.sha256.slice(0, 8)}-${String(reference.bytes)}`;
@@ -19,7 +19,7 @@ describe('describeRun', () => {
       'Workers: 0 running, 0 finished, 0 lost',
       'Spend: none',
     ]);
-    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, continuedFrom: null, decisions: null, fix: null, patches: [], commits: [], review: null });
+    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, continuedFrom: null, decisions: null, answers: [], answerPasses: [], fix: null, patches: [], commits: [], review: null });
   });
 
   it('names the reason of an abandoned run on its first line', () => {
@@ -128,5 +128,34 @@ describe('describeRun of a run continued into the fix pass', () => {
     const described = describeRun(readOnlyReported().fold(), claudeAdapter, evidencePath);
     assert.equal(described.json.continuedFrom, null);
     assert.ok(!described.lines.some((line) => line.startsWith('Continued from:')));
+  });
+});
+
+describe('describeRun of an answered run (R10 of answers)', () => {
+  it('says nothing of answers for a run nobody answered', () => {
+    const described = describeRun(decidedFixRun().fold(), claudeAdapter, evidencePath);
+    assert.ok(!described.lines.some((line) => line.startsWith('Answers:')));
+    assert.deepEqual((described.json as { answers: unknown }).answers, []);
+  });
+
+  it('names each answered finding with its standing answer, how many the tree holds, and the passes', () => {
+    const answered = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.recorded', answer('SWEEP-1', 0)).add('answer.recorded', answer('SWEEP-1', 1));
+    assert.ok(describeRun(answered.fold(), claudeAdapter, evidencePath).lines.includes('Answers: 2 recorded (RIPPLE-1 rejected, SWEEP-1 option 2), 0 applied; no pass'));
+    const passed = passToReport(answered.add('answer.pass', { ids: ['RIPPLE-1', 'SWEEP-1'] }), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2);
+    const state = passed.fold();
+    const at = state.review!.answerPasses[0]!.at;
+    const described = describeRun(state, claudeAdapter, evidencePath);
+    assert.ok(described.lines.includes(`Answers: 2 recorded (RIPPLE-1 rejected, SWEEP-1 option 2), 1 applied; passes: 1, the last on ${at}`), described.lines.join('\n'));
+    assert.ok(described.lines.includes('Check build: baseline-checks passed, checks passed, repair-checks -, answer-checks passed'), described.lines.join('\n'));
+    const json = JSON.parse(JSON.stringify(described.json)) as { answers: { id: string; appliedBy: unknown }[]; answerPasses: { ids: string[]; at: string; reportBefore: string }[]; commits: unknown[] };
+    assert.deepEqual(json.answers.map((entry) => [entry.id, entry.appliedBy]), [['RIPPLE-1', { phase: 'answer', key: 'pass-1' }], ['SWEEP-1', 'tree'], ['SWEEP-1', null]]);
+    assert.deepEqual(json.answerPasses, [{ ids: ['RIPPLE-1', 'SWEEP-1'], at, reportBefore: '/evidence/99999999-4096', openedAt: { answer: 0, checks: 0 } }]);
+    assert.deepEqual(json.commits, []);
+  });
+
+  it('names every series of commits', () => {
+    const first = { commits: [{ sha: 'a'.repeat(40), revision: 'change', subject: 'the change' }, { sha: 'b'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'b'.repeat(40) };
+    const lines = describeRun(decidedFixRun().add('commits.created', first).fold(), claudeAdapter, evidencePath).lines;
+    assert.ok(lines.includes(`Commits: 2 created, ${'2'.repeat(40)} to ${'b'.repeat(40)}`), lines.join('\n'));
   });
 });
