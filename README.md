@@ -266,8 +266,9 @@ A finished read-only run is continued rather than reviewed again. With
 no run active, `review --fix` given the scope flags of a change that a
 read-only run of this worktree reviewed to its report continues the
 newest such run, when it was configured with the decision step and the
-change is unchanged since: the same mode, base and paths, every file as
-git would store it what the run froze, and `HEAD` at its head. The run
+change is unchanged since: the same mode, base and paths, every file
+holding what the run froze, compared as git would store it, and `HEAD`
+at its head. The run
 pins the fix pass, asks its surveyor only for the checks the flags leave
 unsettled, the convention sources its review recorded standing, runs the
 five phases on the findings and decisions it holds, and writes a second
