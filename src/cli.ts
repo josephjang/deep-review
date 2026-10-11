@@ -2,7 +2,9 @@
  * The `deep-review` command (R1, R13 of the read-only review): `review` runs
  * a review to its report in the foreground and is resumable, `status` prints
  * the fold of a run, `abandon` closes one, `commit` turns a completed fix
- * run's revisions into commits (R17 of the fix pass), `snapshot` is what
+ * run's revisions into commits (R17 of the fix pass), `answer` records a
+ * person's answer to a question or a departure and applies it (R1 of
+ * answers), `snapshot` is what
  * a fix worker runs after each finding (R6), and `claim` what it runs
  * before its first edit of a file outside its cluster (R1, R2 of commit
  * series integrity). The entry point of the bundle and of `npm run review`
@@ -13,20 +15,23 @@ import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
-import type { ScopeRequest } from './checkpoint/events.ts';
+import { answerWords } from './checkpoint/answer-state.ts';
+import { answerNoteLengthV1, type Answer, type ScopeRequest } from './checkpoint/events.ts';
 import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
 import { EngineError } from './errors.ts';
-import { findActiveRun, runReview, type ScopeSource } from './review/controller.ts';
+import { answerRun } from './review/answer.ts';
+import { findActiveRun, runReview, type ReviewOutcome, type ScopeSource } from './review/controller.ts';
+import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
-import { checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
-import type { CheckFlags } from './review/checks/discover.ts';
+import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
+import { noCheckFlags, type CheckFlags } from './review/checks/discover.ts';
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
@@ -46,10 +51,12 @@ export const usage = `usage:
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
+  deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]
+                      [--record-only] [--run <id>] [--budget-usd <usd>] [--roles <dir>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
 
-exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, a snapshot taken or a file claimed; 2 a blocked run or a refusal, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken or a file claimed; 2 a blocked run or a refusal, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -78,6 +85,11 @@ const options = {
   'codex-windows-sandbox': { type: 'string' },
   'change-message': { type: 'string' },
   finding: { type: 'string' },
+  option: { type: 'string' },
+  accept: { type: 'boolean' },
+  reject: { type: 'boolean' },
+  note: { type: 'string' },
+  'record-only': { type: 'boolean' },
   into: { type: 'string' },
   unit: { type: 'string' },
   in: { type: 'string' },
@@ -100,6 +112,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   status: ['run', 'json', 'repo', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
+  answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
   claim: ['path', 'unit', 'in', 'help'],
 };
@@ -236,6 +249,8 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
       return status(values, io, location.root);
     case 'commit':
       return commit(values, io, location.root, location.worktree);
+    case 'answer':
+      return answer(values, io, location.root, location.worktree);
     default:
       return abandon(values, io, location.root);
   }
@@ -262,6 +277,116 @@ function commit(values: Values, io: CommandIo, root: string, worktree: string): 
     io.stderr(`run ${outcome.runId}: ${String(outcome.commits.length)} commit${outcome.commits.length === 1 ? '' : 's'} created; no commit hook ran, since they were built from the run's frozen bytes, not by git commit\n`);
     if (outcome.unstaged.length > 0) io.stderr(`staged paths no commit holds were unstaged and are unchanged in the tree: ${outcome.unstaged.join(', ')}\n`);
     return 0;
+  } catch (error) {
+    if (error instanceof UnknownRunError) throw new UsageError(error.message);
+    throw error;
+  } finally {
+    checkpoint.close();
+  }
+}
+
+/**
+ * The answer the flags give (TD9 of answers): `--option <n>`, the
+ * option's number as the report numbers it from 1, recorded from 0, or
+ * `--accept` or `--reject`; exactly one of them.
+ */
+export function answerOf(values: Values): Answer {
+  const given = [values.option !== undefined, values.accept === true, values.reject === true].filter(Boolean).length;
+  if (given !== 1) throw new UsageError('give exactly one of --option <n>, --accept and --reject');
+  if (values.option !== undefined) {
+    if (!/^[1-9][0-9]{0,2}$/.test(values.option)) throw new UsageError(`--option takes an option's number as the report numbers it, from 1, not ${JSON.stringify(values.option)}`);
+    return { kind: 'option', option: Number(values.option) - 1 };
+  }
+  return values.accept === true ? { kind: 'accept' } : { kind: 'reject' };
+}
+
+/** The note an answer records, or null without `--note`; an empty one, or one past the ledger's cap, is refused. */
+export function noteOf(values: Values): string | null {
+  const note = values.note;
+  if (note === undefined) return null;
+  if (note.trim() === '') throw new UsageError('--note needs text; leave it out for no note');
+  if (note.length > answerNoteLengthV1) throw new UsageError(`--note holds at most ${String(answerNoteLengthV1)} characters, not ${String(note.length)}`);
+  return note;
+}
+
+/** Print how a run the command ran ended: the report's path last on stdout, exit 0, or the blocker and its action on stderr, exit 2. */
+function reviewEnded(outcome: ReviewOutcome, io: CommandIo): number {
+  if (outcome.kind === 'report') {
+    io.stdout(`${outcome.reportPath}\n`);
+    return 0;
+  }
+  io.stderr(`blocked in ${outcome.blocker.phase} (${outcome.blocker.code}): ${outcome.blocker.detail}\naction: ${outcome.blocker.action}\n`);
+  return 2;
+}
+
+/**
+ * Record a person's answer on a complete run (R1 to R6 of answers), and
+ * on a run that fixed, unless `--record-only`, run the answer pass that
+ * applies every answer owing an edit to its report, on the runtime and
+ * executable the run pinned, as `review` resumes a run: the report's path
+ * is the last line of stdout. On a run that only reviewed it says that
+ * `review --fix` applies the answer; with nothing owed, that the tree
+ * holds it already.
+ */
+async function answer(values: Values, io: CommandIo, root: string, worktree: string): Promise<number> {
+  const finding = values.finding;
+  if (finding === undefined || !candidateIdSchema.safeParse(finding).success) throw new UsageError(`--finding takes a finding's id as the report prints it, such as RIPPLE-2, not ${JSON.stringify(finding ?? '')}`);
+  const given = answerOf(values);
+  const note = noteOf(values);
+  const budgetUsd = number('--budget-usd', values['budget-usd']);
+  const flags: PolicyFlags = budgetUsd === undefined ? {} : { budgetUsd };
+  const problem = invocationFlagProblem(flags);
+  if (problem !== null) throw new UsageError(problem);
+  const checkpoint = openCheckpoint(root, false);
+  if (checkpoint === null) throw new UsageError('this repository has no checkpoint, so there is no run to answer');
+  try {
+    const runtimes = defaultRuntimes();
+    const outcome = answerRun({
+      checkpoint,
+      worktree,
+      ...(values.run === undefined ? {} : { runId: values.run }),
+      finding,
+      answer: given,
+      note,
+      recordOnly: values['record-only'] === true,
+      flags,
+      adapter: (runtime) => runtimes.get(runtime),
+      match: gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match,
+      log: (line) => io.stderr(`${line}\n`),
+    });
+    io.stdout(`answer ${outcome.recorded ? 'recorded' : 'already recorded'}: run ${outcome.runId}, ${finding} ${answerWords(given)}\n`);
+    switch (outcome.next) {
+      case 'read-only':
+        io.stdout('the run only reviewed; run review --fix to apply the answer with the fixes\n');
+        return 0;
+      case 'record-only':
+        io.stdout('recorded only; the next deep-review answer on this run without --record-only applies it\n');
+        return 0;
+      case 'nothing-owed':
+        io.stdout('the tree already holds this answer; nothing to apply\n');
+        return 0;
+      case 'pass':
+        break;
+    }
+    const configuration = outcome.state.review!.configuration;
+    io.stderr(`run ${outcome.runId}: answer pass over ${outcome.state.review!.answerPasses.at(-1)!.ids.join(', ')}\n`);
+    // The pass resumes the run it opened, which keeps the runtime, executable, scope and checks it pinned.
+    const ran = await runReview({
+      checkpoint,
+      worktree,
+      runtimes,
+      runtime: configuration.runtime,
+      executable: configuration.executable,
+      executableArgs: configuration.executableArgs,
+      rolesRoot: values.roles ?? engineRolesRoot(),
+      flags,
+      scope: { named: false, request: () => { throw new Error(`Run ${outcome.runId} has its scope`); } },
+      fix: noCheckFlags,
+      engineEntry: import.meta.filename,
+      environment: io.environment,
+      log: (line) => io.stderr(`${line}\n`),
+    });
+    return reviewEnded(ran, io);
   } catch (error) {
     if (error instanceof UnknownRunError) throw new UsageError(error.message);
     throw error;
@@ -386,12 +511,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
       environment: io.environment,
       log: (line) => io.stderr(`${line}\n`),
     });
-    if (outcome.kind === 'report') {
-      io.stdout(`${outcome.reportPath}\n`);
-      return 0;
-    }
-    io.stderr(`blocked in ${outcome.blocker.phase} (${outcome.blocker.code}): ${outcome.blocker.detail}\naction: ${outcome.blocker.action}\n`);
-    return 2;
+    return reviewEnded(outcome, io);
   } finally {
     checkpoint.close();
   }

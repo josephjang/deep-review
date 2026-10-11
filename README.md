@@ -426,6 +426,30 @@ the captured change first in `--worktree` mode with
 no file and running no hook. See
 `docs/changes/2026-10-01-fix-pass.requirements.md` and its design.
 
+## Answers
+
+A person answers a question the decision step asked, or accepts or
+rejects a fix's departure from a rule, with `deep-review answer
+--finding <id>` and one of `--option <n>`, `--accept` or `--reject`,
+after the run has written its report. The report's Decisions section
+ends each question and each departure with the command that answers
+it. The answer is recorded on the run's ledger first, with an optional
+`--note`. On a run that only reviewed, `review --fix` then continues
+the run and gives the answered finding to a fixer, which is told the
+answer. On a run that fixed, the command opens an answer pass: one
+fixer, told every answer that still owes an edit and what the run did
+with each finding, makes the tree hold what the person decided, the
+checks run again, and a second report is written; `deep-review commit`
+commits the pass's edits on top of the commits it already made for the
+run. An answer that names what the tree already holds owes nothing and
+runs no fixer. The pass is refused, the answer staying recorded, when
+`HEAD` or a file the run expects moved, or when the spend has reached
+the run budget; `--record-only` records without a pass.
+
+An answer is applied to its run and recorded there. Nothing yet carries
+it to the next review, which may ask the same question again. See
+`docs/changes/2026-10-11-answers.requirements.md` and its design.
+
 ## The repository survey
 
 Every run, read-only or fixing, begins with a `survey` phase before the

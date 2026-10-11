@@ -296,7 +296,7 @@ export function presurveyRulesFiles(worktree: string, changedPaths: readonly str
 }
 
 /** What a drifted check found, as the log names it. */
-const driftList = (found: { readonly files: readonly { readonly path: string; readonly outcome: string }[]; readonly head: DriftFound['head'] }): string =>
+export const driftList = (found: { readonly files: readonly { readonly path: string; readonly outcome: string }[]; readonly head: DriftFound['head'] }): string =>
   [...(found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`]), ...found.files.map((file) => `${file.path} (${file.outcome})`)].join(', ');
 
 /**
@@ -1112,7 +1112,7 @@ function append(checkpoint: Checkpoint, state: RunState, events: readonly NewEve
  * concurrency is how a machine is spared. A runtime that reports no cost
  * has no budget to check.
  */
-function limitsInForce(configuration: ReviewConfiguration, flags: PolicyFlags, adapter: RuntimeAdapter): ReviewLimits {
+export function limitsInForce(configuration: ReviewConfiguration, flags: Pick<PolicyFlags, 'concurrency' | 'budgetUsd'>, adapter: Pick<RuntimeAdapter, 'capabilities'>): ReviewLimits {
   return {
     concurrency: flags.concurrency ?? configuration.concurrency,
     runBudgetUsd: adapter.capabilities.costInUsd ? (flags.budgetUsd ?? configuration.runBudgetUsd) : null,

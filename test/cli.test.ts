@@ -38,6 +38,31 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.match(help.stdout, /deep-review claim   --path <path> --unit <key> --in <dir>/, 'the usage names the claim command a fixer runs');
   });
 
+  it('refuses an answer the flags do not spell with the usage and exit 1, before reading any run (R1 of answers)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const help = await run(box, '--help');
+    assert.ok(help.stdout.includes('deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]'), 'the usage names the answer command');
+    for (const [args, message] of [
+      [['answer', '--option', '1'], /--finding takes a finding's id as the report prints it, such as RIPPLE-2, not ""/],
+      [['answer', '--finding', 'ripple-2', '--option', '1'], /--finding takes a finding's id [^\n]*, not "ripple-2"/],
+      [['answer', '--finding', 'RIPPLE-2'], /give exactly one of --option <n>, --accept and --reject/],
+      [['answer', '--finding', 'RIPPLE-2', '--accept', '--reject'], /give exactly one of --option <n>, --accept and --reject/],
+      [['answer', '--finding', 'RIPPLE-2', '--option', '2', '--accept'], /give exactly one of/],
+      [['answer', '--finding', 'RIPPLE-2', '--option', '0'], /--option takes an option's number as the report numbers it, from 1, not "0"/],
+      [['answer', '--finding', 'RIPPLE-2', '--option', 'two'], /--option takes an option's number [^\n]*, not "two"/],
+      [['answer', '--finding', 'RIPPLE-2', '--accept', '--note', ' '], /--note needs text; leave it out for no note/],
+      [['answer', '--finding', 'RIPPLE-2', '--accept', '--note', 'x'.repeat(2001)], /--note holds at most 2000 characters, not 2001/],
+      [['answer', '--finding', 'RIPPLE-2', '--accept', '--budget-usd', '0'], /--budget-usd must be a positive number, not 0/],
+      [['answer', '--finding', 'RIPPLE-2', '--accept', '--fix'], /--fix does not apply to answer/],
+      [['answer', '--finding', 'RIPPLE-2', '--accept'], /this repository has no checkpoint, so there is no run to answer/],
+    ] as const) {
+      const outcome = await run(box, ...args);
+      assert.equal(outcome.status, 1, `${args.join(' ')}: ${outcome.stderr}`);
+      assert.match(outcome.stderr, message);
+      assert.match(outcome.stderr, /usage:/);
+    }
+  });
+
   it('refuses a command-line mistake with the usage and exit 1', async (t) => {
 
     const box = ReviewSandbox.forTest(t);
