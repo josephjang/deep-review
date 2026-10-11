@@ -126,6 +126,15 @@ describe('the repository\'s roles/', () => {
     assert.ok(returnFormat >= 0 && reconciliation > returnFormat, `reconciliation at ${String(reconciliation)}, return format at ${String(returnFormat)}`);
   });
 
+  it('tells every fixer role its defers go to the person, and promises no later audit of them (R11 of answers)', () => {
+    for (const key of fixerRoles) {
+      const prompt = roles.find((role) => role.key === key)!.prompt.replace(/\s+/g, ' ');
+      assert.ok(prompt.includes('Every defer is reported to the person, who decides what becomes of it, so a defer states the evidence that stopped you, not a settled skip.'), key);
+      assert.ok(prompt.includes('report `deferred` with that evidence for the person rather than applying the literal instruction'), key);
+      assert.doesNotMatch(prompt, /adversarial pass|re-opens it|for the audit|hypothesis to be retested/, key);
+    }
+  });
+
   it('ends the fixer role with its return format, and tells it to dispatch no one', () => {
     // The fixer edits and returns, in the fixes phase, the repair and an answer pass alike; starting other workers is the engine's job.
     const fixer = roles.find((role) => role.key === 'fixer')!;
