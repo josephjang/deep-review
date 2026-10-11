@@ -11,7 +11,7 @@ import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
 import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
-import { finderAngles, type Angle, type Phase } from '../src/review/vocabulary.ts';
+import { finderAngles, phases, type Angle, type Phase } from '../src/review/vocabulary.ts';
 
 const { values } = parseArgs({ options: { output: { type: 'string' } }, strict: true });
 if (values.output === undefined) throw new Error('--output DIRECTORY is required');
@@ -72,6 +72,11 @@ class ReviewHistory {
     this.phaseAt(4, phase, body, finish, check, 5);
   }
 
+  /** The same as the engine now writes them since answers: started and checked at version 5, finished at version 6, which can name the answer pass's phases. */
+  phaseV6(phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}): void {
+    this.phaseAt(5, phase, body, finish, check, 6);
+  }
+
   /** Start a phase at its next attempt at version 3 with a clean check and finish it blocked, as a survey that blocks does. */
   blockedV3(phase: Phase, body: () => void, blocker: PhaseBlocker): void {
     this.phaseAt(3, phase, body, blocker);
@@ -83,7 +88,7 @@ class ReviewHistory {
    * and finish it at `finishedVersion`, `version` unless given:
    * `completed` or `degraded`, or `blocked` on a blocker.
    */
-  phaseAt(version: 2 | 3 | 4, phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}, finishedVersion: number = version): void {
+  phaseAt(version: 2 | 3 | 4 | 5, phase: Phase, body: () => void, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed', check: { strays?: string[]; end?: boolean } = {}, finishedVersion: number = version): void {
     const number = (this.#attempts[phase] ?? 0) + 1;
     this.#attempts[phase] = number;
     this.add('phase.started', { phase, attempt: number }, version);
@@ -94,15 +99,15 @@ class ReviewHistory {
     this.add('phase.finished', { phase, attempt: number, ...finished }, finishedVersion);
   }
 
-  /** One check as it ran in a checks phase, four seconds long. */
-  check(phase: 'baseline-checks' | 'checks' | 'repair-checks', kind: string, command: string, outcome: 'passed' | 'failed'): void {
+  /** One check as it ran in a checks phase, four seconds long, at version 1 unless another is given. */
+  check(phase: 'baseline-checks' | 'checks' | 'repair-checks' | 'answer-checks', kind: string, command: string, outcome: 'passed' | 'failed', version = 1): void {
     const attempt = this.#attempts[phase] ?? 1;
     this.add('check.ran', {
       phase, attempt, kind, command, outcome,
       exitCode: outcome === 'passed' ? 0 : 1, signal: null, termination: 'exited',
       startedAt: '2026-10-01T02:00:00.000Z', endedAt: '2026-10-01T02:00:04.000Z',
       stdout: this.#checkpoint.evidence.put(`${kind} ${outcome}\n`), stderr: this.#checkpoint.evidence.put(''), error: null,
-    });
+    }, version);
   }
 
   /** A file's state frozen as a blob. */
@@ -1217,6 +1222,179 @@ try {
       patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
     }, 4);
   });
+  // An eleventh run, every event at the version the engine now writes: a
+  // fix run with the decision step whose review ranks two findings; the
+  // decider fixes the first, departing from a rule, and asks about the
+  // second with a default that keeps the code; one fixer applies the
+  // first; the report is written and deep-review commit builds the first
+  // series, the change and the fix. The author then answers the question
+  // with its second option, which owes an edit; an answer pass opens, its
+  // one fixer applies the answer in one revision, the checks run again,
+  // the second report is written with both patches, and a later series
+  // commits the pass's revision from the first series' last commit.
+  const answeredRun = checkpoint.createRun({ worktree: '/fixture/answered' });
+  const answered = new ReviewHistory(checkpoint, answeredRun.id, checkpoint.append(answeredRun.id, answeredRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
+  const answeredChecks = { build: 'npm run build', test: 'npm test' };
+  answered.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.305',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: decidedRoles,
+    rolesDigest: 'c'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 60,
+    fix: true,
+    checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 4 },
+    survey: { userRules: 'judge' },
+    codex: null,
+  }, 5);
+  answered.phaseV6('survey', () => {
+    answered.launch('801', 'surveyor survey:survey');
+    answered.finishWorker('801');
+    answered.add('survey.recorded', {
+      workerId: answered.id('801'),
+      conventions: [],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: answeredChecks.build, basis: 'stated', source: { path: 'package.json', quote: '"build"' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'the build typechecks' },
+        { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no linter' },
+        { kind: 'test', command: answeredChecks.test, basis: 'stated', source: { path: 'package.json', quote: '"test"' }, missingTool: null, reason: null },
+      ],
+      note: '',
+    });
+    answered.add('checks.planned', { checks: [
+      { kind: 'build', command: answeredChecks.build, origin: 'survey', reason: null, source: { path: 'package.json', quote: '"build"', basis: 'stated' } },
+      { kind: 'typecheck', command: null, origin: 'none', reason: 'the build typechecks', source: null },
+      { kind: 'lint', command: null, origin: 'none', reason: 'the project has no linter', source: null },
+      { kind: 'test', command: answeredChecks.test, origin: 'survey', reason: null, source: { path: 'package.json', quote: '"test"', basis: 'stated' } },
+    ] }, 2);
+  });
+  answered.phaseV6('triage', () => {
+    answered.launch('802', 'triage triage:SCAN');
+    answered.finishWorker('802');
+    answered.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: answered.id('802'), candidates: [answered.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  answered.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = String(810 + finderAngles.indexOf(angle));
+      answered.launch(tag, `finder-${angle} finders:${angle}`);
+      answered.finishWorker(tag);
+      answered.add('candidates.recorded', { phase: 'finders', key: angle, workerId: answered.id(tag), candidates: angle === 'DESIGN' ? [answered.candidate('DESIGN-1', 'DESIGN', 1)] : [], leads: null });
+    }
+  });
+  answered.phaseV6('deduplication', () => {
+    answered.launch('820', 'deduplication deduplication:deduplication');
+    answered.finishWorker('820');
+    answered.add('deduplication.recorded', { phase: 'deduplication', workerId: answered.id('820'), groups: [] });
+  });
+  answered.phaseV6('verification', () => {
+    answered.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'SCAN-1'] }] });
+    answered.launch('821', 'verifier verification:g1');
+    answered.finishWorker('821');
+    answered.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: answered.id('821'), verdicts: [
+      { id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'Not CONFIRMED: whether an empty input is an error is not stated.' },
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives' },
+    ] });
+  });
+  answered.phaseV6('sweep', () => {
+    answered.launch('830', 'sweep sweep:sweep');
+    answered.finishWorker('830');
+    answered.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: answered.id('830'), candidates: [], leads: null });
+  });
+  answered.phaseV6('sweep-deduplication', () => {});
+  answered.phaseV6('sweep-verification', () => answered.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  answered.phaseV6('merge-rank', () => {
+    answered.launch('840', 'merge-rank merge-rank:merge-rank');
+    answered.finishWorker('840');
+    answered.add('ranking.recorded', { workerId: answered.id('840'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'an empty input is accepted silently', reason: 'the intent is not stated' },
+    ] });
+  });
+  answered.phaseV6('decision', () => {
+    answered.launch('845', 'decider decision:decision');
+    answered.finishWorker('845');
+    answered.add('decisions.recorded', { workerId: answered.id('845'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: { rule: 'changed() trusts its callers', source: 'src/changed.ts:1', reason: 'the caller that made it safe is gone' } },
+      { id: 'DESIGN-1', decision: 'ask', grounds: 'nothing in the repository states whether an empty input is an error', fix: null, leave: null, ask: {
+        question: 'Should changed() reject an empty input?',
+        options: [
+          { option: 'keep accepting it', cost: 'an empty input passes silently', rule: 'changed() accepts an empty input', edits: false },
+          { option: 'reject it with an error', cost: 'callers that pass one now see an error', rule: 'changed() rejects an empty input', edits: true },
+        ],
+        recommended: 1,
+        applied: 0,
+        searched: ['README.md', 'src/changed.ts'],
+      }, departure: null },
+    ] });
+  });
+  answered.phaseV6('baseline-checks', () => {
+    answered.check('baseline-checks', 'build', answeredChecks.build, 'passed', 2);
+    answered.check('baseline-checks', 'test', answeredChecks.test, 'passed', 2);
+  });
+  answered.phaseV6('fixes', () => {
+    answered.add('fixes.planned', {
+      routes: [{ id: 'SCAN-1', route: 'fixer' }, { id: 'DESIGN-1', route: 'held' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] }],
+    });
+    answered.launch('860', 'fixer fixes:c1-1');
+    answered.finishWorker('860');
+    answered.add('fix.recorded', { phase: 'fixes', key: 'c1-1', workerId: answered.id('860'), findings: [finding('SCAN-1', 'applied', ['src/changed.ts'], 'fix: Guard the null in changed()')], drift: [], tests: [], suite: { result: 'pass', command: answeredChecks.test, failures: '' }, violations: [] }, 2);
+    answered.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1-1', workerId: answered.id('860') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
+      { path: 'src/changed.ts', status: 'modified', before: answered.frozen('after\n'), beforeSymlink: false, symlink: false, after: answered.frozen('after; // guarded\n') },
+    ] }, 2);
+    answered.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
+  }, 'completed', { end: true });
+  answered.phaseV6('checks', () => {
+    answered.check('checks', 'build', answeredChecks.build, 'passed', 2);
+    answered.check('checks', 'test', answeredChecks.test, 'passed', 2);
+  });
+  answered.phaseV6('repair', () => {});
+  answered.phaseV6('repair-checks', () => {});
+  const answeredSpend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+  const answeredPatch = (subject: string) => checkpoint.evidence.put(`From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] ${subject}\n\n---\n`);
+  answered.phaseV6('report', () => {
+    const workersPerPhase: Partial<Record<Phase, number>> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1, fixes: 1 };
+    const ran = phases.filter((phase) => phase !== 'answer' && phase !== 'answer-checks');
+    answered.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run before its answer\n'),
+      statistics: { phases: ran.map((phase) => ({ phase, ...answeredSpend(workersPerPhase[phase] ?? 0) })), total: answeredSpend(17), budgetApplied: true },
+      patches: [answeredPatch('fix: Guard the null in changed()')],
+    }, 5);
+  });
+  // deep-review commit: the change first, in worktree mode, then the fix.
+  const firstSeries = { commits: [{ sha: '7'.repeat(40), revision: 'change', subject: 'feat: Accept an empty input' }, { sha: '8'.repeat(40), revision: 0, subject: 'fix: Guard the null in changed()' }], from: fixScope.head, to: '8'.repeat(40) };
+  answered.add('commits.created', firstSeries);
+  // deep-review answer --finding DESIGN-1 --option 2: recorded, then the pass over it.
+  answered.add('answer.recorded', { id: 'DESIGN-1', answer: { kind: 'option', option: 1 }, note: 'an empty input is a caller\'s mistake' });
+  answered.add('answer.pass', { ids: ['DESIGN-1'] });
+  answered.phaseV6('answer', () => {
+    answered.launch('870', 'fixer answer:pass-1');
+    answered.finishWorker('870');
+    answered.add('fix.recorded', { phase: 'answer', key: 'pass-1', workerId: answered.id('870'), findings: [finding('DESIGN-1', 'applied', ['src/changed.ts'], 'fix: Reject an empty input, as the author chose')], drift: [], tests: [], suite: { result: 'pass', command: answeredChecks.test, failures: '' }, violations: [] }, 2);
+    answered.add('tree.revised', { phase: 'answer', source: { kind: 'fix', key: 'pass-1', workerId: answered.id('870') }, change: { findings: ['DESIGN-1'], message: message('fix: Reject an empty input, as the author chose') }, files: [
+      { path: 'src/changed.ts', status: 'modified', before: answered.frozen('after; // guarded\n'), beforeSymlink: false, symlink: false, after: answered.frozen('after; // guarded, empty refused\n') },
+    ] }, 2);
+  }, 'completed', { end: true });
+  answered.phaseV6('answer-checks', () => {
+    answered.check('answer-checks', 'build', answeredChecks.build, 'passed', 2);
+    answered.check('answer-checks', 'test', answeredChecks.test, 'passed', 2);
+  });
+  answered.phaseV6('report', () => {
+    const workersPerPhase: Partial<Record<Phase, number>> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1, fixes: 1, answer: 1 };
+    answered.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run after its answer pass\n'),
+      statistics: { phases: phases.map((phase) => ({ phase, ...answeredSpend(workersPerPhase[phase] ?? 0) })), total: answeredSpend(18), budgetApplied: true },
+      patches: [answeredPatch('fix: Guard the null in changed()'), answeredPatch('fix: Reject an empty input, as the author chose')],
+    }, 5);
+  });
+  // deep-review commit again: the pass's revision alone, from the first series' last commit.
+  answered.add('commits.created', { commits: [{ sha: '9'.repeat(40), revision: 1, subject: 'fix: Reject an empty input, as the author chose' }], from: '8'.repeat(40), to: '9'.repeat(40) });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

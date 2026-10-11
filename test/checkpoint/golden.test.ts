@@ -203,6 +203,32 @@ describe('golden checkpoints', () => {
     });
   }
 
+  // The answered run, which every fixture from schema-1-11 on holds (R9 of answers).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 11)) {
+    it(`folds ${name}'s answered run: the answer, the pass, the report before it beside the second, and two series of commits`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const run = checkpoint.foldRuns().find((candidate) => candidate.worktree === '/fixture/answered');
+      assert.ok(run?.review !== null && run?.review !== undefined && run.review.fix !== null, 'the fixture holds the answered fix run');
+      const { review } = run;
+      const fix = review.fix!;
+      assert.deepEqual(review.answers.map((answer) => [answer.id, answer.answer, answer.appliedBy]), [['DESIGN-1', { kind: 'option', option: 1 }, { phase: 'answer', key: 'pass-1' }]]);
+      assert.equal(review.answerPasses.length, 1);
+      assert.deepEqual(review.answerPasses[0]!.ids, ['DESIGN-1']);
+      assert.equal(review.answerPasses[0]!.reportBefore.patches.length, 1, 'the report before the pass had the fix\'s patch alone');
+      assert.notDeepEqual(review.answerPasses[0]!.reportBefore.report, review.report?.report, 'the second report is another artifact');
+      assert.equal(review.report?.patches.length, 2, 'the second report has the pass\'s patch too');
+      for (const phase of ['answer', 'answer-checks', 'report'] as const) assert.equal(review.phases[phase].status, 'completed', phase);
+      assert.deepEqual(review.phases.report, { status: 'completed', attempt: 2 });
+      assert.deepEqual(fix.revisions.map((revision) => revision.phase), ['fixes', 'answer']);
+      assert.equal(fix.checks.runs['answer-checks'].length, 2);
+      assert.deepEqual(fix.commits.map((series) => series.commits.map((commit) => commit.revision)), [['change', 0], [1]]);
+      assert.equal(fix.commits[1]!.from, fix.commits[0]!.to, 'the later series stands on the first one\'s last commit');
+    });
+  }
+
   it('matches the newest fixture\'s identity, so a schema or registry change needs a new fixture', () => {
     const newest = fixtures.at(-1)!;
     const recorded = JSON.parse(readFileSync(join(fixturesRoot, newest, 'identity.json'), 'utf8')) as CheckpointIdentity;
