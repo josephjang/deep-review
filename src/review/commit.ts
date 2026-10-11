@@ -28,7 +28,7 @@ export interface CommitOptions {
   readonly checkpoint: Checkpoint;
   /** The worktree the command runs in, which must be the run's. */
   readonly worktree: string;
-  /** The run to commit; the newest completed fix run with revisions and no commits when absent. */
+  /** The run to commit; when absent, the completed fix run with revisions and no commits that finished last. */
   readonly runId?: string;
   /** The message of the captured change's own commit, required in worktree mode and refused in every other. */
   readonly changeMessage?: string;
@@ -89,13 +89,17 @@ function requireCommittable(run: RunState): RunState {
 
 /**
  * The run to commit: the one named, which must be committable and which
- * `fold` refuses when this engine cannot read it, or the newest committable
- * run of the repository among those this engine can read, the others
- * passed over with a line on `log`.
+ * `fold` refuses when this engine cannot read it, or the committable run of
+ * the repository that finished last, its last event the highest in the
+ * ledger, among those this engine can read, the others passed over with a
+ * line on `log`. Not the newest created: a read-only run continued into the
+ * fix pass finishes after runs created later (R6 of fix pass continuation).
  */
 function chooseRun(checkpoint: Checkpoint, runId: string | undefined, log: (line: string) => void): RunState {
   if (runId !== undefined) return requireCommittable(checkpoint.fold(runId));
-  const found = readableRuns(checkpoint, log).filter((run) => whyNotCommittable(run) === null).at(-1);
+  const found = readableRuns(checkpoint, log)
+    .filter((run) => whyNotCommittable(run) === null)
+    .reduce<RunState | undefined>((last, run) => (last === undefined || run.lastSequence > last.lastSequence ? run : last), undefined);
   if (found === undefined) throw new ReviewRefusedError('no completed fix run has changes left to commit; name one with --run <id>');
   return found;
 }

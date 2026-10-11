@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it, type TestContext } from 'node:test';
 import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
@@ -94,6 +94,26 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal((await box.fix('claude', { fresh: true })).kind, 'report');
     const unchanged = box.checkpoint.foldRuns().at(-1)!.id;
     assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: unchanged }), refused(/changed no file, so there is nothing to commit/));
+  });
+
+  it('commits the fix run that finished last, a read-only run continued after a newer fix run finished rather than that newer one (R6 of fix pass continuation)', async (t) => {
+    const box = ReviewSandbox.forTest(t, twoFixes);
+    assert.equal((await box.review('claude')).kind, 'report');
+    const continued = box.checkpoint.foldRuns().at(-1)!.id;
+    // A fix run created after the read-only one, left uncommitted, and its edits put back so the read-only run's change is as it reviewed it.
+    assert.equal((await box.fix('claude', { fresh: true, flags: { concurrency: 1 } })).kind, 'report');
+    const created = box.checkpoint.foldRuns().at(-1)!;
+    assert.notEqual(created.id, continued);
+    assert.equal(created.review!.fix!.revisions.length, 2, 'the newer fix run is committable');
+    git(box.repo, 'checkout', '--', 'src');
+    rmSync(join(box.repo, 'test'), { recursive: true });
+    box.script(twoFixes);
+    assert.equal((await box.fix('claude', { flags: { concurrency: 1 } })).kind, 'report');
+    assert.notEqual(box.checkpoint.fold(continued).review!.continuedFrom, null, 'the read-only run was continued, not a third run created');
+    assert.ok(box.checkpoint.fold(continued).lastSequence > box.checkpoint.fold(created.id).lastSequence, 'the continued run finished after the newer one');
+    const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo, log: () => {} });
+    assert.equal(outcome.runId, continued, 'the run that finished last, not the one created last');
+    assert.deepEqual(outcome.commits.map((commit) => commit.subject), ['fix(a): Return 0 for a null text', 'fix(b): Import parse']);
   });
 
   it('refuses a revised file too large to have been frozen, before any object is written', async (t) => {
