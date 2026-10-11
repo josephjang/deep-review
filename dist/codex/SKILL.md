@@ -61,14 +61,35 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    the command commits the user's own change first, so ask the user for
    that commit's message before you run it. Show the lines it prints, one
    per commit. On exit code 2, show stderr verbatim and stop.
-6. Exit code 2: the run is blocked or was refused, and stderr ends with
+6. The report's Decisions section lists the questions the run asked and
+   the fixes that depart from a rule, each ending with the
+   `deep-review answer` command that answers it. When the user answers
+   one, run this from the repository as a background shell command with
+   the longest timeout you can, and wait for it to exit:
+
+   node "<this skill's directory>/engine/main.mjs" answer --finding <id> --option <n>
+
+   with the finding's id and the option's number as the report prints
+   them, or `--accept` or `--reject` in place of `--option <n>` for a
+   departure, and `--note <text>` with what the user said beyond the
+   choice. Exit code 0: the first line of stdout says the answer is
+   recorded. On a run that fixed, the engine then applies every answer
+   that owes an edit, and the last line of stdout is the new report's
+   path: show it as in step 4 and offer to commit the new edits as in
+   step 5. On a run that only reviewed, it says that `review --fix`
+   applies the answer: offer to run the step 3 command with `--fix`.
+   When it says the tree already holds the answer, tell the user nothing
+   was applied. Exit code 2: show stderr verbatim and stop; when it says
+   the answer is recorded, the same command applies it once the cause
+   it names is gone.
+7. Exit code 2: the run is blocked or was refused, and stderr ends with
    the blocker and the operator's action. Show both verbatim and stop.
    A `check-unavailable` blocker names a check the project defines whose
    tool this machine lacks; when the user answers it, run the same
    command again, adding `--no-check <kind>` if they choose to go
    without that check or `--check <kind>=<command>` if they name one
    that runs, and nothing if they installed the tool.
-7. Any other exit code: show stderr verbatim and stop.
+8. Any other exit code: show stderr verbatim and stop.
 
 Never review, fix, revert or commit the change another way under this
 skill's name, and never edit the code yourself: no `git commit`, no

@@ -18,7 +18,7 @@ member as though it already existed.
 If the finding still holds, adapt its authorized edit to the verified
 location. Keep a required edit to a file another cluster owns `blocked`.
 If corrected or unverified facts leave the intended fix unjustified,
-report `deferred` with that evidence for the audit rather than applying
+report `deferred` with that evidence for the person rather than applying
 the literal instruction.
 
 For each brief claim that differs from current evidence, add an entry to

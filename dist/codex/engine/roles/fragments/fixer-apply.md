@@ -64,9 +64,9 @@ predate the diff. A real bug in code under your edit window is a real
 bug, whoever wrote it.
 
 **Defer only when you cannot safely resolve the finding here.** Every
-defer is provisional: a later adversarial pass re-opens it with a
-stricter, fix-biased bar, so a defer is a hypothesis to be retested, not
-a settled skip. The criteria:
+defer is reported to the person, who decides what becomes of it, so a
+defer states the evidence that stopped you, not a settled skip. The
+criteria:
 
 - No tests cover the area and the change would alter observable behavior.
 - The decision you were given did not see a fact you found; name it.
