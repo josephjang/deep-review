@@ -279,8 +279,11 @@ that went on without its survey unless the flags settle every check.
 When no finished run qualifies, the log names the newest finished
 read-only run of the worktree and why, and a new run is created;
 `--fresh` creates one without looking. An active read-only run still
-ignores `--fix`, and says how to continue it once its report is
-written. See `docs/changes/2026-10-10-fix-pass-continuation.requirements.md`
+ignores `--fix`, and, when it was configured with the decision step,
+says how to continue it once its report is written. A run whose spend
+already reaches the run budget is refused before anything is pinned,
+naming `--budget-usd`, and stays continuable. See
+`docs/changes/2026-10-10-fix-pass-continuation.requirements.md`
 and its design.
 
 Every ranked finding is routed by its decision: a finding decided `fix`,
