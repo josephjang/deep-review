@@ -435,6 +435,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     if (continuation !== null) {
       // Where a new run's configuration is pinned, before the limits are recorded, which the fold accepts again once the pin clears the report (R6 of fix pass continuation).
+      // This is after openRun released the start lock, while the run is still complete, so another engine may create a second active run in between: https://github.com/josephjang/deep-review/issues/44
       state = append(checkpoint, state, [{ kind: 'fix.pinned', version: 1, payload: continuation.pin }]);
       log(`run ${runId}: continued into the fix pass; its read-only report is ${continuation.report}; ${spendWords(budgetSpendOf(state, adapter).usd, limitsInForce(state.review!.configuration, options.flags, adapter).runBudgetUsd)}`);
       for (const check of continuation.pin.plannedChecks ?? []) log(`run ${runId}: check ${check.kind}: ${checkLine(check)}`);
@@ -853,6 +854,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
         release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
         const refolded = refoldUnderLock(checkpoint, chosen.id, log);
         if (refolded !== null && reviewStatus(refolded) === 'complete' && refolded.review?.fix === null) {
+          // The pin is returned, not appended under the start lock as a new run is created: https://github.com/josephjang/deep-review/issues/44
           return { state: refolded, release, scopeRequest: null, configure: null, continuation: await continuationOf(refolded, context) };
         }
         // Another engine continued it between the find and the lock: it is this worktree's active run now, and is resumed rather than joined by a second.
