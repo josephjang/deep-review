@@ -9,7 +9,7 @@
 import { answerPhases, unitName, type Phase } from '../review/vocabulary.ts';
 import { sameAnswer, standingAnswer, answerWords, madeTheEdit, type AnswerPass, type RecordedAnswer } from './answer-state.ts';
 import type { Answer, AnswerPassed, AnswerRecorded, RecordedDecision } from './events.ts';
-import { allBatches, appliedOptionOf, passLeftEdits, type FixState } from './fix-state.ts';
+import { appliedOptionOf, lastFixesAnswerOf, passLeftEdits, type FixState } from './fix-state.ts';
 import type { Reducer } from './fold.ts';
 import { invalid, requireReview, withReview, type ReviewState } from './review-fold.ts';
 
@@ -30,12 +30,8 @@ export function admits(decision: RecordedDecision, answer: Answer): boolean {
 
 /** Whether a fixes-phase fixer made the edit a finding's decision asked for: its last fixes-phase answer applied it, or found it applied already. */
 function fixesPhaseMadeIt(fix: FixState | null, id: string): boolean {
-  if (fix === null) return false;
-  for (const batch of [...allBatches(fix)].reverse()) {
-    const finding = fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id);
-    if (finding !== undefined) return madeTheEdit(finding.status);
-  }
-  return false;
+  const last = fix === null ? null : lastFixesAnswerOf(fix, id);
+  return last !== null && madeTheEdit(last.finding.status);
 }
 
 /**

@@ -348,10 +348,16 @@ export function lastAnswerOf(fix: FixState, id: string): { readonly phase: 'fixe
     const finding = fix.answers.answer[key]!.findings.find((candidate) => candidate.id === id);
     if (finding !== undefined) return { phase: 'answer', key, finding };
   }
+  const fixes = lastFixesAnswerOf(fix, id);
+  return fixes === null ? null : { phase: 'fixes', ...fixes };
+}
+
+/** A finding's last recorded fixes-phase answer, with the batch key that gave it: the second round's over the first's; null when no batch's fixer answered it. */
+export function lastFixesAnswerOf(fix: FixState, id: string): { readonly key: string; readonly finding: FixedFinding } | null {
   for (const batch of [...allBatches(fix)].reverse()) {
     if (!batch.findingIds.includes(id)) continue;
     const finding = fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id);
-    if (finding !== undefined) return { phase: 'fixes', key: batch.key, finding };
+    if (finding !== undefined) return { key: batch.key, finding };
   }
   return null;
 }
