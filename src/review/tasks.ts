@@ -520,7 +520,7 @@ function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null)
  * (PD3).
  */
 function answeredLines(answered: AnsweredFinding, departure: FixerDeparture | null): string[] {
-  const note = answered.note === null ? '' : ` Note: ${answered.note}`;
+  const note = answered.note === null ? '' : ` Note: ${inlineText(answered.note)}`;
   const line = `${answerLine(answered, departure)}${note}`;
   const before = answered.before;
   const did = before === null ? 'no fixer saw it before' : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? '' : `, in ${before.files.join(', ')}`}`;
