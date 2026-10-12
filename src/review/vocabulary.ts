@@ -117,8 +117,9 @@ export const repairUnitKey = 'repair';
  * The editing phases whose units the run budget settles as not attempted
  * instead of blocking (R19 of the fix pass): the fixes and the repair, so
  * their edits reach a report. The answer pass's one fixer blocks at the
- * budget before its launch, as a reading phase's worker does (TD8 of
- * answers).
+ * budget instead, as a reading phase's worker does (TD8 of answers): on
+ * its retry, the edits its failed attempt recorded stay unreported until
+ * the run is resumed with `--budget-usd`, or abandoned.
  */
 export const budgetDegradingPhases = ['fixes', 'repair'] as const satisfies readonly EditingPhase[];
 export const isBudgetDegradingPhase = (phase: Phase): phase is (typeof budgetDegradingPhases)[number] => (budgetDegradingPhases as readonly string[]).includes(phase);

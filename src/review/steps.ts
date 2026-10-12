@@ -562,7 +562,7 @@ export function nextStep(review: ReviewState, live: Live): Step {
     const countedUsd = live.spend.usd;
     if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
       const spend = { ...live.spend, usd: countedUsd };
-      // The fixes and the repair stop launching instead and go on to the report, so their edits are never left unreported (R19, PD16 of the fix pass); the answer pass blocks before its one launch, as a reading phase does (TD8 of answers).
+      // The fixes and the repair stop launching instead and go on to the report, so their edits are never left unreported (R19, PD16 of the fix pass); the answer pass blocks instead, as a reading phase does (TD8 of answers), and a block on its retry leaves the edits its failed attempt recorded unreported until the run is resumed with --budget-usd, or abandoned.
       if (isBudgetDegradingPhase(phase)) return { kind: 'degrade', phase, degradations: budgetDegradations(review, units, live, budgetBlocker(spend, runBudgetUsd).detail) };
       return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(spend, runBudgetUsd) };
     }
