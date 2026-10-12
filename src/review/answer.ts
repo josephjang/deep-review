@@ -31,7 +31,7 @@ export interface AnswerOptions {
   readonly checkpoint: Checkpoint;
   /** The worktree the command runs in, which must be the run's. */
   readonly worktree: string;
-  /** The run to answer on; when absent, the complete decided run of this worktree that finished last. */
+  /** The run to answer on; when absent, the newest complete decided run of this worktree, by its last event in the ledger (`chooseAnswerRun`). */
   readonly runId?: string;
   /** The finding answered, by its id as the report prints it. */
   readonly finding: string;
