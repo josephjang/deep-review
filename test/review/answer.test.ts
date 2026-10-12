@@ -158,7 +158,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.match(report, new RegExp(`^- \\[x\\] \\d\\\\\\. ${question}: `, 'm'));
     assert.match(report, /^Answered: the last pass on /m);
 
-    // Two answers recorded only, then one pass over both: the departure rejected, and the question returned to the default the pass undid.
+    // One answer recorded only, rejecting the departure; the same answer given again opens a second pass over that finding alone, which follows the rule.
     const recordOnly = await run(box, '--finding', departing, '--reject', '--record-only');
     assert.equal(recordOnly.status, 0, recordOnly.stderr);
     assert.equal(recordOnly.stdout, `answer recorded: run ${finished.id}, ${departing} rejected\nrecorded only; the next deep-review answer on this run without --record-only applies it\n`);
