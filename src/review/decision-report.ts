@@ -41,7 +41,12 @@ const sentence = (text: string): string => {
 function reviewedLine(review: ReviewState, id: string): string {
   const standing = standingAnswer(review, id);
   if (standing === null) return `  - Review with: \`${reviewCommand(id)}\` or \`--reject\``;
-  return `  - Reviewed: ${answerWords(standing.answer)} on ${standing.at}; ${appliedWords(review, standing, 'the departure the tree held')}${standing.note === null ? '' : `. Note: ${inlineText(standing.note)}`}`;
+  return `  - Reviewed: ${answerSummary(review, standing, 'the departure the tree held')}`;
+}
+
+/** A standing answer as the report says it after its label: the answer, when it was recorded, what applied it, `held` when the tree held it, and its note. */
+function answerSummary(review: Pick<ReviewState, 'answerPasses'>, standing: RecordedAnswer, held: string): string {
+  return `${answerWords(standing.answer)} on ${standing.at}; ${appliedWords(review, standing, held)}${standing.note === null ? '' : `. Note: ${inlineText(standing.note)}`}`;
 }
 
 /** The option of an ask at a position the ledger holds among its options. */
@@ -130,7 +135,7 @@ export function decisionsSection(review: ReviewState): string[] | null {
       `  - Grounds: ${inlineText(decision.grounds)}`,
       standing === null
         ? `  - Answer with: \`${answerCommand(decision.id, ask.options.length)}\``
-        : `  - Answered: ${answerWords(standing.answer)} on ${standing.at}; ${appliedWords(review, standing, 'the option the tree held')}${standing.note === null ? '' : `. Note: ${inlineText(standing.note)}`}`,
+        : `  - Answered: ${answerSummary(review, standing, 'the option the tree held')}`,
     ];
   });
   const fixes = numbered.flatMap((entry) => {
