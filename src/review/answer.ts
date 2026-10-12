@@ -169,9 +169,11 @@ function requirePassable(run: RunState, options: AnswerOptions, owed: readonly R
  * as already given, unless it still owes an edit on a run that fixes and
  * a pass is asked for, when it is not recorded again and the pass is
  * opened to apply it: the way to apply an answer whose pass was refused
- * for the tree or the budget. The answer is appended first; then, unless
- * `recordOnly`, the run only reviewed, or nothing is owed, the spend and
- * the tree are checked and `answer.pass` is appended.
+ * for the tree or the budget. Such a retry keeps the note the answer was
+ * recorded with, so one giving another note is refused. The answer is
+ * appended first; then, unless `recordOnly`, the run only reviewed, or
+ * nothing is owed, the spend and the tree are checked and `answer.pass`
+ * is appended.
  */
 export function answerRun(options: AnswerOptions): AnswerOutcome {
   const { checkpoint, worktree } = options;
@@ -190,6 +192,10 @@ export function answerRun(options: AnswerOptions): AnswerOutcome {
       const again = standing !== null && sameAnswer(standing.answer, options.answer);
       const retry = again && standing.appliedBy === null && fixes && !options.recordOnly;
       if (again && !retry) throw new ReviewRefusedError(`${options.finding} is already answered ${answerWords(options.answer)} on run ${run.id}, on ${standing.at}${standing.appliedBy === null ? '' : ', and the tree holds it'}`);
+      // A retry is not recorded again (R3), so a note it carries would never reach the pass's fixer, which reads the standing one.
+      if (retry && options.note !== null && options.note !== standing.note) {
+        throw new ReviewRefusedError(`${options.finding} is already answered ${answerWords(options.answer)} on run ${run.id}, ${standing.note === null ? 'with no note' : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
+      }
       if (!retry) run = checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.recorded', version: 1, payload: { id: options.finding, answer: options.answer, note: options.note } }]);
       const recorded = standingAnswer(run.review!, options.finding)!;
       const outcome = (next: AnswerOutcome['next'], state: RunState): AnswerOutcome => ({ runId: run.id, recorded: !retry, standing: recorded, next, state });
