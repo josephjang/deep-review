@@ -11,7 +11,7 @@
  */
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { answerWords, owedAnswers, sameAnswer, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
-import { admits } from '../checkpoint/answer-fold.ts';
+import { admits, departs, takesAnswer } from '../checkpoint/answer-fold.ts';
 import type { Answer, RecordedDecision } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
@@ -79,7 +79,7 @@ function answerable(run: RunState): RecordedDecision[] {
   const decided = new Map((run.review!.decisions ?? []).map((decision) => [decision.id, decision]));
   return rankedFindings(run.review!).flatMap((entry) => {
     const decision = decided.get(entry.finding.id);
-    return decision !== undefined && (decision.decision === 'ask' || (decision.decision === 'fix' && decision.departure !== null)) ? [decision] : [];
+    return decision !== undefined && takesAnswer(decision) ? [decision] : [];
   });
 }
 
@@ -105,7 +105,7 @@ function requireAdmitted(run: RunState, finding: string, answer: Answer): Record
     const ids = answerable(run).map((entry) => entry.id);
     throw new ReviewRefusedError(`run ${run.id} has no finding ${finding}; ${ids.length === 0 ? 'it asked no question and no fix of it departs from a rule' : `the findings it can answer are ${ids.join(', ')}`}`);
   }
-  if (!admits(decision, answer)) throw new ReviewRefusedError(`${finding} was decided ${decision.decision}${decision.decision === 'fix' && decision.departure !== null ? ', departing from a rule' : ''}, which admits ${admitted(decision)}, not ${flagOf(answer)}`);
+  if (!admits(decision, answer)) throw new ReviewRefusedError(`${finding} was decided ${decision.decision}${departs(decision) ? ', departing from a rule' : ''}, which admits ${admitted(decision)}, not ${flagOf(answer)}`);
   return decision;
 }
 

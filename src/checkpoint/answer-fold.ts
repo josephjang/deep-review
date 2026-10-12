@@ -13,6 +13,12 @@ import { appliedOptionOf, lastFixesAnswerOf, passLeftEdits, type FixState } from
 import type { Reducer } from './fold.ts';
 import { invalid, requireReview, withReview, type ReviewState } from './review-fold.ts';
 
+/** Whether a decision is a fix that departs from a rule, which a person accepts or rejects (R3 of answers). */
+export const departs = (decision: RecordedDecision): boolean => decision.decision === 'fix' && decision.departure !== null;
+
+/** Whether a decision takes any answer (R3 of answers): an ask, or a fix that departs from a rule; `admits` says which. */
+export const takesAnswer = (decision: RecordedDecision): boolean => decision.decision === 'ask' || departs(decision);
+
 /**
  * Whether a decision admits an answer (R3 of answers): an option among an
  * ask's options; an acceptance or a rejection of a fix that departs from
@@ -24,7 +30,7 @@ export function admits(decision: RecordedDecision, answer: Answer): boolean {
       return decision.decision === 'ask' && answer.option < decision.ask.options.length;
     case 'accept':
     case 'reject':
-      return decision.decision === 'fix' && decision.departure !== null;
+      return departs(decision);
   }
 }
 
