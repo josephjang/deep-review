@@ -51,7 +51,7 @@ import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConven
 import { renderReport } from './report.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
 import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
-import { budgetSpendOf, statisticsOf } from './spend.ts';
+import { budgetSpendOf, statisticsOf, type BudgetSpend } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
@@ -996,10 +996,9 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   }
   refuseOtherRuntime(run.id, review.configuration, context.runtime, wayOut(run.id, 'continue'));
   // The run budget counts both passes (PD7), and a fixes phase that meets it marks every fixer unattempted rather than blocking, so a run already at its budget is refused while it can still be continued. Its spend is read with the adapter of the run's runtime, so after the runtime is held, and before the preflight.
-  const spend = budgetSpendOf(run, context.adapter);
-  const { runBudgetUsd } = limitsInForce(review.configuration, context.flags, context.adapter);
-  if (spend.usd !== null && runBudgetUsd !== null && spend.usd >= runBudgetUsd) {
-    throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker({ ...spend, usd: spend.usd }, runBudgetUsd).detail}, so no fixer could launch; nothing to continue; run it again with --budget-usd above ${spend.usd.toFixed(2)}, or ${wayOut(run.id, 'continue')}`);
+  const reached = budgetReached(run, context.flags, context.adapter);
+  if (reached !== null) {
+    throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; nothing to continue; run it again with --budget-usd above ${reached.spend.usd.toFixed(2)}, or ${wayOut(run.id, 'continue')}`);
   }
   await resumePinned(run, review.configuration, context, 'continue');
   const policy = readPolicy(context.rolesRoot);
@@ -1143,11 +1142,24 @@ function append(checkpoint: Checkpoint, state: RunState, events: readonly NewEve
  * concurrency is how a machine is spared. A runtime that reports no cost
  * has no budget to check.
  */
-export function limitsInForce(configuration: ReviewConfiguration, flags: Pick<PolicyFlags, 'concurrency' | 'budgetUsd'>, adapter: Pick<RuntimeAdapter, 'capabilities'>): ReviewLimits {
+function limitsInForce(configuration: ReviewConfiguration, flags: Pick<PolicyFlags, 'concurrency' | 'budgetUsd'>, adapter: Pick<RuntimeAdapter, 'capabilities'>): ReviewLimits {
   return {
     concurrency: flags.concurrency ?? configuration.concurrency,
     runBudgetUsd: adapter.capabilities.costInUsd ? (flags.budgetUsd ?? configuration.runBudgetUsd) : null,
   };
+}
+
+/**
+ * The spend of a reviewed run and the run budget this invocation puts in
+ * force (`limitsInForce`) when the spend has reached it, else null: the
+ * check that refuses reopening a finished run for more fixer work, by a
+ * continuation or an answer pass, since the fixes phase would launch no
+ * fixer. `adapter` is the one of the run's runtime, which prices its spend.
+ */
+export function budgetReached(run: RunState, flags: Pick<PolicyFlags, 'budgetUsd'>, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>): { spend: BudgetSpend & { readonly usd: number }; runBudgetUsd: number } | null {
+  const spend = budgetSpendOf(run, adapter);
+  const { runBudgetUsd } = limitsInForce(run.review!.configuration, flags, adapter);
+  return spend.usd !== null && runBudgetUsd !== null && spend.usd >= runBudgetUsd ? { spend: { ...spend, usd: spend.usd }, runBudgetUsd } : null;
 }
 
 /** Record the limits this invocation puts in force when they differ from the ones the run has, so the planner, `status` and the report read the ones in force. */

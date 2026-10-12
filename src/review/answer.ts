@@ -16,14 +16,13 @@ import type { Answer, RecordedDecision } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
-import { driftList, isResumable, limitsInForce, requirePinned, type PinnedOptions } from './controller.ts';
+import { budgetReached, driftList, isResumable, requirePinned, type PinnedOptions } from './controller.ts';
 import { drifted, findDrift } from './drift.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
 import type { PolicyFlags } from './policy.ts';
 import { readableRuns } from './runs.ts';
 import { budgetBlocker } from './steps.ts';
-import { budgetSpendOf } from './spend.ts';
 import { rankedFindings, reviewStatus } from './state.ts';
 import type { ExpectedMatch } from './tree.ts';
 
@@ -159,12 +158,10 @@ async function requirePassable(run: RunState, options: AnswerOptions, owed: read
     const them = active.length === 1 ? 'it' : 'them';
     throw new ReviewRefusedError(`${active.length === 1 ? `run ${active[0]!} is` : `runs ${active.join(', ')} are`} active, and the answer pass would resume run ${run.id} beside ${them}; the answer is recorded; finish ${them} with deep-review review, or abandon ${them} with \`deep-review abandon --run <id> --reason <text>\`, then run deep-review answer again with the same answer to apply it`);
   }
-  const configuration = run.review!.configuration;
-  const adapter = options.adapter(configuration.runtime);
-  const spend = budgetSpendOf(run, adapter);
-  const { runBudgetUsd } = limitsInForce(configuration, options.flags, adapter);
-  if (spend.usd !== null && runBudgetUsd !== null && spend.usd >= runBudgetUsd) {
-    throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker({ ...spend, usd: spend.usd }, runBudgetUsd).detail}, so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above ${spend.usd.toFixed(2)} to apply it`);
+  const adapter = options.adapter(run.review!.configuration.runtime);
+  const reached = budgetReached(run, options.flags, adapter);
+  if (reached !== null) {
+    throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above ${reached.spend.usd.toFixed(2)} to apply it`);
   }
   const found = findDrift(run, options.worktree, options.match);
   if (drifted(found)) {
