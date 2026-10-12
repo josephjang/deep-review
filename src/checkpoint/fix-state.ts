@@ -359,6 +359,11 @@ export function lastFixesAnswerOf(fix: FixState, id: string): { readonly key: st
   return null;
 }
 
+/** An editing unit's own revisions of the tree, its fixers' and its attempts', in ledger order; a run of the checks is no unit's. */
+export function unitRevisions(fix: FixState, phase: EditingPhase, key: string): TreeRevised[] {
+  return fix.revisions.filter((revision) => revision.phase === phase && revision.source.kind !== 'check' && revision.source.key === key);
+}
+
 /**
  * Whether an answer pass left edits for a finding that apply no answer
  * (R5, R7 of answers): the last pass whose fixer made the finding's edit,
@@ -373,7 +378,7 @@ export function passLeftEdits(review: Pick<ReviewState, 'fix' | 'answerPasses'>,
   if (fix === null) return false;
   const revisedFor = (key: string): boolean => {
     const inPass = passOf(review, key)?.ids.includes(id) ?? false;
-    return fix.revisions.some((revision) => revision.phase === 'answer' && revision.source.kind !== 'check' && revision.source.key === key && (revision.change.findings.includes(id) || (revision.source.kind === 'attempt' && revision.change.findings.length === 0 && inPass)));
+    return unitRevisions(fix, 'answer', key).some((revision) => revision.change.findings.includes(id) || (revision.source.kind === 'attempt' && revision.change.findings.length === 0 && inPass));
   };
   for (let n = review.answerPasses.length; n >= 1; n -= 1) {
     const key = passKey(n);

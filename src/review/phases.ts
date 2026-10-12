@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, roundOf, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -191,7 +191,7 @@ function answeredFor(review: ReviewState, decision: FixerDecision | null, id: st
   if (standing === null || standing.appliedBy !== null || decision === null) return null;
   const fix = review.fix;
   const last = fix === null ? null : lastAnswerOf(fix, id);
-  const files = last === null || fix === null ? [] : [...new Set(fix.revisions.filter((revision) => revision.phase === last.phase && revision.source.kind !== 'check' && revision.source.key === last.key && revision.change.findings.includes(id)).flatMap((revision) => revision.files.map((file) => file.path)))].sort();
+  const files = last === null || fix === null ? [] : [...new Set(unitRevisions(fix, last.phase, last.key).filter((revision) => revision.change.findings.includes(id)).flatMap((revision) => revision.files.map((file) => file.path)))].sort();
   const shared = { note: standing.note, before: last === null ? null : { status: last.finding.status, note: last.finding.note, files } };
   const answer = standing.answer;
   // The ledger admits an answer only as its decision does (`admits`), so these hold for every answer recorded.

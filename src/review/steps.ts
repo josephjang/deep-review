@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV2 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { checksFloor, claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets, type FixState } from '../checkpoint/fix-state.ts';
+import { checksFloor, claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { unsettledKinds, type CheckFlags } from './checks/discover.ts';
@@ -414,7 +414,7 @@ export function claimsLostBlocker(directory: string): Blocker {
 }
 
 /** Whether the answer pass with this unit key revised the tree: its fixer's answer, or an attempt of it that ended without one. */
-const passRevised = (fix: FixState, key: string): boolean => fix.revisions.some((revision) => revision.phase === 'answer' && revision.source.kind !== 'check' && revision.source.key === key);
+const passRevised = (fix: FixState, key: string): boolean => unitRevisions(fix, 'answer', key).length > 0;
 
 /**
  * The check a checks phase runs next (R9, R10, PD7 of the fix pass), or
