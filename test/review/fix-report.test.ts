@@ -25,6 +25,15 @@ describe('the report of a fix run', () => {
     assert.match(render(), /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted$/m);
   });
 
+  it('says once deep-review commit committed every patch, lowercase in its header and capitalized where the Fixes section starts a sentence (R8 of answers)', () => {
+    const revisions = ['chore: apply the lint check\'s rewrite', 'fix: Guard the null in parse', 'style: Format the guard'].map((subject, revision) => ({ sha: String(revision + 3).repeat(40), revision, subject }));
+    const commits = [{ sha: 'a'.repeat(40), revision: 'change' as const, subject: 'the change' }, ...revisions];
+    const written = fixRun().add('report.written', { report: reference('9', 4096), statistics, patches: [reference('1'), reference('2'), reference('3')] }, 4).finish('report');
+    const report = render(written.add('commits.created', { commits, from: '2'.repeat(40), to: '5'.repeat(40) }).fold());
+    assert.match(report, /^Fix pass: [^\n]*; 3 patches; patches 1 to 3 are committed$/m);
+    assert.match(report, /in rank order\. Patches 1 to 3 are committed; a patch number/);
+  });
+
   it('places Fixes, Checks and Changed files after Findings and before Refuted at verification', () => {
     const report = render();
     const order = ['## Findings', '## Fixes', '## Checks', '## Changed files', '## Refuted at verification', '## Statistics', '## Limitations'].map((heading) => report.indexOf(`\n${heading}\n`));

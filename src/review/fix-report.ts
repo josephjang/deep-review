@@ -159,20 +159,26 @@ function answerLines(fix: FixState): string[] {
   ];
 }
 
-/** The Fixes section: every ranked finding in rank order with its fate, the repair's checks, and the fixers' drift and test lines. */
-/** Where the run's edits are: every one in the working tree, uncommitted, or the ones `deep-review commit` committed and the rest (R8 of answers). */
-function committedWords(fix: FixState): string {
-  const committed = committedRevisions(fix);
-  if (committed === 0) return 'Every edit is in the working tree, uncommitted';
-  const total = fix.revisions.length;
-  /** Patches `from` to `to`, as a sentence's subject with its verb. */
-  const span = (from: number, to: number): string => (from === to ? `patch ${String(from)} is` : `patches ${String(from)} to ${String(to)} are`);
-  const done = span(1, committed);
-  const head = `${done.charAt(0).toUpperCase()}${done.slice(1)} committed`;
-  if (committed >= total) return head;
-  return `${head}; ${span(committed + 1, total).replace(/ (is|are)$/, ", an answer pass's, $1")} in the working tree, uncommitted`;
+/** Patches `from` to `to`, as a clause's subject and the verb that agrees with it. */
+function patchSpan(from: number, to: number): { readonly subject: string; readonly verb: 'is' | 'are' } {
+  return from === to ? { subject: `patch ${String(from)}`, verb: 'is' } : { subject: `patches ${String(from)} to ${String(to)}`, verb: 'are' };
 }
 
+/** Where the run's edits are, as a lowercase clause: every one in the working tree, uncommitted, or the ones `deep-review commit` committed and the rest (R8 of answers). */
+function committedWords(fix: FixState): string {
+  const committed = committedRevisions(fix);
+  if (committed === 0) return 'every edit is in the working tree, uncommitted';
+  const total = fix.revisions.length;
+  const done = patchSpan(1, committed);
+  const head = `${done.subject} ${done.verb} committed`;
+  if (committed >= total) return head;
+  const rest = patchSpan(committed + 1, total);
+  return `${head}; ${rest.subject}, an answer pass's, ${rest.verb} in the working tree, uncommitted`;
+}
+
+const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+/** The Fixes section: every ranked finding in rank order with its fate, the repair's checks, and the fixers' drift and test lines. */
 function fixesSection(review: ReviewState, fix: FixState): string[] {
   const findings = rankedFindings(review);
   const blocks = findings.flatMap((entry, index) => {
@@ -186,7 +192,7 @@ function fixesSection(review: ReviewState, fix: FixState): string[] {
   const lines = [
     '## Fixes',
     '',
-    `What the fix pass${review.answerPasses.length === 0 ? '' : ', and the answer passes after it,'} did with each finding, in rank order. ${committedWords(fix)}; a patch number is one of the series under Changed files.`,
+    `What the fix pass${review.answerPasses.length === 0 ? '' : ', and the answer passes after it,'} did with each finding, in rank order. ${capitalized(committedWords(fix))}; a patch number is one of the series under Changed files.`,
     '',
     ...(findings.length === 0 ? ['No finding to fix.', ''] : blocks),
     ...repairLines,
@@ -344,7 +350,7 @@ export function fixHeaderLine(review: ReviewState): string | null {
   const outcomes = rankedFindings(review).map((entry) => fateOf(review, fix, entry.finding.id).outcome);
   const held: readonly FindingOutcome[] = review.phases.decision.status === 'skipped' ? ['held for the author'] : ['left by decision', 'asked, kept as is'];
   const counts = (['applied', 'already applied', 'deferred', 'blocked', 'not attempted', ...held] as const).map((outcome) => `${String(outcomes.filter((candidate) => candidate === outcome).length)} ${outcome}`);
-  return `Fix pass: ${counts.join(', ')}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? '' : 'es'}; ${committedRevisions(fix) === 0 ? 'the edits are in the working tree, uncommitted' : committedWords(fix).replace(/^P/, 'p')}`;
+  return `Fix pass: ${counts.join(', ')}; ${String(fix.revisions.length)} patch${fix.revisions.length === 1 ? '' : 'es'}; ${committedRevisions(fix) === 0 ? 'the edits are in the working tree, uncommitted' : committedWords(fix)}`;
 }
 
 /**
