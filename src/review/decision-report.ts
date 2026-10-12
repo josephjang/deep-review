@@ -37,11 +37,17 @@ const sentence = (text: string): string => {
   return `${inline.replace(/[:,;]$/, '')}.`;
 };
 
-/** The line under a departure: whether the author accepted or rejected it, when, and what applied the answer, or the command that reviews it (R10 of answers). */
+/**
+ * The line under a departure: whether the author accepted or rejected it,
+ * when, and what applied the answer, or the command that reviews it (R10
+ * of answers). A held acceptance is the departing fix the tree holds; a
+ * held rejection is the fix that follows the rule, which an earlier
+ * rejection a pass applied left in the tree.
+ */
 function reviewedLine(review: ReviewState, id: string): string {
   const standing = standingAnswer(review, id);
   if (standing === null) return `  - Review with: \`${reviewCommand(id)}\` or \`--reject\``;
-  return `  - Reviewed: ${answerSummary(review, standing, 'the departure the tree held')}`;
+  return `  - Reviewed: ${answerSummary(review, standing, standing.answer.kind === 'reject' ? 'the rule-following fix the tree held' : 'the departure the tree held')}`;
 }
 
 /** A standing answer as the report says it after its label: the answer, when it was recorded, what applied it, `held` when the tree held it, and its note. */

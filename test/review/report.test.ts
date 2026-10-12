@@ -335,6 +335,13 @@ describe('a report after an answer pass (R10 of answers)', () => {
     assert.match(report, /^What the fix pass, and the answer passes after it, did with each finding/m);
   });
 
+  it('says a rejection the tree held through the applied one holds the fix that follows the rule, and an acceptance owed after it', () => {
+    const accepted = passed().add('answer.recorded', answer('RIPPLE-1', 'accept'));
+    assert.match(render(accepted.fold()), /^ {2}- Reviewed: accepted on [^;]+; not yet applied$/m);
+    const rejectedAgain = accepted.clone().add('answer.recorded', answer('RIPPLE-1', 'reject'));
+    assert.match(render(rejectedAgain.fold()), new RegExp(`^ {2}- Reviewed: rejected on ${rejectedAgain.events.at(-1)!.recordedAt}; the rule-following fix the tree held$`, 'm'));
+  });
+
   it('gives the Checks table the answer pass\'s column, and says the checks did not run after a pass that changed nothing', () => {
     const report = render(passed().fold());
     assert.match(report, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \| After answers \|$/m);
