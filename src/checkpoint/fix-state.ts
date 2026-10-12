@@ -11,7 +11,7 @@
  * beside it where an answer pass is concerned.
  */
 import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
-import { currentPass, madeTheEdit, passKey, passOf, type AppliedBy } from './answer-state.ts';
+import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
@@ -333,9 +333,6 @@ export function heldByAnother(holders: ReadonlyMap<string, ReadonlySet<string>>,
   return [...(holders.get(path) ?? [])].some((cluster) => cluster !== own);
 }
 
-/** The number of an answer pass's unit key, or null for a key no pass spells. */
-const passNumberOf = (key: string): number | null => (/^pass-[1-9][0-9]*$/.test(key) ? Number(key.slice('pass-'.length)) : null);
-
 /**
  * A finding's last recorded fixer answer, with the phase and the unit key
  * that gave it: an answer pass's over the fixes phase's, a later pass's
@@ -343,7 +340,7 @@ const passNumberOf = (key: string): number | null => (/^pass-[1-9][0-9]*$/.test(
  * second round's over the first's; null when no fixer answered it.
  */
 export function lastAnswerOf(fix: FixState, id: string): { readonly phase: 'fixes' | 'answer'; readonly key: string; readonly finding: FixedFinding } | null {
-  const passes = Object.keys(fix.answers.answer).filter((key) => passNumberOf(key) !== null).sort((a, b) => passNumberOf(b)! - passNumberOf(a)!);
+  const passes = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(b)! - passNumber(a)!);
   for (const key of passes) {
     const finding = fix.answers.answer[key]!.findings.find((candidate) => candidate.id === id);
     if (finding !== undefined) return { phase: 'answer', key, finding };

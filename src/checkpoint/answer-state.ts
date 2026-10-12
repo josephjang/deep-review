@@ -69,6 +69,12 @@ export function sameAnswer(a: Answer, b: Answer): boolean {
 /** The unit key of the answer pass numbered `n` from 1, as its one fixer is recorded under; no batch key spells it, so no fixes-phase reducer mistakes it (R5 of answers). */
 export const passKey = (n: number): string => `pass-${String(n)}`;
 
+/** The number from 1 of the answer pass whose unit key is `key`, as `passKey` spells it, or null for a key it does not spell. */
+export function passNumber(key: string): number | null {
+  const match = /^pass-([1-9][0-9]*)$/.exec(key);
+  return match === null ? null : Number(match[1]);
+}
+
 /** The current answer pass, the last one recorded, with its key, or null for a run that has had none. */
 export function currentPass(state: Pick<AnswerState, 'answerPasses'>): { readonly key: string; readonly pass: AnswerPass } | null {
   const pass = state.answerPasses.at(-1);
@@ -77,8 +83,8 @@ export function currentPass(state: Pick<AnswerState, 'answerPasses'>): { readonl
 
 /** The answer pass whose unit key is `key`, or null for a key no pass has. */
 export function passOf(state: Pick<AnswerState, 'answerPasses'>, key: string): AnswerPass | null {
-  const index = state.answerPasses.findIndex((_, position) => passKey(position + 1) === key);
-  return index === -1 ? null : state.answerPasses[index]!;
+  const n = passNumber(key);
+  return n === null ? null : (state.answerPasses[n - 1] ?? null);
 }
 
 /** Whether a fixer's status says the tree now holds what it was asked: it applied the finding, or found it applied already. */
