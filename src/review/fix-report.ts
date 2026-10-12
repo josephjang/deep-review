@@ -371,6 +371,18 @@ function strayedInRun(review: ReviewState, revisions: FixState['revisions']): st
   return (review.checks.at(-1)?.strays ?? []).filter((path) => !before.has(path) && !revised.has(path)).sort();
 }
 
+/** A fixer as Limitations names it at the start of a line, by its phase, so a new editing phase must be named here. */
+function fixerTitle(phase: EditingPhase, key: string): string {
+  switch (phase) {
+    case 'fixes':
+      return `Fixer ${key}`;
+    case 'repair':
+      return 'The repair';
+    case 'answer':
+      return `The fixer of the answer pass ${key}`;
+  }
+}
+
 /**
  * The lines the fix pass adds to Limitations: violations, late and lost
  * claims, strays, the checks not available, and the fixers' validation
@@ -411,7 +423,7 @@ export function fixLimitations(review: ReviewState): string[] {
       for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);
     }
     const failures = answer.suite.failures.trim() === '' ? '' : `: ${inlineText(answer.suite.failures)}`;
-    lines.push(`- ${answer.key === repairUnitKey ? 'The repair' : answer.phase === 'answer' ? `The fixer of the answer pass ${answer.key}` : `Fixer ${answer.key}`} ran its own suite: ${answer.suite.result}${answer.suite.command.trim() === '' ? '' : ` (${inlineText(answer.suite.command)})`}${failures}.`);
+    lines.push(`- ${fixerTitle(answer.phase, answer.key)} ran its own suite: ${answer.suite.result}${answer.suite.command.trim() === '' ? '' : ` (${inlineText(answer.suite.command)})`}${failures}.`);
   }
   const oversized = fix.revisions.flatMap((revision) => revision.files.filter((file) => file.after !== null && 'oversized' in file.after).map((file) => file.path));
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(', ')}.`);
