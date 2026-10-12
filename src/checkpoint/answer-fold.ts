@@ -46,9 +46,11 @@ function fixesPhaseMadeIt(fix: FixState | null, id: string): boolean {
  * an option is held when it is the default the ask applied and that
  * default keeps the code or a fixes-phase fixer made its edit (a
  * read-only run, or a fix run whose fixer did not, has not applied an
- * editing default); an acceptance is held when a fixes-phase fixer made
- * the departing fix; a rejection never is, since the departing fix, or the
- * rule it amends, is not what the tree holds until a fixer restores it.
+ * editing default), and any other option owes an edit, even one that
+ * keeps the code as it is; an acceptance is held when a fixes-phase
+ * fixer made the departing fix; a rejection never is, since the departing
+ * fix, or the rule it amends, is not what the tree holds until a fixer
+ * restores it.
  */
 export function treeHolds(review: Pick<ReviewState, 'answers' | 'fix'>, decision: RecordedDecision, answer: Answer): boolean {
   const applied = review.answers.findLast((earlier) => earlier.id === decision.id && earlier.appliedBy !== null);

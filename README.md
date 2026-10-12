@@ -441,8 +441,10 @@ fixer, told every answer that still owes an edit and what the run did
 with each finding, makes the tree hold what the person decided, the
 checks run again, and a second report is written; `deep-review commit`
 commits the pass's edits on top of the commits it already made for the
-run. An answer that names what the tree already holds owes nothing and
-runs no fixer. The pass is refused, the answer staying recorded, when
+run. An answer that confirms the applied default, the option an earlier
+answer applied, or a departure as the fix made it owes nothing and runs
+no fixer; any other option owes an edit, even one that keeps the code
+as it is. The pass is refused, the answer staying recorded, when
 `HEAD` or a file the run expects moved, or when the spend has reached
 the run budget; `--record-only` records without a pass.
 

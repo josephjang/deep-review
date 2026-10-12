@@ -127,6 +127,14 @@ describe('what the tree holds when an answer is recorded (R3 of answers, PD6, PD
     assert.equal(appliedBy(editingAskRun('applied').add('answer.recorded', answer('RIPPLE-1', 1)), 'RIPPLE-1'), null);
   });
 
+  it('holds no option but the default, even one that keeps the code where no fixer edited the finding', () => {
+    const editing = askDecision('RIPPLE-1', true) as { ask: { options: Record<string, unknown>[] } };
+    const keepingOther = { ...editing, ask: { ...editing.ask, options: [editing.ask.options[0], { ...editing.ask.options[1], edits: false }] } } as unknown as RecordedDecision;
+    const keeps = { kind: 'option', option: 1 } as const;
+    assert.equal(treeHolds(readOnlyReported(answerableDecisions(askDecision('RIPPLE-1', true))).review(), keepingOther, keeps), false, 'a read-only run');
+    assert.equal(treeHolds(editingAskRun('deferred').review(), keepingOther, keeps), false, 'a fix run whose fixer deferred the default');
+  });
+
   it('holds an acceptance once a fixes-phase fixer made the departing fix, and never a rejection', () => {
     assert.equal(appliedBy(fixRun().add('answer.recorded', answer('RIPPLE-1', 'accept')), 'RIPPLE-1'), 'tree');
     assert.equal(appliedBy(decidedFixRun(answerableDecisions(), 'blocked').add('answer.recorded', answer('RIPPLE-1', 'accept')), 'RIPPLE-1'), null, 'a blocked fixer made no fix');
