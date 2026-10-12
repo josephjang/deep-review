@@ -11,7 +11,7 @@
  * beside it where an answer pass is concerned.
  */
 import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
-import { currentPass, passOf, type AppliedBy } from './answer-state.ts';
+import { currentPass, madeTheEdit, passKey, passOf, type AppliedBy } from './answer-state.ts';
 import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
@@ -354,6 +354,31 @@ export function lastAnswerOf(fix: FixState, id: string): { readonly phase: 'fixe
     if (finding !== undefined) return { phase: 'fixes', key: batch.key, finding };
   }
   return null;
+}
+
+/**
+ * Whether an answer pass left edits for a finding that apply no answer
+ * (R5, R7 of answers): the last pass whose fixer made the finding's edit,
+ * or that revised the tree for it, did the latter without the former. Its
+ * fixer's revisions naming the finding count, and an attempt's, which
+ * also counts when it names no finding, since what an attempt left after
+ * its last snapshot may be any of its pass's findings'. The tree then
+ * holds part of an answer, so no earlier state of the finding stands.
+ */
+export function passLeftEdits(review: Pick<ReviewState, 'fix' | 'answerPasses'>, id: string): boolean {
+  const fix = review.fix;
+  if (fix === null) return false;
+  const revisedFor = (key: string): boolean => {
+    const inPass = passOf(review, key)?.ids.includes(id) ?? false;
+    return fix.revisions.some((revision) => revision.phase === 'answer' && revision.source.kind !== 'check' && revision.source.key === key && (revision.change.findings.includes(id) || (revision.source.kind === 'attempt' && revision.change.findings.length === 0 && inPass)));
+  };
+  for (let n = review.answerPasses.length; n >= 1; n -= 1) {
+    const key = passKey(n);
+    const finding = fix.answers.answer[key]?.findings.find((candidate) => candidate.id === id);
+    if (finding !== undefined && madeTheEdit(finding.status)) return false;
+    if (revisedFor(key)) return true;
+  }
+  return false;
 }
 
 /** The cluster a fixes-phase unit works, by its batch key, or null. */

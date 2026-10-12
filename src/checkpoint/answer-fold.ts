@@ -9,7 +9,7 @@
 import { answerPhases, unitName, type Phase } from '../review/vocabulary.ts';
 import { sameAnswer, standingAnswer, answerWords, madeTheEdit, type AnswerPass, type RecordedAnswer } from './answer-state.ts';
 import type { Answer, AnswerPassed, AnswerRecorded, RecordedDecision } from './events.ts';
-import { allBatches, appliedOptionOf, type FixState } from './fix-state.ts';
+import { allBatches, appliedOptionOf, passLeftEdits, type FixState } from './fix-state.ts';
 import type { Reducer } from './fold.ts';
 import { invalid, requireReview, withReview, type ReviewState } from './review-fold.ts';
 
@@ -40,19 +40,22 @@ function fixesPhaseMadeIt(fix: FixState | null, id: string): boolean {
 
 /**
  * Whether the tree already holds what an answer says when it is recorded
- * (R3 of answers, PD6, PD12), so it owes no edit: when an earlier answer
- * of the finding was applied, the tree holds that one, and the new answer
- * is held exactly when it says the same; otherwise, by the answer's kind,
- * an option is held when it is the default the ask applied and that
- * default keeps the code or a fixes-phase fixer made its edit (a
- * read-only run, or a fix run whose fixer did not, has not applied an
- * editing default), and any other option owes an edit, even one that
- * keeps the code as it is; an acceptance is held when a fixes-phase
- * fixer made the departing fix; a rejection never is, since the departing
- * fix, or the rule it amends, is not what the tree holds until a fixer
- * restores it.
+ * (R3 of answers, PD6, PD12), so it owes no edit: never when an answer
+ * pass left edits for the finding without applying its answer
+ * (`passLeftEdits`), since the tree holds part of that answer; when an
+ * earlier answer of the finding was applied, the tree holds that one,
+ * and the new answer is held exactly when it says the same; otherwise, by
+ * the answer's kind, an option is held when it is the default the ask
+ * applied and that default keeps the code or a fixes-phase fixer made its
+ * edit (a read-only run, or a fix run whose fixer did not, has not
+ * applied an editing default), and any other option owes an edit, even
+ * one that keeps the code as it is; an acceptance is held when a
+ * fixes-phase fixer made the departing fix; a rejection never is, since
+ * the departing fix, or the rule it amends, is not what the tree holds
+ * until a fixer restores it.
  */
-export function treeHolds(review: Pick<ReviewState, 'answers' | 'fix'>, decision: RecordedDecision, answer: Answer): boolean {
+export function treeHolds(review: Pick<ReviewState, 'answers' | 'fix' | 'answerPasses'>, decision: RecordedDecision, answer: Answer): boolean {
+  if (passLeftEdits(review, decision.id)) return false;
   const applied = review.answers.findLast((earlier) => earlier.id === decision.id && earlier.appliedBy !== null);
   if (applied !== undefined) return sameAnswer(applied.answer, answer);
   switch (answer.kind) {

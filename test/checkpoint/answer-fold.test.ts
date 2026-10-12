@@ -15,10 +15,13 @@ import {
   decidedFixRun,
   decisions,
   departure,
+  endCheck,
+  passAnswer,
   passToReport,
   readOnlyReported,
   reference,
   reported,
+  statistics,
   worker,
 } from '../helpers/review-history.ts';
 
@@ -32,6 +35,38 @@ const fixRun = (): History => decidedFixRun();
 
 /** RIPPLE-1 decided as an ask whose default edits the code, applied by c1-1 as `status` says; SWEEP-1 an ask that keeps it. */
 const editingAskRun = (status = 'applied'): History => decidedFixRun(answerableDecisions(askDecision('RIPPLE-1', true)), status);
+
+/**
+ * The answer pass `n` over `id`, open on `history`, to its report, leaving
+ * edits of src/a.ts that apply no answer: with `left` `attempt`, a first
+ * fixer fails after revising for `id`, or with `unnamed` for no finding,
+ * and its retry answers `status`; with `fix`, the one fixer answers
+ * `status` and revises for `id` all the same. The checks run once more,
+ * and the report has `patches`, one per revision of the run.
+ */
+function editsLeft(history: History, n: number, id: string, left: 'attempt' | 'unnamed' | 'fix', status: string, patches: number): History {
+  const key = passKey(n);
+  const revision = (source: Record<string, unknown>, findings: readonly string[]): Record<string, unknown> => ({
+    phase: 'answer',
+    source,
+    change: { findings, message: { subject: `fix: Answer ${id} in part`, body: 'The fixer stopped short.' } },
+    files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('f') }, beforeSymlink: false, symlink: false, after: { blob: reference('8') } }],
+  });
+  history.start('answer', n);
+  if (left !== 'fix') {
+    history.worker(80 + 2 * n, `fixer answer:${key}`)
+      .add('attempt.failed', { phase: 'answer', key, workerId: worker(80 + 2 * n), reason: 'timeout', fault: 'unit' }, 6)
+      .add('tree.revised', revision({ kind: 'attempt', key, workerId: worker(80 + 2 * n) }, left === 'attempt' ? [id] : []), 2);
+  }
+  history.worker(81 + 2 * n, `fixer answer:${key}`).add('fix.recorded', passAnswer(worker(81 + 2 * n), n, [[id, status]]), 2);
+  if (left === 'fix') history.add('tree.revised', revision({ kind: 'fix', key, workerId: worker(81 + 2 * n) }, [id]), 2);
+  history.add('worktree.checked', endCheck('answer', n), 5).finish('answer', 'completed', n).start('answer-checks', n);
+  for (const kind of ['build', 'lint', 'test']) history.add('check.ran', checkRun('answer-checks', kind, 'passed', n), 2);
+  return history.finish('answer-checks', 'completed', n)
+    .start('report', n + 1)
+    .add('report.written', { report: reference(String(n), 4096 + n), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String.fromCharCode(97 + index))) }, 5)
+    .finish('report', 'completed', n + 1);
+}
 
 const rippleFix = { ...decisions[0], departure } as unknown as RecordedDecision;
 const plainFix = decisions[0] as unknown as RecordedDecision;
@@ -153,6 +188,26 @@ describe('what the tree holds when an answer is recorded (R3 of answers, PD6, PD
     const back = chosen.clone().add('answer.recorded', answer('SWEEP-1', 0));
     assert.equal(appliedBy(back, 'SWEEP-1'), null, 'the default it applied first is in the tree no more');
     assert.equal(appliedBy(back.clone().add('answer.recorded', answer('SWEEP-1', 1)), 'SWEEP-1'), 'tree', 'the option the pass applied is what the tree holds');
+  });
+
+  it('holds nothing an answer pass left edits for without applying its answer: the default and an applied answer owe an edit again', () => {
+    const open = editingAskRun('applied').add('answer.recorded', answer('RIPPLE-1', 1)).add('answer.pass', { ids: ['RIPPLE-1'] });
+    for (const left of ['attempt', 'unnamed', 'fix'] as const) {
+      const partial = editsLeft(open.clone(), 1, 'RIPPLE-1', left, 'deferred', 2);
+      assert.equal(appliedBy(partial.add('answer.recorded', answer('RIPPLE-1', 0)), 'RIPPLE-1'), null, `the default the fixes phase applied, after the pass's ${left} edits`);
+    }
+    const chosen = passToReport(fixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'applied']], 2);
+    const partial = editsLeft(chosen.add('answer.recorded', answer('SWEEP-1', 0)).add('answer.pass', { ids: ['SWEEP-1'] }), 2, 'SWEEP-1', 'attempt', 'blocked', 3);
+    assert.equal(appliedBy(partial.add('answer.recorded', answer('SWEEP-1', 1)), 'SWEEP-1'), null, 'the option pass-1 applied, after pass-2 left edits for the default');
+  });
+
+  it('holds an answer again once a later pass made its edit over what an earlier pass left', () => {
+    const partial = editsLeft(editingAskRun('applied').add('answer.recorded', answer('RIPPLE-1', 1)).add('answer.pass', { ids: ['RIPPLE-1'] }), 1, 'RIPPLE-1', 'attempt', 'deferred', 2);
+    const verified = passToReport(partial.add('answer.pass', { ids: ['RIPPLE-1'] }), 2, [['RIPPLE-1', 'already-applied']], 2);
+    assert.deepEqual(appliedBy(verified, 'RIPPLE-1'), { phase: 'answer', key: 'pass-2' });
+    const back = verified.add('answer.recorded', answer('RIPPLE-1', 0));
+    assert.equal(appliedBy(back, 'RIPPLE-1'), null);
+    assert.equal(appliedBy(back.add('answer.recorded', answer('RIPPLE-1', 1)), 'RIPPLE-1'), 'tree', 'the option pass-2 found applied');
   });
 
   it('reads the same through treeHolds as the fold records it', () => {
