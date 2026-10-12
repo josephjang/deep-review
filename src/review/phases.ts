@@ -178,8 +178,9 @@ export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
 
 /**
  * What a fixer is told of the author's answer to a finding (R4, R5, R7 of
- * answers), from its standing answer: the answer and its note, for an
- * option its text, rule and whether it edits, and what the run did with
+ * answers, TD9), from its standing answer, by its kind: for an option the
+ * option chosen, its text, rule and whether it edits, for a rejection the
+ * departure it rejects; its note; and what the run did with
  * the finding before, the last fixer answer and the files of that unit's
  * revisions for it, or none when no fixer saw it. Null for a finding
  * nobody answered, or whose answer the tree already holds, which owes no
@@ -188,18 +189,26 @@ export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
 function answeredFor(review: ReviewState, decision: FixerDecision | null, id: string): AnsweredFinding | null {
   const standing = standingAnswer(review, id);
   if (standing === null || standing.appliedBy !== null || decision === null) return null;
-  const answer = standing.answer;
-  const chosen = answer.kind === 'option' && decision.decision === 'ask' ? (decision.ask.options[answer.option] ?? null) : null;
-  if (answer.kind === 'option' && chosen === null) throw new Error(`Finding ${id} is answered with an option its decision does not offer`);
   const fix = review.fix;
   const last = fix === null ? null : lastAnswerOf(fix, id);
   const files = last === null || fix === null ? [] : [...new Set(fix.revisions.filter((revision) => revision.phase === last.phase && revision.source.kind !== 'check' && revision.source.key === last.key && revision.change.findings.includes(id)).flatMap((revision) => revision.files.map((file) => file.path)))].sort();
-  return {
-    answer,
-    note: standing.note,
-    option: chosen === null ? null : { option: chosen.option, rule: chosen.rule, edits: chosen.edits },
-    before: last === null ? null : { status: last.finding.status, note: last.finding.note, files },
-  };
+  const shared = { note: standing.note, before: last === null ? null : { status: last.finding.status, note: last.finding.note, files } };
+  const answer = standing.answer;
+  // The ledger admits an answer only as its decision does (`admits`), so these hold for every answer recorded.
+  switch (answer.kind) {
+    case 'option': {
+      const chosen = decision.decision === 'ask' ? decision.ask.options[answer.option] : undefined;
+      if (chosen === undefined) throw new Error(`Finding ${id} is answered with an option its decision does not offer`);
+      return { ...shared, kind: 'option', option: answer.option, chosen: { option: chosen.option, rule: chosen.rule, edits: chosen.edits } };
+    }
+    case 'reject': {
+      const departure = decision.decision === 'fix' ? decision.departure : null;
+      if (departure === null) throw new Error(`Finding ${id} rejects a departure its decision does not make`);
+      return { ...shared, kind: 'reject', departure };
+    }
+    case 'accept':
+      return { ...shared, kind: 'accept' };
+  }
 }
 
 /** A fixer's task over its batch, from the plan, the ranked findings, their decisions and the answers the author gave before the fix pass, and the pinned checks. */

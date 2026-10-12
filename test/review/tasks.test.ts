@@ -449,9 +449,9 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
   const finding = (id: string, decision: FixerDecision, answered: AnsweredFinding | null): FixerTaskFinding => ({
     id, severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 's', reason: 'r', primary: { ...candidate, id }, members: [], decision, supersedes: [], firstRound: null, answered,
   });
-  const option: AnsweredFinding = { answer: { kind: 'option', option: 1 }, note: 'the operator reads the log', option: { option: 'log once', rule: 'b logs once per run', edits: true }, before: null };
-  const rejected: AnsweredFinding = { answer: { kind: 'reject' }, note: null, option: null, before: { status: 'applied', note: 'guarded the null', files: ['docs/parse.md', 'src/a.ts'] } };
-  const accepted: AnsweredFinding = { answer: { kind: 'accept' }, note: 'right call', option: null, before: { status: 'applied', note: 'guarded the null', files: [] } };
+  const option: AnsweredFinding = { kind: 'option', option: 1, chosen: { option: 'log once', rule: 'b logs once per run', edits: true }, note: 'the operator reads the log', before: null };
+  const rejected: AnsweredFinding = { kind: 'reject', departure: departing.departure!, note: null, before: { status: 'applied', note: 'guarded the null', files: ['docs/parse.md', 'src/a.ts'] } };
+  const accepted: AnsweredFinding = { kind: 'accept', note: 'right call', before: { status: 'applied', note: 'guarded the null', files: [] } };
   const pass: AnswerPassTaskInput = {
     kind: 'answer-pass', batch: 'pass-1',
     findings: [finding('RIPPLE-1', departing, rejected), finding('SWEEP-1', asking, option)],

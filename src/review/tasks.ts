@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import type { Answer, Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
+import type { Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { inlineText } from './markdown.ts';
@@ -411,19 +411,22 @@ export interface FixerTaskFinding {
 
 /**
  * What a fixer is told of a person's answer to a finding (R4, R5, R7 of
- * answers): the answer and the note; for an option, its text, the rule the
- * decider wrote for it and whether it edits, as the report gives them to
- * the person; and what the run did with the finding before, the last
- * fixer's status and note and the files of its revisions, or null when no
- * fixer saw it. A departure's rule, source and reason are in the finding's
- * decided lines already.
+ * answers, TD9), by the answer's kind: for an option, its index and the
+ * option chosen, its text, the rule the decider wrote for it and whether
+ * it edits, as the report gives them to the person; for a rejection, the
+ * departure it rejects, whose rule the fix is to follow; an acceptance
+ * carries nothing more. Then the note, and what the run did with the
+ * finding before, the last fixer's status and note and the files of its
+ * revisions, or null when no fixer saw it.
  */
-export interface AnsweredFinding {
-  readonly answer: Answer;
+export type AnsweredFinding = {
   readonly note: string | null;
-  readonly option: { readonly option: string; readonly rule: string; readonly edits: boolean } | null;
   readonly before: { readonly status: string; readonly note: string; readonly files: readonly string[] } | null;
-}
+} & (
+  | { readonly kind: 'option'; readonly option: number; readonly chosen: { readonly option: string; readonly rule: string; readonly edits: boolean } }
+  | { readonly kind: 'reject'; readonly departure: FixerDeparture }
+  | { readonly kind: 'accept' }
+);
 
 /** A finding an earlier batch of the same cluster worked, as a later batch is told it. */
 export interface FixerTaskEarlier {
@@ -508,7 +511,7 @@ function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null)
       `        approach: ${fix.approach}`,
       ...(fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join('; ')}`]),
       ...(departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`]),
-      ...(answered === null ? [] : answeredLines(answered, departure)),
+      ...(answered === null ? [] : answeredLines(answered)),
     ];
   }
   const { ask } = decision;
@@ -517,7 +520,7 @@ function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null)
     `    decided: ask the author, applying a default now. ${decision.grounds}`,
     `        apply: ${appliedOptionOf(ask).option}`,
     `        the question the author answers later: ${ask.question} The other options: ${others.join('; ')}`,
-    ...(answered === null ? [] : answeredLines(answered, null)),
+    ...(answered === null ? [] : answeredLines(answered)),
   ];
 }
 
@@ -530,24 +533,21 @@ function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null)
  * finding before. Nothing here asks for a rule to be written or forbids it
  * (PD3).
  */
-function answeredLines(answered: AnsweredFinding, departure: FixerDeparture | null): string[] {
+function answeredLines(answered: AnsweredFinding): string[] {
   const note = answered.note === null ? '' : ` Note: ${inlineText(answered.note)}`;
-  const line = `${answerLine(answered, departure)}${note}`;
+  const line = `${answerLine(answered)}${note}`;
   const before = answered.before;
   const did = before === null ? 'no fixer saw it before' : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? '' : `, in ${before.files.join(', ')}`}`;
   return [`        ${line}`, `        before the answer: ${did}`];
 }
 
 /** The author's answer as a fixer's task words it, by its kind. */
-function answerLine(answered: AnsweredFinding, departure: FixerDeparture | null): string {
-  const answer = answered.answer;
-  switch (answer.kind) {
+function answerLine(answered: AnsweredFinding): string {
+  switch (answered.kind) {
     case 'option':
-      if (answered.option === null) throw new Error('An answered option carries the option it chose');
-      return `answered by the author: option ${String(answer.option + 1)}, "${answered.option.option}", for which the decider wrote the rule "${answered.option.rule}".`;
+      return `answered by the author: option ${String(answered.option + 1)}, "${answered.chosen.option}", for which the decider wrote the rule "${answered.chosen.rule}".`;
     case 'reject':
-      if (departure === null) throw new Error('A rejected departure is a fix that departs from a rule');
-      return `the author rejected the departure: follow the rule "${departure.rule}" as ${departure.source} states it, and restore what the fix changed in that statement.`;
+      return `the author rejected the departure: follow the rule "${answered.departure.rule}" as ${answered.departure.source} states it, and restore what the fix changed in that statement.`;
     case 'accept':
       return 'the author accepted the departure.';
   }
