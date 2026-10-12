@@ -913,11 +913,13 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * there and none is resolved when no run qualifies. None with `--fresh`,
  * which says so. When none matches, the log says a new run is created,
  * and names the newest finished read-only run of this worktree with the
- * first reason it was not continued.
+ * first reason it was not continued. Either way, it names each run passed
+ * over whose answers do not carry to the new run.
  */
 function chooseContinuation(runs: readonly RunState[], context: OpenContext, request: () => ScopeRequest): RunState | null {
   if (context.fresh === true) {
     context.log('--fresh: no finished run is considered; a new run is created');
+    logAnswersNotCarried(runs, context);
     return null;
   }
   const resolved = once(() => resolveScopeRequest(context.worktree, request()));
@@ -934,12 +936,16 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
     if (reason === undefined) throw new Error(`Run ${newest.id} was neither tried nor ruled out as a continuation`);
     context.log(`run ${newest.id}: not continued: ${reason}`);
   }
-  // Every continuable run was tried and does not match; a person's answers on one stay with it, and the new run does not carry them (R4 of answers).
+  logAnswersNotCarried(runs, context);
+  return null;
+}
+
+/** Name each continuable run of this worktree a new run passes over whose person's answers stay with it, since the new run does not carry them (R4 of answers). */
+function logAnswersNotCarried(runs: readonly RunState[], context: OpenContext): void {
   for (const run of continuable(runs, context.worktree)) {
     const answered = new Set(run.review?.answers.map((answer) => answer.id) ?? []).size;
     if (answered > 0) context.log(`run ${run.id}: its answers to ${String(answered)} finding${answered === 1 ? '' : 's'} stay recorded on it and do not carry to the new run`);
   }
-  return null;
 }
 
 /**

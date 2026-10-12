@@ -63,6 +63,18 @@ describe('the continuation of an answered read-only run', { timeout: 900_000, co
     assert.ok(box.logs.includes(`run ${finished.id}: its answers to 1 finding stay recorded on it and do not carry to the new run`), box.logs.join('\n'));
     assert.equal(box.checkpoint.foldRuns().length, 2, 'a new run');
   });
+
+  it('says the answers of a run --fresh passes over stay with that run', async (t) => {
+    const box = ReviewSandbox.forTest(t, oneQuestion);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    answerOn(box, finished.id, finished.review!.decisions![0]!.id, 1);
+    box.logs.length = 0;
+    reportText(await box.fix('claude', { fresh: true }));
+    assert.ok(box.logs.includes('--fresh: no finished run is considered; a new run is created'), box.logs.join('\n'));
+    assert.ok(box.logs.includes(`run ${finished.id}: its answers to 1 finding stay recorded on it and do not carry to the new run`), box.logs.join('\n'));
+    assert.equal(box.checkpoint.foldRuns().length, 2, 'a new run');
+  });
 });
 
 // Fix pass continuation: what a finished read-only run is held to before it is continued.
