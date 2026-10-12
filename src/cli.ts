@@ -346,7 +346,8 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
   if (checkpoint === null) throw new UsageError('this repository has no checkpoint, so there is no run to answer');
   try {
     const runtimes = defaultRuntimes();
-    const outcome = answerRun({
+    const rolesRoot = values.roles ?? engineRolesRoot();
+    const outcome = await answerRun({
       checkpoint,
       worktree,
       ...(values.run === undefined ? {} : { runId: values.run }),
@@ -355,6 +356,8 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
       note,
       recordOnly: values['record-only'] === true,
       flags,
+      rolesRoot,
+      environment: io.environment,
       adapter: (runtime) => runtimes.get(runtime),
       match: gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match,
       log: (line) => io.stderr(`${line}\n`),
@@ -383,7 +386,7 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
       runtime: configuration.runtime,
       executable: configuration.executable,
       executableArgs: configuration.executableArgs,
-      rolesRoot: values.roles ?? engineRolesRoot(),
+      rolesRoot,
       flags,
       scope: { named: false, request: () => { throw new Error(`Run ${outcome.runId} has its scope`); } },
       fix: noCheckFlags,

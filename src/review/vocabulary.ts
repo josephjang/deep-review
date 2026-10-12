@@ -210,12 +210,24 @@ export const blockerActions: Readonly<Record<BlockerCode, string>> = {
  */
 export const surveyWorkerFailedAction = 'run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without surveying again, with the convention sources of an earlier survey of this run if one answered, and with none otherwise, or abandon the run';
 
-/** How a configured run is held to what it pinned: resumed, or continued into the fix pass, whose refusals name another way out (TD6 of fix pass continuation). */
-export type PinnedUse = 'resume' | 'continue';
+/** How a configured run is held to what it pinned: resumed, continued into the fix pass, or reopened by an answer pass, the last two of whose refusals name another way out (TD6 of fix pass continuation, R6 of answers). */
+export type PinnedUse = 'resume' | 'continue' | 'answer';
 
-/** The way out a refusal of a pinned run names besides the flag that matches: abandoning an active run, or a new run for a finished one, which is not abandoned. */
+/**
+ * The way out a refusal of a pinned run names besides the flag that
+ * matches: abandoning an active run; a new run for a finished one, which
+ * is not abandoned; or applying the answer by hand for a complete run an
+ * answer pass would reopen, which the refusal leaves complete.
+ */
 export function wayOut(runId: string, use: PinnedUse): string {
-  return use === 'resume' ? `abandon it with \`deep-review abandon --run ${runId} --reason <text>\`` : 'start a new run with --fresh';
+  switch (use) {
+    case 'resume':
+      return `abandon it with \`deep-review abandon --run ${runId} --reason <text>\``;
+    case 'continue':
+      return 'start a new run with --fresh';
+    case 'answer':
+      return `apply the answer by hand; the answer is recorded, and run ${runId} stays complete with its report`;
+  }
 }
 
 /**
@@ -223,7 +235,8 @@ export function wayOut(runId: string, use: PinnedUse): string {
  * executable it pinned and ignores `--executable`, so the action for a new
  * run would name a flag that changes nothing: the way out is the pinned
  * path qualifying again, or a new run, after abandoning an active one; a
- * finished run continued into the fix pass is not abandoned (`wayOut`).
+ * finished run continued into the fix pass, or reopened by an answer
+ * pass, is not abandoned (`wayOut`).
  */
 export function pinnedRuntimeAction(runId: string, executable: string, use: PinnedUse): string {
   const newRun = use === 'resume' ? `abandon the run with \`deep-review abandon --run ${runId} --reason <text>\` and start a new one` : wayOut(runId, use);

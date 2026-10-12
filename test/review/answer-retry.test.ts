@@ -6,7 +6,8 @@ import { gitContent } from '../../src/review/content.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { baseEnvironment } from '../helpers/launcher.ts';
+import { loadedRunnerTimeoutMs, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null }));
 
@@ -30,6 +31,9 @@ function optionsOf(box: ReviewSandbox, finding: string, given: Answer, change: P
     adapter: (runtime) => defaultRuntimes().get(runtime),
     match: gitContent(box.repo, (reference) => box.checkpoint.evidence.read(reference)).match,
     log: () => {},
+    rolesRoot: box.rolesRoot,
+    environment: { ...baseEnvironment, FAKE_SCRIPT: box.scriptFile, FAKE_CHECKS: box.checksFile },
+    preflightOptions: { timeoutMs: loadedRunnerTimeoutMs },
     ...change,
   };
 }
@@ -44,15 +48,15 @@ describe('deep-review answer, retried (R3 of answers)', { timeout: 900_000, conc
     const id = finished.review!.decisions!.find((decision) => decision.decision === 'fix')!.id;
     const reject: Answer = { kind: 'reject' };
 
-    assert.equal(answerRun(optionsOf(box, id, reject, { note: 'keep the old signature', recordOnly: true })).next, 'record-only');
+    assert.equal((await answerRun(optionsOf(box, id, reject, { note: 'keep the old signature', recordOnly: true }))).next, 'record-only');
     const recorded = box.run();
-    assert.throws(() => answerRun(optionsOf(box, id, reject, { note: 'rename it' })), refused(new RegExp(`^${id} is already answered rejected on run ${finished.id}, with the note "keep the old signature", and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it$`)));
+    await assert.rejects(answerRun(optionsOf(box, id, reject, { note: 'rename it' })), refused(new RegExp(`^${id} is already answered rejected on run ${finished.id}, with the note "keep the old signature", and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it$`)));
     const after = box.run();
     assert.equal(after.lastSequence, recorded.lastSequence, 'nothing is appended');
     assert.equal(after.review!.answerPasses.length, 0, 'no pass opened');
     assert.notEqual(after.review!.report, null, 'the run stays complete');
 
-    const retried = answerRun(optionsOf(box, id, reject, { note: 'keep the old signature' }));
+    const retried = await answerRun(optionsOf(box, id, reject, { note: 'keep the old signature' }));
     assert.equal(retried.recorded, false, 'the same note is the standing one, so the retry goes on');
     assert.equal(retried.next, 'pass');
     assert.equal(retried.standing.note, 'keep the old signature');
@@ -65,9 +69,9 @@ describe('deep-review answer, retried (R3 of answers)', { timeout: 900_000, conc
     const id = finished.review!.decisions!.find((decision) => decision.decision === 'fix')!.id;
     const reject: Answer = { kind: 'reject' };
 
-    answerRun(optionsOf(box, id, reject, { recordOnly: true }));
-    assert.throws(() => answerRun(optionsOf(box, id, reject, { note: 'rename it' })), refused(/, with no note, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it$/));
+    await answerRun(optionsOf(box, id, reject, { recordOnly: true }));
+    await assert.rejects(answerRun(optionsOf(box, id, reject, { note: 'rename it' })), refused(/, with no note, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it$/));
     assert.equal(box.run().review!.answerPasses.length, 0, 'no pass opened');
-    assert.equal(answerRun(optionsOf(box, id, reject)).next, 'pass');
+    assert.equal((await answerRun(optionsOf(box, id, reject))).next, 'pass');
   });
 });

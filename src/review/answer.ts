@@ -4,10 +4,10 @@
  * a fix's departure from a rule, on a complete run's ledger, before
  * anything is edited; then, on a run that fixed, open the answer pass that
  * applies every answer owing an edit, once the run's spend and the tree
- * allow it. Running the pass is the caller's: it resumes the run as
- * `review` does. Shaped as `commitRun` is: the run is chosen under the
- * checkpoint's start lock, folded again under its own lock, and appended
- * to there.
+ * allow it and the resume that runs it would not refuse it. Running the
+ * pass is the caller's: it resumes the run as `review` does. Shaped as
+ * `commitRun` is: the run is chosen under the checkpoint's start lock,
+ * folded again under its own lock, and appended to there.
  */
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { answerWords, owedAnswers, sameAnswer, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
@@ -16,7 +16,7 @@ import type { Answer, RecordedDecision } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
-import { driftList, isResumable, limitsInForce } from './controller.ts';
+import { driftList, isResumable, limitsInForce, requirePinned, type PinnedOptions } from './controller.ts';
 import { drifted, findDrift } from './drift.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
@@ -27,7 +27,8 @@ import { budgetSpendOf } from './spend.ts';
 import { rankedFindings, reviewStatus } from './state.ts';
 import type { ExpectedMatch } from './tree.ts';
 
-export interface AnswerOptions {
+/** What `answer` needs; the roles, platform, environment and preflight limits are the ones the pass's resume holds the run with, checked before the pass opens. */
+export interface AnswerOptions extends Pick<PinnedOptions, 'rolesRoot' | 'platform' | 'environment' | 'preflightOptions'> {
   readonly checkpoint: Checkpoint;
   /** The worktree the command runs in, which must be the run's. */
   readonly worktree: string;
@@ -41,8 +42,8 @@ export interface AnswerOptions {
   readonly recordOnly: boolean;
   /** The flags of this invocation that apply to the pass: the run budget, checked before the pass opens as the run will check it. */
   readonly flags: Pick<PolicyFlags, 'budgetUsd'>;
-  /** The adapter of the run's runtime, which prices its spend. */
-  readonly adapter: (runtime: string) => Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>;
+  /** The adapter of the run's runtime, which prices its spend and preflights the executable it pinned. */
+  readonly adapter: (runtime: string) => RuntimeAdapter;
   /** How a file is compared with what the run expects, as git would store it (R22 of the fix pass). */
   readonly match: ExpectedMatch;
   /** Where a line for each run passed over is written. */
@@ -143,12 +144,15 @@ function saying(run: RunState, answer: RecordedAnswer): string {
  * `--budget-usd` as the way out; and the tree where the run left it,
  * `HEAD` at the run's head and every expected file as the run recorded
  * it, else the refusal names what moved and what each owed answer says,
- * so the person can apply it by hand; and no other run of the checkpoint
+ * so the person can apply it by hand; no other run of the checkpoint
  * resumable, as `findActiveRun` counts them, since the pass makes this one
- * resumable too and the resume that runs it would refuse the two. Each
- * refusal leaves every answer recorded and the run complete.
+ * resumable too and the resume that runs it would refuse the two; and,
+ * last, since it spawns the executable, the run held to its roles digest
+ * and its executable as that resume holds it (`requirePinned`). Each
+ * refusal leaves every answer recorded and the run complete with its
+ * report, so it stays committable.
  */
-function requirePassable(run: RunState, options: AnswerOptions, owed: readonly RecordedAnswer[]): void {
+async function requirePassable(run: RunState, options: AnswerOptions, owed: readonly RecordedAnswer[]): Promise<void> {
   // Unreadable runs are passed over silently here: the resume that runs the pass names each with its line.
   const active = readableRuns(options.checkpoint, () => {}).filter((other) => other.id !== run.id && isResumable(other)).map((other) => other.id);
   if (active.length > 0) {
@@ -166,6 +170,7 @@ function requirePassable(run: RunState, options: AnswerOptions, owed: readonly R
   if (drifted(found)) {
     throw new ReviewRefusedError(`the tree is not where run ${run.id} left it: ${driftList(found)}; the answer is recorded; restore the tree and run deep-review answer again with the same answer to apply it, or apply it by hand: ${owed.map((answer) => saying(run, answer)).join('; ')}; a review of the changed tree is a new run and does not carry this answer`);
   }
+  await requirePinned(run, { ...options, adapter });
 }
 
 /**
@@ -180,10 +185,11 @@ function requirePassable(run: RunState, options: AnswerOptions, owed: readonly R
  * for the tree or the budget. Such a retry keeps the note the answer was
  * recorded with, so one giving another note is refused. The answer is
  * appended first; then, unless `recordOnly`, the run only reviewed, or
- * nothing is owed, the spend, the tree and the checkpoint's other runs
- * are checked and `answer.pass` is appended.
+ * nothing is owed, the spend, the tree, the checkpoint's other runs and
+ * what the run pinned are checked (`requirePassable`) and `answer.pass` is
+ * appended.
  */
-export function answerRun(options: AnswerOptions): AnswerOutcome {
+export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> {
   const { checkpoint, worktree } = options;
   const releaseStart = acquireStartLock(checkpoint.root);
   try {
@@ -214,7 +220,7 @@ export function answerRun(options: AnswerOptions): AnswerOutcome {
       const order = rankedFindings(run.review!).map((entry) => entry.finding.id);
       const ids = owed.map((answer) => answer.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
       if (ids.length === 0) return outcome('nothing-owed', run);
-      requirePassable(run, options, owed);
+      await requirePassable(run, options, owed);
       return outcome('pass', checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.pass', version: 1, payload: { ids } }]));
     } finally {
       release();

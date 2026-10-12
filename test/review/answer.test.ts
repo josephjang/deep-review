@@ -13,7 +13,7 @@ import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime
 import { baseEnvironment, type Finished, node } from '../helpers/launcher.ts';
 import { commitAll, git, write } from '../helpers/repository.ts';
 import { answerableDecisions, configured, decidedFixRun, decidedOf, readOnlyReported, reported } from '../helpers/review-history.ts';
-import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { loadedRunnerTimeoutMs, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../../src/cli.ts');
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure` });
@@ -65,6 +65,9 @@ function optionsOf(box: ReviewSandbox, finding: string, given: Answer, change: P
     adapter: (runtime) => defaultRuntimes().get(runtime),
     match: gitContent(box.repo, (reference) => box.checkpoint.evidence.read(reference)).match,
     log: () => {},
+    rolesRoot: box.rolesRoot,
+    environment: { ...baseEnvironment, FAKE_SCRIPT: box.scriptFile, FAKE_CHECKS: box.checksFile },
+    preflightOptions: { timeoutMs: loadedRunnerTimeoutMs },
     ...change,
   };
 }
@@ -102,7 +105,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const finished = box.run();
     const { departing, question } = findingsOf(finished);
 
-    const recorded = answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { note: 'the operator reads it' }));
+    const recorded = await answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { note: 'the operator reads it' }));
     assert.equal(recorded.next, 'read-only');
     assert.equal(recorded.recorded, true);
     assert.deepEqual(recorded.standing.answer, { kind: 'option', option: 1 });
@@ -110,17 +113,17 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(recorded.standing.appliedBy, null, 'option 2 edits the code, so it owes an edit');
     assert.equal(box.run().lastSequence, finished.lastSequence + 1, 'one event, the answer');
 
-    assert.throws(() => answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^${question} is already answered option 2 on run ${finished.id}, on `)));
-    assert.equal(answerRun(optionsOf(box, question, { kind: 'option', option: 0 })).standing.appliedBy, 'tree', 'the default that keeps the code is what the tree holds');
-    assert.throws(() => answerRun(optionsOf(box, departing, { kind: 'option', option: 0 })), refused(new RegExp(`^${departing} was decided fix, departing from a rule, which admits --accept or --reject, not --option 1$`)));
-    assert.throws(() => answerRun(optionsOf(box, question, { kind: 'accept' })), refused(new RegExp(`^${question} was decided ask, which admits an --option from 1 to 2, not --accept$`)));
-    assert.throws(() => answerRun(optionsOf(box, question, { kind: 'option', option: 2 })), refused(/which admits an --option from 1 to 2, not --option 3$/));
-    assert.throws(() => answerRun(optionsOf(box, 'SCAN-9', { kind: 'accept' })), refused(new RegExp(`^run ${finished.id} has no finding SCAN-9; the findings it can answer are ${departing}, ${question}$|^run ${finished.id} has no finding SCAN-9; the findings it can answer are ${question}, ${departing}$`)));
-    assert.throws(() => answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { runId: 'no-such-run' })), UnknownRunError);
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^${question} is already answered option 2 on run ${finished.id}, on `)));
+    assert.equal((await answerRun(optionsOf(box, question, { kind: 'option', option: 0 }))).standing.appliedBy, 'tree', 'the default that keeps the code is what the tree holds');
+    await assert.rejects(answerRun(optionsOf(box, departing, { kind: 'option', option: 0 })), refused(new RegExp(`^${departing} was decided fix, departing from a rule, which admits --accept or --reject, not --option 1$`)));
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'accept' })), refused(new RegExp(`^${question} was decided ask, which admits an --option from 1 to 2, not --accept$`)));
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 2 })), refused(/which admits an --option from 1 to 2, not --option 3$/));
+    await assert.rejects(answerRun(optionsOf(box, 'SCAN-9', { kind: 'accept' })), refused(new RegExp(`^run ${finished.id} has no finding SCAN-9; the findings it can answer are ${departing}, ${question}$|^run ${finished.id} has no finding SCAN-9; the findings it can answer are ${question}, ${departing}$`)));
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { runId: 'no-such-run' })), UnknownRunError);
     const unknown = await run(box, '--finding', question, '--option', '2', '--run', 'no-such-run');
     assert.equal(unknown.status, 1, 'an unknown run id is a usage mistake, as for commit and status');
     assert.match(unknown.stderr, /no-such-run[\s\S]*usage:/);
-    assert.equal(answerRun(optionsOf(box, departing, { kind: 'reject' })).next, 'read-only');
+    assert.equal((await answerRun(optionsOf(box, departing, { kind: 'reject' }))).next, 'read-only');
     assert.equal(box.run().review!.answers.length, 3);
     assert.deepEqual(box.run().review!.report, finished.review!.report, 'the run stays complete');
 
@@ -179,7 +182,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const { question } = findingsOf(finished);
     box.script({ ...answerable, ...passFixer(1, [['src/b.ts', otherB]]) });
     write(box.repo, 'src/a.ts', 'edited by hand\n');
-    assert.throws(() => answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^the tree is not where run ${finished.id} left it: src/a\\.ts \\(modified\\); the answer is recorded; restore the tree and run deep-review answer again with the same answer to apply it, or apply it by hand: ${question} option 2, "fake other way"; a review of the changed tree is a new run and does not carry this answer$`)));
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^the tree is not where run ${finished.id} left it: src/a\\.ts \\(modified\\); the answer is recorded; restore the tree and run deep-review answer again with the same answer to apply it, or apply it by hand: ${question} option 2, "fake other way"; a review of the changed tree is a new run and does not carry this answer$`)));
     const after = box.run();
     assert.equal(after.review!.answers.length, 1, 'the answer is recorded');
     assert.equal(after.review!.answerPasses.length, 0);
@@ -188,10 +191,10 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     // HEAD moved is refused the same way.
     write(box.repo, 'notes.md', 'a note\n');
     commitAll(box.repo, 'docs: Add a note');
-    assert.throws(() => answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(/^the tree is not where run [^\n]* left it: HEAD \(/));
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(/^the tree is not where run [^\n]* left it: HEAD \(/));
     git(box.repo, 'reset', '-q', '--hard', 'HEAD~1');
     write(box.repo, 'src/a.ts', fixedA);
-    const outcome = answerRun(optionsOf(box, question, { kind: 'option', option: 1 }));
+    const outcome = await answerRun(optionsOf(box, question, { kind: 'option', option: 1 }));
     assert.equal(outcome.recorded, false, 'not recorded twice');
     assert.equal(outcome.next, 'pass');
     reportText(await box.review('claude'));
@@ -203,7 +206,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     reportText(await box.fix('claude'));
     const finished = box.run();
     const { question } = findingsOf(finished);
-    assert.throws(() => answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { flags: { budgetUsd: 1 } })), refused(/so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above \d+\.\d\d to apply it$/));
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { flags: { budgetUsd: 1 } })), refused(/so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above \d+\.\d\d to apply it$/));
     assert.equal(box.run().review!.answerPasses.length, 0);
     box.script({ ...answerable, '*': { costUsd: 0.5 }, 'fixer:answer:pass-1': [{ exit: 3 }, { exit: 3 }, { edits: [{ writes: { 'src/b.ts': otherB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) }] });
     const blocked = await run(box, '--finding', question, '--option', '2', '--budget-usd', '500');

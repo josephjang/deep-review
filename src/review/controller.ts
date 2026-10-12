@@ -730,6 +730,29 @@ interface OpenContext extends ReviewOptions {
   readonly match: ExpectedMatch;
 }
 
+/** What holding a configured run to its pin reads beside the run (`resumePinned`). */
+type PinnedContext = Pick<OpenContext, 'roles' | 'rolesRoot' | 'adapter' | 'flags' | 'fix' | 'platform' | 'environment' | 'preflightOptions' | 'log'>;
+
+/** What `requirePinned` reads beside the run: the review's options a resume holds the run with, and the adapter of the run's runtime. */
+export interface PinnedOptions extends Pick<ReviewOptions, 'rolesRoot' | 'platform' | 'environment' | 'preflightOptions'> {
+  readonly adapter: RuntimeAdapter;
+  readonly flags: PolicyFlags;
+  readonly log: (line: string) => void;
+}
+
+/**
+ * Hold a complete run to what resuming it for an answer pass checks,
+ * before the pass reopens it (R6 of answers): its roles must digest as
+ * pinned, the flags must agree with its pin and its pinned executable
+ * must qualify, each refused as `resumePinned` refuses a resume, naming
+ * the answer applied by hand as the way out. The run is still complete
+ * then, so a refusal leaves it complete with its report.
+ */
+export async function requirePinned(run: RunState, options: PinnedOptions): Promise<void> {
+  const context: PinnedContext = { ...options, roles: assembleRoles(options.rolesRoot), platform: options.platform ?? process.platform, environment: options.environment ?? process.env };
+  await resumePinned(run, run.review!.configuration, context, 'answer');
+}
+
 /** An open run: its state, the release of its lock, and what it still needs before its first step. */
 interface OpenedRun {
   readonly state: RunState;
@@ -1012,9 +1035,11 @@ function refuseOtherRuntime(runId: string, pinned: Pick<ReviewConfiguration, 'ru
  * A finished read-only run continued into the fix pass is held the same
  * way (R3, TD6 of fix pass continuation), its refusals naming a new run
  * with `--fresh` where a resume's name abandoning it; whether it fixes and
- * its check flags are the continuation's to say, not a resume's.
+ * its check flags are the continuation's to say, not a resume's. A complete
+ * run an answer pass would reopen is held the same way before the pass
+ * opens (`requirePinned`), its refusals naming the answer applied by hand.
  */
-async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: OpenContext, use: PinnedUse): Promise<void> {
+async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: PinnedContext, use: PinnedUse): Promise<void> {
   const runId = run.id;
   // A fix run routes its findings by their decisions (R6 of the decision step); one configured before the decision step has none to route by, so it cannot go on to plan its fixes, whatever roles it is given.
   if (pinned.fix && run.review?.phases.decision.status === 'skipped' && (run.review.fix?.plan ?? null) === null) {
@@ -1054,7 +1079,7 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
  * the check flags settle their kinds until the checks are planned (TD6 of
  * the repository survey), and are named and ignored after.
  */
-function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: OpenContext): void {
+function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: PinnedContext): void {
   const runId = run.id;
   const fix = context.fix ?? null;
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
@@ -1089,7 +1114,7 @@ function droppedSinceSurvey(survey: SurveyState | null, flags: CheckFlags | null
 }
 
 /** Preflight the executable and return its version, or refuse with `runtime-unqualified`; `pinnedBy` names the configured run that pinned it and how it is held to it, or is null for a new run. */
-async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: OpenContext, pinnedBy: { readonly runId: string; readonly use: PinnedUse } | null): Promise<string> {
+async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: Pick<OpenContext, 'environment' | 'preflightOptions'>, pinnedBy: { readonly runId: string; readonly use: PinnedUse } | null): Promise<string> {
   try {
     return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
   } catch (error) {
