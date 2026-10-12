@@ -12,7 +12,7 @@
  */
 import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
-import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, ScopeMode, TreeRevised, UnitUnattempted } from './events.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
 
@@ -486,6 +486,24 @@ export function runHead(state: Pick<RunState, 'id' | 'scope' | 'review'>): strin
 export function committedRevisions(fix: Pick<FixState, 'commits'>): number {
   const indexes = fix.commits.flatMap((series) => series.commits.map((commit) => commit.revision)).filter((revision): revision is number => revision !== 'change');
   return indexes.length === 0 ? 0 : Math.max(...indexes) + 1;
+}
+
+/** What the next series of commits holds: whether it commits the captured change, and the revisions with their indexes among the run's. */
+export interface NextSeries {
+  readonly change: boolean;
+  readonly revisions: readonly { readonly index: number; readonly revision: TreeRevised }[];
+}
+
+/**
+ * The next series of commits (R17 of the fix pass, R8 of answers): the
+ * captured change first in worktree mode, by the first series only; then
+ * every revision no series holds yet, with its index among the run's
+ * revisions, in ledger order. `commit` builds it, and the fold holds a
+ * recorded series to it.
+ */
+export function nextSeries(fix: Pick<FixState, 'commits' | 'revisions'>, mode: ScopeMode): NextSeries {
+  const from = committedRevisions(fix);
+  return { change: mode === 'worktree' && fix.commits.length === 0, revisions: fix.revisions.slice(from).map((revision, offset) => ({ index: from + offset, revision })) };
 }
 
 /**

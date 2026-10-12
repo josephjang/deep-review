@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { CommitsCreated, FrozenFile, TreeRevised } from '../checkpoint/events.ts';
-import { committedRevisions, revisionMessageOf, runHead } from '../checkpoint/fix-state.ts';
+import { committedRevisions, nextSeries, revisionMessageOf, runHead, type NextSeries } from '../checkpoint/fix-state.ts';
 import { attemptOwner } from './fix-events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
@@ -210,24 +210,17 @@ function currentBranch(worktree: string): string {
  * The series of commits `commit` builds for a run now (R17 of the fix
  * pass, R8 of answers): from the run's head, the scope's head for the
  * first series and the last commit the series before made for a later
- * one; the captured change first in worktree mode, by the first series
- * only; then every revision no series holds yet, with its index among the
- * run's revisions, in ledger order.
+ * one; then what `nextSeries` says it holds.
  */
-interface Series {
+interface Series extends NextSeries {
   readonly head: string;
-  readonly change: boolean;
-  readonly revisions: readonly { readonly index: number; readonly revision: TreeRevised }[];
   /** Every path a commit of the series sets: the change's when it commits the change, and each revision's. */
   readonly paths: ReadonlySet<string>;
 }
 
 function seriesOf(run: RunState): Series {
   const scope = run.scope!;
-  const fix = run.review!.fix!;
-  const from = committedRevisions(fix);
-  const change = scope.mode === 'worktree' && fix.commits.length === 0;
-  const revisions = fix.revisions.slice(from).map((revision, offset) => ({ index: from + offset, revision }));
+  const { change, revisions } = nextSeries(run.review!.fix!, scope.mode);
   const paths = new Set([...(change ? scope.files.map((file) => file.path) : []), ...revisions.flatMap(({ revision }) => revision.files.map((file) => file.path))]);
   return { head: runHead(run), change, revisions, paths };
 }

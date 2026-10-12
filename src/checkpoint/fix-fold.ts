@@ -16,7 +16,7 @@
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, checksFloor, claimRefusal, claimsOfRound, committedRevisions, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, roundOf, routeOf, runHead, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import { batchOf, checksFloor, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, nextSeries, roundOf, routeOf, runHead, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -398,9 +398,9 @@ const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {
   if (current.scope === null) throw invalid(event, 'creates commits before its scope is captured');
   const head = runHead(current);
   if (payload.from !== head) throw invalid(event, `creates commits on ${payload.from}, not the run's head ${head}`);
-  const from = committedRevisions(fix);
-  if (from >= fix.revisions.length) throw invalid(event, `creates commits when every one of its ${String(fix.revisions.length)} revisions is committed`);
-  const expected: (number | 'change')[] = [...(current.scope.mode === 'worktree' && fix.commits.length === 0 ? ['change' as const] : []), ...fix.revisions.slice(from).map((_, index) => from + index)];
+  const next = nextSeries(fix, current.scope.mode);
+  if (next.revisions.length === 0) throw invalid(event, `creates commits when every one of its ${String(fix.revisions.length)} revisions is committed`);
+  const expected: (number | 'change')[] = [...(next.change ? ['change' as const] : []), ...next.revisions.map(({ index }) => index)];
   const given = payload.commits.map((commit) => commit.revision);
   if (given.length !== expected.length || given.some((revision, index) => revision !== expected[index])) throw invalid(event, `creates commits for [${given.join(', ')}], not [${expected.join(', ')}]`);
   if (payload.commits.at(-1)!.sha !== payload.to) throw invalid(event, 'moves the branch to a commit that is not its last');
