@@ -4,16 +4,21 @@
  * recorded and whether the tree holds it yet, and every answer pass. Facts
  * as recorded; the questions below are answered from this state alone.
  */
-import type { EditingPhase } from '../review/vocabulary.ts';
 import type { Answer, AnswerRecorded, ReportWritten } from './events.ts';
+
+/** An editing unit that can apply a person's answer: a fixes-phase batch or an answer pass, never the repair, which answers checks. */
+export interface ApplyingUnit {
+  readonly phase: 'fixes' | 'answer';
+  readonly key: string;
+}
 
 /**
  * What applied an answer, which is whether it still owes an edit (TD4 of
  * answers): `'tree'` when the tree already held what it says when it was
- * recorded; the editing unit, a fixes-phase batch or an answer pass, whose
- * recorded answer applied its finding after it; null while an edit is owed.
+ * recorded; the editing unit whose recorded answer applied its finding
+ * after it; null while an edit is owed.
  */
-export type AppliedBy = { readonly phase: EditingPhase; readonly key: string } | 'tree' | null;
+export type AppliedBy = ApplyingUnit | 'tree' | null;
 
 /** One answer as the fold holds it: the event's payload, when it was recorded, and what applied it. */
 export interface RecordedAnswer extends AnswerRecorded {
@@ -99,7 +104,7 @@ export const madeTheEdit = (status: string): boolean => status === 'applied' || 
  * stays as it is; an answer still owed is applied by a later pass. The
  * array is the same one when nothing changed.
  */
-export function withApplied(answers: readonly RecordedAnswer[], unit: { readonly phase: EditingPhase; readonly key: string }, findings: readonly { readonly id: string; readonly status: string }[]): readonly RecordedAnswer[] {
+export function withApplied(answers: readonly RecordedAnswer[], unit: ApplyingUnit, findings: readonly { readonly id: string; readonly status: string }[]): readonly RecordedAnswer[] {
   let next: RecordedAnswer[] | null = null;
   for (const finding of findings) {
     if (!madeTheEdit(finding.status)) continue;

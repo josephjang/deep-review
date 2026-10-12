@@ -81,8 +81,6 @@ function appliedWords(review: Pick<ReviewState, 'answerPasses'>, answer: Recorde
       if (pass === null) throw new Error(`Answer ${answer.id} is applied by ${by.key}, which no answer pass has`);
       return `applied by the answer pass of ${pass.at}`;
     }
-    case 'repair':
-      throw new Error(`Answer ${answer.id} is applied by the repair, which answers checks`);
   }
 }
 
