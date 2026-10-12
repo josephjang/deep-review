@@ -7,7 +7,7 @@
  * Limitations gains. A run without the fix pass has none
  * of these, and its report renders as it did before the fix pass existed.
  */
-import type { CheckRan, FixedFinding, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
+import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -17,7 +17,7 @@ import { leftAs } from './decision-report.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, droppedByOperator, unavailableCell } from './survey-report.ts';
-import { checkPhases, lostClaimWords, repairUnitKey, type CheckPhase, type EditingPhase } from './vocabulary.ts';
+import { checkPhases, editingPhases, lostClaimWords, repairUnitKey, type CheckPhase, type EditingPhase } from './vocabulary.ts';
 
 /**
  * What became of one ranked finding, as the report names it: a fixer's
@@ -118,6 +118,9 @@ function patchesOf(fix: FixState, id: string, phase: EditingPhase): number[] {
 
 const patchNote = (numbers: readonly number[]): string => (numbers.length === 0 ? 'no patch' : `patch ${numbers.join(', ')}`);
 
+/** Every fixer's recorded answer, phase by phase in `editingPhases` order, so an editing phase added there is reported too. */
+const allFixerAnswers = (fix: FixState): FixRecorded[] => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
+
 /** The lines one finding's fate prints under its heading. */
 function fateLines(fix: FixState, fate: FindingFate): string[] {
   if (fate.outcome === 'held for the author') return ['A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it.'];
@@ -150,7 +153,7 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
  * tracked at https://github.com/josephjang/deep-review/issues/29
  */
 function answerLines(fix: FixState): string[] {
-  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair), ...Object.values(fix.answers.answer)];
+  const answers = allFixerAnswers(fix);
   const drift = answers.flatMap((answer) => answer.drift.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.what)} (${answer.key})`));
   const tests = answers.flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
   return [
@@ -403,8 +406,7 @@ export function fixLimitations(review: ReviewState): string[] {
   const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);
   // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).
   if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check) => `${check.kind} (${inlineText(droppedByOperator(review.survey, check) ?? check.reason ?? 'no command')})`).join('; ')}.`);
-  const answers = [...Object.values(fix.answers.fixes), ...Object.values(fix.answers.repair), ...Object.values(fix.answers.answer)];
-  for (const answer of answers) {
+  for (const answer of allFixerAnswers(fix)) {
     for (const finding of answer.findings) {
       for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);
     }

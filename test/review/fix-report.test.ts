@@ -7,7 +7,7 @@ import { fixLimitations } from '../../src/review/fix-report.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { askDecision, checkRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, reference, reported, statistics, withFixPass, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/fix.md');
 const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evidence/${blob.sha256.slice(0, 8)}`;
@@ -76,7 +76,13 @@ describe('the report of a fix run', () => {
     assert.match(report, /^- Worktree checks: \d+, none found a difference from what the run expected\.$/m);
   });
 
-  it('names as strays only what the run left: not a file there before it, nor a leftover a later revision took (PD9 of commit series integrity)', () => {
+  it('adds every editing phase\'s suite line to Limitations in phase order, naming an answer pass\'s fixer as such (R10 of answers)', () => {
+    const history = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1);
+    const suites = fixLimitations(history.review()).filter((line) => line.includes(' ran its own suite: '));
+    assert.deepEqual(suites, ['- Fixer c1-1 ran its own suite: pass (npm test).', '- The fixer of the answer pass pass-1 ran its own suite: pass (npm test).']);
+  });
+
+  it('names as strays only what the run left:not a file there before it, nor a leftover a later revision took (PD9 of commit series integrity)', () => {
     const review = fixRun().review();
     const [first, ...rest] = review.checks;
     const checks = [{ ...first!, strays: ['before.txt'] }, ...rest.map((check) => ({ ...check, strays: [...check.strays, 'before.txt', 'src/a.ts', 'dist/a.js'] }))];
