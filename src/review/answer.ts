@@ -16,7 +16,7 @@ import type { Answer, RecordedDecision } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
-import { driftList, limitsInForce } from './controller.ts';
+import { driftList, isResumable, limitsInForce } from './controller.ts';
 import { drifted, findDrift } from './drift.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
@@ -143,10 +143,18 @@ function saying(run: RunState, answer: RecordedAnswer): string {
  * `--budget-usd` as the way out; and the tree where the run left it,
  * `HEAD` at the run's head and every expected file as the run recorded
  * it, else the refusal names what moved and what each owed answer says,
- * so the person can apply it by hand. Either refusal leaves every answer
- * recorded and the run complete.
+ * so the person can apply it by hand; and no other run of the checkpoint
+ * resumable, as `findActiveRun` counts them, since the pass makes this one
+ * resumable too and the resume that runs it would refuse the two. Each
+ * refusal leaves every answer recorded and the run complete.
  */
 function requirePassable(run: RunState, options: AnswerOptions, owed: readonly RecordedAnswer[]): void {
+  // Unreadable runs are passed over silently here: the resume that runs the pass names each with its line.
+  const active = readableRuns(options.checkpoint, () => {}).filter((other) => other.id !== run.id && isResumable(other)).map((other) => other.id);
+  if (active.length > 0) {
+    const them = active.length === 1 ? 'it' : 'them';
+    throw new ReviewRefusedError(`${active.length === 1 ? `run ${active[0]!} is` : `runs ${active.join(', ')} are`} active, and the answer pass would resume run ${run.id} beside ${them}; the answer is recorded; finish ${them} with deep-review review, or abandon ${them} with \`deep-review abandon --run <id> --reason <text>\`, then run deep-review answer again with the same answer to apply it`);
+  }
   const configuration = run.review!.configuration;
   const adapter = options.adapter(configuration.runtime);
   const spend = budgetSpendOf(run, adapter);
@@ -172,8 +180,8 @@ function requirePassable(run: RunState, options: AnswerOptions, owed: readonly R
  * for the tree or the budget. Such a retry keeps the note the answer was
  * recorded with, so one giving another note is refused. The answer is
  * appended first; then, unless `recordOnly`, the run only reviewed, or
- * nothing is owed, the spend and the tree are checked and `answer.pass`
- * is appended.
+ * nothing is owed, the spend, the tree and the checkpoint's other runs
+ * are checked and `answer.pass` is appended.
  */
 export function answerRun(options: AnswerOptions): AnswerOutcome {
   const { checkpoint, worktree } = options;
