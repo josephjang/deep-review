@@ -300,12 +300,17 @@ export function answerOf(values: Values): Answer {
   return values.accept === true ? { kind: 'accept' } : { kind: 'reject' };
 }
 
-/** The note an answer records, or null without `--note`; an empty one, or one past the ledger's cap, is refused. */
+/**
+ * The note an answer records, or null without `--note`; an empty one, or one past the ledger's cap, is refused.
+ * The cap counts UTF-16 code units, as the ledger's schema does, so the refusal names that unit rather than characters.
+ */
 export function noteOf(values: Values): string | null {
   const note = values.note;
   if (note === undefined) return null;
   if (note.trim() === '') throw new UsageError('--note needs text; leave it out for no note');
-  if (note.length > answerNoteLengthV1) throw new UsageError(`--note holds at most ${String(answerNoteLengthV1)} characters, not ${String(note.length)}`);
+  if (note.length > answerNoteLengthV1) {
+    throw new UsageError(`--note holds at most ${String(answerNoteLengthV1)} UTF-16 code units (an emoji or other character outside the Basic Multilingual Plane counts as two), not ${String(note.length)}`);
+  }
   return note;
 }
 
