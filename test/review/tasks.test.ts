@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { claimPathPlaceholder, codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type FixerDecision, type FixerTaskFinding, type FixerTaskInput, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { claimPathPlaceholder, codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -242,8 +242,8 @@ describe('the task texts', () => {
 describe('the fixer\'s task', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
   const claim = `node "/engine/main.mjs" claim --path '${claimPathPlaceholder}' --unit c1-2 --in "/scratch/claims/run/round-1"`;
-  const input: FixerTaskInput = {
-    answerPass: false,
+  const input: FixerBatchTaskInput = {
+    kind: 'batch',
     cluster: 'c1',
     batch: 'c1-2',
     secondRound: false,
@@ -452,15 +452,15 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
   const option: AnsweredFinding = { answer: { kind: 'option', option: 1 }, note: 'the operator reads the log', option: { option: 'log once', rule: 'b logs once per run', edits: true }, before: null };
   const rejected: AnsweredFinding = { answer: { kind: 'reject' }, note: null, option: null, before: { status: 'applied', note: 'guarded the null', files: ['docs/parse.md', 'src/a.ts'] } };
   const accepted: AnsweredFinding = { answer: { kind: 'accept' }, note: 'right call', option: null, before: { status: 'applied', note: 'guarded the null', files: [] } };
-  const pass: FixerTaskInput = {
-    answerPass: true, cluster: 'answers', batch: 'pass-1', secondRound: false,
+  const pass: AnswerPassTaskInput = {
+    kind: 'answer-pass', batch: 'pass-1',
     findings: [finding('RIPPLE-1', departing, rejected), finding('SWEEP-1', asking, option)],
-    earlier: [], owned: ['docs/parse.md', 'src/a.ts'], claimed: [], othersHeld: [],
+    owned: ['docs/parse.md', 'src/a.ts'],
     checks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null, source: null }],
-    snapshotCommand: snapshot, claimCommand: null, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false,
+    snapshotCommand: snapshot, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false,
   };
   /** A fixes-phase batch of the same findings, as a continued run's fixer is given them. */
-  const batch = (findings: readonly FixerTaskFinding[]): FixerTaskInput => ({ ...pass, answerPass: false, cluster: 'c1', batch: 'c1-1', claimCommand: 'node claim', findings });
+  const batch = (findings: readonly FixerTaskFinding[]): FixerBatchTaskInput => ({ ...pass, kind: 'batch', cluster: 'c1', batch: 'c1-1', secondRound: false, earlier: [], claimed: [], othersHeld: [], claimCommand: 'node claim', findings });
 
   it('tells each answer by its kind: the option chosen with its text and rule, the rejected departure\'s rule and source, or an accepted one, with the note', () => {
     const task = fixerTask(pass);
@@ -495,9 +495,10 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
     const task = fixerTask(pass);
     assert.match(task, /^Answer pass pass-1: 2 findings, numbered \[0\] to \[1\], in the order to apply them\.$/m);
     assert.match(task, /^Files you own: every file the run revised, and the files these findings are located in\.\n- docs\/parse\.md\n- src\/a\.ts\n\nYou may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served\.$/m);
-    assert.doesNotMatch(task, /claim|Files other clusters own|Cluster answers/);
-    assert.throws(() => fixerTask({ ...pass, claimCommand: 'node claim' }), /An answer pass alone claims nothing/);
-    assert.throws(() => fixerTask({ ...batch(pass.findings), claimCommand: null }), /An answer pass alone claims nothing/);
+    assert.doesNotMatch(task, /claim|Files other clusters own|Cluster /);
+    const asBatch = fixerTask(batch(pass.findings));
+    assert.match(asBatch, /^Cluster c1, batch c1-1: 2 findings[\s\S]*^Files you own while this batch runs, which no other worker edits:\n[\s\S]*^ {4}node claim$/m, 'a batch of the same findings owns its cluster\'s files and claims through its command');
+    assert.doesNotMatch(asBatch, /You may edit any other file/);
   });
 });
 

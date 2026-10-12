@@ -237,7 +237,7 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
     };
   });
   return fixerTask({
-    answerPass: false,
+    kind: 'batch',
     cluster: cluster.id,
     batch: batch.key,
     secondRound: inSecondRound,
@@ -304,18 +304,12 @@ function answerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput
   // An earlier attempt of this pass, not an earlier pass, may have left its work: an earlier pass's edits are recorded revisions the task names as the files owned.
   const mayHold = review.phases.answer.attempt > pass.openedAt.answer + 1 || (review.units.answer[unit.key]?.failures.length ?? 0) > 0;
   return fixerTask({
-    answerPass: true,
-    cluster: 'answers',
+    kind: 'answer-pass',
     batch: unit.key,
-    secondRound: false,
     findings,
-    earlier: [],
     owned: ownedFiles(review, 'answer', unit.key),
-    claimed: [],
-    othersHeld: [],
     checks: review.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
-    claimCommand: null,
     unelevatedSandbox: editing.unelevatedSandbox,
     mayHoldWork: mayHold,
     unfinished: unfinishedIds(review, 'answer', unit.key),

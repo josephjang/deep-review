@@ -434,27 +434,15 @@ export interface FixerTaskEarlier {
   readonly note: string | null;
 }
 
-export interface FixerTaskInput {
-  /** Whether the fixer is an answer pass's (R5 of answers): it works the answered findings alone, owns every file the run revised, may edit any other, and claims nothing. */
-  readonly answerPass: boolean;
-  readonly cluster: string;
+/** What every fixer's task carries, a fixes-phase batch's and an answer pass's alike. */
+interface FixerTaskShared {
   /** The batch of the cluster this fixer works (R18 of the fix pass), or the answer pass's unit key. */
   readonly batch: string;
-  /** Whether the batch belongs to the second round, whose findings were blocked in the first on files they now own (R21). */
-  readonly secondRound: boolean;
   readonly findings: readonly FixerTaskFinding[];
-  /** The findings the cluster's earlier batches worked, whose edits are in the tree. */
-  readonly earlier: readonly FixerTaskEarlier[];
   readonly owned: readonly string[];
-  /** The files the cluster has claimed so far in its round, which it holds as it owns its own (R1 of commit series integrity). */
-  readonly claimed: readonly string[];
-  /** The files every other cluster of the round owns, or has claimed and holds while it has not settled, cluster by cluster. */
-  readonly othersHeld: readonly { readonly cluster: string; readonly files: readonly Pick<SpelledHolder, 'path' | 'by'>[] }[];
   readonly checks: readonly PlannedCheck[];
   /** The snapshot command, holding `snapshotIndexPlaceholder` for the index. */
   readonly snapshotCommand: string;
-  /** The claim command, holding `claimPathPlaceholder` for the path; null for an answer pass, which claims nothing. */
-  readonly claimCommand: string | null;
   /** Whether an earlier worker on this cluster may have left part of its work in the tree. */
   readonly mayHoldWork: boolean;
   /** The findings an earlier attempt of this batch left recorded edits for, whose message a verifying fixer gives. */
@@ -464,6 +452,29 @@ export interface FixerTaskInput {
   /** Whether the fixer runs in Codex's unelevated Windows sandbox, so its task says what cannot run there (R6 of the Codex sandbox). */
   readonly unelevatedSandbox: boolean;
 }
+
+/** A fixes-phase batch's fixer (R18, R21 of the fix pass; R1, R8 of commit series integrity): it owns its cluster's files, is told what the cluster's earlier batches did, and claims any other file through its command. */
+export interface FixerBatchTaskInput extends FixerTaskShared {
+  readonly kind: 'batch';
+  readonly cluster: string;
+  /** Whether the batch belongs to the second round, whose findings were blocked in the first on files they now own (R21). */
+  readonly secondRound: boolean;
+  /** The findings the cluster's earlier batches worked, whose edits are in the tree. */
+  readonly earlier: readonly FixerTaskEarlier[];
+  /** The files the cluster has claimed so far in its round, which it holds as it owns its own (R1 of commit series integrity). */
+  readonly claimed: readonly string[];
+  /** The files every other cluster of the round owns, or has claimed and holds while it has not settled, cluster by cluster. */
+  readonly othersHeld: readonly { readonly cluster: string; readonly files: readonly Pick<SpelledHolder, 'path' | 'by'>[] }[];
+  /** The claim command, holding `claimPathPlaceholder` for the path. */
+  readonly claimCommand: string;
+}
+
+/** An answer pass's fixer (R5 of answers): it works the answered findings alone, owns every file the run revised, may edit any other, and claims nothing. */
+export interface AnswerPassTaskInput extends FixerTaskShared {
+  readonly kind: 'answer-pass';
+}
+
+export type FixerTaskInput = FixerBatchTaskInput | AnswerPassTaskInput;
 
 const fileList = (files: readonly string[]): string => (files.length === 0 ? '(none)' : files.map((file) => `- ${file}`).join('\n'));
 
@@ -548,6 +559,57 @@ const answeredRule = 'A finding marked "answered by the author", or whose depart
 /** What a fixer's task says of the decisions it carries: apply them, and defer only by the role prompt's criteria, never over a choice the decision made (R7, R12 of the decision step). */
 const decidedRule = 'Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message\'s `body`.';
 
+/**
+ * What a fixer's task says of the unit it works, by its kind: the head
+ * that names it; for a batch, what its round and its cluster's earlier
+ * batches did; and the files it holds. A batch owns its cluster's files and
+ * claims others; an answer pass owns what the run revised and may edit any
+ * other file, as the repair may.
+ */
+function unitLines(input: FixerTaskInput): { readonly head: string; readonly round: readonly string[]; readonly ownership: readonly string[] } {
+  switch (input.kind) {
+    case 'answer-pass':
+      return {
+        head: `Answer pass ${input.batch}`,
+        round: [],
+        ownership: [
+          'Files you own: every file the run revised, and the files these findings are located in.',
+          fileList(input.owned),
+          '',
+          'You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served.',
+        ],
+      };
+    case 'batch': {
+      const others = input.othersHeld.filter((cluster) => cluster.files.length > 0);
+      const held = [...input.owned, ...input.claimed.filter((path) => !input.owned.includes(path)).map((path) => `${path} (claimed)`)];
+      return {
+        head: `Cluster ${input.cluster}, batch ${input.batch}${input.secondRound ? ', in the second round' : ''}`,
+        round: [
+          ...(input.secondRound ? ['Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.', ''] : []),
+          ...(input.earlier.length === 0
+            ? []
+            : [
+                input.secondRound
+                  ? 'Findings the first round worked in your files, and this cluster\'s earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:'
+                  : 'Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:',
+                input.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? '' : `: ${entry.note}`}`).join('\n'),
+                '',
+              ]),
+        ],
+        ownership: [
+          'Files you own while this batch runs, which no other worker edits:',
+          fileList(held),
+          '',
+          'Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:',
+          others.length === 0 ? '(none)' : others.flatMap((cluster) => cluster.files.map((file) => `- ${file.path} (${cluster.cluster}${file.by === 'claim' ? ', claimed' : ''})`)).join('\n'),
+          '',
+          claimBlock(input.claimCommand),
+        ],
+      };
+    }
+  }
+}
+
 /** A fixer's task (R4, R18 of the fix pass; R8 of commit series integrity): its batch's findings numbered in rank order, what the cluster's earlier batches did, the ownership rule with the files it holds and the files other clusters hold, the claim command, the checks, the snapshot command and the answer it returns. */
 export function fixerTask(input: FixerTaskInput): string {
   const count = input.findings.length;
@@ -563,44 +625,15 @@ export function fixerTask(input: FixerTaskInput): string {
   ].join('\n'));
   const decided = input.findings.some((finding) => finding.decision !== null);
   const answered = input.findings.some((finding) => finding.answered !== null);
-  const others = input.othersHeld.filter((cluster) => cluster.files.length > 0);
-  const held = [...input.owned, ...input.claimed.filter((path) => !input.owned.includes(path)).map((path) => `${path} (claimed)`)];
-  if (input.answerPass !== (input.claimCommand === null)) throw new Error('An answer pass alone claims nothing, and every fixes-phase batch claims through its command');
-  const unit = input.answerPass ? `Answer pass ${input.batch}` : `Cluster ${input.cluster}, batch ${input.batch}${input.secondRound ? ', in the second round' : ''}`;
-  // A batch owns its cluster's files and claims others; an answer pass owns what the run revised and may edit any other file, as the repair may.
-  const ownership = input.claimCommand === null
-    ? [
-        'Files you own: every file the run revised, and the files these findings are located in.',
-        fileList(held),
-        '',
-        'You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served.',
-      ]
-    : [
-        'Files you own while this batch runs, which no other worker edits:',
-        fileList(held),
-        '',
-        'Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:',
-        others.length === 0 ? '(none)' : others.flatMap((cluster) => cluster.files.map((file) => `- ${file.path} (${cluster.cluster}${file.by === 'claim' ? ', claimed' : ''})`)).join('\n'),
-        '',
-        claimBlock(input.claimCommand),
-      ];
+  const { head, round, ownership } = unitLines(input);
   return [
-    `${unit}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
+    `${head}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
     '',
     ...findings,
     '',
     ...(decided ? [decidedRule, ''] : []),
     ...(answered ? [answeredRule, ''] : []),
-    ...(input.secondRound ? ['Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.', ''] : []),
-    ...(input.earlier.length === 0
-      ? []
-      : [
-          input.secondRound
-            ? 'Findings the first round worked in your files, and this cluster\'s earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:'
-            : 'Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:',
-          input.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? '' : `: ${entry.note}`}`).join('\n'),
-          '',
-        ]),
+    ...round,
     ...ownership,
     '',
     checksBlock(input.checks, input.baselineFailures),
