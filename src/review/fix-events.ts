@@ -27,7 +27,7 @@ import { changedListed, readSnapshot, snapshotPaths, snapshotsDirectoryName, typ
 import * as gitApi from '../scope/git.ts';
 import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
-import { type CheckKind, type EditingPhase } from './vocabulary.ts';
+import { isClaimingPhase, type CheckKind, type EditingPhase } from './vocabulary.ts';
 
 /**
  * What turning work into events needs: the fold it is recorded against,
@@ -77,7 +77,7 @@ export function unitIds(state: RunState, phase: EditingPhase, key: string): read
  * answers).
  */
 function settleOf(context: RevisionContext, phase: EditingPhase, key: string): ClaimSettle {
-  if (phase !== 'fixes' || context.claims === null) return settledNothing(context.state, false);
+  if (!isClaimingPhase(phase) || context.claims === null) return settledNothing(context.state, false);
   const live = context.claims.live(key);
   return live === null ? settledNothing(context.state, context.claims.caseInsensitive()) : settleClaims(context.state, key, live, context.worktree);
 }
@@ -87,12 +87,12 @@ const keyOfSettle = (settle: ClaimSettle) => (path: string): string => pathKey(p
 
 /** The files every other cluster of a fixes-phase unit's round holds now, by the plan or by a claim of a cluster not yet settled (PD3), in the run as the settle leaves it, keyed by the exact path, as the fold judges the answer's violations; the repair and an answer pass, alone in the tree, have none. */
 function othersHeld(state: RunState, phase: EditingPhase, key: string): Map<string, PathHolder> {
-  return phase !== 'fixes' ? new Map() : heldByOthers(requireFix(state), key, exactPath);
+  return isClaimingPhase(phase) ? heldByOthers(requireFix(state), key, exactPath) : new Map();
 }
 
 /** The files every other cluster of a fixes-phase unit's round has held, settled or not (R5), in the run as the settle leaves it, keyed by `keyOf`; the repair and an answer pass have none. */
 function othersHeldInRound(state: RunState, phase: EditingPhase, key: string, keyOf: (path: string) => string): Map<string, PathHolder> {
-  return phase !== 'fixes' ? new Map() : heldInRoundByOthers(requireFix(state), key, keyOf);
+  return isClaimingPhase(phase) ? heldInRoundByOthers(requireFix(state), key, keyOf) : new Map();
 }
 
 /**
@@ -103,7 +103,7 @@ function othersHeldInRound(state: RunState, phase: EditingPhase, key: string, ke
  */
 function answerLookup(settle: ClaimSettle, phase: EditingPhase, key: string, worktree: string): RepoLookup {
   const lookup = worktreeLookup(worktree);
-  if (phase !== 'fixes') return lookup;
+  if (!isClaimingPhase(phase)) return lookup;
   const fix = requireFix(settle.state);
   const keyOf = keyOfSettle(settle);
   return holderSpelled(lookup, holdersKeyedBy(fix, roundOf(fix, key), keyOf), keyOf);
@@ -111,7 +111,7 @@ function answerLookup(settle: ClaimSettle, phase: EditingPhase, key: string, wor
 
 /** The files a unit's cluster claimed in its round, in the run as the settle leaves it; the repair and an answer pass claim none. */
 function claimedFiles(state: RunState, phase: EditingPhase, key: string): string[] {
-  if (phase !== 'fixes') return [];
+  if (!isClaimingPhase(phase)) return [];
   const fix = requireFix(state);
   return clusterClaims(fix, roundOf(fix, key), batchOfUnit(state, key).cluster);
 }
@@ -171,7 +171,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const owned = ownedFiles(state.review!, phase, unit.key);
   const settle = settleOf(context, phase, unit.key);
   const resolved = resolveFixerAnswer(output, { worktree, lookup: answerLookup(settle, phase, unit.key, worktree), owned, claimed: claimedFiles(settle.state, phase, unit.key), othersHeld: othersHeld(settle.state, phase, unit.key) });
-  const late = phase === 'fixes' ? lateClaim(settle, unit.key, resolved.named) : [];
+  const late = isClaimingPhase(phase) ? lateClaim(settle, unit.key, resolved.named) : [];
   const claims = [...settle.events, ...late];
   const claimed = claimedFiles(foldedWith(settle.state, late), phase, unit.key);
   const expected = expectedTreeOf(state);

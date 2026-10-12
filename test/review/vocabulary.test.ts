@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answerPhases, budgetDegradingPhases, angleSchema, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answerPhases, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -97,6 +97,11 @@ describe('the phases', () => {
   it('let the run budget settle the fixes and the repair as not attempted, and block the answer pass before its launch (TD8 of answers)', () => {
     assert.deepEqual(phases.filter(isBudgetDegradingPhase), ['fixes', 'repair']);
     assert.deepEqual([...budgetDegradingPhases], ['fixes', 'repair']);
+  });
+
+  it('share the tree through claims and rounds in the fixes only, the repair and an answer pass being alone in it', () => {
+    assert.deepEqual(phases.filter(isClaimingPhase), ['fixes']);
+    assert.deepEqual([...claimingPhases], ['fixes']);
   });
 
   it('spell a cluster id c and a number from 1, and run the check kinds build first', () => {

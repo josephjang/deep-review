@@ -124,6 +124,15 @@ export const repairUnitKey = 'repair';
 export const budgetDegradingPhases = ['fixes', 'repair'] as const satisfies readonly EditingPhase[];
 export const isBudgetDegradingPhase = (phase: Phase): phase is (typeof budgetDegradingPhases)[number] => (budgetDegradingPhases as readonly string[]).includes(phase);
 
+/**
+ * The editing phases whose units share the tree through claims and rounds
+ * (PD3, R5 of the fix pass): the fixes, whose clusters' fixers each hold
+ * their own files and claim others. The repair and an answer pass's one
+ * fixer are alone in the tree and claim nothing.
+ */
+export const claimingPhases = ['fixes'] as const satisfies readonly EditingPhase[];
+export const isClaimingPhase = (phase: Phase): phase is (typeof claimingPhases)[number] => (claimingPhases as readonly string[]).includes(phase);
+
 /** A fix cluster id as the plan assigns it: `c` and a number from 1, in the order of each cluster's best-ranked finding. */
 export const clusterIdSchema = z.string().regex(/^c[1-9][0-9]*$/, 'a cluster id is c and a number from 1');
 
