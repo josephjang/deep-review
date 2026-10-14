@@ -121,8 +121,15 @@ suite at `e0e401a`:
   options each site passes today. The function's doc comment says why
   git is detached where workers are not, and that `detached` reaches
   libuv through `spawnSync` although Node documents it for `spawn`
-  only. A unit test gives the function a fake `spawnSync` and asserts
-  the options it receives on each platform. Workers and probes
+  only. The function also passes a `timeout`, 60 s unless a site
+  gives its own, because a detached child is in a process group that
+  Ctrl-C does not reach: a git that waits on a lock or a slow remote
+  must not outlive an engine the user interrupted, and `spawnSync`'s
+  timeout ends the child with `TerminateProcess`, console or not. A
+  call that times out fails through the same path as a non-zero exit,
+  with the stderr git wrote so far. A unit test gives the function a
+  fake `spawnSync` and asserts the options it receives on each
+  platform, the timeout among them. Workers and probes
   (`src/runtime/process.ts`, `src/runtime/preflight.ts`) keep
   `detached: process.platform !== 'win32'`.
 - **R3: the suite runs below normal priority.** `test/setup.ts`, which
@@ -182,7 +189,13 @@ suite at `e0e401a`:
   same effect. Rejected: leaving the calls as they are (16% of a local
   run); and the asynchronous rewrite (cost without a gain the
   synchronous form lacks). One function for all five sites means the
-  pass-through has one place to break and one test to catch it.
+  pass-through has one place to break and one test to catch it. The
+  one thing a detached child loses is Ctrl-C: today a git that hangs
+  dies with the engine the user interrupts, and detached it would run
+  on until it finished. The function's timeout stands in for Ctrl-C.
+  Rejected: relying on git's own short run time without a timeout,
+  which holds for the common case and not for a lock wait or a remote
+  call; and keeping the calls attached, which is the 16%.
 - **D3: The priority is lowered unconditionally in `test/setup.ts`, not
   behind a flag or a CI check.** On a CI runner the job is alone, so
   the class makes no difference there; locally it costs a developer who
@@ -227,6 +240,13 @@ suite at `e0e401a`:
   with a guard: the unit test of R2 asserts the options the single
   function passes, and the report's measurement is repeatable from its
   appendix.
+- Risk: a detached git does not receive the Ctrl-C that ends the
+  engine, so a git that hangs on a lock or a remote outlives an
+  interrupted engine for up to the timeout of R2, and holds its lock
+  that long. Accepted: 60 s is the bound where today there is none,
+  the engine's own git calls are local plumbing that ends in
+  milliseconds, and the lock it could hold is one git itself releases
+  when it exits.
 - Risk: lever I's gain depends on the machine the hosted pool hands out
   (-13% on one CPU generation, -36% on another), and a third kind may
   give another figure. Accepted: the direction held in every pair, the
