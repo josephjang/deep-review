@@ -12,10 +12,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    env:
-      # The hosted Windows runner keeps TEMP on its OS disk, where an fsync costs 6 ms and a SQLite transaction 18 ms; the workspace disk (runner.temp) does them in 0.7 and 1.4 ms. The suite sandboxes every review under os.tmpdir().
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -26,4 +22,8 @@ jobs:
         run: node scripts/os-ops-bench.mjs
       - run: npm ci
       - run: npm run check
+        env:
+          # The hosted Windows runner keeps TEMP on its OS disk, where an fsync costs 6 ms and a SQLite transaction 18 ms; the workspace disk (runner.temp) does them in 0.7 and 1.4 ms. The suite sandboxes every review under os.tmpdir().
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
       - run: npm run verify
