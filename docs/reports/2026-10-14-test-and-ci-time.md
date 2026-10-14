@@ -766,7 +766,16 @@ next two pairs compare lever E with A.
   a larger change. A detached child is also the root of a new process
   group, for which Windows disables Ctrl-C (reference 8). That is safe
   for a call that returns in milliseconds. It is also the reason that
-  the workers stay attached.
+  the workers stay attached. One case is not safe: a git that waits on
+  a lock or a remote continues after the user interrupts the engine,
+  because the Ctrl-C does not reach it. The five sites set no
+  `timeout` today. The change must set one, because the timeout of
+  `spawnSync` ends the child with `TerminateProcess`, with or without
+  a console. The change proposal of 2026-10-15 makes that a
+  requirement. The environment, the current directory and the pipes
+  of a detached child are the same as before. The four runs that
+  measured this lever read git's output at each of the five sites, and
+  each test passed.
 - **Takes.** The four engine files and the test helper. The change has
   no observable behavior change for a synchronous call. Each site gets
   a comment that says why git is detached and the workers are not.
