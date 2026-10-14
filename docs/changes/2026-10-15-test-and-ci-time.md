@@ -6,14 +6,15 @@ The test suite takes 283 to 378 s on a 16-thread Windows machine and
 893 to 969 s on the hosted Windows runner, which bounds every CI run at
 about 16 minutes. The report of 2026-10-14
 (`docs/reports/2026-10-14-test-and-ci-time.md`) measured where that
-time goes and tried the levers. This proposal takes the five levers the
-report recommends: split the largest test file by its describes, start
-the engine's synchronous git calls without a console host on Windows,
-run the suite below normal priority, put the Windows job's temporary
-directory on the runner's workspace disk, and shard the Windows job.
-Together they take about a third off a local run (measured) and about
-60% off the Windows job (one lever measured, the shards estimated).
-None changes what the engine does for a
+time goes and tried the levers. This proposal takes four of the five
+levers the report recommends: split the largest test file by its
+describes, start the engine's synchronous git calls without a console
+host on Windows, run the suite below normal priority, and put the
+Windows job's temporary directory on the runner's workspace disk. The
+fifth, three shards for the Windows job, is deferred (Non-Goals).
+Together the four take about a third off a local run and 13% to 36%
+off the Windows job's tests, all measured. None changes what the
+engine does for a
 person who runs it; one (the git calls) changes how a short-lived child
 process is created on Windows. The proposal also answers issue #49:
 Defender's scans are not the main cost, and the scratch-root option the
@@ -65,9 +66,8 @@ suite at `e0e401a`:
 
 - A local run of the suite finishes in about 160 s on the measuring
   machine where it took 283 to 378 s, with every test unchanged.
-- The Windows CI job's tests finish in about 5 to 6 minutes where they
-  took 15, so that the Windows job no longer bounds a CI run by a factor
-  of three.
+- The Windows CI job's tests take 13% to 36% less, by the machine the
+  pool hands out, at no cost in runner minutes.
 - A developer's other programs stay responsive while the suite runs.
 - The engine's observable behavior, its ledger and its prompts do not
   change: a person who runs a review sees nothing different.
@@ -95,10 +95,15 @@ suite at `e0e401a`:
   change to the compile cache: the report found none of these a lever
   worth its cost.
 - No change to `npm run check`, `npm test` or the test runner's
-  options. Shards are a matrix dimension of the workflow only.
-- No shards for the Ubuntu and macOS jobs. They do not bound a CI run;
-  sharding them would spend runner minutes for a few minutes of wall
-  time the Windows job already hides.
+  options.
+- No shards for the Windows job. The report estimates three shards at
+  about 5 to 6 minutes of tests where the job takes 15 today, but each
+  shard is a runner, so the change triples the runner minutes of the
+  Windows job. The author deferred it on 2026-10-15 for that cost. The
+  report's lever B holds the estimate and the measurement plan; it can
+  follow as a workflow-only change in its own pull request, once the
+  four levers here have shown what the Windows job costs without it.
+  Ubuntu and macOS are not sharded for the same reason.
 
 ## Requirements
 
@@ -143,33 +148,24 @@ suite at `e0e401a`:
   is on the same file system as before. The setting is on the step, not
   the job, because the `runner` context is not available to a job's
   `env`.
-- **R5: the Windows job runs its tests in three shards.** The matrix of
-  `check.yml` gives `windows-latest` three jobs, each running lint,
-  typecheck and `npm test -- --test-shard=<i>/3`, and `npm run verify`
-  once. The Ubuntu and macOS jobs run `npm run check` and `npm run
-  verify` whole, as today. A pull request's CI still fails if any
-  shard fails.
-- **R6: AGENTS.md says what CI runs.** Its sentence "`npm run check`:
-  lint, typecheck, test; what CI runs" is amended to say that the
-  Windows job runs the same three commands with the tests in three
-  shards.
-- **R7: the Dev Drive and the exclusion are documented as optional.**
+- **R5: the Dev Drive and the exclusion are documented as optional.**
   The Developing section of `README.md` gains a short note for Windows
   developers: a Dev Drive holding the checkout and `TEMP` saves 7 to
   13% of a local run, a Defender exclusion of the sandboxes' temporary
   directory saves at most the same, both are optional, and neither is
   needed by the repository.
-- **R8: issue #49 is closed by this change** with a comment that
+- **R6: issue #49 is closed by this change** with a comment that
   points at the report's lever D and this proposal.
 
 ## Decisions
 
-- **D1: Take A, E, H, I and B; document D; drop C and F; build no
-  scratch-root option.** The report measured A at -20% locally, E at
+- **D1: Take A, E, H and I; defer B; document D; drop C and F; build
+  no scratch-root option.** The report measured A at -20% locally, E at
   -16% on top of A, H at +1 to 3% of wall time with the desktop back to
-  idle latencies, and I at -13% to -36% of the Windows tests by machine;
-  B is estimated from the per-file times and is measured by this pull
-  request's own runs. C had nothing to turn off. F changes the engine's
+  idle latencies, and I at -13% to -36% of the Windows tests by machine.
+  B is an estimate, and it triples the Windows job's runner minutes;
+  the author deferred it for that cost until the four measured levers
+  have landed (Non-Goals). C had nothing to turn off. F changes the engine's
   Ctrl-C behavior for about 6% and is left to its own proposal. The Dev
   Drive is worth half of A or E and is a setup each developer makes
   once, so it is documented, not required. The scratch-root option
@@ -205,22 +201,14 @@ suite at `e0e401a`:
   spread. Rejected too: setting the class in the `npm test` script
   through a wrapper, which would not reach a developer who runs
   `node --test` directly.
-- **D4: Three Windows shards, the other jobs whole.** The estimate
-  gives 288 s of tests for the slowest of three shards with lever A,
-  370 s after correcting for the estimate's 22% optimism; a fourth
-  shard saves about 40 s more for another runner. Three is the number
-  that brings the Windows job near the macOS job, which then bounds the
-  run. Ubuntu and macOS are not sharded (Non-Goals). Rejected: sharding
-  before lever A, where fix-pass alone bounds every shard at 434 to
-  590 s.
-- **D5: `TEMP` is set on the check step for every runner, not only
+- **D4: `TEMP` is set on the check step for every runner, not only
   Windows.** A conditional per OS is more workflow for no effect: on
   Ubuntu and macOS `runner.temp` and the OS temporary directory are on
   the same file system, and the benchmark shows no difference between
   them there. Rejected: a Windows-only `if`, which hides the
   assumption that the other runners are unaffected instead of letting
   the runs show it.
-- **D6: The engine's artifact writes are not changed.** The scan
+- **D5: The engine's artifact writes are not changed.** The scan
   recording shows each checkpoint artifact scanned twice, once as its
   `.pending` file and once under its hash name, and the evidence store
   fsyncs each. A write under the final name without the rename would
@@ -231,10 +219,6 @@ suite at `e0e401a`:
 
 ## Risks
 
-- Risk: the Windows job uses three runners per CI run instead of one.
-  Accepted: the Windows job bounds every run today, and runner minutes
-  on a public repository are not the scarce resource that a 16-minute
-  wait is.
 - Risk: a future Node release stops forwarding `detached` through
   `spawnSync`, and git calls silently get a console host again. Accepted
   with a guard: the unit test of R2 asserts the options the single
@@ -251,10 +235,10 @@ suite at `e0e401a`:
   (-13% on one CPU generation, -36% on another), and a third kind may
   give another figure. Accepted: the direction held in every pair, the
   change is four lines, and the pull request's runs record the machine.
-- Risk: the shard estimate is 22% optimistic by its own calibration,
-  and one CI run spreads by 8%. Accepted: the pull request measures
-  the shards over several runs before merge, and the layout can change
-  to four shards without a proposal.
+- Risk: without the shards, the Windows job still bounds a CI run at
+  about 10 to 13 minutes after lever I. Accepted by the author: the
+  shards cost three runners per run, and the decision waits until the
+  measured levers show the job's time without them.
 - Risk: a developer who runs the suite with nothing else open pays 1 to
   3% for the lower priority class. Accepted: within the spread of a run
   and in exchange for a usable desktop during every other run.
