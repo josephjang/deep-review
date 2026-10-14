@@ -18,6 +18,9 @@ jobs:
         with:
           node-version-file: .tool-versions
           cache: npm
+      - if: runner.os == 'Windows'
+        name: Defender state on the runner
+        run: Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusEnabled, AMServiceEnabled, IsTamperProtected
       - run: npm ci
       - run: npm run check
       - run: npm run verify
