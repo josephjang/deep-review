@@ -18,6 +18,8 @@ jobs:
         with:
           node-version-file: .tool-versions
           cache: npm
+      - name: OS operations benchmark
+        run: node scripts/os-ops-bench.mjs
       - run: npm ci
       - run: npm run check
       - run: npm run verify
