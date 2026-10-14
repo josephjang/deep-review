@@ -12,8 +12,9 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const now = () => Number(process.hrtime.bigint()) / 1e6;
-const root = mkdtempSync(join(tmpdir(), 'os-ops-bench-'));
 const results = [];
+const candidates = [['os.tmpdir()', tmpdir()], ['RUNNER_TEMP', process.env.RUNNER_TEMP], ['cwd (workspace)', process.cwd()]].filter(([, dir]) => dir);
+let root = mkdtempSync(join(tmpdir(), 'os-ops-bench-'));
 function measure(name, runs, body, warmup = 2) {
   for (let i = 0; i < warmup; i++) body(i);
   const times = [];
@@ -25,7 +26,10 @@ function measure(name, runs, body, warmup = 2) {
 
 measure('node -e 0 (process start)', 30, () => spawnSync(process.execPath, ['-e', '0'], { stdio: 'ignore' }));
 measure('git --version (process start)', 30, () => spawnSync('git', ['--version'], { stdio: 'ignore' }));
-measure('git init + add + commit of one file', 15, (i) => {
+for (const [label, base] of candidates) {
+root = mkdtempSync(join(base, 'os-ops-bench-'));
+const at = (name) => ;
+measure(at('git init + add + commit of one file'), 15, (i) => {
   const repo = join(root, `repo-${i}-${Date.now()}`);
   execFileSync('git', ['init', '-q', repo], { stdio: 'ignore' });
   writeFileSync(join(repo, 'a.txt'), 'hello\n');
@@ -34,17 +38,18 @@ measure('git init + add + commit of one file', 15, (i) => {
   execFileSync('git', ['-C', repo, 'commit', '-q', '-m', 'one'], { stdio: 'ignore', env });
 });
 const bytes = Buffer.alloc(4096, 97);
-measure('4 KB write + fsync + read + delete', 100, (i) => {
+measure(at('4 KB write + fsync + read + delete'), 100, (i) => {
   const path = join(root, `f-${i}.txt`);
   const fd = openSync(path, 'w'); writeSync(fd, bytes); fsyncSync(fd); closeSync(fd); readFileSync(path); unlinkSync(path);
 });
 const db = new DatabaseSync(join(root, 'bench.sqlite'));
 db.exec('CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)');
 const insert = db.prepare('INSERT INTO t (v) VALUES (?)');
-measure('SQLite insert in its own transaction (synchronous)', 100, (i) => { db.exec('BEGIN'); insert.run(`v${i}`); db.exec('COMMIT'); });
+measure(at('SQLite insert in its own transaction (synchronous)'), 100, (i) => { db.exec('BEGIN'); insert.run(`v${i}`); db.exec('COMMIT'); });
 db.close();
-measure('sqrt loop, 2e6 iterations (computation)', 20, () => { let t = 0; for (let i = 0; i < 2e6; i++) t += Math.sqrt(i); return t; });
 rmSync(root, { recursive: true, force: true });
+}
+measure('sqrt loop, 2e6 iterations (computation)', 20, () => { let t = 0; for (let i = 0; i < 2e6; i++) t += Math.sqrt(i); return t; });
 
 console.log(`os-ops-bench on ${platform()} ${release()}, ${cpus().length} logical cores (${cpus()[0]?.model.trim()}), node ${process.version}`);
 console.log('operation | runs | mean ms | median ms | max ms');
