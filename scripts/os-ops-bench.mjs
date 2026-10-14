@@ -28,7 +28,7 @@ measure('node -e 0 (process start)', 30, () => spawnSync(process.execPath, ['-e'
 measure('git --version (process start)', 30, () => spawnSync('git', ['--version'], { stdio: 'ignore' }));
 for (const [label, base] of candidates) {
 root = mkdtempSync(join(base, 'os-ops-bench-'));
-const at = (name) => ;
+const at = (name) => `${name} [${label}: ${base}]`;
 measure(at('git init + add + commit of one file'), 15, (i) => {
   const repo = join(root, `repo-${i}-${Date.now()}`);
   execFileSync('git', ['init', '-q', repo], { stdio: 'ignore' });
