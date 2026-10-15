@@ -155,7 +155,10 @@ suite at `e0e401a`:
   `git commit-tree` in `src/review/commit.ts` signs the commit when
   `commit.gpgSign` asks, and a signing prompt or a hardware key's touch
   waits on the user, so it starts the git on PATH attached and with no
-  timeout, as before this change.
+  timeout, as before this change. The `reset -q` after the ref moves
+  there gives no timeout either: it waits on neither a lock nor a
+  remote, and a timeout there would leave a moved ref the ledger does
+  not record.
 - **R3: the suite runs below normal priority.** `test/setup.ts`, which
   every test process imports, lowers the priority class of its own
   process to `os.constants.priority.PRIORITY_BELOW_NORMAL`, so that
