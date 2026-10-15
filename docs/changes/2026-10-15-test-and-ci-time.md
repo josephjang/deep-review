@@ -16,7 +16,7 @@ Together the four take about a third off a local run and 13% to 36%
 off the Windows job's tests, all measured. None changes what the
 engine does for a
 person who runs it; one (the git calls) changes how a short-lived child
-process is created on Windows. The proposal also answers issue #49:
+process is created on Windows, and which git binary it is (D6). The proposal also answers issue #49:
 Defender's scans are not the main cost, and the scratch-root option the
 issue asks for would move 3% of the scan wait, so it is not built.
 
@@ -41,7 +41,9 @@ suite at `e0e401a`:
   engine keeps its workers attached to the console on purpose, so that
   Ctrl-C reaches them (`src/runtime/process.ts`), but its synchronous
   git calls, which end within milliseconds, pay the same price for no
-  reason.
+  reason. Where `git` on PATH is Git for Windows' launcher, as it is
+  from PowerShell, from cmd and on the CI runner, each git call is a
+  third process: the launcher starts the real binary and waits for it.
 - While the first third of a run saturates the machine, other programs
   slow down: a process start takes 3 times as long, up to 10 times at
   the 95th percentile, and a small write twice as long. The developer
@@ -121,20 +123,31 @@ suite at `e0e401a`:
 - **R2: the engine's synchronous git calls start without a console host
   on Windows.** The five call sites, `src/scope/git.ts`,
   `src/review/commit.ts` (two), `src/checkpoint/locate.ts` and
-  `test/helpers/git.ts`, start git through one function that passes
-  `detached: true` on `win32` and `false` elsewhere, together with the
-  options each site passes today. The function's doc comment says why
-  git is detached where workers are not, and that `detached` reaches
-  libuv through `spawnSync` although Node documents it for `spawn`
-  only. The function also passes a `timeout`, 60 s unless a site
-  gives its own, because a detached child is in a process group that
-  Ctrl-C does not reach: a git that waits on a lock or a slow remote
-  must not outlive an engine the user interrupted, and `spawnSync`'s
-  timeout ends the child with `TerminateProcess`, console or not. A
-  call that times out fails through the same path as a non-zero exit,
-  with the stderr git wrote so far. A unit test gives the function a
-  fake `spawnSync` and asserts the options it receives on each
-  platform, the timeout among them. Workers and probes
+  `test/helpers/git.ts`, start git through one function,
+  `runGitSync` in `src/runtime/git-sync.ts`, together with the
+  options each site passes today. On `win32` the function starts the
+  real git binary, `git.exe` in the directory `git --exec-path`
+  prints, resolved once per process, and passes `detached: true`; a
+  git it cannot resolve is started from PATH with `detached: false`,
+  as today, and elsewhere git is started from PATH with
+  `detached: false` (D6). The function's doc comment says why git is
+  detached where workers are not, and that `detached` reaches libuv
+  through `execFileSync` although Node documents it for `spawn` only.
+  The function also passes a `timeout`, 60 s unless a site gives its
+  own, because a detached child is in a process group that Ctrl-C does
+  not reach: a git that waits on a lock or a slow remote must not
+  outlive an engine the user interrupted, and the timeout ends the
+  child with `TerminateProcess`, console or not. A call that times out
+  fails through the same path as a non-zero exit, with the stderr git
+  wrote so far. A unit test gives the function a fake runner in place
+  of `execFileSync` and asserts the options it receives on each
+  platform, the timeout among them; the runner is `execFileSync`, not
+  `spawnSync`, because the five sites rely on the error it throws
+  (`status`, `stdout`, `stderr`), which a wrapper around `spawnSync`
+  would rebuild. On Windows, tests also check that a child started
+  this way has no console host of its own, and that the real binary
+  gives the programs it runs the environment, and reads the
+  configuration, that the git on PATH does. Workers and probes
   (`src/runtime/process.ts`, `src/runtime/preflight.ts`) keep
   `detached: process.platform !== 'win32'`.
 - **R3: the suite runs below normal priority.** `test/setup.ts`, which
@@ -161,8 +174,9 @@ suite at `e0e401a`:
 
 - **D1: Take A, E, H and I; defer B; document D; drop C and F; build
   no scratch-root option.** The report measured A at -20% locally, E at
-  -16% on top of A, H at +1 to 3% of wall time with the desktop back to
-  idle latencies, and I at -13% to -36% of the Windows tests by machine.
+  -16% on top of A (from Git Bash; D6 has the figures from PowerShell),
+  H at +1 to 3% of wall time with the desktop back to idle latencies,
+  and I at -13% to -36% of the Windows tests by machine.
   B is an estimate, and it triples the Windows job's runner minutes;
   the author deferred it for that cost until the four measured levers
   have landed (Non-Goals). C had nothing to turn off. F changes the engine's
@@ -216,14 +230,56 @@ suite at `e0e401a`:
   give, and on the slow CI disk the cost is the fsync, which lever I
   removes by moving the disk. Rejected for this change; a later
   proposal may revisit the store's durability on a measured need.
+- **D6 (2026-10-15, during the implementation): Start the real git
+  binary on Windows, not the git on PATH.** The report measured lever
+  E from Git Bash, where `git` on PATH is the real binary
+  (`mingw64\bin\git.exe`). From PowerShell or cmd, and on the hosted
+  runner (`C:\Program Files\Git\bin\git.exe` in the checkout log), it
+  is Git for Windows' launcher, a 47 KB program that starts the real
+  binary and waits for it. Detaching the launcher saves nothing: ten
+  `git --version` were 33 processes either way, against 23 and 13 for
+  the real binary, and one fix-pass test stayed at 425 processes. It
+  costs time: 39 to 40 ms a call attached against 45 to 53 ms
+  detached, because the launcher, left without a console, starts git
+  in a console of its own. The author chose to resolve the real
+  binary: `git --exec-path` names the directory that holds a copy of
+  it, through any launcher or shim, and the binary sets up the
+  environment the launcher would (MSYSTEM, HOME, PLINK_PROTOCOL and its
+  own `mingw64\bin` and `usr\bin` on PATH; only the order of the PATH
+  entries differs) and reads the same configuration, the system file
+  among it. Started detached, it is one process at 16 ms a call where
+  the launcher was three at 40 ms. Measured on one fix-pass test,
+  before and after in alternation: 425 to 230 processes from
+  PowerShell and 326 to 229 from Git Bash. A git the function cannot
+  resolve is started from PATH attached, as before, since detaching a
+  launcher makes it slower. Rejected: keeping R2 as first written,
+  which slows every git call where PATH holds the launcher, CI among
+  them; dropping lever E from this change; and running the Windows
+  check step under Git Bash so CI finds the real binary, which leaves
+  a developer in PowerShell with the slower calls. Carried out in
+  `src/runtime/git-sync.ts` (`realGit`, `installedGit`, `runGitSync`).
 
 ## Risks
 
 - Risk: a future Node release stops forwarding `detached` through
-  `spawnSync`, and git calls silently get a console host again. Accepted
-  with a guard: the unit test of R2 asserts the options the single
-  function passes, and the report's measurement is repeatable from its
-  appendix.
+  `execFileSync`, and git calls silently get a console host again.
+  Accepted with a guard: a test of R2 counts the console hosts of a
+  child the function starts on Windows, against a control started
+  without `detached`, and the report's measurement is repeatable from
+  its appendix.
+- Risk: a future Git for Windows stops setting up the environment in
+  the real binary, or moves it out of the exec path, and the git the
+  engine starts directly behaves otherwise than through the launcher.
+  Accepted with a guard: on the Windows runner, the tests of R2 compare
+  the environment and the configuration the resolved binary sees with
+  what the git on PATH sees, and a binary the exec path does not hold
+  falls back to the git on PATH.
+- Risk: a `git.exe` on PATH that is not a plain launcher, one that
+  changes what git does, is bypassed after its `--exec-path` answer.
+  Accepted: Node starts only an `.exe` from PATH, and the ones a
+  Windows git install puts there (Git for Windows' launchers, the
+  shims of Scoop, Chocolatey and version managers) only start the real
+  binary.
 - Risk: a detached git does not receive the Ctrl-C that ends the
   engine, so a git that hangs on a lock or a remote outlives an
   interrupted engine for up to the timeout of R2, and holds its lock
