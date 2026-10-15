@@ -195,10 +195,15 @@ describe('realGit', () => {
     assert.equal(realGit(recorder(execPath).run, () => false), 'git');
   });
 
-  it('falls back to git from PATH when git cannot be run, or prints no absolute directory', () => {
+  it('falls back to git from PATH when git cannot be run, or prints no directory on a drive or share', () => {
     const missing = Object.assign(new Error('spawnSync git ENOENT'), { code: 'ENOENT' });
     assert.equal(realGit(recorder(missing).run, () => true), 'git');
-    for (const printed of ['', '\n', 'libexec/git-core']) assert.equal(realGit(recorder(printed).run, () => true), 'git', JSON.stringify(printed));
+    // An MSYS2 or Cygwin git prints a POSIX exec path, rooted on no drive, which would resolve against the drive of the cwd.
+    for (const printed of ['', '\n', 'libexec/git-core', '/usr/lib/git-core', '\\usr\\lib\\git-core']) assert.equal(realGit(recorder(printed).run, () => true), 'git', JSON.stringify(printed));
+  });
+
+  it('names git.exe in an exec path on a share', () => {
+    assert.equal(realGit(recorder('\\\\server\\share\\Git\\mingw64\\libexec\\git-core').run, () => true), '\\\\server\\share\\Git\\mingw64\\libexec\\git-core\\git.exe');
   });
 
   it('starts git from PATH outside Windows, resolving nothing', () => {
