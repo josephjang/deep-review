@@ -20,11 +20,18 @@ export interface GitSyncHost {
 }
 
 /**
+ * A Windows path that names its drive or share. `win32.isAbsolute` also
+ * accepts a path rooted on no drive, such as the `/usr/lib/git-core` an
+ * MSYS2 or Cygwin git prints, which resolves against the drive of the cwd.
+ */
+const onDriveOrShare = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/;
+
+/**
  * The git binary itself, by its absolute path, as the git on PATH names it:
  * `git.exe` in the directory `git --exec-path` prints, or plain `git` when
- * that directory holds none or git cannot be run. The fallback starts git as
- * before, so a failure to run it surfaces in the call that needed it, not
- * here.
+ * that directory names no drive or share, holds no `git.exe`, or git cannot
+ * be run. The fallback starts git as before, so a failure to run it
+ * surfaces in the call that needed it, not here.
  *
  * On Windows the git on PATH is usually a launcher: Git for Windows puts
  * `cmd\git.exe` on PATH (`bin\git.exe` on the hosted CI runner), a small
@@ -43,7 +50,7 @@ export function realGit(run: GitSyncRunner = execFileSync, exists: (path: string
   } catch {
     return 'git';
   }
-  if (!win32.isAbsolute(execPath)) return 'git';
+  if (!onDriveOrShare.test(execPath)) return 'git';
   const binary = win32.join(execPath, 'git.exe');
   return exists(binary) ? binary : 'git';
 }
