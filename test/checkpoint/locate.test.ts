@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { NotInRepositoryError } from '../../src/checkpoint/errors.ts';
-import { checkpointDirectoryName, locateCheckpoint } from '../../src/checkpoint/locate.ts';
+import { checkpointDirectoryName, locateCheckpoint, locateFailure } from '../../src/checkpoint/locate.ts';
+import { runGitSync } from '../../src/runtime/git-sync.ts';
 import { git } from '../helpers/repository.ts';
 
 /** A repository with one commit, so worktrees can be added. */
@@ -82,5 +83,28 @@ describe('locateCheckpoint', () => {
 
   it('refuses a directory that does not exist', () => {
     assert.throws(() => locateCheckpoint(join(sandbox, 'absent')), NotInRepositoryError);
+  });
+});
+
+describe('a failed git rev-parse while locating the checkpoint', () => {
+  it('reports a git ended at its timeout as a timeout, not as a directory outside any repository', () => {
+    // A real timeout of the runner, with a stand-in for git that prints to stderr and then hangs.
+    let timedOut: unknown;
+    try {
+      runGitSync(['-e', "process.stderr.write('warning: slow'); setTimeout(() => {}, 30_000);"], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 1_000 }, { file: process.execPath });
+    } catch (error) {
+      timedOut = error;
+    }
+    assert.equal((timedOut as { code?: string } | undefined)?.code, 'ETIMEDOUT');
+    const failure = locateFailure('C:\\repo', timedOut);
+    assert.equal(failure instanceof NotInRepositoryError, false, 'not a refusal, which would say the directory is outside any repository');
+    assert.equal(failure.message, 'Locating the checkpoint for C:\\repo failed: git rev-parse timed out after 60 s and was ended: warning: slow');
+    assert.equal(failure.cause, timedOut);
+  });
+
+  it('reports any other failure as a directory outside any repository, with git\'s stderr', () => {
+    const failure = locateFailure('/plain', Object.assign(new Error('Command failed'), { status: 128, stderr: 'fatal: not a git repository\n' }));
+    assert.ok(failure instanceof NotInRepositoryError);
+    assert.equal(failure.message, '/plain is not inside a git worktree: fatal: not a git repository');
   });
 });

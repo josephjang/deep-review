@@ -145,9 +145,15 @@ suite at `e0e401a`:
   and elsewhere it is in the engine's process group, so a long but
   legitimate call, such as `diff --binary -M` over a large scope or a
   filter that runs Git LFS, still finishes. A call that times out
-  fails through the same path as a non-zero exit, with the stderr git
-  wrote so far. A unit test gives the function a fake runner in place
-  of `execFileSync` and asserts the options it receives on each
+  throws `execFileSync`'s error unchanged, as a non-zero exit does,
+  with `code` 'ETIMEDOUT' and the stderr git wrote so far. The sites
+  word their failure through one helper of the same file,
+  `gitFailureDetail`, which says that git timed out before any stderr
+  it wrote, so that partial stderr does not hide the timeout, and
+  `src/checkpoint/locate.ts` reports a timed-out `rev-parse` as a
+  timeout, not as a directory outside any repository. A unit test
+  gives the function a fake runner in place of `execFileSync` and
+  asserts the options it receives on each
   platform, the timeout among them; the runner is `execFileSync`, not
   `spawnSync`, because the five sites rely on the error it throws
   (`status`, `stdout`, `stderr`), which a wrapper around `spawnSync`

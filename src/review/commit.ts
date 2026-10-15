@@ -20,7 +20,7 @@ import { committedRevisions, nextSeries, revisionMessageOf, runHead, type NextSe
 import { attemptOwner } from './fix-events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
-import { runGitSync } from '../runtime/git-sync.ts';
+import { gitFailureDetail, gitTimedOut, runGitSync } from '../runtime/git-sync.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
 import { readableRuns } from './runs.ts';
@@ -78,14 +78,13 @@ function git(worktree: string, args: readonly string[], options: GitOptions = {}
       ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
     }, options.attached === true ? { file: 'git' } : undefined);
   } catch (error) {
-    throw gitFailure(args, error);
+    throw gitFailure(args, error, options.timeout);
   }
 }
 
-/** What a failed git call throws: the command, then git's stderr, or the runner's own message when git wrote none, as for a timeout or a failed spawn. */
-function gitFailure(args: readonly string[], error: unknown): Error {
-  const failure = error as { stderr?: string; message: string };
-  return new Error(`git ${args.join(' ')} failed: ${failure.stderr?.trim() || failure.message}`, { cause: error });
+/** What a failed git call throws: the command, then `gitFailureDetail` of the runner's error, which names a timeout of `timeout` ms. */
+function gitFailure(args: readonly string[], error: unknown, timeout?: number): Error {
+  return new Error(`git ${args.join(' ')} failed: ${gitFailureDetail(error, timeout)}`, { cause: error });
 }
 
 /**
@@ -308,7 +307,7 @@ export function commitRun(options: CommitOptions): CommitOutcome {
  * runs none of git's cleanup, so its `<ref>.lock` may remain.
  */
 export function moveFailure(ref: string, last: string, error: Error): Error {
-  if ((error.cause as { code?: unknown } | undefined)?.code === 'ETIMEDOUT') {
+  if (gitTimedOut(error.cause)) {
     return new Error(`git update-ref timed out and was ended, so ${ref} may or may not point at ${last} now, the commits are not recorded on the run, and git may have left ${ref}.lock behind in the git directory, which refuses every later update of ${ref} until it is removed by hand: ${error.message}`, { cause: error });
   }
   return new ReviewRefusedError(`${ref} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${error.message}`);
