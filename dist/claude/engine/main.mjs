@@ -27269,22 +27269,8 @@ function fixAnswerEvents(unit, receipt, context) {
   const read = worktreeReader(worktree);
   const base = baseOf(context);
   requireOwnedReported([.../* @__PURE__ */ new Set([...owned, ...claimed])].filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
-  const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
-  const findings = ids.map((id, index2) => {
-    const answer2 = byIndex.get(index2);
-    return {
-      id,
-      status: answer2.status,
-      file: answer2.file,
-      line: answer2.line,
-      note: answer2.note,
-      message: answer2.message,
-      files: [...answer2.files],
-      corrections: answer2.corrections,
-      validation: answer2.validation,
-      requiredFiles: [...answer2.requiredFiles]
-    };
-  });
+  const byIndex = new Map(resolved.findings.map(({ index: index2, ...finding }) => [index2, finding]));
+  const findings = ids.map((id, index2) => ({ id, ...byIndex.get(index2) }));
   const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join20(scratch, snapshotsDirectoryName);
@@ -27912,7 +27898,7 @@ var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`
 var scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
 var unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
 function earlierWork(unit, unfinished) {
-  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix when an earlier attempt made it and null otherwise, and never apply a change on top of itself.`;
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
   if (unfinished.length === 0) return warning;
   return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
