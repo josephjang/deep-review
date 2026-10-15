@@ -22717,29 +22717,43 @@ import { execFileSync } from "node:child_process";
 import { existsSync as existsSync2 } from "node:fs";
 import { win32 } from "node:path";
 var gitTimeoutMs = 6e4;
+var onDriveOrShare = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/;
 function realGit(run2 = execFileSync, exists = existsSync2) {
   let execPath;
   try {
-    execPath = String(run2("git", ["--exec-path"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true, detached: false, timeout: gitTimeoutMs })).trim();
+    execPath = runGitSync(["--exec-path"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: gitTimeoutMs }, { run: run2, file: "git" }).trim();
   } catch {
     return "git";
   }
-  if (!win32.isAbsolute(execPath)) return "git";
+  if (!onDriveOrShare.test(execPath)) return "git";
   const binary = win32.join(execPath, "git.exe");
   return exists(binary) ? binary : "git";
 }
-var resolvedGit;
-function installedGit(platform = process.platform) {
-  if (platform !== "win32") return "git";
-  resolvedGit ??= realGit();
-  return resolvedGit;
+function gitLocator(resolve11 = realGit) {
+  let resolved;
+  return (platform = process.platform) => {
+    if (platform !== "win32") return "git";
+    resolved ??= resolve11();
+    return resolved;
+  };
 }
+var installedGit = gitLocator();
 function runGitSync(args, options2 = {}, host = {}) {
   const run2 = host.run ?? execFileSync;
   const platform = host.platform ?? process.platform;
   const file2 = host.file ?? installedGit(platform);
   const detached = platform === "win32" && win32.isAbsolute(file2);
-  return run2(file2, args, { ...options2, windowsHide: true, detached, timeout: options2.timeout ?? gitTimeoutMs });
+  const timeout = options2.timeout ?? (detached ? gitTimeoutMs : void 0);
+  return run2(file2, args, { ...options2, windowsHide: true, detached, ...timeout === void 0 ? {} : { timeout } });
+}
+function gitTimedOut(error62) {
+  return error62?.code === "ETIMEDOUT";
+}
+function gitFailureDetail(error62, timeout = gitTimeoutMs) {
+  const failure2 = error62;
+  const stderr = (typeof failure2.stderr === "string" ? failure2.stderr : failure2.stderr?.toString("utf8") ?? "").trim();
+  if (gitTimedOut(error62)) return `timed out after ${timeout / 1e3} s and was ended${stderr === "" ? "" : `: ${stderr}`}`;
+  return stderr || failure2.message;
 }
 
 // src/checkpoint/locate.ts
@@ -22754,8 +22768,7 @@ function locateCheckpoint(directory) {
       stdio: ["ignore", "pipe", "pipe"]
     });
   } catch (error62) {
-    const detail = error62.stderr?.trim() || error62.message;
-    throw new NotInRepositoryError(`${cwd} is not inside a git worktree: ${detail}`);
+    throw locateFailure(cwd, error62);
   }
   const [commonDir, toplevel, ...rest] = output2.split(/\r?\n/).filter((line) => line.length > 0);
   if (commonDir === void 0 || toplevel === void 0 || rest.length > 0) {
@@ -22763,6 +22776,11 @@ function locateCheckpoint(directory) {
   }
   const resolvedCommonDir = realpathSync.native(commonDir);
   return { root: join4(resolvedCommonDir, checkpointDirectoryName), worktree: realpathSync.native(toplevel), commonDir: resolvedCommonDir };
+}
+function locateFailure(cwd, error62) {
+  const detail = gitFailureDetail(error62);
+  if (gitTimedOut(error62)) return new Error(`Locating the checkpoint for ${cwd} failed: git rev-parse ${detail}`, { cause: error62 });
+  return new NotInRepositoryError(`${cwd} is not inside a git worktree: ${detail}`);
 }
 
 // src/engine.ts
@@ -23261,6 +23279,7 @@ import { join as join8 } from "node:path";
 function notStarted(error62, startedAt, endedAt = (/* @__PURE__ */ new Date()).toISOString()) {
   return { termination: "not-started", exitCode: null, signal: null, error: error62, startedAt, endedAt };
 }
+var detachedChild = process.platform !== "win32";
 async function runProcess(request) {
   const descriptors = [];
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -23276,8 +23295,7 @@ async function runProcess(request) {
         stdio: descriptors,
         shell: false,
         windowsHide: true,
-        // Attached to the console on Windows, so Ctrl-C ends it with the engine; a synchronous git call is detached there instead (src/runtime/git-sync.ts says why).
-        detached: process.platform !== "win32",
+        detached: detachedChild,
         windowsVerbatimArguments: request.verbatimArguments === true
       });
     } catch (error62) {
@@ -23404,8 +23422,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
         windowsHide: true,
-        // Attached to the console on Windows, so Ctrl-C ends it with the engine; a synchronous git call is detached there instead (src/runtime/git-sync.ts says why).
-        detached: process.platform !== "win32"
+        detached: detachedChild
       });
     } catch (error62) {
       reject(error62);
@@ -24503,8 +24520,7 @@ function git(cwd, args, options2 = {}) {
     if (failure2.status !== void 0 && failure2.status !== null && options2.okExitCodes?.includes(failure2.status) && failure2.stdout !== void 0) {
       return failure2.stdout;
     }
-    const detail = failure2.stderr?.toString("utf8").trim() || failure2.message;
-    throw new Error(`git ${args.join(" ")} failed: ${detail}`);
+    throw new Error(`git ${args.join(" ")} failed: ${gitFailureDetail(failure2)}`);
   }
 }
 function gitText(cwd, args, options2 = {}) {
@@ -30010,12 +30026,15 @@ function git2(worktree, args, options2 = {}) {
       input: options2.input ?? "",
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
-      stdio: ["pipe", "pipe", "pipe"]
-    });
+      stdio: ["pipe", "pipe", "pipe"],
+      ...options2.timeout === void 0 ? {} : { timeout: options2.timeout }
+    }, options2.attached === true ? { file: "git" } : void 0);
   } catch (error62) {
-    const failure2 = error62;
-    throw new Error(`git ${args.join(" ")} failed: ${failure2.stderr?.trim() || failure2.message}`, { cause: error62 });
+    throw gitFailure(args, error62, options2.timeout);
   }
+}
+function gitFailure(args, error62, timeout) {
+  return new Error(`git ${args.join(" ")} failed: ${gitFailureDetail(error62, timeout)}`, { cause: error62 });
 }
 function whyNotCommittable(run2) {
   const fix = run2.review?.fix ?? null;
@@ -30097,11 +30116,12 @@ var TreeBuilder = class {
   }
 };
 function currentBranch(worktree) {
+  const args = ["symbolic-ref", "-q", "HEAD"];
   try {
-    return runGitSync(["--no-optional-locks", "symbolic-ref", "-q", "HEAD"], { cwd: worktree, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return runGitSync(["--no-optional-locks", ...args], { cwd: worktree, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch (error62) {
     if (error62.status === 1) return "";
-    throw error62;
+    throw gitFailure(args, error62);
   }
 }
 function seriesOf(run2) {
@@ -30153,6 +30173,12 @@ function commitRun(options2) {
     releaseStart();
   }
 }
+function moveFailure(ref, last, error62) {
+  if (gitTimedOut(error62.cause)) {
+    return new Error(`git update-ref timed out and was ended, so ${ref} may or may not point at ${last} now, the commits are not recorded on the run, and git may have left ${ref}.lock behind in the git directory, which refuses every later update of ${ref} until it is removed by hand: ${error62.message}`, { cause: error62 });
+  }
+  return new ReviewRefusedError(`${ref} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${error62.message}`);
+}
 function build(run2, options2) {
   const { checkpoint, worktree } = options2;
   const scope = run2.scope;
@@ -30166,7 +30192,7 @@ function build(run2, options2) {
     let parent = series.head;
     const commit2 = (message, revision) => {
       const tree = trees.write();
-      const sha = git2(worktree, ["commit-tree", tree, "-p", parent, "-F", "-"], { input: message }).trim();
+      const sha = git2(worktree, ["commit-tree", tree, "-p", parent, "-F", "-"], { input: message, timeout: 0, attached: true }).trim();
       made.push({ sha, revision, subject: subjectOf(message) });
       parent = sha;
     };
@@ -30187,9 +30213,9 @@ function build(run2, options2) {
       if (branch === "") git2(worktree, ["update-ref", "--no-deref", "-m", `deep-review commit: run ${run2.id}`, "HEAD", last, series.head]);
       else git2(worktree, ["update-ref", "-m", `deep-review commit: run ${run2.id}`, branch, last, series.head]);
     } catch (error62) {
-      throw new ReviewRefusedError(`${branch === "" ? "HEAD" : branch} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${error62.message}`);
+      throw moveFailure(branch === "" ? "HEAD" : branch, last, error62);
     }
-    git2(worktree, ["reset", "-q"]);
+    git2(worktree, ["reset", "-q"], { timeout: 0 });
     const payload = { commits: made, from: series.head, to: last };
     const state = checkpoint.fold(run2.id);
     checkpoint.append(run2.id, state.lastSequence, [{ kind: "commits.created", version: 1, payload }]);
