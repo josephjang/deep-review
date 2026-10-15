@@ -139,7 +139,10 @@ suite at `e0e401a`:
   a site gives its own, because a detached child is in a process group
   that Ctrl-C does not reach: a git that waits on a lock or a slow
   remote must not outlive an engine the user interrupted, and the
-  timeout ends the child with `TerminateProcess`, console or not. An
+  timeout ends the child with `TerminateProcess`, console or not. It
+  ends git alone: a hook, filter or credential helper git started
+  keeps running on its own, since `execFileSync` gives no pid to end
+  a process tree with while it waits. An
   attached git gets no timeout unless its site gives one, as before
   this change: libuv's job object ends it with the engine on Windows,
   and elsewhere it is in the engine's process group, so a long but
@@ -229,7 +232,10 @@ suite at `e0e401a`:
   pass-through has one place to break and one test to catch it. The
   one thing a detached child loses is Ctrl-C: today a git that hangs
   dies with the engine the user interrupts, and detached it would run
-  on until it finished. The function's timeout stands in for Ctrl-C.
+  on until it finished. The function's timeout stands in for Ctrl-C
+  for git itself, not for a hook, filter or credential helper git
+  started, which keeps running after git is ended; ending the tree
+  would need the asynchronous rewrite this decision rejects.
   Rejected: relying on git's own short run time without a timeout,
   which holds for the common case and not for a lock wait or a remote
   call; and keeping the calls attached, which is the 16%.
@@ -312,9 +318,11 @@ suite at `e0e401a`:
 - Risk: a detached git does not receive the Ctrl-C that ends the
   engine, so a git that hangs on a lock or a remote outlives an
   interrupted engine for up to the timeout of R2, and holds its lock
-  that long. Accepted: 60 s is the bound where today there is none,
-  and the engine's own git calls are local plumbing that ends in
-  milliseconds.
+  that long. The bound holds for git alone: a hook, filter or
+  credential helper git started keeps running after the timeout ends
+  git, with no console for Ctrl-C to reach. Accepted: 60 s is the
+  bound where today there is none, and the engine's own git calls are
+  local plumbing that ends in milliseconds.
 - Risk: a git ended at the timeout of R2 on Windows is killed with
   `TerminateProcess`, which runs none of git's cleanup, so a call that
   writes can leave its lock file behind, and every later git that
