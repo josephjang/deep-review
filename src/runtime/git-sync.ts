@@ -81,12 +81,15 @@ export function installedGit(platform: NodeJS.Platform = process.platform): stri
  * its own when it has none and is slower detached, so it is started
  * attached as before.
  *
- * Workers and probes stay attached to the console on Windows
- * (`src/runtime/process.ts`), because Ctrl-C reaches every process of the
- * console and so ends them with the engine. A synchronous git call ends in
- * milliseconds and the engine waits for it, so it needs no console of its
- * own; elsewhere it stays in the engine's process group, where a
- * terminal's signals reach it.
+ * Workers and probes stay attached on Windows (`src/runtime/process.ts`).
+ * An attached child is in libuv's job object, which ends it when the
+ * engine exits. A worker, whose stdio is the files the engine opened, also
+ * shares the engine's console and so gets Ctrl-C; a child with piped
+ * stdio, such as a probe or a git found on PATH, has a hidden console host
+ * of its own, which Ctrl-C does not reach. A synchronous git call ends in
+ * milliseconds and the engine waits for it, so it needs neither the job
+ * object nor a console; elsewhere it stays in the engine's process group,
+ * where a terminal's signals reach it.
  *
  * Node documents `detached` for `spawn` only, but `execFileSync` and
  * `spawnSync` pass it through the same option normalizer to the same libuv
@@ -94,12 +97,12 @@ export function installedGit(platform: NodeJS.Platform = process.platform): stri
  * checks that a child started here has no console host, so a Node release
  * that stops passing it through fails there.
  *
- * A detached child is the root of a new process group, which Ctrl-C does
- * not reach. The timeout stands in for it for git itself: a git that waits
- * on a lock or a remote is ended with `TerminateProcess` (SIGTERM
- * elsewhere) after `gitTimeoutMs`, console or not, and the call throws with
- * `status` null, `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git
- * wrote so far. The timeout ends git alone: a hook, filter or credential
+ * What a detached child loses is the job object: libuv puts no detached
+ * child in it, so a git still running when the engine exits outlives it.
+ * The timeout bounds that for git itself: a git that waits on a lock or a
+ * remote is ended with `TerminateProcess` (SIGTERM elsewhere) after
+ * `gitTimeoutMs`, console or not, and the call throws with `status` null,
+ * `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git wrote so far. The timeout ends git alone: a hook, filter or credential
  * helper git started keeps running on its own.
  */
 export function runGitSync(args: readonly string[], options: ExecFileSyncOptionsWithStringEncoding, host?: Partial<GitSyncHost>): string;
