@@ -353,7 +353,8 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
     } catch (error) {
       throw moveFailure(branch === '' ? 'HEAD' : branch, last, error as Error);
     }
-    git(worktree, ['reset', '-q']);
+    // The ref has moved and the ledger must still record the commits, so the reset is not cut short; it waits on neither a lock nor a remote.
+    git(worktree, ['reset', '-q'], { timeout: 0 });
     const payload: CommitsCreated = { commits: made, from: series.head, to: last };
     const state = checkpoint.fold(run.id);
     checkpoint.append(run.id, state.lastSequence, [{ kind: 'commits.created', version: 1, payload }]);
