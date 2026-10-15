@@ -230,7 +230,9 @@ where the worker can still correct it.
   field of its own and would have asked for files with no message.
   `earlierWork`'s first sentence, which asked a finding found already
   resolved for "the files that hold its fix", now asks for `edits`
-  naming them when an earlier attempt made the fix and null otherwise;
+  naming them and the message their commit will carry when an earlier
+  attempt made the fix, and null otherwise (the message was added after
+  the gate's review found the sentence named only the files);
   and `roles/fragments/fixer-documentation.md`, which asked a
   documentation fixer for facts already correct "with their `files`",
   now asks for `edits` null unless an earlier attempt's edits hold
@@ -422,8 +424,35 @@ What ran, on 2026-10-16, on Windows 11 with Node 26.10.0:
   skipped on this platform, none failed); `npm run build` and `npm run
   verify` for the rebuilt bundles under `dist/`.
 
-Not yet run: the fix run of the engine on this change's own pull
-request (principle 12). What it must show is below.
+- **The gate.** A `review --fix` of this change's own pull request
+  (principle 12), from a copy of the bundle rebuilt at `38b3eda`, on
+  Claude Code 2.1.300 (opus and sonnet), scope the 14 changed files
+  outside `dist/`, `docs/changes/` and the fixtures, with the build,
+  typecheck, lint and test checks given: run
+  `d0d18b60-0e06-43c0-a6dd-1c3ee34763df`, 28 workers, 13.92 USD. Every
+  worker completed on its first attempt; the ledger holds no
+  `attempt.failed`, so no answer was refused, by the schema or by a
+  structural check. The run blocked no finding, so it did not exercise
+  the path of #54 itself, which the tests above do; it shows the new
+  field and prompts hold for real fixers and the repair worker. Of its
+  six findings, the decision step sent three to fixers and left three
+  as the repository states them. The test check passed before the
+  fixes and failed after them, on a test of this change whose outcome
+  depended on timing (the last item below), and the repair fixed it;
+  every check passed after the repair. Four of its commits are on this
+  pull request:
+  - SCAN-2: `earlierWork`'s first sentence named the files of `edits`
+    and not the message, the same reading across two sentences this
+    change removes elsewhere; it now names both (R5's amendment).
+  - DESIGN-1: `ResolvedFinding` is the ledger's `FixedFinding` without
+    its id, and `fixAnswerEvents` spreads it rather than copying each
+    field, so the answer is translated in one place (R4).
+  - DESIGN-6: the test runtime takes a finding's `file` from the same
+    files it puts in `edits`.
+  - The repair: the end-to-end test of R3 and R4 asserted one order
+    for the commits of two first-round batches that run at once; it
+    now accepts either order and still requires the second round's
+    commit last.
 
 What the change set out to verify:
 
