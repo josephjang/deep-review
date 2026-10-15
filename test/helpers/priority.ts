@@ -24,6 +24,12 @@ export interface PriorityControl {
  * larger number. A system that refuses the change (EPERM or EACCES, as a
  * container may) leaves the run at the priority it has. Node reports the
  * refusal as an ERR_SYSTEM_ERROR whose `info.code` names it.
+ *
+ * On Linux a nice value belongs to a thread, and the change reaches only the
+ * calling thread and each thread or process started after it. Threads Node
+ * had already started, such as V8's, keep their priority. In the test runner
+ * that leaves those threads at normal priority, but every test process starts
+ * after the change and runs below normal in all its threads.
  */
 export function lowerPriority(control: PriorityControl = os): void {
   const belowNormal = os.constants.priority.PRIORITY_BELOW_NORMAL;
