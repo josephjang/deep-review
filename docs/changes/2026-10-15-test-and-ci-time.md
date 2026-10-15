@@ -295,9 +295,22 @@ suite at `e0e401a`:
   engine, so a git that hangs on a lock or a remote outlives an
   interrupted engine for up to the timeout of R2, and holds its lock
   that long. Accepted: 60 s is the bound where today there is none,
-  the engine's own git calls are local plumbing that ends in
-  milliseconds, and the lock it could hold is one git itself releases
-  when it exits.
+  and the engine's own git calls are local plumbing that ends in
+  milliseconds.
+- Risk: a git ended at the timeout of R2 on Windows is killed with
+  `TerminateProcess`, which runs none of git's cleanup, so a call that
+  writes can leave its lock file behind, and every later git that
+  needs the lock fails with "File exists" until the user removes it by
+  hand. A probe showed it: a timed-out `git commit` left
+  `.git/index.lock` in place. The engine's one writing call left on
+  the timeout is the `update-ref` of `deep-review commit`, which can
+  leave `<ref>.lock`, and its failure message names that lock and says
+  the ref may or may not have moved. `reset -q` after it runs with no
+  timeout, since it waits on neither a lock nor a remote. Accepted:
+  the engine cannot tell a lock its killed git left from one another
+  git holds in the same repository, so it does not remove the lock
+  itself, and an `update-ref` runs past 60 s only behind a hook or a
+  disk that hangs.
 - Risk: lever I's gain depends on the machine the hosted pool hands out
   (-13% on one CPU generation, -36% on another), and a third kind may
   give another figure. Accepted: the direction held in every pair, the
