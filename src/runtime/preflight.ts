@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { RuntimeAdapter } from './adapter.ts';
 import { PreflightError } from './errors.ts';
-import { killTree, superviseChild } from './process.ts';
+import { detachedChild, killTree, superviseChild } from './process.ts';
 
 /** How long one version or help probe may take. */
 export const preflightTimeoutMs = 10_000;
@@ -52,8 +52,7 @@ function runProbe(executable: string, args: readonly string[], environment: Node
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
         windowsHide: true,
-        // Attached to the console on Windows, so Ctrl-C ends it with the engine; a synchronous git call is detached there instead (src/runtime/git-sync.ts says why).
-        detached: process.platform !== 'win32',
+        detached: detachedChild,
       });
     } catch (error) {
       // A synchronous refusal, such as an argument Node will not pass: the probe never existed.
