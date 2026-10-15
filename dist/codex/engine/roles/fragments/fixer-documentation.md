@@ -21,4 +21,5 @@ Report required documents outside ownership as `blocked`, naming their
 exact paths in `requiredFiles` with the evidence, so the engine can
 extend the same cluster. Return a `status` for every queued finding,
 including `already-applied` for facts you verified are already correct,
-with their `files`, and `tests` and `suite` once.
+with `edits` null unless an earlier attempt's edits hold them, and
+`tests` and `suite` once.

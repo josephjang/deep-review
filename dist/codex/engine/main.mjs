@@ -25335,12 +25335,12 @@ function resolveReportedPath(worktree, lookup, raw, wording = fixerWording) {
 function resolveFixerAnswer(output2, context) {
   const resolve11 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
   const own2 = /* @__PURE__ */ new Set([...context.owned, ...context.claimed]);
-  const findings = output2.findings.map((finding) => {
-    const files = [...new Set(finding.files.map(resolve11))];
+  const findings = output2.findings.map(({ edits, ...finding }) => {
+    const files = [...new Set((edits?.files ?? []).map(resolve11))];
     const requiredFiles = [...new Set(finding.requiredFiles.map(resolve11))];
     const held = requiredFiles.filter((path) => own2.has(path));
     if (held.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${held.join(", ")}, which its own cluster owns or claimed`);
-    return { ...finding, files, requiredFiles };
+    return { ...finding, files, message: edits?.message ?? null, requiredFiles };
   });
   const named = new Set(findings.flatMap((finding) => finding.files));
   const violations = [...named].filter((path) => context.othersHeld.has(path)).sort();
@@ -26878,10 +26878,19 @@ var fixerOutputSchema = external_exports.strictObject({
     file: reportedPath,
     line: external_exports.number().int().min(1).nullable(),
     note: external_exports.string().min(1).max(400),
-    /** The commit message of the finding's edits, in the repository's own style: present exactly when `files` names a file, whatever the status, a blocked or deferred finding's saying the change is partial (R11 of commit series integrity). */
-    message: external_exports.strictObject({ subject: external_exports.string().min(1).max(72), body: external_exports.string().max(2e3) }).nullable(),
-    /** Every file edited or created for this finding. */
-    files: external_exports.array(reportedPath).max(200),
+    /**
+     * Null for a finding with no edits. Otherwise the files edited or
+     * created for it, or that hold an earlier attempt's edits for it, and
+     * the commit message those edits take, in the repository's own style,
+     * whatever the status: a blocked or deferred finding's says the change
+     * is partial (R1 of fixer edits; R11 of commit series integrity). One
+     * field, so a message without files, or files without a message, is a
+     * shape the schema refuses at the worker's boundary.
+     */
+    edits: external_exports.strictObject({
+      files: external_exports.array(reportedPath).min(1).max(200),
+      message: external_exports.strictObject({ subject: external_exports.string().min(1).max(72), body: external_exports.string().max(2e3) })
+    }).nullable(),
     corrections: external_exports.array(external_exports.strictObject({
       file: external_exports.string().min(1).max(400),
       anchor: external_exports.string().min(1).max(400),
@@ -26904,10 +26913,9 @@ function checkFixerAnswer(output2, count2) {
     if (finding.index >= count2) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count2 - 1)}]`);
     if (seen.has(finding.index)) throw new StructuralCheckError(`${what} is answered twice`);
     seen.add(finding.index);
-    if (finding.files.length > 0 && finding.message === null) throw new StructuralCheckError(`${what} names files and has no commit message; every finding that names files carries the message their commit takes, whatever its status`);
-    if (finding.files.length === 0 && finding.message !== null) throw new StructuralCheckError(`${what} has a commit message and names no file; a finding with no edits carries none`);
-    if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith("."))) {
-      throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(finding.message.subject)}`);
+    const subject = finding.edits?.message.subject;
+    if (subject !== void 0 && (/[\r\n]/.test(subject) || subject.trimEnd().endsWith("."))) {
+      throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(subject)}`);
     }
     if (finding.requiredFiles.length > 0 && finding.status !== "blocked") throw new StructuralCheckError(`${what} is ${finding.status} and names required files, which only a blocked finding does`);
   }
@@ -27885,7 +27893,7 @@ function claimBlock(command) {
     "",
     `    ${command}`,
     "",
-    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
+    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
     `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
     "A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written.",
     "Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0."
@@ -27900,13 +27908,13 @@ function snapshotBlock(command, unit) {
     `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
   ].join("\n");
 }
-var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it; a \`message\` for every ${unit} that names files, whatever its status, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for, and null for a ${unit} that names no file; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+var answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 var scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
 var unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
 function earlierWork(unit, unfinished) {
-  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix when an earlier attempt made it and null otherwise, and never apply a change on top of itself.`;
   if (unfinished.length === 0) return warning;
-  return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with the \`files\` that hold its edits, and give the \`message\` its commit will carry, as for an applied ${unit}.`;
+  return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
 var fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
 var verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
@@ -28072,7 +28080,7 @@ function repairTask(input2) {
     snapshotBlock(input2.snapshotCommand, "check"),
     "",
     ...input2.mayHoldWork ? [earlierWork("check", input2.unfinished), ""] : [],
-    `${answerFields("check")} The \`message\` of an applied check describes what the repair changed.`,
+    `${answerFields("check")} The message in an applied check's \`edits\` describes what the repair changed.`,
     "",
     scratchRule
   ].join("\n");

@@ -20,7 +20,7 @@ or new; a deletion is an edit of the deleted path, and a rename of both
 its paths. A refused claim blocks the finding: report it `blocked` with
 the file in `requiredFiles`, and make no edit for it. A refusal that
 comes after you edited leaves those edits in place: list them under the
-finding, with a message that says the change is partial.
+finding's `edits`, with a message that says the change is partial.
 
 **Snapshot after each finding.** Your task gives a snapshot command.
 When you have finished a finding, whatever its status, and before you
