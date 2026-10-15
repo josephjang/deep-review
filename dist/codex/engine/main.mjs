@@ -5,7 +5,7 @@ var __export = (target, all) => {
 };
 
 // src/cli.ts
-import { existsSync as existsSync6 } from "node:fs";
+import { existsSync as existsSync7 } from "node:fs";
 import { join as join27, relative as relative4, resolve as resolve10 } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -22709,18 +22709,48 @@ function decode3(row) {
 }
 
 // src/checkpoint/locate.ts
-import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { join as join4, resolve as resolve4 } from "node:path";
+
+// src/runtime/git-sync.ts
+import { execFileSync } from "node:child_process";
+import { existsSync as existsSync2 } from "node:fs";
+import { win32 } from "node:path";
+var gitTimeoutMs = 6e4;
+function realGit(run2 = execFileSync, exists = existsSync2) {
+  let execPath;
+  try {
+    execPath = String(run2("git", ["--exec-path"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true, detached: false, timeout: gitTimeoutMs })).trim();
+  } catch {
+    return "git";
+  }
+  if (!win32.isAbsolute(execPath)) return "git";
+  const binary = win32.join(execPath, "git.exe");
+  return exists(binary) ? binary : "git";
+}
+var resolvedGit;
+function installedGit(platform = process.platform) {
+  if (platform !== "win32") return "git";
+  resolvedGit ??= realGit();
+  return resolvedGit;
+}
+function runGitSync(args, options2 = {}, host = {}) {
+  const run2 = host.run ?? execFileSync;
+  const platform = host.platform ?? process.platform;
+  const file2 = host.file ?? installedGit(platform);
+  const detached = platform === "win32" && win32.isAbsolute(file2);
+  return run2(file2, args, { ...options2, windowsHide: true, detached, timeout: options2.timeout ?? gitTimeoutMs });
+}
+
+// src/checkpoint/locate.ts
 var checkpointDirectoryName = "deep-review-checkpoint";
 function locateCheckpoint(directory) {
   const cwd = resolve4(directory);
   let output2;
   try {
-    output2 = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], {
+    output2 = runGitSync(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], {
       cwd,
       encoding: "utf8",
-      windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
   } catch (error62) {
@@ -22736,7 +22766,7 @@ function locateCheckpoint(directory) {
 }
 
 // src/engine.ts
-import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
 import { join as join6 } from "node:path";
 
 // src/roles/assemble.ts
@@ -22942,7 +22972,7 @@ function engineVersion() {
 var engineSidecarName = "engine.json";
 function readEngineSidecar(directory = import.meta.dirname) {
   const path = join6(directory, engineSidecarName);
-  if (!existsSync2(path)) return null;
+  if (!existsSync3(path)) return null;
   const parsed = JSON.parse(readFileSync3(path, "utf8"));
   if (typeof parsed.version !== "string" || parsed.version.length === 0 || typeof parsed.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(parsed.sha256)) {
     throw new Error(`${path} is not an engine sidecar: it needs a version and a sha256`);
@@ -23037,7 +23067,7 @@ var PreflightError = class extends EngineError {
 
 // src/runtime/launcher.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync as rmSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync as rmSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join10, resolve as resolve8 } from "node:path";
 
 // src/runtime/adapter.ts
@@ -23246,6 +23276,7 @@ async function runProcess(request) {
         stdio: descriptors,
         shell: false,
         windowsHide: true,
+        // Attached to the console on Windows, so Ctrl-C ends it with the engine; a synchronous git call is detached there instead (src/runtime/git-sync.ts says why).
         detached: process.platform !== "win32",
         windowsVerbatimArguments: request.verbatimArguments === true
       });
@@ -23373,6 +23404,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
         windowsHide: true,
+        // Attached to the console on Windows, so Ctrl-C ends it with the engine; a synchronous git call is detached there instead (src/runtime/git-sync.ts says why).
         detached: process.platform !== "win32"
       });
     } catch (error62) {
@@ -24293,7 +24325,7 @@ function appendFresh(checkpoint, runId, event, check2) {
   }
 }
 function readIfPresent(path) {
-  return existsSync3(path) ? readFileSync4(path) : null;
+  return existsSync4(path) ? readFileSync4(path) : null;
 }
 function truncate(error62) {
   if (error62.length <= maxErrorLength) return error62;
@@ -24456,15 +24488,13 @@ var ScopeAlreadyCapturedError = class extends EngineError {
 };
 
 // src/scope/git.ts
-import { execFileSync as execFileSync2 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
 var maxOutputBytes = 512 * 1024 * 1024;
 function git(cwd, args, options2 = {}) {
   try {
-    return execFileSync2("git", ["--no-optional-locks", ...args], {
+    return runGitSync(["--no-optional-locks", ...args], {
       cwd,
       maxBuffer: maxOutputBytes,
-      windowsHide: true,
       stdio: [options2.input === void 0 ? "ignore" : "pipe", "pipe", "pipe"],
       ...options2.input === void 0 ? {} : { input: options2.input }
     });
@@ -24934,7 +24964,7 @@ function readRootManifests(root) {
 
 // src/review/claims.ts
 import { createHash as createHash3 } from "node:crypto";
-import { existsSync as existsSync4, mkdirSync as mkdirSync4, readdirSync as readdirSync3, readFileSync as readFileSync7, statSync as statSync4 } from "node:fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readdirSync as readdirSync3, readFileSync as readFileSync7, statSync as statSync4 } from "node:fs";
 import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute3, join as join13, relative as relative2, sep as sep2 } from "node:path";
 var claimsDirectoryName = "claims";
 var heldFileName = "held.json";
@@ -25032,7 +25062,7 @@ function caseInsensitiveFileSystem(worktree, fs = caseProbeFileSystem) {
   return process.platform === "win32" || process.platform === "darwin";
 }
 function claimsDirectoryIntact(dir) {
-  return existsSync4(join13(dir, heldFileName));
+  return existsSync5(join13(dir, heldFileName));
 }
 function readHeld(dir) {
   const file2 = join13(dir, heldFileName);
@@ -25117,7 +25147,7 @@ function prepareClaims(dir, held, recorded, expectExisting, rename) {
     writeFileAtomic(heldFile, `${JSON.stringify(held)}
 `, rename);
   } catch (error62) {
-    if (!(error62 instanceof ReplaceBusyError) || !existsSync4(heldFile)) throw error62;
+    if (!(error62 instanceof ReplaceBusyError) || !existsSync5(heldFile)) throw error62;
     refreshed = false;
   }
   const latest = /* @__PURE__ */ new Map();
@@ -27014,7 +27044,7 @@ function checkDecisions(output2, count2) {
 
 // src/review/snapshot.ts
 import { createHash as createHash5 } from "node:crypto";
-import { existsSync as existsSync5, lstatSync as lstatSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync10, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync6, lstatSync as lstatSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync10, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname3, join as join19 } from "node:path";
 var snapshotManifestFileName = "manifest.json";
 var snapshotsDirectoryName = "snapshots";
@@ -27046,7 +27076,7 @@ var snapshotManifestSchema = external_exports.strictObject({
 });
 function readManifest(into) {
   const file2 = join19(into, snapshotManifestFileName);
-  if (!existsSync5(file2)) return null;
+  if (!existsSync6(file2)) return null;
   const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync10(file2, "utf8")));
   if (!parsed.success) throw new Error(`${file2} is not a snapshot manifest: ${external_exports.prettifyError(parsed.error)}`);
   return parsed.data;
@@ -27132,7 +27162,7 @@ function readSnapshot(into, finding) {
 }
 function readListing(into, finding) {
   const listingFile = join19(into, `${String(finding)}.json`);
-  if (!existsSync5(listingFile)) return null;
+  if (!existsSync6(listingFile)) return null;
   try {
     const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync10(listingFile, "utf8")));
     return parsed.success && parsed.data.finding === finding ? parsed.data : null;
@@ -29938,7 +29968,7 @@ async function answerRun(options2) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute7, join as join25, posix, resolve as resolve9, win32 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute7, join as join25, posix, resolve as resolve9, win32 as win322 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -29947,7 +29977,7 @@ var unspawnable = (why) => new ReviewRefusedError(
   "runtime-unqualified"
 );
 function refuseShim(executable, platform = process.platform) {
-  const extension = (platform === "win32" ? win32 : posix).extname(executable);
+  const extension = (platform === "win32" ? win322 : posix).extname(executable);
   if (shellShims.has(extension.toLowerCase())) {
     throw unspawnable(`${executable} is a ${extension} shim, which cannot be spawned without a shell`);
   }
@@ -29975,19 +30005,17 @@ function resolveExecutable(name, environment = process.env, platform = process.p
 }
 
 // src/review/commit.ts
-import { execFileSync as execFileSync3 } from "node:child_process";
 import { mkdtempSync, rmSync as rmSync6 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join26 } from "node:path";
 function git2(worktree, args, options2 = {}) {
   try {
-    return execFileSync3("git", ["--no-optional-locks", ...args], {
+    return runGitSync(["--no-optional-locks", ...args], {
       cwd: worktree,
       env: { ...process.env, ...options2.env },
       input: options2.input ?? "",
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
-      windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"]
     });
   } catch (error62) {
@@ -30076,7 +30104,7 @@ var TreeBuilder = class {
 };
 function currentBranch(worktree) {
   try {
-    return execFileSync3("git", ["--no-optional-locks", "symbolic-ref", "-q", "HEAD"], { cwd: worktree, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return runGitSync(["--no-optional-locks", "symbolic-ref", "-q", "HEAD"], { cwd: worktree, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch (error62) {
     if (error62.status === 1) return "";
     throw error62;
@@ -30610,7 +30638,7 @@ function claim2(values, io) {
   }
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync6(join27(root, ledgerFileName))) return null;
+  if (!create && !existsSync7(join27(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 async function review(values, io, root, worktree) {
