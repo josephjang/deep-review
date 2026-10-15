@@ -111,8 +111,14 @@ export const installedGit = gitLocator();
  * The timeout bounds that for git itself: a git that waits on a lock or a
  * remote is ended with `TerminateProcess` (SIGTERM elsewhere) after
  * `gitTimeoutMs`, console or not, and the call throws with `status` null,
- * `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git wrote so far. The timeout ends git alone: a hook, filter or credential
- * helper git started keeps running on its own.
+ * `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git wrote so far.
+ * The timeout ends git alone: a hook, filter or credential helper git
+ * started keeps running on its own. `TerminateProcess` runs none of git's
+ * cleanup either, so a git that writes, such as `update-ref` or `reset`,
+ * can leave its `index.lock` or `<ref>.lock` behind, and every later git
+ * that needs that lock fails with "File exists" until the user removes it
+ * by hand. Nothing here removes it, since a lock the killed git left
+ * cannot be told from one another git holds in the same repository.
  */
 export function runGitSync(args: readonly string[], options: ExecFileSyncOptionsWithStringEncoding, host?: Partial<GitSyncHost>): string;
 export function runGitSync(args: readonly string[], options?: ExecFileSyncOptionsWithBufferEncoding, host?: Partial<GitSyncHost>): Buffer;
