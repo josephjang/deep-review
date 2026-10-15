@@ -6,9 +6,14 @@
  * a test nor the engine code it runs can act on the repository a
  * `git rebase --exec` or a git hook that started the suite was working on.
  * It also turns on Node's compile cache for the test process and every Node
- * process it starts (see helpers/compile-cache.ts).
+ * process it starts (see helpers/compile-cache.ts), and lowers the process
+ * to below normal priority, which every process it starts inherits, so a
+ * developer's other programs stay responsive during a run (see
+ * helpers/priority.ts).
  */
 import './helpers/git.ts';
 import { enableCompileCache } from './helpers/compile-cache.ts';
+import { lowerPriority } from './helpers/priority.ts';
 
 enableCompileCache();
+lowerPriority();
