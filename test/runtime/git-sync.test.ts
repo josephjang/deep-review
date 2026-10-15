@@ -76,20 +76,23 @@ describe('runGitSync', () => {
     assert.equal(gitTimeoutMs, 60_000);
   });
 
-  it('starts a git looked up on PATH attached on Windows, where it may be a launcher that is slower detached', () => {
+  it('starts a git looked up on PATH attached on Windows, where it may be a launcher that is slower detached, with no timeout unless the caller gives one', () => {
     const { run, calls } = recorder();
     runGitSync(['status'], { encoding: 'utf8' }, { run, platform: 'win32', file: 'git' });
+    runGitSync(['status'], { encoding: 'utf8', timeout: 5 }, { run, platform: 'win32', file: 'git' });
     assert.equal(calls[0]!.file, 'git');
-    assert.deepEqual(calls[0]!.options, { encoding: 'utf8', windowsHide: true, detached: false, timeout: gitTimeoutMs });
+    // The job object ends an attached child with the engine, so nothing bounds a long but legitimate call.
+    assert.deepEqual(calls[0]!.options, { encoding: 'utf8', windowsHide: true, detached: false });
+    assert.equal(calls[1]!.options.timeout, 5);
   });
 
   for (const platform of ['linux', 'darwin'] as const) {
-    it(`starts git from PATH in the engine's process group on ${platform}`, () => {
+    it(`starts git from PATH in the engine's process group on ${platform}, where a terminal's signals reach it, with no timeout`, () => {
       const { run, calls } = recorder(Buffer.from('bytes'));
       const output = runGitSync(['rev-parse', 'HEAD'], { cwd: '/repo' }, { run, platform });
       assert.deepEqual(output, Buffer.from('bytes'));
       assert.equal(calls[0]!.file, 'git');
-      assert.deepEqual(calls[0]!.options, { cwd: '/repo', windowsHide: true, detached: false, timeout: gitTimeoutMs });
+      assert.deepEqual(calls[0]!.options, { cwd: '/repo', windowsHide: true, detached: false });
     });
   }
 
