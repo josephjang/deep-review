@@ -61,8 +61,6 @@ interface GitOptions {
   readonly input?: Buffer | string;
   /** How long git may run, in milliseconds, 0 for no bound; `runGitSync`'s default when absent. */
   readonly timeout?: number;
-  /** Start the git on PATH, which `runGitSync` starts attached to the engine's console on Windows, as every call was before it, so a prompt git or its children open can read the console. */
-  readonly attached?: boolean;
 }
 
 /** Run git in the worktree with the given environment additions and stdin, returning stdout as text. */
@@ -76,7 +74,7 @@ function git(worktree: string, args: readonly string[], options: GitOptions = {}
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['pipe', 'pipe', 'pipe'],
       ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
-    }, options.attached === true ? { file: 'git' } : undefined);
+    });
   } catch (error) {
     throw gitFailure(args, error, options.timeout);
   }
@@ -330,8 +328,8 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
     let parent = series.head;
     const commit = (message: string, revision: number | 'change'): void => {
       const tree = trees.write();
-      // commit-tree signs when commit.gpgSign asks, and a signing prompt or a key touch may wait on the user, so it runs on the console with no bound, as before runGitSync.
-      const sha = git(worktree, ['commit-tree', tree, '-p', parent, '-F', '-'], { input: message, timeout: 0, attached: true }).trim();
+      // commit-tree signs when commit.gpgSign asks; like every detached git call, a signing step is bounded by gitTimeoutMs.
+      const sha = git(worktree, ['commit-tree', tree, '-p', parent, '-F', '-'], { input: message }).trim();
       made.push({ sha, revision, subject: subjectOf(message) });
       parent = sha;
     };

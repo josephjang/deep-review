@@ -165,14 +165,13 @@ suite at `e0e401a`:
   gives the programs it runs the environment, and reads the
   configuration, that the git on PATH does. Workers and probes
   (`src/runtime/process.ts`, `src/runtime/preflight.ts`) keep
-  `detached: process.platform !== 'win32'`. One call keeps the console:
-  `git commit-tree` in `src/review/commit.ts` signs the commit when
-  `commit.gpgSign` asks, and a signing prompt or a hardware key's touch
-  waits on the user, so it starts the git on PATH attached and with no
-  timeout, as before this change. The `reset -q` after the ref moves
-  there gives no timeout either: it waits on neither a lock nor a
-  remote, and a timeout there would leave a moved ref the ledger does
-  not record.
+  `detached: process.platform !== 'win32'`. Every detached git call of
+  the engine, signing included, is bounded by the 60 s timeout:
+  `git commit-tree` in `src/review/commit.ts`, which signs the commit
+  when `commit.gpgSign` asks, is started like every other call. The
+  `reset -q` after the ref moves there gives no timeout: it waits on
+  neither a lock nor a remote, and a timeout there would leave a moved
+  ref the ledger does not record.
 - **R3: the suite runs below normal priority.** `test/setup.ts`, which
   every test process imports, lowers the priority class of its own
   process to `os.constants.priority.PRIORITY_BELOW_NORMAL`, so that
@@ -337,6 +336,16 @@ suite at `e0e401a`:
   git holds in the same repository, so it does not remove the lock
   itself, and an `update-ref` runs past 60 s only behind a hook or a
   disk that hangs.
+- Risk: on Windows, `git commit-tree` signs detached and under the
+  timeout of R2, where before this change it had the console and no
+  bound. A signing step that prompts on the console, such as a
+  terminal pinentry or an ssh key's passphrase, has no console to read
+  from, and one that waits past 60 s for a pinentry window or a
+  hardware key's touch is ended, so `deep-review commit` fails with
+  git's signing error or the timeout where it used to prompt. Accepted
+  by the author: every detached git call of the engine, signing
+  included, is bounded by the timeout, and a signing setup that needs
+  neither the console nor more than 60 s signs as before.
 - Risk: lever I's gain depends on the machine the hosted pool hands out
   (-13% on one CPU generation, -36% on another), and a third kind may
   give another figure. Accepted: the direction held in every pair, the

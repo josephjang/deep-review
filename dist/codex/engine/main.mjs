@@ -30034,7 +30034,7 @@ function git2(worktree, args, options2 = {}) {
       maxBuffer: 64 * 1024 * 1024,
       stdio: ["pipe", "pipe", "pipe"],
       ...options2.timeout === void 0 ? {} : { timeout: options2.timeout }
-    }, options2.attached === true ? { file: "git" } : void 0);
+    });
   } catch (error62) {
     throw gitFailure(args, error62, options2.timeout);
   }
@@ -30198,7 +30198,7 @@ function build(run2, options2) {
     let parent = series.head;
     const commit2 = (message, revision) => {
       const tree = trees.write();
-      const sha = git2(worktree, ["commit-tree", tree, "-p", parent, "-F", "-"], { input: message, timeout: 0, attached: true }).trim();
+      const sha = git2(worktree, ["commit-tree", tree, "-p", parent, "-F", "-"], { input: message }).trim();
       made.push({ sha, revision, subject: subjectOf(message) });
       parent = sha;
     };
