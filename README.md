@@ -522,6 +522,17 @@ design.
 Node 26 or newer, npm and git. `.tool-versions` pins the Node major for
 mise and asdf.
 
+On Windows, Defender scans every file the suite writes, most of them the
+checkpoint artifacts of the reviews it sandboxes under `TEMP`. Two
+per-machine steps shorten a local run, and the repository needs
+neither. A Dev Drive that holds the checkout and `TEMP` took 7 to 13%
+off a run when measured. Instead, a Defender exclusion of
+`C:\Users\<user>\AppData\Local\Temp\deep-review-*`, written in full
+because Defender expands `%TEMP%` as the system account, gives at most
+the same by estimate, and gives up scanning there.
+`docs/reports/2026-10-14-test-and-ci-time.md` (lever D) has the
+measurement.
+
 ```sh
 npm ci
 npm run check     # lint, typecheck, test
