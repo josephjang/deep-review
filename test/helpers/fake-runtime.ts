@@ -174,7 +174,7 @@ export function fixerAnswer(findings: readonly FixedFinding[]): unknown {
       return {
         index,
         status,
-        file: finding.files?.[0] ?? 'src/a.ts',
+        file: files[0] ?? 'src/a.ts',
         line: 1,
         note: finding.note ?? `fake ${status} [${String(index)}]`,
         // A finding with files carries them and their message, whatever its status, and one with none carries null (R1 of fixer edits); `malformed` writes a shape the schema refuses instead.
