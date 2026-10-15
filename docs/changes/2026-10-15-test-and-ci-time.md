@@ -135,11 +135,16 @@ suite at `e0e401a`:
   `detached: false` (D6). The function's doc comment says why git is
   detached where workers are not, and that `detached` reaches libuv
   through `execFileSync` although Node documents it for `spawn` only.
-  The function also passes a `timeout`, 60 s unless a site gives its
-  own, because a detached child is in a process group that Ctrl-C does
-  not reach: a git that waits on a lock or a slow remote must not
-  outlive an engine the user interrupted, and the timeout ends the
-  child with `TerminateProcess`, console or not. A call that times out
+  For a detached git the function also passes a `timeout`, 60 s unless
+  a site gives its own, because a detached child is in a process group
+  that Ctrl-C does not reach: a git that waits on a lock or a slow
+  remote must not outlive an engine the user interrupted, and the
+  timeout ends the child with `TerminateProcess`, console or not. An
+  attached git gets no timeout unless its site gives one, as before
+  this change: libuv's job object ends it with the engine on Windows,
+  and elsewhere it is in the engine's process group, so a long but
+  legitimate call, such as `diff --binary -M` over a large scope or a
+  filter that runs Git LFS, still finishes. A call that times out
   fails through the same path as a non-zero exit, with the stderr git
   wrote so far. A unit test gives the function a fake runner in place
   of `execFileSync` and asserts the options it receives on each

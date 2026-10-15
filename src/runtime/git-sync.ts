@@ -2,11 +2,11 @@ import { execFileSync, type ExecFileSyncOptions, type ExecFileSyncOptionsWithBuf
 import { existsSync } from 'node:fs';
 import { win32 } from 'node:path';
 
-/** How long a synchronous git call may run before it is ended, unless the caller gives its own `timeout`. */
+/** How long a detached git call may run before it is ended, unless the caller gives its own `timeout`. */
 export const gitTimeoutMs = 60_000;
 
-/** The options the runner receives: the caller's, with the console and timeout settings `runGitSync` adds. */
-export type GitSyncSpawnOptions = ExecFileSyncOptions & { readonly windowsHide: true; readonly detached: boolean; readonly timeout: number };
+/** The options the runner receives: the caller's, with the console settings `runGitSync` adds and, for a detached git, its timeout. */
+export type GitSyncSpawnOptions = ExecFileSyncOptions & { readonly windowsHide: true; readonly detached: boolean };
 
 /** What starts the child and waits for it: `execFileSync`, or a stand-in in a test. */
 export type GitSyncRunner = (file: string, args: readonly string[], options: GitSyncSpawnOptions) => string | Buffer;
@@ -108,10 +108,15 @@ export const installedGit = gitLocator();
  *
  * What a detached child loses is the job object: libuv puts no detached
  * child in it, so a git still running when the engine exits outlives it.
- * The timeout bounds that for git itself: a git that waits on a lock or a
- * remote is ended with `TerminateProcess` (SIGTERM elsewhere) after
- * `gitTimeoutMs`, console or not, and the call throws with `status` null,
- * `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git wrote so far.
+ * The timeout bounds that for git itself: a detached git that waits on a
+ * lock or a remote is ended with `TerminateProcess` after `gitTimeoutMs`,
+ * console or not. An attached git, which the job object ends with the
+ * engine on Windows and which a terminal's signals reach elsewhere, runs
+ * unbounded as before, so a long capture of a large scope still finishes.
+ * A caller's own `timeout` holds either way, and ends git with SIGTERM
+ * outside Windows. A git ended at a timeout makes the call throw with
+ * `status` null, `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git
+ * wrote so far.
  * The timeout ends git alone: a hook, filter or credential helper git
  * started keeps running on its own. `TerminateProcess` runs none of git's
  * cleanup either, so a git that writes, such as `update-ref` or `reset`,
@@ -128,5 +133,6 @@ export function runGitSync(args: readonly string[], options: ExecFileSyncOptions
   const file = host.file ?? installedGit(platform);
   // Only a program named by its absolute path is detached: a bare name is looked up on PATH, where git may be a launcher.
   const detached = platform === 'win32' && win32.isAbsolute(file);
-  return run(file, args, { ...options, windowsHide: true, detached, timeout: options.timeout ?? gitTimeoutMs });
+  const timeout = options.timeout ?? (detached ? gitTimeoutMs : undefined);
+  return run(file, args, { ...options, windowsHide: true, detached, ...(timeout === undefined ? {} : { timeout }) });
 }
