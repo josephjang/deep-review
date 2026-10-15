@@ -355,8 +355,77 @@ where the worker can still correct it.
 
 ## Verification
 
-No checks have run yet. What the commit that completes the change
-records:
+What ran, on 2026-10-16, on Windows 11 with Node 26.10.0:
+
+- **The reproducing test failed first.** `refuses the answer of #54: a
+  blocked finding with no files and a message` in
+  `test/review/schemas.test.ts` parses the shape of c1-1's refused
+  finding (`status: "blocked"`, no files, `requiredFiles` naming the
+  test file, a message whose body begins "Partial: no edit made").
+  Against the schema before the change it failed with `true !== false`:
+  the schema accepted the answer, and only the structural check refused
+  it. After the change it passes, refused by the schema.
+- **R1.** The same file checks that the compiled `edits` property is
+  `anyOf` a closed object and `null`, that the object requires `files`
+  and `message`, that `files` carries `minItems: 1`, that the message
+  inside it is not nullable, and that no `files` or `message` sits
+  beside `edits`. For every status it refuses `edits` with a message
+  and no files, with files and a null message, with files and no
+  message, with a message and no `files` field, with an unknown field,
+  and an answer that leaves `edits` out.
+- **R2.** The tests of the two deleted branches are gone, replaced by
+  the schema refusals above; the subject format tests read the message
+  from `edits` and pass; the required-files test is unchanged.
+- **R3 and R4.** `test/review/fix-answer.test.ts` checks that a finding's
+  `edits` is read as its resolved files and their message, and null as
+  no file and a null message, in the flat shape the ledger records.
+  `test/review/fix-pass.test.ts` runs the shape of c1-1 end to end: a
+  batch of an applied finding and a finding blocked on another
+  cluster's file with `edits` null completes on its first attempt with
+  no `attempt.failed`, records the blocked finding with `files: []` and
+  `message: null`, plans it into the second round, and `deep-review
+  commit` commits the applied finding under the fixer's own subject. A
+  second test answers with a message and no files through the test
+  runtime's `malformed` seam (R8) and sees the attempt fail with "The
+  answer does not match the output schema", not a structural check,
+  and the retry's answer recorded. The test of a claim refused after a
+  first edit (R11) passes unchanged in what it asserts.
+- **R5.** `test/review/tasks.test.ts` and `test/roles/repository.test.ts`
+  pin the new sentences of the task and of both fixer roles, including
+  the two the implementation added (R5's amendment), and assert that no
+  sentence says "names files", "names no file" or describes `files` or
+  `message` as a field of its own.
+- **R6.** `npm run roles` before and after: only `fixer` (15434 to 15320
+  bytes, `1d25bdcc...` to `41942875...`) and `documentation` (`72adeb0c...`
+  to `4a8e63cc...`) change.
+- **R7.** The two documents and `README.md` say it.
+- **Both runtimes, and D7.** `npm run smoke` with the smoke's schema
+  temporarily holding the fixer's own `edits` field
+  (`fixerOutputSchema.shape.findings.element.shape.edits`, so `minItems:
+  1` inside a nullable object), the read-only workers asked for `edits`
+  null and the editor for `edits` naming `edit.txt`. Every worker
+  completed with structured output; the temporary change was then
+  reverted.
+
+  | Runtime | Step | Session | Seconds | `edits` returned |
+  |---|---|---|---|---|
+  | claude 2.1.300, haiku | first | 541c8fd0-dddf-48fb-9918-1daa8168535c | 6.3 | null |
+  | claude 2.1.300, haiku | continuation | the same, resumed | 6.1 | null |
+  | claude 2.1.300, haiku | editor | bde567ce-d9f1-4268-9c5c-58b8c8d1358a | 13.3 | `edit.txt` and a message |
+  | codex-cli 0.160.0, gpt-6-astra | first | 01a14060-adb3-7392-ab12-223a1b6357db | 12.6 | null |
+  | codex-cli 0.160.0, gpt-6-astra | continuation | the same, resumed | 11.1 | null |
+  | codex-cli 0.160.0, gpt-6-astra | editor | 01a14061-0b8e-7a11-8fb0-9203a2c85c50 | 13.4 | `edit.txt` and a message |
+
+  Codex's strict structured output accepts `minItems` there, so the
+  fallback of D7 is not needed.
+- **The suite.** `npm run check` passes (2035 tests, 2016 passed, 19
+  skipped on this platform, none failed); `npm run build` and `npm run
+  verify` for the rebuilt bundles under `dist/`.
+
+Not yet run: the fix run of the engine on this change's own pull
+request (principle 12). What it must show is below.
+
+What the change set out to verify:
 
 - **The reproducing test fails first.** A test in
   `test/review/schemas.test.ts` that parses the refused answer of #54's
