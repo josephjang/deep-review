@@ -129,8 +129,9 @@ describe('runGitSync', () => {
 
   it('ends a detached child at the timeout and throws with what it printed so far', () => {
     // The platform is given as win32 everywhere, so the child is detached on every runner of the suite.
+    // 2 s leaves the child several times its slowest process start under the suite's load (report 2026-10-14, section 6) to print 'started'.
     const started = Date.now();
-    const failure = thrown(() => runGitSync(['-e', "process.stdout.write('started'); setTimeout(() => {}, 120_000);"], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 }, { file: process.execPath, platform: 'win32' }));
+    const failure = thrown(() => runGitSync(['-e', "process.stdout.write('started'); setTimeout(() => {}, 120_000);"], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 2_000 }, { file: process.execPath, platform: 'win32' }));
     assert.equal(failure.code, 'ETIMEDOUT');
     assert.equal(failure.status, null);
     assert.equal(failure.signal, 'SIGTERM');
