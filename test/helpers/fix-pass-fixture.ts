@@ -1,13 +1,14 @@
 // The review the fix pass tests share: test/review/fix-pass.test.ts,
 // fix-pass-claims.test.ts and fix-continuation.test.ts each script a
 // sandbox with reviewScript and its fixers write fixedA and fixedB.
+import { finderAngles } from '../../src/review/vocabulary.ts';
 import { deciderAnswer, type Script } from './fake-runtime.ts';
 
 /** A candidate as a finder returns it. */
 export const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
 
-/** The nine leads with nothing in them. */
-export const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null }));
+/** A lead for each finder angle, with nothing in it. */
+export const noLeads = finderAngles.map((angle) => ({ angle, lead: null }));
 
 /**
  * A review whose triage finds one defect in src/a.ts and one in src/b.ts,
