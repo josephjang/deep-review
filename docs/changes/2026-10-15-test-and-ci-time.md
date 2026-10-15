@@ -165,8 +165,9 @@ suite at `e0e401a`:
   value or lower, and that a child it starts has the same.
 - **R4: the Windows job's temporary directory is on the workspace
   disk.** The step of `check.yml` that runs the tests sets `TEMP` and
-  `TMP` to `runner.temp` on every runner; on Ubuntu and macOS the value
-  is on the same file system as before. The setting is on the step, not
+  `TMP` to `runner.temp` on every runner. Node's `os.tmpdir()` reads
+  them on Windows only and `TMPDIR` elsewhere, so the Ubuntu and macOS
+  jobs keep their temporary directory. The setting is on the step, not
   the job, because the `runner` context is not available to a job's
   `env`.
 - **R5: the Dev Drive and the exclusion are documented as optional.**
@@ -224,12 +225,14 @@ suite at `e0e401a`:
   through a wrapper, which would not reach a developer who runs
   `node --test` directly.
 - **D4: `TEMP` is set on the check step for every runner, not only
-  Windows.** A conditional per OS is more workflow for no effect: on
-  Ubuntu and macOS `runner.temp` and the OS temporary directory are on
-  the same file system, and the benchmark shows no difference between
-  them there. Rejected: a Windows-only `if`, which hides the
-  assumption that the other runners are unaffected instead of letting
-  the runs show it.
+  Windows.** A conditional per OS is more workflow for no effect: Node
+  reads `TEMP` and `TMP` for `os.tmpdir()` on Windows only, so on
+  Ubuntu and macOS the two variables change nothing the suite uses, and
+  the step's comment says so. (As first written, this decision rested
+  on `runner.temp` sharing a file system with the OS temporary
+  directory there; that holds, but the variables never reach it.)
+  Rejected: a Windows-only `if`, which repeats in the workflow what
+  Node already does.
 - **D5: The engine's artifact writes are not changed.** The scan
   recording shows each checkpoint artifact scanned twice, once as its
   `.pending` file and once under its hash name, and the evidence store
