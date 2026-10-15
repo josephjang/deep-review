@@ -155,8 +155,14 @@ suite at `e0e401a`:
 - **R3: the suite runs below normal priority.** `test/setup.ts`, which
   every test process imports, lowers the priority class of its own
   process to `os.constants.priority.PRIORITY_BELOW_NORMAL`, so that
-  every process the test runner and the tests start inherits it. A test
-  asserts that `os.getPriority()` in a test process is that value.
+  every process the test runner and the tests start inherits it. A
+  process already at that priority or lower keeps its own: a run
+  started under `nice -n 19` is not raised, which an unprivileged user
+  could not do anyway. A system that refuses the change (EPERM or
+  EACCES) leaves the priority as it is; Node reports the refusal as
+  `ERR_SYSTEM_ERROR` with the errno name in `info.code`, not in `code`.
+  A test asserts that `os.getPriority()` in a test process is that
+  value or lower, and that a child it starts has the same.
 - **R4: the Windows job's temporary directory is on the workspace
   disk.** The step of `check.yml` that runs the tests sets `TEMP` and
   `TMP` to `runner.temp` on every runner; on Ubuntu and macOS the value
