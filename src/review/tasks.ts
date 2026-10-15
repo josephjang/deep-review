@@ -353,7 +353,7 @@ export const unelevatedSandboxRule = 'Your shell runs in Codex\'s unelevated Win
  * gives when it verifies them.
  */
 function earlierWork(unit: 'finding' | 'check', unfinished: readonly string[]): string {
-  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix when an earlier attempt made it and null otherwise, and never apply a change on top of itself.`;
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
   if (unfinished.length === 0) return warning;
   return `${warning} An earlier attempt left edits for ${unfinished.join(', ')}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
