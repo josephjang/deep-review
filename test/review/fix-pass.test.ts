@@ -301,7 +301,9 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.deepEqual(fix.secondRound?.blocked, [{ id: 'SCAN-2', requiredFiles: ['src/b.ts'] }]);
     // The applied finding is committed under the fixer's own subject, not a subject composed for an unfinished attempt.
     commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
-    assert.deepEqual(git(box.repo, 'log', '--format=%s', '-3').split('\n').reverse(), ['fix(a): Return 0 for a null text', 'fix(b): Import parse', 'fix(b): Keep the guard other() needs']);
+    // c1-1 and c2-1 run at once, so their commits come in the order their answers were recorded; the second round's comes after both.
+    const [first, second, last] = git(box.repo, 'log', '--format=%s', '-3').split('\n').reverse();
+    assert.deepEqual([[first, second].sort(), last], [['fix(a): Return 0 for a null text', 'fix(b): Import parse'], 'fix(b): Keep the guard other() needs']);
   });
 
   it('fails an answer whose edits carry a message and no file at the output schema, and keeps the retry\'s answer (R1 of fixer edits)', async (t) => {
