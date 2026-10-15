@@ -1,5 +1,7 @@
 import tseslint from 'typescript-eslint';
 
+const gitInTestsMessage = 'Run git in tests through git() from test/helpers/git.ts, which keeps GIT_DIR and the other repository variables out of its environment.';
+
 export default tseslint.config(
   // dist/ is build output; skill/ and roles/ hold prompts; none of them is code.
   { ignores: ['node_modules/**', 'dist/**', 'skill/**', 'roles/**'] },
@@ -35,10 +37,10 @@ export default tseslint.config(
     rules: {
       'no-restricted-syntax': ['error', {
         selector: "CallExpression:matches([callee.name=/^(spawn|spawnSync|exec|execSync|execFile|execFileSync)$/], [callee.property.name=/^(spawn|spawnSync|exec|execSync|execFile|execFileSync)$/])[arguments.0.value=/^git(\\.exe)?(\\s|$)/i]",
-        message: 'Run git in tests through git() from test/helpers/git.ts, which keeps GIT_DIR and the other repository variables out of its environment.',
+        message: gitInTestsMessage,
       }, {
         selector: "CallExpression[callee.name='runGitSync']:not(:has(> ObjectExpression:nth-child(3):has(> Property[key.name=/^(run|file)$/])))",
-        message: 'Run git in tests through git() from test/helpers/git.ts, which keeps GIT_DIR and the other repository variables out of its environment.',
+        message: gitInTestsMessage,
       }],
     },
   },
