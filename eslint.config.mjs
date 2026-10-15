@@ -26,9 +26,10 @@ export default tseslint.config(
     // `git rebase --exec`, out of its environment. Any other spawn of git
     // under test/ would inherit them. The rule flags a spawn whose first
     // argument is the literal string git, and a call of the engine's
-    // runGitSync (src/runtime/git-sync.ts) without the host argument that
-    // makes it start something else; one that names git any other way,
-    // through a variable, a template literal or a shell, passes it.
+    // runGitSync (src/runtime/git-sync.ts) unless its third argument is an
+    // object literal with a run or file property, the host fields that make
+    // it start something other than the real git. A spawn that names git any
+    // other way, through a variable, a template literal or a shell, passes it.
     files: ['test/**/*.ts', 'test/**/*.mjs'],
     ignores: ['test/helpers/git.ts'],
     rules: {
@@ -36,7 +37,7 @@ export default tseslint.config(
         selector: "CallExpression:matches([callee.name=/^(spawn|spawnSync|exec|execSync|execFile|execFileSync)$/], [callee.property.name=/^(spawn|spawnSync|exec|execSync|execFile|execFileSync)$/])[arguments.0.value=/^git(\\.exe)?(\\s|$)/i]",
         message: 'Run git in tests through git() from test/helpers/git.ts, which keeps GIT_DIR and the other repository variables out of its environment.',
       }, {
-        selector: "CallExpression[callee.name='runGitSync'][arguments.length<3]",
+        selector: "CallExpression[callee.name='runGitSync']:not(:has(> ObjectExpression:nth-child(3):has(> Property[key.name=/^(run|file)$/])))",
         message: 'Run git in tests through git() from test/helpers/git.ts, which keeps GIT_DIR and the other repository variables out of its environment.',
       }],
     },
