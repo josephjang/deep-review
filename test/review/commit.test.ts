@@ -4,7 +4,7 @@ import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it, type TestContext } from 'node:test';
 import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
-import { commitRun, moveFailure } from '../../src/review/commit.ts';
+import { commitRun, currentBranch, moveFailure } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
@@ -340,5 +340,18 @@ describe('a failed move of the ref', () => {
     const failure = moveFailure('HEAD', 'last', thrown(Object.assign(new Error('Command failed'), { status: 128 })));
     assert.ok(failure instanceof ReviewRefusedError);
     assert.match(failure.message, /^HEAD moved while the commits were built, so it was left where it is and the commits are unreferenced: git update-ref/);
+  });
+});
+
+describe('reading the branch HEAD names', () => {
+  it('names the git command when git fails other than for a detached HEAD, as a timeout or a failed spawn does', () => {
+    // A worktree that does not exist fails the spawn itself, with status null and no stderr, as a timed-out git throws.
+    const missing = join(import.meta.dirname, 'no-such-worktree');
+    assert.equal(existsSync(missing), false);
+    assert.throws(() => currentBranch(missing), (error: Error) => {
+      assert.match(error.message, /^git symbolic-ref -q HEAD failed: spawnSync .+ ENOENT$/);
+      assert.equal((error.cause as { code?: string } | undefined)?.code, 'ENOENT');
+      return true;
+    });
   });
 });

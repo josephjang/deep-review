@@ -78,9 +78,14 @@ function git(worktree: string, args: readonly string[], options: GitOptions = {}
       ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
     }, options.attached === true ? { file: 'git' } : undefined);
   } catch (error) {
-    const failure = error as { stderr?: string; message: string };
-    throw new Error(`git ${args.join(' ')} failed: ${failure.stderr?.trim() || failure.message}`, { cause: error });
+    throw gitFailure(args, error);
   }
+}
+
+/** What a failed git call throws: the command, then git's stderr, or the runner's own message when git wrote none, as for a timeout or a failed spawn. */
+function gitFailure(args: readonly string[], error: unknown): Error {
+  const failure = error as { stderr?: string; message: string };
+  return new Error(`git ${args.join(' ')} failed: ${failure.stderr?.trim() || failure.message}`, { cause: error });
 }
 
 /**
@@ -205,13 +210,14 @@ class TreeBuilder {
   }
 }
 
-/** The branch HEAD names, as a full ref, or the empty string for a detached HEAD, for which `symbolic-ref -q` exits 1 and prints nothing. */
-function currentBranch(worktree: string): string {
+/** The branch HEAD names, as a full ref, or the empty string for a detached HEAD, for which `symbolic-ref -q` exits 1 and prints nothing; any other failure throws as `git`'s do. */
+export function currentBranch(worktree: string): string {
+  const args = ['symbolic-ref', '-q', 'HEAD'];
   try {
-    return runGitSync(['--no-optional-locks', 'symbolic-ref', '-q', 'HEAD'], { cwd: worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    return runGitSync(['--no-optional-locks', ...args], { cwd: worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch (error) {
     if ((error as { status?: number }).status === 1) return '';
-    throw error;
+    throw gitFailure(args, error);
   }
 }
 
