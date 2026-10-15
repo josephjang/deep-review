@@ -179,22 +179,9 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const base = baseOf(context);
   requireOwnedReported([...new Set([...owned, ...claimed])].filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
 
-  const byIndex = new Map(resolved.findings.map((finding) => [finding.index, finding]));
-  const findings = ids.map((id, index): FixedFinding => {
-    const answer = byIndex.get(index)!;
-    return {
-      id,
-      status: answer.status,
-      file: answer.file,
-      line: answer.line,
-      note: answer.note,
-      message: answer.message,
-      files: [...answer.files],
-      corrections: answer.corrections,
-      validation: answer.validation,
-      requiredFiles: [...answer.requiredFiles],
-    };
-  });
+  // Each resolved finding is already the ledger's shape but for its id, which takes the place of the index the answer gave it.
+  const byIndex = new Map(resolved.findings.map(({ index, ...finding }) => [index, finding]));
+  const findings = ids.map((id, index): FixedFinding => ({ id, ...byIndex.get(index)! }));
   const recorded: FixRecorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output.drift, tests: output.tests, suite: output.suite, violations: [...resolved.violations] };
 
   // The fixer's snapshots are under the scratch directory its launch recorded; a worker given none took none.

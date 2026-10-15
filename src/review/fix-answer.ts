@@ -8,6 +8,7 @@
  * express and that need no tree are `checkFixerAnswer` in schemas.ts.
  */
 import { isAbsolute, relative, sep } from 'node:path';
+import type { FixedFinding } from '../checkpoint/events.ts';
 import type { PathHolder } from '../checkpoint/fix-state.ts';
 import { canonicalPath } from '../paths.ts';
 import { StructuralCheckError } from './errors.ts';
@@ -85,13 +86,11 @@ export function resolveReportedPath(worktree: string, lookup: RepoLookup, raw: s
 /**
  * A finding of a fixer's answer as the ledger records it (R4 of fixer
  * edits): its `edits` read as the files, resolved and empty for none, and
- * their message, null for none; its required files resolved.
+ * their message, null for none; its required files resolved. The ledger's
+ * own shape, with the answer's index where the ledger has the id, so the
+ * answer is translated in one place (`resolveFixerAnswer`).
  */
-export interface ResolvedFinding extends Omit<FixerOutput['findings'][number], 'edits' | 'requiredFiles'> {
-  readonly files: readonly string[];
-  readonly message: NonNullable<FixerOutput['findings'][number]['edits']>['message'] | null;
-  readonly requiredFiles: readonly string[];
-}
+export type ResolvedFinding = Omit<FixedFinding, 'id'> & { readonly index: number };
 
 /** A fixer's answer with every path resolved, and what it says about ownership. */
 export interface ResolvedAnswer {
