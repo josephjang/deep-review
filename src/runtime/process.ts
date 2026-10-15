@@ -61,6 +61,15 @@ export function notStarted(error: string, startedAt: string, endedAt: string = n
 }
 
 /**
+ * Whether a worker or a preflight probe is spawned detached. On POSIX it
+ * leads a process group of its own, which `killTree` addresses; on Windows
+ * it stays attached to the engine's console, so Ctrl-C ends it with the
+ * engine. A synchronous git call is detached on Windows instead
+ * (src/runtime/git-sync.ts says why).
+ */
+export const detachedChild = process.platform !== 'win32';
+
+/**
  * Run one process to its end, killing it with its whole tree at the
  * timeout (PD2, TD13). On POSIX it is spawned as the leader of its own
  * process group, which the kill addresses; on Windows `taskkill /T` walks
@@ -85,8 +94,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         stdio: descriptors,
         shell: false,
         windowsHide: true,
-        // Attached to the console on Windows, so Ctrl-C ends it with the engine; a synchronous git call is detached there instead (src/runtime/git-sync.ts says why).
-        detached: process.platform !== 'win32',
+        detached: detachedChild,
         windowsVerbatimArguments: request.verbatimArguments === true,
       });
     } catch (error) {
