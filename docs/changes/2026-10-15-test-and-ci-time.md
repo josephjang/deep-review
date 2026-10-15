@@ -151,7 +151,11 @@ suite at `e0e401a`:
   gives the programs it runs the environment, and reads the
   configuration, that the git on PATH does. Workers and probes
   (`src/runtime/process.ts`, `src/runtime/preflight.ts`) keep
-  `detached: process.platform !== 'win32'`.
+  `detached: process.platform !== 'win32'`. One call keeps the console:
+  `git commit-tree` in `src/review/commit.ts` signs the commit when
+  `commit.gpgSign` asks, and a signing prompt or a hardware key's touch
+  waits on the user, so it starts the git on PATH attached and with no
+  timeout, as before this change.
 - **R3: the suite runs below normal priority.** `test/setup.ts`, which
   every test process imports, lowers the priority class of its own
   process to `os.constants.priority.PRIORITY_BELOW_NORMAL`, so that
