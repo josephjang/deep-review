@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
-import { gitFailureDetail, gitTimedOut, gitTimeoutMs, installedGit, realGit, runGitSync, type GitSyncRunner, type GitSyncSpawnOptions } from '../../src/runtime/git-sync.ts';
+import { gitFailureDetail, gitLocator, gitTimedOut, gitTimeoutMs, installedGit, realGit, runGitSync, type GitSyncRunner, type GitSyncSpawnOptions } from '../../src/runtime/git-sync.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { git, withoutRepositoryVariables } from '../helpers/git.ts';
 
@@ -204,6 +204,21 @@ describe('realGit', () => {
 
   it('names git.exe in an exec path on a share', () => {
     assert.equal(realGit(recorder('\\\\server\\share\\Git\\mingw64\\libexec\\git-core').run, () => true), '\\\\server\\share\\Git\\mingw64\\libexec\\git-core\\git.exe');
+  });
+
+  it('resolves the binary on the first Windows call only, keeps it for the calls after, and resolves nothing for another platform', () => {
+    let resolutions = 0;
+    const locate = gitLocator(() => `C:\\Git${++resolutions}\\git.exe`);
+    assert.equal(locate('linux'), 'git');
+    assert.equal(locate('darwin'), 'git');
+    assert.equal(resolutions, 0, 'no lookup off Windows');
+    assert.equal(locate('win32'), 'C:\\Git1\\git.exe');
+    assert.equal(locate('win32'), 'C:\\Git1\\git.exe');
+    assert.equal(resolutions, 1, 'the second call kept what the first resolved');
+    assert.equal(locate('linux'), 'git');
+    // Each locator keeps its own binary, so one test's stand-in never reaches installedGit or another locator.
+    assert.equal(gitLocator(() => 'C:\\Other\\git.exe')('win32'), 'C:\\Other\\git.exe');
+    assert.equal(locate('win32'), 'C:\\Git1\\git.exe');
   });
 
   it('starts git from PATH outside Windows, resolving nothing', () => {
