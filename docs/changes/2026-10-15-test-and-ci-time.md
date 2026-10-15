@@ -115,11 +115,13 @@ suite at `e0e401a`:
   moves to `test/review/fix-pass-claims.test.ts`; "the continuation of
   a finished read-only run" moves to
   `test/review/fix-continuation.test.ts`. The 59 tests keep their names
-  and bodies. The script, constants and small helpers the three files
-  share (`reviewScript`, `fixedA`, `fixedB`, `found`, `noLeads`,
-  `labelsOf`, `addedLabels`, `literal`, `setPolicyBatchSize`) live once,
-  in a helper under `test/helpers/`, and each file imports only what it
-  uses, so that `npm run lint` passes.
+  and bodies. What the three files share, `reviewScript`, the `found`
+  and `noLeads` it is built from, and the `fixedA` and `fixedB` its
+  fixers write, lives once in `test/helpers/fix-pass-fixture.ts`; a
+  helper only one file uses stays in that file (`testA` and
+  `setPolicyBatchSize` in the fix pass, `labelsOf`, `addedLabels` and
+  `literal` in the continuation). Each file imports only what it uses,
+  so that `npm run lint` passes.
 - **R2: the engine's synchronous git calls start without a console host
   on Windows.** The five call sites, `src/scope/git.ts`,
   `src/review/commit.ts` (two), `src/checkpoint/locate.ts` and
