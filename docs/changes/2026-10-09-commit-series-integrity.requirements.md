@@ -353,7 +353,10 @@ two clusters in either run (review of 2026-10-09, F11).
   and no message or with a message and no files, and no longer refuses a
   message on a blocked or deferred finding (#26). A revision's commit
   then always carries the fixer's message, and the message the engine
-  composes stays only for a refused attempt's revisions (#9).
+  composes stays only for a refused attempt's revisions (#9). Revised
+  2026-10-16: the pairing is the shape of the answer, one nullable
+  `edits` field holding at least one file and the message, and no
+  longer a structural check (`2026-10-16-fixer-edits.md`).
 - **R12: A claims directory that disappears stops the run.** (Added
   2026-10-09, review F5.) When the engine finds the round's claims
   directory gone, or without the `held.json` it wrote there, as the

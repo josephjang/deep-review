@@ -27,16 +27,13 @@ gave it, with:
 - `note`: one sentence. For `applied`, what changed; for `deferred`,
   which criterion; for `blocked`, the file it needs or the unresolved
   edit anchor.
-- `files`: every file you edited or created for this finding; for an
-  already-applied finding whose edits an earlier attempt left, the files
-  that hold those edits.
-- `message`: for every finding that names files, its commit message,
-  whatever its status, a `subject` of at most 72 characters with no
-  trailing period and a `body` that says why, in the style the
-  repository's `git log` shows; a blocked or deferred finding's says the
-  change is partial and what it waits for. An already-applied finding
-  whose edits an earlier attempt left gives one too, since their commit
-  carries it. Null for a finding that names no file.
+- `edits`: null when you made no edit for this finding and no earlier
+  attempt left any; otherwise the `files` you edited or created for
+  it, or that hold an earlier attempt's edits for it, and their
+  `message`, a `subject` of at most 72 characters with no trailing
+  period and a `body` that says why, in the style the repository's
+  `git log` shows. A blocked or deferred finding with edits says in
+  its message that the change is partial and what it waits for.
 - `corrections`: the brief's claims the current code contradicts.
 - `validation`: the evidence each fix is covered.
 - `requiredFiles`: for a blocked finding, the files it needs that you

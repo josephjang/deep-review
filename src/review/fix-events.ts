@@ -139,7 +139,7 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
       body: truncated(applied.map((finding) => `${finding.message!.subject}\n\n${finding.message!.body.trimEnd()}`.trimEnd()).join('\n\n'), bodyLength),
     };
   }
-  // Every finding that names files carries a message (R11 of commit series integrity), so one answer still lands here: a finding that names no file whose snapshot nonetheless differs in a file another finding of the batch named, so its revision holds an edit it did not report.
+  // Every finding that names files carries a message, by the shape of the answer's `edits` (R1 of fixer edits; R11 of commit series integrity), so one answer still lands here: a finding that names no file whose snapshot nonetheless differs in a file another finding of the batch named, so its revision holds an edit it did not report.
   return {
     subject: truncated(`Keep the edits made for ${held.map((finding) => finding.id).join(', ')}`, subjectLength),
     body: truncated(held.map((finding) => `${finding.id} ${finding.status}: ${finding.note}`).join('\n'), bodyLength),

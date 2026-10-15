@@ -191,7 +191,7 @@ describe('the repository\'s roles/', () => {
       const prompt = roles.find((role) => role.key === key)!.prompt;
       assert.match(prompt, /\*\*Claim before the first edit for a finding\.\*\* Your task gives a claim\s+command\. Before you edit anything for a finding, run it once for each\s+file outside your own that the finding and its tests will need, existing\s+or new/, key);
       assert.match(prompt, /A refused claim blocks the finding: report it `blocked` with\s+the file in `requiredFiles`, and make no edit for it\./, key);
-      assert.match(prompt, /A refusal that\s+comes after you edited leaves those edits in place: list them under the\s+finding, with a message that says the change is partial\./, key);
+      assert.match(prompt, /A refusal that\s+comes after you edited leaves those edits in place: list them under the\s+finding's `edits`, with a message that says the change is partial\./, key);
       assert.ok(prompt.indexOf('**Claim before the first edit for a finding.**') < prompt.indexOf('**Snapshot after each finding.**'), `${key} claims before it snapshots`);
       assert.match(prompt, /Before each snapshot,\s+run the checks your task gives that finish quickly, such as a typecheck\s+and a lint, on what the finding touched, and correct within the finding\s+what they show/, key);
       assert.match(prompt, /the full suite stays at the end of your batch\./, key);
@@ -201,14 +201,15 @@ describe('the repository\'s roles/', () => {
     }
   });
 
-  it('asks every fixer role for a message with every finding that names files, whatever its status, a partial one for a blocked or deferred finding, and the message of an already-applied finding whose edits an earlier attempt left (R11 of commit series integrity; R20 of the fix pass)', () => {
+  it('asks every fixer role for one edits field, null for a finding with no edits and otherwise its files and their message, whatever its status, a partial one for a blocked or deferred finding, and the edits an earlier attempt left (R5 of fixer edits; R11 of commit series integrity; R20 of the fix pass)', () => {
     for (const key of fixerRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
-      assert.match(prompt, /`message`: for every finding that names files, its commit message,\s+whatever its status/, key);
-      assert.match(prompt, /a blocked or deferred finding's says the\s+change is partial and what it waits for\./, key);
-      assert.match(prompt, /An already-applied finding\s+whose edits an earlier attempt left gives one too, since their commit\s+carries it\. Null for a finding that names no file\./, key);
-      // The status rule it replaces is gone (#26, #9).
+      assert.match(prompt, /- `edits`: null when you made no edit for this finding and no earlier\s+attempt left any; otherwise the `files` you edited or created for\s+it, or that hold an earlier attempt's edits for it, and their\s+`message`, a `subject` of at most 72 characters with no trailing\s+period and a `body` that says why/, key);
+      assert.match(prompt, /A blocked or deferred finding with edits says in\s+its message that the change is partial and what it waits for\./, key);
+      assert.match(prompt, /including `already-applied` for facts you verified are already correct,\s+with `edits` null unless an earlier attempt's edits hold them/, key);
+      // The status rule (#26, #9) and the two fields whose pairing the model had to read across (#54) are gone.
       assert.doesNotMatch(prompt, /for an applied finding, its commit message|null otherwise\.|null for a deferred or blocked one/, key);
+      assert.doesNotMatch(prompt, /^- `(files|message)`:|names files|names no file|with their `files`/m, key);
     }
   });
 

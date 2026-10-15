@@ -69,8 +69,7 @@ describe('the fixer\'s answer against the tree', () => {
       file: 'src/b.ts',
       line: 1,
       note: 'n',
-      message: finding.status === 'blocked' ? null : { subject: 'fix: x', body: '' },
-      files: finding.files,
+      edits: finding.files.length === 0 ? null : { files: finding.files, message: { subject: 'fix: x', body: '' } },
       corrections: [],
       validation: [],
       requiredFiles: finding.requiredFiles ?? [],
@@ -88,6 +87,13 @@ describe('the fixer\'s answer against the tree', () => {
       assert.deepEqual(resolved.findings.map((finding) => finding.files), [['src/b.ts'], ['test/b.test.ts']]);
       assert.deepEqual([...resolved.named].sort(), ['src/b.ts', 'test/b.test.ts']);
       assert.deepEqual(resolved.violations, []);
+    });
+
+    it('reads a finding\'s edits as its files and their message, and no edits as no file and no message (R4 of fixer edits)', () => {
+      const [edited, blocked] = resolveFixerAnswer(answer([{ files: ['src/b.ts'] }, { files: [], requiredFiles: ['src/parser.ts'], status: 'blocked' }]), context()).findings;
+      assert.deepEqual({ files: edited!.files, message: edited!.message }, { files: ['src/b.ts'], message: { subject: 'fix: x', body: '' } });
+      assert.deepEqual({ files: blocked!.files, message: blocked!.message }, { files: [], message: null });
+      assert.equal('edits' in edited!, false, 'the resolved finding is the ledger\'s flat shape');
     });
 
     it('records a reported file another cluster owns as a violation, and keeps the answer', () => {

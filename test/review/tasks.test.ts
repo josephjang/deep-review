@@ -350,7 +350,7 @@ describe('the fixer\'s task', () => {
   it('quotes the claim command on a line of its own with the path placeholder, before the first edit for a finding, and says a refusal blocks the finding (R1, R8 of commit series integrity)', () => {
     const task = fixerTask(input);
     assert.match(task, /^Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of <path>:\n\n {4}node "\/engine\/main\.mjs" claim --path '<path>' --unit c1-2 --in "\/scratch\/claims\/run\/round-1"\n\n/m);
-    assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it\. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial\. Report every file you edit or create under the finding it served\.\nA path that begins with `-` goes in one argument, `--path=<path>`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse\.$/m);
+    assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it\. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial\. Report every file you edit or create under the finding it served\.\nA path that begins with `-` goes in one argument, `--path=<path>`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse\.$/m);
     assert.match(task, /^A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written\.$/m, 'the engine cannot tell the fixer\'s shell, so the fixer escapes a quote in the path');
     assert.match(task, /^Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0\.$/m, 'exit 1 is no claim, so the fixer neither edits nor reports the finding blocked on it');
     assert.doesNotMatch(task, /You may edit any other file/, 'the claim rule replaces the old freedom');
@@ -424,16 +424,20 @@ describe('the fixer\'s task', () => {
 
   it('describes the answer\'s fields and the rule that every changed owned file is reported, and warns of earlier work only when there may be some', () => {
     const task = fixerTask(input);
-    for (const field of ['`status`', '`already-applied`', '`file`', '`line`', '`note`', '`files`', '`message`', '`subject`', '`body`', '`corrections`', '`validation`', '`requiredFiles`', '`drift`', '`tests`', '`suite`']) assert.ok(task.includes(field), field);
+    for (const field of ['`status`', '`already-applied`', '`file`', '`line`', '`note`', '`edits`', '`files`', '`message`', '`subject`', '`body`', '`corrections`', '`validation`', '`requiredFiles`', '`drift`', '`tests`', '`suite`']) assert.ok(task.includes(field), field);
     assert.match(task, /at most 72 characters with no trailing period/);
     assert.match(task, /an answer that leaves one out is discarded/);
     assert.match(task, /Write logs and every other temporary file under your scratch directory, never in the repository\.$/);
     assert.doesNotMatch(task, /may already hold part of this work/);
     assert.match(fixerTask({ ...input, mayHoldWork: true }), /The tree may already hold part of this work: an earlier worker on it did not finish\. Verify each finding against the code before applying it/);
     assert.doesNotMatch(fixerTask({ ...input, mayHoldWork: true }), /An earlier attempt left edits/, 'no finding has an attempt\'s recorded edits');
-    assert.match(fixerTask({ ...input, mayHoldWork: true, unfinished: ['RIPPLE-1', 'SWEEP-1'] }), /never apply a change on top of itself\. An earlier attempt left edits for RIPPLE-1, SWEEP-1, recorded as that attempt's work; for each of these you report `already-applied` with the `files` that hold its edits, and give the `message` its commit will carry, as for an applied finding\.$/m);
-    assert.match(fixerTask(input), /a one-sentence `note`; the `files` you edited or created for it, or that hold an earlier attempt's edits for it; a `message`/, 'an already-applied finding with a message names its earlier attempt\'s files (R11)');
-    assert.match(fixerTask(input), /a `message` for every finding that names files, whatever its status, [^;]*, a blocked or deferred finding's saying the change is partial and what it waits for, and null for a finding that names no file;/);
+    assert.match(fixerTask({ ...input, mayHoldWork: true, unfinished: ['RIPPLE-1', 'SWEEP-1'] }), /never apply a change on top of itself\. An earlier attempt left edits for RIPPLE-1, SWEEP-1, recorded as that attempt's work; for each of these you report `already-applied` with `edits` naming the files that hold its edits and the `message` its commit will carry, as for an applied finding\.$/m);
+    assert.match(fixerTask(input), /a one-sentence `note`; the `edits` for it, null when you made no edit for it and no earlier attempt left any, otherwise the `files` you edited or created for it, or that hold an earlier attempt's edits for it, and their `message`, /, 'one field, null for a finding with no edits; an already-applied finding with a message names its earlier attempt\'s files (R5 of fixer edits; R11)');
+    assert.match(fixerTask(input), /a `body` that says why, in the style `git log` shows for this repository, a blocked or deferred finding's saying the change is partial and what it waits for; any `corrections`/);
+    assert.match(fixerTask(input), /Every file you own whose bytes you changed must appear in some finding's `edits`; an answer that leaves one out is discarded/);
+    assert.match(fixerTask({ ...input, mayHoldWork: true }), /report one already resolved as `already-applied`, with `edits` naming the files that hold its fix when an earlier attempt made it and null otherwise, and never apply a change on top of itself\./);
+    // The rule across two fields is gone: no sentence pairs a message with files named elsewhere (#54).
+    assert.doesNotMatch(fixerTask(input), /names files|names no file|in some finding's `files`/);
     assert.doesNotMatch(fixerTask(input), /null for a deferred or blocked one/);
   });
 });
@@ -532,9 +536,9 @@ describe('the repair task', () => {
     assert.match(task, /^- c1-1 RIPPLE-1 applied: guarded the null$/m);
     assert.match(task, /with that check's index in place of <index>/);
     assert.match(task, /Verify each check against the code/);
-    assert.match(task, /The `message` of an applied check describes what the repair changed\./);
-    assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied` with the `files` that hold its edits, and give the `message` its commit will carry, as for an applied check\./);
-    assert.match(task, /the `files` you edited or created for it, or that hold an earlier attempt's edits for it;/);
+    assert.match(task, /The message in an applied check's `edits` describes what the repair changed\./);
+    assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied` with `edits` naming the files that hold its edits and the `message` its commit will carry, as for an applied check\./);
+    assert.match(task, /the `edits` for it, null when you made no edit for it and no earlier attempt left any, otherwise the `files` you edited or created for it, or that hold an earlier attempt's edits for it, and their `message`/);
   });
 
   it('gives a check that failed before the fixes too its output then, and tells the worker to fix only the failures it does not show (R24)', () => {

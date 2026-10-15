@@ -272,6 +272,58 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.ok(box.logs.includes('phase fixes: second round for SCAN-1, in 1 cluster and 1 batch'), box.logs.join('\n'));
   });
 
+  it('completes a batch holding a blocked finding with no edits on its first attempt, commits its applied finding under the fixer\'s message, and gives the blocked one the second round (R3, R4 of fixer edits)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const guardedB = `${fixedB}// keeps the guard\n`;
+    box.script({
+      // Two findings in src/a.ts, c1's one batch, and one in src/b.ts, c2's: the shape of batch c1-1 on #54.
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 5, 'other() passes null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+      'fixer:fixes:c1-1': {
+        edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }],
+        output: fixerAnswer([
+          { files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' },
+          { status: 'blocked', files: [], requiredFiles: ['src/b.ts'], note: 'the fix needs src/b.ts, which c2 owns' },
+        ]),
+      },
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+      'fixer:fixes:c3-1': { edits: [{ writes: { 'src/b.ts': guardedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Keep the guard other() needs' }]) },
+    });
+    reportText(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'attempt.failed'), [], 'no attempt refused');
+    assert.equal(fix.notAttempted.fixes['c1-1'], undefined);
+    // The blocked finding is recorded with no file and no message, filled from its null edits.
+    assert.deepEqual(fix.answers.fixes['c1-1']!.findings.map((finding) => [finding.id, finding.status, finding.files, finding.message?.subject ?? null]), [
+      ['SCAN-1', 'applied', ['src/a.ts'], 'fix(a): Return 0 for a null text'],
+      ['SCAN-2', 'blocked', [], null],
+    ]);
+    assert.deepEqual(fix.secondRound?.blocked, [{ id: 'SCAN-2', requiredFiles: ['src/b.ts'] }]);
+    // The applied finding is committed under the fixer's own subject, not a subject composed for an unfinished attempt.
+    commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
+    assert.deepEqual(git(box.repo, 'log', '--format=%s', '-3').split('\n').reverse(), ['fix(a): Return 0 for a null text', 'fix(b): Import parse', 'fix(b): Keep the guard other() needs']);
+  });
+
+  it('fails an answer whose edits carry a message and no file at the output schema, and keeps the retry\'s answer (R1 of fixer edits)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1-1': [
+        { output: fixerAnswer([{ status: 'blocked', files: [], requiredFiles: ['src/b.ts'], malformed: 'message-without-files', subject: 'fix(a): Guard the null in part', body: 'Partial: no edit made.' }]) },
+        { output: fixerAnswer([{ status: 'blocked', files: [], requiredFiles: ['src/b.ts'] }]) },
+      ],
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+      'fixer:fixes:c3-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+    });
+    reportText(await box.fix('claude'));
+    const state = box.run();
+    const failed = box.events(state.id).filter(([kind, payload]) => kind === 'attempt.failed' && payload.key === 'c1-1');
+    assert.equal(failed.length, 1);
+    assert.match(String(failed[0]![1].reason), /^failed: The answer does not match the output schema/);
+    assert.doesNotMatch(String(failed[0]![1].reason), /structural check/);
+    assert.deepEqual(state.review!.fix!.answers.fixes['c1-1']!.findings.map((finding) => [finding.status, finding.files, finding.message]), [['blocked', [], null]]);
+  });
+
   it('sees a CRLF checkout rewritten to LF as no change: no revision for the check, no drift, and a fix\'s patch of its own lines only (R22)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     // Check the reviewed tree out again with core.autocrlf, as Git for Windows does: every text file CRLF in the worktree, LF in the index.

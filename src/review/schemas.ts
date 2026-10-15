@@ -156,10 +156,19 @@ export const fixerOutputSchema = z.strictObject({
     file: reportedPath,
     line: z.number().int().min(1).nullable(),
     note: z.string().min(1).max(400),
-    /** The commit message of the finding's edits, in the repository's own style: present exactly when `files` names a file, whatever the status, a blocked or deferred finding's saying the change is partial (R11 of commit series integrity). */
-    message: z.strictObject({ subject: z.string().min(1).max(72), body: z.string().max(2000) }).nullable(),
-    /** Every file edited or created for this finding. */
-    files: z.array(reportedPath).max(200),
+    /**
+     * Null for a finding with no edits. Otherwise the files edited or
+     * created for it, or that hold an earlier attempt's edits for it, and
+     * the commit message those edits take, in the repository's own style,
+     * whatever the status: a blocked or deferred finding's says the change
+     * is partial (R1 of fixer edits; R11 of commit series integrity). One
+     * field, so a message without files, or files without a message, is a
+     * shape the schema refuses at the worker's boundary.
+     */
+    edits: z.strictObject({
+      files: z.array(reportedPath).min(1).max(200),
+      message: z.strictObject({ subject: z.string().min(1).max(72), body: z.string().max(2000) }),
+    }).nullable(),
     corrections: z.array(z.strictObject({
       file: z.string().min(1).max(400),
       anchor: z.string().min(1).max(400),
@@ -179,11 +188,12 @@ export type FixerOutput = z.infer<typeof fixerOutputSchema>;
 
 /**
  * Refuse a fixer's answer whose findings do not name each index of the
- * task once, that has a finding naming files with no message or a message
- * with no files, whatever its status (R11 of commit series integrity),
- * whose subject is not one line without a trailing period, or that names
- * required files on a finding that is not blocked. The checks that read
- * the paths against the worktree come after these (`fix-answer.ts`).
+ * task once, whose subject is not one line without a trailing period, or
+ * that names required files on a finding that is not blocked. That a
+ * message goes exactly with files is the shape of `edits`, which the
+ * schema holds (R1, R2 of fixer edits; R11 of commit series integrity).
+ * The checks that read the paths against the worktree come after these
+ * (`fix-answer.ts`).
  */
 export function checkFixerAnswer(output: FixerOutput, count: number): void {
   const seen = new Set<number>();
@@ -192,11 +202,9 @@ export function checkFixerAnswer(output: FixerOutput, count: number): void {
     if (finding.index >= count) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count - 1)}]`);
     if (seen.has(finding.index)) throw new StructuralCheckError(`${what} is answered twice`);
     seen.add(finding.index);
-    // The message goes with the edits, not the status: a blocked or deferred finding that holds edits commits them under its own message, saying the change is partial (R11, PD10 of commit series integrity).
-    if (finding.files.length > 0 && finding.message === null) throw new StructuralCheckError(`${what} names files and has no commit message; every finding that names files carries the message their commit takes, whatever its status`);
-    if (finding.files.length === 0 && finding.message !== null) throw new StructuralCheckError(`${what} has a commit message and names no file; a finding with no edits carries none`);
-    if (finding.message !== null && (/[\r\n]/.test(finding.message.subject) || finding.message.subject.trimEnd().endsWith('.'))) {
-      throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(finding.message.subject)}`);
+    const subject = finding.edits?.message.subject;
+    if (subject !== undefined && (/[\r\n]/.test(subject) || subject.trimEnd().endsWith('.'))) {
+      throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(subject)}`);
     }
     if (finding.requiredFiles.length > 0 && finding.status !== 'blocked') throw new StructuralCheckError(`${what} is ${finding.status} and names required files, which only a blocked finding does`);
   }

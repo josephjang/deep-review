@@ -157,8 +157,11 @@ export interface FixedFinding {
   readonly subject?: string;
   readonly body?: string;
   readonly note?: string;
-  /** False for an answer that leaves the message out of a finding that names files, which the structural check refuses. */
-  readonly message?: false;
+  /**
+   * A shape of `edits` the output schema refuses, as the fixer of #54
+   * wrote it: a message with an empty `files`.
+   */
+  readonly malformed?: 'message-without-files';
 }
 
 /** A fixer's answer with one entry per finding, by index, in the shape its output schema demands. */
@@ -166,15 +169,16 @@ export function fixerAnswer(findings: readonly FixedFinding[]): unknown {
   return {
     findings: findings.map((finding, index) => {
       const status = finding.status ?? 'applied';
+      const files = [...(finding.files ?? [])];
+      const message = { subject: finding.subject ?? `fix: Apply finding ${String(index)}`, body: finding.body ?? `Why finding ${String(index)} changed.` };
       return {
         index,
         status,
         file: finding.files?.[0] ?? 'src/a.ts',
         line: 1,
         note: finding.note ?? `fake ${status} [${String(index)}]`,
-        // A finding that names files carries a message, whatever its status, and one that names none carries none (R11 of commit series integrity); `message: false` leaves it out, as a fixer that breaks the rule does.
-        message: (finding.files ?? []).length > 0 && finding.message !== false ? { subject: finding.subject ?? `fix: Apply finding ${String(index)}`, body: finding.body ?? `Why finding ${String(index)} changed.` } : null,
-        files: [...(finding.files ?? [])],
+        // A finding with files carries them and their message, whatever its status, and one with none carries null (R1 of fixer edits); `malformed` writes a shape the schema refuses instead.
+        edits: finding.malformed === 'message-without-files' ? { files: [], message } : files.length > 0 ? { files, message } : null,
         corrections: [],
         validation: [{ method: 'existing', source: 'tests', evidence: 'fake evidence' }],
         requiredFiles: [...(finding.requiredFiles ?? [])],

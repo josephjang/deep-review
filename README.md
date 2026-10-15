@@ -308,9 +308,9 @@ exclusively in a directory the engine prepares per run and round beside
 the workers' scratch, so two fixers claiming one file at once get one
 claim and one refusal, and it starts no process. A fixer returns a
 schema the engine validates: per finding a status (`applied`,
-`already-applied`, `deferred`, `blocked`), a note, the files it
-changed and, for every finding that names files, a commit message,
-which for a blocked or deferred finding says the change is partial.
+`already-applied`, `deferred`, `blocked`), a note, and for a finding
+it edited, the files and their commit message, which for a blocked or
+deferred finding says the change is partial.
 Before each snapshot it runs the quick checks it was given, since each
 finding becomes a commit the repository must accept alone. After
 each finding it runs `deep-review snapshot`, which copies what it

@@ -114,16 +114,53 @@ describe('the structural checks', () => {
 });
 
 describe('the fixer\'s output schema', () => {
-  const finding = (index: number, change: Record<string, unknown> = {}): Record<string, unknown> => ({
-    index, status: 'applied', file: 'src/a.ts', line: 3, note: 'n', message: { subject: 'fix(a): Guard the null', body: 'Why.' },
-    files: ['src/a.ts'], corrections: [], validation: [{ method: 'mutation', source: 'test/a.test.ts', evidence: 'red then green' }], requiredFiles: [], ...change,
-  });
+  /**
+   * A finding of the answer; `files` and `message` are given as before and
+   * built into `edits`, null only when both say none, so a test can write
+   * the shapes R11 of commit series integrity forbids and see the schema
+   * refuse them.
+   */
+  const finding = (index: number, change: Record<string, unknown> = {}): Record<string, unknown> => {
+    const { files = ['src/a.ts'], message = { subject: 'fix(a): Guard the null', body: 'Why.' }, ...rest } = change;
+    return {
+      index, status: 'applied', file: 'src/a.ts', line: 3, note: 'n', edits: (files as unknown[]).length === 0 && message === null ? null : { files, message },
+      corrections: [], validation: [{ method: 'mutation', source: 'test/a.test.ts', evidence: 'red then green' }], requiredFiles: [], ...rest,
+    };
+  };
   const answer = (findings: Record<string, unknown>[]): Record<string, unknown> => ({ findings, drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' } });
 
   it('compiles for both runtimes and accepts a whole answer', () => {
     const compiled = compileOutputSchema(fixerOutputSchema);
     assert.equal(compiled.json.additionalProperties, false);
     assert.equal(fixerOutputSchema.safeParse(answer([finding(0), finding(1, { status: 'deferred', message: null, line: null, files: [] })])).success, true);
+  });
+
+  it('compiles edits as a closed object of at least one file and a message, or null (R1, D7 of fixer edits)', () => {
+    const { json } = compileOutputSchema(fixerOutputSchema);
+    const item = (json.properties as Record<string, { items: { properties: Record<string, unknown>; required: string[] } }>).findings!.items;
+    assert.equal(item.required.includes('edits'), true);
+    assert.equal(['files', 'message'].some((field) => field in item.properties), false, 'no top-level files or message beside edits');
+    const { anyOf } = item.properties.edits as { anyOf: Record<string, unknown>[] };
+    assert.deepEqual(anyOf.map((branch) => branch.type), ['object', 'null']);
+    const edits = anyOf[0] as { additionalProperties: unknown; required: string[]; properties: { files: { minItems?: number }; message: { type: unknown } } };
+    assert.equal(edits.additionalProperties, false);
+    assert.deepEqual([...edits.required].sort(), ['files', 'message']);
+    assert.equal(edits.properties.files.minItems, 1);
+    assert.equal(edits.properties.message.type, 'object', 'the message inside edits is not nullable');
+  });
+
+  it('refuses every shape of edits that breaks the pairing, whatever the status (R1 of fixer edits; R11 of commit series integrity)', () => {
+    for (const status of ['applied', 'already-applied', 'deferred', 'blocked']) {
+      const requiredFiles = status === 'blocked' ? ['src/b.ts'] : [];
+      for (const [name, edits] of [
+        ['a message and no files', { files: [], message: { subject: 'fix: x', body: '' } }],
+        ['files and a null message', { files: ['src/a.ts'], message: null }],
+        ['files and no message', { files: ['src/a.ts'] }],
+        ['a message and no files field', { message: { subject: 'fix: x', body: '' } }],
+        ['an unknown field', { files: ['src/a.ts'], message: { subject: 'fix: x', body: '' }, why: 'w' }],
+      ] as const) assert.equal(fixerOutputSchema.safeParse(answer([{ ...finding(0, { status, requiredFiles }), edits }])).success, false, `${status}: ${name}`);
+      assert.equal(fixerOutputSchema.safeParse(answer([{ ...finding(0, { status, requiredFiles }), edits: undefined }])).success, false, `${status}: edits left out`);
+    }
   });
 
   it('refuses an unknown status or validation method, an empty note, an over-long subject and a missing field', () => {
@@ -135,6 +172,14 @@ describe('the fixer\'s output schema', () => {
       ['requiredFiles', answer([{ ...finding(0), requiredFiles: undefined }])],
       ['suite', { findings: [finding(0)], drift: [], tests: [], suite: { result: 'green', command: '', failures: '' } }],
     ] as const) assert.equal(fixerOutputSchema.safeParse(value).success, false, name);
+  });
+
+  it('refuses the answer of #54: a blocked finding with no files and a message', () => {
+    const blocked = finding(0, {
+      status: 'blocked', files: [], requiredFiles: ['test/runtime/git-sync.test.ts'],
+      message: { subject: 'fix(runtime): Bound only a detached git with the default timeout', body: 'Partial: no edit made. The claim on test/runtime/git-sync.test.ts was refused.' },
+    });
+    assert.equal(fixerOutputSchema.safeParse(answer([blocked])).success, false);
   });
 
   const parsed = (findings: Record<string, unknown>[]) => fixerOutputSchema.parse(answer(findings));
@@ -155,14 +200,6 @@ describe('the fixer\'s output schema', () => {
     for (const status of ['blocked', 'deferred', 'already-applied', 'applied']) {
       const requiredFiles = status === 'blocked' ? ['src/b.ts'] : [];
       assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status, requiredFiles, message: { subject: 'fix(a): Guard the null in part, until c2 lands', body: 'Partial: waits for src/b.ts.' } })]), 1), status);
-    }
-  });
-
-  it('refuses, whatever the status, a finding that names files with no message and one with a message and no files (R11 of commit series integrity)', () => {
-    for (const status of ['applied', 'already-applied', 'deferred', 'blocked']) {
-      const requiredFiles = status === 'blocked' ? ['src/b.ts'] : [];
-      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status, requiredFiles, message: null })]), 1), /Finding \[0\] names files and has no commit message; every finding that names files carries the message their commit takes, whatever its status/, status);
-      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status, requiredFiles, files: [] })]), 1), /Finding \[0\] has a commit message and names no file; a finding with no edits carries none/, status);
     }
   });
 

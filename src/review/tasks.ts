@@ -314,7 +314,7 @@ function claimBlock(command: string): string {
     '',
     `    ${command}`,
     '',
-    'It claims the file for your cluster until your cluster\'s last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding, with a message that says the change is partial. Report every file you edit or create under the finding it served.',
+    'It claims the file for your cluster until your cluster\'s last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding\'s `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.',
     `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
     'A path that holds a `\'` must have that quote escaped as your shell requires inside single quotes, `\'\\\'\'` in bash and `\'\'` in PowerShell, so the path stays one argument and the command runs as written.',
     'Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0.',
@@ -334,7 +334,7 @@ function snapshotBlock(command: string, unit: 'finding' | 'check'): string {
 
 /** The answer's fields, as both fixer tasks describe them. */
 const answerFields = (unit: 'finding' | 'check'): string =>
-  `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it; a \`message\` for every ${unit} that names files, whatever its status, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for, and null for a ${unit} that names no file; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`files\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+  `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 
 const scratchRule = 'Write logs and every other temporary file under your scratch directory, never in the repository.';
 
@@ -353,9 +353,9 @@ export const unelevatedSandboxRule = 'Your shell runs in Codex\'s unelevated Win
  * gives when it verifies them.
  */
 function earlierWork(unit: 'finding' | 'check', unfinished: readonly string[]): string {
-  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\` with the files that hold its fix, and never apply a change on top of itself.`;
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix when an earlier attempt made it and null otherwise, and never apply a change on top of itself.`;
   if (unfinished.length === 0) return warning;
-  return `${warning} An earlier attempt left edits for ${unfinished.join(', ')}, recorded as that attempt's work; for each of these you report \`already-applied\` with the \`files\` that hold its edits, and give the \`message\` its commit will carry, as for an applied ${unit}.`;
+  return `${warning} An earlier attempt left edits for ${unfinished.join(', ')}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
 
 /** A candidate as a task names it beside the others of its finding: what it claims, where, and what its verifier said of it alone. */
@@ -722,7 +722,7 @@ export function repairTask(input: RepairTaskInput): string {
     snapshotBlock(input.snapshotCommand, 'check'),
     '',
     ...(input.mayHoldWork ? [earlierWork('check', input.unfinished), ''] : []),
-    `${answerFields('check')} The \`message\` of an applied check describes what the repair changed.`,
+    `${answerFields('check')} The message in an applied check's \`edits\` describes what the repair changed.`,
     '',
     scratchRule,
   ].join('\n');

@@ -225,7 +225,17 @@ where the worker can still correct it.
   partial. In `src/review/tasks.ts`, `answerFields`, `earlierWork` and
   `claimBlock` say the same in the task's words, and the rule "every
   file you own whose bytes you changed must appear in some finding's
-  `edits`" replaces the one that names `files`.
+  `edits`" replaces the one that names `files`. (Amended 2026-10-16,
+  during the implementation: two more sentences named `files` as a
+  field of its own and would have asked for files with no message.
+  `earlierWork`'s first sentence, which asked a finding found already
+  resolved for "the files that hold its fix", now asks for `edits`
+  naming them when an earlier attempt made the fix and null otherwise;
+  and `roles/fragments/fixer-documentation.md`, which asked a
+  documentation fixer for facts already correct "with their `files`",
+  now asks for `edits` null unless an earlier attempt's edits hold
+  them. Either was the #54 refusal waiting for a fixer to read it
+  literally.)
 - R6: The role prompt change and the schema change are one commit,
   since the prompt names the field the schema defines and the tests pin
   both; the series ends with the commit that rebuilds `dist/`. The hash
@@ -237,7 +247,9 @@ where the worker can still correct it.
   answer and no longer a structural check, pointing here; the output
   schema listing under "Output schema and structural checks (R5)" of
   `2026-10-01-fix-pass.design.md` gains a note that `message` and
-  `files` became `edits`, pointing here.
+  `files` became `edits`, pointing here; and `README.md`, which
+  describes the fixer's answer, says a finding it edited carries the
+  files and their commit message.
 - R8: The test runtime (`test/helpers/fake-runtime.ts`) answers in the
   new shape, with a way to answer a shape the schema refuses, so the
   tests that today give a fixer "that breaks the rule" exercise the
