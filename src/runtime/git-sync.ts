@@ -38,7 +38,8 @@ export interface GitSyncHost {
 export function realGit(run: GitSyncRunner = execFileSync, exists: (path: string) => boolean = existsSync): string {
   let execPath: string;
   try {
-    execPath = String(run('git', ['--exec-path'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, detached: false, timeout: gitTimeoutMs })).trim();
+    // Through runGitSync with git named, so the git on PATH is asked with the console settings of every other call.
+    execPath = runGitSync(['--exec-path'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: gitTimeoutMs }, { run, file: 'git' }).trim();
   } catch {
     return 'git';
   }
