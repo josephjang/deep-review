@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { runGitSync } from '../runtime/git-sync.ts';
+import { gitFailureDetail, runGitSync } from '../runtime/git-sync.ts';
 
 /** The bytes a git command may print before the capture gives up: a binary patch of a large scope. */
 const maxOutputBytes = 512 * 1024 * 1024;
@@ -25,8 +25,7 @@ export function git(cwd: string, args: readonly string[], options: GitOptions = 
     if (failure.status !== undefined && failure.status !== null && options.okExitCodes?.includes(failure.status) && failure.stdout !== undefined) {
       return failure.stdout;
     }
-    const detail = failure.stderr?.toString('utf8').trim() || failure.message;
-    throw new Error(`git ${args.join(' ')} failed: ${detail}`);
+    throw new Error(`git ${args.join(' ')} failed: ${gitFailureDetail(failure)}`);
   }
 }
 

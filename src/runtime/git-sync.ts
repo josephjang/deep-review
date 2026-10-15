@@ -136,3 +136,22 @@ export function runGitSync(args: readonly string[], options: ExecFileSyncOptions
   const timeout = options.timeout ?? (detached ? gitTimeoutMs : undefined);
   return run(file, args, { ...options, windowsHide: true, detached, ...(timeout === undefined ? {} : { timeout }) });
 }
+
+/** Whether `error`, as `runGitSync` threw it, is that of a git ended at its timeout, not of one that exited non-zero or failed to start. */
+export function gitTimedOut(error: unknown): boolean {
+  return (error as { code?: unknown } | null | undefined)?.code === 'ETIMEDOUT';
+}
+
+/**
+ * What a caller reports after the git command for the `error`
+ * `runGitSync` threw: for a git ended at its `timeout`, that it timed out,
+ * then any stderr it wrote before, which would otherwise hide the timeout;
+ * else git's stderr, or the runner's own message when git wrote none, as
+ * for a failed spawn.
+ */
+export function gitFailureDetail(error: unknown, timeout = gitTimeoutMs): string {
+  const failure = error as { stderr?: string | Buffer; message: string };
+  const stderr = (typeof failure.stderr === 'string' ? failure.stderr : (failure.stderr?.toString('utf8') ?? '')).trim();
+  if (gitTimedOut(error)) return `timed out after ${timeout / 1000} s and was ended${stderr === '' ? '' : `: ${stderr}`}`;
+  return stderr || failure.message;
+}

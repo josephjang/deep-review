@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
-import { gitTimeoutMs, installedGit, realGit, runGitSync, type GitSyncRunner, type GitSyncSpawnOptions } from '../../src/runtime/git-sync.ts';
+import { gitFailureDetail, gitTimedOut, gitTimeoutMs, installedGit, realGit, runGitSync, type GitSyncRunner, type GitSyncSpawnOptions } from '../../src/runtime/git-sync.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { git, withoutRepositoryVariables } from '../helpers/git.ts';
 
@@ -151,6 +151,33 @@ describe('runGitSync', () => {
       return execFileSync(file, args, withoutDetached);
     };
     assert.equal(runGitSync(['-e', countOwnConsoleHosts], options, { file: process.execPath, run: attached }), '1');
+  });
+});
+
+describe('gitFailureDetail', () => {
+  /** An error of the shape runGitSync throws for a git ended at its timeout, with what git wrote to stderr before. */
+  const timedOut = (stderr: string | Buffer): Error => Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT', status: null, signal: 'SIGTERM', stderr });
+
+  it('says git timed out before any stderr it wrote, as text or bytes, so the stderr does not hide the timeout', () => {
+    assert.equal(gitTimedOut(timedOut('')), true);
+    assert.equal(gitFailureDetail(timedOut('warning: slow\n')), 'timed out after 60 s and was ended: warning: slow');
+    assert.equal(gitFailureDetail(timedOut(Buffer.from('warning: slow\n'))), 'timed out after 60 s and was ended: warning: slow');
+    assert.equal(gitFailureDetail(timedOut(' \n')), 'timed out after 60 s and was ended');
+  });
+
+  it('names the timeout the caller gave', () => {
+    assert.equal(gitFailureDetail(timedOut(''), 1_500), 'timed out after 1.5 s and was ended');
+    assert.equal(gitFailureDetail(timedOut(''), undefined), 'timed out after 60 s and was ended');
+  });
+
+  it('gives git\'s stderr for any other failure, or the runner\'s message when git wrote none', () => {
+    const exited = Object.assign(new Error('Command failed'), { status: 128, stderr: Buffer.from('fatal: bad revision\n') });
+    assert.equal(gitTimedOut(exited), false);
+    assert.equal(gitFailureDetail(exited), 'fatal: bad revision');
+    const missing = Object.assign(new Error('spawnSync git ENOENT'), { code: 'ENOENT' });
+    assert.equal(gitTimedOut(missing), false);
+    assert.equal(gitFailureDetail(missing), 'spawnSync git ENOENT');
+    assert.equal(gitTimedOut(undefined), false);
   });
 });
 
