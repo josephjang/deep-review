@@ -55,14 +55,23 @@ export function realGit(run: GitSyncRunner = execFileSync, exists: (path: string
   return exists(binary) ? binary : 'git';
 }
 
-let resolvedGit: string | undefined;
-
-/** The git `runGitSync` starts on `platform`: the real binary on Windows, resolved once per process, and `git` from PATH elsewhere. */
-export function installedGit(platform: NodeJS.Platform = process.platform): string {
-  if (platform !== 'win32') return 'git';
-  resolvedGit ??= realGit();
-  return resolvedGit;
+/**
+ * A function that names the git `runGitSync` starts on `platform`: the
+ * real binary on Windows, which `resolve` finds on the first call that
+ * asks for it and the function keeps, and `git` from PATH elsewhere,
+ * resolving nothing.
+ */
+export function gitLocator(resolve: () => string = realGit): (platform?: NodeJS.Platform) => string {
+  let resolved: string | undefined;
+  return (platform = process.platform) => {
+    if (platform !== 'win32') return 'git';
+    resolved ??= resolve();
+    return resolved;
+  };
 }
+
+/** The git `runGitSync` starts on `platform`, by `gitLocator`: on Windows the real binary, resolved once per process. */
+export const installedGit = gitLocator();
 
 /**
  * Run git synchronously with `args` and the caller's options, and return
