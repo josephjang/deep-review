@@ -95,10 +95,12 @@ export function installedGit(platform: NodeJS.Platform = process.platform): stri
  * that stops passing it through fails there.
  *
  * A detached child is the root of a new process group, which Ctrl-C does
- * not reach. The timeout stands in for it: a git that waits on a lock or a
- * remote is ended with `TerminateProcess` (SIGTERM elsewhere) after
- * `gitTimeoutMs`, console or not, and the call throws with `status` null,
- * `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git wrote so far.
+ * not reach. The timeout stands in for it for git itself: a git that waits
+ * on a lock or a remote is ended with `TerminateProcess` (SIGTERM
+ * elsewhere) after `gitTimeoutMs`, console or not, and the call throws with
+ * `status` null, `signal` 'SIGTERM', `code` 'ETIMEDOUT' and the stderr git
+ * wrote so far. The timeout ends git alone: a hook, filter or credential
+ * helper git started keeps running on its own.
  */
 export function runGitSync(args: readonly string[], options: ExecFileSyncOptionsWithStringEncoding, host?: Partial<GitSyncHost>): string;
 export function runGitSync(args: readonly string[], options?: ExecFileSyncOptionsWithBufferEncoding, host?: Partial<GitSyncHost>): Buffer;
