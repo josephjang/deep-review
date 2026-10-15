@@ -768,7 +768,8 @@ next two pairs compare lever E with A.
   (D6) starts the real binary detached. `git --exec-path` gives its
   directory. After the change, one fix-pass test ran 230 processes from
   PowerShell (425 before) and 229 from Git Bash (326 before). The runs
-  alternated.
+  alternated. The appendix has the scripts ("The git launcher and the real
+  binary").
 - **Risk.** Node documents `detached` for `spawn` only. The option lists
   of `execFileSync` and `spawnSync` do not have it, and the TypeScript
   type of `execFileSync` rejects it (reference 6). In the
@@ -1449,6 +1450,50 @@ for (const n of [1, 2, 3, 4]) {
 const { spawnSync } = require('node:child_process');
 const mean = (file, args, options, count) => { const start = performance.now(); for (let i = 0; i < count; i++) spawnSync(file, args, { stdio: 'ignore', windowsHide: true, ...options }); return ((performance.now() - start) / count).toFixed(1); };
 for (let round = 0; round < 3; round++) console.log(`node ${mean(process.execPath, ['-e', '0'], {}, 40)} / ${mean(process.execPath, ['-e', '0'], { detached: true }, 40)} ms, git ${mean('git', ['--version'], {}, 20)} / ${mean('git', ['--version'], { detached: true }, 20)} ms`);
+```
+
+### The git launcher and the real binary
+
+These scripts measured the correction under lever E. The first gives
+the mean time of a call through each git, attached and detached. The
+paths are those of a default Git for Windows install.
+
+```js
+// Mean wall time of `git --version` through each git executable, attached and detached, alternating three rounds.
+const { execFileSync } = require('node:child_process');
+const paths = { launcher: 'C:/Program Files/Git/cmd/git.exe', real: 'C:/Program Files/Git/mingw64/bin/git.exe' };
+const mean = (file, detached, count) => {
+  const start = performance.now();
+  for (let i = 0; i < count; i++) execFileSync(file, ['--version'], { stdio: 'ignore', windowsHide: true, detached });
+  return ((performance.now() - start) / count).toFixed(1);
+};
+for (let round = 0; round < 3; round++) {
+  const row = [];
+  for (const [name, file] of Object.entries(paths)) row.push(`${name} attached ${mean(file, false, 30)} / detached ${mean(file, true, 30)} ms`);
+  console.log(row.join(', '));
+}
+```
+
+The second starts `git --version` ten times. The job object of "The
+CPU of the process tree" counts the processes. Run it from PowerShell
+for the launcher and from Git Bash for the real binary:
+
+```js
+// ten-git.cjs [attached|detached]
+const { execFileSync } = require('node:child_process');
+const detached = process.argv[2] === 'detached';
+for (let i = 0; i < 10; i++) execFileSync('git', ['--version'], { stdio: 'ignore', windowsHide: true, detached });
+```
+
+```powershell
+powershell -File <tools>/run-in-job.ps1 -Out ten.txt -Command "node <tools>/ten-git.cjs detached"
+```
+
+The full suite before and after the change ran under the same job
+object, two alternating pairs from each shell:
+
+```powershell
+powershell -File <tools>/run-in-job.ps1 -Out run.txt -Command "node --import ./test/setup.ts --test `"test/**/*.test.ts`" > run.log 2>&1"
 ```
 
 ### Before and after
