@@ -10,9 +10,16 @@ import { git, withoutRepositoryVariables } from '../helpers/git.ts';
 
 const windows = process.platform === 'win32';
 
+/** One call a recorder's runner was given. */
+interface RecordedCall {
+  file: string;
+  args: readonly string[];
+  options: GitSyncSpawnOptions;
+}
+
 /** A runner that records each call and returns `output`, or throws `output` when it is an error. */
-function recorder(output: string | Buffer | Error = 'out'): { run: GitSyncRunner; calls: { file: string; args: readonly string[]; options: GitSyncSpawnOptions }[] } {
-  const calls: { file: string; args: readonly string[]; options: GitSyncSpawnOptions }[] = [];
+function recorder(output: string | Buffer | Error = 'out'): { run: GitSyncRunner; calls: RecordedCall[] } {
+  const calls: RecordedCall[] = [];
   return {
     calls,
     run: (file, args, options) => {
