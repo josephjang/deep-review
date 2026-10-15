@@ -58,11 +58,11 @@ decide which levers to take.
   With levers A and E, a local run took approximately 160 s in the
   session that measured E. That session had a lighter load than the
   sessions that measured 283 to 378 s without the split. The measured
-  gains of the two levers are 20% and then 16%. Correction of
-  2026-10-15: these runs started from Git Bash, where `git` is the real
-  binary. Where `git` is Git for Windows' launcher, as from PowerShell
-  and on the CI runner, detaching it saves nothing and costs time; the
-  change proposal starts the real binary instead (lever E).
+  gains of the two levers are 20% and then 16%. Correction (2026-10-15):
+  these runs started from Git Bash, where `git` is the real binary.
+  From PowerShell and on the CI runner, `git` is a launcher of Git for
+  Windows. A detached launcher is not faster. It is slower. Thus the
+  change proposal starts the real binary (lever E).
 - A Dev Drive is the subject of issue #49. With the checkout and the
   temporary directory of the sandboxes on a Dev Drive, a local run
   decreases by 7 to 13% (272 and 255 s against 290 and 294 s). The file
@@ -739,21 +739,6 @@ of the new tests went to fix-pass and to new files (`continuation`,
   pairs of lever A (6 to 12% before each run, against 15 to 22%). That
   is why the runs of A here are faster than the runs of A above. In a
   pair, the comparison is valid (Figure 3).
-- **Correction (2026-10-15).** The runs above started from Git Bash,
-  where `git` on PATH is the real binary, `mingw64ingit.exe`. From
-  PowerShell or cmd, and on the hosted runner (`C:Program
-  FilesGitingit.exe` in the checkout log), `git` is Git for
-  Windows' launcher: a 47 KB program that starts the real binary and
-  waits for it, so each call is three processes. Detaching the launcher
-  does not help: ten `git --version` in a job object were 33 processes
-  either way (23 and 13 for the real binary), and one fix-pass test
-  stayed at 425. It costs time: 39 to 40 ms a call attached, 45 to 53
-  ms detached, because the launcher, left without a console, starts git
-  in a console of its own; the real binary took 25 ms attached and 16
-  detached. The change proposal of 2026-10-15 (D6) therefore starts the
-  real binary, which `git --exec-path` locates, detached. One fix-pass
-  test then ran 230 processes from PowerShell (425 before) and 229
-  from Git Bash (326 before), in alternating pairs.
 
 ```mermaid
 xychart-beta
@@ -767,6 +752,23 @@ Figure 3. Each full run that alternated, in the order of the runs. The
 first two pairs compare lever A with the suite without the split. The
 next two pairs compare lever E with A.
 
+- **Correction (2026-10-15).** The runs above started from Git Bash.
+  There, `git` on PATH is the real binary, `mingw64\bin\git.exe`. From
+  PowerShell, from cmd and on the hosted runner, `git` on PATH is a
+  launcher of Git for Windows. The checkout log of the runner shows
+  `C:\Program Files\Git\bin\git.exe`. The launcher is a program of 47
+  KB. It starts the real binary and waits for it. Thus each call is
+  three processes. A detached launcher does not help. Ten
+  `git --version` in a job object were 33 processes in both modes,
+  against 23 and 13 for the real binary. One fix-pass test stayed at
+  425 processes. A detached launcher is also slower: 45 to 53 ms for
+  each call, against 39 to 40 ms attached. Without a console, the
+  launcher starts git in a new console. The real binary took 25 ms
+  attached and 16 ms detached. Thus the change proposal of 2026-10-15
+  (D6) starts the real binary detached. `git --exec-path` gives its
+  directory. After the change, one fix-pass test ran 230 processes from
+  PowerShell (425 before) and 229 from Git Bash (326 before). The runs
+  alternated.
 - **Risk.** Node documents `detached` for `spawn` only. The option lists
   of `execFileSync` and `spawnSync` do not have it, and the TypeScript
   type of `execFileSync` rejects it (reference 6). In the
@@ -921,8 +923,8 @@ D. They were:
 - if DPCs storm,
 - the scans of the compile cache on a warm run.
 
-1. **Lever E in CI.** Its -16% is local, and was measured from Git
-   Bash (see the correction under lever E). The Windows runner starts git
+1. **Lever E in CI.** Its -16% is local. It comes from runs in Git Bash
+   (see the correction under lever E). The Windows runner starts git
    19 times slower than Ubuntu (finding 1). Thus the console host that
    the lever saves can be more important there, or less important,
    because the start itself dominates. The pull request that takes E is
