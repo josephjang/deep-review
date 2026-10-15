@@ -29,9 +29,6 @@ const addedLabels = (before: readonly string[], after: readonly string[]): strin
   });
 };
 
-/** A regular expression that matches `text` as it is. */
-const literal = (text: string): string => text.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 // R1 to R10 of fix pass continuation: a read-only run reviewed to its report, then the same command with --fix.
 describe('the continuation of a finished read-only run', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
   /** The review of `reviewScript` with fixers that apply both findings routed to them. */
@@ -68,7 +65,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.equal(state.id, before.id, 'the same run, continued');
     assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['fixer fixes:c1-1', 'fixer fixes:c2-1', 'surveyor survey:survey'], 'no worker of a read-only phase ran again');
     // The log names the run, its read-only report and its spend against the budget in force (R2, PD7), and the models flag as ignored (R3).
-    logLine(box, new RegExp(`^run ${before.id}: continued into the fix pass; its read-only report is ${literal(firstPath)}; spent \\d+\\.\\d\\d USD of the \\d+\\.\\d\\d USD run budget$`));
+    logLine(box, new RegExp(`^run ${before.id}: continued into the fix pass; its read-only report is ${RegExp.escape(firstPath)}; spent \\d+\\.\\d\\d USD of the \\d+\\.\\d\\d USD run budget$`));
     logLine(box, /; --strong-model and --fast-model are ignored$/);
     assert.ok(!box.logs.some((line) => /is pinned without the fix pass/.test(line)), 'a continuation is not a resume that ignores --fix');
     // The survey was asked again for the kind the flags left, its conventions standing (R4).
@@ -87,7 +84,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     // A second report beside the first, whose header names it; the first is unchanged (R7, PD10).
     assert.ok(outcome.kind === 'report' && outcome.reportPath !== firstPath);
     assert.equal(readFileSync(firstPath, 'utf8'), firstText);
-    assert.match(text, new RegExp(`^Continued: into the fix pass on ${literal(review.continuedFrom!.at)}, after the read-only report at ${literal(firstPath)}$`, 'm'));
+    assert.match(text, new RegExp(`^Continued: into the fix pass on ${RegExp.escape(review.continuedFrom!.at)}, after the read-only report at ${RegExp.escape(firstPath)}$`, 'm'));
     assert.match(text, /^## Fixes$/m);
     assert.equal(review.report!.statistics.phases.find((row) => row.phase === 'survey')?.workers, 2, 'the statistics count both passes');
     const described = describeRun(state, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference));
@@ -111,7 +108,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['fixer fixes:c1-1', 'fixer fixes:c2-1']);
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 1 });
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
-    logLine(box, new RegExp(`^run ${state.id}: check build: ${literal(fakeCheckCommand('build'))} \\(flag\\)$`));
+    logLine(box, new RegExp(`^run ${state.id}: check build: ${RegExp.escape(fakeCheckCommand('build'))} \\(flag\\)$`));
   });
 
   it('continues the newest of two finished runs of the same change', async (t) => {
