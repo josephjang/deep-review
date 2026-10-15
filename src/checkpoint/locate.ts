@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { runGitSync } from '../runtime/git-sync.ts';
 import { NotInRepositoryError } from './errors.ts';
 
 /** The directory name under the git common directory. Distinct from the legacy skills' `deep-review` and `deep-review-node`. */
@@ -24,10 +24,9 @@ export function locateCheckpoint(directory: string): CheckpointLocation {
   const cwd = resolve(directory);
   let output: string;
   try {
-    output = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-toplevel'], {
+    output = runGitSync(['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-toplevel'], {
       cwd,
       encoding: 'utf8',
-      windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (error) {

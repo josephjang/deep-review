@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { runGitSync } from '../runtime/git-sync.ts';
 
 /** The bytes a git command may print before the capture gives up: a binary patch of a large scope. */
 const maxOutputBytes = 512 * 1024 * 1024;
@@ -14,10 +14,9 @@ export interface GitOptions {
 /** Run git in `cwd` and return its stdout as bytes. Every call passes `--no-optional-locks` so a capture never writes the index. */
 export function git(cwd: string, args: readonly string[], options: GitOptions = {}): Buffer {
   try {
-    return execFileSync('git', ['--no-optional-locks', ...args], {
+    return runGitSync(['--no-optional-locks', ...args], {
       cwd,
       maxBuffer: maxOutputBytes,
-      windowsHide: true,
       stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       ...(options.input === undefined ? {} : { input: options.input }),
     });
