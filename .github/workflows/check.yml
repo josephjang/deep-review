@@ -20,4 +20,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+        # The suite sandboxes every review under os.tmpdir(). The hosted
+        # Windows runner keeps TEMP on its OS disk, where an fsync takes
+        # 6 ms and a SQLite transaction 18 ms; the workspace disk, which
+        # holds runner.temp, does them in 0.7 and 1.4 ms
+        # (docs/reports/2026-10-14-test-and-ci-time.md, lever I). Node
+        # reads TEMP and TMP on Windows only, TMPDIR elsewhere, so the
+        # other runners keep their temporary directory. The runner
+        # context is not available to a job's env, so this is the step's.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
       - run: npm run verify
