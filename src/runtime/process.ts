@@ -85,6 +85,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         stdio: descriptors,
         shell: false,
         windowsHide: true,
+        // Attached to the console on Windows, so Ctrl-C ends it with the engine; a synchronous git call is detached there instead (src/runtime/git-sync.ts says why).
         detached: process.platform !== 'win32',
         windowsVerbatimArguments: request.verbatimArguments === true,
       });

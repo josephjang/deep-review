@@ -11,7 +11,6 @@
  * pass is committed again, as a later series from the last commit the
  * first made (R8 of answers).
  */
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +20,7 @@ import { committedRevisions, nextSeries, revisionMessageOf, runHead, type NextSe
 import { attemptOwner } from './fix-events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
+import { runGitSync } from '../runtime/git-sync.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
 import { readableRuns } from './runs.ts';
@@ -59,13 +59,12 @@ export interface CommitOutcome {
 /** Run git in the worktree with the given environment additions and stdin, returning stdout as text. */
 function git(worktree: string, args: readonly string[], options: { readonly env?: NodeJS.ProcessEnv; readonly input?: Buffer | string } = {}): string {
   try {
-    return execFileSync('git', ['--no-optional-locks', ...args], {
+    return runGitSync(['--no-optional-locks', ...args], {
       cwd: worktree,
       env: { ...process.env, ...options.env },
       input: options.input ?? '',
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
-      windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch (error) {
@@ -199,7 +198,7 @@ class TreeBuilder {
 /** The branch HEAD names, as a full ref, or the empty string for a detached HEAD, for which `symbolic-ref -q` exits 1 and prints nothing. */
 function currentBranch(worktree: string): string {
   try {
-    return execFileSync('git', ['--no-optional-locks', 'symbolic-ref', '-q', 'HEAD'], { cwd: worktree, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    return runGitSync(['--no-optional-locks', 'symbolic-ref', '-q', 'HEAD'], { cwd: worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch (error) {
     if ((error as { status?: number }).status === 1) return '';
     throw error;

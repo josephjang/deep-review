@@ -18,8 +18,8 @@
  * shell, is not caught, and only the deletion from `process.env` above
  * covers it.
  */
-import { execFileSync } from 'node:child_process';
 import { comparable } from '../../src/runtime/environment.ts';
+import { runGitSync } from '../../src/runtime/git-sync.ts';
 
 /**
  * Variables that name a repository, or part of one, or that carry settings
@@ -87,4 +87,4 @@ deleteRepositoryVariables(process.env);
 
 /** Run git in `cwd` without any repository variable and return its trimmed text output. */
 export const git = (cwd: string, ...args: string[]): string =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: withoutRepositoryVariables(process.env) }).trim();
+  runGitSync(args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: withoutRepositoryVariables(process.env) }).trim();
