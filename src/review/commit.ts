@@ -294,6 +294,20 @@ export function commitRun(options: CommitOptions): CommitOutcome {
   }
 }
 
+/**
+ * What a failed compare-and-swap of `ref` to `last` throws, from the error
+ * `git` threw for it. git refuses a ref that moved, which leaves it where it
+ * is; a git ended at its timeout is another case, since it may have moved the
+ * ref already, and on Windows it is killed with `TerminateProcess`, which
+ * runs none of git's cleanup, so its `<ref>.lock` may remain.
+ */
+export function moveFailure(ref: string, last: string, error: Error): Error {
+  if ((error.cause as { code?: unknown } | undefined)?.code === 'ETIMEDOUT') {
+    return new Error(`git update-ref timed out and was ended, so ${ref} may or may not point at ${last} now, the commits are not recorded on the run, and git may have left ${ref}.lock behind in the git directory, which refuses every later update of ${ref} until it is removed by hand: ${error.message}`, { cause: error });
+  }
+  return new ReviewRefusedError(`${ref} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${error.message}`);
+}
+
 /** Build the commits, move the ref, reset the index and record them; every refusal has been made. */
 function build(run: RunState, options: CommitOptions): CommitOutcome {
   const { checkpoint, worktree } = options;
@@ -337,7 +351,7 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
       if (branch === '') git(worktree, ['update-ref', '--no-deref', '-m', `deep-review commit: run ${run.id}`, 'HEAD', last, series.head]);
       else git(worktree, ['update-ref', '-m', `deep-review commit: run ${run.id}`, branch, last, series.head]);
     } catch (error) {
-      throw new ReviewRefusedError(`${branch === '' ? 'HEAD' : branch} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${(error as Error).message}`);
+      throw moveFailure(branch === '' ? 'HEAD' : branch, last, error as Error);
     }
     git(worktree, ['reset', '-q']);
     const payload: CommitsCreated = { commits: made, from: series.head, to: last };

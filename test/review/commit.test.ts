@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it, type TestContext } from 'node:test';
 import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
-import { commitRun } from '../../src/review/commit.ts';
+import { commitRun, moveFailure } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
@@ -313,5 +314,31 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       assert.equal(late.acted(), true);
       assert.equal(git(box.repo, 'rev-parse', 'HEAD'), head, 'no commit was made');
     });
+  });
+});
+
+describe('a failed move of the ref', () => {
+  // What commit.ts's git() throws: its own message, with the runner's error as the cause.
+  const thrown = (cause: unknown): Error => new Error('git update-ref -m deep-review commit refs/heads/main last head failed: detail', { cause });
+
+  it('reports a timed-out update-ref as an error saying the ref may have moved and its lock may remain, not as a refusal', () => {
+    // A real timeout of the runner, which ends the child and throws with code ETIMEDOUT.
+    let timedOut: unknown;
+    try {
+      execFileSync(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { timeout: 200, stdio: 'ignore', windowsHide: true });
+    } catch (error) {
+      timedOut = error;
+    }
+    assert.equal((timedOut as { code?: string } | undefined)?.code, 'ETIMEDOUT');
+    const failure = moveFailure('refs/heads/main', 'last', thrown(timedOut));
+    assert.equal(failure instanceof ReviewRefusedError, false, 'not a refusal, which would say the ref was left where it is');
+    assert.match(failure.message, /^git update-ref timed out and was ended, so refs\/heads\/main may or may not point at last now, the commits are not recorded on the run, and git may have left refs\/heads\/main\.lock behind/);
+    assert.match(failure.message, /: git update-ref -m deep-review commit refs\/heads\/main last head failed: detail$/);
+  });
+
+  it('reports any other failure as the ref having moved and been left where it is', () => {
+    const failure = moveFailure('HEAD', 'last', thrown(Object.assign(new Error('Command failed'), { status: 128 })));
+    assert.ok(failure instanceof ReviewRefusedError);
+    assert.match(failure.message, /^HEAD moved while the commits were built, so it was left where it is and the commits are unreferenced: git update-ref/);
   });
 });
