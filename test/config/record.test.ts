@@ -87,6 +87,17 @@ describe('the record of the settings', () => {
     assert.equal(side.layers['checks.lint'], 'clone');
     assert.equal(side.layers['checks.timeout_minutes'], 'default');
   });
+
+  it('records the same sources in the block and the fix side, each with only its own settings not followed', () => {
+    const settings = resolved([file('repository', { 'checks.test': 'npm test', 'scope.exclude': ['dist/**'] }), file('operator', { 'run.concurrency': 2 }), file('clone', { 'scope.exclude': ['build/**'] })], flagLayerOf([{ name: 'checks.test', value: 'npm run test:fast', flag: '--check' }]));
+    const block = settingsRecordOf(settings, v5(true));
+    const side = fixSettingsRecordOf(settings);
+    assert.deepEqual(block.notFollowed.map((entry) => entry.name).sort(), ['checks.test', 'scope.exclude']);
+    assert.deepEqual(side.notFollowed, [{ name: 'checks.test', repository: 'npm test', value: 'npm run test:fast', layer: 'flag' }], 'the fix side records no value it does not record');
+    assert.deepEqual({ files: side.files, repository: side.repository, ignored: side.ignored }, { files: block.files, repository: block.repository, ignored: block.ignored });
+    assert.equal(side.files.length, 3);
+    assert.deepEqual(side.ignored.map((entry) => entry.name), ['report.formats']);
+  });
 });
 
 describe('settingOf', () => {

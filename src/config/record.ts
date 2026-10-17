@@ -54,6 +54,16 @@ export function ignoredRecordOf(ignored: ResolvedSettings['ignored']): SettingsR
   return ignored.slice(0, maxRecordedIgnored).map((entry) => ({ ...entry, name: entry.name === '' ? '""' : entry.name.slice(0, maxIgnoredNameLength) }));
 }
 
+/** Where a record's settings came from, as both records hold it: the files, the state of the repository's file, the repository values not followed among the settings it records, and the settings ignored. */
+function sourcesRecordOf(resolved: ResolvedSettings, names: readonly SettingName[]): Pick<SettingsRecorded, 'files' | 'repository' | 'notFollowed' | 'ignored'> {
+  return {
+    files: resolved.files.map((file) => ({ ...file })),
+    repository: { ...resolved.repository },
+    notFollowed: resolved.notFollowed.filter((entry) => names.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository as JsonValue, value: entry.value as JsonValue, layer: entry.layer })),
+    ignored: ignoredRecordOf(resolved.ignored),
+  };
+}
+
 /**
  * The block `review.configured@6` records for a run of this configuration
  * (R6): the files, the state of the repository's file, the values version
@@ -67,8 +77,7 @@ export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick
     : {};
   const names = recordedNames(configuration);
   return {
-    files: resolved.files.map((file) => ({ ...file })),
-    repository: { ...resolved.repository },
+    ...sourcesRecordOf(resolved, names),
     values: {
       'review.base': resolvedValue(resolved, 'review.base'),
       'scope.default': resolvedValue(resolved, 'scope.default') ?? 'auto',
@@ -77,18 +86,13 @@ export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick
       ...checks,
     },
     layers: Object.fromEntries(names.map((name) => [name, resolved.values[name].layer])),
-    notFollowed: resolved.notFollowed.filter((entry) => names.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository as JsonValue, value: entry.value as JsonValue, layer: entry.layer })),
-    ignored: ignoredRecordOf(resolved.ignored),
   };
 }
 
 /** The fix side a continuation records (R6, R7): the check commands and `tools.path` with their layers, the layer of the check timeout, whose value the pin's `checks` holds, and where it took them from: the files, the repository's file, the fix side's values not followed and the settings ignored. */
 export function fixSettingsRecordOf(resolved: ResolvedSettings): FixSettingsRecorded {
   return {
-    files: resolved.files.map((file) => ({ ...file })),
-    repository: { ...resolved.repository },
-    notFollowed: resolved.notFollowed.filter((entry) => fixSideNames.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository as JsonValue, value: entry.value as JsonValue, layer: entry.layer })),
-    ignored: ignoredRecordOf(resolved.ignored),
+    ...sourcesRecordOf(resolved, fixSideNames),
     values: {
       'checks.build': resolvedValue(resolved, 'checks.build'),
       'checks.typecheck': resolvedValue(resolved, 'checks.typecheck'),
