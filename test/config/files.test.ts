@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { cloneConfigPath, maxConfigBytes, operatorConfigPath, parseConfig, readConfigFile, readRepositoryConfig, refuseProblems, repositoryConfigPath, type FileRead } from '../../src/config/files.ts';
+import { cloneConfigPath, maxConfigBytes, operatorConfigPath, parseConfig, readConfigFile, readRepositoryConfig, refuseProblems, repositoryConfigFile, repositoryConfigPath, type FileRead } from '../../src/config/files.ts';
 import type { FileLayer } from '../../src/config/settings.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
@@ -45,6 +45,11 @@ describe('the files on disk and in the repository', () => {
     const second = cloneConfigPath(locateCheckpoint(join(root, 'second')).commonDir);
     assert.equal(first, second);
     assert.equal(first, join(locateCheckpoint(repo).commonDir, 'deep-review.toml'));
+  });
+
+  it('puts the repository\'s file in each worktree, at the path the repository holds it', () => {
+    assert.equal(repositoryConfigFile(join(root, 'repo')), join(root, 'repo', '.deep-review', 'config.toml'));
+    assert.equal(repositoryConfigFile(join(root, 'second')), join(root, 'second', '.deep-review', 'config.toml'));
   });
 
   it('reads the repository\'s file as a commit holds it, not as HEAD or the working tree does, and finds none at the empty tree', () => {

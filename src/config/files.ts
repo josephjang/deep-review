@@ -72,6 +72,9 @@ export function operatorConfigPath(environment: NodeJS.ProcessEnv, platform: Nod
 /** The clone's file (R2, TD7): beside the git data of the clone, shared by all its worktrees and held by no commit. */
 export const cloneConfigPath = (commonDir: string): string => join(commonDir, cloneConfigName);
 
+/** The repository's file (R2) in the worktree at `worktree`, where `config validate` and `config init` find it. */
+export const repositoryConfigFile = (worktree: string): string => join(worktree, ...repositoryConfigPath.split('/'));
+
 /**
  * Read a file of `layer` from disk: absent when nothing is at `path`,
  * which is no problem for the operator's and the clone's file; a file that

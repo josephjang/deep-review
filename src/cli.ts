@@ -25,7 +25,7 @@ import { engineIdentity, engineRolesRoot } from './engine.ts';
 import { explainLines, initText, showLines, validateBytes, type ShownScope } from './config/command.ts';
 import { checkFlagsOf, dedicatedFlagValues, policyFlagsOf } from './config/flags.ts';
 import { SettingFlagError } from './config/errors.ts';
-import { cloneConfigPath, maxConfigBytes, operatorConfigPath, repositoryConfigPath } from './config/files.ts';
+import { cloneConfigPath, maxConfigBytes, operatorConfigPath, repositoryConfigFile } from './config/files.ts';
 import { flagLayerOf, parseSetFlag, requireBase, resolvedValue, withChangedPaths, type FlagLayer, type ScopeSettings } from './config/resolve.ts';
 import { checkSettingNames, fileLayers, type FileLayer } from './config/settings.ts';
 import { configurationSource, type ConfigurationSource } from './config/source.ts';
@@ -556,7 +556,7 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   if (subcommand === 'validate') {
     const layer = values.layer ?? 'repository';
     if (!(fileLayers as readonly string[]).includes(layer)) throw new UsageError(`--layer must be one of ${fileLayers.join(', ')}, not ${JSON.stringify(layer)}`);
-    const path = argument === undefined ? join(location.worktree, ...repositoryConfigPath.split('/')) : resolve(io.cwd, argument);
+    const path = argument === undefined ? repositoryConfigFile(location.worktree) : resolve(io.cwd, argument);
     const stat = statSync(path, { throwIfNoEntry: false });
     if (stat === undefined || !stat.isFile()) throw new ReviewRefusedError(`${path} is not a file to validate`);
     if (stat.size > maxConfigBytes) throw new ReviewRefusedError(`${path} holds ${String(stat.size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`);
@@ -568,7 +568,7 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
     const chosen = (['repository', 'operator', 'clone'] as const).filter((layer) => values[layer] === true);
     if (chosen.length !== 1) throw new UsageError('config init takes one of --repository, --operator and --clone');
     const layer = chosen[0]!;
-    const path = layer === 'repository' ? join(location.worktree, ...repositoryConfigPath.split('/')) : layer === 'clone' ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
+    const path = layer === 'repository' ? repositoryConfigFile(location.worktree) : layer === 'clone' ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
     if (path === null) throw new ReviewRefusedError('the operator\'s file is under APPDATA, which has no value here; set it, or write the file by hand');
     if (existsSync(path)) throw new ReviewRefusedError(`${path} exists, and config init writes only a new file; edit it, or remove it first`);
     mkdirSync(dirname(path), { recursive: true });
