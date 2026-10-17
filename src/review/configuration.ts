@@ -77,19 +77,33 @@ export function executableOf(resolved: ResolvedSettings): { executable: string |
   return { executable: resolved.values[names.executable].value as string | null, args: (resolved.values[names.args].value as string[] | null) ?? [] };
 }
 
-/** The checks the resolved settings settle, each with its layer (R11): a command, `false` for a dropped kind, or nothing, which the survey decides. */
-export function checkFlagsOfResolved(resolved: ResolvedSettings): CheckFlags {
+/** How one check kind is settled: its command, or `false` for no check, and the layer that settled it. */
+interface SettledCheck {
+  readonly value: string | false;
+  readonly layer: Exclude<Layer, 'default'>;
+}
+
+/** The check flags of the kinds `settled` settles, each with its layer: `false` drops the kind, a command runs it, and null leaves it to the survey. */
+function checkFlagsFrom(settled: (kind: CheckKind) => SettledCheck | null): CheckFlags {
   const commands: Partial<Record<CheckKind, string>> = {};
   const dropped: CheckKind[] = [];
   const layers: Partial<Record<CheckKind, Exclude<Layer, 'default'>>> = {};
   for (const kind of checkKinds) {
-    const { value, layer } = resolved.values[checkSettingName(kind)];
-    if (value === null || layer === 'default') continue;
-    if (value === false) dropped.push(kind);
-    else commands[kind] = value as string;
-    layers[kind] = layer;
+    const check = settled(kind);
+    if (check === null) continue;
+    if (check.value === false) dropped.push(kind);
+    else commands[kind] = check.value;
+    layers[kind] = check.layer;
   }
   return { commands, dropped, layers };
+}
+
+/** The checks the resolved settings settle, each with its layer (R11): a command, `false` for a dropped kind, or nothing, which the survey decides. */
+export function checkFlagsOfResolved(resolved: ResolvedSettings): CheckFlags {
+  return checkFlagsFrom((kind) => {
+    const { value, layer } = resolved.values[checkSettingName(kind)];
+    return value === null || layer === 'default' ? null : { value: value as string | false, layer };
+  });
 }
 
 /**
@@ -101,17 +115,10 @@ export function checkFlagsOfResolved(resolved: ResolvedSettings): CheckFlags {
 export function recordedCheckFlags(configuration: ReviewConfiguration): CheckFlags | null {
   const recorded = configuration.fixSettings !== null || (configuration.settings !== null && configuration.settings.values['checks.build'] !== undefined);
   if (!recorded) return null;
-  const commands: Partial<Record<CheckKind, string>> = {};
-  const dropped: CheckKind[] = [];
-  const layers: Partial<Record<CheckKind, Exclude<Layer, 'default'>>> = {};
-  for (const kind of checkKinds) {
+  return checkFlagsFrom((kind) => {
     const { value, layer } = settingOf(configuration, checkSettingName(kind));
-    if (value === null || layer === null || layer === 'default') continue;
-    if (value === false) dropped.push(kind);
-    else commands[kind] = value as string;
-    layers[kind] = layer;
-  }
-  return { commands, dropped, layers };
+    return value === null || layer === null || layer === 'default' ? null : { value: value as string | false, layer };
+  });
 }
 
 /**
@@ -125,19 +132,13 @@ export function recordedCheckFlags(configuration: ReviewConfiguration): CheckFla
 export function checkFlagsInForce(recorded: CheckFlags | null, invocation: CheckFlags | null): CheckFlags {
   const flags = invocation ?? { commands: {}, dropped: [] };
   if (recorded === null) return flags;
-  const commands: Partial<Record<CheckKind, string>> = {};
-  const dropped: CheckKind[] = [];
-  const layers: Partial<Record<CheckKind, Exclude<Layer, 'default'>>> = {};
-  for (const kind of checkKinds) {
-    const flagged = flags.dropped.includes(kind) ? null : flags.commands[kind];
-    const fromFlag = flags.dropped.includes(kind) || flagged !== undefined;
-    const source = fromFlag ? flags : recorded;
-    if (source.dropped.includes(kind)) dropped.push(kind);
-    else if (source.commands[kind] !== undefined) commands[kind] = source.commands[kind];
-    else continue;
-    layers[kind] = fromFlag ? 'flag' : (recorded.layers?.[kind] ?? 'flag');
-  }
-  return { commands, dropped, layers };
+  const of = (source: CheckFlags, kind: CheckKind): string | false | null => (source.dropped.includes(kind) ? false : (source.commands[kind] ?? null));
+  return checkFlagsFrom((kind) => {
+    const flagged = of(flags, kind);
+    if (flagged !== null) return { value: flagged, layer: 'flag' };
+    const value = of(recorded, kind);
+    return value === null ? null : { value, layer: recorded.layers?.[kind] ?? 'flag' };
+  });
 }
 
 /** The oldest Node the engine runs on, as `package.json` says: what a fixer's `snapshot` and `claim` commands need. */

@@ -8,7 +8,7 @@ import { checkFlagsOf, dedicatedFlagValues } from '../../src/config/flags.ts';
 import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
 import { configurationSource, type ConfigurationSource } from '../../src/config/source.ts';
 import { assembleRoles } from '../../src/roles/assemble.ts';
-import { checkFlagsInForce, recordedCheckFlags, refuseOldNode, unappliedLines } from '../../src/review/configuration.ts';
+import { checkFlagsInForce, checkFlagsOfResolved, recordedCheckFlags, refuseOldNode, unappliedLines } from '../../src/review/configuration.ts';
 import type { CheckFlags } from '../../src/review/checks/discover.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { readPolicy, resolvePolicy } from '../../src/review/policy.ts';
@@ -247,21 +247,6 @@ describe('the node of tools.path', () => {
 describe('the check settings in force', () => {
   const recorded: CheckFlags = { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'repository', test: 'clone', lint: 'operator' } };
 
-  it('takes the recorded settings, each kind a flag settles taking the flag\'s place with the flag layer', () => {
-    assert.deepEqual(checkFlagsInForce(recorded, null), recorded);
-    assert.deepEqual(checkFlagsInForce(recorded, { commands: { test: 'npm run t' }, dropped: ['build'] }), { commands: { test: 'npm run t' }, dropped: ['build', 'lint'], layers: { build: 'flag', lint: 'operator', test: 'flag' } });
-    assert.deepEqual(checkFlagsInForce(null, { commands: { test: 'x' }, dropped: [] }), { commands: { test: 'x' }, dropped: [] }, 'a run that recorded none has the flags alone');
-    assert.deepEqual(checkFlagsInForce(null, null), { commands: {}, dropped: [] });
-  });
-
-  it('reads the check settings a fix run recorded, and none for a read-only run or one recorded before the settings', () => {
-    const values = { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'checks.build': 'make', 'checks.typecheck': null, 'checks.lint': false, 'checks.test': null };
-    const fixing = settingsConfigured(true, { values, layers: { ...(settingsBlock(true).layers as object), 'checks.build': 'repository', 'checks.lint': 'flag' } }).review().configuration;
-    assert.deepEqual(recordedCheckFlags(fixing), { commands: { build: 'make' }, dropped: ['lint'], layers: { build: 'repository', lint: 'flag' } });
-    assert.equal(recordedCheckFlags(settingsConfigured(false).review().configuration), null);
-    assert.equal(recordedCheckFlags({ ...fixing, settings: null }), null);
-  });
-
   /** The settings a resume of a `settingsConfigured(fix)` run resolves when its files and flags are as the run recorded them: the ones version 5 holds read back from its fields. */
   const unchangedNow = (fix: boolean): { runtime: string; values: Record<string, { value: unknown; layer: string }>; files: { layer: string; path: string; sha256: string; commit: string | null }[]; repository: { state: 'read' | 'absent' | 'skipped'; commit: string | null; edited: boolean }; notFollowed: []; ignored: [] } => ({
     runtime: 'claude',
@@ -274,6 +259,28 @@ describe('the check settings in force', () => {
     repository: { state: 'absent', commit: '1'.repeat(40), edited: false },
     notFollowed: [],
     ignored: [],
+  });
+
+  it('takes the recorded settings, each kind a flag settles taking the flag\'s place with the flag layer', () => {
+    assert.deepEqual(checkFlagsInForce(recorded, null), recorded);
+    assert.deepEqual(checkFlagsInForce(recorded, { commands: { test: 'npm run t' }, dropped: ['build'] }), { commands: { test: 'npm run t' }, dropped: ['build', 'lint'], layers: { build: 'flag', lint: 'operator', test: 'flag' } });
+    assert.deepEqual(checkFlagsInForce(null, { commands: { test: 'x' }, dropped: [] }), { commands: { test: 'x' }, dropped: [] }, 'a run that recorded none has the flags alone');
+    assert.deepEqual(checkFlagsInForce(null, null), { commands: {}, dropped: [] });
+  });
+
+  it('reads the check settings the resolved settings settle, each with its layer, and leaves the rest to the survey', () => {
+    const now = unchangedNow(true);
+    const resolved = { ...now, values: { ...now.values, 'checks.build': { value: 'make', layer: 'repository' }, 'checks.lint': { value: false, layer: 'operator' }, 'checks.test': { value: 'npm test', layer: 'flag' } } };
+    assert.deepEqual(checkFlagsOfResolved(resolved as never), { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'repository', lint: 'operator', test: 'flag' } });
+    assert.deepEqual(checkFlagsOfResolved(now as never), { commands: {}, dropped: [], layers: {} }, 'no layer settles a check');
+  });
+
+  it('reads the check settings a fix run recorded, and none for a read-only run or one recorded before the settings', () => {
+    const values = { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'checks.build': 'make', 'checks.typecheck': null, 'checks.lint': false, 'checks.test': null };
+    const fixing = settingsConfigured(true, { values, layers: { ...(settingsBlock(true).layers as object), 'checks.build': 'repository', 'checks.lint': 'flag' } }).review().configuration;
+    assert.deepEqual(recordedCheckFlags(fixing), { commands: { build: 'make' }, dropped: ['lint'], layers: { build: 'repository', lint: 'flag' } });
+    assert.equal(recordedCheckFlags(settingsConfigured(false).review().configuration), null);
+    assert.equal(recordedCheckFlags({ ...fixing, settings: null }), null);
   });
 
   it('names no unapplied setting for a resume whose files and flags are as the run recorded them', () => {
