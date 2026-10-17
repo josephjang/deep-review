@@ -10,7 +10,7 @@ A resolver puts the layers in the order of the owner of each setting. It returns
 
 Resolution has two passes, because the engine reads the repository's file at the base of the change, and two settings choose that base. The first pass resolves `scope.default` and `review.base`, which the repository's file cannot set. With them, it finds the scope request and its base commit. The second pass reads the repository's file at that commit and resolves all other settings.
 
-The controller resolves before it configures a new run. `review.configured@6` records the result. `scope.captured@2` records the change without the paths that `scope.exclude` leaves out. The pathspec of git excludes these paths from each list of the change and from the patch. `checks.planned@3` records a check that a setting settled, with its layer.
+The controller resolves before it creates a new run. `scope.captured@2` records the change without the paths that `scope.exclude` leaves out. Then `review.configured@6` records the result. The pathspec of git excludes these paths from each list of the change and from the patch. `checks.planned@3` records a check that a setting settled, with its layer.
 
 The report and `status` show that record. `deep-review config` runs the same loader and resolver without a run. The skills stop their choice of the scope, and they leave it to the engine.
 
@@ -176,12 +176,12 @@ flowchart TD
     OPF --> P2
     FL --> P2
     P2 -->|a file or a value is refused,<br/>or no changed path is left| REF[Refused, exit 2:<br/>no run is created]
-    P2 --> CONF["review.configured@6:<br/>values, origins, files read"]
-    CONF --> CAP["scope.captured@2:<br/>the change, less the paths<br/>scope.exclude leaves out"]
-    CAP --> WRK[The first worker]
+    P2 --> CAP["scope.captured@2:<br/>the change, less the paths<br/>scope.exclude leaves out"]
+    CAP --> CONF["review.configured@6:<br/>values, origins, files read"]
+    CONF --> WRK[The first worker]
 ```
 
-Figure 1. A new run resolves its settings in two passes before it exists, and it records them before it captures its scope.
+Figure 1. A new run resolves its settings in two passes before it exists. It captures its scope, and then it records its settings, both before the first worker.
 
 #### A new run
 
@@ -190,6 +190,8 @@ Pass 1 runs inside `ScopeSource.request`, the lazy callback that the command lin
 In `openRun`, where it calls `resolvePolicy` today, the controller runs pass 2. It changes the result into the current `ResolvedPolicy` fields, with the values of the policy file as the defaults layer. It also changes it into the new block of `review.configured@6`. Then it lists the paths of the change with the exclusions, names only, as `resolveScopeRequest` does for a continuation. If no path is left, it refuses the change before it creates the run (R10).
 
 `captureScope` takes the request with the excluded patterns. It refuses with "run the command again" if the base that it computes is not the commit where the engine read the repository's file. This shows that HEAD moved between the start lock and the capture.
+
+The run appends `scope.captured@2` first and `review.configured@6` after it, as it appends the two events today. The fold refuses a configuration before the scope, and this rule is older than this change. Both events are on the ledger before the first worker, which is what R6 asks.
 
 #### A resumed run
 
@@ -228,6 +230,8 @@ A rename across the boundary, from `dist/a.js` to `src/a.js`, shows in git as an
 `checks.<kind>` goes into the survey where the check flags go today. A kind with a command or `false` is one of the `settled` kinds of the survey task. Thus the surveyor chooses only the `unsettled` kinds, and `resolveChecks` takes the setting where it takes a flag.
 
 `checks.planned@3` records, for each kind, a command with its origin. The origin is `setting` with the layer of the setting, and `flag` is one of these layers. The other origins are `survey` and `none`. The fold reads the `flag` of version 2 as `setting` with the layer `flag`. A run that resumes before it plans its checks resolves `checks.<kind>` from its record. Thus nobody types the flags again.
+
+A `--check`, a `--no-check` or a `--set checks.<kind>` of a later invocation still settles its kind for that invocation, over the record, until the run plans its checks. The actions of the survey's blockers ask for these flags, and the run must follow them. The ledger does not record such a flag, so the fold checks a check of the layer `flag` against nothing. It checks each other setting's check against the record.
 
 `checks.timeout_minutes` becomes the check timeout in milliseconds, which `review.configured` records for a fix run today.
 
