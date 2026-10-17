@@ -19,7 +19,7 @@ import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, Fi
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
-import { isConfiguredRuntime, layerWords, runtimeSettingNames } from '../config/settings.ts';
+import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
 import { revisionMessageOf, routeOf } from '../checkpoint/fix-state.ts';
@@ -62,7 +62,7 @@ import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from '
 import { budgetSpendOf, statisticsOf, type BudgetSpend } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
-import { resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
+import { checkSettingWords, resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
 import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type CheckPhase, type Phase, type PinnedUse } from './vocabulary.ts';
@@ -275,7 +275,7 @@ function spendWords(spentUsd: number | null, budgetUsd: number | null): string {
 
 /** One planned check as the log names it: its command and who decided it, with the survey's source or the setting's layer, as `flag` for a flag as before the settings, or why it has none. */
 const checkLine = (check: PlannedCheckV3): string => {
-  const origin = check.origin === 'survey' ? `survey, ${check.source.basis} in ${check.source.path}` : check.origin === 'setting' ? (check.layer === 'flag' ? 'flag' : `checks.${check.kind} in ${layerWords[check.layer]}`) : check.origin;
+  const origin = check.origin === 'survey' ? `survey, ${check.source.basis} in ${check.source.path}` : check.origin === 'setting' ? (check.layer === 'flag' ? 'flag' : checkSettingWords(check.kind, check.layer, false)) : check.origin;
   return check.command === null ? `not available (${origin}: ${check.reason})` : `${check.command} (${origin})`;
 };
 

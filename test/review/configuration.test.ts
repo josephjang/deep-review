@@ -209,6 +209,9 @@ describe('the settings in a run (R1, R4 to R6, R10, R11 of the configuration)', 
     assert.match(task, /^- typecheck: dropped by checks\.typecheck = false in the repository's file$/m);
     assert.match(task, /^Kinds to choose: lint, test$/m);
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.slice(0, 2).map((check) => [check.kind, check.origin, check.layer]), [['build', 'setting', 'repository'], ['typecheck', 'setting', 'repository']]);
+    // The log names the setting once: the dropped kind's reason already says `= false`.
+    assert.ok(box.logs.includes(`run ${state.id}: check build: ${flags.commands.build} (checks.build in the repository's file)`), box.logs.join('\n'));
+    assert.ok(box.logs.includes(`run ${state.id}: check typecheck: not available (checks.typecheck in the repository's file: dropped by checks.typecheck = false in the repository's file)`), box.logs.join('\n'));
   });
 });
 
