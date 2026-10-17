@@ -10,7 +10,7 @@ import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
 import { captureScope, freezeLimitBytes, maxScopeFiles, resolveScopeRequest, scopeBase, validateScopePath } from '../../src/scope/capture.ts';
-import { CaptureRacedError, InvalidScopeRequestError, ScopeAlreadyCapturedError } from '../../src/scope/errors.ts';
+import { CaptureRacedError, EmptyChangeError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from '../../src/scope/errors.ts';
 import * as gitApi from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
 
@@ -33,9 +33,9 @@ describe('captureScope', () => {
     opened.push(checkpoint);
     return { checkpoint, runId: checkpoint.createRun({ worktree: repo }).id };
   };
-  const capture = (repo: string, request: ScopeRequest = noRequest): { checkpoint: Checkpoint; scope: ScopeState; runId: string } => {
+  const capture = (repo: string, request: ScopeRequest = noRequest, exclude: readonly string[] = []): { checkpoint: Checkpoint; scope: ScopeState; runId: string } => {
     const { checkpoint, runId } = start(repo);
-    const state = captureScope(checkpoint, runId, request);
+    const state = captureScope(checkpoint, runId, request, { exclude });
     assert.ok(state.scope !== null);
     return { checkpoint, scope: state.scope, runId };
   };
@@ -376,6 +376,98 @@ describe('captureScope', () => {
     mkdirSync(join(sandbox, 'unused'));
   });
 
+  // R10 of the configuration: the paths scope.exclude leaves out.
+  describe('paths left out', () => {
+    const patchText = (checkpoint: Checkpoint, scope: ScopeState): string => checkpoint.evidence.read(scope.patch).toString('utf8');
+
+    it('leaves out tracked, untracked and deleted paths a pattern matches, from the files and the patch, and names them', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'src/a.ts': '1\n', 'dist/a.js': 'built 1\n', 'dist/old.js': 'old\n', 'test/fixtures/checkpoints/x/ledger': 'l1\n' });
+      write(repo, 'src/a.ts', '2\n');
+      write(repo, 'dist/a.js', 'built 2\n');
+      remove(repo, 'dist/old.js');
+      write(repo, 'dist/new.js', 'new\n');
+      write(repo, 'test/fixtures/checkpoints/x/ledger', 'l2\n');
+      const { checkpoint, scope } = capture(repo, noRequest, ['dist/**', 'test/fixtures/checkpoints/**']);
+      assert.deepEqual(scope.files.map((file) => file.path), ['src/a.ts']);
+      assert.deepEqual(scope.request, { paths: [], exclude: ['dist/**', 'test/fixtures/checkpoints/**'] });
+      assert.deepEqual(scope.excluded, { paths: ['dist/a.js', 'dist/new.js', 'dist/old.js', 'test/fixtures/checkpoints/x/ledger'], count: 4 });
+      const patch = patchText(checkpoint, scope);
+      assert.match(patch, /src\/a\.ts/);
+      assert.doesNotMatch(patch, /dist\/|test\/fixtures/, 'no excluded file is in the patch');
+    });
+
+    it('reads a rename out of a pattern as an addition, and names the old path as left out', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'dist/a.js': 'export const moved = 1;\n'.repeat(20), 'src/keep.ts': 'k\n' });
+      git(repo, 'mv', 'dist/a.js', 'src/a.js');
+      const { checkpoint, scope } = capture(repo, noRequest, ['dist/**']);
+      assert.deepEqual(scope.files.map((file) => [file.path, file.status]), [['src/a.js', 'added']]);
+      assert.deepEqual(scope.excluded, { paths: ['dist/a.js'], count: 1 });
+      const patch = patchText(checkpoint, scope);
+      assert.match(patch, /new file mode/);
+      assert.doesNotMatch(patch, /rename from/);
+      assert.doesNotMatch(patch, /dist\/a\.js/);
+    });
+
+    it('keeps everything when no pattern matches, and records no path left out', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': '1\n' });
+      write(repo, 'a.txt', '2\n');
+      const { scope } = capture(repo, noRequest, ['dist/**']);
+      assert.deepEqual(scope.files.map((file) => file.path), ['a.txt']);
+      assert.deepEqual(scope.excluded, { paths: [], count: 0 });
+    });
+
+    it('refuses a --path whose changes the patterns all leave out, naming the setting and its patterns', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'dist/a.js': '1\n', 'src/a.ts': '1\n' });
+      write(repo, 'dist/a.js', '2\n');
+      write(repo, 'src/a.ts', '2\n');
+      assert.throws(() => resolveScopeRequest(repo, { paths: ['dist'] }, ['dist/**']), /Scope path names only changes that scope\.exclude \(dist\/\*\*\) leaves out: dist/);
+      assert.throws(() => resolveScopeRequest(repo, { paths: ['docs'] }, ['dist/**']), /Scope path names nothing in the change: docs/);
+      assert.deepEqual(resolveScopeRequest(repo, { paths: ['src'] }, ['dist/**']).changes.map((change) => change.path), ['src/a.ts']);
+    });
+
+    it('refuses a pattern that git would read as magic, that leaves the repository, or that is absolute', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': '1\n' });
+      write(repo, 'a.txt', '2\n');
+      for (const pattern of [':(top)a.txt', '../a.txt', 'x/../a.txt', '/a.txt', 'C:/a.txt', '', 'a\0b']) {
+        assert.throws(() => resolveScopeRequest(repo, noRequest, [pattern]), InvalidScopeRequestError, JSON.stringify(pattern));
+      }
+      assert.throws(() => resolveScopeRequest(repo, noRequest, Array.from({ length: 65 }, (_, index) => `p${String(index)}/**`)), /more than the 64/);
+    });
+
+    it('counts maxScopeFiles after the exclusion, so a large rebuild left out stays under the limit', () => {
+      const files: Record<string, string> = { 'src/a.ts': '1\n' };
+      for (let index = 0; index <= maxScopeFiles; index += 1) files[`dist/${String(index)}.js`] = '1\n';
+      const repo = repositoryWith(join(sandbox, 'repo'), files);
+      for (let index = 0; index <= maxScopeFiles; index += 1) write(repo, `dist/${String(index)}.js`, '2\n');
+      write(repo, 'src/a.ts', '2\n');
+      assert.throws(() => resolveScopeRequest(repo, noRequest), UnsupportedRepositoryStateError, 'over the limit with nothing left out');
+      const resolved = resolveScopeRequest(repo, noRequest, ['dist/**']);
+      assert.deepEqual(resolved.changes.map((change) => change.path), ['src/a.ts']);
+      assert.equal(resolved.excluded.length, maxScopeFiles + 1);
+      const { scope } = capture(repo, noRequest, ['dist/**']);
+      assert.equal(scope.excluded.count, maxScopeFiles + 1);
+      assert.equal(scope.excluded.paths.length, maxScopeFiles, 'the record names 2000 paths and counts the rest');
+    });
+
+    it('refuses an empty change, and a change the patterns leave empty, before it records anything', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'dist/a.js': '1\n' });
+      const { checkpoint, runId } = start(repo);
+      assert.throws(() => captureScope(checkpoint, runId, { range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }), (error: unknown) => error instanceof EmptyChangeError && /The change is empty/.test(error.message));
+      write(repo, 'dist/a.js', '2\n');
+      assert.throws(() => captureScope(checkpoint, runId, noRequest, { exclude: ['dist/**'] }), (error: unknown) => error instanceof EmptyChangeError && /scope\.exclude \(dist\/\*\*\) leaves out all 1 of its changed paths/.test(error.message));
+      assert.equal(checkpoint.fold(runId).scope, null);
+    });
+
+    it('refuses a capture whose base is not the one the configuration was read at, recording nothing', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': '1\n' });
+      write(repo, 'a.txt', '2\n');
+      const { checkpoint, runId } = start(repo);
+      assert.throws(() => captureScope(checkpoint, runId, noRequest, { base: '0'.repeat(40) }), (error: unknown) => error instanceof CaptureRacedError && /HEAD moved since; run the command again/.test(error.message));
+      assert.equal(checkpoint.fold(runId).scope, null);
+      assert.ok(captureScope(checkpoint, runId, noRequest, { base: git(repo, 'rev-parse', 'HEAD') }).scope !== null);
+    });
+  });
+
   // TD4 of fix pass continuation: the capture's first half, which the comparison with a captured scope calls too.
   describe('resolveScopeRequest', () => {
     it('resolves a request to the mode, base, head, spelled request and paths the capture then records, writing nothing', () => {
@@ -393,7 +485,7 @@ describe('captureScope', () => {
       ]);
       assert.equal(existsSync(join(locateCheckpoint(repo).root, ledgerFileName)), false, 'no checkpoint was written');
       const { scope } = capture(repo, request);
-      assert.deepEqual({ mode: resolved.mode, base: resolved.base, head: resolved.guard.head, request: { ...resolved.request, exclude: [] }, paths: resolved.changes.map((change) => change.path) }, { mode: scope.mode, base: scope.base, head: scope.head, request: scope.request, paths: scope.files.map((file) => file.path) });
+      assert.deepEqual({ mode: resolved.mode, base: resolved.base, head: resolved.guard.head, request: resolved.request, paths: resolved.changes.map((change) => change.path) }, { mode: scope.mode, base: scope.base, head: scope.head, request: scope.request, paths: scope.files.map((file) => file.path) });
       assert.deepEqual(scope.request, { paths: ['src'], exclude: [] }, 'the spelling the capture records');
     });
 

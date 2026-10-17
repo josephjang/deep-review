@@ -167,7 +167,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const events = box.events(current.id);
     const payloadOf = (kind: string): Record<string, unknown> => events.find(([candidate]) => candidate === kind)![1];
     const legacy = box.checkpoint.createRun({ worktree: box.repo });
-    box.checkpoint.append(legacy.id, legacy.lastSequence, [{ kind: 'scope.captured', version: 1, payload: payloadOf('scope.captured') }, { kind: 'review.configured', version: 4, payload: payloadOf('review.configured') }]);
+    box.checkpoint.append(legacy.id, legacy.lastSequence, [{ kind: 'scope.captured', version: 2, payload: payloadOf('scope.captured') }, { kind: 'review.configured', version: 4, payload: payloadOf('review.configured') }]);
     box.checkpoint.append(current.id, current.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'replaced by the legacy run' } }]);
     assert.equal(box.checkpoint.fold(legacy.id).review?.phases.decision.status, 'skipped');
     box.logs.length = 0;

@@ -97,6 +97,17 @@ export function status(repo: string): StatusEntry[] {
 /** A pathspec that matches exactly this path, never a glob. */
 export const literal = (path: string): string => `:(literal)${path}`;
 
+/**
+ * A pathspec that leaves out what a pattern of `scope.exclude` matches, in
+ * git's glob syntax, where `*` stays inside a directory and `**` crosses
+ * them (R10, TD8 of the configuration). With no other pathspec, git reads
+ * exclusions alone as leaving them out of the whole tree.
+ */
+export const excluded = (pattern: string): string => `:(exclude,glob)${pattern}`;
+
+/** The pathspecs of a request: each path exactly, then each pattern left out. */
+const pathspecs = (paths: readonly string[], exclude: readonly string[]): string[] => [...paths.map(literal), ...exclude.map(excluded)];
+
 export interface NameStatusEntry {
   /** `A`, `M`, `D` or `T` (type change). */
   readonly code: string;
@@ -105,11 +116,12 @@ export interface NameStatusEntry {
 
 /**
  * Changed paths between `base` and either `target` or the worktree, without
- * rename detection so every path stands alone.
+ * rename detection so every path stands alone, less what `exclude` leaves
+ * out.
  */
-export function diffNameStatus(repo: string, base: string, target: string | null, paths: readonly string[]): NameStatusEntry[] {
+export function diffNameStatus(repo: string, base: string, target: string | null, paths: readonly string[], exclude: readonly string[] = []): NameStatusEntry[] {
   const selectors = target === null ? [base] : [base, target];
-  const output = gitText(repo, ['diff', '--no-renames', '--name-status', '-z', ...selectors, '--', ...paths.map(literal)]);
+  const output = gitText(repo, ['diff', '--no-renames', '--name-status', '-z', ...selectors, '--', ...pathspecs(paths, exclude)]);
   const parts = records(output);
   const entries: NameStatusEntry[] = [];
   for (let index = 0; index + 1 < parts.length; index += 2) {
@@ -119,10 +131,15 @@ export function diffNameStatus(repo: string, base: string, target: string | null
   return entries;
 }
 
-/** The unified patch between `base` and either `target` or the worktree, with binary content and git's rename detection. */
-export function diffPatch(repo: string, base: string, target: string | null, paths: readonly string[]): Buffer {
+/**
+ * The unified patch between `base` and either `target` or the worktree, with
+ * binary content and git's rename detection, less what `exclude` leaves
+ * out: a rename from a path left out reads as an addition, since git looks
+ * for renames among the paths the pathspecs keep.
+ */
+export function diffPatch(repo: string, base: string, target: string | null, paths: readonly string[], exclude: readonly string[] = []): Buffer {
   const selectors = target === null ? [base] : [base, target];
-  return git(repo, ['diff', '--binary', '--no-ext-diff', '--no-textconv', '-M', ...selectors, '--', ...paths.map(literal)]);
+  return git(repo, ['diff', '--binary', '--no-ext-diff', '--no-textconv', '-M', ...selectors, '--', ...pathspecs(paths, exclude)]);
 }
 
 /** The patch that adds an untracked file from nothing. */
@@ -130,9 +147,9 @@ export function untrackedPatch(repo: string, path: string): Buffer {
   return git(repo, ['diff', '--no-index', '--binary', '--no-ext-diff', '--no-textconv', '--', '/dev/null', path], { okExitCodes: [1] });
 }
 
-/** Untracked, non-ignored entries. An embedded repository appears as `dir/`. */
-export function untrackedEntries(repo: string, paths: readonly string[]): string[] {
-  return records(gitText(repo, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths.map(literal)]));
+/** Untracked, non-ignored entries, less what `exclude` leaves out. An embedded repository appears as `dir/`. */
+export function untrackedEntries(repo: string, paths: readonly string[], exclude: readonly string[] = []): string[] {
+  return records(gitText(repo, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...pathspecs(paths, exclude)]));
 }
 
 export interface TreeEntry {
