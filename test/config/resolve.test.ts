@@ -9,6 +9,7 @@ import { repositoryConfigPath, type ConfigFile } from '../../src/config/files.ts
 import { flagLayerOf, noFlags, originHeadBranch, parseSetFlag, parseSetValue, readOperatorFiles, requireBase, resolvedValue, resolveScopeSettings, resolveSettings, withChangedPaths, type FlagLayer, type SettingsInputs } from '../../src/config/resolve.ts';
 import { layerOrder, owners, scopeDefaults, settableBy, settings, type FileLayer, type Layer, type Owner, type SettingName } from '../../src/config/settings.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { readPolicy } from '../../src/review/policy.ts';
 import { git, repositoryWith } from '../helpers/repository.ts';
@@ -210,7 +211,7 @@ describe('the flag layer', () => {
   // R1 of the configuration: a dedicated flag the command line took before the settings is still taken.
   it('takes every --check command and --executable-arg the command line took before the settings, a long command and an empty argument among them', () => {
     const long = `npm test -- ${'x'.repeat(5000)}`;
-    const layer = flagLayerOf(dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: { commands: { test: long }, dropped: [] }, executableArgs: ['', '--flag'] }));
+    const layer = flagLayerOf(dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: flagCheckSettings({ test: long }, []), executableArgs: ['', '--flag'] }));
     assert.equal(layer.get('checks.test')?.value, long);
     assert.deepEqual(layer.get('runtimes.claude.args')?.value, ['', '--flag']);
   });

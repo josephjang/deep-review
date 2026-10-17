@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import type { PolicyFile } from '../../src/review/policy.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
@@ -13,7 +14,7 @@ const fromPackage = (kind: 'build' | 'typecheck' | 'lint' | 'test', missingTool:
   ({ kind, command, basis: 'stated', source: { path: 'package.json', quote: `"${kind}": "node ..."` }, missingTool, reason: null });
 
 /** The flags that settle build and typecheck with the stand-in checks, leaving lint and test to the surveyor. */
-const halfFlagged = { commands: { build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck') }, dropped: [] as ('build' | 'typecheck' | 'lint' | 'test')[] };
+const halfFlagged = flagCheckSettings({ build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck') }, []);
 
 describe('the repository survey in a run', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
   const surveyors = (box: ReviewSandbox): number => Object.values(box.run().workers).filter((worker) => worker.launch.label === 'surveyor survey:survey').length;
@@ -32,7 +33,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     assert.equal(Object.values(box.run().workers).length, 1, 'only the surveyor was paid for');
     assert.equal(box.run().review!.fix!.checks.planned, null, 'nothing is planned while a defined check cannot run');
     // The operator goes without lint: the flags of the next invocation settle the block, and the recorded survey plans the rest.
-    reportText(await box.review('claude', { fix: { ...halfFlagged, dropped: ['lint'] } }));
+    reportText(await box.review('claude', { fix: flagCheckSettings(halfFlagged.commands, ['lint']) }));
     const state = box.run();
     assert.equal(surveyors(box), 1, 'the survey is not repeated when the flags settle its block');
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 2 });

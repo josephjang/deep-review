@@ -42,47 +42,61 @@ export interface RootManifests {
 /**
  * What the settings say about the checks (R11 of the configuration): a
  * command per kind they name, the kinds they drop, and the layer of each
- * kind they settle, which `--check` and `--no-check` give as the flag
- * layer. A kind with no layer named was settled by a flag.
+ * kind they settle: a configuration file's, or the flag layer, which
+ * `--check`, `--no-check` and `--set checks.<kind>` give.
  */
-export interface CheckFlags {
+export interface CheckSettings {
   readonly commands: Readonly<Partial<Record<CheckKind, string>>>;
   readonly dropped: readonly CheckKind[];
-  readonly layers?: Readonly<Partial<Record<CheckKind, Exclude<Layer, 'default'>>>>;
+  readonly layers: Readonly<Partial<Record<CheckKind, Exclude<Layer, 'default'>>>>;
 }
 
-/** The layer that settled a kind the flags settle: the one they name, else the flag layer. */
-export const settledLayer = (flags: CheckFlags, kind: CheckKind): Exclude<Layer, 'default'> => flags.layers?.[kind] ?? 'flag';
+/** The check settings of flags alone: each kind they name a command for or drop, settled at the flag layer. */
+export function flagCheckSettings(commands: Readonly<Partial<Record<CheckKind, string>>>, dropped: readonly CheckKind[]): CheckSettings {
+  const layers: Partial<Record<CheckKind, Exclude<Layer, 'default'>>> = {};
+  for (const kind of checkKinds) {
+    if (dropped.includes(kind) || commands[kind] !== undefined) layers[kind] = 'flag';
+  }
+  return { commands, dropped, layers };
+}
 
-/** Whether a flag of this invocation, rather than a configuration file, settled every kind the flags settle. */
-export const settledByFlagsOnly = (flags: CheckFlags): boolean => checkKinds.every((kind) => !isSettled(flags, kind) || settledLayer(flags, kind) === 'flag');
+/** The layer that settled a kind the settings settle; one they name no layer for is a producer's mistake, never a flag. */
+export function settledLayer(settings: CheckSettings, kind: CheckKind): Exclude<Layer, 'default'> {
+  const layer = settings.layers[kind];
+  if (layer === undefined) throw new Error(`The check settings settle the ${kind} check with no layer`);
+  return layer;
+}
 
-export const noCheckFlags: CheckFlags = { commands: {}, dropped: [] };
+/** Whether a flag of this invocation, rather than a configuration file, settled every kind the settings settle. */
+export const settledByFlagsOnly = (settings: CheckSettings): boolean => checkKinds.every((kind) => !isSettled(settings, kind) || settledLayer(settings, kind) === 'flag');
+
+export const noCheckSettings: CheckSettings = flagCheckSettings({}, []);
 
 /**
- * What the flags say about one kind (R5 of the repository survey): no
- * command when `--no-check` drops it, which wins over a `--check` naming
- * it; else the command `--check` names; or null when no flag settles it.
- * The one place that order is written, for every reader of the flags.
+ * What the settings say about one kind (R5 of the repository survey): no
+ * command when they drop it, as `--no-check` does, which wins over a
+ * command named for it; else the command they name; or null when they do
+ * not settle it. The one place that order is written, for every reader of
+ * the check settings.
  */
-export function flagSetting(flags: CheckFlags, kind: CheckKind): { readonly command: string | null } | null {
-  if (flags.dropped.includes(kind)) return { command: null };
-  const command = flags.commands[kind];
+export function flagSetting(settings: CheckSettings, kind: CheckKind): { readonly command: string | null } | null {
+  if (settings.dropped.includes(kind)) return { command: null };
+  const command = settings.commands[kind];
   return command === undefined ? null : { command };
 }
 
-/** Whether a flag settles the kind, naming its command or dropping it (R5 of the repository survey). */
-export const isSettled = (flags: CheckFlags, kind: CheckKind): boolean => flagSetting(flags, kind) !== null;
+/** Whether the settings settle the kind, naming its command or dropping it (R5 of the repository survey). */
+export const isSettled = (settings: CheckSettings, kind: CheckKind): boolean => flagSetting(settings, kind) !== null;
 
-/** The kinds a flag settles, in the order the checks run, each with the flag's command, or null for one it drops, and the layer that settled it. */
-export const settledKinds = (flags: CheckFlags): { readonly kind: CheckKind; readonly command: string | null; readonly layer: Exclude<Layer, 'default'> }[] =>
+/** The kinds the settings settle, in the order the checks run, each with its command, or null for one they drop, and the layer that settled it. */
+export const settledKinds = (settings: CheckSettings): { readonly kind: CheckKind; readonly command: string | null; readonly layer: Exclude<Layer, 'default'> }[] =>
   checkKinds.flatMap((kind) => {
-    const setting = flagSetting(flags, kind);
-    return setting === null ? [] : [{ kind, command: setting.command, layer: settledLayer(flags, kind) }];
+    const setting = flagSetting(settings, kind);
+    return setting === null ? [] : [{ kind, command: setting.command, layer: settledLayer(settings, kind) }];
   });
 
-/** The kinds no flag settles, in the order the checks run: the ones the surveyor chooses. */
-export const unsettledKinds = (flags: CheckFlags): CheckKind[] => checkKinds.filter((kind) => !isSettled(flags, kind));
+/** The kinds the settings leave unsettled, in the order the checks run: the ones the surveyor chooses. */
+export const unsettledKinds = (settings: CheckSettings): CheckKind[] => checkKinds.filter((kind) => !isSettled(settings, kind));
 
 /** The rule a hint came from: the sources the fix pass once decided by, as `checks.planned@1` names them, or none. */
 export const hintRules = ['taskfile', 'makefile', 'justfile', 'package', 'language', 'none'] as const;

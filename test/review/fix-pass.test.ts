@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -706,7 +707,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       surveyor: { output: { conventions: [], userRules: [], checks: [script('build', 'hint'), script('lint', 'stated'), script('test', 'stated')], note: '' } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
     });
-    reportText(await box.review('claude', { fix: { commands: {}, dropped: ['typecheck'] } }));
+    reportText(await box.review('claude', { fix: flagCheckSettings({}, ['typecheck']) }));
     const state = box.run();
     const planned = state.review!.fix!.checks.planned!;
     assert.equal(planned.manager, null, 'a version 2 plan names no package manager');
@@ -729,7 +730,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     git(box.repo, 'add', 'yarn.lock');
     git(box.repo, 'commit', '-q', '--amend', '--no-edit');
     box.script(reviewScript);
-    reportText(await box.review('claude', { fix: { commands: {}, dropped: [] } }));
+    reportText(await box.review('claude', { fix: flagCheckSettings({}, []) }));
     const state = box.run();
     assert.match(box.promptOf(state, 'surveyor survey:survey'), /^- test: none \(the package\.json script `test`, but the lock files name more than one package manager \(yarn\.lock, package-lock\.json\)/m);
     // The fake surveyor chose no command, so no hinted command ran: a hint is a guess, never a plan.
@@ -797,7 +798,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the run pinned the policy\'s batch size');
     setPolicyBatchSize(box, 4);
     box.script(reviewScript);
-    reportText(await box.review('claude', { fix: { commands: { test: 'echo other' }, dropped: [] } }));
+    reportText(await box.review('claude', { fix: flagCheckSettings({ test: 'echo other' }, []) }));
     assert.ok(box.logs.some((line) => /keeps the checks it pinned; --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
     assert.ok(box.run().review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag' && check.command !== 'echo other'));
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the resumed run kept the size it started with');

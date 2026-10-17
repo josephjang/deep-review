@@ -11,6 +11,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import { dedicatedFlagValues } from '../../src/config/flags.ts';
 import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
 import { configurationSource } from '../../src/config/source.ts';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { claimCommandFor, presurveyRulesFiles, snapshotCommandFor } from '../../src/review/controller.ts';
 import { claimPathPlaceholder } from '../../src/review/tasks.ts';
 import { captureScope } from '../../src/scope/capture.ts';
@@ -315,7 +316,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
   it('goes on without a fix run\'s failed survey on flags alone, reading only the user-level files, so a git history it cannot read does not stop it (R9 of the repository survey)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({ surveyor: { exit: 2 } });
-    const halfFlagged = { commands: { build: ReviewSandbox.checkFlags().commands.build! }, dropped: [] };
+    const halfFlagged = flagCheckSettings({ build: ReviewSandbox.checkFlags().commands.build! }, []);
     const blocked = await box.review('claude', { fix: halfFlagged });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'worker-failed' && blocked.blocker.phase === 'survey', JSON.stringify(blocked));
     // The reviewer's authorship, which only the surveyor's task tells, is read with `git log`, which now fails; the escape hatch needs none of it.
@@ -342,10 +343,10 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const box = ReviewSandbox.forTest(t);
     box.script({ surveyor: { output: { conventions: [], userRules: [], checks: [statedCheck('lint', 'ruff'), statedCheck('test')], note: '' } } });
     const flags = ReviewSandbox.checkFlags();
-    const blocked = await box.review('claude', { fix: { commands: { build: flags.commands.build!, typecheck: flags.commands.typecheck! }, dropped: [] } });
+    const blocked = await box.review('claude', { fix: flagCheckSettings({ build: flags.commands.build!, typecheck: flags.commands.typecheck! }, []) });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
     // The resume answers the block with --no-check lint, and gives neither of the --check flags the run recorded.
-    reportText(await box.review('claude', { fix: { commands: {}, dropped: ['lint'] } }));
+    reportText(await box.review('claude', { fix: flagCheckSettings({}, ['lint']) }));
     const state = box.run();
     assert.ok(!box.logs.some((line) => line.includes('its survey was asked with')), box.logs.join('\n'));
     assert.equal(state.review!.survey!.answers.length, 1, 'no surveyor was asked again');
@@ -360,7 +361,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
       { output: { conventions: [], userRules: [], checks: [statedCheck('build'), statedCheck('typecheck'), statedCheck('test')], note: 'asked again' } },
     ] });
     const flags = ReviewSandbox.checkFlags();
-    const blocked = await box.review('claude', { fix: { commands: { build: flags.commands.build!, typecheck: flags.commands.typecheck! }, dropped: [] } });
+    const blocked = await box.review('claude', { fix: flagCheckSettings({ build: flags.commands.build!, typecheck: flags.commands.typecheck! }, []) });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
     // Stand in for an engine before the settings: the same run, configured at version 5, which records no flag.
     const recorded = box.checkpoint.ledger.events(blocked.runId);
@@ -375,7 +376,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     }
     assert.equal(box.checkpoint.fold(older.id).review!.configuration.settings, null, 'the run records no settings');
     // The resume answers the block with --no-check lint, and gives neither of the --check flags the survey was asked with.
-    reportText(await box.review('claude', { fix: { commands: {}, dropped: ['lint'] } }));
+    reportText(await box.review('claude', { fix: flagCheckSettings({}, ['lint']) }));
     const state = box.checkpoint.fold(older.id);
     assert.ok(box.logs.includes(`run ${state.id}: its survey was asked with --check or --no-check settling build, typecheck, which this invocation leaves unsettled, so the survey is asked again for them; give those flags again to keep them`), box.logs.join('\n'));
     assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', 'asked again']);

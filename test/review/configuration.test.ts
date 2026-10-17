@@ -9,8 +9,8 @@ import { flagLayerOf, parseSetFlag, type FlagValue } from '../../src/config/reso
 import type { SettingName } from '../../src/config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../../src/config/source.ts';
 import { assembleRoles } from '../../src/roles/assemble.ts';
-import { checkFlagsInForce, checkFlagsOfResolved, recordedCheckFlags, refuseOldNode, unappliedLines } from '../../src/review/configuration.ts';
-import type { CheckFlags } from '../../src/review/checks/discover.ts';
+import { checkSettingsInForce, checkSettingsOfResolved, recordedCheckSettings, refuseOldNode, unappliedLines } from '../../src/review/configuration.ts';
+import { flagCheckSettings, type CheckSettings } from '../../src/review/checks/discover.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { readPolicy, resolvePolicy } from '../../src/review/policy.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -25,7 +25,7 @@ interface SourceOptions {
   readonly clone?: string;
   readonly invocation?: string;
   readonly sets?: readonly string[];
-  readonly checks?: CheckFlags | null;
+  readonly checks?: CheckSettings | null;
   readonly repositoryConfig?: boolean;
 }
 
@@ -87,9 +87,9 @@ describe('the settings in a run (R1, R4 to R6, R10, R11 of the configuration)', 
       clone: 'schema = 1\ntools.path = [".venv/bin"]\nreport.formats = ["html"]\n',
       invocation: 'schema = 1\nchecks.test = "npm run test:fast"\n',
       sets: ['run.concurrency=2'],
-      checks: { commands: {}, dropped: [] },
+      checks: flagCheckSettings({}, []),
     });
-    const outcome = await box.review('claude', { configuration: source, fix: { commands: {}, dropped: [] } });
+    const outcome = await box.review('claude', { configuration: source, fix: flagCheckSettings({}, []) });
     assert.equal(outcome.kind, 'blocked', JSON.stringify(outcome));
     const configured = configuredPayload(box);
     const { settings } = configured;
@@ -201,7 +201,7 @@ describe('the settings in a run (R1, R4 to R6, R10, R11 of the configuration)', 
     const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
     const flags = ReviewSandbox.checkFlags();
     policyAtBase(box, `schema = 1\nchecks.build = ${JSON.stringify(flags.commands.build)}\nchecks.typecheck = false\n`);
-    await box.review('claude', { configuration: sourceFor(box, { checks: { commands: {}, dropped: [] } }), fix: { commands: {}, dropped: [] } });
+    await box.review('claude', { configuration: sourceFor(box, { checks: flagCheckSettings({}, []) }), fix: flagCheckSettings({}, []) });
     const state = box.run();
     const surveyor = Object.values(state.workers).find((worker) => worker.launch.label === 'surveyor survey:survey')!;
     const task = box.checkpoint.evidence.read(surveyor.launch.prompt).toString('utf8');
@@ -236,7 +236,7 @@ describe('the node of tools.path', () => {
     const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
     const directory = withNode(t);
     const clone = `schema = 1\ntools.path = [${JSON.stringify(directory)}]\n`;
-    await assert.rejects(box.review('claude', { configuration: sourceFor(box, { clone, checks: { commands: {}, dropped: [] } }), fix: { commands: {}, dropped: [] } }), (error: unknown) => error instanceof ReviewRefusedError && error.message.includes(`tools.path names ${directory}, whose node cannot be asked its version`));
+    await assert.rejects(box.review('claude', { configuration: sourceFor(box, { clone, checks: flagCheckSettings({}, []) }), fix: flagCheckSettings({}, []) }), (error: unknown) => error instanceof ReviewRefusedError && error.message.includes(`tools.path names ${directory}, whose node cannot be asked its version`));
     assert.deepEqual(box.checkpoint.foldRuns(), [], 'no run was created');
     assert.equal((await box.review('claude', { configuration: sourceFor(box, { clone }) })).kind, 'blocked', 'a read-only run runs no engine command in a fixer');
   });
@@ -270,7 +270,7 @@ describe('the node of tools.path', () => {
 describe('the check settings in force', () => {
   /** The command's resolver of the executable, as one that finds the runtime's name where the fixture's run pinned it. */
   const onPath = (configured: string | null): string => configured ?? '/bin/claude';
-  const recorded: CheckFlags = { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'repository', test: 'clone', lint: 'operator' } };
+  const recorded: CheckSettings = { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'repository', test: 'clone', lint: 'operator' } };
 
   /** The settings a resume of a `settingsConfigured(fix)` run resolves when its files and flags are as the run recorded them: the ones version 5 holds read back from its fields. */
   const unchangedNow = (fix: boolean): { runtime: string; values: Record<string, { value: unknown; layer: string }>; files: { layer: string; path: string; sha256: string; commit: string | null }[]; repository: { state: 'read' | 'absent' | 'skipped'; commit: string | null; edited: boolean }; notFollowed: []; ignored: [] } => ({
@@ -287,25 +287,25 @@ describe('the check settings in force', () => {
   });
 
   it('takes the recorded settings, each kind a flag settles taking the flag\'s place with the flag layer', () => {
-    assert.deepEqual(checkFlagsInForce(recorded, null), recorded);
-    assert.deepEqual(checkFlagsInForce(recorded, { commands: { test: 'npm run t' }, dropped: ['build'] }), { commands: { test: 'npm run t' }, dropped: ['build', 'lint'], layers: { build: 'flag', lint: 'operator', test: 'flag' } });
-    assert.deepEqual(checkFlagsInForce(null, { commands: { test: 'x' }, dropped: [] }), { commands: { test: 'x' }, dropped: [] }, 'a run that recorded none has the flags alone');
-    assert.deepEqual(checkFlagsInForce(null, null), { commands: {}, dropped: [] });
+    assert.deepEqual(checkSettingsInForce(recorded, null), recorded);
+    assert.deepEqual(checkSettingsInForce(recorded, flagCheckSettings({ test: 'npm run t' }, ['build'])), { commands: { test: 'npm run t' }, dropped: ['build', 'lint'], layers: { build: 'flag', lint: 'operator', test: 'flag' } });
+    assert.deepEqual(checkSettingsInForce(null, flagCheckSettings({ test: 'x' }, [])), { commands: { test: 'x' }, dropped: [], layers: { test: 'flag' } }, 'a run that recorded none has the flags alone');
+    assert.deepEqual(checkSettingsInForce(null, null), { commands: {}, dropped: [], layers: {} });
   });
 
   it('reads the check settings the resolved settings settle, each with its layer, and leaves the rest to the survey', () => {
     const now = unchangedNow(true);
     const resolved = { ...now, values: { ...now.values, 'checks.build': { value: 'make', layer: 'repository' }, 'checks.lint': { value: false, layer: 'operator' }, 'checks.test': { value: 'npm test', layer: 'flag' } } };
-    assert.deepEqual(checkFlagsOfResolved(resolved as never), { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'repository', lint: 'operator', test: 'flag' } });
-    assert.deepEqual(checkFlagsOfResolved(now as never), { commands: {}, dropped: [], layers: {} }, 'no layer settles a check');
+    assert.deepEqual(checkSettingsOfResolved(resolved as never), { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'repository', lint: 'operator', test: 'flag' } });
+    assert.deepEqual(checkSettingsOfResolved(now as never), { commands: {}, dropped: [], layers: {} }, 'no layer settles a check');
   });
 
   it('reads the check settings a fix run recorded, and none for a read-only run or one recorded before the settings', () => {
     const values = { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'checks.build': 'make', 'checks.typecheck': null, 'checks.lint': false, 'checks.test': null };
     const fixing = settingsConfigured(true, { values, layers: { ...(settingsBlock(true).layers as object), 'checks.build': 'repository', 'checks.lint': 'flag' } }).review().configuration;
-    assert.deepEqual(recordedCheckFlags(fixing), { commands: { build: 'make' }, dropped: ['lint'], layers: { build: 'repository', lint: 'flag' } });
-    assert.equal(recordedCheckFlags(settingsConfigured(false).review().configuration), null);
-    assert.equal(recordedCheckFlags({ ...fixing, settings: null }), null);
+    assert.deepEqual(recordedCheckSettings(fixing), { commands: { build: 'make' }, dropped: ['lint'], layers: { build: 'repository', lint: 'flag' } });
+    assert.equal(recordedCheckSettings(settingsConfigured(false).review().configuration), null);
+    assert.equal(recordedCheckSettings({ ...fixing, settings: null }), null);
   });
 
   it('names no unapplied setting for a resume whose files and flags are as the run recorded them', () => {
@@ -382,7 +382,7 @@ describe('the check settings in force', () => {
   });
 
   it('builds the invocation\'s check flags from --check, --no-check and --set alike', () => {
-    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: { commands: { build: 'make' }, dropped: ['lint'] } }), parseSetFlag('checks.test=npm test')]);
-    assert.deepEqual(checkFlagsOf(layer), { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'] });
+    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: flagCheckSettings({ build: 'make' }, ['lint']) }), parseSetFlag('checks.test=npm test')]);
+    assert.deepEqual(checkFlagsOf(layer), { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'flag', lint: 'flag', test: 'flag' } });
   });
 });

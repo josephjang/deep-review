@@ -12,7 +12,7 @@ import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
 import { checksFloor, claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
-import { settledByFlagsOnly, unsettledKinds, type CheckFlags } from './checks/discover.ts';
+import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
 import { resolveChecks, type UnavailableCheck } from './survey.ts';
 import { planFixes, planSecondRound, type FixPlan, type SecondRoundPlan } from './fixes.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
@@ -57,7 +57,7 @@ export interface Live {
   /** Where a frozen blob lives, so a drift blocker names the bytes to restore (R7 of the fix pass). */
   readonly evidencePath: (reference: ArtifactReference) => string;
   /** The check settings: the ones the run recorded, or on a run configured before the settings this invocation's `--check` and `--no-check` flags, which settle their kinds until the checks are planned (R5, TD6 of the repository survey, R11 of the configuration); none in a run that does not fix. */
-  readonly checkFlags: CheckFlags;
+  readonly checkSettings: CheckSettings;
   /** The claims directory this engine found removed while the fixes phase edited, which stops the phase (R12 of commit series integrity); null while none was. */
   readonly claimsLost: string | null;
 }
@@ -482,7 +482,7 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   if (fix.checks.planned !== null) return finish();
   if (live.running.has(unitName('survey', key))) return null;
   if (answer !== null) {
-    const resolved = resolveChecks(answer, live.checkFlags);
+    const resolved = resolveChecks(answer, live.checkSettings);
     if (answered && resolved.uncovered.length > 0) throw new Error(`The survey answered in this attempt leaves ${resolved.uncovered.join(', ')} unchosen, which its task asked for`);
     if (answered && resolved.unavailable.length > 0) return { kind: 'finish-phase', phase: 'survey', attempt, outcome: 'blocked', blocker: checkUnavailableBlocker(resolved.unavailable) };
     if (resolved.unavailable.length === 0 && resolved.uncovered.length === 0) return { kind: 'plan-checks', checks: resolved.checks, without: null };
@@ -491,7 +491,7 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   // A fix run goes on without its survey only with its plan, in the same append.
   if (survey.failure !== null) throw new Error('The fix run went on without its survey but planned no check, which the engine records together');
   // With no answer, only flags that settle every kind let a fix run go on: the run then runs no check they did not name.
-  if (unsettledKinds(live.checkFlags).length > 0) return null;
+  if (unsettledKinds(live.checkSettings).length > 0) return null;
   const unit: Unit = { phase: 'survey', key, role: 'surveyor' };
   const state = review.units.survey[key];
   // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action promised these flags would let the run go on.
@@ -501,9 +501,9 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
     : exhausted(review, unit, state) && !interrupted(state) ? workerFailedBlocker(review, unit, state).detail : null;
   if (failed === null) return null;
   // The flag layer is this invocation's flags or an earlier one's the run recorded, so the text names the flags without saying whose.
-  const settledBy = settledByFlagsOnly(live.checkFlags) ? 'the --check and --no-check flags settle' : 'the check settings settle';
+  const settledBy = settledByFlagsOnly(live.checkSettings) ? 'the --check and --no-check flags settle' : 'the check settings settle';
   const without = truncated(`${failed}; ${settledBy} every check, so the run goes on without it`, maxRecordedTextLength);
-  return { kind: 'plan-checks', checks: resolveChecks(null, live.checkFlags).checks, without };
+  return { kind: 'plan-checks', checks: resolveChecks(null, live.checkSettings).checks, without };
 }
 
 /**

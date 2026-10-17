@@ -39,7 +39,7 @@ import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
-import { noCheckFlags, type CheckFlags } from './review/checks/discover.ts';
+import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
@@ -199,7 +199,7 @@ export function scopeRequestOf(values: Values, worktree: string, scope: ScopeSet
  * dedicated flags as settings, then each `--set`, two for one setting
  * refused with the usage.
  */
-export function flagLayerOfValues(values: Values, runtime: string, policy: PolicyFlags, checks: CheckFlags | null): FlagLayer {
+export function flagLayerOfValues(values: Values, runtime: string, policy: PolicyFlags, checks: CheckSettings | null): FlagLayer {
   try {
     return flagLayerOf([
       ...dedicatedFlagValues({
@@ -224,7 +224,7 @@ export function flagLayerOfValues(values: Values, runtime: string, policy: Polic
  * kinds each `--no-check <kind>` drops. A kind named twice, an unknown
  * kind, an empty command, or a check flag without `--fix` is refused.
  */
-export function fixRequestOf(values: Values): CheckFlags | null {
+export function fixRequestOf(values: Values): CheckSettings | null {
   const checks = values.check ?? [];
   const dropped = values['no-check'] ?? [];
   if (values.fix !== true) {
@@ -248,7 +248,7 @@ export function fixRequestOf(values: Values): CheckFlags | null {
     if (command.trim() === '' || command.includes('\0')) throw new UsageError(`--check ${kind}= needs a command`);
     commands[kind] = command;
   }
-  return { commands, dropped: dropped.map((text) => kindOf('--no-check', text)) };
+  return flagCheckSettings(commands, dropped.map((text) => kindOf('--no-check', text)));
 }
 
 /** Whether `--fresh` declines a continuation (R2 of fix pass continuation); it is refused without `--fix`, which alone continues a run. */
@@ -453,7 +453,7 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
       rolesRoot,
       flags,
       scope: { named: false, request: () => { throw new Error(`Run ${outcome.runId} has its scope`); } },
-      fix: noCheckFlags,
+      fix: noCheckSettings,
       engineEntry: import.meta.filename,
       environment: io.environment,
       log: (line) => io.stderr(`${line}\n`),
@@ -606,7 +606,7 @@ interface Invocation {
   readonly runtime: string;
   readonly flags: PolicyFlags;
   /** The check flags of a `--fix`, or null without one. */
-  readonly fix: CheckFlags | null;
+  readonly fix: CheckSettings | null;
   readonly source: ConfigurationSource;
 }
 

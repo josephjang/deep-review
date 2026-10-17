@@ -10,7 +10,7 @@ import { isAbsolute, join } from 'node:path';
 import type { ConventionSource, PlannedCheckV3, SurveyedCheck, SurveyedSources, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
 import { layerWords, type FileLayer, type Layer } from '../config/settings.ts';
 import { canonicalPath, isFile, isInside } from '../paths.ts';
-import { flagSetting, isSettled, settledLayer, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
+import { flagSetting, isSettled, settledLayer, unsettledKinds, type CheckSettings, type CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { StructuralCheckError } from './errors.ts';
 import { requireNoNul, resolveReportedPath, resolvingPath } from './fix-answer.ts';
@@ -20,14 +20,14 @@ import { checkKinds, type CheckKind, type UserRulesSetting } from './vocabulary.
 
 /**
  * What one invocation knows for its survey, read once: the platform its
- * checks run on, the `--check` and `--no-check` flags it was given (none
+ * checks run on, the check settings in force, a file's or a flag's (none
  * in a run that does not fix), the user-level rules files that exist, and
- * in a fix run the manifest rules' hint for each kind no flag settles,
+ * in a fix run the manifest rules' hint for each kind no setting settles,
  * and how much of the repository's recent history the reviewer authored.
  */
 export interface SurveyInputs {
   readonly platform: NodeJS.Platform;
-  readonly flags: CheckFlags;
+  readonly checkSettings: CheckSettings;
   /** Absolute paths, in the order `userConventionFiles` lists them. */
   readonly userFiles: readonly string[];
   readonly hints: readonly CheckHint[];
@@ -211,8 +211,8 @@ function checkChecks(output: SurveyorOutput, context: SurveyCheckContext): Surve
   const answered = output.checks;
   if (answered === null) throw new StructuralCheckError('The answer chooses no checks, and this run fixes');
   requireOnce(answered.map((check) => check.kind), 'The check kind');
-  const wanted = unsettledKinds(context.inputs.flags);
-  const settled = answered.filter((check) => isSettled(context.inputs.flags, check.kind)).map((check) => check.kind);
+  const wanted = unsettledKinds(context.inputs.checkSettings);
+  const settled = answered.filter((check) => isSettled(context.inputs.checkSettings, check.kind)).map((check) => check.kind);
   if (settled.length > 0) throw new StructuralCheckError(`The answer chooses ${settled.join(', ')}, which a flag settles`);
   const missing = wanted.filter((kind) => !answered.some((check) => check.kind === kind));
   if (missing.length > 0) throw new StructuralCheckError(`The answer chooses nothing for ${missing.join(', ')}`);
@@ -255,7 +255,7 @@ export interface ResolvedChecks {
  * survey was asked when a flag, which this invocation no longer gives,
  * settled it.
  */
-export function resolveChecks(answer: Pick<SurveyRecorded, 'checks'> | null, flags: CheckFlags): ResolvedChecks {
+export function resolveChecks(answer: Pick<SurveyRecorded, 'checks'> | null, flags: CheckSettings): ResolvedChecks {
   const checks: PlannedCheckV3[] = [];
   const unavailable: UnavailableCheck[] = [];
   const uncovered: CheckKind[] = [];

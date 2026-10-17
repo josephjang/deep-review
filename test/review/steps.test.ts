@@ -3,14 +3,14 @@ import { describe, it } from 'node:test';
 import { angleFailedV1, blockerSchema, groupUnverifiedV1, type ReviewLimits } from '../../src/checkpoint/events.ts';
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import type { ReviewState, UnitState } from '../../src/checkpoint/review-fold.ts';
-import { noCheckFlags } from '../../src/review/checks/discover.ts';
+import { noCheckSettings } from '../../src/review/checks/discover.ts';
 import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step, type Unit } from '../../src/review/steps.ts';
 import { finderAngles, phases, unitName, type Phase } from '../../src/review/vocabulary.ts';
 import { candidate, configured, decidedOf, type History, finding, found, leads, mergeRanked, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 /** What the budget check counted: `usd`, with `charged` workers at their caps and `lost` ones named. */
 const counted = (usd: number, charged = 0, lost = 0): { usd: number; charged: number; lost: number } => ({ usd, charged, lost });
-const idle: Live = { running: new Set(), spend: counted(0), evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags, claimsLost: null };
+const idle: Live = { running: new Set(), spend: counted(0), evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
 /** The part of `Live` the budget check reads: `usd` counted, or null on a runtime that reports no cost. */
 const spent = (usd: number | null, charged = 0, lost = 0): Partial<Live> => ({ spend: { usd, charged, lost } });

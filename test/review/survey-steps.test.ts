@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { conventionsKnown } from '../../src/checkpoint/survey-state.ts';
-import { noCheckFlags, type CheckFlags } from '../../src/review/checks/discover.ts';
+import { flagCheckSettings, noCheckSettings, type CheckSettings } from '../../src/review/checks/discover.ts';
 import { checkUnavailableBlocker, nextStep, unitsOf, workerFailedBlocker, type Live } from '../../src/review/steps.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { continuedRun, continuedSurvey, flagPlan, launch, pin, readOnlyReported, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
 
-const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkFlags: noCheckFlags, claimsLost: null };
+const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
-const flags = (commands: CheckFlags['commands'], dropped: CheckFlags['dropped'] = []): CheckFlags => ({ commands, dropped });
+const flags = (commands: CheckSettings['commands'], dropped: CheckSettings['dropped'] = []): CheckSettings => flagCheckSettings(commands, dropped);
 const allFour = flags({ build: 'make build', typecheck: 'make typecheck', lint: 'make lint', test: 'make test' });
 
 const surveyor = { phase: 'survey' as const, key: 'survey', role: 'surveyor' as const };
@@ -34,7 +34,7 @@ describe('nextStep in the survey', () => {
 
   it('finishes a read-only survey once it answered, and never plans a check there', () => {
     const review = surveyConfigured().start('survey').worker(1, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(1))).review();
-    assert.deepEqual(nextStep(review, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'completed', blocker: null });
+    assert.deepEqual(nextStep(review, live({ checkSettings: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'completed', blocker: null });
     // An answer an earlier attempt recorded stands for a read-only review re-entered after its engine stopped.
     const reentered = surveyConfigured().start('survey').worker(1, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(1))).start('survey', 2).review();
     assert.deepEqual(nextStep(reentered, idle), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'completed', blocker: null });
@@ -83,15 +83,15 @@ describe('nextStep in the survey', () => {
     const two = checkUnavailableBlocker([{ kind: 'lint', command: 'a', source: 's', missingTool: 'x' }, { kind: 'test', command: 'b', source: 's', missingTool: 'y' }]);
     assert.equal(two.detail, 'the project defines checks this machine cannot run: lint: `a` (from s), x not found, test: `b` (from s), y not found');
     // A flag of the same invocation settles the kind before the block: nothing blocks.
-    assert.equal(nextStep(answered(missingRuff).review(), live({ checkFlags: flags({}, ['lint']) })).kind, 'plan-checks');
+    assert.equal(nextStep(answered(missingRuff).review(), live({ checkSettings: flags({}, ['lint']) })).kind, 'plan-checks');
   });
 
   it('plans from the blocked survey with no worker when the re-entering invocation\'s flags settle the block, and surveys again otherwise (TD7)', () => {
     const blocked = answered(missingRuff).finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }])).start('survey', 2);
-    const dropped = nextStep(blocked.review(), live({ checkFlags: flags({}, ['lint']) }));
+    const dropped = nextStep(blocked.review(), live({ checkSettings: flags({}, ['lint']) }));
     assert.ok(dropped.kind === 'plan-checks', JSON.stringify(dropped));
     assert.deepEqual(dropped.kind === 'plan-checks' ? dropped.checks.find((check) => check.kind === 'lint') : null, { kind: 'lint', command: null, origin: 'setting', layer: 'flag', reason: 'dropped by --no-check', source: null });
-    const named = nextStep(blocked.review(), live({ checkFlags: flags({ lint: 'npx ruff check .' }) }));
+    const named = nextStep(blocked.review(), live({ checkSettings: flags({ lint: 'npx ruff check .' }) }));
     assert.ok(named.kind === 'plan-checks' && named.checks.find((check) => check.kind === 'lint')?.command === 'npx ruff check .', JSON.stringify(named));
     // With no flag, the tool may have been installed: a fresh surveyor looks again.
     assert.deepEqual(nextStep(blocked.review(), idle), { kind: 'launch', units: [surveyor] });
@@ -105,7 +105,7 @@ describe('nextStep in the survey', () => {
     // The first invocation named lint with --check, so the surveyor chose three kinds; the engine stopped before the plan.
     const earlier = answered(stated.filter((check) => check.kind !== 'lint')).start('survey', 2);
     assert.deepEqual(nextStep(earlier.review(), idle), { kind: 'launch', units: [surveyor] });
-    assert.equal(nextStep(earlier.review(), live({ checkFlags: flags({ lint: 'eslint .' }) })).kind, 'plan-checks', 'the same flag again plans without a worker');
+    assert.equal(nextStep(earlier.review(), live({ checkSettings: flags({ lint: 'eslint .' }) })).kind, 'plan-checks', 'the same flag again plans without a worker');
   });
 
   it('blocks a fix run\'s survey that failed twice with the action that names the flags, and goes on without it when they settle all four (R9, PD6)', () => {
@@ -120,33 +120,33 @@ describe('nextStep in the survey', () => {
     assert.equal(workerFailedBlocker(twice.review(), { phase: 'triage', key: 'SCAN', role: 'triage' }, twice.review().units.survey.survey).action, blockerActions['worker-failed']);
     const reentered = twice.finish('survey', 'blocked', 1, blocker).start('survey', 2);
     // Three kinds settled is not enough: the survey runs again with fresh attempts.
-    assert.deepEqual(nextStep(reentered.review(), live({ checkFlags: flags({ build: 'a', lint: 'b' }, ['test']) })), { kind: 'launch', units: [surveyor] });
+    assert.deepEqual(nextStep(reentered.review(), live({ checkSettings: flags({ build: 'a', lint: 'b' }, ['test']) })), { kind: 'launch', units: [surveyor] });
     // One step plans the flags' checks and says why the run goes on without the survey, so the two are recorded together.
-    const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
+    const plan = nextStep(reentered.review(), live({ checkSettings: allFour }));
     assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: .*; the --check and --no-check flags settle every check, so the run goes on without it$/);
     // The ledger then finishes the phase degraded.
     const planned = reentered.clone().add('survey.failed', { reason: 'went on without it', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
-    assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'degraded', blocker: null });
+    assert.deepEqual(nextStep(planned, live({ checkSettings: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'degraded', blocker: null });
     // A failure the engine recorded without its plan is a history it never writes.
-    assert.throws(() => nextStep(reentered.clone().add('survey.failed', { reason: 'r', conventions: [], userRules: [] }).review(), live({ checkFlags: allFour })), /planned no check/);
+    assert.throws(() => nextStep(reentered.clone().add('survey.failed', { reason: 'r', conventions: [], userRules: [] }).review(), live({ checkSettings: allFour })), /planned no check/);
   });
 
   it('goes on without a fix run\'s survey that failed twice in this attempt when this invocation\'s flags settle all four kinds, with no block first (R9)', () => {
     // The first invocation already gave every flag: blocking would only tell the operator to run again with the flags it gave.
     const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
     const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
-    const plan = nextStep(twice.review(), live({ checkFlags: allFour }));
+    const plan = nextStep(twice.review(), live({ checkSettings: allFour }));
     assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     assert.equal(plan.kind === 'plan-checks' ? plan.without : null, `${failed.detail}; the --check and --no-check flags settle every check, so the run goes on without it`);
     const planned = twice.clone().add('survey.failed', { reason: plan.kind === 'plan-checks' ? plan.without ?? '' : '', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
-    assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'degraded', blocker: null });
+    assert.deepEqual(nextStep(planned, live({ checkSettings: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'degraded', blocker: null });
     // Three kinds settled still block, with the action that names the flags.
-    const three = nextStep(twice.review(), live({ checkFlags: flags({ build: 'a', lint: 'b' }, ['test']) }));
+    const three = nextStep(twice.review(), live({ checkSettings: flags({ build: 'a', lint: 'b' }, ['test']) }));
     assert.ok(three.kind === 'finish-phase' && three.outcome === 'blocked' && three.blocker?.action === surveyWorkerFailedAction, JSON.stringify(three));
     // A worker lost with its engine is an interruption, not the survey failing: it blocks, and the next invocation surveys afresh or goes on by the block.
     const lost = failedOnce(surveyConfiguredFix().start('survey'), 1).add('worker.launched', launch(worker(2), 'surveyor survey:survey')).add('worker.lost', { workerId: worker(2), phase: 'survey', key: 'survey', reason: 'the engine exited' }, 3);
-    const interrupted = nextStep(lost.review(), live({ checkFlags: allFour }));
+    const interrupted = nextStep(lost.review(), live({ checkSettings: allFour }));
     assert.ok(interrupted.kind === 'finish-phase' && interrupted.outcome === 'blocked' && interrupted.blocker?.code === 'worker-failed', JSON.stringify(interrupted));
   });
 
@@ -158,10 +158,10 @@ describe('nextStep in the survey', () => {
     const drifted = twice.finish('survey', 'blocked', 1, failed)
       .add('phase.started', { phase: 'survey', attempt: 2 }, 3)
       .add('worktree.checked', { phase: 'survey', attempt: 2, moment: 'start', drifted: true, head: { expected: 'a'.repeat(40), actual: 'b'.repeat(40) }, files: [], strays: [] }, 3);
-    assert.deepEqual(nextStep(drifted.review(), live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'blocked', blocker: drift });
+    assert.deepEqual(nextStep(drifted.review(), live({ checkSettings: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'blocked', blocker: drift });
     // The operator restores HEAD and runs again with the same flags: the drift said nothing of the survey, whose failure still stands.
     const restored = drifted.finish('survey', 'blocked', 2, drift).start('survey', 3);
-    const plan = nextStep(restored.review(), live({ checkFlags: allFour }));
+    const plan = nextStep(restored.review(), live({ checkSettings: allFour }));
     assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: /);
     // Without the flags, the operator's other choice: a fresh surveyor.
@@ -175,13 +175,13 @@ describe('nextStep in the survey', () => {
     const reentered = twice.finish('survey', 'blocked', 1, failed).start('survey', 2);
     const interrupted = failedOnce(reentered.clone(), 3);
     assert.equal(interrupted.review().units.survey.survey?.failures.length, 1);
-    const plan = nextStep(interrupted.review(), live({ checkFlags: allFour }));
+    const plan = nextStep(interrupted.review(), live({ checkSettings: allFour }));
     assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     // A worker lost with that engine is no different.
     const lost = reentered.clone()
       .add('worker.launched', launch(worker(3), 'surveyor survey:survey'))
       .add('worker.lost', { workerId: worker(3), phase: 'survey', key: 'survey', reason: 'the engine exited' }, 3);
-    assert.equal(nextStep(lost.review(), live({ checkFlags: allFour })).kind, 'plan-checks');
+    assert.equal(nextStep(lost.review(), live({ checkSettings: allFour })).kind, 'plan-checks');
     // Flags that leave a kind unsettled retry the surveyor in the attempt.
     assert.deepEqual(nextStep(interrupted.review(), idle), { kind: 'launch', units: [surveyor] });
   });
@@ -196,16 +196,16 @@ describe('nextStep in the survey', () => {
     assert.match(failed.action, /with the convention sources of an earlier survey of this run if one answered, and with none otherwise/);
     // The flags plan the checks over the earlier answer, and the run records no failure: that answer is still the run's survey.
     const reentered = twice.finish('survey', 'blocked', 2, failed).start('survey', 3);
-    const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
+    const plan = nextStep(reentered.review(), live({ checkSettings: allFour }));
     assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     const planned = reentered.add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
     assert.deepEqual(conventionsKnown(planned.survey), { status: 'surveyed', sources: surveyAnswer(worker(1)).conventions, userRules: [] });
-    assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 3, outcome: 'completed', blocker: null });
+    assert.deepEqual(nextStep(planned, live({ checkSettings: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 3, outcome: 'completed', blocker: null });
   });
 
   it('launches the surveyor of a fix run whose flags settle all four kinds, on its first attempt, for the conventions', () => {
-    assert.deepEqual(nextStep(surveyConfiguredFix().start('survey').review(), live({ checkFlags: allFour })), { kind: 'launch', units: [surveyor] });
-    assert.equal(nextStep(answered([]).review(), live({ checkFlags: allFour })).kind, 'plan-checks');
+    assert.deepEqual(nextStep(surveyConfiguredFix().start('survey').review(), live({ checkSettings: allFour })), { kind: 'launch', units: [surveyor] });
+    assert.equal(nextStep(answered([]).review(), live({ checkSettings: allFour })).kind, 'plan-checks');
   });
 
   it('blocks on the run budget before the surveyor launches, as before any launch', () => {
@@ -229,7 +229,7 @@ describe('nextStep in a continued run\'s survey', () => {
   it('opens the survey again at its next attempt and launches one surveyor, since the read-only answer chose no check', () => {
     assert.deepEqual(nextStep(continuedRun().review(), idle), { kind: 'start-phase', phase: 'survey', attempt: 2 });
     assert.deepEqual(nextStep(surveying().review(), idle), { kind: 'launch', units: [surveyor] });
-    assert.deepEqual(nextStep(surveying().review(), live({ checkFlags: flags({ build: 'make' }, ['lint']) })), { kind: 'launch', units: [surveyor] }, 'flags that leave a kind unsettled');
+    assert.deepEqual(nextStep(surveying().review(), live({ checkSettings: flags({ build: 'make' }, ['lint']) })), { kind: 'launch', units: [surveyor] }, 'flags that leave a kind unsettled');
   });
 
   it('plans the checks from the new answer and the flags, and then starts the baseline', () => {
@@ -248,7 +248,7 @@ describe('nextStep in a continued run\'s survey', () => {
     assert.ok(step.kind === 'finish-phase' && step.blocker?.code === 'check-unavailable', JSON.stringify(step));
     const reentered = answeredAgain(missingRuff).finish('survey', 'blocked', 2, step.kind === 'finish-phase' ? step.blocker : null).start('survey', 3);
     assert.deepEqual(nextStep(reentered.review(), idle), { kind: 'launch', units: [surveyor] });
-    assert.equal(nextStep(reentered.review(), live({ checkFlags: flags({}, ['lint']) })).kind, 'plan-checks', 'a --no-check settles the block with no worker');
+    assert.equal(nextStep(reentered.review(), live({ checkSettings: flags({}, ['lint']) })).kind, 'plan-checks', 'a --no-check settles the block with no worker');
   });
 
   it('blocks a surveyor that failed twice with the action naming the flags, and plans from the standing answer once they settle all four', () => {
@@ -256,7 +256,7 @@ describe('nextStep in a continued run\'s survey', () => {
     const step = nextStep(twice.review(), idle);
     assert.ok(step.kind === 'finish-phase' && step.blocker?.action === surveyWorkerFailedAction, JSON.stringify(step));
     const reentered = twice.finish('survey', 'blocked', 2, step.kind === 'finish-phase' ? step.blocker : null).start('survey', 3);
-    const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
+    const plan = nextStep(reentered.review(), live({ checkSettings: allFour }));
     // The read-only answer still stands as the run's survey, so the run records no failure of it.
     assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
   });

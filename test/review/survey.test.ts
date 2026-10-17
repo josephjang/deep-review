@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { noCheckFlags, type CheckFlags } from '../../src/review/checks/discover.ts';
+import { flagCheckSettings, noCheckSettings, type CheckSettings } from '../../src/review/checks/discover.ts';
 import { StructuralCheckError } from '../../src/review/errors.ts';
 import { worktreeLookup } from '../../src/review/locations.ts';
 import type { SurveyorCheckOutput, SurveyorOutput } from '../../src/review/schemas.ts';
@@ -38,17 +38,17 @@ describe('checkSurveyAnswer', () => {
   afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
 
   /** The context of a read-only run under `judge` with the user-level file offered, unless `change` says otherwise. */
-  const context = (change: { setting?: UserRulesSetting; fix?: boolean; flags?: CheckFlags; userFiles?: string[]; hints?: SurveyInputs['hints']; standing?: SurveyCheckContext['standing'] } = {}): SurveyCheckContext => ({
+  const context = (change: { setting?: UserRulesSetting; fix?: boolean; flags?: CheckSettings; userFiles?: string[]; hints?: SurveyInputs['hints']; standing?: SurveyCheckContext['standing'] } = {}): SurveyCheckContext => ({
     worktree,
     lookup: worktreeLookup(worktree),
     setting: change.setting ?? 'judge',
     fix: change.fix ?? false,
-    inputs: { platform: 'linux', flags: change.flags ?? noCheckFlags, userFiles: change.userFiles ?? [userFile], hints: change.hints ?? [], authorship: { identity: 'unset' } },
+    inputs: { platform: 'linux', checkSettings: change.flags ?? noCheckSettings, userFiles: change.userFiles ?? [userFile], hints: change.hints ?? [], authorship: { identity: 'unset' } },
     standing: change.standing ?? null,
   });
   /** The context of a fix run whose flags settle build and typecheck, with a hint for lint. */
   const fixing = (change: Parameters<typeof context>[0] = {}): SurveyCheckContext =>
-    context({ fix: true, flags: { commands: { build: 'make build' }, dropped: ['typecheck'] }, hints: [{ kind: 'lint', command: 'npm run lint', rule: 'package', reading: 'the package.json script `lint` through npm' }, { kind: 'test', command: null, rule: 'none', reading: 'none' }], ...change });
+    context({ fix: true, flags: flagCheckSettings({ build: 'make build' }, ['typecheck']), hints: [{ kind: 'lint', command: 'npm run lint', rule: 'package', reading: 'the package.json script `lint` through npm' }, { kind: 'test', command: null, rule: 'none', reading: 'none' }], ...change });
   const refuses = (output: SurveyorOutput, at: SurveyCheckContext, message: RegExp): void => {
     assert.throws(() => checkSurveyAnswer(output, at), (error: unknown) => error instanceof StructuralCheckError && message.test(error.message), message.source);
   };
@@ -179,7 +179,7 @@ describe('checkSurveyAnswer', () => {
     ]);
     const all = checkSurveyAnswer(answer({ ...decided, checks: [stated('lint', 'ruff check .', { missingTool: 'ruff' }), stated('test', 'uv run pytest', { source: { path: '.github\\workflows\\ci.yml', quote: 'q' } })] }), fixing());
     assert.deepEqual(all.checks?.map((check) => [check.kind, check.missingTool, check.source?.path]), [['lint', 'ruff', '.github/workflows/ci.yml'], ['test', null, '.github/workflows/ci.yml']]);
-    assert.deepEqual(checkSurveyAnswer(answer({ ...decided, checks: [] }), fixing({ flags: { commands: { build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, dropped: [] } })).checks, [], 'every kind settled, none to choose');
+    assert.deepEqual(checkSurveyAnswer(answer({ ...decided, checks: [] }), fixing({ flags: flagCheckSettings({ build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, []) })).checks, [], 'every kind settled, none to choose');
   });
 
   it('refuses a check answer that misses a kind, names a settled one or one twice, or a command without its source, basis or hint', () => {
@@ -251,24 +251,24 @@ describe('resolveChecks', () => {
   ] };
 
   it('plans each kind by its row: a --no-check, a --check over the survey, the survey\'s command, its missing tool, its none, and a kind nobody answered', () => {
-    const resolved = resolveChecks(survey, noCheckFlags);
+    const resolved = resolveChecks(survey, noCheckSettings);
     assert.deepEqual(resolved.checks, [
       { kind: 'build', command: null, origin: 'none', layer: null, reason: 'no build step', source: null },
       { kind: 'typecheck', command: 'uv run mypy src', origin: 'survey', layer: null, reason: null, source: { path: 'ci.yml', quote: 'mypy', basis: 'stated' } },
     ]);
     assert.deepEqual(resolved.unavailable, [{ kind: 'lint', command: 'pre-commit run', source: 'ci.yml', missingTool: 'pre-commit' }]);
     assert.deepEqual(resolved.uncovered, ['test']);
-    const flagged = resolveChecks(survey, { commands: { typecheck: 'mypy .', test: 'pytest' }, dropped: ['lint'] });
+    const flagged = resolveChecks(survey, flagCheckSettings({ typecheck: 'mypy .', test: 'pytest' }, ['lint']));
     assert.deepEqual(flagged.checks.map((check) => [check.kind, check.command, check.origin, check.layer, check.reason]), [['build', null, 'none', null, 'no build step'], ['typecheck', 'mypy .', 'setting', 'flag', null], ['lint', null, 'setting', 'flag', droppedReason], ['test', 'pytest', 'setting', 'flag', null]]);
     assert.deepEqual([flagged.unavailable, flagged.uncovered], [[], []]);
     // R11 of the configuration: a kind a configuration file settled names its layer, and its drop names the setting and the file.
-    const filed = resolveChecks(survey, { commands: { typecheck: 'mypy .', test: 'pytest' }, dropped: ['lint'], layers: { typecheck: 'repository', lint: 'operator' } });
+    const filed = resolveChecks(survey, { commands: { typecheck: 'mypy .', test: 'pytest' }, dropped: ['lint'], layers: { typecheck: 'repository', lint: 'operator', test: 'flag' } });
     assert.deepEqual(filed.checks.map((check) => [check.kind, check.origin, check.layer, check.reason]), [['build', 'none', null, 'no build step'], ['typecheck', 'setting', 'repository', null], ['lint', 'setting', 'operator', 'dropped by checks.lint = false in the operator\'s file'], ['test', 'setting', 'flag', null]]);
   });
 
   it('plans from the flags alone with no survey, leaving every unflagged kind uncovered', () => {
-    assert.deepEqual(resolveChecks(null, { commands: { build: 'make' }, dropped: ['test'] }).uncovered, ['typecheck', 'lint']);
-    assert.deepEqual(resolveChecks({ checks: null }, noCheckFlags).uncovered, ['build', 'typecheck', 'lint', 'test']);
+    assert.deepEqual(resolveChecks(null, flagCheckSettings({ build: 'make' }, ['test'])).uncovered, ['typecheck', 'lint']);
+    assert.deepEqual(resolveChecks({ checks: null }, noCheckSettings).uncovered, ['build', 'typecheck', 'lint', 'test']);
   });
 });
 

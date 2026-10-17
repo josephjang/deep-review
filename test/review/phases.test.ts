@@ -7,7 +7,7 @@ import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
 import { attemptFailedV6, eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
-import { noCheckFlags } from '../../src/review/checks/discover.ts';
+import { flagCheckSettings, noCheckSettings } from '../../src/review/checks/discover.ts';
 import { lastSurvey } from '../../src/checkpoint/survey-state.ts';
 import { contributionOf, groupCandidates, invocationFor, standingSurvey, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import type { SurveyInputs } from '../../src/review/survey.ts';
@@ -34,7 +34,7 @@ const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerRe
 });
 const unit = (phase: Unit['phase'], key: string, role: ReviewRole): Unit => ({ phase, key, role });
 /** What an invocation knows for its survey in these tests: Linux, no flag, no user-level rules file and no hint. */
-const noSurveyInputs: SurveyInputs = { platform: 'linux', flags: noCheckFlags, userFiles: [], hints: [], authorship: { identity: 'unset' } };
+const noSurveyInputs: SurveyInputs = { platform: 'linux', checkSettings: noCheckSettings, userFiles: [], hints: [], authorship: { identity: 'unset' } };
 
 /** The one event a reading unit's receipt becomes; a reading unit freezes and compares nothing, so the evidence store refuses every write and the comparison every call. */
 const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string, survey: SurveyInputs = noSurveyInputs): NewEvent => {
@@ -236,7 +236,7 @@ describe('the surveyor\'s task', () => {
 
   it('names the kinds to choose in a fix run, the ones the flags settled, the shell a check runs in, and a hint per kind to choose', () => {
     const fixing = surveyConfiguredFix().review();
-    const task = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ flags: { commands: { typecheck: 'tsc -p .' }, dropped: ['lint'] }, hints: hints.filter((hint) => hint.kind !== 'lint') }) });
+    const task = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ checkSettings: flagCheckSettings({ typecheck: 'tsc -p .' }, ['lint']), hints: hints.filter((hint) => hint.kind !== 'lint') }) });
     assert.match(task, /^Kinds to choose: build, test$/m);
     assert.match(task, /^- typecheck: `tsc -p \.` \(--check\)$/m);
     assert.match(task, /^- lint: dropped by --no-check$/m);
@@ -248,7 +248,7 @@ describe('the surveyor\'s task', () => {
     assert.match(task, /such as `uv run` with a dependency group or `npx` with a project dependency, needs only that to resolve/);
     const windows = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ platform: 'win32', hints }) });
     assert.match(windows, /on this machine \(win32\) as `cmd\.exe \/d \/s \/c "<command>"`[\s\S]*`where\.exe <tool>`/);
-    const all = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ flags: { commands: { build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, dropped: [] } }) });
+    const all = taskFor(unit('survey', 'survey', 'surveyor'), fixing, { survey: inputs({ checkSettings: flagCheckSettings({ build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, []) }) });
     assert.match(all, /^Kinds to choose: none$/m);
     assert.match(all, /Every kind is settled, so return `checks` empty\./);
     assert.throws(() => taskFor(unit('survey', 'survey', 'surveyor'), fixing), /needs it/);
@@ -256,7 +256,7 @@ describe('the surveyor\'s task', () => {
 
   it('asks a continued run\'s surveyor for the checks alone, its survey standing, until the checks are planned (R4 of fix pass continuation)', () => {
     const continued = continuedRun().start('survey', 2);
-    const task = taskFor(unit('survey', 'survey', 'surveyor'), continued.review(), { survey: inputs({ flags: { commands: { build: 'make' }, dropped: [] }, hints }) });
+    const task = taskFor(unit('survey', 'survey', 'surveyor'), continued.review(), { survey: inputs({ checkSettings: flagCheckSettings({ build: 'make' }, []), hints }) });
     assert.match(task, /^This run was reviewed read-only and is now continued into the fix pass\./);
     assert.match(task, /^Convention sources recorded:\n- none$/m, 'the quiet survey recorded none');
     assert.match(task, /^Kinds to choose: typecheck, lint, test$/m);
@@ -283,7 +283,7 @@ describe('contributionOf', () => {
     const event = contribution(unit('survey', 'survey', 'surveyor'), receipt(answer), surveyConfigured().start('survey').fold(), worktree);
     assert.deepEqual(event, { kind: 'survey.recorded', version: 1, payload: { workerId: '00000000-0000-4000-8000-0000000000aa', conventions: [{ ...answer.conventions[0], path: 'src/a.ts' }], userRules: [], checks: null, note: 'n' } });
     assert.ok(lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success);
-    const fixing = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, checks: [] }), surveyConfiguredFix().start('survey').fold(), worktree, { ...noSurveyInputs, flags: { commands: { build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, dropped: [] } });
+    const fixing = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, checks: [] }), surveyConfiguredFix().start('survey').fold(), worktree, { ...noSurveyInputs, checkSettings: flagCheckSettings({ build: 'a', typecheck: 'b', lint: 'c', test: 'd' }, []) });
     assert.equal(fixing.kind, 'survey.recorded');
     const missing = contribution(unit('survey', 'survey', 'surveyor'), receipt({ ...answer, conventions: [{ ...answer.conventions[0], path: 'CONTRIBUTING.md' }] }), surveyConfigured().start('survey').fold(), worktree);
     assert.equal(missing.kind, 'attempt.failed');

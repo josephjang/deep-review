@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { findActiveRun, unelevatedEditorsWarning, type ReviewOptions } from '../../src/review/controller.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { unelevatedSandboxRule } from '../../src/review/tasks.ts';
@@ -319,7 +320,7 @@ describe('the surveyor of an elevated run (R12 of the Codex sandbox)', { timeout
     triage: { exit: 2 },
   });
 
-  const threeSettled = { commands: { build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck'), lint: fakeCheckCommand('lint') }, dropped: [] };
+  const threeSettled = flagCheckSettings({ build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck'), lint: fakeCheckCommand('lint') }, []);
   const surveyorPrompt = (box: ReviewSandbox): string => box.promptOf(box.run(), 'surveyor survey:survey');
 
   it('is told to look tools up with Get-Command, not where.exe', async (t) => {

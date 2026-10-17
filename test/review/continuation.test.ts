@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ListedRun } from '../../src/checkpoint/checkpoint.ts';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { commitAll, write } from '../helpers/repository.ts';
@@ -123,7 +124,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const box = ReviewSandbox.forTest(t, { ...oneFix, surveyor: { exit: 2 } });
     reportText(await box.review('claude'));
     const finished = box.run();
-    await assert.rejects(box.fix('claude', { fix: { commands: {}, dropped: ['build', 'typecheck'] } }, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError
+    await assert.rejects(box.fix('claude', { fix: flagCheckSettings({}, ['build', 'typecheck']) }, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError
       && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind>, or set checks.<kind>, for lint, test, or start a new run with --fresh`);
     assert.equal(box.run().lastSequence, finished.lastSequence, 'nothing was appended');
   });

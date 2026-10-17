@@ -11,7 +11,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { claimsDirectoryFor } from '../../src/review/claims.ts';
 import { runReview, type ReviewOptions, type ReviewOutcome } from '../../src/review/controller.ts';
-import type { CheckFlags } from '../../src/review/checks/discover.ts';
+import { flagCheckSettings, type CheckSettings } from '../../src/review/checks/discover.ts';
 import { policyFileName, readPolicy, type PolicyFile } from '../../src/review/policy.ts';
 import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
@@ -189,8 +189,8 @@ export class ReviewSandbox {
   }
 
   /** The flags of a fix run whose four checks are the stand-in's, named with `--check` so no package manager starts. */
-  static checkFlags(): CheckFlags {
-    return { commands: Object.fromEntries(checkKinds.map((kind) => [kind, fakeCheckCommand(kind)])), dropped: [] };
+  static checkFlags(): CheckSettings {
+    return flagCheckSettings(Object.fromEntries(checkKinds.map((kind) => [kind, fakeCheckCommand(kind)])), []);
   }
 
   /** Run a review with the fix pass, its checks the stand-in's unless `change` names others. */

@@ -15,7 +15,7 @@ import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/
 import { checkSettingName, checkSettingNames, checkTimeoutMs, fileWords, isConfiguredRuntime, layerWords, runtimeSettingNames, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
 import { canonicalPath, isFile } from '../paths.ts';
-import type { CheckFlags } from './checks/discover.ts';
+import { noCheckSettings, settledLayer, type CheckSettings } from './checks/discover.ts';
 import { ReviewRefusedError } from './errors.ts';
 import type { PolicyFlags, PolicyOverrides } from './policy.ts';
 import { checkKinds, type CheckKind } from './vocabulary.ts';
@@ -25,7 +25,7 @@ export interface UnconfiguredOptions {
   readonly worktree: string;
   readonly runtime: string;
   readonly flags: PolicyFlags;
-  readonly fix?: CheckFlags | null;
+  readonly fix?: CheckSettings | null;
   readonly executable: string | ((configured: string | null) => string);
   readonly executableArgs?: readonly string[];
 }
@@ -83,8 +83,8 @@ interface SettledCheck {
   readonly layer: Exclude<Layer, 'default'>;
 }
 
-/** The check flags of the kinds `settled` settles, each with its layer: `false` drops the kind, a command runs it, and null leaves it to the survey. */
-function checkFlagsFrom(settled: (kind: CheckKind) => SettledCheck | null): CheckFlags {
+/** The check settings of the kinds `settled` settles, each with its layer: `false` drops the kind, a command runs it, and null leaves it to the survey. */
+function checkSettingsFrom(settled: (kind: CheckKind) => SettledCheck | null): CheckSettings {
   const commands: Partial<Record<CheckKind, string>> = {};
   const dropped: CheckKind[] = [];
   const layers: Partial<Record<CheckKind, Exclude<Layer, 'default'>>> = {};
@@ -99,8 +99,8 @@ function checkFlagsFrom(settled: (kind: CheckKind) => SettledCheck | null): Chec
 }
 
 /** The checks the resolved settings settle, each with its layer (R11): a command, `false` for a dropped kind, or nothing, which the survey decides. */
-export function checkFlagsOfResolved(resolved: ResolvedSettings): CheckFlags {
-  return checkFlagsFrom((kind) => {
+export function checkSettingsOfResolved(resolved: ResolvedSettings): CheckSettings {
+  return checkSettingsFrom((kind) => {
     const { value, layer } = resolved.values[checkSettingName(kind)];
     return value === null || layer === 'default' ? null : { value: value as string | false, layer };
   });
@@ -112,10 +112,10 @@ export function checkFlagsOfResolved(resolved: ResolvedSettings): CheckFlags {
  * null for a run that recorded none, a read-only run's or one configured
  * before the settings, whose check flags are its invocation's.
  */
-export function recordedCheckFlags(configuration: ReviewConfiguration): CheckFlags | null {
+export function recordedCheckSettings(configuration: ReviewConfiguration): CheckSettings | null {
   const recorded = configuration.fixSettings !== null || (configuration.settings !== null && configuration.settings.values['checks.build'] !== undefined);
   if (!recorded) return null;
-  return checkFlagsFrom((kind) => {
+  return checkSettingsFrom((kind) => {
     const { value, layer } = settingOf(configuration, checkSettingName(kind));
     return value === null || layer === null || layer === 'default' ? null : { value: value as string | false, layer };
   });
@@ -129,15 +129,15 @@ export function recordedCheckFlags(configuration: ReviewConfiguration): CheckFla
  * since a flag settles its kind for the invocation that gives it, as a
  * blocker's action asks; a run that recorded none has the flags alone.
  */
-export function checkFlagsInForce(recorded: CheckFlags | null, invocation: CheckFlags | null): CheckFlags {
-  const flags = invocation ?? { commands: {}, dropped: [] };
+export function checkSettingsInForce(recorded: CheckSettings | null, invocation: CheckSettings | null): CheckSettings {
+  const flags = invocation ?? noCheckSettings;
   if (recorded === null) return flags;
-  const of = (source: CheckFlags, kind: CheckKind): string | false | null => (source.dropped.includes(kind) ? false : (source.commands[kind] ?? null));
-  return checkFlagsFrom((kind) => {
+  const of = (source: CheckSettings, kind: CheckKind): string | false | null => (source.dropped.includes(kind) ? false : (source.commands[kind] ?? null));
+  return checkSettingsFrom((kind) => {
     const flagged = of(flags, kind);
     if (flagged !== null) return { value: flagged, layer: 'flag' };
     const value = of(recorded, kind);
-    return value === null ? null : { value, layer: recorded.layers?.[kind] ?? 'flag' };
+    return value === null ? null : { value, layer: settledLayer(recorded, kind) };
   });
 }
 

@@ -407,11 +407,11 @@ export function standingSurvey(review: ReviewState): SurveyRecorded | null {
 function surveyTaskOf(review: ReviewState, inputs: SurveyInputs): string {
   const setting = review.configuration.survey.userRules;
   const fix = review.fix !== null;
-  const unsettled = fix ? unsettledKinds(inputs.flags) : [];
+  const unsettled = fix ? unsettledKinds(inputs.checkSettings) : [];
   return surveyTask({
     platform: inputs.platform,
     fix,
-    settled: fix ? settledKinds(inputs.flags) : [],
+    settled: fix ? settledKinds(inputs.checkSettings) : [],
     unsettled,
     hints: inputs.hints.filter((hint) => unsettled.includes(hint.kind)),
     offered: offeredUserFiles(setting, inputs),

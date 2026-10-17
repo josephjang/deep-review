@@ -39,9 +39,9 @@ import { captureScope, resolveScopeRequest, scopeBase, type ResolvedScope } from
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
 import { objectFormat } from '../scope/git.ts';
-import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
+import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckSettings } from './checks/discover.ts';
 import { claimsDirectories } from './claims-directories.ts';
-import { checkFlagsInForce, checkFlagsOfResolved, configuredLines, executableOf, policyOverridesOf, recordedCheckFlags, refuseOldNode, unappliedLines, unconfiguredSource } from './configuration.ts';
+import { checkSettingsInForce, checkSettingsOfResolved, configuredLines, executableOf, policyOverridesOf, recordedCheckSettings, refuseOldNode, unappliedLines, unconfiguredSource } from './configuration.ts';
 import { caseInsensitiveFileSystem } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
@@ -145,7 +145,7 @@ export interface ReviewOptions {
    * the flags apply to every invocation until the checks are planned, and
    * are named as ignored after.
    */
-  readonly fix?: CheckFlags | null;
+  readonly fix?: CheckSettings | null;
   /**
    * Whether `--fresh` declines a continuation (R2 of fix pass
    * continuation): with `fix` and no active run, a finished read-only run
@@ -389,9 +389,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
    * the checks are planned (TD6 of the repository survey); on a run
    * configured before the settings, the flags alone.
    */
-  const runCheckFlags = (): CheckFlags => checkFlagsInForce(state.review === null ? null : recordedCheckFlags(state.review.configuration), options.fix ?? null);
+  const runCheckSettings = (): CheckSettings => checkSettingsInForce(state.review === null ? null : recordedCheckSettings(state.review.configuration), options.fix ?? null);
   const userFiles = once(() => existingUserRulesFiles(options.home));
-  const hints = once(() => (state.review?.configuration.fix === true ? hintChecks(readRootManifests(options.worktree), unsettledKinds(runCheckFlags())) : []));
+  const hints = once(() => (state.review?.configuration.fix === true ? hintChecks(readRootManifests(options.worktree), unsettledKinds(runCheckSettings())) : []));
   const authorship = once(() => reviewerAuthorship(options.worktree));
   /**
    * What this invocation knows for the survey: the platform and the check
@@ -406,8 +406,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
    */
   const surveyed: SurveyInputs = {
     platform,
-    get flags() {
-      return runCheckFlags();
+    get checkSettings() {
+      return runCheckSettings();
     },
     get userFiles() {
       return userFiles();
@@ -567,7 +567,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 
     for (;;) {
       const review = state.review!;
-      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkFlags: runCheckFlags(), claimsLost: directories.lost() };
+      const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkSettings: runCheckSettings(), claimsLost: directories.lost() };
       const step = nextStep(review, live);
       switch (step.kind) {
         case 'blocked':
@@ -1105,7 +1105,7 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   // The fix pass's workers run with the tools.path the pin records, this invocation's.
   const toolsPath = resolvedValue(resolved, 'tools.path') ?? [];
   refuseOldNode(toolsPath, process.platform);
-  const settled = checkFlagsOfResolved(resolved);
+  const settled = checkSettingsOfResolved(resolved);
   const unsettled = unsettledKinds(settled);
   if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {
     throw new ReviewRefusedError(`run ${run.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind>, or set checks.<kind>, for ${unsettled.join(', ')}, or ${wayOut(run.id, 'continue')}`);
@@ -1213,14 +1213,14 @@ function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: Pi
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
   const planned = (run.review?.fix?.checks.planned ?? null) !== null;
   // A run that recorded its check settings keeps them, so only the flags of a later invocation need giving again (R11 of the configuration).
-  const recorded = recordedCheckFlags(pinned) !== null;
+  const recorded = recordedCheckSettings(pinned) !== null;
   if (pinned.fix && checkFlags && planned) context.log(`run ${runId} keeps the checks it pinned; --check and --no-check are ignored`);
   if (pinned.fix && !planned) {
     // The flags are not on the ledger until the plan records them, so an invocation that omits one an earlier invocation gave drops it.
     context.log(recorded
       ? `run ${runId} has not planned its checks yet; it keeps the check settings it recorded, and --check and --no-check apply over them to each invocation until it plans them, so give again every one an earlier resume gave`
       : `run ${runId} has not planned its checks yet; --check and --no-check apply to each invocation until it does, so give again every one an earlier invocation gave`);
-    const unsettled = droppedSinceSurvey(run.review?.survey ?? null, checkFlagsInForce(recordedCheckFlags(pinned), fix));
+    const unsettled = droppedSinceSurvey(run.review?.survey ?? null, checkSettingsInForce(recordedCheckSettings(pinned), fix));
     if (unsettled.length > 0) {
       context.log(`run ${runId}: its survey was asked with --check or --no-check settling ${unsettled.join(', ')}, which this invocation leaves unsettled, so the survey is asked again for ${unsettled.length === 1 ? 'it' : 'them'}; give those flags again to keep them`);
     }
@@ -1257,7 +1257,7 @@ function unappliedSettings(run: RunState, pinned: ReviewConfiguration, context: 
  * then. None while the survey has not answered, or for a run that does
  * not fix.
  */
-function droppedSinceSurvey(survey: SurveyState | null, flags: CheckFlags | null): CheckKind[] {
+function droppedSinceSurvey(survey: SurveyState | null, flags: CheckSettings | null): CheckKind[] {
   const checks = survey === null ? null : (lastSurvey(survey)?.checks ?? null);
   if (checks === null) return [];
   return checkKinds.filter((kind) => !checks.some((check) => check.kind === kind) && (flags === null || !isSettled(flags, kind)));

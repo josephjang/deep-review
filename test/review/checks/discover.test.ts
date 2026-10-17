@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { flagSetting, hintChecks, isSettled, justfileHas, makefileHas, noHintReading, packageScriptFor, readRootManifests, settledKinds, taskfileHas, unsettledKinds, type RootManifests } from '../../../src/review/checks/discover.ts';
+import { flagCheckSettings, flagSetting, hintChecks, isSettled, justfileHas, makefileHas, noHintReading, packageScriptFor, readRootManifests, settledKinds, settledLayer, taskfileHas, unsettledKinds, type RootManifests } from '../../../src/review/checks/discover.ts';
 
 /** A root holding the given manifests, and `extra` entries besides them. */
 const root = (files: RootManifests['files'], extra: readonly string[] = []): RootManifests => ({ files, entries: [...Object.keys(files), ...extra] });
@@ -120,26 +120,35 @@ describe('hintChecks', () => {
 
 describe('the settled kinds', () => {
   it('counts a kind settled by --check or --no-check, and leaves the rest to choose in run order', () => {
-    const flags = { commands: { lint: 'eslint .' }, dropped: ['build' as const] };
+    const flags = flagCheckSettings({ lint: 'eslint .' }, ['build' as const]);
     assert.equal(isSettled(flags, 'lint'), true);
     assert.equal(isSettled(flags, 'build'), true);
     assert.equal(isSettled(flags, 'test'), false);
     assert.deepEqual(unsettledKinds(flags), ['typecheck', 'test']);
-    assert.deepEqual(unsettledKinds({ commands: {}, dropped: [] }), ['build', 'typecheck', 'lint', 'test']);
-    assert.deepEqual(unsettledKinds({ commands: { build: 'a', typecheck: 'b', lint: 'c' }, dropped: ['test'] }), []);
+    assert.deepEqual(unsettledKinds(flagCheckSettings({}, [])), ['build', 'typecheck', 'lint', 'test']);
+    assert.deepEqual(unsettledKinds(flagCheckSettings({ build: 'a', typecheck: 'b', lint: 'c' }, ['test'])), []);
   });
 
   it('reads one setting per kind, a drop winning over a command, and lists the settled kinds in run order', () => {
     // --check build=make --no-check build: the drop wins, as the survey's task and the plan both read it.
-    const flags = { commands: { test: 'npm test', lint: 'eslint .', build: 'make' }, dropped: ['build' as const] };
+    const flags = flagCheckSettings({ test: 'npm test', lint: 'eslint .', build: 'make' }, ['build' as const]);
     assert.deepEqual(flagSetting(flags, 'lint'), { command: 'eslint .' });
     assert.deepEqual(flagSetting(flags, 'build'), { command: null });
     assert.deepEqual(flagSetting(flags, 'test'), { command: 'npm test' });
     assert.equal(flagSetting(flags, 'typecheck'), null);
     assert.deepEqual(settledKinds(flags), [{ kind: 'build', command: null, layer: 'flag' }, { kind: 'lint', command: 'eslint .', layer: 'flag' }, { kind: 'test', command: 'npm test', layer: 'flag' }]);
-    assert.deepEqual(settledKinds({ commands: {}, dropped: [] }), []);
-    // R11 of the configuration: a kind a configuration file settled has that file's layer, and one with none named a flag's.
-    assert.deepEqual(settledKinds({ ...flags, layers: { lint: 'repository' } }).map((entry) => entry.layer), ['flag', 'repository', 'flag']);
+    assert.deepEqual(settledKinds(flagCheckSettings({}, [])), []);
+    // R11 of the configuration: a kind a configuration file settled has that file's layer.
+    assert.deepEqual(settledKinds({ ...flags, layers: { ...flags.layers, lint: 'repository' } }).map((entry) => entry.layer), ['flag', 'repository', 'flag']);
+  });
+
+  it('names the flag layer for each kind flags alone settle, and refuses to read a settled kind with no layer as a flag', () => {
+    assert.deepEqual(flagCheckSettings({ lint: 'eslint .' }, ['build']), { commands: { lint: 'eslint .' }, dropped: ['build'], layers: { build: 'flag', lint: 'flag' } });
+    assert.deepEqual(flagCheckSettings({}, []).layers, {});
+    const forgotten = { commands: { lint: 'eslint .' }, dropped: ['build' as const], layers: { lint: 'repository' as const } };
+    assert.throws(() => settledLayer(forgotten, 'build'), /settle the build check with no layer/);
+    assert.throws(() => settledKinds(forgotten), /settle the build check with no layer/);
+    assert.equal(settledLayer(forgotten, 'lint'), 'repository');
   });
 });
 

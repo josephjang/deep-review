@@ -7,6 +7,7 @@ import { repositoryConfigPath } from '../../src/config/files.ts';
 import { checkFlagsOf, dedicatedFlagValues } from '../../src/config/flags.ts';
 import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
 import { configurationSource, type ConfigurationSource } from '../../src/config/source.ts';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -42,7 +43,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
   };
   /** The flags that settle build, typecheck and lint with the stand-in checks, leaving test to the surveyor. */
-  const testUnsettled = { commands: { build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck'), lint: fakeCheckCommand('lint') }, dropped: [] };
+  const testUnsettled = flagCheckSettings({ build: fakeCheckCommand('build'), typecheck: fakeCheckCommand('typecheck'), lint: fakeCheckCommand('lint') }, []);
   /** A read-only review of the sandbox to its report, returning the report's path. */
   const readOnly = async (box: ReviewSandbox): Promise<string> => {
     const outcome = await box.review('claude');
@@ -129,7 +130,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.equal(finished.scope!.base, base);
     const cloneFile = join(box.directory, 'clone.toml');
     writeFileSync(cloneFile, `schema = 1\nchecks.test = ${JSON.stringify(flags.commands.test)}\ntools.path = ["bin"]\nreport.formats = ["html"]\n`);
-    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: { commands: {}, dropped: ['typecheck'] }, executableArgs: [fakeClaude] })]);
+    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: flagCheckSettings({}, ['typecheck']), executableArgs: [fakeClaude] })]);
     const source = configurationSource({ worktree: box.repo, locations: { operator: null, clone: cloneFile, invocation: null }, repositoryConfig: true, flags: layer });
     box.logs.length = 0;
     reportText(await box.review('claude', { configuration: source, fix: checkFlagsOf(layer) }));

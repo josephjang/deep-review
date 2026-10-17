@@ -5,7 +5,7 @@
  * an invocation's flags, so a `--set` of a setting a dedicated flag also
  * sets acts as that flag would.
  */
-import type { CheckFlags } from '../review/checks/discover.ts';
+import { flagCheckSettings, type CheckSettings } from '../review/checks/discover.ts';
 import type { PolicyFlags } from '../review/policy.ts';
 import { checkKinds, type CheckKind } from '../review/vocabulary.ts';
 import { isWindowsSandbox } from '../runtime/codex.ts';
@@ -17,7 +17,7 @@ export interface DedicatedFlags {
   readonly runtime: string;
   readonly policy: PolicyFlags;
   /** The `--check` and `--no-check` of a `--fix`, or null. */
-  readonly checks: CheckFlags | null;
+  readonly checks: CheckSettings | null;
   /** `--executable`, as given. */
   readonly executable?: string;
   /** Each `--executable-arg`; none given is no value. */
@@ -75,7 +75,7 @@ export function policyFlagsOf(layer: FlagLayer, runtime: string): PolicyFlags {
 }
 
 /** The checks the flag layer settles, `--check`, `--no-check` and `--set checks.<kind>` alike, each of the flag layer. */
-export function checkFlagsOf(layer: FlagLayer): CheckFlags {
+export function checkFlagsOf(layer: FlagLayer): CheckSettings {
   const commands: Partial<Record<CheckKind, string>> = {};
   const dropped: CheckKind[] = [];
   for (const kind of checkKinds) {
@@ -83,5 +83,5 @@ export function checkFlagsOf(layer: FlagLayer): CheckFlags {
     if (value === false) dropped.push(kind);
     else if (typeof value === 'string') commands[kind] = value;
   }
-  return { commands, dropped };
+  return flagCheckSettings(commands, dropped);
 }
