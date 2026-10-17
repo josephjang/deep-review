@@ -154,7 +154,12 @@ const nodeVersionOf = (executable: string): string => execFileSync(executable, [
  * come first on, so such a `node` would run them and fail. Each
  * directory's `node`, other than the engine's own, is asked its version,
  * and one older than 26, or that cannot answer, refuses the run before it
- * exists. A directory with no `node` is left alone.
+ * exists. A directory with no `node` is left alone. Only `node.exe` on
+ * Windows and `node` elsewhere is probed, in the directories that exist
+ * when the run is configured or continued: a shim a fixer's shell also
+ * resolves (`node.cmd`, `node.bat`, `node.ps1`, an extensionless `node`
+ * on Windows), a directory created later and a `node` swapped in after
+ * the probe are not.
  */
 export function refuseOldNode(toolsPath: readonly string[], platform: NodeJS.Platform, versionOf: (executable: string) => string = nodeVersionOf): void {
   const own = canonicalPath(process.execPath);
