@@ -237,7 +237,7 @@ A `--check`, a `--no-check` or a `--set checks.<kind>` of a later invocation sti
 
 `checks.timeout_minutes` becomes the check timeout in milliseconds, which `review.configured` records for a fix run today.
 
-`tools.path` is operator-only, and the engine makes each entry absolute at configuration. A relative entry is relative to the root of the worktree.
+`tools.path` is operator-only, and the engine makes each entry absolute at configuration. A relative entry is relative to the root of the worktree. An entry cannot hold the `PATH` delimiter of the platform the engine runs on (`:` on POSIX, `;` on Windows), since `PATH` has no escape for it and the entry would split into several.
 
 `workerEnvironment` and `checkEnvironment` put the directories first on `PATH`. For this, they use the helpers of `src/runtime/environment.ts`, which know all the spellings of the variable. Thus `Path` and `PATH` on Windows stay one variable (TD10). The engine keeps a directory that does not exist, and it names the directory on stderr, because a tool can create it. An example is a virtual environment that a check builds.
 

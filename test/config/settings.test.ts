@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { configuredRuntimes, isSettingName, isSettingPrefix, layerOrder, layerSettings, layers, owners, settableBy, settingNames, settings, type Owner, type SettingName } from '../../src/config/settings.ts';
+import { configuredRuntimes, isSettingName, isSettingPrefix, layerOrder, layerSettings, layers, owners, settableBy, settingNames, settings, toolDirectorySchema, type Owner, type SettingName } from '../../src/config/settings.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { readPolicy } from '../../src/review/policy.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
@@ -130,6 +130,19 @@ describe('the settings registry', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it('refuses a tools.path entry that holds the delimiter PATH is joined with', () => {
+    for (const pathDelimiter of [':', ';']) {
+      const directory = toolDirectorySchema(pathDelimiter);
+      const parsed = directory.safeParse(`/opt/tools${pathDelimiter}v2`);
+      assert.ok(!parsed.success, pathDelimiter);
+      assert.match(parsed.error.issues[0]!.message, new RegExp(`cannot hold "${pathDelimiter}", which separates PATH entries`));
+      assert.ok(directory.safeParse(pathDelimiter === ':' ? 'C;tools' : 'C:\\tools').success, `the other delimiter is a directory's own character with ${pathDelimiter}`);
+    }
+    const tools = settings['tools.path'].value;
+    assert.ok(!tools.safeParse(['.venv/bin', `/opt/tools${delimiter}v2`]).success, 'the registry joins with the delimiter of the platform the engine runs on');
+    assert.ok(tools.safeParse(['.venv/bin', `/opt/tools${delimiter === ':' ? ';' : ':'}v2`]).success);
   });
 
   it('takes a check\'s command or false, and refuses true or a blank command', () => {

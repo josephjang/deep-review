@@ -8,6 +8,7 @@
  * file, and the schema of each layer comes from the owners rather than
  * from a list written by hand.
  */
+import { delimiter } from 'node:path';
 import { z } from 'zod';
 import { maxConcurrency, type PolicyFile } from '../review/policy.ts';
 import { checkKinds, userRulesSettingSchema, type CheckKind } from '../review/vocabulary.ts';
@@ -67,6 +68,14 @@ export const maxToolDirectories = 64;
 
 /** Text a setting holds that reaches git or a command line: not empty, no NUL. */
 const textSchema = z.string().min(1).max(1000).refine((text) => !text.includes('\0'), 'must not hold a NUL');
+
+/**
+ * A directory of `tools.path`, for PATH joined with `pathDelimiter`: never
+ * one that holds the delimiter, which PATH has no escape for, so it would
+ * split into several entries that PATH searches instead.
+ */
+export const toolDirectorySchema = (pathDelimiter: string): z.ZodType<string> =>
+  textSchema.refine((directory) => !directory.includes(pathDelimiter), `a tools.path entry cannot hold "${pathDelimiter}", which separates PATH entries`);
 
 /** A revision, as `review.base` names it: never one that git could read as an option. */
 const revisionSchema = textSchema.refine((revision) => !revision.startsWith('-'), 'a revision must not start with a dash');
@@ -222,7 +231,7 @@ export const settings = {
   }),
   'tools.path': declare({
     owner: 'operator-only',
-    value: z.array(textSchema).max(maxToolDirectories),
+    value: z.array(toolDirectorySchema(delimiter)).max(maxToolDirectories),
     defaultOf: () => [],
     defaultWords: 'none',
     example: ['.venv/bin'],
