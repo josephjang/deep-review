@@ -6,6 +6,22 @@ Each step names each file that it changes and the command that proves it. The st
 
 The proposal can change during the work. If the code needs a different design, a commit of its own amends the proposal before the code commit. Thus the pull request shows each change of the proposal beside the code that needed it.
 
+## Status
+
+Steps 0 to 11 are done. The draft pull request is #57, and its head is `3735783`. CI passed on Windows, macOS and Linux at that head. `npm run check` (2239 tests) and `npm run verify` pass.
+
+The work changed the proposal three times, each in a commit of its own before the code:
+
+- `992c076`: the run appends `scope.captured@2` before `review.configured@6`, because the fold refuses a configuration before the scope. And a `--check`, a `--no-check` or a `--set checks.<kind>` of a later invocation settles its kind over the recorded settings. This continues until the run plans its checks, because the survey's blockers ask for these flags.
+- `c423b91`: one sentence of the design split for the 25-word limit.
+- `7c77f0f`: `fix.pinned@2` also records the files, the repository's state, the values not followed and the settings ignored of the continuation. And a fix run refuses a `tools.path` whose `node` is older than Node 26. The reason is that the fixers run the engine's `snapshot` and `claim` commands with `node` on their `PATH`.
+
+An independent review of the code after step 10 found two medium and four low defects. Each fix has its own commit, with a test written first and seen to fail: `558640a`, `8a53b85`, `b089792`, `6d94696`, `e7c89f9`, `9206464`. `3735783` rebuilds `dist/` after them. The fix of `6d94696` has no test. It is for a tree that empties after the engine lists the change and before it captures it. That race is between two statements of one invocation. The golden fixture `schema-1-12` is new in this pull request, and `e7c89f9` writes it again for the wider `fix.pinned@2`.
+
+The next session starts at step 12.
+
+One question is open for the author before step 12: the policy file goes to `main` in its own pull request, as step 12 says, or its commit goes first in this branch. In the second form, the gate of step 13 runs with `--branch --base <that commit>`. The reason is that the engine reads the repository's file at the base of the change (R4). Then the gate is not the exact command of the skill, and nobody reviews the policy file. The first form is the plan as written. Steps 13 and 14 spend money and wait for the author too.
+
 ## 0. The branch
 
 The pull request holds the proposal, this plan and the implementation. The branch is `feat/configuration`, and its name is set before the first push, because a rename of a pushed branch closes its pull request.
