@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { configuredRuntimes, isSettingName, isSettingPrefix, layerOrder, layerSettings, layers, owners, settableBy, settingNames, settings, type Owner, type SettingName } from '../../src/config/settings.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { readPolicy } from '../../src/review/policy.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
+import { maxExcludePatterns, resolveScopeRequest } from '../../src/scope/capture.ts';
+import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 
 const policy = readPolicy(repositoryRolesRoot());
 
@@ -101,7 +106,30 @@ describe('the settings registry', () => {
     const exclude = settings['scope.exclude'].value;
     assert.ok(exclude.safeParse(['dist/**', 'test/fixtures/checkpoints/**', '*.min.js']).success);
     for (const pattern of [':(top)src', '../outside', 'a/../b', '/abs', 'C:/x', '', 'a\0b']) assert.ok(!exclude.safeParse([pattern]).success, JSON.stringify(pattern));
-    assert.ok(!exclude.safeParse(Array.from({ length: 65 }, (_, index) => `p${String(index)}`)).success, 'at most 64 patterns');
+    const patterns = (count: number): string[] => Array.from({ length: count }, (_, index) => `p${String(index)}`);
+    assert.ok(exclude.safeParse(patterns(maxExcludePatterns)).success, 'as many patterns as a capture takes');
+    assert.ok(!exclude.safeParse(patterns(maxExcludePatterns + 1)).success, 'no more patterns than a capture takes');
+  });
+
+  it('refuses exactly the scope.exclude patterns the capture refuses', () => {
+    const exclude = settings['scope.exclude'].value;
+    const repo = mkdtempSync(join(tmpdir(), 'deep-review-exclude-'));
+    try {
+      for (const pattern of ['dist/**', '*.min.js', ':(top)src', ':!x', '../outside', 'a/../b', 'a\\..\\b', '..', '/abs', '\\abs', 'C:/x', 'c:x', 'a:b', 'a..b/c', '', 'a\0b']) {
+        const capture = (() => {
+          try {
+            // A pattern passes the capture's own checks only to fail on the empty directory, which is no repository.
+            resolveScopeRequest(repo, { paths: [] }, [pattern]);
+            return true;
+          } catch (error) {
+            return !(error instanceof InvalidScopeRequestError);
+          }
+        })();
+        assert.equal(exclude.safeParse([pattern]).success, capture, JSON.stringify(pattern));
+      }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it('takes a check\'s command or false, and refuses true or a blank command', () => {

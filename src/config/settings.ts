@@ -13,6 +13,7 @@ import { maxConcurrency, type PolicyFile } from '../review/policy.ts';
 import { checkKinds, userRulesSettingSchema, type CheckKind } from '../review/vocabulary.ts';
 import { windowsSandboxes } from '../runtime/codex.ts';
 import { maxTimeoutMs } from '../runtime/contract.ts';
+import { hasParentSegment, isAbsolutePattern, isMagicPattern, maxExcludePatterns } from '../scope/capture.ts';
 
 /**
  * Where a value can come from, lowest first in no particular owner's
@@ -61,8 +62,6 @@ export type ConfiguredRuntime = (typeof configuredRuntimes)[number];
 export const scopeDefaults = ['worktree', 'last-commit', 'branch', 'auto'] as const;
 export type ScopeDefault = (typeof scopeDefaults)[number];
 
-/** The most patterns `scope.exclude` holds. */
-export const maxExcludePatterns = 64;
 /** The most directories `tools.path` holds. */
 export const maxToolDirectories = 64;
 
@@ -78,12 +77,13 @@ const modelSchema = textSchema.refine((model) => !model.startsWith('-'), 'a mode
 /**
  * A pattern of `scope.exclude` (R10): a relative path pattern in git's
  * glob pathspec syntax, with no magic of its own, no `..` segment, and
- * nothing that names a place outside the repository.
+ * nothing that names a place outside the repository, by the rules the
+ * capture holds a pattern to.
  */
 export const excludePatternSchema = textSchema
-  .refine((pattern) => !pattern.startsWith(':'), 'a pattern must not start with ":", which git reads as pathspec magic')
-  .refine((pattern) => !pattern.replaceAll('\\', '/').split('/').includes('..'), 'a pattern must not have a ".." segment')
-  .refine((pattern) => !pattern.startsWith('/') && !pattern.startsWith('\\') && !/^[a-zA-Z]:/.test(pattern), 'a pattern is relative to the repository root');
+  .refine((pattern) => !isMagicPattern(pattern), 'a pattern must not start with ":", which git reads as pathspec magic')
+  .refine((pattern) => !hasParentSegment(pattern), 'a pattern must not have a ".." segment')
+  .refine((pattern) => !isAbsolutePattern(pattern), 'a pattern is relative to the repository root');
 
 /** The most characters a check command holds: as long as a command line any shell takes, since `--check` took any length before the settings. */
 export const maxCheckCommandLength = 32_000;

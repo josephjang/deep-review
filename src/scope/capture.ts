@@ -19,8 +19,28 @@ export const maxScopeFiles = 2000;
 /** The most paths left out that a capture names; it counts the rest (R10 of the configuration). */
 export const maxExcludedNamed = 2000;
 
-/** The most patterns a request leaves out. */
+/** The most patterns a request leaves out, which the settings registry holds `scope.exclude` to as well. */
 export const maxExcludePatterns = 64;
+
+// The rules a `scope.exclude` pattern breaks, each a predicate that holds
+// for a pattern it refuses: the capture and the settings registry both
+// test a pattern with these, each in its own words.
+
+/** A pattern that starts with `:`, which git reads as pathspec magic. */
+export function isMagicPattern(pattern: string): boolean {
+  return pattern.startsWith(':');
+}
+
+/** A pattern with a `..` segment, with either slash. */
+export function hasParentSegment(pattern: string): boolean {
+  return pattern.replaceAll('\\', '/').split('/').includes('..');
+}
+
+/** A pattern that starts at the root of the file system or of a drive rather than at the repository root. */
+export function isAbsolutePattern(pattern: string): boolean {
+  const slashed = pattern.replaceAll('\\', '/');
+  return slashed.startsWith('/') || /^[a-zA-Z]:/.test(slashed);
+}
 
 /** What the worktree holds at one path: bytes of a file, the target of a symlink, or nothing. */
 interface WorktreeEntry {
@@ -170,11 +190,10 @@ function validateRequest(request: ScopeRequest): void {
 function validateExclude(exclude: readonly string[]): void {
   if (exclude.length > maxExcludePatterns) throw new InvalidScopeRequestError(`scope.exclude holds ${String(exclude.length)} patterns, more than the ${String(maxExcludePatterns)} a capture takes`);
   for (const pattern of exclude) {
-    const slashed = pattern.replaceAll('\\', '/');
     if (pattern.length === 0 || pattern.includes('\0')) throw new InvalidScopeRequestError(`Empty or NUL-containing scope.exclude pattern: ${JSON.stringify(pattern)}`);
-    if (pattern.startsWith(':')) throw new InvalidScopeRequestError(`A scope.exclude pattern must not start with ":", which git reads as pathspec magic: ${pattern}`);
-    if (slashed.split('/').includes('..')) throw new InvalidScopeRequestError(`A scope.exclude pattern must not have a ".." segment: ${pattern}`);
-    if (slashed.startsWith('/') || /^[a-zA-Z]:/.test(slashed)) throw new InvalidScopeRequestError(`A scope.exclude pattern is relative to the repository root: ${pattern}`);
+    if (isMagicPattern(pattern)) throw new InvalidScopeRequestError(`A scope.exclude pattern must not start with ":", which git reads as pathspec magic: ${pattern}`);
+    if (hasParentSegment(pattern)) throw new InvalidScopeRequestError(`A scope.exclude pattern must not have a ".." segment: ${pattern}`);
+    if (isAbsolutePattern(pattern)) throw new InvalidScopeRequestError(`A scope.exclude pattern is relative to the repository root: ${pattern}`);
   }
 }
 
