@@ -180,6 +180,12 @@ describe('the flag layer', () => {
     assert.throws(() => flagLayerOf([parseSetFlag('run.concurrency=two')]), /--set run\.concurrency: /, 'text a number setting refuses is still refused');
   });
 
+  it('refuses a quoted --set string its setting refuses, and does not take the quotes as the text', () => {
+    assert.throws(() => flagLayerOf([parseSetFlag('checks.test="   "')]), /--set checks\.test: .*not " {3}"$/);
+    assert.throws(() => flagLayerOf([parseSetFlag('checks.lint=""')]), /--set checks\.lint: .*not ""$/);
+    assert.throws(() => flagLayerOf([parseSetFlag('review.base="-x"')]), /--set review\.base: .*not "-x"$/);
+  });
+
   // R1 of the configuration: a dedicated flag the command line took before the settings is still taken.
   it('takes every --check command and --executable-arg the command line took before the settings, a long command and an empty argument among them', () => {
     const long = `npm test -- ${'x'.repeat(5000)}`;

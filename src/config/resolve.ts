@@ -63,7 +63,9 @@ export function parseSetFlag(argument: string): FlagValue {
  * The flag layer of the flag values given, each checked against its
  * setting's schema; a `--set` whose TOML value the setting refuses is
  * taken as its text when the setting takes that, so `review.base=1234567`
- * is a revision and `checks.test=true` a command. Two flags for one
+ * is a revision and `checks.test=true` a command. A TOML string is not
+ * retried, since its text is only the string in quotes, so
+ * `checks.test="  "` is refused as blank. Two flags for one
  * setting, a dedicated flag and `--set` or `--set` twice, are refused,
  * naming both.
  */
@@ -73,7 +75,7 @@ export function flagLayerOf(values: readonly FlagValue[]): FlagLayer {
     const earlier = layer.get(entry.name);
     if (earlier !== undefined) throw new SettingFlagError(`${entry.flag} and ${earlier.flag} both set ${entry.name}; give one`);
     const parsed = settings[entry.name].value.safeParse(entry.value);
-    const asText = !parsed.success && entry.text !== undefined && entry.text !== entry.value ? settings[entry.name].value.safeParse(entry.text) : null;
+    const asText = !parsed.success && entry.text !== undefined && typeof entry.value !== 'string' ? settings[entry.name].value.safeParse(entry.text) : null;
     // When the text is refused too, the TOML value's problem is the one to name.
     const checked = asText?.success === true ? asText : parsed;
     if (!checked.success) throw new SettingFlagError(`${entry.flag}: ${checked.error.issues.map((issue) => issue.message).join('; ')}, not ${JSON.stringify(entry.value)}`);
