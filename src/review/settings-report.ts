@@ -13,7 +13,7 @@
 import type { ReviewConfiguration, ScopeState } from '../checkpoint/events.ts';
 import { repositoryConfigPath } from '../config/files.ts';
 import { fixSideNames } from '../config/record.ts';
-import { layerWords } from '../config/settings.ts';
+import { fileWords, layerWords } from '../config/settings.ts';
 
 /** The most paths left out that the report and `status` name; they count the rest. */
 export const namedExcludedPaths = 50;
@@ -26,7 +26,7 @@ type Sources = NonNullable<ReviewConfiguration['settings']> | NonNullable<Review
 
 /** The files a record read, each with its layer and, for the repository's, its commit, and whether that file was skipped or edited. */
 function sourcesWords(sources: Sources): string {
-  const files = sources.files.map((file) => `${layerWords[file.layer]} ${file.path}${file.commit === null ? '' : ` at ${file.commit}`}`);
+  const files = sources.files.map(fileWords);
   return [
     files.length === 0 ? 'no configuration file' : files.join(', '),
     ...(sources.repository.state === 'skipped' ? ['the repository\'s file skipped by --no-repository-config'] : []),

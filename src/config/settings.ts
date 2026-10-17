@@ -55,6 +55,10 @@ export const layerWords: Readonly<Record<Layer, string>> = {
   flag: 'a flag',
 };
 
+/** A configuration file as a person reads it, in a line on stderr, the report and `config show`: its layer, its path and, for the repository's, the commit it was read at. */
+export const fileWords = (file: { readonly layer: Layer; readonly path: string; readonly commit: string | null }): string =>
+  `${layerWords[file.layer]} ${file.path}${file.commit === null ? '' : ` at ${file.commit}`}`;
+
 /** The runtimes the registry declares settings for; a test holds them equal to the runtimes the engine ships. */
 export const configuredRuntimes = ['claude', 'codex'] as const;
 export type ConfiguredRuntime = (typeof configuredRuntimes)[number];

@@ -12,7 +12,7 @@ import type { ReviewConfiguration } from '../checkpoint/events.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
 import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
-import { checkSettingName, checkSettingNames, checkTimeoutMs, isConfiguredRuntime, layerWords, runtimeSettingNames, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
+import { checkSettingName, checkSettingNames, checkTimeoutMs, fileWords, isConfiguredRuntime, layerWords, runtimeSettingNames, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
 import { canonicalPath, isFile } from '../paths.ts';
 import type { CheckFlags } from './checks/discover.ts';
@@ -190,7 +190,7 @@ const valueWords = (value: unknown): string => (value === null ? 'none' : JSON.s
  * a check can create it.
  */
 export function configuredLines(runId: string, resolved: ResolvedSettings): string[] {
-  const files = resolved.files.map((file) => `${layerWords[file.layer]} ${file.path}${file.commit === null ? '' : ` at ${file.commit}`}`);
+  const files = resolved.files.map(fileWords);
   const tools = resolvedValue(resolved, 'tools.path') ?? [];
   return [
     `run ${runId}: settings from ${files.length === 0 ? 'the defaults and the flags; no configuration file' : files.join(', ')}`,

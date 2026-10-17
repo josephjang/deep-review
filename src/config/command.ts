@@ -10,7 +10,7 @@ import { stringify } from 'smol-toml';
 import type { PolicyFile } from '../review/policy.ts';
 import { configSchemaVersion, parseConfig } from './files.ts';
 import type { ResolvedSettings } from './resolve.ts';
-import { isConfiguredRuntime, layerSettings, layerWords, settingNames, settings, type FileLayer, type Owner, type SettingName } from './settings.ts';
+import { fileWords, isConfiguredRuntime, layerSettings, layerWords, settingNames, settings, type FileLayer, type Owner, type SettingName } from './settings.ts';
 
 /** What each owner means, as `config explain` says it (R3). */
 const ownerWords: Readonly<Record<Owner, string>> = {
@@ -55,7 +55,7 @@ export function showLines(resolved: ResolvedSettings, scope: ShownScope): string
       return `  ${name.padEnd(width)}  ${value === null ? '(none)' : tomlValue(value)}  from ${layerWords[layer]}`;
     }),
     'Files:',
-    ...(resolved.files.length === 0 ? ['  (none)'] : resolved.files.map((file) => `  ${layerWords[file.layer]} ${file.path}${file.commit === null ? '' : ` at ${file.commit}`}`)),
+    ...(resolved.files.length === 0 ? ['  (none)'] : resolved.files.map((file) => `  ${fileWords(file)}`)),
     `Repository's file: ${repository.state === 'skipped' ? 'skipped by --no-repository-config' : `${repository.state} at ${repository.commit ?? ''}`}${repository.edited ? '; edited by this change, whose edit applies to later changes' : ''}`,
     ...(resolved.notFollowed.length === 0 ? [] : ['Not followed:', ...resolved.notFollowed.map((entry) => `  ${entry.name}: the repository's ${tomlValue(entry.repository)}, this run's ${entry.value === null ? '(none)' : tomlValue(entry.value)} from ${layerWords[entry.layer]}`)]),
     ...(resolved.ignored.length === 0 ? [] : ['Ignored:', ...resolved.ignored.map((entry) => `  ${entry.name} in ${entry.path}: ${entry.reason}`)]),

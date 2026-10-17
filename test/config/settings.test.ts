@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { configuredRuntimes, isSettingName, isSettingPrefix, layerOrder, layerSettings, layers, owners, settableBy, settingNames, settings, toolDirectorySchema, type Owner, type SettingName } from '../../src/config/settings.ts';
+import { configuredRuntimes, fileWords, isSettingName, isSettingPrefix, layerOrder, layerSettings, layers, owners, settableBy, settingNames, settings, toolDirectorySchema, type Owner, type SettingName } from '../../src/config/settings.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { readPolicy } from '../../src/review/policy.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
@@ -130,6 +130,11 @@ describe('the settings registry', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it('names a file by its layer and path, and the repository\'s by the commit it was read at', () => {
+    assert.equal(fileWords({ layer: 'operator', path: '/home/config.toml', commit: null }), "the operator's file /home/config.toml");
+    assert.equal(fileWords({ layer: 'repository', path: '.deep-review/config.toml', commit: 'abc123' }), "the repository's file .deep-review/config.toml at abc123");
   });
 
   it('refuses a tools.path entry that holds the delimiter PATH is joined with', () => {
