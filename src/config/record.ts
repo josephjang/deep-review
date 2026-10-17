@@ -6,6 +6,7 @@
  * whichever version recorded the run.
  */
 import type { FixSettingsRecorded, ReviewConfiguration, ReviewConfigurationV5, SettingsRecorded } from '../checkpoint/events.ts';
+import { recordedSetting } from '../checkpoint/settings-state.ts';
 import { resolvedValue, type ResolvedSettings } from './resolve.ts';
 import { checkSettingNames, checkTimeoutMinutes, defaultScope, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
 
@@ -140,17 +141,16 @@ const unrecorded = (name: SettingName): unknown => (name === 'scope.exclude' || 
 /**
  * One setting as a run recorded it (R6, R17), whichever version recorded
  * the run: the value from version 5's field where it has one, else from
- * the settings block, the fix side of a continuation first for the
- * settings it records; the layer from the fix side or the block. A run
+ * the records as `recordedSetting` reads them, the fix side of a
+ * continuation first for the settings it records; the layer from the
+ * same record, as the fold reads a plan of checks against it. A run
  * configured before the settings reads as its defaults and flags, with
  * no layer; a setting of another runtime than the run's has no value.
  */
 export function settingOf<N extends SettingName>(configuration: ReviewConfiguration, name: N): RecordedSetting<SettingValue<N>> {
-  const fixSide = configuration.fixSettings !== null && fixSideNames.includes(name) ? configuration.fixSettings : null;
+  const recorded = recordedSetting(configuration, name);
+  const layer = recorded?.layer ?? null;
   const field = fieldValue(configuration, name);
-  const layer = (fixSide?.layers as Readonly<Partial<Record<string, Layer>>> | undefined)?.[name] ?? (configuration.settings?.layers as Readonly<Partial<Record<string, Layer>>> | undefined)?.[name] ?? null;
   if (field !== undefined) return { value: field as SettingValue<N>, layer };
-  const fromFix = (fixSide?.values as Readonly<Partial<Record<string, unknown>>> | undefined)?.[name];
-  const recorded = fromFix !== undefined ? fromFix : (configuration.settings?.values as Readonly<Partial<Record<string, unknown>>> | undefined)?.[name];
-  return { value: (recorded === undefined ? unrecorded(name) : recorded) as SettingValue<N>, layer };
+  return { value: (recorded?.value === undefined ? unrecorded(name) : recorded.value) as SettingValue<N>, layer };
 }

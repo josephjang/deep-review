@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fixSettingsRecordedV1, recordedSettingsV1, reviewConfiguredV6, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
+import { recordedSetting } from '../../src/checkpoint/settings-state.ts';
 import { repositoryConfigPath, type ConfigFile } from '../../src/config/files.ts';
 import { fixSettingsRecordOf, recordedNames, settingOf, settingsRecordOf } from '../../src/config/record.ts';
 import { flagLayerOf, noFlags, resolveSettings, type FlagLayer } from '../../src/config/resolve.ts';
@@ -144,5 +145,18 @@ describe('settingOf', () => {
     const both: ReviewConfiguration = { ...recorded, settings: block as unknown as ReviewConfiguration['settings'] };
     assert.deepEqual(settingOf(both, 'tools.path'), { value: ['/w/.venv/bin'], layer: 'clone' });
     assert.deepEqual(settingOf(both, 'scope.exclude'), { value: ['dist/**'], layer: 'default' }, 'a setting the fix side does not record comes from the block');
+    // The fold reads a plan of checks against the same record, through recordedSetting.
+    assert.deepEqual(recordedSetting(both, 'checks.test'), { value: 'npm test', layer: 'clone' });
+    assert.deepEqual(recordedSetting(both, 'scope.exclude'), { value: ['dist/**'], layer: 'default' });
+    assert.deepEqual(recordedSetting(both, 'checks.timeout_minutes'), { value: undefined, layer: 'operator' }, 'the pin\'s checks hold its value');
+  });
+
+  it('has recordedSetting name no setting a run did not record, so settingOf gives it no layer', () => {
+    const before: ReviewConfiguration = { ...configuration, settings: null, fixSettings: null };
+    assert.equal(recordedSetting(before, 'checks.test'), undefined);
+    const readOnly = settingsConfigured(false).review().configuration;
+    assert.equal(recordedSetting(readOnly, 'checks.test'), undefined, 'a run that does not fix records no check setting');
+    assert.deepEqual(settingOf(readOnly, 'checks.test'), { value: null, layer: null });
+    assert.notEqual(recordedSetting(readOnly, 'scope.exclude'), undefined);
   });
 });

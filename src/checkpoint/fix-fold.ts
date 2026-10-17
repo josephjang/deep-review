@@ -15,10 +15,11 @@
  */
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
-import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixSettingsRecorded, ReviewConfiguration, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixSettingsRecorded, TreeRevised, UnitUnattempted } from './events.ts';
 import { batchOf, checksFloor, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, nextSeries, plannedCheckOfV2, roundOf, routeOf, runHead, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type FixState, type PathHolder, type PlannedCheck } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
+import { recordedSetting } from './settings-state.ts';
 import { lastSurvey } from './survey-state.ts';
 
 /** The run, which must be configured for review with the fix pass. */
@@ -42,20 +43,6 @@ const checksPlannedV1: Reducer<ChecksPlannedV1> = (state, payload, event) => {
 };
 
 /**
- * The check setting a run recorded for a kind, with its layer: the
- * continuation's when a `fix.pinned@2` recorded the fix side, else the
- * configuration's; undefined for a run that recorded no settings (R6 of
- * the configuration).
- */
-function recordedCheckSetting(configuration: ReviewConfiguration, kind: PlannedCheck['kind']): { readonly value: string | false | null; readonly layer: string } | undefined {
-  const name = `checks.${kind}` as const;
-  if (configuration.fixSettings !== null) return { value: configuration.fixSettings.values[name], layer: configuration.fixSettings.layers[name] };
-  const value = configuration.settings?.values[name];
-  const layer = configuration.settings?.layers[name];
-  return value === undefined || layer === undefined ? undefined : { value, layer };
-}
-
-/**
  * The checks of a version 2 or 3 plan, recorded when the survey phase
  * completes (R6, R15 of the repository survey): once, while the phase
  * runs, standing on a recorded survey or on the run going on without
@@ -77,7 +64,7 @@ function planFromSurvey(state: RunState | undefined, checks: readonly PlannedChe
   const answer = lastSurvey(review.survey);
   if (answer === null && review.survey.failure === null) throw invalid(event, 'plans its checks before its survey is recorded or the run goes on without one');
   for (const check of checks) {
-    const recorded = recordedCheckSetting(review.configuration, check.kind);
+    const recorded = recordedSetting(review.configuration, `checks.${check.kind}`);
     if (check.origin === 'setting') {
       // A flag settles its kind for the invocation that gives it, over what the run recorded, and is not on the ledger (TD6 of the repository survey).
       if (check.layer === 'flag') continue;

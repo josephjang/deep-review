@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ReviewConfiguration } from '../checkpoint/events.ts';
+import { recordedSetting } from '../checkpoint/settings-state.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
 import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
@@ -113,11 +114,11 @@ export function checkSettingsOfResolved(resolved: ResolvedSettings): CheckSettin
  * before the settings, whose check flags are its invocation's.
  */
 export function recordedCheckSettings(configuration: ReviewConfiguration): CheckSettings | null {
-  const recorded = configuration.fixSettings !== null || (configuration.settings !== null && configuration.settings.values['checks.build'] !== undefined);
-  if (!recorded) return null;
+  const recorded = (kind: CheckKind): ReturnType<typeof recordedSetting> => recordedSetting(configuration, checkSettingName(kind));
+  if (checkKinds.every((kind) => recorded(kind) === undefined)) return null;
   return checkSettingsFrom((kind) => {
-    const { value, layer } = settingOf(configuration, checkSettingName(kind));
-    return value === null || layer === null || layer === 'default' ? null : { value: value as string | false, layer };
+    const setting = recorded(kind);
+    return setting === undefined || setting.value === null || setting.layer === 'default' ? null : { value: setting.value as string | false, layer: setting.layer };
   });
 }
 
