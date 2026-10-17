@@ -4,7 +4,8 @@ const gitInTestsMessage = 'Run git in tests through git() from test/helpers/git.
 
 export default tseslint.config(
   // dist/ is build output; skill/ and roles/ hold prompts; none of them is code.
-  { ignores: ['node_modules/**', 'dist/**', 'skill/**', 'roles/**'] },
+  // .obsidian/ is an Obsidian vault a reader may open on the repository, as .gitignore says.
+  { ignores: ['node_modules/**', 'dist/**', 'skill/**', 'roles/**', '.obsidian/**'] },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.ts'],
