@@ -1616,15 +1616,6 @@ const runtimeLayersMatch = (runtime: string, layers: Readonly<Partial<Record<str
   Object.keys(layers).every((name) => !name.startsWith('runtimes.') || name.startsWith(`runtimes.${runtime}.`));
 
 /**
- * What a run recorded of its configuration beside version 5's fields (R6,
- * R7 of the configuration): the files it read, each with its layer, path,
- * content hash and, for the repository's, the commit; the state of the
- * repository's file and whether the change edits it; the value of each
- * recorded setting version 5 has no field for, the check commands only in
- * a run that fixes; the layer of every recorded setting; the repository
- * values a higher layer replaced; and the settings ignored.
- */
-/**
  * Where a record of the settings came from, which `review.configured@6`
  * and the fix side of `fix.pinned@2` both hold: the files read, the state
  * of the repository's file, the repository values a higher layer
@@ -1650,6 +1641,15 @@ const refineSources = (recorded: SettingsSourcesV1, context: z.RefinementCtx): v
   if (problem !== null) context.addIssue({ code: 'custom', message: problem, path: ['files'] });
 };
 
+/**
+ * What a run recorded of its configuration beside version 5's fields (R6,
+ * R7 of the configuration): the files it read, each with its layer, path,
+ * content hash and, for the repository's, the commit; the state of the
+ * repository's file and whether the change edits it; the value of each
+ * recorded setting version 5 has no field for, the check commands only in
+ * a run that fixes; the layer of every recorded setting; the repository
+ * values a higher layer replaced; and the settings ignored.
+ */
 export const settingsRecordedV1 = z.strictObject({
   files: settingsSourcesShapeV1.files,
   repository: settingsSourcesShapeV1.repository,
