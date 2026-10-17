@@ -214,13 +214,21 @@ A run that the engine recorded before this change still opens, folds and resumes
 
 The gates above typed a range, a list of paths, check flags and a budget. They also typed the check flags again on each resume before the run planned the checks. With the repository's file in place, the same gate is `--branch --fix`. No flag is necessary again on a resume.
 
+The gate of this change measured this. Before this change, a gate of this change types `--from origin/main --to HEAD --merge-base` and `--fix`. It also types 18 `--path` flags for the paths outside `dist/` and the fixtures, 4 `--check` flags and `--budget-usd 120`. That is 27 flags, and a resume before the plan of the checks needs the 4 `--check` flags again. The gate typed `--branch --fix`, and a resume needs no flag.
+
 ### What `scope.exclude` saves on `dist/`
 
 The fixer cost report found that the reviewed diff is 58% of the prompt of a fixer. The measurement compares the change of the gate with and without `scope.exclude`. It measures the size of the reviewed patch and the tokens of the prompts of the fixers.
 
+The gate of this change measured this. Without `scope.exclude`, the patch of this change is 2,037,532 bytes. With it, the patch is 654,786 bytes, 32% of that size. Both sizes are larger than the 256 KiB that a prompt carries. Thus no prompt holds the patch, and the prompts of the 24 fixers were 40,532 to 60,411 bytes. A worker reads the patch file when it needs the patch.
+
+A worker that reads the full patch reads 1,382,746 bytes less. At approximately 4 bytes for each token, that is approximately 345,000 tokens less. The token figure is an estimate, not a measurement.
+
 ### Parity
 
 The pinned configuration of a run with no file is equal to the configuration that the engine at the base of this change pins. The tests show this, and the Codex run of R16 shows it too.
+
+The Codex run of the gate showed this. Each field of `review.configured@5` from the engine of `212404d` is equal to the same field of `review.configured@6` from this engine, for the same command. The design's Verification gives the details.
 
 ## Product Decisions
 

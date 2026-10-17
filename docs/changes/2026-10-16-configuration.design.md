@@ -460,7 +460,55 @@ Verification records the two real runs.
 
 ## Verification
 
-No check ran yet.
+### The implementation
+
+Pull request #57 holds the proposal and the implementation, from `4d2cd84` to `ef03d40`. The proposal changed three times during the work, each time in a commit of its own before the code: `050b467`, `14990c5` and `550e60f`. An independent review after the implementation found two medium and four low defects. Each fix has its own commit with a test that failed first, from `1d09c84` to `07e4b00`. At `ef03d40`, `npm run check` and `npm run verify` passed, and CI passed on Linux, macOS and Windows.
+
+### The policy file on main
+
+Pull request #58 put `.deep-review/config.toml` on `main` as `212404d`, before the gate (R16). The file leaves out `dist/**` and `test/fixtures/checkpoints/**`, names the four checks and sets `budget.usd = 120`. `config validate` accepted it as the repository's file. On its own branch, `config show` said that the change edits the file and that the file does not apply, as R4 says. `main` moved to `212404d` by a fast-forward, and #57 moved onto it.
+
+### The gate on Claude Code
+
+The engine was the build of `ef03d40`, copied out of the worktree. The command was the command of the skill, with no other flag: `review --runtime claude --branch --fix`. Claude Code 2.1.302 ran with the strong model opus and the fast model sonnet.
+
+The run took each of its values from the repository's file at `212404d`, and stderr named the file. `scope.exclude` left out 86 changed paths, and 80 files stayed in the review. The four checks came from the file, so the survey asked about no check.
+
+`review.configured@6` records the file with its digest and commit, and each value with its layer. `checks.planned@3` records each check with the origin `setting` and the layer `repository`. The report names the file in its header. It names the patterns and the 86 paths in its limitations.
+
+The run found 40 findings, and it refuted 17 more at verification. The decision step decided 35 to fix, 2 to leave and 3 to ask the author. Two fixes depart from a rule of the repository, and the report gives the command that accepts or rejects each one.
+
+The fix pass applied 35 fixes in 24 fixer launches, with a second round of 14 findings. The checks passed before and after the fixes. The run spent 56.11 of the 120 USD that the file sets. `deep-review commit` made 40 commits, from `f84c8a9` to `90026e4`. The last commit holds the `dist/` that the build check wrote.
+
+An audit of the ledger found no commit that holds a path that its cluster did not own or claim. At `90026e4`, `npm run check` passed (2292 tests, 20 skipped for the platform) and `npm run verify` passed. Typecheck and lint passed at each of the 40 commits alone.
+
+The fixers added sentences to this design that break the style of the proposal. `75056fb` writes them again with the same content. Pull request #59 holds the commits of the gate, and it merged into #57 by a fast-forward.
+
+### The gate on Codex
+
+The second run used a clone of j178/prek, a Rust project with no `.deep-review/config.toml`. The change was prek #2844, from its merge base to its head `1c48414a`, which the gate of the answers element also reviewed. Nothing went to the project.
+
+The operator's file set `runtimes.codex.windows_sandbox = "none"`. The clone's file set `tools.path` to a directory that holds a `python3`, because the tests of the project run hooks that call it. Both files came from `config init`, and `config validate` accepted both. Nobody changed `PATH` by hand.
+
+To show parity, the engine of `212404d` ran the same command first, and the gate stopped it after it recorded its configuration. Each field of `review.configured@5` from that engine is equal to the same field of `review.configured@6` from this engine. In the settings block, only `tools.path` (the clone's file) and `runtimes.codex.windows_sandbox` (the operator's file) have a layer that is not the default.
+
+The run used codex-cli 0.160.0 with the models gpt-6-astra and gpt-6.1-sol. Its survey stopped on a blocker: the lint of the project needs `cargo-shear`, which the machine does not have. The run continued with `--check` for that lint without `cargo shear`, as the gate of the answers element did. The survey chose the build, the typecheck and `mise run test`.
+
+The test check failed before the fixes, after the fixes and after the repair, with the same 51 tests each time. The failures are in the tests of eleven languages and tools, such as Dart, Ruby and conda. The machine does not have these tools, or the tests see its temporary paths. The repair found that all 51 failed before the fixes, and it did not change the code.
+
+The run found 14 findings, decided 4 to fix, 7 to leave and 3 to ask, and applied 5 fixes in 2 batches. `deep-review commit` made 5 commits. Codex reports no cost, so the budget did not apply. The run used 24 workers and 8.41 million input tokens, of which 7.19 million were cached.
+
+A check and a fixer found `python3` through `tools.path`. With the `PATH` of the machine, 6 of the 23 tests of `cargo test -p prek --test hook_impl` fail, because the Windows Store alias answers for `python3`. With the directory of `tools.path` first, all 23 pass. The fixer of the run reported that these tests passed.
+
+### The metrics
+
+The Metrics section of the requirements records the two measurements of the gate: the flags that a gate types, and the size of the patch with and without `scope.exclude`.
+
+### Observations
+
+1. One fixer on Claude Code ran past its timeout of 30 minutes two times. The engine kept the snapshot that the fixer took after its first finding, and a new launch did the rest of the batch. The cost of the worker that timed out is not in the totals, and the report says so.
+2. The Codex survey chose `mise run test`, the full test suite, which needs toolchains that the machine does not have. The test check thus failed before and after the fixes with the same failures, and it proved nothing about the fixes. The gate of the answers element gave a narrow test check by flag. A `checks.test` in the clone's file can give such a command and keep it from the survey.
+3. The repair ran on Codex for a check that failed before the fixes with the same failures. It found that and made no change, but it cost a worker.
 
 ## Risks & Migration
 
