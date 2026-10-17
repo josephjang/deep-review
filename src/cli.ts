@@ -649,6 +649,9 @@ function invocationOf(values: Values, io: CommandIo, worktree: string, commonDir
   // A check setting given by flag acts only in a fix run, so it is refused without --fix as --check is.
   const setCheck = checkFlags === null ? [...layer.values()].find((entry) => entry.name.startsWith('checks.') && entry.name !== 'checks.timeout_minutes') : undefined;
   if (setCheck !== undefined) throw new UsageError(`${setCheck.flag} applies only with --fix, as --check does`);
+  // Another runtime's setting given by flag acts on no run of this one, so it is refused as --codex-windows-sandbox is; a file's stays as it is.
+  const setOther = [...layer.values()].find((entry) => entry.name.startsWith('runtimes.') && !entry.name.startsWith(`runtimes.${runtime}.`));
+  if (setOther !== undefined) throw new UsageError(`${setOther.flag} applies only to runtime ${setOther.name.split('.')[1]!}, not ${runtime}`);
   const source = configurationSource({
     worktree,
     locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === undefined ? null : resolve(io.cwd, values.config) },

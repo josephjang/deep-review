@@ -120,6 +120,8 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [claudeFlags(box, '--last-commit', '--set', 'scope.exclude=["a"]', '--set', 'scope.exclude=["b"]'), /--set scope\.exclude and --set scope\.exclude both set scope\.exclude/],
       [['status', '--set', 'budget.usd=1'], /--set does not apply to status/],
       [claudeFlags(box, '--last-commit', '--set', 'checks.test=npm test'), /--set checks.test applies only with --fix, as --check does/],
+      [claudeFlags(box, '--last-commit', '--set', 'runtimes.codex.windows_sandbox=none'), /--set runtimes\.codex\.windows_sandbox applies only to runtime codex, not claude/],
+      [claudeFlags(box, '--last-commit', '--set', 'runtimes.codex.strong=x'), /--set runtimes\.codex\.strong applies only to runtime codex, not claude/],
     ] as const) {
       const result = await run(box, ...args);
       assert.equal(result.status, 1, `${args.join(' ')}: ${result.stderr}`);

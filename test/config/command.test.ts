@@ -125,6 +125,18 @@ describe('deep-review config', () => {
     }
   });
 
+  it('refuses a --set of another runtime\'s setting, as the dedicated flag is refused, and takes one of the run\'s runtime', async () => {
+    assert.equal(await config('show', '--runtime', 'claude', '--set', 'runtimes.codex.windows_sandbox=none'), 1);
+    assert.match(err.join(''), /--set runtimes\.codex\.windows_sandbox applies only to runtime codex, not claude/);
+    assert.match(err.join(''), /usage:/);
+    err.length = 0;
+    assert.equal(await config('show', '--runtime', 'codex', '--set', 'runtimes.claude.strong=x'), 1);
+    assert.match(err.join(''), /--set runtimes\.claude\.strong applies only to runtime claude, not codex/);
+    err.length = 0;
+    assert.equal(await config('show', '--runtime', 'codex', '--set', 'runtimes.codex.windows_sandbox=none'), 0, err.join(''));
+    assert.match(out.join(''), /^ {2}runtimes\.codex\.windows_sandbox +"none" {2}from a flag$/m);
+  });
+
   it('validates the working tree\'s repository file by default, and a file named for a layer, exiting 2 for a problem', async () => {
     write(repo, repositoryConfigPath, 'schema = 1\nscope.exclude = ["dist/**"]\n');
     assert.equal(await config('validate'), 0, err.join(''));
