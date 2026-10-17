@@ -134,8 +134,8 @@ export interface CommandIo {
 const allowed: Record<string, readonly (keyof Values)[]> = {
   review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'help'],
   status: ['run', 'json', 'repo', 'help'],
-  // Each subcommand of config takes its own part of these (`configCommand`).
-  config: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'json', 'layer', 'repository', 'operator', 'clone', 'help'],
+  // The flags of each subcommand of config are in `configAllowed`, which `configCommand` checks.
+  config: [],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
