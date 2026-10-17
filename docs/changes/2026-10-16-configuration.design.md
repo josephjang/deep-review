@@ -476,7 +476,7 @@ The run took each of its values from the repository's file at `212404d`, and std
 
 `review.configured@6` records the file with its digest and commit, and each value with its layer. `checks.planned@3` records each check with the origin `setting` and the layer `repository`. The report names the file in its header. It names the patterns and the 86 paths in its limitations.
 
-The run found 40 findings, and it refuted 17 more at verification. The decision step decided 35 to fix, 2 to leave and 3 to ask the author. Two fixes depart from a rule of the repository, and the report gives the command that accepts or rejects each one.
+The run found 40 findings, and it refuted 17 more at verification. The decision step decided 35 to fix, 2 to leave and 3 to ask the author. Two fixes depart from a rule of the repository, and the report gives the command that accepts or rejects each one. On 2026-10-17, the author kept the default of each question (SWEEP-4, CONVENTIONS-1 and ALTITUDE-6) and accepted both departures (SCAN-6 and ALTITUDE-3). `deep-review answer --record-only` recorded these answers on the run, and the code did not change.
 
 The fix pass applied 35 fixes in 24 fixer launches, with a second round of 14 findings. The checks passed before and after the fixes. The run spent 56.11 of the 120 USD that the file sets. `deep-review commit` made 40 commits, from `f84c8a9` to `90026e4`. The last commit holds the `dist/` that the build check wrote.
 
