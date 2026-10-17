@@ -271,8 +271,8 @@ export function rolesDigest(roles: readonly Pick<AssembledRole, 'key' | 'sha256'
  * another. The settings' values (`overrides`) come between the flags and
  * the policy for the models, the concurrency, the run budget, the Codex
  * Windows sandbox, the check timeout and the reviewer's own rules (R12 of
- * the configuration); the flags are checked as before, and the settings
- * were checked by their registry.
+ * the configuration), in the one order `layered` states; the flags are
+ * checked as before, and the settings were checked by their registry.
  */
 export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags, platform: NodeJS.Platform, overrides: PolicyOverrides = {}): ResolvedPolicy {
   const named = Object.keys(policy.roles).sort();
@@ -303,14 +303,14 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     if (model !== undefined && (model.length === 0 || model.startsWith('-') || model.includes('\0'))) throw new InvalidPolicyError(`${flag} must be a model name, not ${JSON.stringify(model)}`);
   }
 
-  const models = { strong: flags.strongModel ?? overrides.strongModel ?? runtime.strong, fast: flags.fastModel ?? overrides.fastModel ?? runtime.fast };
+  const models = { strong: layered(flags.strongModel, overrides.strongModel, runtime.strong), fast: layered(flags.fastModel, overrides.fastModel, runtime.fast) };
   const pinned: PinnedRole[] = reviewRoles.map((role) => {
     const entry = policy.roles[role]!;
     return { role, model: models[entry.tier], effort: entry.effort, budgetUsd: capabilities.budgetCap ? entry.budgetUsd : null, timeoutMs: entry.timeoutMs };
   });
   let codex: ResolvedPolicy['codex'] = null;
   if (adapter.name === codexRuntimeName && platform === 'win32') {
-    const windowsSandbox = flags.codexWindowsSandbox ?? overrides.codexWindowsSandbox ?? runtime.windowsSandbox;
+    const windowsSandbox = layered(flags.codexWindowsSandbox, overrides.codexWindowsSandbox, runtime.windowsSandbox);
     // The policy file's own check requires the entry's value; a policy built some other way may lack it.
     if (windowsSandbox === undefined) throw new InvalidPolicyError(`The role policy's ${codexRuntimeName} entry names no windowsSandbox; name one of ${windowsSandboxes.join(', ')}`);
     codex = { windowsSandbox };
@@ -320,13 +320,26 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     models,
     roles: pinned,
     rolesDigest: rolesDigest(roles),
-    concurrency: flags.concurrency ?? overrides.concurrency ?? policy.concurrency,
-    runBudgetUsd: capabilities.costInUsd ? (flags.budgetUsd ?? (overrides.budgetUsd === undefined ? runtime.runBudgetUsd : overrides.budgetUsd)) : null,
+    concurrency: layered(flags.concurrency, overrides.concurrency, policy.concurrency),
+    runBudgetUsd: capabilities.costInUsd ? layered<number | null>(flags.budgetUsd, overrides.budgetUsd, runtime.runBudgetUsd) : null,
     checks: overrides.checksTimeoutMs === undefined ? policy.checks : { timeoutMs: overrides.checksTimeoutMs },
     fixes: policy.fixes,
     survey: overrides.userRules === undefined ? policy.survey : { userRules: overrides.userRules },
     codex,
   };
+}
+
+/**
+ * One overridable value of the run: the flag, else the resolved setting,
+ * else the policy's. The settings' flag layer already holds the flags, so
+ * the flag comes first only for a caller that passes no settings, as a
+ * replay does, or whose settings drop it, as they do the model flags of a
+ * runtime that is not configured. A null setting is a value, the run
+ * budget's "none", not a gap.
+ */
+function layered<T>(flag: T | undefined, setting: T | undefined, policy: T): T {
+  if (flag !== undefined) return flag;
+  return setting === undefined ? policy : setting;
 }
 
 /** The pinned values of one role, from a resolved or recorded policy; the role must be one the policy pinned. */

@@ -352,6 +352,7 @@ describe('resolvePolicy with the settings\' values', () => {
   it('pins no run budget on a runtime that reports no cost, whatever the settings give, and a null budget as none', () => {
     assert.equal(resolvePolicy(committed, roles, codexAdapter, {}, 'linux', { budgetUsd: 50 }).runBudgetUsd, null);
     assert.equal(resolvePolicy(committed, roles, claudeAdapter, {}, 'linux', { budgetUsd: null }).runBudgetUsd, null);
+    assert.equal(resolvePolicy(committed, roles, claudeAdapter, { budgetUsd: 10 }, 'linux', { budgetUsd: null }).runBudgetUsd, 10, 'a --budget-usd is taken over a setting of none');
   });
 
   it('confines a Codex run on Windows by the settings\' sandbox, and pins none elsewhere', () => {
