@@ -128,7 +128,9 @@ function flatten(table: Record<string, unknown>, prefix: string, values: Map<Set
   for (const [key, value] of Object.entries(table)) {
     const name = prefix === '' ? key : `${prefix}.${key}`;
     if (prefix === '' && key === 'schema') continue;
-    if (isSettingName(name)) values.set(name, value);
+    // TOML splits a dotted key into tables, so a key that still holds a dot was quoted: one name, and not the setting its dots spell.
+    if (key.includes('.')) unknown.push(name);
+    else if (isSettingName(name)) values.set(name, value);
     else if (isTable(value) && isSettingPrefix(name)) flatten(value, name, values, unknown);
     else unknown.push(...leaves(value, name));
   }

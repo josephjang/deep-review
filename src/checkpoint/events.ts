@@ -1606,7 +1606,7 @@ const settingNameSchemaV1 = z.enum(recordedSettingsV1.names);
 const settingTextSchemaV1 = z.string().min(1).max(4096);
 
 /** A check's command as a setting gives it, `false` for none, or null when no setting gives one and the survey decides. */
-const recordedCheckSettingV1 = z.union([z.string().min(1).max(1000), z.literal(false)]).nullable();
+const recordedCheckSettingV1 = z.union([z.string().min(1).max(32_000), z.literal(false)]).nullable();
 
 /** The layer of each recorded setting, by its name; a name the version does not record is refused. */
 const settingLayersSchemaV1 = z.partialRecord(settingNameSchemaV1, settingLayerSchemaV1);

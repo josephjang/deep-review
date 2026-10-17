@@ -110,6 +110,14 @@ describe('the checks of a file', () => {
     assert.deepEqual([...read.file!.values.entries()], [['checks.test', 'npm test'], ['runtimes.claude.strong', 'opus'], ['budget.usd', 120]]);
   });
 
+  it('reads a quoted key that holds a dot as one unknown name, not as the setting its dots spell', () => {
+    const read = parsed('schema = 1\n"checks.test" = "a"\n[checks]\ntest = "b"\n');
+    assert.match(problemsOf(read), /checks\.test: no such setting/, 'the quoted key is unknown');
+    const operator = parsed('schema = 1\n"checks.test" = "a"\n[checks]\ntest = "b"\n', 'operator');
+    assert.equal(operator.file?.values.get('checks.test'), 'b', 'only the key TOML reads as a table entry is the setting');
+    assert.deepEqual(operator.file?.ignored, ['checks.test']);
+  });
+
   it('refuses a file that is not UTF-8, or not TOML', () => {
     assert.match(problemsOf(parseConfig('repository', 'config.toml', Buffer.from([0x73, 0xff, 0xfe]), null)), /not UTF-8/);
     assert.match(problemsOf(parsed('schema = 1\nchecks.test = \n')), /not valid TOML/);

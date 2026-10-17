@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { SettingFlagError } from '../../src/config/errors.ts';
+import { dedicatedFlagValues } from '../../src/config/flags.ts';
 import { repositoryConfigPath, type ConfigFile } from '../../src/config/files.ts';
 import { flagLayerOf, noFlags, originHeadBranch, parseSetFlag, parseSetValue, readOperatorFiles, requireBase, resolvedValue, resolveScopeSettings, resolveSettings, withChangedPaths, type FlagLayer, type SettingsInputs } from '../../src/config/resolve.ts';
 import { layerOrder, owners, scopeDefaults, settableBy, settings, type FileLayer, type Layer, type Owner, type SettingName } from '../../src/config/settings.ts';
@@ -164,11 +165,27 @@ describe('the flag layer', () => {
   });
 
   it('splits --set at the first =, so a value can hold one', () => {
-    assert.deepEqual(parseSetFlag('checks.test=FOO=1 npm test'), { name: 'checks.test', value: 'FOO=1 npm test', flag: '--set checks.test' });
-    assert.deepEqual(parseSetFlag('checks.lint=false'), { name: 'checks.lint', value: false, flag: '--set checks.lint' });
-    assert.deepEqual(parseSetFlag('budget.usd=120'), { name: 'budget.usd', value: 120, flag: '--set budget.usd' });
-    assert.deepEqual(parseSetFlag('scope.exclude=["dist/**"]'), { name: 'scope.exclude', value: ['dist/**'], flag: '--set scope.exclude' });
+    assert.deepEqual(parseSetFlag('checks.test=FOO=1 npm test'), { name: 'checks.test', value: 'FOO=1 npm test', flag: '--set checks.test', text: 'FOO=1 npm test' });
+    assert.deepEqual(parseSetFlag('checks.lint=false'), { name: 'checks.lint', value: false, flag: '--set checks.lint', text: 'false' });
+    assert.deepEqual(parseSetFlag('budget.usd=120'), { name: 'budget.usd', value: 120, flag: '--set budget.usd', text: '120' });
+    assert.deepEqual(parseSetFlag('scope.exclude=["dist/**"]'), { name: 'scope.exclude', value: ['dist/**'], flag: '--set scope.exclude', text: '["dist/**"]' });
     for (const argument of ['checks.test', '=x', 'nope=1', 'runtimes.gemini.strong=x']) assert.throws(() => parseSetFlag(argument), SettingFlagError, argument);
+  });
+
+  it('keeps the text of a --set whose TOML value its setting refuses but whose text it takes, so a digit-only revision or the command true stay strings', () => {
+    assert.deepEqual(flagLayerOf([parseSetFlag('review.base=1234567')]).get('review.base')?.value, '1234567');
+    assert.deepEqual(flagLayerOf([parseSetFlag('checks.test=true')]).get('checks.test')?.value, 'true');
+    assert.equal(flagLayerOf([parseSetFlag('checks.test=false')]).get('checks.test')?.value, false, 'false drops the check, as in a file');
+    assert.equal(flagLayerOf([parseSetFlag('run.concurrency=2')]).get('run.concurrency')?.value, 2);
+    assert.throws(() => flagLayerOf([parseSetFlag('run.concurrency=two')]), /--set run\.concurrency: /, 'text a number setting refuses is still refused');
+  });
+
+  // R1 of the configuration: a dedicated flag the command line took before the settings is still taken.
+  it('takes every --check command and --executable-arg the command line took before the settings, a long command and an empty argument among them', () => {
+    const long = `npm test -- ${'x'.repeat(5000)}`;
+    const layer = flagLayerOf(dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: { commands: { test: long }, dropped: [] }, executableArgs: ['', '--flag'] }));
+    assert.equal(layer.get('checks.test')?.value, long);
+    assert.deepEqual(layer.get('runtimes.claude.args')?.value, ['', '--flag']);
   });
 
   it('checks each value against its setting, and refuses two flags for one setting', () => {

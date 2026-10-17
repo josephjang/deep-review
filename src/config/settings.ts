@@ -85,8 +85,11 @@ export const excludePatternSchema = textSchema
   .refine((pattern) => !pattern.replaceAll('\\', '/').split('/').includes('..'), 'a pattern must not have a ".." segment')
   .refine((pattern) => !pattern.startsWith('/') && !pattern.startsWith('\\') && !/^[a-zA-Z]:/.test(pattern), 'a pattern is relative to the repository root');
 
+/** The most characters a check command holds: as long as a command line any shell takes, since `--check` took any length before the settings. */
+export const maxCheckCommandLength = 32_000;
+
 /** A check's command, or `false` for no check of the kind (R11). */
-const checkCommandSchema = z.union([textSchema.refine((command) => command.trim().length > 0, 'a command must not be blank'), z.literal(false)]);
+const checkCommandSchema = z.union([z.string().min(1).max(maxCheckCommandLength).refine((command) => !command.includes('\0'), 'must not hold a NUL').refine((command) => command.trim().length > 0, 'a command must not be blank'), z.literal(false)]);
 
 /** The most minutes one check can run: a worker's longest timeout. */
 const maxCheckMinutes = maxTimeoutMs / 60_000;
@@ -150,11 +153,14 @@ const executableSetting = (runtime: ConfiguredRuntime): SettingDeclaration<typeo
     describe: `The executable that runs the workers of runtime ${runtime}: a path, or a name looked up on PATH.`,
   });
 
+/** One argument of a runtime's executable: empty is one, as --executable-arg took one before the settings. */
+const argumentSchema = z.string().max(1000).refine((argument) => !argument.includes('\0'), 'must not hold a NUL');
+
 /** The arguments of one runtime's executable. */
-const argsSetting = (runtime: ConfiguredRuntime): SettingDeclaration<z.ZodArray<typeof textSchema>> =>
+const argsSetting = (runtime: ConfiguredRuntime): SettingDeclaration<z.ZodArray<typeof argumentSchema>> =>
   declare({
     owner: 'operator-only',
-    value: z.array(textSchema).max(64),
+    value: z.array(argumentSchema).max(64),
     defaultOf: () => [],
     defaultWords: 'no arguments',
     example: [],

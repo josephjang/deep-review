@@ -22,6 +22,8 @@ export interface FlagValue {
   readonly name: SettingName;
   readonly value: unknown;
   readonly flag: string;
+  /** The text a `--set` gave, which its setting takes as a string when it refuses the TOML value read from it. */
+  readonly text?: string;
 }
 
 /** The flag layer of one invocation (TD9): each setting a dedicated flag or `--set` gives, by its name. */
@@ -53,20 +55,27 @@ export function parseSetFlag(argument: string): FlagValue {
   if (equals <= 0) throw new SettingFlagError(`--set takes <setting>=<value>, not ${JSON.stringify(argument)}`);
   const name = argument.slice(0, equals).trim();
   if (!isSettingName(name)) throw new SettingFlagError(`--set names no setting ${JSON.stringify(name)}; deep-review config explain lists the settings this engine knows`);
-  return { name, value: parseSetValue(argument.slice(equals + 1)), flag: `--set ${name}` };
+  const text = argument.slice(equals + 1);
+  return { name, value: parseSetValue(text), flag: `--set ${name}`, text };
 }
 
 /**
  * The flag layer of the flag values given, each checked against its
- * setting's schema; two flags for one setting, a dedicated flag and
- * `--set` or `--set` twice, are refused, naming both.
+ * setting's schema; a `--set` whose TOML value the setting refuses is
+ * taken as its text when the setting takes that, so `review.base=1234567`
+ * is a revision and `checks.test=true` a command. Two flags for one
+ * setting, a dedicated flag and `--set` or `--set` twice, are refused,
+ * naming both.
  */
 export function flagLayerOf(values: readonly FlagValue[]): FlagLayer {
   const layer = new Map<SettingName, FlagValue>();
   for (const entry of values) {
     const earlier = layer.get(entry.name);
     if (earlier !== undefined) throw new SettingFlagError(`${entry.flag} and ${earlier.flag} both set ${entry.name}; give one`);
-    const checked = settings[entry.name].value.safeParse(entry.value);
+    const parsed = settings[entry.name].value.safeParse(entry.value);
+    const asText = !parsed.success && entry.text !== undefined && entry.text !== entry.value ? settings[entry.name].value.safeParse(entry.text) : null;
+    // When the text is refused too, the TOML value's problem is the one to name.
+    const checked = asText?.success === true ? asText : parsed;
     if (!checked.success) throw new SettingFlagError(`${entry.flag}: ${checked.error.issues.map((issue) => issue.message).join('; ')}, not ${JSON.stringify(entry.value)}`);
     layer.set(entry.name, { ...entry, value: checked.data });
   }
