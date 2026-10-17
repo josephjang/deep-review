@@ -6,7 +6,7 @@
  * whichever version recorded the run.
  */
 import type { FixSettingsRecorded, ReviewConfiguration, ReviewConfigurationV5, SettingsRecorded } from '../checkpoint/events.ts';
-import type { ResolvedSettings } from './resolve.ts';
+import { resolvedValue, type ResolvedSettings } from './resolve.ts';
 import { checkSettingNames, checkTimeoutMinutes, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
 
 /** A value as the record holds one: what a file or a flag gives is JSON-like. */
@@ -62,17 +62,18 @@ export function ignoredRecordOf(ignored: ResolvedSettings['ignored']): SettingsR
  * recorded only in a run that fixes.
  */
 export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick<ReviewConfigurationV5, 'runtime' | 'fix' | 'codex'>): SettingsRecorded {
-  const value = <N extends SettingName>(name: N): SettingValue<N> => resolved.values[name].value as SettingValue<N>;
-  const checks = configuration.fix ? { 'checks.build': value('checks.build'), 'checks.typecheck': value('checks.typecheck'), 'checks.lint': value('checks.lint'), 'checks.test': value('checks.test') } : {};
+  const checks = configuration.fix
+    ? { 'checks.build': resolvedValue(resolved, 'checks.build'), 'checks.typecheck': resolvedValue(resolved, 'checks.typecheck'), 'checks.lint': resolvedValue(resolved, 'checks.lint'), 'checks.test': resolvedValue(resolved, 'checks.test') }
+    : {};
   const names = recordedNames(configuration);
   return {
     files: resolved.files.map((file) => ({ ...file })),
     repository: { ...resolved.repository },
     values: {
-      'review.base': value('review.base'),
-      'scope.default': value('scope.default') ?? 'auto',
-      'scope.exclude': [...(value('scope.exclude') ?? [])],
-      'tools.path': [...(value('tools.path') ?? [])],
+      'review.base': resolvedValue(resolved, 'review.base'),
+      'scope.default': resolvedValue(resolved, 'scope.default') ?? 'auto',
+      'scope.exclude': [...(resolvedValue(resolved, 'scope.exclude') ?? [])],
+      'tools.path': [...(resolvedValue(resolved, 'tools.path') ?? [])],
       ...checks,
     },
     layers: Object.fromEntries(names.map((name) => [name, resolved.values[name].layer])),
@@ -83,13 +84,18 @@ export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick
 
 /** The fix side a continuation records (R6, R7): the check commands and `tools.path` with their layers, the layer of the check timeout, whose value the pin's `checks` holds, and where it took them from: the files, the repository's file, the fix side's values not followed and the settings ignored. */
 export function fixSettingsRecordOf(resolved: ResolvedSettings): FixSettingsRecorded {
-  const value = <N extends SettingName>(name: N): SettingValue<N> => resolved.values[name].value as SettingValue<N>;
   return {
     files: resolved.files.map((file) => ({ ...file })),
     repository: { ...resolved.repository },
     notFollowed: resolved.notFollowed.filter((entry) => fixSideNames.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository as JsonValue, value: entry.value as JsonValue, layer: entry.layer })),
     ignored: ignoredRecordOf(resolved.ignored),
-    values: { 'checks.build': value('checks.build'), 'checks.typecheck': value('checks.typecheck'), 'checks.lint': value('checks.lint'), 'checks.test': value('checks.test'), 'tools.path': [...(value('tools.path') ?? [])] },
+    values: {
+      'checks.build': resolvedValue(resolved, 'checks.build'),
+      'checks.typecheck': resolvedValue(resolved, 'checks.typecheck'),
+      'checks.lint': resolvedValue(resolved, 'checks.lint'),
+      'checks.test': resolvedValue(resolved, 'checks.test'),
+      'tools.path': [...(resolvedValue(resolved, 'tools.path') ?? [])],
+    },
     layers: {
       'checks.build': resolved.values['checks.build'].layer,
       'checks.typecheck': resolved.values['checks.typecheck'].layer,
