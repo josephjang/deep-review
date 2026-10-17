@@ -13,13 +13,10 @@
 import type { ReviewConfiguration, ScopeState } from '../checkpoint/events.ts';
 import { repositoryConfigPath } from '../config/files.ts';
 import { fixSideNames } from '../config/record.ts';
-import { fileWords, layerWords } from '../config/settings.ts';
+import { fileWords, layerWords, valueWords } from '../config/settings.ts';
 
 /** The most paths left out that the report and `status` name; they count the rest. */
 export const namedExcludedPaths = 50;
-
-/** A value as a line names it: JSON, so a list, `false` and a string read apart. */
-const valueWords = (value: unknown): string => JSON.stringify(value);
 
 /** Where a record of the settings came from: the run's configuration, or the fix side a continuation recorded. */
 type Sources = NonNullable<ReviewConfiguration['settings']> | NonNullable<ReviewConfiguration['fixSettings']>;

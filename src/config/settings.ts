@@ -55,6 +55,9 @@ export const layerWords: Readonly<Record<Layer, string>> = {
   flag: 'a flag',
 };
 
+/** A setting's value as a person reads it, in a line on stderr and the report: none for no value, else JSON, so a list, `false` and a string read apart. */
+export const valueWords = (value: unknown): string => (value === null ? 'none' : JSON.stringify(value));
+
 /** A configuration file as a person reads it, in a line on stderr, the report and `config show`: its layer, its path and, for the repository's, the commit it was read at. */
 export const fileWords = (file: { readonly layer: Layer; readonly path: string; readonly commit: string | null }): string =>
   `${layerWords[file.layer]} ${file.path}${file.commit === null ? '' : ` at ${file.commit}`}`;

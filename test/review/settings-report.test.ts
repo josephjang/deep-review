@@ -57,6 +57,9 @@ describe('the settings in the report and status (R7 of the configuration)', () =
       'Not followed: scope.exclude: the repository\'s ["dist/**"], this run\'s [] from a flag.',
       'Ignored: report.formats in /home/me/.config/deep-review/config.toml: no such setting.',
     ]);
+    // A recorded value of null reads as none, as the line on stderr names it.
+    const none = configuredWith({ notFollowed: [{ name: 'checks.test', repository: 'npm test', value: null, layer: 'clone' }] });
+    assert.deepEqual(settingsLimitations(none, scopeWith()), ['Not followed: checks.test: the repository\'s "npm test", this run\'s none from the clone\'s file.']);
   });
 
   it('says a run configured before the settings is older than them, and names no other line but its exclusions, which it had none of', () => {

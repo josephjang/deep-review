@@ -13,7 +13,7 @@ import { recordedSetting } from '../checkpoint/settings-state.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
 import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
-import { checkSettingName, checkSettingNames, checkTimeoutMs, fileWords, isConfiguredRuntime, layerWords, runtimeSettingNames, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
+import { checkSettingName, checkSettingNames, checkTimeoutMs, fileWords, isConfiguredRuntime, layerWords, runtimeSettingNames, valueWords, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
 import { canonicalPath, isFile } from '../paths.ts';
 import { noCheckSettings, settledLayer, type CheckSettings } from './checks/discover.ts';
@@ -178,9 +178,6 @@ export function refuseOldNode(toolsPath: readonly string[], platform: NodeJS.Pla
     if (major === undefined || Number(major) < minimumNodeMajor) throw new ReviewRefusedError(`tools.path names ${directory}, whose node is ${version}; ${action}`);
   }
 }
-
-/** A value as a line names it. */
-const valueWords = (value: unknown): string => (value === null ? 'none' : JSON.stringify(value));
 
 /**
  * What a new run configured from the settings says on stderr (R4, R5,
