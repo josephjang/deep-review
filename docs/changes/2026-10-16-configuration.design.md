@@ -199,7 +199,9 @@ A resumed run reads `review.configured` and ignores the files. It resolves them 
 
 #### A continuation into the fix pass
 
-A continuation runs pass 2 again. It reads the repository's file at the recorded base of the run, which gives the same repository values. It also reads the current operator files and flags, because the check flags of a continuation are its own today. `fix.pinned@2` records the fix side: the check commands, `tools.path` and the check timeout, each with its layer.
+A continuation runs pass 2 again. It reads the repository's file at the recorded base of the run, which gives the same repository values. It also reads the current operator files and flags, because the check flags of a continuation are its own today.
+
+`fix.pinned@2` records the fix side: the check commands, `tools.path` and the check timeout, each with its layer. It also records the files that the continuation read and the state of the repository's file. And it records the repository values that it did not follow, and the settings that it ignored. The report and `status` name these beside the lines of `review.configured@6`, and a resume compares the files of the continuation.
 
 #### An answer pass
 
@@ -239,6 +241,8 @@ A `--check`, a `--no-check` or a `--set checks.<kind>` of a later invocation sti
 
 `workerEnvironment` and `checkEnvironment` put the directories first on `PATH`. For this, they use the helpers of `src/runtime/environment.ts`, which know all the spellings of the variable. Thus `Path` and `PATH` on Windows stay one variable (TD10). The engine keeps a directory that does not exist, and it names the directory on stderr, because a tool can create it. An example is a virtual environment that a check builds.
 
+The fixers run the engine's `snapshot` and `claim` commands as `node` on their `PATH`. A command line with a quoted path is different in bash and in PowerShell. Thus a directory of `tools.path` that holds an older `node` runs these commands under that `node`, and they need Node 26. Before a fix run or a continuation exists, the engine asks the version of each `node` in `tools.path` that is not its own. It refuses the run if the version is older than 26, and it names the directory and the setting.
+
 ### The record (R6, R17)
 
 Four events get a new version, as the table below shows.
@@ -248,7 +252,7 @@ Four events get a new version, as the table below shows.
 | `review.configured` | 6 | version 5's payload, and `settings`: the files read; the repository's state; the value of each recorded setting that has no field of version 5 (`review.base`, `scope.default`, `scope.exclude`, `checks.<kind>`, `tools.path`); the layer of every recorded setting; the settings not followed; the settings ignored |
 | `scope.captured` | 2 | the request's `exclude`, and `excluded` with its count |
 | `checks.planned` | 3 | the origin `setting` with its layer |
-| `fix.pinned` | 2 | version 1's payload, and the fix side's settings with their layers |
+| `fix.pinned` | 2 | version 1's payload, the fix side's settings with their layers, and the files, the repository's state, the values not followed and the settings ignored of the continuation |
 
 The settings that version 5 records today keep their fields: the models, the concurrency, the run budget, the check timeout, the user rules setting, the Codex sandbox, and the executable and its arguments. The block gives only their layer, so the event holds no value two times. One function, `settingOf(configuration, name)`, reads a recorded setting from either place. The report, `status` and `config show` all use it.
 
