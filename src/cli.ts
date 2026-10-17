@@ -27,7 +27,7 @@ import { checkFlagsOf, dedicatedFlagValues, policyFlagsOf } from './config/flags
 import { SettingFlagError } from './config/errors.ts';
 import { cloneConfigPath, maxConfigBytes, operatorConfigPath, repositoryConfigPath } from './config/files.ts';
 import { flagLayerOf, parseSetFlag, requireBase, resolvedValue, withChangedPaths, type FlagLayer, type ScopeSettings } from './config/resolve.ts';
-import { fileLayers, type FileLayer } from './config/settings.ts';
+import { checkSettingNames, fileLayers, type FileLayer } from './config/settings.ts';
 import { configurationSource, type ConfigurationSource } from './config/source.ts';
 import { EngineError } from './errors.ts';
 import { answerRun } from './review/answer.ts';
@@ -647,7 +647,7 @@ function invocationOf(values: Values, io: CommandIo, worktree: string, commonDir
   const setProblem = invocationFlagProblem(flags);
   if (setProblem !== null) throw new UsageError(setProblem);
   // A check setting given by flag acts only in a fix run, so it is refused without --fix as --check is.
-  const setCheck = checkFlags === null ? [...layer.values()].find((entry) => entry.name.startsWith('checks.') && entry.name !== 'checks.timeout_minutes') : undefined;
+  const setCheck = checkFlags === null ? [...layer.values()].find((entry) => checkSettingNames.includes(entry.name)) : undefined;
   if (setCheck !== undefined) throw new UsageError(`${setCheck.flag} applies only with --fix, as --check does`);
   // Another runtime's setting given by flag acts on no run of this one, so it is refused as --codex-windows-sandbox is; a file's stays as it is.
   const setOther = [...layer.values()].find((entry) => entry.name.startsWith('runtimes.') && !entry.name.startsWith(`runtimes.${runtime}.`));

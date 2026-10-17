@@ -137,6 +137,13 @@ describe('deep-review config', () => {
     assert.match(out.join(''), /^ {2}runtimes\.codex\.windows_sandbox +"none" {2}from a flag$/m);
   });
 
+  it('refuses a --set of a check command without --fix, and takes the check timeout, which is no check command', async () => {
+    assert.equal(await config('show', '--runtime', 'claude', '--set', 'checks.lint=npm run lint'), 1);
+    assert.match(err.join(''), /--set checks\.lint applies only with --fix, as --check does/);
+    err.length = 0;
+    assert.equal(await config('show', '--runtime', 'claude', '--set', 'checks.timeout_minutes=5'), 0, err.join(''));
+  });
+
   it('validates the working tree\'s repository file by default, and a file named for a layer, exiting 2 for a problem', async () => {
     write(repo, repositoryConfigPath, 'schema = 1\nscope.exclude = ["dist/**"]\n');
     assert.equal(await config('validate'), 0, err.join(''));
