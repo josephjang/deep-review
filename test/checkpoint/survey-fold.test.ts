@@ -153,6 +153,14 @@ describe('the survey fold', () => {
       assert.deepEqual(review.fix?.checks.planned?.checks.map((check) => [check.kind, check.origin, check.layer]), [['build', 'none', null], ['typecheck', 'survey', null], ['lint', 'setting', 'flag'], ['test', 'setting', 'flag']]);
     });
 
+    it('refuses a setting\'s check of any layer but the flag\'s on a run that recorded no settings, which has only the flags\'', () => {
+      const unrecorded = (): History => surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: [surveyedCheck('build', null), surveyedCheck('typecheck', 'uv run mypy src')] }));
+      for (const layer of ['repository', 'clone', 'operator']) {
+        const flagged = { checks: (plan().checks as Record<string, unknown>[]).map((check) => (check.origin === 'setting' ? { ...check, layer: check.kind === 'test' ? layer : 'flag' } : check)) };
+        assert.throws(() => unrecorded().add('checks.planned', flagged, 3).fold(), new RegExp(`plans the test check as a setting of ${layer}, which the run never recorded`), layer);
+      }
+    });
+
     it('refuses a setting\'s check with no layer, or the default layer, and a survey\'s with one', () => {
       for (const test of [
         { kind: 'test', command: 'npm test', origin: 'setting', layer: null, reason: null, source: null },

@@ -66,8 +66,8 @@ function recordedCheckSetting(configuration: ReviewConfiguration, kind: PlannedC
  * gave it, and the survey's and nobody's are kinds no recorded setting
  * settles (R11 of the configuration). A flag's is not checked, since the
  * flags are not on the ledger: a run that recorded no settings has only
- * those, and on one that did a flag settles its kind over the record for
- * the invocation that gives it.
+ * those, so it refuses a setting of any other layer, and on one that did a
+ * flag settles its kind over the record for the invocation that gives it.
  */
 function planFromSurvey(state: RunState | undefined, checks: readonly PlannedCheck[], event: DecodedEvent): RunState {
   const { current, review, fix } = requireFix(state, event);
@@ -80,7 +80,8 @@ function planFromSurvey(state: RunState | undefined, checks: readonly PlannedChe
     const recorded = recordedCheckSetting(review.configuration, check.kind);
     if (check.origin === 'setting') {
       // A flag settles its kind for the invocation that gives it, over what the run recorded, and is not on the ledger (TD6 of the repository survey).
-      if (recorded === undefined || check.layer === 'flag') continue;
+      if (check.layer === 'flag') continue;
+      if (recorded === undefined) throw invalid(event, `plans the ${check.kind} check as a setting of ${String(check.layer)}, which the run never recorded`);
       const command = recorded.value === false ? null : recorded.value;
       if (recorded.value === null || command !== check.command || recorded.layer !== check.layer) throw invalid(event, `plans the ${check.kind} check as a setting of ${String(check.layer)}, which is not the setting the run recorded for it`);
       continue;
