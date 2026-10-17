@@ -79,6 +79,18 @@ export function resolveScopeRequest(repo: string, input: ScopeRequest): Resolved
 }
 
 /**
+ * The commit a request's change starts from, as the capture would choose
+ * it (`chooseMode`) against `HEAD` and the tree as they are now, listing
+ * no path: what the configuration reads the repository's file at (R4 of
+ * the configuration). A request the capture would refuse for its form is
+ * refused here the same way.
+ */
+export function scopeBase(repo: string, input: ScopeRequest): string {
+  validateRequest(input);
+  return chooseMode(repo, normalizeRequest(input), gitApi.head(repo)).base;
+}
+
+/**
  * Capture the change a run reviews: resolve the request to its mode and
  * every changed path (`resolveScopeRequest`), freeze each path's before
  * and after bytes, store the patch, and append one `scope.captured` event.

@@ -130,9 +130,15 @@ function flatten(table: Record<string, unknown>, prefix: string, values: Map<Set
     if (prefix === '' && key === 'schema') continue;
     if (isSettingName(name)) values.set(name, value);
     else if (isTable(value) && isSettingPrefix(name)) flatten(value, name, values, unknown);
-    else unknown.push(name);
+    else unknown.push(...leaves(value, name));
   }
 }
+
+/** Every full name under an unknown name: the name itself for a value or an empty table, else each name inside the table. */
+const leaves = (value: unknown, name: string): string[] => {
+  if (!isTable(value) || Object.keys(value).length === 0) return [name];
+  return Object.entries(value).flatMap(([key, inner]) => leaves(inner, `${name}.${key}`));
+};
 
 /**
  * Check one file's bytes for its layer, in the four steps of the design,

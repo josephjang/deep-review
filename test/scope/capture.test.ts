@@ -9,7 +9,7 @@ import type { ScopeFile, ScopeRequest, ScopeState } from '../../src/checkpoint/e
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { captureScope, freezeLimitBytes, maxScopeFiles, resolveScopeRequest, validateScopePath } from '../../src/scope/capture.ts';
+import { captureScope, freezeLimitBytes, maxScopeFiles, resolveScopeRequest, scopeBase, validateScopePath } from '../../src/scope/capture.ts';
 import { CaptureRacedError, InvalidScopeRequestError, ScopeAlreadyCapturedError } from '../../src/scope/errors.ts';
 import * as gitApi from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
@@ -405,6 +405,39 @@ describe('captureScope', () => {
       assert.equal(resolved.mode, 'last-commit');
       assert.equal(resolved.target, head);
       assert.deepEqual(resolved.changes, [{ path: 'a.txt', status: 'modified', untracked: false }]);
+    });
+
+    // R4 of the configuration: the base the repository's file is read at is the base the capture records.
+    it('gives through scopeBase the base resolveScopeRequest gives, for each mode, listing no path', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': '1\n' });
+      const root = git(repo, 'rev-parse', 'HEAD');
+      write(repo, 'a.txt', '2\n');
+      const second = commitAll(repo, 'second');
+      git(repo, 'checkout', '-q', '-b', 'side', root);
+      write(repo, 'b.txt', 'b\n');
+      commitAll(repo, 'side');
+      git(repo, 'checkout', '-q', 'main');
+      write(repo, 'a.txt', '3\n');
+      commitAll(repo, 'third');
+      const requests: Record<string, ScopeRequest> = {
+        'last-commit': noRequest,
+        ref: { ref: second, paths: [] },
+        range: { range: { from: 'side', to: 'HEAD', mergeBase: false }, paths: [] },
+        'range with merge base': { range: { from: 'side', to: 'HEAD', mergeBase: true }, paths: [] },
+      };
+      for (const [mode, request] of Object.entries(requests)) assert.equal(scopeBase(repo, request), resolveScopeRequest(repo, request).base, mode);
+      assert.equal(scopeBase(repo, requests['range with merge base']!), root, 'the merge base of the side branch and HEAD');
+      write(repo, 'a.txt', '4\n');
+      assert.equal(scopeBase(repo, noRequest), git(repo, 'rev-parse', 'HEAD'), 'a dirty tree is reviewed from HEAD');
+      assert.equal(scopeBase(repo, noRequest), resolveScopeRequest(repo, noRequest).base);
+      // A path that names nothing is not looked at: scopeBase lists no path.
+      assert.equal(scopeBase(repo, { paths: ['missing'] }), git(repo, 'rev-parse', 'HEAD'));
+      assert.throws(() => scopeBase(repo, { ref: 'HEAD', range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }), InvalidScopeRequestError);
+    });
+
+    it('gives the empty tree as the base of the last commit of a root commit', () => {
+      const repo = repositoryWith(join(sandbox, 'repo'), { 'a.txt': '1\n' });
+      assert.equal(scopeBase(repo, noRequest), gitApi.emptyTree(repo));
     });
 
     it('refuses what the capture refuses: a path that names nothing in the change, and a ref and a range together', () => {

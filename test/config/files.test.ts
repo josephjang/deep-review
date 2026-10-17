@@ -136,12 +136,12 @@ describe('the checks of a file', () => {
       const read = parsed(text, layer);
       assert.equal(read.file, null, layer);
       assert.match(problemsOf(read), /scope\.include: no such setting/, layer);
-      assert.match(problemsOf(read), /runtimes\.gemini: no such setting/, layer);
+      assert.match(problemsOf(read), /runtimes\.gemini\.strong: no such setting/, layer);
     }
     for (const layer of ['operator', 'clone'] as const) {
       const read = parsed(text, layer);
       assert.deepEqual(read.problems, [], layer);
-      assert.deepEqual(read.file?.ignored, ['scope.include', 'runtimes.gemini'], layer);
+      assert.deepEqual(read.file?.ignored, ['scope.include', 'runtimes.gemini.strong'], layer);
       assert.equal(read.file?.values.size, 0, layer);
     }
   });
