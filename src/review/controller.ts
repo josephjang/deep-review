@@ -1113,9 +1113,9 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   }
   await resumePinned(run, review.configuration, context, 'continue');
   const plannedChecks = unsettled.length === 0 ? [...resolveChecks(null, settled).checks] : null;
-  const minutes = resolvedValue(resolved, 'checks.timeout_minutes');
+  // The settings' check timeout as a new run's policy takes it, so both passes pin it the same way.
   return {
-    pin: { checks: { timeoutMs: minutes === null ? policy.checks.timeoutMs : Math.round(minutes * 60_000) }, fixes: { batchSize: policy.fixes.batchSize }, plannedChecks, settings: fixSettingsRecordOf(resolved) },
+    pin: { checks: { timeoutMs: policyOverridesOf(resolved).checksTimeoutMs ?? policy.checks.timeoutMs }, fixes: { batchSize: policy.fixes.batchSize }, plannedChecks, settings: fixSettingsRecordOf(resolved) },
     report: context.checkpoint.evidence.pathOf(review.report!.report),
   };
 }
