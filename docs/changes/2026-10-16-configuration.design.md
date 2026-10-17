@@ -231,7 +231,7 @@ A rename across the boundary, from `dist/a.js` to `src/a.js`, shows in git as an
 
 `checks.planned@3` records, for each kind, a command with its origin. The origin is `setting` with the layer of the setting, and `flag` is one of these layers. The other origins are `survey` and `none`. The fold reads the `flag` of version 2 as `setting` with the layer `flag`. A run that resumes before it plans its checks resolves `checks.<kind>` from its record. Thus nobody types the flags again.
 
-A `--check`, a `--no-check` or a `--set checks.<kind>` of a later invocation still settles its kind for that invocation, over the record, until the run plans its checks. The actions of the survey's blockers ask for these flags, and the run must follow them. The ledger does not record such a flag, so the fold checks a check of the layer `flag` against nothing. It checks each other setting's check against the record.
+A `--check`, a `--no-check` or a `--set checks.<kind>` of a later invocation still settles its kind. It settles the kind for that invocation, over the record, until the run plans its checks. The actions of the survey's blockers ask for these flags, and the run must follow them. The ledger does not record such a flag, so the fold checks a check of the layer `flag` against nothing. It checks each other setting's check against the record.
 
 `checks.timeout_minutes` becomes the check timeout in milliseconds, which `review.configured` records for a fix run today.
 
