@@ -115,6 +115,17 @@ function tooLarge(layer: FileLayer, path: string, size: number): FileRead {
   return { file: null, problems: [`${path}: ${layerWords[layer]} holds ${String(size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`] };
 }
 
+/**
+ * A value a setting refuses, as a refusal quotes it: as JSON, but with a
+ * number JSON cannot spell, which TOML reads from `inf` and `nan`, as TOML
+ * spells it, so the refusal does not quote it as `null`.
+ */
+export function valueText(value: unknown): string {
+  if (typeof value === 'number' && !Number.isFinite(value)) return Number.isNaN(value) ? 'nan' : value > 0 ? 'inf' : '-inf';
+  if (Array.isArray(value)) return `[${value.map(valueText).join(',')}]`;
+  return JSON.stringify(value);
+}
+
 /** A TOML table, as the parser gives one: neither an array nor a date. */
 const isTable = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date);
 
@@ -188,7 +199,7 @@ export function parseConfig(layer: FileLayer, path: string, bytes: Buffer, commi
     }
     const checked = settings[name].value.safeParse(value);
     if (!checked.success) {
-      problems.push(`${where}: ${name}: ${checked.error.issues.map((issue) => `${issue.path.length === 0 ? '' : `[${issue.path.join('.')}] `}${issue.message}`).join('; ')}, not ${JSON.stringify(value)}`);
+      problems.push(`${where}: ${name}: ${checked.error.issues.map((issue) => `${issue.path.length === 0 ? '' : `[${issue.path.join('.')}] `}${issue.message}`).join('; ')}, not ${valueText(value)}`);
       continue;
     }
     values.set(name, checked.data);

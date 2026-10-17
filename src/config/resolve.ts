@@ -14,7 +14,7 @@ import { ReviewRefusedError } from '../review/errors.ts';
 import type { PolicyFile } from '../review/policy.ts';
 import { git } from '../scope/git.ts';
 import { SettingFlagError } from './errors.ts';
-import { readConfigFile, refuseProblems, repositoryConfigPath, type ConfigFile } from './files.ts';
+import { readConfigFile, refuseProblems, repositoryConfigPath, valueText, type ConfigFile } from './files.ts';
 import { isSettingName, layerOrder, layerWords, settingNames, settings, type FileLayer, type Layer, type ScopeDefault, type SettingName, type SettingValue } from './settings.ts';
 
 /** One flag's value for one setting, with the flag as the command line spelled it, which a refusal names. */
@@ -78,7 +78,7 @@ export function flagLayerOf(values: readonly FlagValue[]): FlagLayer {
     const asText = !parsed.success && entry.text !== undefined && typeof entry.value !== 'string' ? settings[entry.name].value.safeParse(entry.text) : null;
     // When the text is refused too, the TOML value's problem is the one to name.
     const checked = asText?.success === true ? asText : parsed;
-    if (!checked.success) throw new SettingFlagError(`${entry.flag}: ${checked.error.issues.map((issue) => issue.message).join('; ')}, not ${JSON.stringify(entry.value)}`);
+    if (!checked.success) throw new SettingFlagError(`${entry.flag}: ${checked.error.issues.map((issue) => issue.message).join('; ')}, not ${valueText(entry.value)}`);
     layer.set(entry.name, { ...entry, value: checked.data });
   }
   return layer;

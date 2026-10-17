@@ -197,6 +197,9 @@ describe('the flag layer', () => {
   it('checks each value against its setting, and refuses two flags for one setting', () => {
     assert.throws(() => flagLayerOf([parseSetFlag('budget.usd=cheap')]), /--set budget\.usd: .*not "cheap"/);
     assert.throws(() => flagLayerOf([parseSetFlag('run.concurrency=0')]), /--set run\.concurrency/);
+    assert.throws(() => flagLayerOf([parseSetFlag('budget.usd=inf')]), /--set budget\.usd: .*not inf$/);
+    assert.throws(() => flagLayerOf([parseSetFlag('budget.usd=-inf')]), /--set budget\.usd: .*not -inf$/);
+    assert.throws(() => flagLayerOf([parseSetFlag('run.concurrency=nan')]), /--set run\.concurrency: .*not nan$/);
     assert.throws(() => flagLayerOf([{ name: 'budget.usd', value: 30, flag: '--budget-usd' }, parseSetFlag('budget.usd=40')]), /--set budget\.usd and --budget-usd both set budget\.usd; give one/);
     assert.throws(() => flagLayerOf([parseSetFlag('checks.test=a'), parseSetFlag('checks.test=b')]), SettingFlagError);
     const layer = flagLayerOf([{ name: 'budget.usd', value: 30, flag: '--budget-usd' }, parseSetFlag('checks.test=npm test')]);

@@ -138,6 +138,12 @@ describe('the checks of a file', () => {
     assert.match(problemsOf(parsed('schema = 1\nchecks.test = true\n')), /checks\.test: /);
   });
 
+  it('quotes a refused inf or nan as the file spells it, not as null', () => {
+    assert.match(problemsOf(parsed('schema = 1\n[budget]\nusd = inf\n')), /budget\.usd: .*not inf$/);
+    assert.match(problemsOf(parsed('schema = 1\n[run]\nconcurrency = nan\n', 'operator')), /run\.concurrency: .*not nan$/);
+    assert.match(problemsOf(parsed('schema = 1\nscope.exclude = ["dist/**", -inf]\n')), /scope\.exclude: .*not \["dist\/\*\*",-inf\]$/);
+  });
+
   it('refuses an unknown name in the repository\'s and the invocation file, and ignores it in the operator\'s and the clone\'s', () => {
     const text = 'schema = 1\nscope.include = ["src"]\n[runtimes.gemini]\nstrong = "x"\n';
     for (const layer of ['repository', 'invocation'] as const) {
