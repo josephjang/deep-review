@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { repositoryConfigPath } from '../../src/config/files.ts';
 import { checkFlagsOf, dedicatedFlagValues } from '../../src/config/flags.ts';
 import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
 import { configurationSource, type ConfigurationSource } from '../../src/config/source.ts';
 import { assembleRoles } from '../../src/roles/assemble.ts';
-import { checkFlagsInForce, recordedCheckFlags, unappliedLines } from '../../src/review/configuration.ts';
+import { checkFlagsInForce, recordedCheckFlags, refuseOldNode, unappliedLines } from '../../src/review/configuration.ts';
 import type { CheckFlags } from '../../src/review/checks/discover.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { readPolicy, resolvePolicy } from '../../src/review/policy.ts';
@@ -197,6 +198,49 @@ describe('the settings in a run (R1, R4 to R6, R10, R11 of the configuration)', 
     assert.match(task, /^- typecheck: dropped by checks\.typecheck = false in the repository's file$/m);
     assert.match(task, /^Kinds to choose: lint, test$/m);
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.slice(0, 2).map((check) => [check.kind, check.origin, check.layer]), [['build', 'setting', 'repository'], ['typecheck', 'setting', 'repository']]);
+  });
+});
+
+// The fixers run the engine's snapshot and claim commands as `node` on their PATH, which tools.path comes first on.
+describe('the node of tools.path', () => {
+  const node = process.platform === 'win32' ? 'node.exe' : 'node';
+  const withNode = (t: { after: (hook: () => void) => void }): string => {
+    const directory = mkdtempSync(join(tmpdir(), 'dr-tools-node-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    writeFileSync(join(directory, node), '');
+    return directory;
+  };
+
+  it('refuses a directory whose node is older than the engine needs, naming it, the version and the setting', (t) => {
+    const directory = withNode(t);
+    assert.throws(() => refuseOldNode([directory], process.platform, () => 'v20.11.1'), (error: unknown) => error instanceof ReviewRefusedError && error.message.includes(directory) && /v20\.11\.1/.test(error.message) && /tools\.path/.test(error.message) && /Node 26 or newer/.test(error.message));
+  });
+
+  it('refuses a node it cannot ask its version', (t) => {
+    const directory = withNode(t);
+    assert.throws(() => refuseOldNode([directory], process.platform, () => { throw new Error('not a program'); }), (error: unknown) => error instanceof ReviewRefusedError && /cannot be asked its version: not a program/.test(error.message));
+  });
+
+  it('refuses a fix run, before it exists, whose tools.path holds a node that cannot run, and lets a read-only run go on', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    const directory = withNode(t);
+    const clone = `schema = 1\ntools.path = [${JSON.stringify(directory)}]\n`;
+    await assert.rejects(box.review('claude', { configuration: sourceFor(box, { clone, checks: { commands: {}, dropped: [] } }), fix: { commands: {}, dropped: [] } }), (error: unknown) => error instanceof ReviewRefusedError && error.message.includes(`tools.path names ${directory}, whose node cannot be asked its version`));
+    assert.deepEqual(box.checkpoint.foldRuns(), [], 'no run was created');
+    assert.equal((await box.review('claude', { configuration: sourceFor(box, { clone }) })).kind, 'blocked', 'a read-only run runs no engine command in a fixer');
+  });
+
+  it('takes a node of 26 or newer, a directory with no node, and the engine\'s own node without asking it', (t) => {
+    const directory = withNode(t);
+    refuseOldNode([directory], process.platform, () => 'v26.0.0');
+    refuseOldNode([directory], process.platform, () => 'v27.3.1\n');
+    let asked = 0;
+    const probe = (): string => {
+      asked += 1;
+      return 'v1.0.0';
+    };
+    refuseOldNode([join(directory, 'none'), dirname(process.execPath)], process.platform, probe);
+    assert.equal(asked, 0, 'no node to ask, and the engine\'s own is not asked');
   });
 });
 

@@ -40,7 +40,7 @@ import { scopeMismatch } from '../scope/compare.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
 import { claimsDirectories } from './claims-directories.ts';
-import { checkFlagsInForce, checkFlagsOfResolved, configuredLines, executableOf, policyOverridesOf, recordedCheckFlags, unappliedLines, unconfiguredSource } from './configuration.ts';
+import { checkFlagsInForce, checkFlagsOfResolved, configuredLines, executableOf, policyOverridesOf, recordedCheckFlags, refuseOldNode, unappliedLines, unconfiguredSource } from './configuration.ts';
 import { caseInsensitiveFileSystem } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
@@ -971,6 +971,8 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       const policyResolved = resolvePolicy(policy, context.roles, context.adapter, context.flags, context.platform, policyOverridesOf(resolved));
       if (context.flags.codexWindowsSandbox !== undefined && policyResolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
       const fix = context.fix ?? null;
+      // A fix run's fixers run the engine's own commands with the first node on PATH, which tools.path comes first on; the files are on this machine, whatever platform the run is configured for.
+      if (fix !== null) refuseOldNode(resolvedValue(resolved, 'tools.path') ?? [], process.platform);
       const configured = executableOf(resolved);
       const executable = typeof context.executable === 'function' ? context.executable(configured.executable) : context.executable;
       const executableArgs = [...configured.args];
@@ -1074,6 +1076,7 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   const scope = run.scope!;
   // The change is the run's, so its paths, the ones left out among them, say whether it edits the repository's file (R4).
   const resolved = withChangedPaths(context.source.resolve({ base: scope.base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd }), [...scope.files.map((file) => file.path), ...scope.excluded.paths]);
+  refuseOldNode(resolvedValue(resolved, 'tools.path') ?? [], process.platform);
   const settled = checkFlagsOfResolved(resolved);
   const unsettled = unsettledKinds(settled);
   if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {

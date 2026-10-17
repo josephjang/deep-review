@@ -584,7 +584,9 @@ a run exists. `checks.<kind>` settles a check as `--check` or
 `--no-check` does, so the survey is not asked about it and a resumed
 run needs no flag again; `tools.path` puts directories first on `PATH`
 for every worker and every check, relative ones to the root of the
-worktree.
+worktree. Since the fixers run the engine's own commands with the first
+`node` on that `PATH`, a fix run refuses a `tools.path` whose `node` is
+older than Node 26.
 
 A run records each value with the layer it came from, and every file
 it read with its hash, in `review.configured`, before its first worker.

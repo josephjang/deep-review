@@ -5,14 +5,18 @@
  * the run prints when it is configured from the settings and when a
  * resumed run meets settings other than the ones it recorded.
  */
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ReviewConfiguration } from '../checkpoint/events.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
 import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
 import { checkSettingName, isConfiguredRuntime, layerWords, runtimeSettingNames, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
+import { canonicalPath, isFile } from '../paths.ts';
 import type { CheckFlags } from './checks/discover.ts';
+import { ReviewRefusedError } from './errors.ts';
 import type { PolicyFlags, PolicyOverrides } from './policy.ts';
 import { checkKinds, type CheckKind } from './vocabulary.ts';
 
@@ -134,6 +138,38 @@ export function checkFlagsInForce(recorded: CheckFlags | null, invocation: Check
     layers[kind] = fromFlag ? 'flag' : (recorded.layers?.[kind] ?? 'flag');
   }
   return { commands, dropped, layers };
+}
+
+/** The oldest Node the engine runs on, as `package.json` says: what a fixer's `snapshot` and `claim` commands need. */
+export const minimumNodeMajor = 26;
+
+/** Ask a `node` executable its version, as `node --version` prints it. */
+const nodeVersionOf = (executable: string): string => execFileSync(executable, ['--version'], { encoding: 'utf8', timeout: 10_000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+
+/**
+ * Refuse a `tools.path` whose `node` is older than the engine needs (R11
+ * of the configuration): the fixers run the engine's `snapshot` and
+ * `claim` commands as `node` on their `PATH`, which these directories
+ * come first on, so such a `node` would run them and fail. Each
+ * directory's `node`, other than the engine's own, is asked its version,
+ * and one older than 26, or that cannot answer, refuses the run before it
+ * exists. A directory with no `node` is left alone.
+ */
+export function refuseOldNode(toolsPath: readonly string[], platform: NodeJS.Platform, versionOf: (executable: string) => string = nodeVersionOf): void {
+  const own = canonicalPath(process.execPath);
+  for (const directory of toolsPath) {
+    const executable = join(directory, platform === 'win32' ? 'node.exe' : 'node');
+    if (!isFile(executable) || canonicalPath(executable) === own) continue;
+    const action = `a fixer runs the engine's snapshot and claim commands with the first node on its PATH, which tools.path comes first on, and they need Node ${String(minimumNodeMajor)} or newer; remove ${directory} from tools.path, or put a newer node there`;
+    let version: string;
+    try {
+      version = versionOf(executable).trim();
+    } catch (error) {
+      throw new ReviewRefusedError(`tools.path names ${directory}, whose node cannot be asked its version: ${error instanceof Error ? error.message : String(error)}; ${action}`);
+    }
+    const major = /^v?(\d+)\./.exec(version)?.[1];
+    if (major === undefined || Number(major) < minimumNodeMajor) throw new ReviewRefusedError(`tools.path names ${directory}, whose node is ${version}; ${action}`);
+  }
 }
 
 /** A value as a line names it. */
