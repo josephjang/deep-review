@@ -44,6 +44,8 @@ describe('describeRun', () => {
       'Run run-1: blocked',
       'Worktree: /w',
       'Runtime: claude 2.1.283; models opus and sonnet',
+      // A run configured before the settings says so, as the report's account of the settings would (R17 of the configuration).
+      'Settings: recorded before the settings existed; the run\'s values came from the defaults and its flags',
       'Phase: finders (attempt 1, blocked)',
       'Workers: 1 running, 2 finished, 1 lost',
       // The triage's 0.50 USD and RIPPLE's 1.25; input tokens count the cached ones, 200 and 600.
@@ -64,17 +66,17 @@ describe('describeRun', () => {
 
   it('shows the reported spend against the budget when the check counts only that, and both numbers when it charged a worker at its cap', () => {
     const plain = triaged().fold();
-    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[5], 'Spend: 0.50 USD of 30.00 USD; 200 input, 100 output tokens');
-    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[6], undefined, 'no budget check line when it counts the reported spend alone');
+    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[6], 'Spend: 0.50 USD of 30.00 USD; 200 input, 100 output tokens');
+    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[7], undefined, 'no budget check line when it counts the reported spend alone');
     const timedOut = triaged().start('finders').worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' }).fold();
     const described = describeRun(timedOut, claudeAdapter, evidencePath);
-    assert.deepEqual(described.lines.slice(5), [
+    assert.deepEqual(described.lines.slice(6), [
       'Spend: 0.50 USD; 200 input, 100 output tokens',
       'Budget check: 8.50 USD of 30.00 USD, counting 1 worker that reported no cost at its per-worker cap',
     ]);
     assert.deepEqual(described.json.budgetCheck, { usd: 8.5, charged: 1, lost: 0 });
     const unbudgeted = triaged().add('limits.changed', { concurrency: 4, runBudgetUsd: null }).start('finders').worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' }).fold();
-    assert.deepEqual(describeRun(unbudgeted, claudeAdapter, evidencePath).lines.slice(5), ['Spend: 0.50 USD; 200 input, 100 output tokens'], 'no budget in force, so no check to describe');
+    assert.deepEqual(describeRun(unbudgeted, claudeAdapter, evidencePath).lines.slice(6), ['Spend: 0.50 USD; 200 input, 100 output tokens'], 'no budget in force, so no check to describe');
   });
 
   it('describes a spend no worker reported, and a run with no budget in force, without inventing either', () => {
@@ -83,14 +85,14 @@ describe('describeRun', () => {
       .start('triage')
       .worker(1, 'triage triage:SCAN', { usage: null })
       .fold();
-    assert.equal(describeRun(state, claudeAdapter, evidencePath).lines[5], 'Spend: no cost reported; no tokens reported');
+    assert.equal(describeRun(state, claudeAdapter, evidencePath).lines[6], 'Spend: no cost reported; no tokens reported');
   });
 
   it('names the report of a complete run through the evidence path, and no phase', () => {
     const state = reported().fold();
     const described = describeRun(state, claudeAdapter, evidencePath);
     assert.equal(described.lines[0], 'Run run-1: complete');
-    assert.equal(described.lines[3], 'Phase: none running');
+    assert.equal(described.lines[4], 'Phase: none running');
     assert.equal(described.lines.at(-1), `Report: /evidence/${'e'.repeat(8)}-2048`);
     assert.ok(!described.lines.some((line) => line.startsWith('Blocker: ')));
     assert.equal(described.json.report, `/evidence/${'e'.repeat(8)}-2048`);

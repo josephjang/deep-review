@@ -6,7 +6,8 @@ import type { SurveyedCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { checkUnavailableBlocker } from '../../src/review/steps.ts';
-import { checkSourceCell, conventionsReportSection, droppedByOperator, unavailableCell } from '../../src/review/survey-report.ts';
+import { checkSourceCell, conventionsReportSection, droppedByOperator, surveyLimitations, unavailableCell } from '../../src/review/survey-report.ts';
+import { emptyFixState } from '../../src/checkpoint/fix-state.ts';
 import { History, continuedRun, continuedToReport, fixRun, fixStatistics, quietSurveyedChecks, reported, statistics, surveyAnswer, surveyedCheck, withSurvey, worker } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/survey.md');
@@ -251,5 +252,19 @@ describe('the Checks table of a surveyed run', () => {
     const none = { ...survey, answers: [answer([missing]), answer([{ ...missing, command: null, basis: null, source: null, missingTool: null, reason: 'no linter' }])] };
     assert.equal(checkSourceCell(none, flagged('uvx ruff check .')), '--check');
     assert.equal(droppedByOperator(none, flagged(null)), null);
+  });
+});
+
+describe('the limitation of a survey that failed', () => {
+  /** A fix run's review that went on without its survey, its checks planned by the layers given. */
+  const failedWith = (layers: readonly (string | null)[]): Parameters<typeof surveyLimitations>[0] => {
+    const review = reported().fold().review!;
+    const checks = (['build', 'typecheck', 'lint', 'test'] as const).map((kind, index) => ({ kind, command: `make ${kind}`, origin: 'setting' as const, layer: layers[index] as never, reason: null, source: null }));
+    return { ...review, survey: { answers: [], failure: { reason: 'the surveyor failed twice', conventions: [], userRules: [] }, lastBlock: null }, fix: { ...emptyFixState(), checks: { planned: { checks, manager: null }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [], 'answer-checks': [] } } } };
+  };
+
+  it('says every check was the flags\' when flags settled them, and a setting\'s when a configuration file settled one (R11 of the configuration)', () => {
+    assert.deepEqual(surveyLimitations(failedWith(['flag', 'flag', 'flag', 'flag'])), ['- The survey failed: the surveyor failed twice. No repository convention source was known, and every check was the flags\'.']);
+    assert.deepEqual(surveyLimitations(failedWith(['flag', 'repository', 'flag', 'clone'])), ['- The survey failed: the surveyor failed twice. No repository convention source was known, and every check was a setting\'s.']);
   });
 });

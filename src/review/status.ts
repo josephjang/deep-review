@@ -16,6 +16,7 @@ import { allBatches, allClusters, isNotAttempted, lastRun } from '../checkpoint/
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
+import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
 import { currentPhase, reviewStatus } from './state.ts';
@@ -46,6 +47,9 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
     review === null ? 'Review: not configured' : `Runtime: ${review.configuration.runtime} ${review.configuration.version}; models ${review.configuration.models.strong} and ${review.configuration.models.fast}`,
+    // The same lines the report gives of the settings (R7 of the configuration).
+    ...(review === null ? [] : [settingsHeaderLine(review.configuration)]),
+    ...(review === null || state.scope === null ? [] : settingsLimitations(review.configuration, state.scope)),
     phase === null ? 'Phase: none running' : `Phase: ${phase} (attempt ${String(review!.phases[phase].attempt)}, ${review!.phases[phase].status})`,
     `Workers: ${String(counts.running)} running, ${String(counts.finished)} finished, ${String(counts.lost)} lost`,
     statistics === null

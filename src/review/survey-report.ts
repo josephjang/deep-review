@@ -160,5 +160,7 @@ function continuedSurveyLines(survey: SurveyState): string[] {
 export function surveyLimitations(review: ReviewState): string[] {
   const failure = review.survey?.failure ?? null;
   if (failure === null) return [];
-  return [`- The survey failed: ${inlineText(failure.reason)}. No repository convention source was known${review.fix === null ? '' : ', and every check was the flags\''}.`];
+  // A setting from a configuration file settles a check as a flag does (R11 of the configuration).
+  const byFlags = (review.fix?.checks.planned?.checks ?? []).every((check) => check.layer === null || check.layer === 'flag');
+  return [`- The survey failed: ${inlineText(failure.reason)}. No repository convention source was known${review.fix === null ? '' : byFlags ? ', and every check was the flags\'' : ', and every check was a setting\'s'}.`];
 }

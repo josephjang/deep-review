@@ -19,6 +19,7 @@ import { fixHeaderLine, fixLimitations, fixSections } from './fix-report.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
+import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
 
@@ -181,6 +182,7 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(', ')}.`);
   }
+  lines.push(...settingsLimitations(review.configuration, scope).map((line) => `- ${inlineText(line)}`));
   lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
   return lines;
@@ -239,6 +241,8 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(configuration.codex === null ? [] : [`Codex Windows sandbox: ${codexSandboxWords[configuration.codex.windowsSandbox]}`]),
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
+    // A run configured before the settings renders as it did; status says it is older than them (R17 of the configuration).
+    ...(configuration.settings === null ? [] : [inlineText(settingsHeaderLine(configuration))]),
     ...continuedLine(review, input),
     ...answersLines(review, input),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
