@@ -627,6 +627,16 @@ describe('runWorker', () => {
       assert.deepEqual(worker.status === 'finished' && worker.finish.sessionIds, [worker.launch.sessionId]);
     });
 
+    // R11, TD10 of the configuration: a CLI that finds its interpreter on PATH is qualified under the one the worker runs with.
+    it('qualifies the executable with the directories of tools.path first on PATH, as the worker runs', async () => {
+      const firstOnPath = "console.log((process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':')[0])";
+      const probe: RuntimeAdapter = { ...echo, name: 'node-path', qualification: { version: { args: ['--eval', firstOnPath], pattern: /^(.+)$/ }, help: [] } };
+      const tools = [join(box.directory, 'tools', 'bin')];
+      const receipt = await box.run({ ...box.claude(), runtime: 'node-path', executableArgs: [], effort: 'low', prompt: 'echoed' }, {}, { runtimes: new RuntimeRegistry([probe]), toolsPath: tools });
+      assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
+      assert.equal(receipt.runtime.version, tools[0]);
+    });
+
     it('fails a worker whose adapter throws from decode, naming the pinned session', async () => {
       const throwing: RuntimeAdapter = {
         ...claudeAdapter,

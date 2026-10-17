@@ -9,7 +9,7 @@ import type { RunState, WorkerState } from '../checkpoint/fold.ts';
 import { sha256Hex, type ArtifactReference } from '../evidence/store.ts';
 import { maxDecodeBytes, outputLines, type Decoded, type DecodedResult, type LaunchPlan, type RuntimeAdapter, type WorkerOutputs } from './adapter.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from './contract.ts';
-import { workerEnvironment } from './environment.ts';
+import { withPathFirst, workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
 import { preflight, type PreflightOptions } from './preflight.ts';
 import { notStarted, runProcess, type ProcessResult } from './process.ts';
@@ -68,8 +68,9 @@ export interface RunWorkerOptions {
   /** Source of worker ids and pinned session ids; random UUIDs by default. */
   readonly ids?: () => string;
   /**
-   * Replaces the preflight and returns the version to record. Tests use it
-   * to reach a spawn failure, which the real preflight would stop first.
+   * Replaces the preflight and returns the version to record, given the
+   * environment the preflight would run with. Tests use it to reach a spawn
+   * failure, which the real preflight would stop first.
    */
   readonly qualify?: (adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv) => Promise<string>;
   /** The limits of the real preflight's probes; the preflight's own by default. Ignored when `qualify` replaces the preflight. */
@@ -143,7 +144,9 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   };
   const command = adapter.command(invocation, plan);
   const environment = workerEnvironment(command.environment, scratch, plan.platform, options.toolsPath ?? []);
-  const version = await (options.qualify === undefined ? qualify(adapter, invocation, inherited, options.preflightOptions) : options.qualify(adapter, invocation, inherited));
+  // The executable is qualified with the PATH the worker runs with, so a CLI that finds its interpreter on PATH is qualified under the one the worker uses.
+  const probed = withPathFirst(inherited, options.toolsPath ?? [], plan.platform);
+  const version = await (options.qualify === undefined ? qualify(adapter, invocation, probed, options.preflightOptions) : options.qualify(adapter, invocation, probed));
 
   const prompt = composePrompt(invocation.prompt, scratch);
   const promptReference = checkpoint.evidence.put(prompt);
@@ -240,10 +243,10 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
 }
 
 /**
- * The real preflight, against the caller's environment: what it checks, the
- * executable's version and flags, does not depend on the worker's pins, and
- * the worker's temporary directory is not created until the launch is
- * certain.
+ * The real preflight, against the caller's environment with `tools.path`
+ * first on PATH, as the worker's is: what it checks, the executable's
+ * version and flags, does not depend on the worker's other pins, and the
+ * worker's temporary directory is not created until the launch is certain.
  */
 function qualify(adapter: RuntimeAdapter, invocation: Invocation, environment: NodeJS.ProcessEnv, options: PreflightOptions = {}): Promise<string> {
   return preflight(adapter, invocation.executable, invocation.executableArgs, environment, options);
