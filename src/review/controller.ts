@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
+import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
 import { layerWords } from '../config/settings.ts';
@@ -976,6 +977,9 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       const { checks, fixes, survey, ...rest } = policyResolved;
       const payload = { ...rest, roles: [...policyResolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
       configure = { payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
+      // Checked before the run exists: a configuration the ledger would refuse must not leave a run with its scope and no configuration behind.
+      const recordable = reviewConfiguredV6.safeParse(configure.payload);
+      if (!recordable.success) throw new Error(`The engine built a configuration its ledger refuses, so no run is created: ${recordable.error.message}`);
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
     if (found === null) {

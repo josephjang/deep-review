@@ -38,6 +38,22 @@ export function recordedNames(configuration: Pick<ReviewConfigurationV5, 'runtim
   ];
 }
 
+/** The most ignored settings a record names. */
+export const maxRecordedIgnored = 256;
+
+/** The longest name of an ignored setting a record holds. */
+export const maxIgnoredNameLength = 1000;
+
+/**
+ * The ignored settings as a record holds them: at most 256, each name cut
+ * to 1000 characters and an empty one written as its quotes. An operator's
+ * or a clone's file can hold any name TOML takes, and the run must record
+ * what it ignored without being refused for it.
+ */
+export function ignoredRecordOf(ignored: ResolvedSettings['ignored']): SettingsRecorded['ignored'] {
+  return ignored.slice(0, maxRecordedIgnored).map((entry) => ({ ...entry, name: entry.name === '' ? '""' : entry.name.slice(0, maxIgnoredNameLength) }));
+}
+
 /**
  * The block `review.configured@6` records for a run of this configuration
  * (R6): the files, the state of the repository's file, the values version
@@ -61,7 +77,7 @@ export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick
     },
     layers: Object.fromEntries(names.map((name) => [name, resolved.values[name].layer])),
     notFollowed: resolved.notFollowed.filter((entry) => names.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository as JsonValue, value: entry.value as JsonValue, layer: entry.layer })),
-    ignored: resolved.ignored.map((entry) => ({ ...entry })),
+    ignored: ignoredRecordOf(resolved.ignored),
   };
 }
 

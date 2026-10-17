@@ -144,6 +144,17 @@ describe('the settings in a run (R1, R4 to R6, R10, R11 of the configuration)', 
     assert.ok(box.logs.some((line) => line.endsWith('the repository\'s file was skipped by --no-repository-config, so the run does not apply the policy of the repository')), box.logs.join('\n'));
   });
 
+  it('records the names an operator\'s file holds that the engine does not know, however odd, within what the record holds (R5, R7)', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    const many = Array.from({ length: 300 }, (_, index) => `n${String(index)} = 1`).join('\n');
+    const outcome = await box.review('claude', { configuration: sourceFor(box, { operator: `schema = 1\n"" = 1\n"${'k'.repeat(1500)}" = 1\n${many}\n` }) });
+    assert.equal(outcome.kind, 'blocked', JSON.stringify(outcome));
+    const ignored = configuredPayload(box).settings.ignored as { name: string }[];
+    assert.equal(ignored.length, 256, 'at most 256 recorded');
+    assert.equal(ignored[0]!.name, '""', 'an empty name is recorded as its quotes');
+    assert.equal(ignored[1]!.name.length, 1000, 'a long name is cut to 1000 characters');
+  });
+
   it('refuses an operator\'s file it cannot read before a run exists (R5)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     const source = sourceFor(box, { operator: 'schema = 1\nrun.concurrency = "four"\n' });
