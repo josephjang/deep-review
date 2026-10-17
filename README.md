@@ -20,8 +20,10 @@ which on request carries that review on to apply the fixes through
 its own workers and run the project's checks, committing nothing until
 a person asks; and the repository survey, which begins every run by
 naming the files that state the repository's conventions and, for a
-fix run, choosing its checks. The engine ships as one bundle inside
-both artifacts, and the installed skill runs it.
+fix run, choosing its checks; and the configuration, which lets a
+repository state its review policy and an operator their preferences
+in files the engine reads and records. The engine ships as one bundle
+inside both artifacts, and the installed skill runs it.
 
 ## Layout
 
@@ -36,6 +38,8 @@ src/build/               assembling and verifying dist/, and bundling the engine
 src/checkpoint/          the run ledger: location, SQLite, event registry, fold
 src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
+src/config/              the configuration: the settings registry, the four files, the two passes of resolution,
+                         the record, and the config command
 src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
 src/roles/               assembling each role's prompt from roles/
 src/review/              the review: policy, schemas, prompts, planner, controller, report, the survey's check of
@@ -44,7 +48,7 @@ src/review/              the review: policy, schemas, prompts, planner, controll
 src/review/checks/       the fix pass's checks: the manifest rules that hint the surveyor, running one
 src/replay/              replaying a recorded run's verifiers: the recorded prompt, the samples, their summary,
                          and their score against labels
-src/cli.ts               the deep-review command: review, status, abandon, commit, snapshot, claim
+src/cli.ts               the deep-review command: review, config, status, abandon, commit, answer, snapshot, claim
 scripts/                 build, fixture, smoke, replay and replay score entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
@@ -482,9 +486,10 @@ see, or with an address the repository's `.mailmap` gives as the
 reviewer's; no address itself ever reaches a prompt.
 
 In a fix run the checks are planned when the survey completes, before
-the triage, from the invocation's flags over the survey: a
-`--check <kind>=<command>` or `--no-check <kind>` settles its kind, and
-the surveyor chooses the rest from what the repository's CI and
+the triage, from the check settings over the survey: a `checks.<kind>`
+setting (see Configuration below), a `--check <kind>=<command>` or a
+`--no-check <kind>` settles its kind, and the surveyor chooses the
+rest from what the repository's CI and
 contributor documentation run, in the form that verifies, with the file
 each command came from. The manifest rules the fix pass decided by (a
 Taskfile task, a Makefile target, a justfile recipe, a `package.json`
@@ -515,6 +520,102 @@ untrusted repository with `--fix` should settle every check with
 `--check` or `--no-check`, and on Codex for Windows confine the editors
 with `--codex-windows-sandbox unelevated` or `elevated`, or not fix. See
 `docs/changes/2026-10-03-repository-survey.requirements.md` and its
+design.
+
+## Configuration
+
+A run can take its values from up to four TOML files, each optional and
+each starting with `schema = 1`. The repository's file,
+`.deep-review/config.toml`, states the review policy of the repository
+and is committed with it. The operator's file states one person's
+preferences for every repository: `%APPDATA%\deep-review\config.toml` on
+Windows, else `$XDG_CONFIG_HOME/deep-review/config.toml` or
+`~/.config/deep-review/config.toml`. The clone's file,
+`deep-review.toml` in the git common directory, holds what is true of
+one clone, outside every commit and shared by its worktrees. The file
+`--config <file>` names applies to one run, and so does each
+`--set <setting>=<value>`, whose value is TOML or else plain text, so
+`--set checks.test=npm test` and `--set 'scope.exclude=["dist/**"]'`
+both work. The dedicated flags such as `--budget-usd` are the same
+settings, and a flag and a `--set` for one setting are refused together.
+
+Each setting has one owner, and the owner decides whose value wins when
+the repository and the operator disagree, from the lowest layer to the
+highest:
+
+| Owner | Order, lowest first |
+|---|---|
+| repository-first | default, operator's file, repository's file, clone's file, `--config` file, flag |
+| operator-first | default, repository's file, operator's file, clone's file, `--config` file, flag |
+| operator-only | default, operator's file, clone's file, `--config` file, flag |
+
+A rule or fact of the repository, such as `scope.exclude`, a check
+command or `checks.timeout_minutes`, is repository-first: an operator's
+general preference only fills a gap. The money and taste of the
+operator, `budget.usd` and the models, are operator-first: the
+repository's value is a suggestion. A fact of the operator's machine,
+such as `tools.path` or a runtime's executable, is operator-only, and
+so are `scope.default` and `review.base`, which choose the change. The
+defaults are the role policy's, so with no file and no new flag a run
+pins what it pinned before. `deep-review config explain` lists every
+setting with its owner, default and flag.
+
+The engine reads the repository's file as the base of the change holds
+it, through git, never from the working tree or the change itself:
+agents write most changes, and a change that could edit the file could
+leave its own paths out of the review, drop a check, or replace one
+with a command that always passes. An edit to the file applies from the
+next change; the run says so on stderr and in its report. A file the
+engine cannot read refuses the run before it exists, naming every
+problem; when the repository's file at the base is the broken one,
+`--no-repository-config` reviews the change that repairs it, and the
+report says the policy was not applied.
+
+With no scope flag, `scope.default` chooses the scope: `auto`, the
+default, reviews the uncommitted change when the tree has one and the
+last commit otherwise. `--branch` reviews the change from where the
+branch left `review.base`, by default the branch `origin/HEAD` names,
+and `--base <rev>` names another for one run. `scope.exclude` lists
+glob patterns, in git's pathspec syntax, of changed paths that are
+never part of the review: git leaves them out of every list of the
+change and of the patch, and the report names each path they left out.
+A change with no path left to review, or none at all, is refused before
+a run exists. `checks.<kind>` settles a check as `--check` or
+`--no-check` does, so the survey is not asked about it and a resumed
+run needs no flag again; `tools.path` puts directories first on `PATH`
+for every worker and every check, relative ones to the root of the
+worktree.
+
+A run records each value with the layer it came from, and every file
+it read with its hash, in `review.configured`, before its first worker.
+A resumed run keeps those values, and says on stderr which file or
+setting changed since and is not applied; the concurrency and the run
+budget still change per invocation by flag. The report's header names
+the files a run read, and its limitations name the paths left out, each
+repository value a higher layer replaced, and each setting ignored.
+`deep-review config show` prints what a run would use, each value with
+its origin, without starting one; `config validate` checks a file as
+its layer reads it, the repository's of the working tree by default;
+and `config init --repository`, `--operator` or `--clone` writes a new
+file with every setting commented at its default.
+
+This repository's own file leaves out the build output and the golden
+fixtures, names its four checks, and suggests the budget its fix runs
+need:
+
+```toml
+schema = 1
+scope.exclude = ["dist/**", "test/fixtures/checkpoints/**"]
+budget.usd = 120
+
+[checks]
+build = "npm run build"
+typecheck = "npm run typecheck"
+lint = "npm run lint"
+test = "npm test"
+```
+
+See `docs/changes/2026-10-16-configuration.requirements.md` and its
 design.
 
 ## Developing
