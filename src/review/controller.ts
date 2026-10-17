@@ -466,7 +466,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   try {
     if (capture !== null) {
       // At the base the configuration was read at, which the capture holds it to (R4 of the configuration).
-      state = captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base });
+      // A tree emptied since the run was opened is refused as the listing refused it, exit 2; the run, with no scope, resumes on the next command.
+      state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base }));
       const excluded = state.scope!.excluded.count;
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
     }
