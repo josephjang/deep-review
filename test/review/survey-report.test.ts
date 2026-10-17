@@ -207,14 +207,24 @@ describe('the Conventions section of a run continued into the fix pass', () => {
 describe('the Checks table of a surveyed run', () => {
   const missing = { kind: 'lint' as const, command: 'ruff check .', basis: 'stated' as const, source: { path: 'pyproject.toml', quote: 'ruff' }, missingTool: 'ruff', reason: null };
   const survey = { answers: [{ workerId: worker(1), conventions: [], userRules: [], checks: [missing], note: '' }], failure: null, lastBlock: null };
-  const flagged = (command: string | null) => ({ kind: 'lint' as const, command, origin: 'flag' as const, reason: command === null ? 'dropped by --no-check' : null, source: null });
+  const flagged = (command: string | null) => ({ kind: 'lint' as const, command, origin: 'setting' as const, layer: 'flag' as const, reason: command === null ? 'dropped by --no-check' : null, source: null });
+  const fromFile = (command: string | null) => ({ ...flagged(command), layer: 'repository' as const, reason: command === null ? 'dropped by checks.lint = false in the repository\'s file' : null });
 
   it('names a --check that stands in for a check the project defines and this machine could not run, and a plain one', () => {
     assert.equal(checkSourceCell(survey, flagged('uvx ruff check .')), '--check, in place of what the project defines `ruff check .` (pyproject.toml), ruff not found');
     assert.equal(checkSourceCell({ ...survey, answers: [] }, flagged('uvx ruff check .')), '--check');
     assert.equal(checkSourceCell(survey, flagged(null)), '--no-check');
-    assert.equal(checkSourceCell(survey, { kind: 'test', command: null, origin: 'none', reason: 'no tests', source: null }), 'survey: none');
-    assert.equal(checkSourceCell(survey, { kind: 'test', command: 'a | b', origin: 'survey', reason: null, source: { path: 'ci.yml', quote: 'q', basis: 'hint' } }), 'ci.yml (hint)');
+    assert.equal(checkSourceCell(survey, { kind: 'test', command: null, origin: 'none', layer: null, reason: 'no tests', source: null }), 'survey: none');
+    assert.equal(checkSourceCell(survey, { kind: 'test', command: 'a | b', origin: 'survey', layer: null, reason: null, source: { path: 'ci.yml', quote: 'q', basis: 'hint' } }), 'ci.yml (hint)');
+  });
+
+  // R11 of the configuration: a check a setting in a file settled names the setting and the file.
+  it('names the setting and its file for a check a configuration file settled', () => {
+    assert.equal(checkSourceCell({ ...survey, answers: [] }, fromFile('make lint')), 'checks.lint in the repository\'s file');
+    assert.equal(checkSourceCell(survey, fromFile('make lint')), 'checks.lint in the repository\'s file, in place of what the project defines `ruff check .` (pyproject.toml), ruff not found');
+    assert.equal(checkSourceCell(survey, fromFile(null)), 'checks.lint = false in the repository\'s file');
+    assert.equal(droppedByOperator(survey, fromFile(null)), 'dropped by checks.lint = false in the repository\'s file; the project defines `ruff check .` (pyproject.toml), ruff not found');
+    assert.equal(unavailableCell({ ...survey, answers: [] }, fromFile(null)), 'not available (checks.lint = false in the repository\'s file: dropped by checks.lint = false in the repository\'s file)');
   });
 
   it('says a kind the operator dropped was the project\'s, and of every other kind with no command who decided and why', () => {
@@ -222,7 +232,7 @@ describe('the Checks table of a surveyed run', () => {
     assert.equal(droppedByOperator(survey, flagged('x')), null, 'a --check is no drop');
     assert.equal(droppedByOperator(null, flagged(null)), null, 'a run configured before the survey');
     assert.equal(droppedByOperator({ ...survey, answers: [] }, flagged(null)), null, 'a kind dropped before any survey named it');
-    assert.equal(unavailableCell(survey, { kind: 'test', command: null, origin: 'none', reason: 'no | tests', source: null }), 'not available (none: no \\| tests)');
+    assert.equal(unavailableCell(survey, { kind: 'test', command: null, origin: 'none', layer: null, reason: 'no | tests', source: null }), 'not available (none: no \\| tests)');
   });
 
   it('reads what the project defines for a kind from the latest answer that names it, not an older one that found its tool missing', () => {

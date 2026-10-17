@@ -4,7 +4,7 @@ import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { RunClosedError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
-import type { FrozenFile, ScopeFile, ScopeMode, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
+import type { FrozenFile, ScopeFile, ScopeMode, ScopeRequest, ScopeStateV1 } from '../checkpoint/events.ts';
 import { sha256Hex, type EvidenceStore } from '../evidence/store.ts';
 import { readLinkText } from '../paths.ts';
 import { CaptureRacedError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from './errors.ts';
@@ -120,7 +120,7 @@ export function captureScope(checkpoint: Checkpoint, runId: string, input: Scope
     if (!sameEntry(observation.after, now)) throw new CaptureRacedError(`${observation.path} changed while the scope was being captured`);
   }
 
-  const payload: ScopeState = { mode, request, base, head: guardBefore.head, files, patch };
+  const payload: ScopeStateV1 = { mode, request, base, head: guardBefore.head, files, patch };
   return checkpoint.append(runId, state.lastSequence, [{ kind: 'scope.captured', version: 1, payload }]);
 }
 

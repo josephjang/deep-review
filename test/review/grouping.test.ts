@@ -136,7 +136,7 @@ describe('planGroups', () => {
       writeFileSync(join(worktree, 'src', 'changed.ts'), 'one\n');
       writeFileSync(join(worktree, 'src', 'caller.ts'), 'one\ntwo\nthree\n');
       const blob = { blob: { sha256: 'a'.repeat(64), bytes: 1 } };
-      const scope: ScopeState = { mode: 'worktree', request: { paths: [] }, base: '1'.repeat(40), head: '2'.repeat(40), files: [{ path: 'src/changed.ts', status: 'modified', symlink: false, before: blob, after: blob }], patch: blob.blob };
+      const scope: ScopeState = { mode: 'worktree', request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 }, base: '1'.repeat(40), head: '2'.repeat(40), files: [{ path: 'src/changed.ts', status: 'modified', symlink: false, before: blob, after: blob }], patch: blob.blob };
       const raw = [
         { id: 'RIPPLE-1', file: join(worktree, 'src', 'caller.ts'), line: 3 },
         { id: 'WRAPPERS-1', file: 'src/caller.ts', line: 1 },

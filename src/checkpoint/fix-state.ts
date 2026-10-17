@@ -12,24 +12,32 @@
  */
 import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
-import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, RecordedDecision, ScopeMode, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, PlannedCheckV3, RecordedDecision, ScopeMode, TreeRevised, UnitUnattempted } from './events.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
 
 /**
  * One kind's check as the fold holds a plan, whichever version recorded
  * it. A version 1 plan's origin is the manifest rule that found its
- * command, and it names no source; a version 2 plan's is who decided it,
- * a flag, the survey or nobody, with the survey's source.
+ * command, and it names no source; a version 2 or 3 plan's is who decided
+ * it, a setting, the survey or nobody, with the survey's source. A
+ * setting's check has the layer that gave it, and a flag of a version 1
+ * or 2 plan reads as a setting of the flag layer (R11 of the
+ * configuration).
  */
 export interface PlannedCheck {
   readonly kind: CheckKind;
   readonly command: string | null;
-  readonly origin: ChecksPlannedV1['checks'][number]['origin'] | PlannedCheckV2['origin'];
+  readonly origin: Exclude<ChecksPlannedV1['checks'][number]['origin'], 'flag'> | PlannedCheckV3['origin'];
+  /** The layer of a setting's check; null for any other. */
+  readonly layer: PlannedCheckV3['layer'];
   /** Why the kind has no command; null when it has one. */
   readonly reason: string | null;
   readonly source: PlannedCheckV2['source'];
 }
+
+/** A version 2 plan's check as the fold holds it: a flag's is a setting of the flag layer. */
+export const plannedCheckOfV2 = (check: PlannedCheckV2): PlannedCheck => (check.origin === 'flag' ? { ...check, origin: 'setting', layer: 'flag' } : { ...check, layer: null });
 
 /** The checks a run executes, as the fold holds them. */
 export interface ChecksPlanned {

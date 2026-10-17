@@ -37,7 +37,7 @@ describe('a replay\'s prompt', () => {
     };
     return {
       mode: 'last-commit',
-      request: { paths: [] },
+      request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 },
       base: '1'.repeat(40),
       head: '2'.repeat(40),
       files: [
@@ -138,13 +138,13 @@ describe('a replay\'s prompt', () => {
 
   it('reads the recorded store from an oversized patch when no file has a before state', () => {
     const put = (value: string | Buffer): { sha256: string; bytes: number } => recordedStore.put(value);
-    const scope: ScopeState = { mode: 'last-commit', request: { paths: [] }, base: '1'.repeat(40), head: '2'.repeat(40), files: [{ path: 'src/new.ts', status: 'added', symlink: false, before: null, after: { blob: put('n\n') } }], patch: put(Buffer.alloc(inlinePatchLimitBytes + 1, 'y')) };
+    const scope: ScopeState = { mode: 'last-commit', request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 }, base: '1'.repeat(40), head: '2'.repeat(40), files: [{ path: 'src/new.ts', status: 'added', symlink: false, before: null, after: { blob: put('n\n') } }], patch: put(Buffer.alloc(inlinePatchLimitBytes + 1, 'y')) };
     const prompt = composed(scope, '/recorded/repo');
     assert.equal(recordedStorePrefix(prompt, [{ sha256: scope.patch.sha256 }])?.startsWith(recordedStore.root), true);
   });
 
   it('leaves a prompt that names no frozen blob as it is', () => {
-    const scope: ScopeState = { mode: 'last-commit', request: { paths: [] }, base: '1'.repeat(40), head: '2'.repeat(40), files: [{ path: 'src/new.ts', status: 'added', symlink: false, before: null, after: { blob: recordedStore.put('n\n') } }], patch: recordedStore.put('a patch\n') };
+    const scope: ScopeState = { mode: 'last-commit', request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 }, base: '1'.repeat(40), head: '2'.repeat(40), files: [{ path: 'src/new.ts', status: 'added', symlink: false, before: null, after: { blob: recordedStore.put('n\n') } }], patch: recordedStore.put('a patch\n') };
     const prompt = composed(scope, '/recorded/repo');
     assert.equal(recordedStorePrefix(prompt, blobsOf(scope, recordedStore)), null);
     assert.equal(withStore(prompt, blobsOf(scope, recordedStore)), prompt);

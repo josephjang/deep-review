@@ -119,7 +119,6 @@ export const scopeCapturedV1 = z.strictObject({
   /** The unified patch, base to worktree, plus one diff per untracked file. */
   patch: artifactReferenceSchema,
 });
-export type ScopeState = z.infer<typeof scopeCapturedV1>;
 
 /**
  * How hard a worker's model thinks. Every level a runtime can take; an
@@ -1175,7 +1174,14 @@ export const reviewConfiguredV5 = reviewConfiguredV4;
  * the adapter with the elevated one; the ledger did not record which, so
  * such a run reads as unelevated too.
  */
-export type ReviewConfiguration = z.infer<typeof reviewConfiguredV5>;
+export type ReviewConfigurationV5 = z.infer<typeof reviewConfiguredV5>;
+/**
+ * The configuration as the fold holds it, with what a version 6 recorded
+ * of the settings, or null for a run configured before them, and what a
+ * `fix.pinned@2` recorded of the fix side, or null for a run not
+ * continued at that version (R6, R17 of the configuration).
+ */
+export type ReviewConfiguration = ReviewConfigurationV5 & { readonly settings: SettingsRecorded | null; readonly fixSettings: FixSettingsRecorded | null };
 
 /** `phase.started` over the sixteen phases. */
 export const phaseStartedV4 = z.strictObject({
@@ -1569,15 +1575,222 @@ export const answerPassV1 = z.strictObject({
 });
 export type AnswerPassed = z.infer<typeof answerPassV1>;
 
+/**
+ * The vocabulary of the configuration's events (R6, R12, R17, TD4 of the
+ * configuration): the layers a value can come from, the layers a file
+ * gives, the settings a run records, the values of `scope.default`, and
+ * the states of the repository's file. Frozen here for the reason
+ * `reviewVocabularyV1` is: a test holds it equal to the settings registry,
+ * so a setting the engine records next is a new version of the events.
+ */
+export const recordedSettingsV1 = {
+  layers: ['default', 'operator', 'repository', 'clone', 'invocation', 'flag'],
+  fileLayers: ['repository', 'operator', 'clone', 'invocation'],
+  names: [
+    'review.base', 'scope.default', 'scope.exclude',
+    'checks.build', 'checks.typecheck', 'checks.lint', 'checks.test', 'checks.timeout_minutes',
+    'tools.path', 'conventions.user_rules', 'budget.usd', 'run.concurrency',
+    'runtimes.claude.strong', 'runtimes.claude.fast', 'runtimes.claude.executable', 'runtimes.claude.args',
+    'runtimes.codex.strong', 'runtimes.codex.fast', 'runtimes.codex.executable', 'runtimes.codex.args', 'runtimes.codex.windows_sandbox',
+  ],
+  checkNames: ['checks.build', 'checks.typecheck', 'checks.lint', 'checks.test'],
+  scopeDefaults: ['worktree', 'last-commit', 'branch', 'auto'],
+  repositoryStates: ['read', 'absent', 'skipped'],
+} as const;
+
+const settingLayerSchemaV1 = z.enum(recordedSettingsV1.layers);
+const fileLayerSchemaV1 = z.enum(recordedSettingsV1.fileLayers);
+const settingNameSchemaV1 = z.enum(recordedSettingsV1.names);
+
+/** A recorded pattern, directory or revision: text a setting held, bounded as the registry bounds it. */
+const settingTextSchemaV1 = z.string().min(1).max(4096);
+
+/** A check's command as a setting gives it, `false` for none, or null when no setting gives one and the survey decides. */
+const recordedCheckSettingV1 = z.union([z.string().min(1).max(1000), z.literal(false)]).nullable();
+
+/** The layer of each recorded setting, by its name; a name the version does not record is refused. */
+const settingLayersSchemaV1 = z.partialRecord(settingNameSchemaV1, settingLayerSchemaV1);
+
+/** Whether every runtime setting the layers name belongs to the run's runtime. */
+const runtimeLayersMatch = (runtime: string, layers: Readonly<Partial<Record<string, unknown>>>): boolean =>
+  Object.keys(layers).every((name) => !name.startsWith('runtimes.') || name.startsWith(`runtimes.${runtime}.`));
+
+/**
+ * What a run recorded of its configuration beside version 5's fields (R6,
+ * R7 of the configuration): the files it read, each with its layer, path,
+ * content hash and, for the repository's, the commit; the state of the
+ * repository's file and whether the change edits it; the value of each
+ * recorded setting version 5 has no field for, the check commands only in
+ * a run that fixes; the layer of every recorded setting; the repository
+ * values a higher layer replaced; and the settings ignored.
+ */
+export const settingsRecordedV1 = z.strictObject({
+  files: z.array(z.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, sha256: z.string().regex(/^[a-f0-9]{64}$/), commit: commitId.nullable() })).max(recordedSettingsV1.fileLayers.length),
+  repository: z.strictObject({ state: z.enum(recordedSettingsV1.repositoryStates), commit: commitId.nullable(), edited: z.boolean() }),
+  values: z.strictObject({
+    'review.base': settingTextSchemaV1.nullable(),
+    'scope.default': z.enum(recordedSettingsV1.scopeDefaults),
+    'scope.exclude': z.array(settingTextSchemaV1).max(64),
+    'tools.path': z.array(settingTextSchemaV1).max(64),
+    'checks.build': recordedCheckSettingV1.optional(),
+    'checks.typecheck': recordedCheckSettingV1.optional(),
+    'checks.lint': recordedCheckSettingV1.optional(),
+    'checks.test': recordedCheckSettingV1.optional(),
+  }),
+  layers: settingLayersSchemaV1,
+  notFollowed: z.array(z.strictObject({ name: settingNameSchemaV1, repository: z.json(), value: z.json(), layer: settingLayerSchemaV1 })).max(recordedSettingsV1.names.length),
+  ignored: z.array(z.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, name: z.string().min(1).max(1000), reason: z.string().min(1).max(1000) })).max(256),
+}).refine((recorded) => (recorded.repository.state === 'skipped') === (recorded.repository.commit === null), {
+  message: 'the repository\'s file has a commit exactly when it was not skipped',
+  path: ['repository', 'commit'],
+}).refine((recorded) => recorded.files.every((file) => (file.layer === 'repository') === (file.commit !== null)), {
+  message: 'only the repository\'s file is read at a commit',
+  path: ['files'],
+}).refine((recorded) => recorded.repository.state === 'read' || recorded.files.every((file) => file.layer !== 'repository'), {
+  message: 'the repository\'s file is among the files read exactly when it was read',
+  path: ['files'],
+});
+export type SettingsRecorded = z.infer<typeof settingsRecordedV1>;
+
+/**
+ * `review.configured` with the settings (R6, R17, TD4 of the
+ * configuration): version 5's payload and `settings`, the record of where
+ * each value came from. The fields of version 5 keep the values of the
+ * settings they hold; the block gives their layers and the values of the
+ * settings version 5 has no field for, so no value is recorded twice.
+ * A setting recorded later is a new version, so an older engine passes
+ * over a run it would resume without that setting's effect.
+ */
+export const reviewConfiguredV6 = z.strictObject({
+  ...reviewConfiguredV4.shape,
+  settings: settingsRecordedV1,
+}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
+  message: 'the checks are pinned exactly when the run fixes',
+  path: ['checks'],
+}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
+  message: 'the batch size is pinned exactly when the run fixes',
+  path: ['fixes'],
+}).refine((configuration) => configuration.runtime === 'codex' || configuration.codex === null, {
+  message: 'only a Codex run pins a Codex Windows sandbox',
+  path: ['codex'],
+}).refine((configuration) => recordedSettingsV1.checkNames.every((name) => (configuration.settings.values[name] !== undefined) === configuration.fix), {
+  message: 'the check settings are recorded exactly when the run fixes',
+  path: ['settings', 'values'],
+}).refine((configuration) => runtimeLayersMatch(configuration.runtime, configuration.settings.layers), {
+  message: 'a runtime\'s settings are recorded only for the run\'s runtime',
+  path: ['settings', 'layers'],
+});
+export type ReviewConfigurationV6 = z.infer<typeof reviewConfiguredV6>;
+
+/** A scope request with the patterns `scope.exclude` left out of it (R10 of the configuration). */
+export const scopeRequestSchemaV2 = z.strictObject({
+  ...scopeRequestSchema.shape,
+  exclude: z.array(z.string().min(1).max(1000)).max(64),
+});
+export type CapturedScopeRequest = z.infer<typeof scopeRequestSchemaV2>;
+
+/**
+ * `scope.captured` with the paths left out (R10 of the configuration): the
+ * request with its `exclude` patterns, and the changed paths they left
+ * out, at most 2000 of them, with their count. A version 1 capture reads
+ * as one that left nothing out.
+ */
+export const scopeCapturedV2 = z.strictObject({
+  ...scopeCapturedV1.shape,
+  request: scopeRequestSchemaV2,
+  excluded: z.strictObject({ paths: z.array(z.string().min(1)).max(2000), count: z.number().int().nonnegative() }),
+}).refine((scope) => scope.excluded.count >= scope.excluded.paths.length && (scope.excluded.count === scope.excluded.paths.length || scope.excluded.paths.length === 2000), {
+  message: 'the count of the paths left out is the paths named, or more only when 2000 are named',
+  path: ['excluded', 'count'],
+}).refine((scope) => scope.excluded.count === 0 || scope.request.exclude.length > 0, {
+  message: 'only a request with patterns leaves a path out',
+  path: ['excluded'],
+});
+/** The captured change as the fold holds it: a version 1 capture reads as one with no pattern and nothing left out. */
+export type ScopeState = z.infer<typeof scopeCapturedV2>;
+export type ScopeStateV1 = z.infer<typeof scopeCapturedV1>;
+
+/**
+ * One kind's check as a version 3 plan pins it (R11 of the
+ * configuration): as version 2 does, but a check a setting settled has the
+ * origin `setting` with the layer that gave it, a flag among them, where
+ * version 2 had `flag`; the survey's and nobody's have no layer.
+ */
+export const plannedCheckSchemaV3 = z.union([
+  z.strictObject({ kind: checkKindSchemaV3, command: z.string().min(1), origin: z.literal('setting'), layer: settingLayerSchemaV1.exclude(['default']), reason: z.null(), source: z.null() }),
+  z.strictObject({ kind: checkKindSchemaV3, command: z.null(), origin: z.literal('setting'), layer: settingLayerSchemaV1.exclude(['default']), reason: z.string().min(1).max(1000), source: z.null() }),
+  z.strictObject({
+    kind: checkKindSchemaV3,
+    command: z.string().min(1),
+    origin: z.literal('survey'),
+    layer: z.null(),
+    reason: z.null(),
+    source: z.strictObject({ path: surveyPathSchema, quote: z.string().min(1).max(2000), basis: checkBaseSchemaV3 }),
+  }),
+  z.strictObject({ kind: checkKindSchemaV3, command: z.null(), origin: z.literal('none'), layer: z.null(), reason: z.string().min(1).max(1000), source: z.null() }),
+]);
+export type PlannedCheckV3 = z.infer<typeof plannedCheckSchemaV3>;
+
+/** The checks the run executes, one per kind in the order they run, a setting's with its layer (R11 of the configuration). */
+export const checksPlannedV3 = z.strictObject({
+  checks: z.array(plannedCheckSchemaV3).length(vocabularyV3.checkKinds.length),
+}).refine((planned) => planned.checks.every((check, index) => check.kind === vocabularyV3.checkKinds[index]), {
+  message: 'one check per kind, in the order the kinds run',
+  path: ['checks'],
+});
+export type ChecksPlannedV3 = z.infer<typeof checksPlannedV3>;
+
+/**
+ * The fix side of the settings a continuation records (R6 of the
+ * configuration): the check commands, `tools.path` and their layers, and
+ * the layer of the check timeout, whose value the pin's `checks` holds.
+ */
+export const fixSettingsRecordedV1 = z.strictObject({
+  values: z.strictObject({
+    'checks.build': recordedCheckSettingV1,
+    'checks.typecheck': recordedCheckSettingV1,
+    'checks.lint': recordedCheckSettingV1,
+    'checks.test': recordedCheckSettingV1,
+    'tools.path': z.array(settingTextSchemaV1).max(64),
+  }),
+  layers: z.strictObject({
+    'checks.build': settingLayerSchemaV1,
+    'checks.typecheck': settingLayerSchemaV1,
+    'checks.lint': settingLayerSchemaV1,
+    'checks.test': settingLayerSchemaV1,
+    'checks.timeout_minutes': settingLayerSchemaV1,
+    'tools.path': settingLayerSchemaV1,
+  }),
+});
+export type FixSettingsRecorded = z.infer<typeof fixSettingsRecordedV1>;
+
+/**
+ * `fix.pinned` with the settings (R6 of the configuration): version 1's
+ * payload, its checks planned at version 3 when the settings settle
+ * every kind, and the fix side of the settings with their layers, which
+ * the continuation resolved from the repository's file at the run's base
+ * and from the operator's files and flags as they are now.
+ */
+export const fixPinnedV2 = z.strictObject({
+  checks: reviewConfiguredV2.shape.checks.unwrap(),
+  fixes: reviewConfiguredV2.shape.fixes.unwrap(),
+  plannedChecks: checksPlannedV3.shape.checks.nullable(),
+  settings: fixSettingsRecordedV1,
+}).refine((pinned) => pinned.plannedChecks === null || pinned.plannedChecks.every((check, index) => check.kind === vocabularyV3.checkKinds[index] && check.origin === 'setting'), {
+  message: 'checks planned with the pin are the settings\', one per kind in the order the kinds run',
+  path: ['plannedChecks'],
+});
+export type FixPinnedV2 = z.infer<typeof fixPinnedV2>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
   'run.abandoned': { 1: { schema: runAbandonedV1 } },
-  'scope.captured': { 1: { schema: scopeCapturedV1 } },
+  'scope.captured': { 1: { schema: scopeCapturedV1 }, 2: { schema: scopeCapturedV2 } },
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
   'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
   'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 } },
   'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 } },
@@ -1593,7 +1806,7 @@ export const eventRegistry = defineRegistry({
   'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
   'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
-  'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 } },
+  'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 }, 3: { schema: checksPlannedV3 } },
   'check.ran': { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 } },
   'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 } },
   'tree.revised': { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 } },
@@ -1604,7 +1817,7 @@ export const eventRegistry = defineRegistry({
   'decisions.recorded': { 1: { schema: decisionsRecordedV1 } },
   'files.claimed': { 1: { schema: filesClaimedV1 } },
   'claims.lost': { 1: { schema: claimsLostV1 } },
-  'fix.pinned': { 1: { schema: fixPinnedV1 } },
+  'fix.pinned': { 1: { schema: fixPinnedV1 }, 2: { schema: fixPinnedV2 } },
   'answer.recorded': { 1: { schema: answerRecordedV1 } },
   'answer.pass': { 1: { schema: answerPassV1 } },
 });

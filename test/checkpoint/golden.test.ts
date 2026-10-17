@@ -90,6 +90,19 @@ function withCommitSeries(recorded: RunState): RunState {
   return { ...recorded, review: { ...review, fix: { ...review!.fix, commits: commits === null ? [] : [commits] } } } as unknown as RunState;
 }
 
+/**
+ * The run as recorded, each planned check a flag settled, which an engine
+ * recorded before the settings with the origin `flag`, in the shape the
+ * fold now gives: a setting of the flag layer (R11 of the configuration).
+ */
+function withSettingOrigins(recorded: RunState): RunState {
+  const review = recorded.review as { readonly fix?: { readonly checks?: { readonly planned?: { readonly checks: readonly { readonly origin: string }[] } | null } } | null } | null;
+  const planned = review?.fix?.checks?.planned;
+  if (planned === undefined || planned === null) return recorded;
+  const checks = planned.checks.map((check) => (check.origin === 'flag' ? { ...check, origin: 'setting', layer: 'flag' } : check));
+  return { ...recorded, review: { ...review, fix: { ...review!.fix, checks: { ...review!.fix!.checks, planned: { ...planned, checks } } } } } as unknown as RunState;
+}
+
 describe('golden checkpoints', () => {
   let sandbox: string;
   const opened: Checkpoint[] = [];
@@ -121,7 +134,7 @@ describe('golden checkpoints', () => {
         assert.equal(runs.length, expected.runs.length);
         for (const [index, recorded] of expected.runs.entries()) {
           const actual: Record<string, unknown> = { ...runs[index] };
-          assertHolds(actual, withCommitSeries(withFailureCauses(recorded)), `${name} run ${String(index)}`);
+          assertHolds(actual, withSettingOrigins(withCommitSeries(withFailureCauses(recorded))), `${name} run ${String(index)}`);
           // A run recorded before workers existed has none (R11 of the runtime adapter).
           if (!('workers' in recorded)) assert.deepEqual(actual.workers, {}, `${name} run ${String(index)} workers`);
           // A run recorded before reviews existed has no review (R10 of the read-only review).
@@ -226,6 +239,51 @@ describe('golden checkpoints', () => {
       assert.equal(fix.checks.runs['answer-checks'].length, 2);
       assert.deepEqual(fix.commits.map((series) => series.commits.map((commit) => commit.revision)), [['change', 0], [1]]);
       assert.equal(fix.commits[1]!.from, fix.commits[0]!.to, 'the later series stands on the first one\'s last commit');
+    });
+  }
+
+  // Every run of a fixture before schema-1-12 was recorded before the settings: it reads as a run whose values came from the defaults and its flags, whose scope left nothing out (R17 of the configuration).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) < 12)) {
+    it(`reads ${name}'s runs as recorded before the settings`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      for (const run of checkpoint.foldRuns()) {
+        if (run.scope !== null) {
+          assert.deepEqual(run.scope.request.exclude, [], run.worktree);
+          assert.deepEqual(run.scope.excluded, { paths: [], count: 0 }, run.worktree);
+        }
+        if (run.review !== null) {
+          assert.equal(run.review.configuration.settings, null, run.worktree);
+          assert.equal(run.review.configuration.fixSettings, null, run.worktree);
+        }
+      }
+    });
+  }
+
+  // The runs configured from the settings, which every fixture from schema-1-12 on holds (R6, R10, R11 of the configuration).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 12)) {
+    it(`folds ${name}'s runs configured from the settings: the paths left out, the layers, the settings' checks and the fix side`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const runs = checkpoint.foldRuns();
+      const settled = runs.find((candidate) => candidate.worktree === '/fixture/settled');
+      assert.ok(settled?.review?.configuration.settings !== null && settled?.review?.configuration.settings !== undefined, 'the fixture holds the run configured from the settings');
+      assert.deepEqual(settled.scope?.request.exclude, ['dist/**']);
+      assert.deepEqual(settled.scope?.excluded, { paths: ['dist/changed.js'], count: 1 });
+      const { settings } = settled.review.configuration;
+      assert.equal(settings.layers['scope.exclude'], 'repository');
+      assert.deepEqual(settings.notFollowed.map((entry) => [entry.name, entry.layer]), [['checks.test', 'clone']]);
+      assert.deepEqual(settled.review.fix?.checks.planned?.checks.map((check) => [check.kind, check.origin, check.layer]), [['build', 'survey', null], ['typecheck', 'none', null], ['lint', 'setting', 'repository'], ['test', 'setting', 'clone']]);
+      const repinned = runs.find((candidate) => candidate.worktree === '/fixture/repinned');
+      assert.ok(repinned?.review !== null && repinned?.review !== undefined, 'the fixture holds the run continued by a version 2 pin');
+      assert.equal(repinned.review.configuration.fix, true);
+      assert.deepEqual(repinned.review.configuration.fixSettings?.values['tools.path'], ['/fixture/repinned/.venv/bin']);
+      assert.ok(repinned.review.fix?.checks.planned?.checks.every((check) => check.origin === 'setting'), 'the settings planned every check with the pin');
+      assert.deepEqual(repinned.review.phases.survey, { status: 'completed', attempt: 1 }, 'the survey is not asked again');
     });
   }
 

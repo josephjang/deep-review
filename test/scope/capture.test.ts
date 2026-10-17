@@ -113,7 +113,7 @@ describe('captureScope', () => {
       const { checkpoint, scope } = capture(repo, { ref: 'HEAD~1', paths: [] });
       assert.equal(scope.mode, 'ref');
       assert.equal(scope.base, start);
-      assert.deepEqual(scope.request, { ref: 'HEAD~1', paths: [] });
+      assert.deepEqual(scope.request, { ref: 'HEAD~1', paths: [], exclude: [] });
       assert.deepEqual(summary(checkpoint, scope), [
         ['a.txt', 'modified', false, '1\n', '3\n'],
         ['b.txt', 'added', false, null, 'untracked\n'],
@@ -393,8 +393,8 @@ describe('captureScope', () => {
       ]);
       assert.equal(existsSync(join(locateCheckpoint(repo).root, ledgerFileName)), false, 'no checkpoint was written');
       const { scope } = capture(repo, request);
-      assert.deepEqual({ mode: resolved.mode, base: resolved.base, head: resolved.guard.head, request: resolved.request, paths: resolved.changes.map((change) => change.path) }, { mode: scope.mode, base: scope.base, head: scope.head, request: scope.request, paths: scope.files.map((file) => file.path) });
-      assert.deepEqual(scope.request, { paths: ['src'] }, 'the spelling the capture records');
+      assert.deepEqual({ mode: resolved.mode, base: resolved.base, head: resolved.guard.head, request: { ...resolved.request, exclude: [] }, paths: resolved.changes.map((change) => change.path) }, { mode: scope.mode, base: scope.base, head: scope.head, request: scope.request, paths: scope.files.map((file) => file.path) });
+      assert.deepEqual(scope.request, { paths: ['src'], exclude: [] }, 'the spelling the capture records');
     });
 
     it('lists no untracked file in last-commit mode, and the commit it diffs to', () => {

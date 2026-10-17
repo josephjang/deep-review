@@ -9,6 +9,7 @@ import {
   type runAbandonedV1,
   type runCreatedV1,
   type scopeCapturedV1,
+  type scopeCapturedV2,
   type workerFinishedV1,
   type workerLaunchedV1,
   type workerLostV5,
@@ -122,11 +123,15 @@ const created: Reducer<z.infer<typeof runCreatedV1>> = (state, payload, event) =
   };
 };
 
-const scopeCaptured: Reducer<z.infer<typeof scopeCapturedV1>> = (state, payload, event) => {
+const scopeCaptured: Reducer<z.infer<typeof scopeCapturedV2>> = (state, payload, event) => {
   const current = requireState(state, event);
   if (current.scope !== null) throw new InvalidHistoryError(`Run ${event.runId} captures its scope twice, at sequence ${String(event.sequence)}`);
   return { ...current, scope: payload, lastSequence: event.sequence };
 };
+
+/** A version 1 capture, recorded before `scope.exclude` existed: a request with no pattern, which left no path out (R10 of the configuration). */
+const scopeCapturedV1Reducer: Reducer<z.infer<typeof scopeCapturedV1>> = (state, payload, event, drafts) =>
+  scopeCaptured(state, { ...payload, request: { ...payload.request, exclude: [] }, excluded: { paths: [], count: 0 } }, event, drafts);
 
 const workerLaunched: Reducer<z.infer<typeof workerLaunchedV1>> = (state, payload, event, drafts) => {
   const current = requireState(state, event);
@@ -177,7 +182,8 @@ const abandoned: Reducer<z.infer<typeof runAbandonedV1>> = (state, payload, even
 export const reducers = {
   'run.created@1': created,
   'run.abandoned@1': abandoned,
-  'scope.captured@1': scopeCaptured,
+  'scope.captured@1': scopeCapturedV1Reducer,
+  'scope.captured@2': scopeCaptured,
   'worker.launched@1': workerLaunched,
   'worker.finished@1': workerFinished,
   'worker.lost@1': workerLost,

@@ -275,10 +275,10 @@ describe('the fixer\'s task', () => {
     claimed: [],
     othersHeld: [{ cluster: 'c2', files: [{ path: 'src/b.ts', by: 'plan' }] }, { cluster: 'c3', files: [] }],
     checks: [
-      { kind: 'build', command: null, origin: 'none', reason: 'nothing names it', source: null },
-      { kind: 'typecheck', command: 'npm run typecheck', origin: 'package', reason: null, source: null },
-      { kind: 'lint', command: null, origin: 'flag', reason: 'dropped by --no-check', source: null },
-      { kind: 'test', command: 'npm run test', origin: 'package', reason: null, source: null },
+      { kind: 'build', command: null, origin: 'none', layer: null, reason: 'nothing names it', source: null },
+      { kind: 'typecheck', command: 'npm run typecheck', origin: 'package', layer: null, reason: null, source: null },
+      { kind: 'lint', command: null, origin: 'setting', layer: 'flag', reason: 'dropped by --no-check', source: null },
+      { kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null },
     ],
     snapshotCommand: snapshot,
     claimCommand: claim,
@@ -460,7 +460,7 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
     kind: 'answer-pass', batch: 'pass-1',
     findings: [finding('RIPPLE-1', departing, rejected), finding('SWEEP-1', asking, option)],
     owned: ['docs/parse.md', 'src/a.ts'],
-    checks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null, source: null }],
+    checks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
     snapshotCommand: snapshot, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false,
   };
   /** A fixes-phase batch of the same findings, as a continued run's fixer is given them. */
@@ -522,7 +522,7 @@ describe('the repair task', () => {
       checks: [failing, { ...failing, kind: 'lint', command: 'npm run lint', outcome: 'timeout', exitCode: null }],
       owned: ['src/a.ts', 'test/a.test.ts'],
       answers: [{ batch: 'c1-1', id: 'RIPPLE-1', status: 'applied', note: 'guarded the null' }],
-      allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null, source: null }],
+      allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: true,
       unfinished: ['test'],
@@ -547,7 +547,7 @@ describe('the repair task', () => {
       checks: [{ ...failing, baseline: before }],
       owned: ['src/a.ts'],
       answers: [],
-      allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', reason: null, source: null }],
+      allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: false,
       unfinished: [],
@@ -558,7 +558,7 @@ describe('the repair task', () => {
   });
 
   it('tells a repair worker in the unelevated sandbox the same as a fixer, and says nothing of it otherwise (R6 of the Codex sandbox)', () => {
-    const repair = { checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
+    const repair = { checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
     const plain = repairTask({ ...repair, unelevatedSandbox: false });
     assert.doesNotMatch(plain, /unelevated|EPERM/);
     assert.equal(repairTask({ ...repair, unelevatedSandbox: true }), plain.replace('\n\nAfter finishing each check', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each check`));

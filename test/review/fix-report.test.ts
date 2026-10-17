@@ -157,7 +157,7 @@ describe('the report of a fix run', () => {
     // A fix run whose revisions changed files but whose every kind had no command, as an operator without the project's tools runs one.
     const state = fixRun().fold();
     const fix = state.review!.fix!;
-    const noCommand = { ...fix, checks: { planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.map((check) => ({ ...check, command: null, origin: 'flag' as const, reason: 'dropped by --no-check' })) }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [], 'answer-checks': [] } } };
+    const noCommand = { ...fix, checks: { planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.map((check) => ({ ...check, command: null, origin: 'setting' as const, layer: 'flag' as const, reason: 'dropped by --no-check' })) }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [], 'answer-checks': [] } } };
     const report = render({ ...state, review: { ...state.review!, fix: noCommand } });
     assert.ok(fix.revisions.length > 0, 'the fixes changed files');
     assert.doesNotMatch(report, /no fix changed a file/);

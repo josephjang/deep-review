@@ -27,7 +27,8 @@ describe('the scope block', () => {
 
   const scopeWith = (patch: string | Buffer): ScopeState => ({
     mode: 'range',
-    request: { range: { from: 'main', to: 'HEAD', mergeBase: true }, paths: [] },
+    request: { range: { from: 'main', to: 'HEAD', mergeBase: true }, paths: [], exclude: [] },
+    excluded: { paths: [], count: 0 },
     base: '1'.repeat(40),
     head: '2'.repeat(40),
     files: [

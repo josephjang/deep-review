@@ -220,7 +220,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const second = await run(box, ...claudeFlags(box, '--ref', 'HEAD~1', '--path', 'src'));
     assert.equal(second.status, 0, second.stderr);
     assert.equal(box.checkpoint.foldRuns().length, 2);
-    assert.deepEqual(box.checkpoint.foldRuns()[1]!.scope?.request, { ref: 'HEAD~1', paths: ['src'] });
+    assert.deepEqual(box.checkpoint.foldRuns()[1]!.scope?.request, { ref: 'HEAD~1', paths: ['src'], exclude: [] });
     // An id the checkpoint does not hold is a command-line mistake, for status and abandon alike.
     for (const args of [['status', '--run', 'nope'], ['abandon', '--run', 'nope', '--reason', 'gone']]) {
       const unknown = await run(box, ...args);
@@ -268,7 +268,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(scoped.status, 0, scoped.stderr);
     assert.doesNotMatch(scoped.stderr, /scope flags are ignored/);
     assert.equal(box.checkpoint.foldRuns().length, 1, 'the scopeless run continued');
-    assert.deepEqual(box.checkpoint.fold(runId).scope?.request, { ref: 'HEAD~1', paths: ['src'] }, 'the scope asked for, not an automatic one');
+    assert.deepEqual(box.checkpoint.fold(runId).scope?.request, { ref: 'HEAD~1', paths: ['src'], exclude: [] }, 'the scope asked for, not an automatic one');
   });
 
   it('refuses to abandon a run another engine holds, abandons it once released, then starts a new run, and with --fix --fresh one more beside the finished one', async (t) => {

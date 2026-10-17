@@ -76,7 +76,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const asked = box.checkpoint.evidence.read(surveyors.at(-1)!.launch.prompt).toString('utf8');
     assert.match(asked, /^This run was reviewed read-only and is now continued into the fix pass\./m);
     assert.match(asked, /^Kinds to choose: test$/m);
-    assert.deepEqual(review.fix!.checks.planned!.checks.map((check) => [check.kind, check.origin]), [['build', 'flag'], ['typecheck', 'flag'], ['lint', 'flag'], ['test', 'none']]);
+    assert.deepEqual(review.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin]), [['build', 'flag'], ['typecheck', 'flag'], ['lint', 'flag'], ['test', 'none']]);
     // The fix pass ran on the decisions the read-only run recorded (R1).
     assert.deepEqual(review.fix!.plan!.routes, [{ id: 'SCAN-1', route: 'fixer' }, { id: 'SCAN-2', route: 'fixer' }, { id: 'SWEEP-1', route: 'held' }]);
     assert.equal(review.fix!.revisions.length, 2);
@@ -107,7 +107,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const state = box.run();
     assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['fixer fixes:c1-1', 'fixer fixes:c2-1']);
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 1 });
-    assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
+    assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
     logLine(box, new RegExp(`^run ${state.id}: check build: ${RegExp.escape(fakeCheckCommand('build'))} \\(flag\\)$`));
   });
 

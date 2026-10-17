@@ -36,7 +36,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     const state = box.run();
     assert.equal(surveyors(box), 1, 'the survey is not repeated when the flags settle its block');
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 2 });
-    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.origin, check.reason]), [['build', 'flag', null], ['typecheck', 'flag', null], ['lint', 'flag', 'dropped by --no-check'], ['test', 'survey', null]]);
+    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin, check.reason]), [['build', 'flag', null], ['typecheck', 'flag', null], ['lint', 'flag', 'dropped by --no-check'], ['test', 'survey', null]]);
     assert.deepEqual(box.checkRuns(), ['build', 'typecheck', 'test'], 'the baseline ran the flagged checks and the survey\'s, and lint never');
     assert.ok(box.logs.some((line) => /^phase survey: re-entered \(attempt 2\), clearing the check-unavailable blocker$/.test(line)), box.logs.join('\n'));
   });
@@ -53,7 +53,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     const state = box.run();
     assert.equal(surveyors(box), 2, 'the operator installed the tool and ran again: a fresh surveyor looked');
     assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', 'ruff is installed now']);
-    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => check.origin), ['flag', 'flag', 'survey', 'survey']);
+    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => check.layer ?? check.origin), ['flag', 'flag', 'survey', 'survey']);
     assert.deepEqual(box.checkRuns(), ['build', 'typecheck', 'lint', 'test']);
   });
 
@@ -97,7 +97,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     assert.equal(surveyors(box), 2, 'no surveyor once the flags settle every check');
     assert.equal(state.review!.phases.survey.status, 'degraded');
     assert.match(state.review!.survey!.failure!.reason, /^the survey blocked, the surveyor worker for survey:survey failed twice: .*; this invocation's --check and --no-check flags settle every check, so the run goes on without it$/);
-    assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
+    assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
     // The failure and the plan are one append, so no run is left with one and not the other.
     const failed = box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'survey.failed')!;
     const planned = box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'checks.planned')!;
@@ -172,7 +172,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
       assert.equal(state.id, finished.id);
       assert.equal(surveyors(box), 2, 'the two failed surveyors of the review, and none since');
       assert.deepEqual(state.review!.phases.survey, { status: 'degraded', attempt: 1 });
-      assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
+      assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
       assert.notEqual(state.review!.continuedFrom, null);
     });
 
@@ -192,7 +192,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
       const prompts = Object.values(state.workers).filter((worker) => worker.launch.label === 'surveyor survey:survey').map((worker) => box.checkpoint.evidence.read(worker.launch.prompt).toString('utf8'));
       assert.doesNotMatch(prompts[0]!, /continued into the fix pass/);
       for (const prompt of prompts.slice(1)) assert.match(prompt, /^This run was reviewed read-only and is now continued into the fix pass\./m);
-      assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => check.origin), ['flag', 'flag', 'survey', 'survey']);
+      assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => check.layer ?? check.origin), ['flag', 'flag', 'survey', 'survey']);
     });
   });
 });

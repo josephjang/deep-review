@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinned, PlannedCheckV2, ReviewConfiguration, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinned, PlannedCheckV2, ReviewConfiguration, ReviewConfigurationV5, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
 import { revisionMessageOf, routeOf } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
@@ -760,7 +760,7 @@ interface OpenedRun {
   /** The scope to capture, for a run that has none yet; null for one that captured it. */
   readonly scopeRequest: ScopeRequest | null;
   /** The configuration to pin, for a run not yet configured; null for one whose configuration is pinned. */
-  readonly configure: ReviewConfiguration | null;
+  readonly configure: ReviewConfigurationV5 | null;
   /** The continuation to pin, for a finished read-only run this command continues into the fix pass, with where its read-only report is; null otherwise (R1 of fix pass continuation). */
   readonly continuation: { readonly pin: FixPinned; readonly report: string } | null;
 }

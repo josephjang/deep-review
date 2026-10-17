@@ -8,6 +8,7 @@
  * configured before the survey existed has none of these, and its report
  * renders as it did before.
  */
+import { layerWords } from '../config/settings.ts';
 import type { ConventionSource, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
 import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
@@ -32,36 +33,48 @@ function missingToolOf(survey: SurveyState, kind: PlannedCheck['kind']): Unavail
 const definedPhrase = (defined: UnavailableCheck): string => `the project defines \`${defined.command}\` (${defined.source}), ${defined.missingTool} not found`;
 
 /**
+ * Who settled a check that a setting gave (R11 of the configuration): the
+ * flag, `--check` or `--no-check`, as the cell named it before the
+ * settings, or the setting and the file whose layer gave it.
+ */
+const settingWords = (check: PlannedCheck): string => {
+  if (check.layer === 'flag' || check.layer === null) return check.command === null ? '--no-check' : '--check';
+  return `checks.${check.kind}${check.command === null ? ' = false' : ''} in ${layerWords[check.layer]}`;
+};
+
+/**
  * Where a surveyed run's check came from, as its cell in the Checks
- * table: the survey's file and what the command stood on, a flag, or the
- * survey finding none. A --check that names a command in place of one
- * the project defines and this machine could not run says which (R15).
+ * table: the survey's file and what the command stood on, a setting, a
+ * flag among them, or the survey finding none. A setting that names a
+ * command in place of one the project defines and this machine could not
+ * run says which (R15).
  */
 export function checkSourceCell(survey: SurveyState, check: PlannedCheck): string {
   if (check.origin === 'survey' && check.source !== null) return tableCell(`${check.source.path} (${check.source.basis})`);
-  if (check.origin === 'flag' && check.command === null) return '--no-check';
-  if (check.origin === 'flag') {
+  if (check.origin === 'setting' && check.command === null) return tableCell(settingWords(check));
+  if (check.origin === 'setting') {
     const defined = missingToolOf(survey, check.kind);
-    return tableCell(defined === null ? '--check' : `--check, in place of what ${definedPhrase(defined)}`);
+    return tableCell(defined === null ? settingWords(check) : `${settingWords(check)}, in place of what ${definedPhrase(defined)}`);
   }
   return check.origin === 'none' ? 'survey: none' : tableCell(check.origin);
 }
 
 /**
  * Why a kind has no command when the operator chose that (R15): dropped
- * with --no-check after the survey found the tool of the project's check
- * missing, naming the check; null for every other kind with no command,
- * whose recorded reason says why.
+ * with --no-check, or by a setting, after the survey found the tool of
+ * the project's check missing, naming the check; null for every other
+ * kind with no command, whose recorded reason says why.
  */
 export function droppedByOperator(survey: SurveyState | null, check: PlannedCheck): string | null {
-  const defined = survey === null || check.origin !== 'flag' || check.command !== null ? null : missingToolOf(survey, check.kind);
-  return defined === null ? null : `dropped by the operator; ${definedPhrase(defined)}`;
+  const defined = survey === null || check.origin !== 'setting' || check.command !== null ? null : missingToolOf(survey, check.kind);
+  return defined === null ? null : `dropped by ${check.layer === 'flag' || check.layer === null ? 'the operator' : settingWords(check)}; ${definedPhrase(defined)}`;
 }
 
 /** A kind with no command, as the Checks table names it: dropped by the operator, or not available with who decided and the reason. */
 export function unavailableCell(survey: SurveyState | null, check: PlannedCheck): string {
   const dropped = droppedByOperator(survey, check);
-  return dropped === null ? `not available (${tableCell(check.origin)}: ${tableCell(check.reason ?? 'no command')})` : tableCell(dropped);
+  const origin = check.origin !== 'setting' ? check.origin : check.layer === 'flag' || check.layer === null ? 'flag' : settingWords(check);
+  return dropped === null ? `not available (${tableCell(origin)}: ${tableCell(check.reason ?? 'no command')})` : tableCell(dropped);
 }
 
 /** The Conventions section of a surveyed run: the sources, the user-level decisions under the pinned policy, and the surveyor's note, or for a continued run the review's and the continuation's apart; none for a run configured before the survey. */

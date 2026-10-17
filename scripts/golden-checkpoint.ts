@@ -8,7 +8,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
-import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, type RecordedCandidate, type ReviewConfigurationV1, type ScopeState, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
+import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, type RecordedCandidate, type ReviewConfigurationV1, type ScopeStateV1, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
 import { finderAngles, phases, type Angle, type Phase } from '../src/review/vocabulary.ts';
@@ -212,7 +212,7 @@ try {
   // A synthetic scope, so the fixture needs no git repository: one modified
   // file with both states frozen, one added file too large to freeze, one
   // deleted file, and the patch a reader would see.
-  const scope: ScopeState = {
+  const scope: ScopeStateV1 = {
     mode: 'worktree',
     request: { paths: [] },
     base: '1111111111111111111111111111111111111111',
@@ -280,7 +280,7 @@ try {
   // a sweep whose one group goes unverified, a budget block that a raised
   // budget and a later start clear, a ranking and the report.
   const reviewed = checkpoint.createRun({ worktree: '/fixture/reviewed' });
-  const reviewScope: ScopeState = { ...scope, files: [scope.files[0]!], request: { paths: ['src'] } };
+  const reviewScope: ScopeStateV1 = { ...scope, files: [scope.files[0]!], request: { paths: ['src'] } };
   const review = new ReviewHistory(checkpoint, reviewed.id, checkpoint.append(reviewed.id, reviewed.lastSequence, [{ kind: 'scope.captured', version: 1, payload: reviewScope }]).lastSequence);
   review.configure();
   review.phase('triage', () => {
@@ -380,7 +380,7 @@ try {
   // broke, repaired, and the test still failing; the report with one patch
   // per revision; and the commits built from it afterwards.
   const fixedRun = checkpoint.createRun({ worktree: '/fixture/fixed' });
-  const fixScope: ScopeState = { ...scope, files: [scope.files[0]!], request: { paths: [] } };
+  const fixScope: ScopeStateV1 = { ...scope, files: [scope.files[0]!], request: { paths: [] } };
   const fix = new ReviewHistory(checkpoint, fixedRun.id, checkpoint.append(fixedRun.id, fixedRun.lastSequence, [{ kind: 'scope.captured', version: 1, payload: fixScope }]).lastSequence);
   const pinned = (name: string, tier: 'strong' | 'fast', effort: 'high' | 'medium' = 'high', timeoutMs = 600_000) => ({ role: name, model: tier === 'strong' ? 'opus' : 'sonnet', effort, budgetUsd: 8, timeoutMs });
   fix.add('review.configured', {
@@ -1395,6 +1395,178 @@ try {
   });
   // deep-review commit again: the pass's revision alone, from the first series' last commit.
   answered.add('commits.created', { commits: [{ sha: '9'.repeat(40), revision: 1, subject: 'fix: Reject an empty input, as the author chose' }], from: '8'.repeat(40), to: '9'.repeat(40) });
+  // A twelfth run, configured from the settings (R6, R10, R11 of the
+  // configuration), every event at the version the engine now writes: its
+  // scope leaves out the build output that the repository's file names in
+  // scope.exclude; its configuration records the files read, the layer of
+  // each recorded setting, a repository check an operator's file did not
+  // follow and an ignored name; and its survey answers for the two kinds
+  // no setting settles, so its checks are planned with the two settings'
+  // commands, each with its layer. It stops there, active.
+  const settledRun = checkpoint.createRun({ worktree: '/fixture/settled' });
+  const settledScope = {
+    ...fixScope,
+    request: { paths: [], exclude: ['dist/**'] },
+    excluded: { paths: ['dist/changed.js'], count: 1 },
+  };
+  const settled = new ReviewHistory(checkpoint, settledRun.id, checkpoint.append(settledRun.id, settledRun.lastSequence, [{ kind: 'scope.captured', version: 2, payload: settledScope }]).lastSequence);
+  const settledFiles = [
+    { layer: 'repository', path: '.deep-review/config.toml', sha256: 'd'.repeat(64), commit: fixScope.base },
+    { layer: 'operator', path: '/fixture/home/.config/deep-review/config.toml', sha256: 'e'.repeat(64), commit: null },
+  ];
+  settled.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.310',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: decidedRoles,
+    rolesDigest: 'd'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 120,
+    fix: true,
+    checks: { timeoutMs: 1_800_000 },
+    fixes: { batchSize: 4 },
+    survey: { userRules: 'judge' },
+    codex: null,
+    settings: {
+      files: settledFiles,
+      repository: { state: 'read', commit: fixScope.base, edited: false },
+      values: { 'review.base': 'origin/main', 'scope.default': 'auto', 'scope.exclude': ['dist/**'], 'tools.path': [], 'checks.build': null, 'checks.typecheck': null, 'checks.lint': false, 'checks.test': 'npm run test:fast' },
+      layers: {
+        'review.base': 'default', 'scope.default': 'default', 'scope.exclude': 'repository', 'tools.path': 'default', 'conventions.user_rules': 'default', 'budget.usd': 'repository', 'run.concurrency': 'default',
+        'checks.build': 'default', 'checks.typecheck': 'default', 'checks.lint': 'repository', 'checks.test': 'clone', 'checks.timeout_minutes': 'repository',
+        'runtimes.claude.strong': 'default', 'runtimes.claude.fast': 'default', 'runtimes.claude.executable': 'flag', 'runtimes.claude.args': 'default',
+      },
+      notFollowed: [{ name: 'checks.test', repository: 'npm test', value: 'npm run test:fast', layer: 'clone' }],
+      ignored: [{ layer: 'operator', path: '/fixture/home/.config/deep-review/config.toml', name: 'report.formats', reason: 'no such setting' }],
+    },
+  }, 6);
+  settled.phaseV6('survey', () => {
+    settled.launch('901', 'surveyor survey:survey');
+    settled.finishWorker('901');
+    settled.add('survey.recorded', {
+      workerId: settled.id('901'),
+      conventions: [],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: 'npm run build', basis: 'stated', source: { path: 'package.json', quote: '"build"' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'the build typechecks' },
+      ],
+      note: '',
+    });
+    settled.add('checks.planned', { checks: [
+      { kind: 'build', command: 'npm run build', origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"build"', basis: 'stated' } },
+      { kind: 'typecheck', command: null, origin: 'none', layer: null, reason: 'the build typechecks', source: null },
+      { kind: 'lint', command: null, origin: 'setting', layer: 'repository', reason: 'dropped by checks.lint = false in the repository\'s file', source: null },
+      { kind: 'test', command: 'npm run test:fast', origin: 'setting', layer: 'clone', reason: null, source: null },
+    ] }, 3);
+  });
+  // A thirteenth run, read-only and configured from the settings, its review
+  // complete with no finding to rank, continued into the fix pass by a pin
+  // whose settings settle every kind, so its checks are planned with it and
+  // its survey is not asked again (R6 of the configuration).
+  const repinnedRun = checkpoint.createRun({ worktree: '/fixture/repinned' });
+  const repinned = new ReviewHistory(checkpoint, repinnedRun.id, checkpoint.append(repinnedRun.id, repinnedRun.lastSequence, [{ kind: 'scope.captured', version: 2, payload: { ...fixScope, request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 } } }]).lastSequence);
+  repinned.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.310',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: decidedRoles,
+    rolesDigest: 'd'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 60,
+    fix: false,
+    checks: null,
+    fixes: null,
+    survey: { userRules: 'judge' },
+    codex: null,
+    settings: {
+      files: [],
+      repository: { state: 'absent', commit: fixScope.base, edited: false },
+      values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [] },
+      layers: {
+        'review.base': 'default', 'scope.default': 'default', 'scope.exclude': 'default', 'tools.path': 'default', 'conventions.user_rules': 'default', 'budget.usd': 'default', 'run.concurrency': 'default',
+        'runtimes.claude.strong': 'default', 'runtimes.claude.fast': 'default', 'runtimes.claude.executable': 'default', 'runtimes.claude.args': 'default',
+      },
+      notFollowed: [],
+      ignored: [],
+    },
+  }, 6);
+  repinned.phaseV6('survey', () => {
+    repinned.launch('951', 'surveyor survey:survey');
+    repinned.finishWorker('951');
+    repinned.add('survey.recorded', { workerId: repinned.id('951'), conventions: [], userRules: [], checks: null, note: '' });
+  });
+  repinned.phaseV6('triage', () => {
+    repinned.launch('952', 'triage triage:SCAN');
+    repinned.finishWorker('952');
+    repinned.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: repinned.id('952'), candidates: [repinned.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  repinned.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = String(960 + finderAngles.indexOf(angle));
+      repinned.launch(tag, `finder-${angle} finders:${angle}`);
+      repinned.finishWorker(tag);
+      repinned.add('candidates.recorded', { phase: 'finders', key: angle, workerId: repinned.id(tag), candidates: [], leads: null });
+    }
+  });
+  repinned.phaseV6('deduplication', () => {
+    repinned.launch('970', 'deduplication deduplication:deduplication');
+    repinned.finishWorker('970');
+    repinned.add('deduplication.recorded', { phase: 'deduplication', workerId: repinned.id('970'), groups: [] });
+  });
+  repinned.phaseV6('verification', () => {
+    repinned.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }] });
+    repinned.launch('971', 'verifier verification:g1');
+    repinned.finishWorker('971');
+    repinned.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: repinned.id('971'), verdicts: [{ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives' }] });
+  });
+  repinned.phaseV6('sweep', () => {
+    repinned.launch('980', 'sweep sweep:sweep');
+    repinned.finishWorker('980');
+    repinned.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: repinned.id('980'), candidates: [], leads: null });
+  });
+  repinned.phaseV6('sweep-deduplication', () => {});
+  repinned.phaseV6('sweep-verification', () => repinned.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  repinned.phaseV6('merge-rank', () => {
+    repinned.launch('990', 'merge-rank merge-rank:merge-rank');
+    repinned.finishWorker('990');
+    repinned.add('ranking.recorded', { workerId: repinned.id('990'), findings: [{ id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' }] });
+  });
+  repinned.phaseV6('decision', () => {
+    repinned.launch('995', 'decider decision:decision');
+    repinned.finishWorker('995');
+    repinned.add('decisions.recorded', { workerId: repinned.id('995'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: null },
+    ] });
+  });
+  repinned.phaseV6('report', () => {
+    const workersPerPhase: Partial<Record<Phase, number>> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1 };
+    const read = phases.filter((phase) => !['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'answer', 'answer-checks'].includes(phase));
+    repinned.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture read-only report of a run configured from the settings\n'),
+      statistics: { phases: read.map((phase) => ({ phase, ...answeredSpend(workersPerPhase[phase] ?? 0) })), total: answeredSpend(16), budgetApplied: true },
+      patches: [],
+    }, 5);
+  });
+  // The same command with --fix: the repository's file at the run's base settles build and lint, and the clone's file test and tools.path; --no-check drops typecheck.
+  repinned.add('fix.pinned', {
+    checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 4 },
+    plannedChecks: [
+      { kind: 'build', command: 'npm run build', origin: 'setting', layer: 'repository', reason: null, source: null },
+      { kind: 'typecheck', command: null, origin: 'setting', layer: 'flag', reason: 'dropped by --no-check', source: null },
+      { kind: 'lint', command: 'npm run lint', origin: 'setting', layer: 'repository', reason: null, source: null },
+      { kind: 'test', command: 'npm test', origin: 'setting', layer: 'clone', reason: null, source: null },
+    ],
+    settings: {
+      values: { 'checks.build': 'npm run build', 'checks.typecheck': false, 'checks.lint': 'npm run lint', 'checks.test': 'npm test', 'tools.path': ['/fixture/repinned/.venv/bin'] },
+      layers: { 'checks.build': 'repository', 'checks.typecheck': 'flag', 'checks.lint': 'repository', 'checks.test': 'clone', 'checks.timeout_minutes': 'default', 'tools.path': 'clone' },
+    },
+  }, 2);
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

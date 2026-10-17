@@ -2,7 +2,7 @@
 // spend and report tests: a run created, scoped and configured, then taken
 // through its phases one scenario at a time.
 import assert from 'node:assert/strict';
-import { reviewVocabularyV1, type ReviewConfiguration, type ReviewConfigurationV1, type ReviewConfigurationV3, type ScopeState } from '../../src/checkpoint/events.ts';
+import { reviewVocabularyV1, type ReviewConfiguration, type ReviewConfigurationV1, type ReviewConfigurationV3, type ScopeStateV1 } from '../../src/checkpoint/events.ts';
 import { foldRun, type DecodedEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { answerPhases, finderAngles, fixPhases } from '../../src/review/vocabulary.ts';
@@ -10,7 +10,8 @@ import { answerPhases, finderAngles, fixPhases } from '../../src/review/vocabula
 export const reference = (fill: string, bytes = 1): { sha256: string; bytes: number } => ({ sha256: fill.repeat(64), bytes });
 export const worker = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-export const scope: ScopeState = {
+/** The scope as version 1 of `scope.captured` records it, which the histories here record. */
+export const scope: ScopeStateV1 = {
   mode: 'worktree',
   request: { paths: [] },
   base: '1'.repeat(40),
@@ -33,7 +34,7 @@ export const configurationV1: ReviewConfigurationV1 = {
 };
 
 /** The configuration as the fold holds it: version 1's, read as a run without the fix pass that applied the reviewer's own rules, was not surveyed, and pins no Codex Windows sandbox, being a Claude Code run. */
-export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'apply' }, codex: null };
+export const configuration: ReviewConfiguration = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'apply' }, codex: null, settings: null, fixSettings: null };
 
 /** A launch under a review label, capped at the 8 USD per-worker budget the configuration's roles pin, as Claude Code's launches are. */
 export const launch = (workerId: string, label: string): Record<string, unknown> => ({
@@ -638,3 +639,37 @@ export function passToReport(history: History, n: number, findings: readonly (re
     .add('report.written', { report: reference(String(n), 4096 + n), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String.fromCharCode(97 + index))) }, 5)
     .finish('report', 'completed', n + 1);
 }
+
+/**
+ * A recorded plan's checks as the fold holds them (R11 of the
+ * configuration): a flag's, at version 1 or 2, as a setting of the flag
+ * layer; any other with no layer; and a version 1 check, which names no
+ * source, with a null one.
+ */
+export const foldedChecks = (checks: readonly Record<string, unknown>[]): Record<string, unknown>[] =>
+  checks.map((check) => ({ source: null, ...check, ...(check.origin === 'flag' ? { origin: 'setting', layer: 'flag' } : { layer: null }) }));
+
+/** What a version 6 configuration records of a run with no file and no setting flag: every recorded setting at its default (R6 of the configuration). */
+export const settingsBlock = (fix: boolean, change: Record<string, unknown> = {}): Record<string, unknown> => ({
+  files: [],
+  repository: { state: 'absent', commit: '1'.repeat(40), edited: false },
+  values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], ...(fix ? { 'checks.build': null, 'checks.typecheck': null, 'checks.lint': null, 'checks.test': null } : {}) },
+  layers: {
+    'review.base': 'default', 'scope.default': 'default', 'scope.exclude': 'default', 'tools.path': 'default', 'conventions.user_rules': 'default', 'budget.usd': 'default', 'run.concurrency': 'default',
+    'runtimes.claude.strong': 'default', 'runtimes.claude.fast': 'default', 'runtimes.claude.executable': 'default', 'runtimes.claude.args': 'default',
+    ...(fix ? { 'checks.build': 'default', 'checks.typecheck': 'default', 'checks.lint': 'default', 'checks.test': 'default', 'checks.timeout_minutes': 'default' } : {}),
+  },
+  notFollowed: [],
+  ignored: [],
+  ...change,
+});
+
+/** A run configured at version 6, surveyed and deciding, read-only unless `fix`, with the settings block `settings` gives over the default one. */
+export const settingsConfigured = (fix = false, settings: Record<string, unknown> = {}, change: Record<string, unknown> = {}): History =>
+  new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', {
+    ...configurationV3,
+    ...(fix ? { fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 } } : {}),
+    codex: null,
+    settings: settingsBlock(fix, settings),
+    ...change,
+  }, 6);

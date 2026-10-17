@@ -4,7 +4,7 @@ import { checksPlannedV2, conventionSourceSchema, plannedCheckSchemaV2, surveyed
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { conventionsKnown, lastSurvey } from '../../src/checkpoint/survey-state.ts';
 import { fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { configured, configuredFixBeforeSurvey, launch, plannedChecks, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
+import { configured, configuredFixBeforeSurvey, foldedChecks, launch, plannedChecks, settingsBlock, settingsConfigured, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
 
 const user = '/home/me/.codex/AGENTS.md';
 const repositorySource = { path: 'docs/contributing.md', level: 'repository', governs: 'style', appliesTo: null, grounds: null };
@@ -94,11 +94,67 @@ describe('the survey fold', () => {
   it('plans a fix run\'s checks from its survey and the flags while the phase runs, once', () => {
     const recorded = surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks }));
     const review = recorded.add('checks.planned', plannedV2(), 2).finish('survey').review();
-    assert.deepEqual(review.fix?.checks.planned, { ...plannedV2(), manager: null });
+    assert.deepEqual(review.fix?.checks.planned, { checks: foldedChecks(plannedV2().checks as Record<string, unknown>[]), manager: null });
     // A run whose survey failed plans its checks from the flags alone.
     const flagged = { checks: ['build', 'typecheck', 'lint', 'test'].map((kind) => ({ kind, command: `make ${kind}`, origin: 'flag', reason: null, source: null })) };
     const unsurveyed = surveyConfiguredFix().start('survey').add('survey.failed', { reason: 'failed', conventions: [], userRules: [] }).add('checks.planned', flagged, 2).finish('survey', 'degraded').review();
     assert.deepEqual(unsurveyed.fix?.checks.planned?.checks.map((check) => check.command), ['make build', 'make typecheck', 'make lint', 'make test']);
+  });
+
+  // R11 of the configuration: a check a setting settled, with its layer, held to the settings the run recorded.
+  describe('a version 3 plan', () => {
+    const values = { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'checks.build': null, 'checks.typecheck': null, 'checks.lint': false, 'checks.test': 'npm test' };
+    const layers = { 'checks.build': 'default', 'checks.typecheck': 'default', 'checks.lint': 'repository', 'checks.test': 'clone' };
+    const settled = (): History => surveying(settingsConfigured(true, { values, layers: { ...(settingsBlock(true).layers as object), ...layers } })).add('survey.recorded', surveyAnswer(worker(1), { checks: [surveyedCheck('build', null), surveyedCheck('typecheck', 'uv run mypy src')] }));
+    const plan = (lint: Record<string, unknown> = { kind: 'lint', command: null, origin: 'setting', layer: 'repository', reason: 'dropped by checks.lint = false in the repository\'s file', source: null }, test: Record<string, unknown> = { kind: 'test', command: 'npm test', origin: 'setting', layer: 'clone', reason: null, source: null }): Record<string, unknown> => ({
+      checks: [
+        { kind: 'build', command: null, origin: 'none', layer: null, reason: 'no build step', source: null },
+        { kind: 'typecheck', command: 'uv run mypy src', origin: 'survey', layer: null, reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: uv run mypy src', basis: 'stated' } },
+        lint,
+        test,
+      ],
+    });
+
+    it('folds the settings\' checks with their layers beside the survey\'s', () => {
+      const review = settled().add('checks.planned', plan(), 3).finish('survey').review();
+      assert.deepEqual(review.fix?.checks.planned, { checks: (plan().checks as unknown[]), manager: null });
+    });
+
+    it('refuses a setting\'s check that is not the setting the run recorded, by command, by drop or by layer', () => {
+      for (const [lint, test] of [
+        [undefined, { kind: 'test', command: 'npm run test:fast', origin: 'setting', layer: 'clone', reason: null, source: null }],
+        [undefined, { kind: 'test', command: 'npm test', origin: 'setting', layer: 'flag', reason: null, source: null }],
+        [{ kind: 'lint', command: 'npm run lint', origin: 'setting', layer: 'repository', reason: null, source: null }, undefined],
+      ] as const) {
+        assert.throws(() => settled().add('checks.planned', plan(lint, test), 3).fold(), /plans the (lint|test) check as a setting of \w+, which is not the setting the run recorded for it/);
+      }
+    });
+
+    it('refuses a survey\'s check, or none, for a kind a recorded setting settles', () => {
+      const surveyed = { kind: 'test', command: 'uv run pytest', origin: 'survey', layer: null, reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: uv run pytest', basis: 'stated' } };
+      assert.throws(() => settled().add('checks.planned', plan(undefined, surveyed), 3).fold(), /plans the test check as the survey's, which a setting the run recorded settles/);
+    });
+
+    it('refuses a setting\'s check for a kind no recorded setting settles', () => {
+      const build = { kind: 'build', command: 'make', origin: 'setting', layer: 'flag', reason: null, source: null };
+      assert.throws(() => settled().add('checks.planned', { checks: [build, ...(plan().checks as unknown[]).slice(1)] }, 3).fold(), /plans the build check as a setting of flag/);
+    });
+
+    it('takes a setting\'s check unchecked on a run that recorded no settings, whose flags are not on the ledger', () => {
+      const flagged = { checks: (plan().checks as Record<string, unknown>[]).map((check) => (check.origin === 'setting' ? { ...check, layer: 'flag' } : check)) };
+      const review = surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: [surveyedCheck('build', null), surveyedCheck('typecheck', 'uv run mypy src')] })).add('checks.planned', flagged, 3).review();
+      assert.deepEqual(review.fix?.checks.planned?.checks.map((check) => [check.kind, check.origin, check.layer]), [['build', 'none', null], ['typecheck', 'survey', null], ['lint', 'setting', 'flag'], ['test', 'setting', 'flag']]);
+    });
+
+    it('refuses a setting\'s check with no layer, or the default layer, and a survey\'s with one', () => {
+      for (const test of [
+        { kind: 'test', command: 'npm test', origin: 'setting', layer: null, reason: null, source: null },
+        { kind: 'test', command: 'npm test', origin: 'setting', layer: 'default', reason: null, source: null },
+        { kind: 'test', command: 'npm test', origin: 'flag', layer: 'flag', reason: null, source: null },
+      ]) {
+        assert.throws(() => settled().add('checks.planned', plan(undefined, test), 3).fold(), /checks\.planned@3\) has a payload its schema rejects/, JSON.stringify(test));
+      }
+    });
   });
 
   const refusals: [string, () => History, RegExp][] = [

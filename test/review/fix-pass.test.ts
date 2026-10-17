@@ -710,7 +710,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const state = box.run();
     const planned = state.review!.fix!.checks.planned!;
     assert.equal(planned.manager, null, 'a version 2 plan names no package manager');
-    assert.deepEqual(planned.checks.map((check) => [check.kind, check.command, check.origin, check.source?.basis ?? null]), [['build', 'npm run build', 'survey', 'hint'], ['typecheck', null, 'flag', null], ['lint', 'npm run lint', 'survey', 'stated'], ['test', 'npm run test', 'survey', 'stated']]);
+    assert.deepEqual(planned.checks.map((check) => [check.kind, check.command, check.layer ?? check.origin, check.source?.basis ?? null]), [['build', 'npm run build', 'survey', 'hint'], ['typecheck', null, 'flag', null], ['lint', 'npm run lint', 'survey', 'stated'], ['test', 'npm run test', 'survey', 'stated']]);
     assert.deepEqual(box.checkRuns(), ['build', 'lint', 'test', 'build', 'lint', 'test'], 'npm ran each script, and the dropped kind never ran');
     // The surveyor was told the kinds to choose, the flag that settled typecheck, the shell a check runs in, and the manifest rules' hints as guesses.
     const prompt = box.promptOf(state, 'surveyor survey:survey');
@@ -799,7 +799,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     box.script(reviewScript);
     reportText(await box.review('claude', { fix: { commands: { test: 'echo other' }, dropped: [] } }));
     assert.ok(box.logs.some((line) => /keeps the checks it pinned; --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
-    assert.ok(box.run().review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag' && check.command !== 'echo other'));
+    assert.ok(box.run().review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag' && check.command !== 'echo other'));
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the resumed run kept the size it started with');
   });
 

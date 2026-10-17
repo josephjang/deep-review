@@ -18,6 +18,7 @@ import {
   claimed,
   configured,
   continuedRun,
+  foldedChecks,
   continuedToReport,
   decidedFixRun,
   decidedOf,
@@ -57,8 +58,8 @@ describe('the fix fold', () => {
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(review.configuration.checks, { timeoutMs: 600_000 });
     for (const phase of fixPhases) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 });
-    // A version 1 plan names no source; the fold gives each of its checks a null one, as a version 2 plan's flag does.
-    assert.deepEqual(review.fix?.checks.planned, { ...plannedChecks, checks: plannedChecks.checks.map((check) => ({ ...check, source: null })) });
+    // A version 1 plan names no source; the fold gives each of its checks a null one, as a version 2 plan's flag does, and its flag reads as a setting of the flag layer.
+    assert.deepEqual(review.fix?.checks.planned, { ...plannedChecks, checks: foldedChecks(plannedChecks.checks) });
     assert.equal(review.fix?.plan, null);
     assert.deepEqual(review.fix?.revisions, []);
   });
@@ -621,7 +622,7 @@ describe('the continuation into the fix pass', () => {
 
   it('plans the flags\' checks with the pin and leaves the survey completed when they settle every kind (TD3)', () => {
     const review = readOnlyReported().add('fix.pinned', pin(flagPlan)).review();
-    assert.deepEqual(review.fix?.checks.planned, { checks: flagPlan, manager: null });
+    assert.deepEqual(review.fix?.checks.planned, { checks: foldedChecks(flagPlan), manager: null });
     assert.deepEqual(review.phases.survey, { status: 'completed', attempt: 1 });
     assert.deepEqual(review.phases.report, { status: 'pending', attempt: 1 });
   });
@@ -647,7 +648,7 @@ describe('the continuation into the fix pass', () => {
     const review = run.review!;
     assert.deepEqual(review.phases.survey, { status: 'completed', attempt: 2 });
     assert.equal(review.survey?.answers.length, 2);
-    assert.deepEqual(review.fix?.checks.planned, { ...quietPlannedChecks, manager: null });
+    assert.deepEqual(review.fix?.checks.planned, { checks: foldedChecks(quietPlannedChecks.checks), manager: null });
     assert.deepEqual(review.fix?.plan, fixPlan);
     assert.equal(review.fix?.revisions.length, 1);
     assert.deepEqual(review.phases.report, { status: 'completed', attempt: 2 });
@@ -665,7 +666,48 @@ describe('the continuation into the fix pass', () => {
   it('continues a run that went on without its survey only with the checks planned, its survey left as it degraded', () => {
     const review = withoutSurvey().add('fix.pinned', pin(flagPlan)).review();
     assert.deepEqual(review.phases.survey, { status: 'degraded', attempt: 1 });
-    assert.deepEqual(review.fix?.checks.planned?.checks, flagPlan);
+    assert.deepEqual(review.fix?.checks.planned?.checks, foldedChecks(flagPlan));
+  });
+
+  // R6 of the configuration: the fix side of the settings a continuation resolved.
+  describe('a version 2 pin', () => {
+    const fixSide = {
+      values: { 'checks.build': 'npm run build', 'checks.typecheck': false, 'checks.lint': null, 'checks.test': 'npm test', 'tools.path': ['/w/.venv/bin'] },
+      layers: { 'checks.build': 'repository', 'checks.typecheck': 'flag', 'checks.lint': 'default', 'checks.test': 'clone', 'checks.timeout_minutes': 'repository', 'tools.path': 'clone' },
+    };
+    const settledPlan = [
+      { kind: 'build', command: 'npm run build', origin: 'setting', layer: 'repository', reason: null, source: null },
+      { kind: 'typecheck', command: null, origin: 'setting', layer: 'flag', reason: 'dropped by --no-check', source: null },
+      { kind: 'lint', command: 'npm run lint', origin: 'setting', layer: 'operator', reason: null, source: null },
+      { kind: 'test', command: 'npm test', origin: 'setting', layer: 'clone', reason: null, source: null },
+    ];
+
+    it('folds the fix side beside the configuration, the survey asked again for the kinds no setting settles', () => {
+      const review = readOnlyReported().add('fix.pinned', { ...pin(), settings: fixSide }, 2).review();
+      assert.deepEqual(review.configuration.fixSettings, fixSide);
+      assert.deepEqual(review.configuration.checks, { timeoutMs: 300_000 });
+      assert.equal(review.fix?.checks.planned, null);
+      assert.deepEqual(review.phases.survey, { status: 'pending', attempt: 1 });
+    });
+
+    it('plans the settings\' checks with the pin when they settle every kind, each with its layer', () => {
+      const review = readOnlyReported().add('fix.pinned', { ...pin(settledPlan), settings: { ...fixSide, values: { ...fixSide.values, 'checks.lint': 'npm run lint' }, layers: { ...fixSide.layers, 'checks.lint': 'operator' } } }, 2).review();
+      assert.deepEqual(review.fix?.checks.planned, { checks: settledPlan, manager: null });
+      assert.deepEqual(review.phases.survey, { status: 'completed', attempt: 1 });
+    });
+
+    it('reads a version 1 pin as recording no fix side, its flags\' checks as settings of the flag layer', () => {
+      const review = readOnlyReported().add('fix.pinned', pin(flagPlan)).review();
+      assert.equal(review.configuration.fixSettings, null);
+      assert.ok(review.fix?.checks.planned?.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
+    });
+
+    it('refuses a pin whose planned checks are not all settings\', and one without its fix side', () => {
+      const withSurvey = [...settledPlan.slice(0, 3), { kind: 'test', command: 'npm test', origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"test"', basis: 'stated' } }];
+      for (const payload of [{ ...pin(withSurvey), settings: fixSide }, pin(settledPlan), { ...pin(), settings: { ...fixSide, layers: { ...fixSide.layers, 'checks.timeout_minutes': undefined } } }]) {
+        assert.throws(() => readOnlyReported().add('fix.pinned', payload, 2).fold(), /fix\.pinned@2\) has a payload its schema rejects/);
+      }
+    });
   });
 
   const refusals: [name: string, build: () => History, message: RegExp][] = [

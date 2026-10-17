@@ -321,7 +321,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const state = box.run();
     assert.equal(state.review!.phases.survey.status, 'degraded');
     assert.match(state.review!.survey!.failure!.reason, /^the survey blocked, /);
-    assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'flag'));
+    assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
     assert.equal(box.logs.filter((line) => line.startsWith('phase survey: going on without the survey: the survey blocked, ')).length, 1, box.logs.join('\n'));
     assert.ok(box.logs.includes(`run ${state.id}: survey: no convention source`), box.logs.join('\n'));
     // No survey answered, so the engine cannot tell which flags an earlier invocation gave: it says they must be given again.
@@ -345,7 +345,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const state = box.run();
     assert.ok(box.logs.includes(`run ${state.id}: its survey was asked with --check or --no-check settling build, typecheck, which this invocation leaves unsettled, so the survey is asked again for them; give those flags again to keep them`), box.logs.join('\n'));
     assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', 'asked again']);
-    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.origin]), [['build', 'survey'], ['typecheck', 'survey'], ['lint', 'flag'], ['test', 'survey']]);
+    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin]), [['build', 'survey'], ['typecheck', 'survey'], ['lint', 'flag'], ['test', 'survey']]);
   });
 
   it('lists, for a run configured before the survey existed and resumed, the rules files the engine found for it then, as its pinned role prompts expect', async (t) => {

@@ -23,15 +23,16 @@ describe('registry', () => {
    * Every kind the engine declares, sorted as `registryKeys` sorts: the
    * run, scope and worker kinds, the review's, with versions 2 to 4 of
    * the kinds that carry a phase, version 5 of the two that carry a
-   * blocker code or a fault, and versions 2 to 5 of the configuration,
-   * the fix pass's with version 2 of its plan of checks, the survey's, the
-   * decision step's, and the claims'.
+   * blocker code or a fault, and versions 2 to 6 of the configuration,
+   * the fix pass's with versions 2 and 3 of its plan of checks, the
+   * survey's, the decision step's, the claims', and version 2 of the scope
+   * and of the continuation's pin, which the settings added.
    */
   const declaredKinds = [
-    'angle.failed@1', 'answer.pass@1', 'answer.recorded@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'attempt.failed@5', 'attempt.failed@6', 'candidates.recorded@1', 'check.ran@1', 'check.ran@2', 'checks.planned@1', 'checks.planned@2', 'claims.lost@1', 'commits.created@1',
-    'decisions.recorded@1', 'deduplication.recorded@1', 'files.claimed@1', 'fix.pinned@1', 'fix.recorded@1', 'fix.recorded@2', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
+    'angle.failed@1', 'answer.pass@1', 'answer.recorded@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'attempt.failed@5', 'attempt.failed@6', 'candidates.recorded@1', 'check.ran@1', 'check.ran@2', 'checks.planned@1', 'checks.planned@2', 'checks.planned@3', 'claims.lost@1', 'commits.created@1',
+    'decisions.recorded@1', 'deduplication.recorded@1', 'files.claimed@1', 'fix.pinned@1', 'fix.pinned@2', 'fix.recorded@1', 'fix.recorded@2', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
     'phase.finished@1', 'phase.finished@2', 'phase.finished@3', 'phase.finished@4', 'phase.finished@5', 'phase.finished@6', 'phase.started@1', 'phase.started@2', 'phase.started@3', 'phase.started@4', 'phase.started@5', 'ranking.recorded@1', 'report.written@1', 'report.written@2', 'report.written@3', 'report.written@4', 'report.written@5',
-    'review.configured@1', 'review.configured@2', 'review.configured@3', 'review.configured@4', 'review.configured@5', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'survey.failed@1', 'survey.recorded@1', 'tree.revised@1', 'tree.revised@2', 'unit.unattempted@1', 'verdicts.recorded@1', 'verification.planned@1',
+    'review.configured@1', 'review.configured@2', 'review.configured@3', 'review.configured@4', 'review.configured@5', 'review.configured@6', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'scope.captured@2', 'survey.failed@1', 'survey.recorded@1', 'tree.revised@1', 'tree.revised@2', 'unit.unattempted@1', 'verdicts.recorded@1', 'verification.planned@1',
     'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worker.lost@2', 'worker.lost@3', 'worker.lost@4', 'worker.lost@5', 'worktree.checked@1', 'worktree.checked@2', 'worktree.checked@3', 'worktree.checked@4', 'worktree.checked@5',
   ];
 
@@ -117,6 +118,35 @@ describe('foldRun', () => {
     const state = foldRun([created(), event(2, 'test.note', { text: 'hi' })], testModel);
     assert.equal(state.lastSequence, 2);
     assert.throws(() => foldRun([created(), event(2, 'test.note', { text: 'hi' })]), UnknownEventError);
+  });
+});
+
+// R10 of the configuration: the paths scope.exclude left out.
+describe('the scope', () => {
+  const v1 = { mode: 'worktree', request: { paths: ['src'] }, base: '1'.repeat(40), head: '2'.repeat(40), files: [], patch: { sha256: 'a'.repeat(64), bytes: 1 } };
+  const v2 = { ...v1, request: { paths: [], exclude: ['dist/**'] }, excluded: { paths: ['dist/a.js', 'dist/b.js'], count: 2 } };
+
+  it('reads a version 1 capture as one with no pattern, which left nothing out', () => {
+    const state = foldRun([created(), event(2, 'scope.captured', v1)]);
+    assert.deepEqual(state.scope, { ...v1, request: { paths: ['src'], exclude: [] }, excluded: { paths: [], count: 0 } });
+  });
+
+  it('folds a version 2 capture as it was recorded, with its patterns and the paths they left out', () => {
+    assert.deepEqual(foldRun([created(), event(2, 'scope.captured', v2, 2)]).scope, v2);
+    const many = { ...v2, excluded: { paths: Array.from({ length: 2000 }, (_, index) => `dist/${String(index)}.js`), count: 2500 } };
+    assert.equal(foldRun([created(), event(2, 'scope.captured', many, 2)]).scope?.excluded.count, 2500, 'more paths than the record names are counted');
+  });
+
+  it('refuses a count that is not the paths named, paths left out with no pattern, and a capture twice', () => {
+    for (const payload of [
+      { ...v2, excluded: { paths: ['dist/a.js'], count: 2 } },
+      { ...v2, excluded: { paths: ['dist/a.js', 'dist/b.js'], count: 1 } },
+      { ...v2, request: { paths: [], exclude: [] } },
+      { ...v1, excluded: { paths: [], count: 0 } },
+    ]) {
+      assert.throws(() => foldRun([created(), event(2, 'scope.captured', payload, 2)]), /scope\.captured@2\) has a payload its schema rejects/, JSON.stringify(payload.excluded));
+    }
+    assert.throws(() => foldRun([created(), event(2, 'scope.captured', v1), event(3, 'scope.captured', v2, 2)]), /captures its scope twice/);
   });
 });
 

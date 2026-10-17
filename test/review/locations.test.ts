@@ -13,7 +13,8 @@ const blob = { blob: reference };
 /** A scope over four files: two with the same tail, one deleted, one oversized; the worktree holds their after bytes. */
 const scope: ScopeState = {
   mode: 'worktree',
-  request: { paths: [] },
+  request: { paths: [], exclude: [] },
+  excluded: { paths: [], count: 0 },
   base: '1'.repeat(40),
   head: '2'.repeat(40),
   files: [

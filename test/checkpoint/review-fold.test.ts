@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { answerPhases, finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { History, askDecision, baselined, candidate, configuration, configurationV1, configured, decidedOf, decisions, finding, fixPlan, found, launch, leads, mergeRanked, ranking, reference, reported, scope, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { History, askDecision, baselined, candidate, configuration, configurationV1, configured, decidedOf, decisions, finding, fixPlan, found, launch, leads, mergeRanked, ranking, reference, reported, scope, settingsConfigured, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
@@ -198,6 +198,45 @@ describe('the review fold', () => {
     assert.throws(() => reported().start('answer').fold(), (error: unknown) => error instanceof InvalidHistoryError && /starts phase answer, which this run skips: no answer pass has opened it/.test(error.message));
   });
 
+  // R6, R17 of the configuration.
+  describe('the settings of version 6', () => {
+    it('folds a version 6 configuration with its settings, no fix side yet, and the survey and the decision pending', () => {
+      const values = { 'review.base': 'origin/main', 'scope.default': 'branch', 'scope.exclude': ['dist/**'], 'tools.path': ['/w/.venv/bin'] };
+      const review = settingsConfigured(false, { values, files: [{ layer: 'repository', path: '.deep-review/config.toml', sha256: 'a'.repeat(64), commit: '1'.repeat(40) }], repository: { state: 'read', commit: '1'.repeat(40), edited: true } }).review();
+      assert.deepEqual(review.configuration.settings?.values, values);
+      assert.deepEqual(review.configuration.settings?.repository, { state: 'read', commit: '1'.repeat(40), edited: true });
+      assert.equal(review.configuration.fixSettings, null);
+      assert.equal(review.phases.survey.status, 'pending');
+      assert.equal(review.phases.decision.status, 'pending');
+    });
+
+    it('reads every earlier version as recording no settings', () => {
+      for (const [version, payload] of [[1, configurationV1], [3, { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' } }], [5, { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' }, codex: null }]] as const) {
+        const review = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', payload, version).review();
+        assert.equal(review.configuration.settings, null, `version ${String(version)}`);
+        assert.equal(review.configuration.fixSettings, null, `version ${String(version)}`);
+      }
+    });
+
+    const refusals: [string, () => History][] = [
+      ['a layer of a setting the version does not record', () => settingsConfigured(false, { layers: { 'report.formats': 'operator' } })],
+      ['a layer of an unknown layer', () => settingsConfigured(false, { layers: { 'scope.exclude': 'managed' } })],
+      ['a setting of another runtime than the run\'s', () => settingsConfigured(false, { layers: { 'runtimes.codex.strong': 'operator' } })],
+      ['a value the version has a field for', () => settingsConfigured(false, { values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'budget.usd': 30 } })],
+      ['check settings on a read-only run', () => settingsConfigured(false, { values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'checks.test': 'npm test' } })],
+      ['a fix run without its check settings', () => settingsConfigured(true, { values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [] } })],
+      ['a skipped repository file with a commit', () => settingsConfigured(false, { repository: { state: 'skipped', commit: '1'.repeat(40), edited: false } })],
+      ['a repository file read and not among the files', () => settingsConfigured(false, { files: [{ layer: 'repository', path: '.deep-review/config.toml', sha256: 'a'.repeat(64), commit: '1'.repeat(40) }], repository: { state: 'absent', commit: '1'.repeat(40), edited: false } })],
+      ['an operator\'s file read at a commit', () => settingsConfigured(false, { files: [{ layer: 'operator', path: '/h/config.toml', sha256: 'a'.repeat(64), commit: '1'.repeat(40) }] })],
+      ['a value not followed of no setting', () => settingsConfigured(false, { notFollowed: [{ name: 'nope', repository: 1, value: 2, layer: 'flag' }] })],
+    ];
+    for (const [name, build] of refusals) {
+      it(`refuses ${name}`, () => {
+        assert.throws(() => build().fold(), (error: unknown) => error instanceof InvalidHistoryError && /review\.configured@6\) has a payload its schema rejects/.test(error.message), name);
+      });
+    }
+  });
+
   it('runs the decision of a run configured at version 5, and skips it at version 4 and earlier, whatever else the run does (R10 of the decision step)', () => {
     const configuredAt = (version: number, payload: Record<string, unknown>): ReviewState => new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', payload, version).review();
     const v4 = { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' }, codex: null };
@@ -207,7 +246,7 @@ describe('the review fold', () => {
       assert.equal(decided.phases.decision.status, 'pending', `a version 5 run, fix ${String(fix)}`);
       assert.equal(decided.phases.survey.status, 'pending', 'a version 5 run is surveyed');
       assert.equal(decided.decisions, null, 'nothing is decided at configuration');
-      assert.deepEqual(decided.configuration, payload, 'version 5 records version 4\'s payload, unchanged');
+      assert.deepEqual(decided.configuration, { ...payload, settings: null, fixSettings: null }, 'version 5 records version 4\'s payload, unchanged, and no settings (R17 of the configuration)');
       assert.equal(configuredAt(4, payload).phases.decision.status, 'skipped', `a version 4 run, fix ${String(fix)}`);
     }
     assert.equal(configuredAt(3, { ...configurationV1, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' } }).phases.decision.status, 'skipped');

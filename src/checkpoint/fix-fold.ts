@@ -15,8 +15,8 @@
  */
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
-import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, checksFloor, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, nextSeries, roundOf, routeOf, runHead, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type FixState, type PathHolder } from './fix-state.ts';
+import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixSettingsRecorded, ReviewConfiguration, TreeRevised, UnitUnattempted } from './events.ts';
+import { batchOf, checksFloor, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, nextSeries, plannedCheckOfV2, roundOf, routeOf, runHead, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type FixState, type PathHolder, type PlannedCheck } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { lastSurvey } from './survey-state.ts';
@@ -37,28 +37,53 @@ const checksPlannedV1: Reducer<ChecksPlannedV1> = (state, payload, event) => {
   if (review.survey !== null) throw invalid(event, 'plans its checks by the manifest rules on a run its survey decides them for');
   const baseline = review.phases['baseline-checks'].status;
   if (baseline === 'completed' || baseline === 'degraded') throw invalid(event, `plans its checks after the baseline phase ${baseline}`);
-  const planned: ChecksPlanned = { checks: payload.checks.map((check) => ({ ...check, source: null })), manager: payload.manager };
+  const planned: ChecksPlanned = { checks: payload.checks.map((check) => (check.origin === 'flag' ? { ...check, origin: 'setting', layer: 'flag', source: null } : { ...check, origin: check.origin, layer: null, source: null })), manager: payload.manager };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, planned } }, event);
 };
 
 /**
- * The checks of a version 2 plan, recorded when the survey phase
+ * The check setting a run recorded for a kind, with its layer: the
+ * continuation's when a `fix.pinned@2` recorded the fix side, else the
+ * configuration's; undefined for a run that recorded no settings (R6 of
+ * the configuration).
+ */
+function recordedCheckSetting(configuration: ReviewConfiguration, kind: PlannedCheck['kind']): { readonly value: string | false | null; readonly layer: string } | undefined {
+  const name = `checks.${kind}` as const;
+  if (configuration.fixSettings !== null) return { value: configuration.fixSettings.values[name], layer: configuration.fixSettings.layers[name] };
+  const value = configuration.settings?.values[name];
+  const layer = configuration.settings?.layers[name];
+  return value === undefined || layer === undefined ? undefined : { value, layer };
+}
+
+/**
+ * The checks of a version 2 or 3 plan, recorded when the survey phase
  * completes (R6, R15 of the repository survey): once, while the phase
  * runs, standing on a recorded survey or on the run going on without
  * one. A check the survey decided is the last answer's command for its
  * kind, with its source and basis, and no tool missing; one nobody
- * decided is a kind that answer gave no command. A flag's is the flag's
- * and is not checked here, since the flags are not on the ledger.
+ * decided is a kind that answer gave no command. A setting's is the
+ * setting the run recorded for its kind, with its layer, and the survey's
+ * and nobody's are kinds no recorded setting settles (R11 of the
+ * configuration). On a run that recorded no settings, a setting's, a
+ * version 2 flag among them, is not checked, since its flags are not on
+ * the ledger.
  */
-const checksPlannedV2: Reducer<ChecksPlannedV2> = (state, payload, event) => {
+function planFromSurvey(state: RunState | undefined, checks: readonly PlannedCheck[], event: DecodedEvent): RunState {
   const { current, review, fix } = requireFix(state, event);
   if (fix.checks.planned !== null) throw invalid(event, 'plans its checks twice');
   if (review.survey === null) throw invalid(event, 'plans its checks from a survey on a run configured before the survey existed');
   requireRunning(review, event, 'survey');
   const answer = lastSurvey(review.survey);
   if (answer === null && review.survey.failure === null) throw invalid(event, 'plans its checks before its survey is recorded or the run goes on without one');
-  for (const check of payload.checks) {
-    if (check.origin === 'flag') continue;
+  for (const check of checks) {
+    const recorded = recordedCheckSetting(review.configuration, check.kind);
+    if (check.origin === 'setting') {
+      if (recorded === undefined) continue;
+      const command = recorded.value === false ? null : recorded.value;
+      if (recorded.value === null || command !== check.command || recorded.layer !== check.layer) throw invalid(event, `plans the ${check.kind} check as a setting of ${String(check.layer)}, which is not the setting the run recorded for it`);
+      continue;
+    }
+    if (recorded !== undefined && recorded.value !== null) throw invalid(event, `plans the ${check.kind} check as the survey's, which a setting the run recorded settles`);
     const surveyed = answer?.checks?.find((entry) => entry.kind === check.kind) ?? null;
     if (surveyed === null) throw invalid(event, `plans the ${check.kind} check as the survey's, which surveyed no such kind`);
     if (check.origin === 'none') {
@@ -68,9 +93,15 @@ const checksPlannedV2: Reducer<ChecksPlannedV2> = (state, payload, event) => {
     const same = surveyed.command === check.command && surveyed.missingTool === null && surveyed.basis === check.source?.basis && surveyed.source?.path === check.source.path && surveyed.source.quote === check.source.quote;
     if (!same) throw invalid(event, `plans ${JSON.stringify(check.command)} for the ${check.kind} check, which is not the survey's runnable command for it`);
   }
-  const planned: ChecksPlanned = { checks: payload.checks, manager: null };
+  const planned: ChecksPlanned = { checks, manager: null };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, planned } }, event);
-};
+}
+
+/** A version 2 plan, whose flag reads as a setting of the flag layer. */
+const checksPlannedV2: Reducer<ChecksPlannedV2> = (state, payload, event) => planFromSurvey(state, payload.checks.map(plannedCheckOfV2), event);
+
+/** A version 3 plan, a setting's check with its layer (R11 of the configuration). */
+const checksPlannedV3: Reducer<ChecksPlannedV3> = (state, payload, event) => planFromSurvey(state, payload.checks, event);
 
 const fixesPlanned: Reducer<FixesPlanned> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
@@ -354,7 +385,7 @@ const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
  * `answer.pass`, this is one of the two reducers that move a phase out of
  * `skipped` or `completed`.
  */
-const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
+function pinFix(state: RunState | undefined, payload: Omit<FixPinned, 'plannedChecks'> & { readonly plannedChecks: readonly PlannedCheck[] | null }, settings: FixSettingsRecorded | null, event: DecodedEvent, drafts: FoldDrafts): RunState {
   const { current, review } = requireReview(state, event);
   if (current.status !== 'active') throw invalid(event, `continues into the fix pass a run that is ${current.status}`);
   if (review.report === null) throw invalid(event, 'continues into the fix pass before its report');
@@ -372,7 +403,7 @@ const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
     reopened = ['report', 'survey'];
     units = withFreshAttempts(review, drafts, 'survey');
   } else {
-    // The flags planned every check with the pin, so the survey stays as it finished.
+    // The settings planned every check with the pin, so the survey stays as it finished.
     fix = { ...empty, checks: { ...empty.checks, planned: { checks: payload.plannedChecks, manager: null } } };
     reopened = ['report'];
     units = review.units;
@@ -380,9 +411,15 @@ const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => {
   const phaseStates = { ...review.phases };
   for (const phase of fixPhases) phaseStates[phase] = { status: 'pending', attempt: 0 };
   for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
-  const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes };
+  const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings };
   return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
-};
+}
+
+/** A version 1 pin, recorded before the settings existed: its flags' checks read as settings of the flag layer, and it records no fix side. */
+const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => pinFix(state, { ...payload, plannedChecks: payload.plannedChecks?.map(plannedCheckOfV2) ?? null }, null, event, drafts);
+
+/** A version 2 pin, with the fix side of the settings the continuation resolved (R6 of the configuration). */
+const fixPinnedV2: Reducer<FixPinnedV2> = (state, payload, event, drafts) => pinFix(state, payload, payload.settings, event, drafts);
 
 /**
  * A series of commits built from the run (R17 of the fix pass, R8 of
@@ -411,6 +448,7 @@ const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {
 export const fixReducers = {
   'checks.planned@1': checksPlannedV1,
   'checks.planned@2': checksPlannedV2,
+  'checks.planned@3': checksPlannedV3,
   'fixes.planned@1': fixesPlanned,
   'fixes.replanned@1': fixesReplanned,
   'check.ran@1': checkRan,
@@ -424,4 +462,5 @@ export const fixReducers = {
   'files.claimed@1': filesClaimed,
   'claims.lost@1': claimsLost,
   'fix.pinned@1': fixPinned,
+  'fix.pinned@2': fixPinnedV2,
 } as const;
