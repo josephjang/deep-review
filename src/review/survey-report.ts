@@ -8,13 +8,12 @@
  * configured before the survey existed has none of these, and its report
  * renders as it did before.
  */
-import { layerWords } from '../config/settings.ts';
 import type { ConventionSource, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
 import type { PlannedCheck } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { conventionsKnown, type SurveyState } from '../checkpoint/survey-state.ts';
 import { inlineText, tableCell } from './markdown.ts';
-import type { UnavailableCheck } from './survey.ts';
+import { checkSettingWords, type UnavailableCheck } from './survey.ts';
 
 /**
  * The surveyed command of a kind whose tool was missing, or null: read
@@ -39,7 +38,7 @@ const definedPhrase = (defined: UnavailableCheck): string => `the project define
  */
 const settingWords = (check: PlannedCheck): string => {
   if (check.layer === 'flag' || check.layer === null) return check.command === null ? '--no-check' : '--check';
-  return `checks.${check.kind}${check.command === null ? ' = false' : ''} in ${layerWords[check.layer]}`;
+  return checkSettingWords(check.kind, check.layer, check.command === null);
 };
 
 /**

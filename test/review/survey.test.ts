@@ -7,7 +7,7 @@ import { noCheckFlags, type CheckFlags } from '../../src/review/checks/discover.
 import { StructuralCheckError } from '../../src/review/errors.ts';
 import { worktreeLookup } from '../../src/review/locations.ts';
 import type { SurveyorCheckOutput, SurveyorOutput } from '../../src/review/schemas.ts';
-import { checkSurveyAnswer, droppedReason, offeredUserFiles, policyWords, resolveChecks, surveyFailure, type SurveyCheckContext, type SurveyInputs } from '../../src/review/survey.ts';
+import { checkSettingWords, checkSurveyAnswer, droppedReason, droppedReasonOf, offeredUserFiles, policyWords, resolveChecks, surveyFailure, type SurveyCheckContext, type SurveyInputs } from '../../src/review/survey.ts';
 import type { UserRulesSetting } from '../../src/review/vocabulary.ts';
 
 /** A surveyor's check entry: a stated command from the CI workflow, or none. */
@@ -269,6 +269,19 @@ describe('resolveChecks', () => {
   it('plans from the flags alone with no survey, leaving every unflagged kind uncovered', () => {
     assert.deepEqual(resolveChecks(null, { commands: { build: 'make' }, dropped: ['test'] }).uncovered, ['typecheck', 'lint']);
     assert.deepEqual(resolveChecks({ checks: null }, noCheckFlags).uncovered, ['build', 'typecheck', 'lint', 'test']);
+  });
+});
+
+// R11 of the configuration: one wording of a setting that settled a kind, for the plan, the task, the report and the log.
+describe('checkSettingWords', () => {
+  it('names the setting and its file, with = false for a kind it dropped', () => {
+    assert.equal(checkSettingWords('test', 'clone', false), 'checks.test in the clone\'s file');
+    assert.equal(checkSettingWords('lint', 'invocation', true), 'checks.lint = false in the --config file');
+  });
+
+  it('gives the reason a file dropped a kind, and --no-check\'s for the flag layer', () => {
+    assert.equal(droppedReasonOf('lint', 'repository'), 'dropped by checks.lint = false in the repository\'s file');
+    assert.equal(droppedReasonOf('lint', 'flag'), droppedReason);
   });
 });
 

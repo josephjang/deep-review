@@ -12,7 +12,8 @@ import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
-import { layerWords, type Layer } from '../config/settings.ts';
+import type { Layer } from '../config/settings.ts';
+import { checkSettingWords, droppedReasonOf } from './survey.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
@@ -156,7 +157,7 @@ function fixChecks(input: SurveyTaskInput): string[] {
   const byFlags = input.settled.every((entry) => entry.layer === 'flag');
   const settledLine = (entry: SurveyTaskInput['settled'][number]): string => {
     if (entry.layer === 'flag') return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
-    return entry.command === null ? `- ${entry.kind}: dropped by checks.${entry.kind} = false in ${layerWords[entry.layer]}` : `- ${entry.kind}: ${codeSpan(entry.command)} (checks.${entry.kind} in ${layerWords[entry.layer]})`;
+    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
   };
   const settled = input.settled.length === 0
     ? []

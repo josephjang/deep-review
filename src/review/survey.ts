@@ -8,7 +8,7 @@
  */
 import { isAbsolute, join } from 'node:path';
 import type { ConventionSource, PlannedCheckV3, SurveyedCheck, SurveyedSources, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
-import { layerWords, type Layer } from '../config/settings.ts';
+import { layerWords, type FileLayer, type Layer } from '../config/settings.ts';
 import { canonicalPath, isFile, isInside } from '../paths.ts';
 import { flagSetting, isSettled, settledLayer, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
@@ -222,8 +222,11 @@ function checkChecks(output: SurveyorOutput, context: SurveyCheckContext): Surve
 /** The reason a kind dropped by `--no-check` has no command. */
 export const droppedReason = 'dropped by --no-check';
 
+/** The setting a configuration file settled a kind with, and that file, as the plan, the task, the report and the log name it (R11 of the configuration): `checks.<kind>`, with ` = false` for a kind it dropped. */
+export const checkSettingWords = (kind: CheckKind, layer: FileLayer, dropped: boolean): string => `checks.${kind}${dropped ? ' = false' : ''} in ${layerWords[layer]}`;
+
 /** The reason a kind a setting dropped has no command: `--no-check`'s for the flag layer, else the setting and the file that gave it (R11 of the configuration). */
-export const droppedReasonOf = (kind: CheckKind, layer: Exclude<Layer, 'default'>): string => (layer === 'flag' ? droppedReason : `dropped by checks.${kind} = false in ${layerWords[layer]}`);
+export const droppedReasonOf = (kind: CheckKind, layer: Exclude<Layer, 'default'>): string => (layer === 'flag' ? droppedReason : `dropped by ${checkSettingWords(kind, layer, true)}`);
 
 /** A check the project defines whose tool this machine lacks, by the surveyor's word (R15). */
 export interface UnavailableCheck {
