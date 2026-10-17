@@ -219,11 +219,13 @@ const comparable = (name: SettingName, value: unknown): unknown => (name === 'ch
 /**
  * What a resumed run says of the settings as they are now (R6): each file
  * it recorded that changed, is gone or is not read now, and each recorded
- * setting whose value now differs, which the run does not apply. A
- * setting a dedicated flag gives is left to that flag's own line; the
- * concurrency and the run budget a flag gives apply per invocation; and
- * a setting the run recorded from a flag is compared only with a flag
- * given now, since a resume keeps it without the flag typed again. The
+ * setting whose value now differs, which the run does not apply. A flag
+ * of the run's models or the Codex Windows sandbox, `--set` or its
+ * dedicated flag alike, is left to the resume's own line for it; the
+ * concurrency, the run budget and, until the checks are planned, the
+ * check settings a flag gives apply per invocation; and a setting the
+ * run recorded from a flag is compared only with a flag given now, since
+ * a resume keeps it without the flag typed again. The
  * run pinned the path its executable setting resolved to, so the path
  * `resolveExecutable` gives the setting now is the one compared, and a
  * setting it cannot resolve now is named with why, without stopping the
@@ -240,13 +242,14 @@ export function unappliedLines(runId: string, configuration: ReviewConfiguration
   const newFiles = now.files.filter((file) => !recordedFiles.some((recorded) => recorded.layer === file.layer && recorded.path === file.path)).map((file) => `run ${runId}: ${layerWords[file.layer]} ${file.path} is new since the run recorded its settings; it does not apply`);
   // A run configured before the settings recorded only its fix side, if a continuation recorded one.
   const names = [...new Set<SettingName>([...(configuration.settings === null ? [] : recordedNames(configuration)), ...(configuration.fixSettings === null ? [] : fixSideNames)])];
-  const executable = isConfiguredRuntime(configuration.runtime) ? runtimeSettingNames(configuration.runtime).executable : null;
+  const runtime = isConfiguredRuntime(configuration.runtime) ? runtimeSettingNames(configuration.runtime) : null;
+  const executable = runtime?.executable ?? null;
+  // The settings a flag gives that the resume names or applies on its own, whichever flag gave them.
+  const ownLine: readonly SettingName[] = [...(runtime === null ? [] : [runtime.strong, runtime.fast]), 'runtimes.codex.windows_sandbox', 'run.concurrency', 'budget.usd', ...checkSettingNames];
   const settingLines = names.flatMap((name) => {
     const current = now.values[name];
     const flag = flags.get(name);
-    if (flag !== undefined && !flag.flag.startsWith('--set')) return [];
-    // The concurrency and the run budget a flag gives apply per invocation, and so do the check settings until the checks are planned.
-    if ((name === 'run.concurrency' || name === 'budget.usd' || checkSettingNames.includes(name)) && current.layer === 'flag') return [];
+    if (flag !== undefined && ownLine.includes(name)) return [];
     const recorded = settingOf(configuration, name);
     // A flag an earlier invocation gave is kept without being typed again, so only a flag given now is compared with it.
     if (recorded.layer === 'flag' && flag === undefined) return [];

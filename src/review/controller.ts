@@ -19,7 +19,7 @@ import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, Fi
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
-import { layerWords } from '../config/settings.ts';
+import { isConfiguredRuntime, layerWords, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
 import { revisionMessageOf, routeOf } from '../checkpoint/fix-state.ts';
@@ -1138,7 +1138,7 @@ function refuseOtherRuntime(runId: string, pinned: Pick<ReviewConfiguration, 'ru
  * prompts it ran must still digest as pinned, so the report's digest says
  * which prompts every worker got; the flags that apply per invocation are
  * checked as a new run's are, and the model flags, which do not apply,
- * are named as ignored, as are the check flags once the checks are
+ * are named as ignored as the invocation spelled them, as are the check flags once the checks are
  * planned; before then, a fix run is told the check flags must be given
  * again, and the kinds it can tell an earlier invocation's flags settled
  * and this one's do not are named; a `--codex-windows-sandbox` is named
@@ -1180,11 +1180,19 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
     }
   }
   if (context.flags.strongModel !== undefined || context.flags.fastModel !== undefined) {
-    context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; --strong-model and --fast-model are ignored`);
+    context.log(`run ${runId} is pinned to models ${pinned.models.strong} and ${pinned.models.fast}; ${modelFlagsWords(pinned.runtime, context.source)} ignored`);
   }
   if (use === 'resume') resumedFixFlags(run, pinned, context);
   if (use === 'resume') unappliedSettings(run, pinned, context);
   await qualify(context.adapter, pinned.executable, pinned.executableArgs, toolsPath, context, { runId, use });
+}
+
+/** The model flags an invocation gave, as it spelled them, `--set` or the dedicated flag, with their verb; `--strong-model and --fast-model` when it gives no source to tell. */
+function modelFlagsWords(runtime: string, source: ConfigurationSource | undefined): string {
+  const names = isConfiguredRuntime(runtime) ? runtimeSettingNames(runtime) : null;
+  const given = source === undefined || names === null ? [] : [names.strong, names.fast].flatMap((name) => source.flags.get(name)?.flag ?? []);
+  if (given.length === 0) return '--strong-model and --fast-model are';
+  return `${given.join(' and ')} ${given.length === 1 ? 'is' : 'are'}`;
 }
 
 /**

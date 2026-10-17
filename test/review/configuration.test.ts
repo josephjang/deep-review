@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { repositoryConfigPath } from '../../src/config/files.ts';
 import { checkFlagsOf, dedicatedFlagValues } from '../../src/config/flags.ts';
-import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
+import { flagLayerOf, parseSetFlag, type FlagValue } from '../../src/config/resolve.ts';
+import type { SettingName } from '../../src/config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../../src/config/source.ts';
 import { assembleRoles } from '../../src/roles/assemble.ts';
 import { checkFlagsInForce, checkFlagsOfResolved, recordedCheckFlags, refuseOldNode, unappliedLines } from '../../src/review/configuration.ts';
@@ -186,6 +187,16 @@ describe('the settings in a run (R1, R4 to R6, R10, R11 of the configuration)', 
     assert.ok(box.logs.some((line) => line.startsWith(`run ${runId}: the configuration cannot be read now, so the run keeps the settings it recorded: `)), box.logs.join('\n'));
   });
 
+  it('names a model a --set gives a resume once, as the flag given (R6)', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    await box.review('claude', { configuration: sourceFor(box) });
+    const { id, review } = box.run();
+    box.logs.length = 0;
+    await box.review('claude', { configuration: sourceFor(box, { sets: ['runtimes.claude.strong=another-model'] }), flags: { strongModel: 'another-model' } });
+    const named = box.logs.filter((line) => line.includes('runtimes.claude.strong') || line.includes('-model'));
+    assert.deepEqual(named, [`run ${id} is pinned to models ${review!.configuration.models.strong} and ${review!.configuration.models.fast}; --set runtimes.claude.strong is ignored`]);
+  });
+
   it('settles a check by a setting so the surveyor is not asked about it, and a resume before the plan needs no flag (R11)', async (t) => {
     const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
     const flags = ReviewSandbox.checkFlags();
@@ -325,6 +336,17 @@ describe('the check settings in force', () => {
     };
     assert.deepEqual(unappliedLines('r', configuration, changed as never, flagLayerOf([]), refused), ['run r: runtimes.claude.executable is now "claude-beta" from the operator\'s file, which is not applied and does not resolve now: claude-beta is not on PATH; the run keeps "/bin/claude" from the default']);
     assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([]), '/usr/local/bin/claude'), ['run r: runtimes.claude.executable is now "/usr/local/bin/claude" from the default, which is not applied; the run keeps "/bin/claude" from the default'], 'a caller\'s path is the executable whatever the setting');
+  });
+
+  it('leaves a setting with a resume line of its own to that line whichever flag gives it, and names the rest as the flag given', () => {
+    const configuration = settingsConfigured(false).review().configuration;
+    const now = unchangedNow(false);
+    const given = (name: SettingName, value: unknown, flag: FlagValue): string[] => unappliedLines('r', configuration, { ...now, values: { ...now.values, [name]: { value, layer: 'flag' } } } as never, flagLayerOf([flag]), onPath);
+    assert.deepEqual(given('runtimes.claude.strong', 'x', parseSetFlag('runtimes.claude.strong=x')), [], 'the model line names --set runtimes.claude.strong');
+    assert.deepEqual(given('runtimes.claude.strong', 'x', { name: 'runtimes.claude.strong', value: 'x', flag: '--strong-model' }), []);
+    assert.deepEqual(given('run.concurrency', 2, parseSetFlag('run.concurrency=2')), [], 'a concurrency --set applies per invocation');
+    assert.deepEqual(given('budget.usd', 50, parseSetFlag('budget.usd=50')), [], 'a run budget --set applies per invocation');
+    assert.deepEqual(given('runtimes.claude.args', ['--bar'], { name: 'runtimes.claude.args', value: ['--bar'], flag: '--executable-arg' }), ['run r: runtimes.claude.args is now ["--bar"] from --executable-arg, which is not applied; the run keeps [] from the default'], 'no resume line of its own names --executable-arg');
   });
 
   it('leaves a check command a flag gives to the planning of the checks, but not the check timeout', () => {

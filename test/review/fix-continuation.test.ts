@@ -70,7 +70,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['fixer fixes:c1-1', 'fixer fixes:c2-1', 'surveyor survey:survey'], 'no worker of a read-only phase ran again');
     // The log names the run, its read-only report and its spend against the budget in force (R2, PD7), and the models flag as ignored (R3).
     logLine(box, new RegExp(`^run ${before.id}: continued into the fix pass; its read-only report is ${RegExp.escape(firstPath)}; spent \\d+\\.\\d\\d USD of the \\d+\\.\\d\\d USD run budget$`));
-    logLine(box, /; --strong-model and --fast-model are ignored$/);
+    logLine(box, /; --strong-model is ignored$/);
     assert.ok(!box.logs.some((line) => /is pinned without the fix pass/.test(line)), 'a continuation is not a resume that ignores --fix');
     // The survey was asked again for the kind the flags left, its conventions standing (R4).
     assert.deepEqual(review.phases.survey, { status: 'completed', attempt: 2 });
