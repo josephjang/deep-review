@@ -233,8 +233,8 @@ function listWithin(items: readonly string[], limit: number): string {
  * fixer, since an answer is the person's act and nothing else waits on it
  * (R5 of answers), and for the survey of
  * a fix run, which goes on only
- * with checks: its second failure blocks the run instead, unless this
- * invocation's flags settle every kind, when `surveyStep` plans their
+ * with checks: its second failure blocks the run instead, unless the
+ * check settings settle every kind, when `surveyStep` plans their
  * checks and records the run going on without it. The one place the role's rule lives: a unit degrades exactly
  * when this names what it records and no worker of it was lost
  * (`exhaustedOutcome`), and a phase added to the review does not compile
@@ -456,8 +456,8 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
  * A read-only review's survey is done once its unit answered, it went on
  * without it, or an earlier attempt's answer stands. A fix run's is done
  * once its checks are planned, which happens without a worker when the
- * survey's last answer, from this attempt or an earlier one, and this
- * invocation's flags settle every kind and leave none whose tool is
+ * survey's last answer, from this attempt or an earlier one, and the
+ * check settings settle every kind and leave none whose tool is
  * missing. An answer of this attempt that leaves a kind with a missing
  * tool blocks with `check-unavailable`; one of an earlier attempt that
  * does not settle every kind is surveyed again. Flags that settle all
@@ -495,12 +495,13 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   const unit: Unit = { phase: 'survey', key, role: 'surveyor' };
   const state = review.units.survey[key];
   // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action promised these flags would let the run go on.
-  // Or it failed twice in this attempt, no worker lost among the failures: blocking would only ask for the flags this invocation already gave.
+  // Or it failed twice in this attempt, no worker lost among the failures: blocking would only ask for check settings the run already has.
   const failed = survey.lastBlock?.code === 'worker-failed'
     ? `the survey blocked, ${survey.lastBlock.detail}`
     : exhausted(review, unit, state) && !interrupted(state) ? workerFailedBlocker(review, unit, state).detail : null;
   if (failed === null) return null;
-  const settledBy = settledByFlagsOnly(live.checkFlags) ? 'this invocation\'s --check and --no-check flags settle' : 'the check settings settle';
+  // The flag layer is this invocation's flags or an earlier one's the run recorded, so the text names the flags without saying whose.
+  const settledBy = settledByFlagsOnly(live.checkFlags) ? 'the --check and --no-check flags settle' : 'the check settings settle';
   const without = truncated(`${failed}; ${settledBy} every check, so the run goes on without it`, maxRecordedTextLength);
   return { kind: 'plan-checks', checks: resolveChecks(null, live.checkFlags).checks, without };
 }

@@ -96,7 +96,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     const state = box.run();
     assert.equal(surveyors(box), 2, 'no surveyor once the flags settle every check');
     assert.equal(state.review!.phases.survey.status, 'degraded');
-    assert.match(state.review!.survey!.failure!.reason, /^the survey blocked, the surveyor worker for survey:survey failed twice: .*; this invocation's --check and --no-check flags settle every check, so the run goes on without it$/);
+    assert.match(state.review!.survey!.failure!.reason, /^the survey blocked, the surveyor worker for survey:survey failed twice: .*; the --check and --no-check flags settle every check, so the run goes on without it$/);
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
     // The failure and the plan are one append, so no run is left with one and not the other.
     const failed = box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'survey.failed')!;

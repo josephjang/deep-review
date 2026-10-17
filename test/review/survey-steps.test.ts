@@ -124,7 +124,7 @@ describe('nextStep in the survey', () => {
     // One step plans the flags' checks and says why the run goes on without the survey, so the two are recorded together.
     const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
     assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
-    assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: .*; this invocation's --check and --no-check flags settle every check, so the run goes on without it$/);
+    assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: .*; the --check and --no-check flags settle every check, so the run goes on without it$/);
     // The ledger then finishes the phase degraded.
     const planned = reentered.clone().add('survey.failed', { reason: 'went on without it', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
     assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'degraded', blocker: null });
@@ -138,7 +138,7 @@ describe('nextStep in the survey', () => {
     const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
     const plan = nextStep(twice.review(), live({ checkFlags: allFour }));
     assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
-    assert.equal(plan.kind === 'plan-checks' ? plan.without : null, `${failed.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`);
+    assert.equal(plan.kind === 'plan-checks' ? plan.without : null, `${failed.detail}; the --check and --no-check flags settle every check, so the run goes on without it`);
     const planned = twice.clone().add('survey.failed', { reason: plan.kind === 'plan-checks' ? plan.without ?? '' : '', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
     assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'degraded', blocker: null });
     // Three kinds settled still block, with the action that names the flags.
