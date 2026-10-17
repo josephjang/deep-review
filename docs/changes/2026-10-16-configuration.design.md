@@ -195,7 +195,9 @@ The run appends `scope.captured@2` first and `review.configured@6` after it, as 
 
 #### A resumed run
 
-A resumed run reads `review.configured` and ignores the files. It resolves them again only to compare them. If the current value of a recorded setting is different, the engine names it on stderr as not applied (R6). A setting the run recorded from a flag is compared only with a flag given now, since a resume keeps it without the flag typed again. The run records the path its executable setting resolved to, so the engine resolves the setting again and compares the paths; a setting it cannot resolve now is named with the reason, and the resume goes on with the pinned path. If the engine cannot read a file now, it names it on stderr too. This does not stop the resume, because the run does not use the file. The concurrency and the budget keep the rule of today through `limits.changed@1`: a flag, or else the recorded value.
+A resumed run reads `review.configured` and ignores the files. It resolves them again only to compare them. If the current value of a recorded setting is different, the engine names it on stderr as not applied (R6). If the engine cannot read a file now, it names it on stderr too. This does not stop the resume, because the run does not use the file. The concurrency and the budget keep the rule of today through `limits.changed@1`: a flag, or else the recorded value.
+
+Two cases have a different comparison. The engine compares a setting from a flag only with a flag of the current invocation. The reason is that a resume keeps the recorded value, and nobody types the flag again. The run records the path of its executable, so the engine resolves the executable setting again and compares the two paths. If the engine cannot resolve the setting now, it names the setting and the reason. The resume then continues with the recorded path.
 
 #### A continuation into the fix pass
 
@@ -237,11 +239,13 @@ A `--check`, a `--no-check` or a `--set checks.<kind>` of a later invocation sti
 
 `checks.timeout_minutes` becomes the check timeout in milliseconds, which `review.configured` records for a fix run today.
 
-`tools.path` is operator-only, and the engine makes each entry absolute at configuration. A relative entry is relative to the root of the worktree. An entry cannot hold the `PATH` delimiter of the platform the engine runs on (`:` on POSIX, `;` on Windows), since `PATH` has no escape for it and the entry would split into several.
+`tools.path` is operator-only, and the engine makes each entry absolute at configuration. A relative entry is relative to the root of the worktree. An entry cannot hold the `PATH` delimiter of the platform: `:` on POSIX and `;` on Windows. `PATH` has no escape for this character, so the entry will become two or more entries.
 
 `workerEnvironment` and `checkEnvironment` put the directories first on `PATH`. For this, they use the helpers of `src/runtime/environment.ts`, which know all the spellings of the variable. Thus `Path` and `PATH` on Windows stay one variable (TD10). The engine keeps a directory that does not exist, and it names the directory on stderr, because a tool can create it. An example is a virtual environment that a check builds.
 
-The fixers run the engine's `snapshot` and `claim` commands as `node` on their `PATH`. A command line with a quoted path is different in bash and in PowerShell. Thus a directory of `tools.path` that holds an older `node` runs these commands under that `node`, and they need Node 26. Before a fix run or a continuation exists, the engine asks the version of each `node` in `tools.path` that is not its own. It refuses the run if the version is older than 26, and it names the directory and the setting. The engine probes only `node.exe` on Windows and `node` elsewhere, in the directories that exist at that moment. It does not probe a shim that a fixer's shell also resolves, such as `node.cmd`, `node.bat`, `node.ps1` or an extensionless `node` on Windows. Nor does it probe a directory created later or a `node` swapped in after the probe.
+The fixers run the engine's `snapshot` and `claim` commands as `node` on their `PATH`. A command line with a quoted path is different in bash and in PowerShell. Thus a directory of `tools.path` that holds an older `node` runs these commands under that `node`, and they need Node 26. Before a fix run or a continuation exists, the engine asks the version of each `node` in `tools.path` that is not its own. It refuses the run if the version is older than 26, and it names the directory and the setting.
+
+The probe has limits. It asks only `node.exe` on Windows and `node` on other platforms, in the directories that exist at that time. It does not ask a shim that the shell of a fixer can also find. Examples are `node.cmd`, `node.bat`, `node.ps1` and a `node` with no extension on Windows. It also does not ask a directory that a tool creates later, or a `node` that changes after the probe.
 
 ### The record (R6, R17)
 
@@ -254,7 +258,9 @@ Four events get a new version, as the table below shows.
 | `checks.planned` | 3 | the origin `setting` with its layer |
 | `fix.pinned` | 2 | version 1's payload, the fix side's settings with their layers, and the files, the repository's state, the values not followed and the settings ignored of the continuation |
 
-The settings that version 5 records today keep their fields: the models, the concurrency, the run budget, the check timeout, the user rules setting, the Codex sandbox, and the executable and its arguments. The block gives only their layer, so the event holds no value two times. One function, `settingOf(configuration, name)`, reads a recorded setting from either place. The report, `status` and `config show` all use it. It takes the block's value and layer from `recordedSetting` in `src/checkpoint/settings-state.ts`, which reads the fix side of a continuation first for the settings that side records. The fold checks a plan of checks against the same function, and the controller builds the check settings of a run from it, so the three agree on what a run recorded.
+The settings that version 5 records today keep their fields: the models, the concurrency, the run budget, the check timeout, the user rules setting, the Codex sandbox, and the executable and its arguments. The block gives only their layer, so the event holds no value two times. One function, `settingOf(configuration, name)`, reads a recorded setting from either place. The report, `status` and `config show` all use it.
+
+`settingOf` takes the value and the layer of the block from `recordedSetting` in `src/checkpoint/settings-state.ts`. For a continuation, this function reads the fix side first, for the settings that the fix side records. The fold checks a plan of checks against the same function. The controller also builds the check settings of a run from it. Thus the three agree on what a run recorded.
 
 Each recorded setting belongs to the version that added it. The schemas of the block name exactly the settings that this version records, and they refuse all other names. A later recorded setting is a new version of `review.configured`. Thus an engine that does not know a setting passes over a run that recorded it. Pull request #39 made the engine pass over each event that it cannot read in the same way. It never resumes a run under a setting that it ignores (TD4).
 
@@ -374,7 +380,7 @@ The design rejects a value that is always a string, because a string cannot give
 
 The design rejects `tools.path` for checks only. With it, a fixer that runs the tests before it answers sees a different `PATH` from the check that judges it. The surveyor that looks for a tool does too.
 
-The preflight of the runtime's executable runs with the same `PATH` as the workers, `tools.path` first. A runtime CLI that finds its interpreter on `PATH`, as an npm script does, is then qualified under the interpreter its workers use. A new run and a continuation qualify it with the `tools.path` they resolve, and a resume or an answer pass with the one the run recorded.
+The preflight of the runtime's executable runs with the same `PATH` as the workers, `tools.path` first. A runtime CLI that finds its interpreter on `PATH`, as an npm script does, is then qualified under the interpreter its workers use. A new run and a continuation qualify it with the `tools.path` that they resolve. A resume or an answer pass qualifies it with the `tools.path` that the run recorded.
 
 ### TD11: The two skills stay two files, and a test keeps them equal
 
