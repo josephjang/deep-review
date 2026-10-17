@@ -38,6 +38,9 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.ok(help.stdout.includes('[--codex-windows-sandbox unelevated|elevated|none]'), 'the usage names the Codex Windows sandboxes');
     assert.ok(help.stdout.includes('[--fix [--fresh] [--check <kind>=<command>]... [--no-check <kind>]...]'), 'the usage names --fresh with --fix');
     assert.match(help.stdout, /deep-review claim   --path <path> --unit <key> --in <dir>/, 'the usage names the claim command a fixer runs');
+    assert.match(help.stdout, /deep-review config  show --runtime claude|codex/, 'the usage names the config command (R14 of the configuration)');
+    for (const subcommand of ['explain [<setting>]', 'validate [<file>]', 'init (--repository | --operator | --clone)']) assert.ok(help.stdout.includes(`deep-review config  ${subcommand}`), subcommand);
+    assert.ok(help.stdout.includes('[--set <setting>=<value>]... [--config <file>] [--no-repository-config]'), 'the usage names the settings flags of review');
   });
 
   it('refuses an answer the flags do not spell with the usage and exit 1, before reading any run (R1 of answers)', async (t) => {

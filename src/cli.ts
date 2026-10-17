@@ -7,11 +7,12 @@
  * answers), `snapshot` is what
  * a fix worker runs after each finding (R6), and `claim` what it runs
  * before its first edit of a file outside its cluster (R1, R2 of commit
- * series integrity). The entry point of the bundle and of `npm run review`
- * during development.
+ * series integrity), and `config` shows, explains, checks and starts the
+ * configuration without a run (R14 of the configuration). The entry point
+ * of the bundle and of `npm run review` during development.
  */
-import { existsSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
@@ -21,11 +22,13 @@ import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
+import { explainLines, initText, showLines, validateBytes, type ShownScope } from './config/command.ts';
 import { checkFlagsOf, dedicatedFlagValues, policyFlagsOf } from './config/flags.ts';
 import { SettingFlagError } from './config/errors.ts';
-import { cloneConfigPath, operatorConfigPath } from './config/files.ts';
-import { flagLayerOf, parseSetFlag, requireBase, type FlagLayer, type ScopeSettings } from './config/resolve.ts';
-import { configurationSource } from './config/source.ts';
+import { cloneConfigPath, maxConfigBytes, operatorConfigPath, repositoryConfigPath } from './config/files.ts';
+import { flagLayerOf, parseSetFlag, requireBase, resolvedValue, withChangedPaths, type FlagLayer, type ScopeSettings } from './config/resolve.ts';
+import { fileLayers, type FileLayer } from './config/settings.ts';
+import { configurationSource, type ConfigurationSource } from './config/source.ts';
 import { EngineError } from './errors.ts';
 import { answerRun } from './review/answer.ts';
 import { findActiveRun, runReview, type ReviewOutcome, type ScopeSource } from './review/controller.ts';
@@ -33,7 +36,7 @@ import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
-import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, type PolicyFlags } from './review/policy.ts';
+import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import { noCheckFlags, type CheckFlags } from './review/checks/discover.ts';
@@ -44,6 +47,8 @@ import { describeRun } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
+import { resolveScopeRequest, scopeBase } from './scope/capture.ts';
+import { EmptyChangeError } from './scope/errors.ts';
 import { status as gitStatus } from './scope/git.ts';
 
 export const usage = `usage:
@@ -54,6 +59,10 @@ export const usage = `usage:
                       [--set <setting>=<value>]... [--config <file>] [--no-repository-config]
                       [--fix [--fresh] [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
                       [--codex-windows-sandbox ${windowsSandboxes.join('|')}]   (with --runtime codex; applies on Windows)
+  deep-review config  show --runtime claude|codex [the scope and setting flags of review] [--json] [--repo <dir>] [--roles <dir>]
+  deep-review config  explain [<setting>]
+  deep-review config  validate [<file>] [--layer repository|operator|clone|invocation] [--repo <dir>]
+  deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
@@ -62,7 +71,7 @@ export const usage = `usage:
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
 
-exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken or a file claimed; 2 a blocked run or a refusal, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -104,6 +113,10 @@ const options = {
   into: { type: 'string' },
   unit: { type: 'string' },
   in: { type: 'string' },
+  layer: { type: 'string' },
+  repository: { type: 'boolean' },
+  operator: { type: 'boolean' },
+  clone: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 
@@ -121,6 +134,8 @@ export interface CommandIo {
 const allowed: Record<string, readonly (keyof Values)[]> = {
   review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'help'],
   status: ['run', 'json', 'repo', 'help'],
+  // Each subcommand of config takes its own part of these (`configCommand`).
+  config: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'json', 'layer', 'repository', 'operator', 'clone', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
@@ -280,6 +295,8 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
     return command === undefined && values.help !== true ? 1 : 0;
   }
   if (!Object.hasOwn(allowed, command)) throw new UsageError(`unknown command ${JSON.stringify(command)}`);
+  // config takes its subcommand and, for explain and validate, one argument; every other command takes none.
+  if (command === 'config') return configCommand(values, rest, io);
   if (rest.length > 0) throw new UsageError(`unexpected argument ${JSON.stringify(rest[0])}`);
   for (const flag of Object.keys(values) as (keyof Values)[]) {
     if (values[flag] !== undefined && !allowed[command]!.includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
@@ -506,13 +523,101 @@ function claim(values: Values, io: CommandIo): number {
   }
 }
 
+/** The flags each subcommand of `config` takes beside --help; `show` takes the scope and setting flags of `review`, less `--fresh`. */
+const configAllowed: Readonly<Record<string, readonly (keyof Values)[]>> = {
+  show: [...allowed.review!.filter((flag) => flag !== 'fresh'), 'json'],
+  explain: ['help'],
+  validate: ['layer', 'repo', 'help'],
+  init: ['repository', 'operator', 'clone', 'repo', 'roles', 'help'],
+};
+
+/**
+ * `deep-review config` (R14 of the configuration): `show` the
+ * configuration a run would use, without a run; `explain` the settings,
+ * or one; `validate` one file as its layer reads it, the repository's of
+ * the working tree by default; `init` a new file for a layer. A mistaken
+ * subcommand, argument or flag is refused with the usage; a file with a
+ * problem, and a file `init` would write over, exit 2.
+ */
+async function configCommand(values: Values, rest: readonly string[], io: CommandIo): Promise<number> {
+  const [subcommand, argument, ...more] = rest;
+  if (subcommand === undefined || !Object.hasOwn(configAllowed, subcommand)) throw new UsageError(`config takes show, explain, validate or init${subcommand === undefined ? '' : `, not ${JSON.stringify(subcommand)}`}`);
+  if (more.length > 0 || (argument !== undefined && subcommand !== 'explain' && subcommand !== 'validate')) throw new UsageError(`unexpected argument ${JSON.stringify(more[0] ?? argument)}`);
+  for (const flag of Object.keys(values) as (keyof Values)[]) {
+    if (values[flag] !== undefined && !configAllowed[subcommand]!.includes(flag)) throw new UsageError(`--${flag} does not apply to config ${subcommand}`);
+  }
+  if (subcommand === 'explain') {
+    const lines = explainLines(argument);
+    if (lines === null) throw new UsageError(`config explain names no setting ${JSON.stringify(argument)}; deep-review config explain lists them all`);
+    io.stdout(`${lines.join('\n')}\n`);
+    return 0;
+  }
+  const location = locateCheckpoint(values.repo === undefined ? io.cwd : resolve(io.cwd, values.repo));
+  if (subcommand === 'validate') {
+    const layer = values.layer ?? 'repository';
+    if (!(fileLayers as readonly string[]).includes(layer)) throw new UsageError(`--layer must be one of ${fileLayers.join(', ')}, not ${JSON.stringify(layer)}`);
+    const path = argument === undefined ? join(location.worktree, ...repositoryConfigPath.split('/')) : resolve(io.cwd, argument);
+    const stat = statSync(path, { throwIfNoEntry: false });
+    if (stat === undefined || !stat.isFile()) throw new ReviewRefusedError(`${path} is not a file to validate`);
+    if (stat.size > maxConfigBytes) throw new ReviewRefusedError(`${path} holds ${String(stat.size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`);
+    const validated = validateBytes(layer as FileLayer, path, readFileSync(path));
+    (validated.valid ? io.stdout : io.stderr)(`${validated.lines.join('\n')}\n`);
+    return validated.valid ? 0 : 2;
+  }
+  if (subcommand === 'init') {
+    const chosen = (['repository', 'operator', 'clone'] as const).filter((layer) => values[layer] === true);
+    if (chosen.length !== 1) throw new UsageError('config init takes one of --repository, --operator and --clone');
+    const layer = chosen[0]!;
+    const path = layer === 'repository' ? join(location.worktree, ...repositoryConfigPath.split('/')) : layer === 'clone' ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
+    if (path === null) throw new ReviewRefusedError('the operator\'s file is under APPDATA, which has no value here; set it, or write the file by hand');
+    if (existsSync(path)) throw new ReviewRefusedError(`${path} exists, and config init writes only a new file; edit it, or remove it first`);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, initText(layer, readPolicy(values.roles ?? engineRolesRoot())), { flag: 'wx' });
+    io.stdout(`${path}\n`);
+    return 0;
+  }
+  // show: the two passes as review runs them, without the start lock and without a run (R14).
+  const { runtime, source } = invocationOf(values, io, location.worktree, location.commonDir);
+  const adapter = defaultRuntimes().get(runtime);
+  const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
+  const base = scopeBase(location.worktree, chosen.request);
+  let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
+  let shown: ShownScope = { mode: chosen.mode, base, empty: null };
+  try {
+    const listed = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, 'scope.exclude') ?? []);
+    resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
+    shown = { ...shown, mode: listed.mode };
+  } catch (error) {
+    if (!(error instanceof EmptyChangeError)) throw error;
+    shown = { ...shown, empty: error.message };
+  }
+  io.stdout(values.json === true ? `${JSON.stringify({ ...resolved, scope: shown }, null, 2)}\n` : `${showLines(resolved, shown).join('\n')}\n`);
+  return 0;
+}
+
 /** Open the checkpoint with this engine's identity, or null when the repository has none and `create` is false. */
 function openCheckpoint(root: string, create: boolean): Checkpoint | null {
   if (!create && !existsSync(join(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 
-async function review(values: Values, io: CommandIo, root: string, worktree: string, commonDir: string): Promise<number> {
+/** What `review` and `config show` take of their flags alike: the runtime, the policy flags and check flags they apply, the flag layer, and the configuration it reads with them. */
+interface Invocation {
+  readonly runtime: string;
+  readonly flags: PolicyFlags;
+  /** The check flags of a `--fix`, or null without one. */
+  readonly fix: CheckFlags | null;
+  readonly source: ConfigurationSource;
+}
+
+/**
+ * The invocation the flags of a `review` or a `config show` name, each
+ * mistake refused with the usage before any file is read: the runtime,
+ * each dedicated flag checked as before, the check flags of a `--fix`,
+ * the flag layer of those and each `--set` (TD9 of the configuration), and
+ * the configuration of the operator's, the clone's and the `--config` file.
+ */
+function invocationOf(values: Values, io: CommandIo, worktree: string, commonDir: string): Invocation {
   if (values.runtime === undefined) throw new UsageError('--runtime claude|codex is required');
   const runtimes = defaultRuntimes();
   if (!runtimes.names().includes(values.runtime)) throw new UsageError(`--runtime must be one of ${runtimes.names().join(', ')}, not ${JSON.stringify(values.runtime)}`);
@@ -535,20 +640,25 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   const problem = invocationFlagProblem(dedicated);
   if (problem !== null) throw new UsageError(problem);
   const checkFlags = fixRequestOf(values);
-  const fresh = freshRequestOf(values);
   const runtime = values.runtime;
   // The flag layer holds each dedicated flag and each --set; what the policy and the checks read of this invocation's flags comes from it, so a --set acts as the flag it stands for (TD9 of the configuration).
   const layer = flagLayerOfValues(values, runtime, dedicated, checkFlags);
   const flags = policyFlagsOf(layer, runtime);
   const setProblem = invocationFlagProblem(flags);
   if (setProblem !== null) throw new UsageError(setProblem);
-  const fix = checkFlags === null ? null : checkFlagsOf(layer);
   const source = configurationSource({
     worktree,
     locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === undefined ? null : resolve(io.cwd, values.config) },
     repositoryConfig: values['no-repository-config'] !== true,
     flags: layer,
   });
+  return { runtime, flags, fix: checkFlags === null ? null : checkFlagsOf(layer), source };
+}
+
+async function review(values: Values, io: CommandIo, root: string, worktree: string, commonDir: string): Promise<number> {
+  const { runtime, flags, fix, source } = invocationOf(values, io, worktree, commonDir);
+  const fresh = freshRequestOf(values);
+  const runtimes = defaultRuntimes();
   const checkpoint = openCheckpoint(root, true)!;
   try {
     // The controller resolves the scope for a run that has none yet, and to compare it with a finished run's before continuing that run: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on. Pass 1 reads the operator's files then, and only then (R3 of the configuration).
