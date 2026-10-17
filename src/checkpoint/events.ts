@@ -1624,9 +1624,35 @@ const runtimeLayersMatch = (runtime: string, layers: Readonly<Partial<Record<str
  * a run that fixes; the layer of every recorded setting; the repository
  * values a higher layer replaced; and the settings ignored.
  */
-export const settingsRecordedV1 = z.strictObject({
+/**
+ * Where a record of the settings came from, which `review.configured@6`
+ * and the fix side of `fix.pinned@2` both hold: the files read, the state
+ * of the repository's file, the repository values a higher layer
+ * replaced, and the settings ignored.
+ */
+const settingsSourcesShapeV1 = {
   files: z.array(z.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, sha256: z.string().regex(/^[a-f0-9]{64}$/), commit: commitId.nullable() })).max(recordedSettingsV1.fileLayers.length),
   repository: z.strictObject({ state: z.enum(recordedSettingsV1.repositoryStates), commit: commitId.nullable(), edited: z.boolean() }),
+  notFollowed: z.array(z.strictObject({ name: settingNameSchemaV1, repository: z.json(), value: z.json(), layer: settingLayerSchemaV1 })).max(recordedSettingsV1.names.length),
+  ignored: z.array(z.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, name: z.string().min(1).max(1000), reason: z.string().min(1).max(1000) })).max(256),
+};
+
+/** What every record of the settings' sources holds to: a commit exactly for a repository's file not skipped, and among the files exactly when it was read. */
+type SettingsSourcesV1 = { readonly files: readonly { readonly layer: string; readonly commit: string | null }[]; readonly repository: { readonly state: string; readonly commit: string | null } };
+const sourcesProblem = (recorded: SettingsSourcesV1): string | null => {
+  if ((recorded.repository.state === 'skipped') !== (recorded.repository.commit === null)) return 'the repository\'s file has a commit exactly when it was not skipped';
+  if (!recorded.files.every((file) => (file.layer === 'repository') === (file.commit !== null))) return 'only the repository\'s file is read at a commit';
+  if (recorded.repository.state !== 'read' && recorded.files.some((file) => file.layer === 'repository')) return 'the repository\'s file is among the files read exactly when it was read';
+  return null;
+};
+const refineSources = (recorded: SettingsSourcesV1, context: z.RefinementCtx): void => {
+  const problem = sourcesProblem(recorded);
+  if (problem !== null) context.addIssue({ code: 'custom', message: problem, path: ['files'] });
+};
+
+export const settingsRecordedV1 = z.strictObject({
+  files: settingsSourcesShapeV1.files,
+  repository: settingsSourcesShapeV1.repository,
   values: z.strictObject({
     'review.base': settingTextSchemaV1.nullable(),
     'scope.default': z.enum(recordedSettingsV1.scopeDefaults),
@@ -1638,18 +1664,9 @@ export const settingsRecordedV1 = z.strictObject({
     'checks.test': recordedCheckSettingV1.optional(),
   }),
   layers: settingLayersSchemaV1,
-  notFollowed: z.array(z.strictObject({ name: settingNameSchemaV1, repository: z.json(), value: z.json(), layer: settingLayerSchemaV1 })).max(recordedSettingsV1.names.length),
-  ignored: z.array(z.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, name: z.string().min(1).max(1000), reason: z.string().min(1).max(1000) })).max(256),
-}).refine((recorded) => (recorded.repository.state === 'skipped') === (recorded.repository.commit === null), {
-  message: 'the repository\'s file has a commit exactly when it was not skipped',
-  path: ['repository', 'commit'],
-}).refine((recorded) => recorded.files.every((file) => (file.layer === 'repository') === (file.commit !== null)), {
-  message: 'only the repository\'s file is read at a commit',
-  path: ['files'],
-}).refine((recorded) => recorded.repository.state === 'read' || recorded.files.every((file) => file.layer !== 'repository'), {
-  message: 'the repository\'s file is among the files read exactly when it was read',
-  path: ['files'],
-});
+  notFollowed: settingsSourcesShapeV1.notFollowed,
+  ignored: settingsSourcesShapeV1.ignored,
+}).superRefine(refineSources);
 export type SettingsRecorded = z.infer<typeof settingsRecordedV1>;
 
 /**
@@ -1743,7 +1760,10 @@ export type ChecksPlannedV3 = z.infer<typeof checksPlannedV3>;
 /**
  * The fix side of the settings a continuation records (R6 of the
  * configuration): the check commands, `tools.path` and their layers, and
- * the layer of the check timeout, whose value the pin's `checks` holds.
+ * the layer of the check timeout, whose value the pin's `checks` holds;
+ * and where the continuation took them from, as `review.configured@6`
+ * records it for the run: the files, the repository's file, the values
+ * not followed and the settings ignored.
  */
 export const fixSettingsRecordedV1 = z.strictObject({
   values: z.strictObject({
@@ -1761,7 +1781,8 @@ export const fixSettingsRecordedV1 = z.strictObject({
     'checks.timeout_minutes': settingLayerSchemaV1,
     'tools.path': settingLayerSchemaV1,
   }),
-});
+  ...settingsSourcesShapeV1,
+}).superRefine(refineSources);
 export type FixSettingsRecorded = z.infer<typeof fixSettingsRecordedV1>;
 
 /**

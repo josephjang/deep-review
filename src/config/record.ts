@@ -81,10 +81,14 @@ export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick
   };
 }
 
-/** The fix side a continuation records (R6): the check commands and `tools.path` with their layers, and the layer of the check timeout, whose value the pin's `checks` holds. */
+/** The fix side a continuation records (R6, R7): the check commands and `tools.path` with their layers, the layer of the check timeout, whose value the pin's `checks` holds, and where it took them from: the files, the repository's file, the fix side's values not followed and the settings ignored. */
 export function fixSettingsRecordOf(resolved: ResolvedSettings): FixSettingsRecorded {
   const value = <N extends SettingName>(name: N): SettingValue<N> => resolved.values[name].value as SettingValue<N>;
   return {
+    files: resolved.files.map((file) => ({ ...file })),
+    repository: { ...resolved.repository },
+    notFollowed: resolved.notFollowed.filter((entry) => fixSideNames.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository as JsonValue, value: entry.value as JsonValue, layer: entry.layer })),
+    ignored: ignoredRecordOf(resolved.ignored),
     values: { 'checks.build': value('checks.build'), 'checks.typecheck': value('checks.typecheck'), 'checks.lint': value('checks.lint'), 'checks.test': value('checks.test'), 'tools.path': [...(value('tools.path') ?? [])] },
     layers: {
       'checks.build': resolved.values['checks.build'].layer,

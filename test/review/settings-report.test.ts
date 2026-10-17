@@ -64,6 +64,37 @@ describe('the settings in the report and status (R7 of the configuration)', () =
     assert.deepEqual(settingsLimitations(configuration, scopeWith()), []);
   });
 
+  it('adds what a continuation read and did not follow, its fix side speaking for the settings it holds, each line once', () => {
+    const repository = { layer: 'repository' as const, path: '.deep-review/config.toml', sha256: 'a'.repeat(64), commit: base };
+    const clone = { layer: 'clone' as const, path: '/r/.git/deep-review.toml', sha256: 'b'.repeat(64), commit: null };
+    const ignoredOne = { layer: 'clone' as const, path: clone.path, name: 'profile', reason: 'no such setting' };
+    const fixSettings = {
+      values: { 'checks.build': null, 'checks.typecheck': null, 'checks.lint': null, 'checks.test': 'make test', 'tools.path': [] },
+      layers: { 'checks.build': 'default', 'checks.typecheck': 'default', 'checks.lint': 'default', 'checks.test': 'clone', 'checks.timeout_minutes': 'default', 'tools.path': 'default' },
+      files: [repository, clone],
+      repository: { state: 'read', commit: base, edited: false },
+      notFollowed: [{ name: 'checks.test', repository: 'npm test', value: 'make test', layer: 'clone' }],
+      ignored: [ignoredOne],
+    } as unknown as ReviewConfiguration['fixSettings'];
+    const continued: ReviewConfiguration = {
+      ...configuredWith({ files: [repository], repository: { state: 'read', commit: base, edited: false }, notFollowed: [{ name: 'scope.exclude', repository: ['dist/**'], value: [], layer: 'flag' }], ignored: [ignoredOne] }),
+      fixSettings,
+    };
+    assert.equal(settingsHeaderLine(continued), `Settings: the repository's file .deep-review/config.toml at ${base}; the fix pass: the repository's file .deep-review/config.toml at ${base}, the clone's file /r/.git/deep-review.toml`);
+    assert.deepEqual(settingsLimitations(continued, scopeWith()), [
+      'Not followed: scope.exclude: the repository\'s ["dist/**"], this run\'s [] from a flag.',
+      'Not followed: checks.test: the repository\'s "npm test", this run\'s "make test" from the clone\'s file.',
+      'Ignored: profile in /r/.git/deep-review.toml: no such setting.',
+    ]);
+    // A run configured before the settings and continued since names the continuation's record alone.
+    const older: ReviewConfiguration = { ...configuration, fixSettings };
+    assert.equal(settingsHeaderLine(older), `Settings: recorded before the settings existed; the run's values came from the defaults and its flags; the fix pass: the repository's file .deep-review/config.toml at ${base}, the clone's file /r/.git/deep-review.toml`);
+    assert.equal(settingsLimitations(older, scopeWith()).length, 2);
+    // A continuation that skipped the repository's file says so for the fix pass.
+    const skipped: ReviewConfiguration = { ...older, fixSettings: { ...fixSettings!, files: [clone], repository: { state: 'skipped', commit: null, edited: false }, notFollowed: [], ignored: [] } };
+    assert.deepEqual(settingsLimitations(skipped, scopeWith()), ['The repository\'s file was skipped by --no-repository-config for the fix pass, so its checks did not follow the policy of the repository.']);
+  });
+
   it('puts the header line in the report and the lines among its limitations, and the same lines in status', () => {
     const finished = reported().fold();
     const settings = configuredWith({ notFollowed: [{ name: 'checks.test', repository: 'npm test', value: 'make test', layer: 'operator' }] });

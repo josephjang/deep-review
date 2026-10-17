@@ -120,7 +120,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const box = ReviewSandbox.forTest(t, continuedScript);
     // The repository's file is at the base of the last commit, which the read-only review reads.
     const flags = ReviewSandbox.checkFlags();
-    write(box.repo, repositoryConfigPath, `schema = 1\nchecks.build = ${JSON.stringify(flags.commands.build)}\nchecks.lint = ${JSON.stringify(flags.commands.lint)}\nchecks.timeout_minutes = 30\n`);
+    write(box.repo, repositoryConfigPath, `schema = 1\nchecks.build = ${JSON.stringify(flags.commands.build)}\nchecks.lint = ${JSON.stringify(flags.commands.lint)}\nchecks.test = "npm test"\nchecks.timeout_minutes = 30\n`);
     const base = commitAll(box.repo, 'the policy');
     write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n\nexport function other() {\n  return parse(null);\n}\n// again\n');
     commitAll(box.repo, 'a change under the policy');
@@ -128,17 +128,24 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const finished = box.run();
     assert.equal(finished.scope!.base, base);
     const cloneFile = join(box.directory, 'clone.toml');
-    writeFileSync(cloneFile, `schema = 1\nchecks.test = ${JSON.stringify(flags.commands.test)}\ntools.path = ["bin"]\n`);
+    writeFileSync(cloneFile, `schema = 1\nchecks.test = ${JSON.stringify(flags.commands.test)}\ntools.path = ["bin"]\nreport.formats = ["html"]\n`);
     const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: { commands: {}, dropped: ['typecheck'] }, executableArgs: [fakeClaude] })]);
     const source = configurationSource({ worktree: box.repo, locations: { operator: null, clone: cloneFile, invocation: null }, repositoryConfig: true, flags: layer });
     box.logs.length = 0;
     reportText(await box.review('claude', { configuration: source, fix: checkFlagsOf(layer) }));
     const state = box.run();
     const pin = box.events(finished.id).find(([kind]) => kind === 'fix.pinned')!;
-    assert.deepEqual(pin[1].settings, {
-      values: { 'checks.build': flags.commands.build, 'checks.typecheck': false, 'checks.lint': flags.commands.lint, 'checks.test': flags.commands.test, 'tools.path': [join(box.repo, 'bin')] },
-      layers: { 'checks.build': 'repository', 'checks.typecheck': 'flag', 'checks.lint': 'repository', 'checks.test': 'clone', 'checks.timeout_minutes': 'repository', 'tools.path': 'clone' },
-    });
+    const pinned = pin[1].settings as Record<string, unknown>;
+    assert.deepEqual(pinned.values, { 'checks.build': flags.commands.build, 'checks.typecheck': false, 'checks.lint': flags.commands.lint, 'checks.test': flags.commands.test, 'tools.path': [join(box.repo, 'bin')] });
+    assert.deepEqual(pinned.layers, { 'checks.build': 'repository', 'checks.typecheck': 'flag', 'checks.lint': 'repository', 'checks.test': 'clone', 'checks.timeout_minutes': 'repository', 'tools.path': 'clone' });
+    // What the continuation read and did not follow is recorded with the pin, for the report (R7 of the configuration).
+    assert.deepEqual((pinned.files as { layer: string; commit: string | null }[]).map((file) => [file.layer, file.commit]), [['repository', base], ['clone', null]]);
+    assert.deepEqual(pinned.repository, { state: 'read', commit: base, edited: false });
+    assert.deepEqual(pinned.notFollowed, [{ name: 'checks.test', repository: 'npm test', value: flags.commands.test, layer: 'clone' }]);
+    assert.deepEqual((pinned.ignored as { name: string }[]).map((entry) => entry.name), ['report.formats']);
+    const report = box.checkpoint.evidence.read(state.review!.report!.report).toString('utf8');
+    assert.ok(report.includes(`- Not followed: checks.test: the repository's "npm test", this run's ${JSON.stringify(flags.commands.test)} from the clone's file.`), report);
+    assert.match(report, /^- Ignored: report\.formats in .*clone\.toml: no such setting\.$/m);
     assert.deepEqual(state.review!.configuration.checks, { timeoutMs: 30 * 60_000 }, 'the repository\'s check timeout');
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer]), [['build', 'repository'], ['typecheck', 'flag'], ['lint', 'repository'], ['test', 'clone']]);
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 1 }, 'the settings settle every kind, so no surveyor runs');

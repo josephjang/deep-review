@@ -674,6 +674,7 @@ describe('the continuation into the fix pass', () => {
     const fixSide = {
       values: { 'checks.build': 'npm run build', 'checks.typecheck': false, 'checks.lint': null, 'checks.test': 'npm test', 'tools.path': ['/w/.venv/bin'] },
       layers: { 'checks.build': 'repository', 'checks.typecheck': 'flag', 'checks.lint': 'default', 'checks.test': 'clone', 'checks.timeout_minutes': 'repository', 'tools.path': 'clone' },
+      files: [], repository: { state: 'absent', commit: '1'.repeat(40), edited: false }, notFollowed: [], ignored: [],
     };
     const settledPlan = [
       { kind: 'build', command: 'npm run build', origin: 'setting', layer: 'repository', reason: null, source: null },

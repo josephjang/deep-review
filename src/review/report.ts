@@ -242,7 +242,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     // A run configured before the settings renders as it did; status says it is older than them (R17 of the configuration).
-    ...(configuration.settings === null ? [] : [inlineText(settingsHeaderLine(configuration))]),
+    ...(configuration.settings === null && configuration.fixSettings === null ? [] : [inlineText(settingsHeaderLine(configuration))]),
     ...continuedLine(review, input),
     ...answersLines(review, input),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,

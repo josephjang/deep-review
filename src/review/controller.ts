@@ -1071,7 +1071,9 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   if (nothing !== null) throw new ReviewRefusedError(`run ${run.id} has no finding to fix: ${nothing}; nothing to continue; ${wayOut(run.id, 'continue')} to review it again`);
   // Pass 2 again, at the run's recorded base, so the repository's values are the ones its review had; the operator's files and the flags are this invocation's (R6 of the configuration).
   const policy = readPolicy(context.rolesRoot);
-  const resolved = context.source.resolve({ base: run.scope!.base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd });
+  const scope = run.scope!;
+  // The change is the run's, so its paths, the ones left out among them, say whether it edits the repository's file (R4).
+  const resolved = withChangedPaths(context.source.resolve({ base: scope.base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd }), [...scope.files.map((file) => file.path), ...scope.excluded.paths]);
   const settled = checkFlagsOfResolved(resolved);
   const unsettled = unsettledKinds(settled);
   if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {
@@ -1190,10 +1192,11 @@ function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: Pi
  * configuration): it keeps the ones it recorded, so the files are read
  * again only to name what changed and is not applied. A file the engine
  * cannot read now is named the same way and does not stop the resume.
- * A run recorded before the settings has nothing to compare.
+ * A run recorded before the settings has nothing to compare, unless a
+ * continuation recorded its fix side since.
  */
 function unappliedSettings(run: RunState, pinned: ReviewConfiguration, context: PinnedContext): void {
-  if (pinned.settings === null || run.scope === null || context.source === undefined) return;
+  if ((pinned.settings === null && pinned.fixSettings === null) || run.scope === null || context.source === undefined) return;
   let now: ResolvedSettings;
   try {
     now = context.source.resolve({ base: run.scope.base, policy: readPolicy(context.rolesRoot), runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd });

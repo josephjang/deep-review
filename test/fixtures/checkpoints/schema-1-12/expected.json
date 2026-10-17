@@ -18986,7 +18986,35 @@
               "checks.test": "clone",
               "checks.timeout_minutes": "default",
               "tools.path": "clone"
-            }
+            },
+            "files": [
+              {
+                "layer": "repository",
+                "path": ".deep-review/config.toml",
+                "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "commit": "1111111111111111111111111111111111111111"
+              },
+              {
+                "layer": "clone",
+                "path": "/fixture/repinned/.git/deep-review.toml",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "commit": null
+              }
+            ],
+            "repository": {
+              "state": "read",
+              "commit": "1111111111111111111111111111111111111111",
+              "edited": false
+            },
+            "notFollowed": [
+              {
+                "name": "checks.test",
+                "repository": "make test",
+                "value": "npm test",
+                "layer": "clone"
+              }
+            ],
+            "ignored": []
           }
         },
         "limits": {

@@ -1565,6 +1565,13 @@ try {
     settings: {
       values: { 'checks.build': 'npm run build', 'checks.typecheck': false, 'checks.lint': 'npm run lint', 'checks.test': 'npm test', 'tools.path': ['/fixture/repinned/.venv/bin'] },
       layers: { 'checks.build': 'repository', 'checks.typecheck': 'flag', 'checks.lint': 'repository', 'checks.test': 'clone', 'checks.timeout_minutes': 'default', 'tools.path': 'clone' },
+      files: [
+        { layer: 'repository', path: '.deep-review/config.toml', sha256: 'f'.repeat(64), commit: fixScope.base },
+        { layer: 'clone', path: '/fixture/repinned/.git/deep-review.toml', sha256: 'a'.repeat(64), commit: null },
+      ],
+      repository: { state: 'read', commit: fixScope.base, edited: false },
+      notFollowed: [{ name: 'checks.test', repository: 'make test', value: 'npm test', layer: 'clone' }],
+      ignored: [],
     },
   }, 2);
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');

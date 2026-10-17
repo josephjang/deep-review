@@ -168,14 +168,16 @@ export function configuredLines(runId: string, resolved: ResolvedSettings): stri
  * run pinned, which the resume preflights.
  */
 export function unappliedLines(runId: string, configuration: ReviewConfiguration, now: ResolvedSettings, flags: FlagLayer): string[] {
-  const recordedFiles = configuration.settings?.files ?? [];
+  // A continuation read the files again, so its record is the one the files are compared with.
+  const recordedFiles = (configuration.fixSettings ?? configuration.settings)?.files ?? [];
   const fileLines = recordedFiles.flatMap((file) => {
     const current = now.files.find((candidate) => candidate.layer === file.layer && candidate.path === file.path);
     if (current === undefined) return [`run ${runId}: ${layerWords[file.layer]} ${file.path} is gone since the run recorded it; the run keeps what it recorded`];
     return current.sha256 === file.sha256 ? [] : [`run ${runId}: ${layerWords[file.layer]} ${file.path} changed since the run recorded it; the run keeps what it recorded`];
   });
   const newFiles = now.files.filter((file) => !recordedFiles.some((recorded) => recorded.layer === file.layer && recorded.path === file.path)).map((file) => `run ${runId}: ${layerWords[file.layer]} ${file.path} is new since the run recorded its settings; it does not apply`);
-  const names = [...new Set<SettingName>([...recordedNames(configuration), ...(configuration.fixSettings === null ? [] : fixSideNames)])];
+  // A run configured before the settings recorded only its fix side, if a continuation recorded one.
+  const names = [...new Set<SettingName>([...(configuration.settings === null ? [] : recordedNames(configuration)), ...(configuration.fixSettings === null ? [] : fixSideNames)])];
   const executable = isConfiguredRuntime(configuration.runtime) ? runtimeSettingNames(configuration.runtime).executable : null;
   const settingLines = names.flatMap((name) => {
     const current = now.values[name];

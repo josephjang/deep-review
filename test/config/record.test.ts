@@ -121,6 +121,7 @@ describe('settingOf', () => {
     const fixSide = {
       values: { 'checks.build': 'npm run build', 'checks.typecheck': null, 'checks.lint': null, 'checks.test': 'npm test', 'tools.path': ['/w/.venv/bin'] },
       layers: { 'checks.build': 'repository', 'checks.typecheck': 'default', 'checks.lint': 'default', 'checks.test': 'clone', 'checks.timeout_minutes': 'operator', 'tools.path': 'clone' },
+      files: [], repository: { state: 'absent', commit: '1'.repeat(40), edited: false }, notFollowed: [], ignored: [],
     };
     const recorded = readOnlyReported().add('fix.pinned', { ...pin(), settings: fixSide }, 2).review().configuration;
     assert.deepEqual(settingOf(recorded, 'checks.test'), { value: 'npm test', layer: 'clone' });
