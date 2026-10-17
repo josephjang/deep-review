@@ -91,8 +91,18 @@ export const maxCheckCommandLength = 32_000;
 /** A check's command, or `false` for no check of the kind (R11). */
 const checkCommandSchema = z.union([z.string().min(1).max(maxCheckCommandLength).refine((command) => !command.includes('\0'), 'must not hold a NUL').refine((command) => command.trim().length > 0, 'a command must not be blank'), z.literal(false)]);
 
+/** `checks.timeout_minutes` as a run pins it: whole milliseconds. */
+export function checkTimeoutMs(minutes: number): number {
+  return Math.round(minutes * 60_000);
+}
+
+/** A check timeout of whole milliseconds as `checks.timeout_minutes` reads it. */
+export function checkTimeoutMinutes(ms: number): number {
+  return ms / 60_000;
+}
+
 /** The most minutes one check can run: a worker's longest timeout. */
-const maxCheckMinutes = maxTimeoutMs / 60_000;
+const maxCheckMinutes = checkTimeoutMinutes(maxTimeoutMs);
 
 /**
  * How one setting is declared. `defaultOf` gives the value with no layer
@@ -204,7 +214,7 @@ export const settings = {
   'checks.timeout_minutes': declare({
     owner: 'repository-first',
     value: z.number().positive().max(maxCheckMinutes).refine((minutes) => minutes * 60_000 >= 1000, 'a check can run for at least one second'),
-    defaultOf: (policy) => policy.checks.timeoutMs / 60_000,
+    defaultOf: (policy) => checkTimeoutMinutes(policy.checks.timeoutMs),
     defaultWords: "the role policy's checks.timeoutMs, in minutes",
     example: 20,
     flag: null,

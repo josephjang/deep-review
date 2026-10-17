@@ -12,7 +12,7 @@ import type { ReviewConfiguration } from '../checkpoint/events.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
 import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
-import { checkSettingName, isConfiguredRuntime, layerWords, runtimeSettingNames, type Layer, type SettingName } from '../config/settings.ts';
+import { checkSettingName, checkTimeoutMs, isConfiguredRuntime, layerWords, runtimeSettingNames, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
 import { canonicalPath, isFile } from '../paths.ts';
 import type { CheckFlags } from './checks/discover.ts';
@@ -65,7 +65,7 @@ export function policyOverridesOf(resolved: ResolvedSettings): PolicyOverrides {
     ...(concurrency === null ? {} : { concurrency }),
     budgetUsd: resolvedValue(resolved, 'budget.usd'),
     ...(resolved.runtime !== 'codex' || sandbox === null ? {} : { codexWindowsSandbox: sandbox }),
-    ...(minutes === null ? {} : { checksTimeoutMs: Math.round(minutes * 60_000) }),
+    ...(minutes === null ? {} : { checksTimeoutMs: checkTimeoutMs(minutes) }),
     ...(userRules === null ? {} : { userRules }),
   };
 }
@@ -195,6 +195,9 @@ export function configuredLines(runId: string, resolved: ResolvedSettings): stri
   ];
 }
 
+/** A setting's value as a run pins it: the check timeout in whole milliseconds, so a value the pin rounded reads as unchanged. */
+const comparable = (name: SettingName, value: unknown): unknown => (name === 'checks.timeout_minutes' && typeof value === 'number' ? checkTimeoutMs(value) : value);
+
 /**
  * What a resumed run says of the settings as they are now (R6): each file
  * it recorded that changed or is gone, and each recorded setting whose
@@ -222,7 +225,7 @@ export function unappliedLines(runId: string, configuration: ReviewConfiguration
     // The concurrency and the run budget a flag gives apply per invocation, and so do the check settings until the checks are planned.
     if ((name === 'run.concurrency' || name === 'budget.usd' || (name.startsWith('checks.') && name !== 'checks.timeout_minutes')) && current.layer === 'flag') return [];
     const recorded = settingOf(configuration, name);
-    if (JSON.stringify(recorded.value) === JSON.stringify(current.value)) return [];
+    if (JSON.stringify(comparable(name, recorded.value)) === JSON.stringify(comparable(name, current.value))) return [];
     return [`run ${runId}: ${name} is now ${valueWords(current.value)} from ${flag?.flag ?? layerWords[current.layer]}, which is not applied; the run keeps ${valueWords(recorded.value)}${recorded.layer === null ? '' : ` from ${layerWords[recorded.layer]}`}`];
   });
   return [...fileLines, ...newFiles, ...settingLines];

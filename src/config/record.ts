@@ -7,7 +7,7 @@
  */
 import type { FixSettingsRecorded, ReviewConfiguration, ReviewConfigurationV5, SettingsRecorded } from '../checkpoint/events.ts';
 import type { ResolvedSettings } from './resolve.ts';
-import { checkSettingNames, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
+import { checkSettingNames, checkTimeoutMinutes, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
 
 /** A value as the record holds one: what a file or a flag gives is JSON-like. */
 type JsonValue = SettingsRecorded['notFollowed'][number]['value'];
@@ -110,7 +110,7 @@ function fieldValue(configuration: ReviewConfiguration, name: SettingName): unkn
     case 'budget.usd':
       return configuration.runBudgetUsd;
     case 'checks.timeout_minutes':
-      return configuration.checks === null ? null : configuration.checks.timeoutMs / 60_000;
+      return configuration.checks === null ? null : checkTimeoutMinutes(configuration.checks.timeoutMs);
     case 'conventions.user_rules':
       return configuration.survey.userRules;
     case 'runtimes.codex.windows_sandbox':

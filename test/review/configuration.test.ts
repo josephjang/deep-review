@@ -262,14 +262,35 @@ describe('the check settings in force', () => {
     assert.equal(recordedCheckFlags({ ...fixing, settings: null }), null);
   });
 
+  /** The settings a resume of a `settingsConfigured(fix)` run resolves when its files and flags are as the run recorded them: the ones version 5 holds read back from its fields. */
+  const unchangedNow = (fix: boolean): { runtime: string; values: Record<string, { value: unknown; layer: string }>; files: { layer: string; path: string; sha256: string; commit: string | null }[]; repository: { state: 'read' | 'absent' | 'skipped'; commit: string | null; edited: boolean }; notFollowed: []; ignored: [] } => ({
+    runtime: 'claude',
+    values: {
+      ...Object.fromEntries(Object.keys(settingsBlock(fix).layers as object).map((name) => [name, { value: null, layer: 'default' }])),
+      'scope.default': { value: 'auto', layer: 'default' }, 'scope.exclude': { value: [], layer: 'default' }, 'tools.path': { value: [], layer: 'default' }, 'conventions.user_rules': { value: 'judge', layer: 'default' }, 'budget.usd': { value: 30, layer: 'default' }, 'run.concurrency': { value: 4, layer: 'default' }, 'runtimes.claude.strong': { value: 'opus', layer: 'default' }, 'runtimes.claude.fast': { value: 'sonnet', layer: 'default' }, 'runtimes.claude.args': { value: [], layer: 'default' },
+      ...(fix ? { 'checks.timeout_minutes': { value: 10, layer: 'default' } } : {}),
+    },
+    files: [],
+    repository: { state: 'absent', commit: '1'.repeat(40), edited: false },
+    notFollowed: [],
+    ignored: [],
+  });
+
   it('names no unapplied setting for a resume whose files and flags are as the run recorded them', () => {
     const configuration = settingsConfigured(false).review().configuration;
-    const unchanged = { runtime: 'claude', values: Object.fromEntries(Object.entries({ ...settingsBlock(false).layers as object }).map(([name]) => [name, { value: null, layer: 'default' }])), files: [], repository: { state: 'absent' as const, commit: '1'.repeat(40), edited: false }, notFollowed: [], ignored: [] };
-    // Every recorded value read back as it was: the ones version 5 holds come from its fields.
-    const now = { ...unchanged, values: { ...unchanged.values, 'scope.default': { value: 'auto', layer: 'default' }, 'scope.exclude': { value: [], layer: 'default' }, 'tools.path': { value: [], layer: 'default' }, 'conventions.user_rules': { value: 'judge', layer: 'default' }, 'budget.usd': { value: 30, layer: 'default' }, 'run.concurrency': { value: 4, layer: 'default' }, 'runtimes.claude.strong': { value: 'opus', layer: 'default' }, 'runtimes.claude.fast': { value: 'sonnet', layer: 'default' }, 'runtimes.claude.args': { value: [], layer: 'default' } } };
+    const now = unchangedNow(false);
     assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([])), []);
+    assert.deepEqual(unappliedLines('r', settingsConfigured(true).review().configuration, unchangedNow(true) as never, flagLayerOf([])), [], 'a fix run reads its check settings back as well');
     assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'run.concurrency': { value: 2, layer: 'flag' } } } as never, flagLayerOf([{ name: 'run.concurrency', value: 2, flag: '--concurrency' }])), [], 'a concurrency flag applies per invocation');
     assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'scope.exclude': { value: ['dist/**'], layer: 'clone' } } } as never, flagLayerOf([])), ['run r: scope.exclude is now ["dist/**"] from the clone\'s file, which is not applied; the run keeps [] from the default']);
+  });
+
+  it('compares the check timeout in the whole milliseconds the run pinned', () => {
+    // 1.23456 minutes is 74073.6 ms, which the pin rounds to 74074, and 74074 ms reads back as 1.2345666666666666 minutes.
+    const configuration = settingsConfigured(true, { layers: { ...(settingsBlock(true).layers as object), 'checks.timeout_minutes': 'repository' } }, { checks: { timeoutMs: 74_074 } }).review().configuration;
+    const now = unchangedNow(true);
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 1.23456, layer: 'repository' } } } as never, flagLayerOf([])), [], 'the same file, read again');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 1.5, layer: 'repository' } } } as never, flagLayerOf([])), ['run r: checks.timeout_minutes is now 1.5 from the repository\'s file, which is not applied; the run keeps 1.2345666666666666 from the repository\'s file']);
   });
 
   it('builds the invocation\'s check flags from --check, --no-check and --set alike', () => {
