@@ -12,7 +12,7 @@ import type { ReviewConfiguration } from '../checkpoint/events.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
 import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
-import { checkSettingName, checkTimeoutMs, isConfiguredRuntime, layerWords, runtimeSettingNames, type Layer, type SettingName } from '../config/settings.ts';
+import { checkSettingName, checkTimeoutMs, isConfiguredRuntime, layerWords, runtimeSettingNames, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
 import { canonicalPath, isFile } from '../paths.ts';
 import type { CheckFlags } from './checks/discover.ts';
@@ -195,25 +195,37 @@ export function configuredLines(runId: string, resolved: ResolvedSettings): stri
   ];
 }
 
+/**
+ * Why a file a run recorded is not among the files read now: the
+ * repository's file skipped by `--no-repository-config`; the invocation
+ * file not named by `--config`, since a `--config` file that does not
+ * exist refuses the read; or any other file gone.
+ */
+function missingWords(layer: FileLayer, now: ResolvedSettings): string {
+  if (layer === 'repository' && now.repository.state === 'skipped') return 'is skipped by --no-repository-config';
+  if (layer === 'invocation') return 'is not given again with --config';
+  return 'is gone since the run recorded it';
+}
+
 /** A setting's value as a run pins it: the check timeout in whole milliseconds, so a value the pin rounded reads as unchanged. */
 const comparable = (name: SettingName, value: unknown): unknown => (name === 'checks.timeout_minutes' && typeof value === 'number' ? checkTimeoutMs(value) : value);
 
 /**
  * What a resumed run says of the settings as they are now (R6): each file
- * it recorded that changed or is gone, and each recorded setting whose
- * value now differs, which the run does not apply. A setting a dedicated
- * flag gives is left to that flag's own line; the concurrency and the run
- * budget a flag gives apply per invocation; the executable is the one the
- * run pinned, which the resume preflights; and a setting the run recorded
- * from a flag is compared only with a flag given now, since a resume
- * keeps it without the flag typed again.
+ * it recorded that changed, is gone or is not read now, and each recorded
+ * setting whose value now differs, which the run does not apply. A
+ * setting a dedicated flag gives is left to that flag's own line; the
+ * concurrency and the run budget a flag gives apply per invocation; the
+ * executable is the one the run pinned, which the resume preflights; and
+ * a setting the run recorded from a flag is compared only with a flag
+ * given now, since a resume keeps it without the flag typed again.
  */
 export function unappliedLines(runId: string, configuration: ReviewConfiguration, now: ResolvedSettings, flags: FlagLayer): string[] {
   // A continuation read the files again, so its record is the one the files are compared with.
   const recordedFiles = (configuration.fixSettings ?? configuration.settings)?.files ?? [];
   const fileLines = recordedFiles.flatMap((file) => {
     const current = now.files.find((candidate) => candidate.layer === file.layer && candidate.path === file.path);
-    if (current === undefined) return [`run ${runId}: ${layerWords[file.layer]} ${file.path} is gone since the run recorded it; the run keeps what it recorded`];
+    if (current === undefined) return [`run ${runId}: ${layerWords[file.layer]} ${file.path} ${missingWords(file.layer, now)}; the run keeps what it recorded`];
     return current.sha256 === file.sha256 ? [] : [`run ${runId}: ${layerWords[file.layer]} ${file.path} changed since the run recorded it; the run keeps what it recorded`];
   });
   const newFiles = now.files.filter((file) => !recordedFiles.some((recorded) => recorded.layer === file.layer && recorded.path === file.path)).map((file) => `run ${runId}: ${layerWords[file.layer]} ${file.path} is new since the run recorded its settings; it does not apply`);

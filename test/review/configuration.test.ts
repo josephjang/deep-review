@@ -293,6 +293,21 @@ describe('the check settings in force', () => {
     assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'runtimes.claude.args': { value: ['--bar'], layer: 'flag' } } } as never, flagLayerOf([set])), [`run r: runtimes.claude.args is now ["--bar"] from ${set.flag}, which is not applied; the run keeps ["--foo"] from a flag`]);
   });
 
+  it('names a recorded file this invocation did not read apart from one that is gone', () => {
+    const repository = { layer: 'repository', path: '.deep-review/config.toml', sha256: 'a'.repeat(64), commit: '1'.repeat(40) };
+    const invocation = { layer: 'invocation', path: '/w/run.toml', sha256: 'b'.repeat(64), commit: null };
+    const operator = { layer: 'operator', path: '/home/config.toml', sha256: 'c'.repeat(64), commit: null };
+    const configuration = settingsConfigured(false, { files: [repository, operator, invocation], repository: { state: 'read', commit: '1'.repeat(40), edited: false } }).review().configuration;
+    const now = unchangedNow(false);
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, repository: { state: 'skipped', commit: null, edited: false } } as never, flagLayerOf([])), [
+      'run r: the repository\'s file .deep-review/config.toml is skipped by --no-repository-config; the run keeps what it recorded',
+      'run r: the operator\'s file /home/config.toml is gone since the run recorded it; the run keeps what it recorded',
+      'run r: the --config file /w/run.toml is not given again with --config; the run keeps what it recorded',
+    ]);
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, files: [repository, operator, invocation], repository: { state: 'read', commit: '1'.repeat(40), edited: false } } as never, flagLayerOf([])), [], 'every file read again as it was');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, files: [operator, invocation] } as never, flagLayerOf([])), ['run r: the repository\'s file .deep-review/config.toml is gone since the run recorded it; the run keeps what it recorded'], 'a repository file looked for at the base and not found');
+  });
+
   it('compares the check timeout in the whole milliseconds the run pinned', () => {
     // 1.23456 minutes is 74073.6 ms, which the pin rounds to 74074, and 74074 ms reads back as 1.2345666666666666 minutes.
     const configuration = settingsConfigured(true, { layers: { ...(settingsBlock(true).layers as object), 'checks.timeout_minutes': 'repository' } }, { checks: { timeoutMs: 74_074 } }).review().configuration;
