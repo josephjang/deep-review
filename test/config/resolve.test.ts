@@ -185,6 +185,14 @@ describe('the flag layer', () => {
     for (const argument of ['checks.test', '=x', 'nope=1', 'runtimes.gemini.strong=x']) assert.throws(() => parseSetFlag(argument), SettingFlagError, argument);
   });
 
+  it('trims the spaces around a --set value, as TOML does, and keeps the ones a quoted string holds', () => {
+    assert.equal(flagLayerOf([parseSetFlag('review.base = origin/main')]).get('review.base')?.value, 'origin/main');
+    assert.equal(flagLayerOf([parseSetFlag('scope.default = branch')]).get('scope.default')?.value, 'branch');
+    assert.deepEqual(parseSetFlag('checks.test=  npm test  '), { name: 'checks.test', value: 'npm test', flag: '--set checks.test', text: 'npm test' });
+    assert.equal(flagLayerOf([parseSetFlag('checks.test = " npm test "')]).get('checks.test')?.value, ' npm test ');
+    assert.equal(flagLayerOf([parseSetFlag('budget.usd = 120')]).get('budget.usd')?.value, 120);
+  });
+
   it('keeps the text of a --set whose TOML value its setting refuses but whose text it takes, so a digit-only revision or the command true stay strings', () => {
     assert.deepEqual(flagLayerOf([parseSetFlag('review.base=1234567')]).get('review.base')?.value, '1234567');
     assert.deepEqual(flagLayerOf([parseSetFlag('checks.test=true')]).get('checks.test')?.value, 'true');

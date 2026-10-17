@@ -49,13 +49,19 @@ export function parseSetValue(text: string): unknown {
   return text;
 }
 
-/** One `--set <setting>=<value>` as a flag value, split at its first `=`; a name the registry lacks is refused. */
+/**
+ * One `--set <setting>=<value>` as a flag value, split at its first `=`;
+ * a name the registry lacks is refused. The name and the value are
+ * trimmed, as TOML ignores the spaces around `=`, so
+ * `review.base = origin/main` is `origin/main`; a value that needs its
+ * spaces is a quoted TOML string.
+ */
 export function parseSetFlag(argument: string): FlagValue {
   const equals = argument.indexOf('=');
   if (equals <= 0) throw new SettingFlagError(`--set takes <setting>=<value>, not ${JSON.stringify(argument)}`);
   const name = argument.slice(0, equals).trim();
   if (!isSettingName(name)) throw new SettingFlagError(`--set names no setting ${JSON.stringify(name)}; deep-review config explain lists the settings this engine knows`);
-  const text = argument.slice(equals + 1);
+  const text = argument.slice(equals + 1).trim();
   return { name, value: parseSetValue(text), flag: `--set ${name}`, text };
 }
 
