@@ -204,7 +204,9 @@ const comparable = (name: SettingName, value: unknown): unknown => (name === 'ch
  * value now differs, which the run does not apply. A setting a dedicated
  * flag gives is left to that flag's own line; the concurrency and the run
  * budget a flag gives apply per invocation; the executable is the one the
- * run pinned, which the resume preflights.
+ * run pinned, which the resume preflights; and a setting the run recorded
+ * from a flag is compared only with a flag given now, since a resume
+ * keeps it without the flag typed again.
  */
 export function unappliedLines(runId: string, configuration: ReviewConfiguration, now: ResolvedSettings, flags: FlagLayer): string[] {
   // A continuation read the files again, so its record is the one the files are compared with.
@@ -225,6 +227,8 @@ export function unappliedLines(runId: string, configuration: ReviewConfiguration
     // The concurrency and the run budget a flag gives apply per invocation, and so do the check settings until the checks are planned.
     if ((name === 'run.concurrency' || name === 'budget.usd' || (name.startsWith('checks.') && name !== 'checks.timeout_minutes')) && current.layer === 'flag') return [];
     const recorded = settingOf(configuration, name);
+    // A flag an earlier invocation gave is kept without being typed again, so only a flag given now is compared with it.
+    if (recorded.layer === 'flag' && flag === undefined) return [];
     if (JSON.stringify(comparable(name, recorded.value)) === JSON.stringify(comparable(name, current.value))) return [];
     return [`run ${runId}: ${name} is now ${valueWords(current.value)} from ${flag?.flag ?? layerWords[current.layer]}, which is not applied; the run keeps ${valueWords(recorded.value)}${recorded.layer === null ? '' : ` from ${layerWords[recorded.layer]}`}`];
   });

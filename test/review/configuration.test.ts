@@ -285,6 +285,14 @@ describe('the check settings in force', () => {
     assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'scope.exclude': { value: ['dist/**'], layer: 'clone' } } } as never, flagLayerOf([])), ['run r: scope.exclude is now ["dist/**"] from the clone\'s file, which is not applied; the run keeps [] from the default']);
   });
 
+  it('compares a setting the run recorded from a flag only with a flag given now', () => {
+    const configuration = settingsConfigured(false, { layers: { ...(settingsBlock(false).layers as object), 'runtimes.claude.args': 'flag', 'runtimes.claude.strong': 'flag' } }, { executableArgs: ['--foo'], models: { strong: 'x', fast: 'sonnet' } }).review().configuration;
+    const now = unchangedNow(false);
+    assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([])), [], 'a resume without --executable-arg and --strong-model');
+    const set = parseSetFlag('runtimes.claude.args=["--bar"]');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'runtimes.claude.args': { value: ['--bar'], layer: 'flag' } } } as never, flagLayerOf([set])), [`run r: runtimes.claude.args is now ["--bar"] from ${set.flag}, which is not applied; the run keeps ["--foo"] from a flag`]);
+  });
+
   it('compares the check timeout in the whole milliseconds the run pinned', () => {
     // 1.23456 minutes is 74073.6 ms, which the pin rounds to 74074, and 74074 ms reads back as 1.2345666666666666 minutes.
     const configuration = settingsConfigured(true, { layers: { ...(settingsBlock(true).layers as object), 'checks.timeout_minutes': 'repository' } }, { checks: { timeoutMs: 74_074 } }).review().configuration;
