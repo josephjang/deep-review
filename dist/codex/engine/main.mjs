@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync8, mkdirSync as mkdirSync8, readFileSync as readFileSync14, statSync as statSync6, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname4, join as join28, relative as relative4, resolve as resolve11 } from "node:path";
+import { dirname as dirname4, join as join29, relative as relative4, resolve as resolve11 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/checkpoint/checkpoint.ts
@@ -21035,12 +21035,28 @@ var settingLayerSchemaV1 = external_exports.enum(recordedSettingsV1.layers);
 var fileLayerSchemaV1 = external_exports.enum(recordedSettingsV1.fileLayers);
 var settingNameSchemaV1 = external_exports.enum(recordedSettingsV1.names);
 var settingTextSchemaV1 = external_exports.string().min(1).max(4096);
-var recordedCheckSettingV1 = external_exports.union([external_exports.string().min(1).max(1e3), external_exports.literal(false)]).nullable();
+var recordedCheckSettingV1 = external_exports.union([external_exports.string().min(1).max(32e3), external_exports.literal(false)]).nullable();
 var settingLayersSchemaV1 = external_exports.partialRecord(settingNameSchemaV1, settingLayerSchemaV1);
 var runtimeLayersMatch = (runtime, layers2) => Object.keys(layers2).every((name) => !name.startsWith("runtimes.") || name.startsWith(`runtimes.${runtime}.`));
-var settingsRecordedV1 = external_exports.strictObject({
+var settingsSourcesShapeV1 = {
   files: external_exports.array(external_exports.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, sha256: external_exports.string().regex(/^[a-f0-9]{64}$/), commit: commitId.nullable() })).max(recordedSettingsV1.fileLayers.length),
   repository: external_exports.strictObject({ state: external_exports.enum(recordedSettingsV1.repositoryStates), commit: commitId.nullable(), edited: external_exports.boolean() }),
+  notFollowed: external_exports.array(external_exports.strictObject({ name: settingNameSchemaV1, repository: external_exports.json(), value: external_exports.json(), layer: settingLayerSchemaV1 })).max(recordedSettingsV1.names.length),
+  ignored: external_exports.array(external_exports.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, name: external_exports.string().min(1).max(1e3), reason: external_exports.string().min(1).max(1e3) })).max(256)
+};
+var sourcesProblem = (recorded) => {
+  if (recorded.repository.state === "skipped" !== (recorded.repository.commit === null)) return "the repository's file has a commit exactly when it was not skipped";
+  if (!recorded.files.every((file2) => file2.layer === "repository" === (file2.commit !== null))) return "only the repository's file is read at a commit";
+  if (recorded.repository.state !== "read" && recorded.files.some((file2) => file2.layer === "repository")) return "the repository's file is among the files read exactly when it was read";
+  return null;
+};
+var refineSources = (recorded, context) => {
+  const problem = sourcesProblem(recorded);
+  if (problem !== null) context.addIssue({ code: "custom", message: problem, path: ["files"] });
+};
+var settingsRecordedV1 = external_exports.strictObject({
+  files: settingsSourcesShapeV1.files,
+  repository: settingsSourcesShapeV1.repository,
   values: external_exports.strictObject({
     "review.base": settingTextSchemaV1.nullable(),
     "scope.default": external_exports.enum(recordedSettingsV1.scopeDefaults),
@@ -21052,18 +21068,9 @@ var settingsRecordedV1 = external_exports.strictObject({
     "checks.test": recordedCheckSettingV1.optional()
   }),
   layers: settingLayersSchemaV1,
-  notFollowed: external_exports.array(external_exports.strictObject({ name: settingNameSchemaV1, repository: external_exports.json(), value: external_exports.json(), layer: settingLayerSchemaV1 })).max(recordedSettingsV1.names.length),
-  ignored: external_exports.array(external_exports.strictObject({ layer: fileLayerSchemaV1, path: settingTextSchemaV1, name: external_exports.string().min(1).max(1e3), reason: external_exports.string().min(1).max(1e3) })).max(256)
-}).refine((recorded) => recorded.repository.state === "skipped" === (recorded.repository.commit === null), {
-  message: "the repository's file has a commit exactly when it was not skipped",
-  path: ["repository", "commit"]
-}).refine((recorded) => recorded.files.every((file2) => file2.layer === "repository" === (file2.commit !== null)), {
-  message: "only the repository's file is read at a commit",
-  path: ["files"]
-}).refine((recorded) => recorded.repository.state === "read" || recorded.files.every((file2) => file2.layer !== "repository"), {
-  message: "the repository's file is among the files read exactly when it was read",
-  path: ["files"]
-});
+  notFollowed: settingsSourcesShapeV1.notFollowed,
+  ignored: settingsSourcesShapeV1.ignored
+}).superRefine(refineSources);
 var reviewConfiguredV6 = external_exports.strictObject({
   ...reviewConfiguredV4.shape,
   settings: settingsRecordedV1
@@ -21132,8 +21139,9 @@ var fixSettingsRecordedV1 = external_exports.strictObject({
     "checks.test": settingLayerSchemaV1,
     "checks.timeout_minutes": settingLayerSchemaV1,
     "tools.path": settingLayerSchemaV1
-  })
-});
+  }),
+  ...settingsSourcesShapeV1
+}).superRefine(refineSources);
 var fixPinnedV2 = external_exports.strictObject({
   checks: reviewConfiguredV2.shape.checks.unwrap(),
   fixes: reviewConfiguredV2.shape.fixes.unwrap(),
@@ -24994,7 +25002,8 @@ var textSchema = external_exports.string().min(1).max(1e3).refine((text2) => !te
 var revisionSchema = textSchema.refine((revision) => !revision.startsWith("-"), "a revision must not start with a dash");
 var modelSchema = textSchema.refine((model) => !model.startsWith("-"), "a model name must not start with a dash");
 var excludePatternSchema = textSchema.refine((pattern) => !pattern.startsWith(":"), 'a pattern must not start with ":", which git reads as pathspec magic').refine((pattern) => !pattern.replaceAll("\\", "/").split("/").includes(".."), 'a pattern must not have a ".." segment').refine((pattern) => !pattern.startsWith("/") && !pattern.startsWith("\\") && !/^[a-zA-Z]:/.test(pattern), "a pattern is relative to the repository root");
-var checkCommandSchema = external_exports.union([textSchema.refine((command) => command.trim().length > 0, "a command must not be blank"), external_exports.literal(false)]);
+var maxCheckCommandLength = 32e3;
+var checkCommandSchema = external_exports.union([external_exports.string().min(1).max(maxCheckCommandLength).refine((command) => !command.includes("\0"), "must not hold a NUL").refine((command) => command.trim().length > 0, "a command must not be blank"), external_exports.literal(false)]);
 var maxCheckMinutes = maxTimeoutMs / 6e4;
 var declare = (declaration2) => declaration2;
 var checkSetting = (kind) => declare({
@@ -25024,9 +25033,10 @@ var executableSetting = (runtime) => declare({
   flag: "--executable",
   describe: `The executable that runs the workers of runtime ${runtime}: a path, or a name looked up on PATH.`
 });
+var argumentSchema = external_exports.string().max(1e3).refine((argument) => !argument.includes("\0"), "must not hold a NUL");
 var argsSetting = (runtime) => declare({
   owner: "operator-only",
-  value: external_exports.array(textSchema).max(64),
+  value: external_exports.array(argumentSchema).max(64),
   defaultOf: () => [],
   defaultWords: "no arguments",
   example: [],
@@ -25189,7 +25199,8 @@ function flatten(table, prefix, values, unknown2) {
   for (const [key, value] of Object.entries(table)) {
     const name = prefix === "" ? key : `${prefix}.${key}`;
     if (prefix === "" && key === "schema") continue;
-    if (isSettingName(name)) values.set(name, value);
+    if (key.includes(".")) unknown2.push(name);
+    else if (isSettingName(name)) values.set(name, value);
     else if (isTable(value) && isSettingPrefix(name)) flatten(value, name, values, unknown2);
     else unknown2.push(...leaves(value, name));
   }
@@ -25389,14 +25400,17 @@ function parseSetFlag(argument) {
   if (equals <= 0) throw new SettingFlagError(`--set takes <setting>=<value>, not ${JSON.stringify(argument)}`);
   const name = argument.slice(0, equals).trim();
   if (!isSettingName(name)) throw new SettingFlagError(`--set names no setting ${JSON.stringify(name)}; deep-review config explain lists the settings this engine knows`);
-  return { name, value: parseSetValue(argument.slice(equals + 1)), flag: `--set ${name}` };
+  const text2 = argument.slice(equals + 1);
+  return { name, value: parseSetValue(text2), flag: `--set ${name}`, text: text2 };
 }
 function flagLayerOf(values) {
   const layer = /* @__PURE__ */ new Map();
   for (const entry of values) {
     const earlier = layer.get(entry.name);
     if (earlier !== void 0) throw new SettingFlagError(`${entry.flag} and ${earlier.flag} both set ${entry.name}; give one`);
-    const checked = settings[entry.name].value.safeParse(entry.value);
+    const parsed = settings[entry.name].value.safeParse(entry.value);
+    const asText = !parsed.success && entry.text !== void 0 && entry.text !== entry.value ? settings[entry.name].value.safeParse(entry.text) : null;
+    const checked = asText?.success === true ? asText : parsed;
     if (!checked.success) throw new SettingFlagError(`${entry.flag}: ${checked.error.issues.map((issue2) => issue2.message).join("; ")}, not ${JSON.stringify(entry.value)}`);
     layer.set(entry.name, { ...entry, value: checked.data });
   }
@@ -25547,7 +25561,7 @@ function isFile(path) {
 
 // src/review/controller.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { join as join25 } from "node:path";
+import { join as join26 } from "node:path";
 
 // src/config/record.ts
 var fixSideNames = [...checkSettingNames, "checks.timeout_minutes", "tools.path"];
@@ -25566,6 +25580,11 @@ function recordedNames(configuration) {
     ...configuration.codex === null ? [] : ["runtimes.codex.windows_sandbox"]
   ];
 }
+var maxRecordedIgnored = 256;
+var maxIgnoredNameLength = 1e3;
+function ignoredRecordOf(ignored) {
+  return ignored.slice(0, maxRecordedIgnored).map((entry) => ({ ...entry, name: entry.name === "" ? '""' : entry.name.slice(0, maxIgnoredNameLength) }));
+}
 function settingsRecordOf(resolved, configuration) {
   const value = (name) => resolved.values[name].value;
   const checks = configuration.fix ? { "checks.build": value("checks.build"), "checks.typecheck": value("checks.typecheck"), "checks.lint": value("checks.lint"), "checks.test": value("checks.test") } : {};
@@ -25582,12 +25601,16 @@ function settingsRecordOf(resolved, configuration) {
     },
     layers: Object.fromEntries(names.map((name) => [name, resolved.values[name].layer])),
     notFollowed: resolved.notFollowed.filter((entry) => names.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository, value: entry.value, layer: entry.layer })),
-    ignored: resolved.ignored.map((entry) => ({ ...entry }))
+    ignored: ignoredRecordOf(resolved.ignored)
   };
 }
 function fixSettingsRecordOf(resolved) {
   const value = (name) => resolved.values[name].value;
   return {
+    files: resolved.files.map((file2) => ({ ...file2 })),
+    repository: { ...resolved.repository },
+    notFollowed: resolved.notFollowed.filter((entry) => fixSideNames.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository, value: entry.value, layer: entry.layer })),
+    ignored: ignoredRecordOf(resolved.ignored),
     values: { "checks.build": value("checks.build"), "checks.typecheck": value("checks.typecheck"), "checks.lint": value("checks.lint"), "checks.test": value("checks.test"), "tools.path": [...value("tools.path") ?? []] },
     layers: {
       "checks.build": resolved.values["checks.build"].layer,
@@ -27515,7 +27538,9 @@ function claimsDirectories(options2) {
 }
 
 // src/review/configuration.ts
+import { execFileSync as execFileSync2 } from "node:child_process";
 import { existsSync as existsSync6 } from "node:fs";
+import { join as join17 } from "node:path";
 function unconfiguredSource(options2) {
   const values = dedicatedFlagValues({
     runtime: options2.runtime,
@@ -27595,6 +27620,24 @@ function checkFlagsInForce(recorded, invocation) {
   }
   return { commands, dropped, layers: layers2 };
 }
+var minimumNodeMajor = 26;
+var nodeVersionOf = (executable) => execFileSync2(executable, ["--version"], { encoding: "utf8", timeout: 1e4, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+function refuseOldNode(toolsPath, platform, versionOf = nodeVersionOf) {
+  const own2 = canonicalPath(process.execPath);
+  for (const directory of toolsPath) {
+    const executable = join17(directory, platform === "win32" ? "node.exe" : "node");
+    if (!isFile(executable) || canonicalPath(executable) === own2) continue;
+    const action = `a fixer runs the engine's snapshot and claim commands with the first node on its PATH, which tools.path comes first on, and they need Node ${String(minimumNodeMajor)} or newer; remove ${directory} from tools.path, or put a newer node there`;
+    let version2;
+    try {
+      version2 = versionOf(executable).trim();
+    } catch (error62) {
+      throw new ReviewRefusedError(`tools.path names ${directory}, whose node cannot be asked its version: ${error62 instanceof Error ? error62.message : String(error62)}; ${action}`);
+    }
+    const major = /^v?(\d+)\./.exec(version2)?.[1];
+    if (major === void 0 || Number(major) < minimumNodeMajor) throw new ReviewRefusedError(`tools.path names ${directory}, whose node is ${version2}; ${action}`);
+  }
+}
 var valueWords = (value) => value === null ? "none" : JSON.stringify(value);
 function configuredLines(runId, resolved) {
   const files = resolved.files.map((file2) => `${layerWords[file2.layer]} ${file2.path}${file2.commit === null ? "" : ` at ${file2.commit}`}`);
@@ -27608,14 +27651,14 @@ function configuredLines(runId, resolved) {
   ];
 }
 function unappliedLines(runId, configuration, now, flags) {
-  const recordedFiles = configuration.settings?.files ?? [];
+  const recordedFiles = (configuration.fixSettings ?? configuration.settings)?.files ?? [];
   const fileLines = recordedFiles.flatMap((file2) => {
     const current = now.files.find((candidate) => candidate.layer === file2.layer && candidate.path === file2.path);
     if (current === void 0) return [`run ${runId}: ${layerWords[file2.layer]} ${file2.path} is gone since the run recorded it; the run keeps what it recorded`];
     return current.sha256 === file2.sha256 ? [] : [`run ${runId}: ${layerWords[file2.layer]} ${file2.path} changed since the run recorded it; the run keeps what it recorded`];
   });
   const newFiles = now.files.filter((file2) => !recordedFiles.some((recorded) => recorded.layer === file2.layer && recorded.path === file2.path)).map((file2) => `run ${runId}: ${layerWords[file2.layer]} ${file2.path} is new since the run recorded its settings; it does not apply`);
-  const names = [.../* @__PURE__ */ new Set([...recordedNames(configuration), ...configuration.fixSettings === null ? [] : fixSideNames])];
+  const names = [.../* @__PURE__ */ new Set([...configuration.settings === null ? [] : recordedNames(configuration), ...configuration.fixSettings === null ? [] : fixSideNames])];
   const executable = isConfiguredRuntime(configuration.runtime) ? runtimeSettingNames(configuration.runtime).executable : null;
   const settingLines = names.flatMap((name) => {
     const current = now.values[name];
@@ -27631,10 +27674,10 @@ function unappliedLines(runId, configuration, now, flags) {
 
 // src/review/checks/run.ts
 import { mkdirSync as mkdirSync5, readFileSync as readFileSync10, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 function shellInvocation(command, platform = process.platform, shell) {
   if (platform === "win32") {
-    const cmd = shell ?? join17(process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows", "System32", "cmd.exe");
+    const cmd = shell ?? join18(process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows", "System32", "cmd.exe");
     return { executable: cmd, args: ["/d", "/s", "/c", `"${command}"`], verbatimArguments: true };
   }
   return { executable: shell ?? "/bin/sh", args: ["-c", command], verbatimArguments: false };
@@ -27667,13 +27710,13 @@ function checkError(result, timeoutMs) {
   return null;
 }
 async function runCheck(evidence, request) {
-  mkdirSync5(join17(request.ioDirectory, ".."), { recursive: true });
+  mkdirSync5(join18(request.ioDirectory, ".."), { recursive: true });
   mkdirSync5(request.ioDirectory);
   let keep = false;
   try {
-    const stdinFile = join17(request.ioDirectory, "stdin");
-    const stdoutFile = join17(request.ioDirectory, "stdout");
-    const stderrFile = join17(request.ioDirectory, "stderr");
+    const stdinFile = join18(request.ioDirectory, "stdin");
+    const stdoutFile = join18(request.ioDirectory, "stdout");
+    const stderrFile = join18(request.ioDirectory, "stderr");
     writeFileSync3(stdinFile, "", { flag: "wx" });
     const shell = shellInvocation(request.command, process.platform, request.shell);
     let result;
@@ -27947,7 +27990,7 @@ function renderMail(message, number5, total, diff) {
 
 // src/review/tree.ts
 import { lstatSync as lstatSync5, readFileSync as readFileSync11 } from "node:fs";
-import { join as join18 } from "node:path";
+import { join as join19 } from "node:path";
 function expectedAt(expected, base, path) {
   return expected.has(path) ? expected.get(path) ?? null : base(path);
 }
@@ -27976,7 +28019,7 @@ function applyRevision(tree, files) {
   for (const file2 of files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
 }
 function readTreeEntry(worktree, path) {
-  const absolute = join18(worktree, ...path.split("/"));
+  const absolute = join19(worktree, ...path.split("/"));
   let stat;
   try {
     stat = lstatSync5(absolute, { throwIfNoEntry: false });
@@ -28092,10 +28135,10 @@ function gitContent(worktree, read) {
 
 // src/review/conventions.ts
 import { homedir as homedir2 } from "node:os";
-import { join as join19 } from "node:path";
+import { join as join20 } from "node:path";
 var userConventionFiles = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
 function existingUserRulesFiles(home = homedir2()) {
-  return userConventionFiles.map((relative5) => join19(home, ...relative5.split("/"))).filter(isFile);
+  return userConventionFiles.map((relative5) => join20(home, ...relative5.split("/"))).filter(isFile);
 }
 var authorshipWindow = 200;
 function mailmapAddress(output2) {
@@ -28120,7 +28163,7 @@ function reviewerAuthorship(worktree) {
 }
 
 // src/review/survey.ts
-import { isAbsolute as isAbsolute6, join as join20 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join21 } from "node:path";
 var offeredUserFiles = (setting, inputs) => setting === "judge" ? inputs.userFiles : [];
 var policyWords = {
   governs: "the reviewer's own rules, which the review policy applies to every run",
@@ -28147,7 +28190,7 @@ function surveyFailure(reason, setting, userFiles) {
 var surveyGitDirectory = "which holds git's own data, not a file of the repository";
 function repositoryFile(context, raw, what) {
   const path = resolveReportedPath(context.worktree, context.lookup, raw, { what, gitDirectory: surveyGitDirectory });
-  const absolute = join20(context.worktree, ...path.split("/"));
+  const absolute = join21(context.worktree, ...path.split("/"));
   if (!isFile(absolute)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a regular file of the repository`);
   if (!resolvingPath(what, raw, () => isInside(context.worktree, absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
   return path;
@@ -28895,7 +28938,7 @@ function phaseCheck(state, worktree, phase, attempt, moment, match) {
 }
 
 // src/review/fix-events.ts
-import { join as join22 } from "node:path";
+import { join as join23 } from "node:path";
 
 // src/review/schemas.ts
 var candidateFields = {
@@ -29127,7 +29170,7 @@ function checkDecisions(output2, count2) {
 // src/review/snapshot.ts
 import { createHash as createHash7 } from "node:crypto";
 import { existsSync as existsSync7, lstatSync as lstatSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync12, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname3, join as join21 } from "node:path";
+import { dirname as dirname3, join as join22 } from "node:path";
 var snapshotManifestFileName = "manifest.json";
 var snapshotsDirectoryName = "snapshots";
 var listedFileSchema = external_exports.union([
@@ -29157,7 +29200,7 @@ var snapshotManifestSchema = external_exports.strictObject({
   hashes: external_exports.record(external_exports.string(), external_exports.string().regex(/^[a-f0-9]{64}$/)).optional()
 });
 function readManifest(into) {
-  const file2 = join21(into, snapshotManifestFileName);
+  const file2 = join22(into, snapshotManifestFileName);
   if (!existsSync7(file2)) return null;
   const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync12(file2, "utf8")));
   if (!parsed.success) throw new Error(`${file2} is not a snapshot manifest: ${external_exports.prettifyError(parsed.error)}`);
@@ -29166,7 +29209,7 @@ function readManifest(into) {
 function statOf(worktree, path) {
   let stat;
   try {
-    stat = lstatSync6(join21(worktree, ...path.split("/")), { throwIfNoEntry: false });
+    stat = lstatSync6(join22(worktree, ...path.split("/")), { throwIfNoEntry: false });
   } catch (error62) {
     if (error62.code === "ENOTDIR") return null;
     throw error62;
@@ -29185,7 +29228,7 @@ function changedSince(manifest) {
   const changed = [];
   const found = /* @__PURE__ */ new Set();
   const walk = (relative5) => {
-    for (const entry of readdirSync5(join21(manifest.worktree, ...relative5.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
+    for (const entry of readdirSync5(join22(manifest.worktree, ...relative5.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
       const path = relative5 === "" ? entry.name : `${relative5}/${entry.name}`;
       if (entry.name === ".git") continue;
       if (entry.isDirectory() && !entry.isSymbolicLink()) {
@@ -29204,8 +29247,8 @@ function changedSince(manifest) {
 }
 function takeSnapshot(request) {
   if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
-  const copies = join21(request.into, String(request.finding));
-  const listingFile = join21(request.into, `${String(request.finding)}.json`);
+  const copies = join22(request.into, String(request.finding));
+  const listingFile = join22(request.into, `${String(request.finding)}.json`);
   rmSync4(listingFile, { force: true });
   rmSync4(copies, { recursive: true, force: true });
   mkdirSync6(copies, { recursive: true });
@@ -29214,7 +29257,7 @@ function takeSnapshot(request) {
   const listed = paths.map((path) => {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, "absent"];
-    const copy = join21(copies, ...path.split("/"));
+    const copy = join22(copies, ...path.split("/"));
     mkdirSync6(dirname3(copy), { recursive: true });
     writeFileSync4(copy, entry.bytes);
     return [path, { sha256: sha2562(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
@@ -29235,7 +29278,7 @@ function readSnapshot(into, finding) {
     if (listed === "absent") return null;
     let bytes;
     try {
-      bytes = readFileSync12(join21(into, String(finding), ...path.split("/")));
+      bytes = readFileSync12(join22(into, String(finding), ...path.split("/")));
     } catch {
       return void 0;
     }
@@ -29243,7 +29286,7 @@ function readSnapshot(into, finding) {
   };
 }
 function readListing(into, finding) {
-  const listingFile = join21(into, `${String(finding)}.json`);
+  const listingFile = join22(into, `${String(finding)}.json`);
   if (!existsSync7(listingFile)) return null;
   try {
     const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync12(listingFile, "utf8")));
@@ -29261,7 +29304,7 @@ function snapshotPaths(into, count2) {
 }
 function writeManifest(into, manifest) {
   mkdirSync6(into, { recursive: true });
-  writeFileSync4(join21(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
+  writeFileSync4(join22(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
 `);
 }
 var racyWindowMs = 2e3;
@@ -29377,7 +29420,7 @@ function fixAnswerEvents(unit, receipt, context) {
   const findings = ids.map((id, index2) => ({ id, ...byIndex.get(index2) }));
   const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join22(scratch, snapshotsDirectoryName);
+  const into = scratch === null ? null : join23(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
@@ -29403,7 +29446,7 @@ function attemptRevisionEvents(context, phase, key, workerId, reason) {
   const { state, worktree, evidence } = context;
   const ids = unitIds(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join22(scratch, snapshotsDirectoryName);
+  const into = scratch === null ? null : join23(scratch, snapshotsDirectoryName);
   const settle3 = settleOf(context, phase, key);
   const keyOf = keyOfSettle(settle3);
   const others = othersHeldInRound(settle3.state, phase, key, keyOf);
@@ -29448,16 +29491,16 @@ function checkRevision(context, phase, kind, command, manifest) {
 // src/review/lock.ts
 import { mkdirSync as mkdirSync7, readFileSync as readFileSync13, rmSync as rmSync5, writeFileSync as writeFileSync5 } from "node:fs";
 import { constants } from "node:os";
-import { join as join23 } from "node:path";
+import { join as join24 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 var locksDirectoryName = "runs";
 var sqliteBusy = 5;
 var sqliteNotADatabase = 26;
 function startLockPath(checkpointRoot) {
-  return join23(checkpointRoot, "start.lock");
+  return join24(checkpointRoot, "start.lock");
 }
 function lockPath(checkpointRoot, runId) {
-  return join23(checkpointRoot, locksDirectoryName, `${runId}.lock`);
+  return join24(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
 function holderPath(path) {
   return `${path}.pid`;
@@ -29474,7 +29517,7 @@ function lockHolder(path) {
   return text2 !== "" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 function acquireRunLock(checkpointRoot, runId) {
-  mkdirSync7(join23(checkpointRoot, locksDirectoryName), { recursive: true });
+  mkdirSync7(join24(checkpointRoot, locksDirectoryName), { recursive: true });
   return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
 }
 function acquireStartLock(checkpointRoot) {
@@ -29547,7 +29590,7 @@ function releaseOnExit(release, end = exitBySignal) {
 }
 
 // src/review/phases.ts
-import { join as join24 } from "node:path";
+import { join as join25 } from "node:path";
 
 // src/review/markdown.ts
 var tableCell = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
@@ -30341,7 +30384,7 @@ function invocationFor(unit, context) {
   const shared = unit.phase === "fixes" ? context.claims.directoryOf(unit.key) : null;
   const live2 = unit.phase === "fixes" ? context.claims.live(unit.key) : null;
   const review2 = requireReview2(live2 === null ? context.state : settleClaims(context.state, unit.key, live2, context.worktree).state);
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join24(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join25(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === "survey" ? context.survey() : null;
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
   return {
@@ -30966,18 +31009,21 @@ function fixLimitations(review2) {
 // src/review/settings-report.ts
 var namedExcludedPaths = 50;
 var valueWords2 = (value) => JSON.stringify(value);
-function settingsHeaderLine(configuration) {
-  const settings2 = configuration.settings;
-  if (settings2 === null) return "Settings: recorded before the settings existed; the run's values came from the defaults and its flags";
-  const files = settings2.files.map((file2) => `${layerWords[file2.layer]} ${file2.path}${file2.commit === null ? "" : ` at ${file2.commit}`}`);
+function sourcesWords(sources) {
+  const files = sources.files.map((file2) => `${layerWords[file2.layer]} ${file2.path}${file2.commit === null ? "" : ` at ${file2.commit}`}`);
   return [
-    `Settings: ${files.length === 0 ? "no configuration file" : files.join(", ")}`,
-    ...settings2.repository.state === "skipped" ? ["the repository's file skipped by --no-repository-config"] : [],
-    ...settings2.repository.edited ? [`${repositoryConfigPath} edited by this change: the edit applies to later changes`] : []
+    files.length === 0 ? "no configuration file" : files.join(", "),
+    ...sources.repository.state === "skipped" ? ["the repository's file skipped by --no-repository-config"] : [],
+    ...sources.repository.edited ? [`${repositoryConfigPath} edited by this change: the edit applies to later changes`] : []
   ].join("; ");
 }
+function settingsHeaderLine(configuration) {
+  const { settings: settings2, fixSettings } = configuration;
+  const run2 = settings2 === null ? "recorded before the settings existed; the run's values came from the defaults and its flags" : sourcesWords(settings2);
+  return `Settings: ${run2}${fixSettings === null ? "" : `; the fix pass: ${sourcesWords(fixSettings)}`}`;
+}
 function settingsLimitations(configuration, scope) {
-  const settings2 = configuration.settings;
+  const { settings: settings2, fixSettings } = configuration;
   const lines = [];
   const patterns = scope.request.exclude;
   if (patterns.length > 0) {
@@ -30986,11 +31032,18 @@ function settingsLimitations(configuration, scope) {
     const more = count2 - named.length;
     lines.push(count2 === 0 ? `scope.exclude (${patterns.join(", ")}) left out no changed path.` : `scope.exclude (${patterns.join(", ")}) left out ${String(count2)} changed path${count2 === 1 ? "" : "s"}, which no worker reviewed: ${named.join(", ")}${more > 0 ? `, and ${String(more)} more` : ""}.`);
   }
-  if (settings2 === null) return lines;
-  for (const entry of settings2.notFollowed) lines.push(`Not followed: ${entry.name}: the repository's ${valueWords2(entry.repository)}, this run's ${valueWords2(entry.value)} from ${layerWords[entry.layer]}.`);
-  if (settings2.repository.state === "skipped") lines.push("The repository's file was skipped by --no-repository-config, so the run did not apply the policy of the repository.");
-  if (settings2.repository.edited) lines.push(`This change edits ${repositoryConfigPath}; the edit applies to later changes, and this review read the file as its base holds it.`);
-  for (const entry of settings2.ignored) lines.push(`Ignored: ${entry.name} in ${entry.path}: ${entry.reason}.`);
+  const records2 = [settings2, fixSettings].filter((record2) => record2 !== null);
+  if (records2.length === 0) return lines;
+  const notFollowed = [
+    ...(settings2?.notFollowed ?? []).filter((entry) => fixSettings === null || !fixSideNames.includes(entry.name)),
+    ...fixSettings?.notFollowed ?? []
+  ];
+  for (const entry of notFollowed) lines.push(`Not followed: ${entry.name}: the repository's ${valueWords2(entry.repository)}, this run's ${valueWords2(entry.value)} from ${layerWords[entry.layer]}.`);
+  if (settings2?.repository.state === "skipped") lines.push("The repository's file was skipped by --no-repository-config, so the run did not apply the policy of the repository.");
+  else if (fixSettings?.repository.state === "skipped") lines.push("The repository's file was skipped by --no-repository-config for the fix pass, so its checks did not follow the policy of the repository.");
+  if (records2.some((record2) => record2.repository.edited)) lines.push(`This change edits ${repositoryConfigPath}; the edit applies to later changes, and this review read the file as its base holds it.`);
+  const ignored = new Map(records2.flatMap((record2) => record2.ignored).map((entry) => [JSON.stringify([entry.layer, entry.path, entry.name]), entry]));
+  for (const entry of ignored.values()) lines.push(`Ignored: ${entry.name} in ${entry.path}: ${entry.reason}.`);
   return lines;
 }
 
@@ -31141,7 +31194,7 @@ function renderReport(state, input2) {
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
     // A run configured before the settings renders as it did; status says it is older than them (R17 of the configuration).
-    ...configuration.settings === null ? [] : [inlineText(settingsHeaderLine(configuration))],
+    ...configuration.settings === null && configuration.fixSettings === null ? [] : [inlineText(settingsHeaderLine(configuration))],
     ...continuedLine(review2, input2),
     ...answersLines(review2, input2),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
@@ -31263,7 +31316,7 @@ function ancestorDirectories(changedPaths2) {
   return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
 }
 function presurveyRulesFiles(worktree, changedPaths2, home) {
-  const repository = ancestorDirectories(changedPaths2).flatMap((directory) => presurveyRulesFileNames.map((name) => directory === "" ? name : `${directory}/${name}`)).filter((path) => isFile(join25(worktree, ...path.split("/"))));
+  const repository = ancestorDirectories(changedPaths2).flatMap((directory) => presurveyRulesFileNames.map((name) => directory === "" ? name : `${directory}/${name}`)).filter((path) => isFile(join26(worktree, ...path.split("/"))));
   return [...existingUserRulesFiles(home).map((path) => ({ level: "user", path })), ...repository.map((path) => ({ level: "repository", path }))];
 }
 var driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
@@ -31313,7 +31366,7 @@ async function runReview(options2) {
   };
   const surveyInputs = () => surveyed;
   const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
-  const scratchBase = join25(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
+  const scratchBase = join26(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
   const caseInsensitive = once2(() => caseInsensitiveFileSystem(options2.worktree));
   const directories = claimsDirectories({ scratchBase, runId, worktree: options2.worktree, state: () => state, caseInsensitive, command: (key, directory) => claimCommandFor(engineEntry, key, directory), log });
   const { claims } = directories;
@@ -31353,7 +31406,7 @@ async function runReview(options2) {
   };
   try {
     if (capture !== null) {
-      state = captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base });
+      state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base }));
       const excluded2 = state.scope.excluded.count;
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files${excluded2 === 0 ? "" : `; scope.exclude left out ${String(excluded2)} changed path${excluded2 === 1 ? "" : "s"}`}`);
     }
@@ -31405,8 +31458,8 @@ async function runReview(options2) {
       log(`check ${due.kind} (${phase}): ${due.command}`);
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === void 0) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
-      const manifest = prepareCheckManifest(join25(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree);
-      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, toolsPath, timeoutMs, ioDirectory: join25(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
+      const manifest = prepareCheckManifest(join26(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree);
+      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, toolsPath, timeoutMs, ioDirectory: join26(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? "" : `: ${result.error}`}`);
       const ran = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
       const revision = checkRevision(revisionContext(), phase, due.kind, due.command, manifest);
@@ -31491,7 +31544,7 @@ async function runReview(options2) {
             scopeBlock: scopeBlockFor,
             survey: surveyInputs,
             evidence: checkpoint.evidence,
-            newScratch: () => join25(scratchBase, randomUUID4()),
+            newScratch: () => join26(scratchBase, randomUUID4()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
             unelevatedEditors,
             claims
@@ -31499,7 +31552,7 @@ async function runReview(options2) {
           for (const unit of step.units) {
             if (unit.phase === "fixes" && !directories.prepare(unit.key)) break;
             const invocation = invocationFor(unit, context);
-            if (invocation.scratch !== void 0) prepareSnapshots(join25(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
+            if (invocation.scratch !== void 0) prepareSnapshots(join26(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
             const startedAt = Date.now();
             const promise2 = runWorker(checkpoint, runId, invocation, {
@@ -31666,6 +31719,7 @@ async function openRun(context) {
       const policyResolved = resolvePolicy(policy, context.roles, context.adapter, context.flags, context.platform, policyOverridesOf(resolved));
       if (context.flags.codexWindowsSandbox !== void 0 && policyResolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
       const fix = context.fix ?? null;
+      if (fix !== null) refuseOldNode(resolvedValue(resolved, "tools.path") ?? [], process.platform);
       const configured2 = executableOf(resolved);
       const executable = typeof context.executable === "function" ? context.executable(configured2.executable) : context.executable;
       const executableArgs = [...configured2.args];
@@ -31673,6 +31727,8 @@ async function openRun(context) {
       const { checks, fixes, survey, ...rest } = policyResolved;
       const payload = { ...rest, roles: [...policyResolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
       configure2 = { payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
+      const recordable = reviewConfiguredV6.safeParse(configure2.payload);
+      if (!recordable.success) throw new Error(`The engine built a configuration its ledger refuses, so no run is created: ${recordable.error.message}`);
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
     if (found === null) {
@@ -31729,7 +31785,9 @@ async function continuationOf(run2, context) {
   const nothing = nothingToFix(run2);
   if (nothing !== null) throw new ReviewRefusedError(`run ${run2.id} has no finding to fix: ${nothing}; nothing to continue; ${wayOut(run2.id, "continue")} to review it again`);
   const policy = readPolicy(context.rolesRoot);
-  const resolved = context.source.resolve({ base: run2.scope.base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd });
+  const scope = run2.scope;
+  const resolved = withChangedPaths(context.source.resolve({ base: scope.base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd }), [...scope.files.map((file2) => file2.path), ...scope.excluded.paths]);
+  refuseOldNode(resolvedValue(resolved, "tools.path") ?? [], process.platform);
   const settled2 = checkFlagsOfResolved(resolved);
   const unsettled2 = unsettledKinds(settled2);
   if ((review2.survey?.failure ?? null) !== null && unsettled2.length > 0) {
@@ -31798,7 +31856,7 @@ function resumedFixFlags(run2, pinned, context) {
   }
 }
 function unappliedSettings(run2, pinned, context) {
-  if (pinned.settings === null || run2.scope === null || context.source === void 0) return;
+  if (pinned.settings === null && pinned.fixSettings === null || run2.scope === null || context.source === void 0) return;
   let now;
   try {
     now = context.source.resolve({ base: run2.scope.base, policy: readPolicy(context.rolesRoot), runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd });
@@ -31974,7 +32032,7 @@ async function answerRun(options2) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter, extname, isAbsolute as isAbsolute8, join as join26, posix, resolve as resolve10, win32 as win322 } from "node:path";
+import { delimiter, extname, isAbsolute as isAbsolute8, join as join27, posix, resolve as resolve10, win32 as win322 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -32003,7 +32061,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   const extensions = platform === "win32" ? extname(name) === "" ? spellingsOf(environment, "PATHEXT", platform)[0]?.[1]?.split(";").filter((extension) => extension.length > 0) ?? defaultPathExt : [""] : [""];
   for (const directory of directories) {
     for (const extension of extensions) {
-      const candidate = join26(directory.replaceAll('"', ""), `${name}${extension}`);
+      const candidate = join27(directory.replaceAll('"', ""), `${name}${extension}`);
       if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
     }
   }
@@ -32013,7 +32071,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
 // src/review/commit.ts
 import { mkdtempSync, rmSync as rmSync6 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join27 } from "node:path";
+import { join as join28 } from "node:path";
 function git2(worktree, args, options2 = {}) {
   try {
     return runGitSync(["--no-optional-locks", ...args], {
@@ -32181,9 +32239,9 @@ function build(run2, options2) {
   const fix = run2.review.fix;
   const series = seriesOf(run2);
   for (const [path, file2] of expectedTree(scope, fix.revisions)) if (file2 !== null && series.paths.has(path)) bytesOf(checkpoint, path, file2.frozen);
-  const temporary = mkdtempSync(join27(tmpdir2(), "deep-review-commit-"));
+  const temporary = mkdtempSync(join28(tmpdir2(), "deep-review-commit-"));
   try {
-    const trees = new TreeBuilder(worktree, checkpoint, join27(temporary, "index"), series.head);
+    const trees = new TreeBuilder(worktree, checkpoint, join28(temporary, "index"), series.head);
     const made = [];
     let parent = series.head;
     const commit2 = (message, revision) => {
@@ -32719,7 +32777,7 @@ async function configCommand(values, rest, io) {
   if (subcommand === "validate") {
     const layer = values.layer ?? "repository";
     if (!fileLayers.includes(layer)) throw new UsageError(`--layer must be one of ${fileLayers.join(", ")}, not ${JSON.stringify(layer)}`);
-    const path = argument === void 0 ? join28(location.worktree, ...repositoryConfigPath.split("/")) : resolve11(io.cwd, argument);
+    const path = argument === void 0 ? join29(location.worktree, ...repositoryConfigPath.split("/")) : resolve11(io.cwd, argument);
     const stat = statSync6(path, { throwIfNoEntry: false });
     if (stat === void 0 || !stat.isFile()) throw new ReviewRefusedError(`${path} is not a file to validate`);
     if (stat.size > maxConfigBytes) throw new ReviewRefusedError(`${path} holds ${String(stat.size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`);
@@ -32732,7 +32790,7 @@ async function configCommand(values, rest, io) {
     const chosen2 = ["repository", "operator", "clone"].filter((layer2) => values[layer2] === true);
     if (chosen2.length !== 1) throw new UsageError("config init takes one of --repository, --operator and --clone");
     const layer = chosen2[0];
-    const path = layer === "repository" ? join28(location.worktree, ...repositoryConfigPath.split("/")) : layer === "clone" ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
+    const path = layer === "repository" ? join29(location.worktree, ...repositoryConfigPath.split("/")) : layer === "clone" ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
     if (path === null) throw new ReviewRefusedError("the operator's file is under APPDATA, which has no value here; set it, or write the file by hand");
     if (existsSync8(path)) throw new ReviewRefusedError(`${path} exists, and config init writes only a new file; edit it, or remove it first`);
     mkdirSync8(dirname4(path), { recursive: true });
@@ -32761,7 +32819,7 @@ async function configCommand(values, rest, io) {
   return 0;
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync8(join28(root, ledgerFileName))) return null;
+  if (!create && !existsSync8(join29(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 function invocationOf(values, io, worktree, commonDir) {
@@ -32789,6 +32847,8 @@ function invocationOf(values, io, worktree, commonDir) {
   const flags = policyFlagsOf(layer, runtime);
   const setProblem = invocationFlagProblem(flags);
   if (setProblem !== null) throw new UsageError(setProblem);
+  const setCheck = checkFlags === null ? [...layer.values()].find((entry) => entry.name.startsWith("checks.") && entry.name !== "checks.timeout_minutes") : void 0;
+  if (setCheck !== void 0) throw new UsageError(`${setCheck.flag} applies only with --fix, as --check does`);
   const source = configurationSource({
     worktree,
     locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === void 0 ? null : resolve11(io.cwd, values.config) },
