@@ -12,7 +12,7 @@ import type { ReviewConfiguration } from '../checkpoint/events.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
 import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
-import { checkSettingName, checkTimeoutMs, isConfiguredRuntime, layerWords, runtimeSettingNames, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
+import { checkSettingName, checkSettingNames, checkTimeoutMs, isConfiguredRuntime, layerWords, runtimeSettingNames, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
 import { canonicalPath, isFile } from '../paths.ts';
 import type { CheckFlags } from './checks/discover.ts';
@@ -243,7 +243,7 @@ export function unappliedLines(runId: string, configuration: ReviewConfiguration
     const flag = flags.get(name);
     if (name === executable || (flag !== undefined && !flag.flag.startsWith('--set'))) return [];
     // The concurrency and the run budget a flag gives apply per invocation, and so do the check settings until the checks are planned.
-    if ((name === 'run.concurrency' || name === 'budget.usd' || (name.startsWith('checks.') && name !== 'checks.timeout_minutes')) && current.layer === 'flag') return [];
+    if ((name === 'run.concurrency' || name === 'budget.usd' || checkSettingNames.includes(name)) && current.layer === 'flag') return [];
     const recorded = settingOf(configuration, name);
     // A flag an earlier invocation gave is kept without being typed again, so only a flag given now is compared with it.
     if (recorded.layer === 'flag' && flag === undefined) return [];

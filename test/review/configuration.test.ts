@@ -300,6 +300,15 @@ describe('the check settings in force', () => {
     assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'runtimes.claude.args': { value: ['--bar'], layer: 'flag' } } } as never, flagLayerOf([set])), [`run r: runtimes.claude.args is now ["--bar"] from ${set.flag}, which is not applied; the run keeps ["--foo"] from a flag`]);
   });
 
+  it('leaves a check command a flag gives to the planning of the checks, but not the check timeout', () => {
+    const configuration = settingsConfigured(true).review().configuration;
+    const now = unchangedNow(true);
+    const command = parseSetFlag('checks.test=make test');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.test': { value: 'make test', layer: 'flag' } } } as never, flagLayerOf([command])), [], 'a check command applies until the checks are planned');
+    const timeout = parseSetFlag('checks.timeout_minutes=2');
+    assert.equal(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 2, layer: 'flag' } } } as never, flagLayerOf([timeout])).length, 1, 'the check timeout is no check command');
+  });
+
   it('names a recorded file this invocation did not read apart from one that is gone', () => {
     const repository = { layer: 'repository', path: '.deep-review/config.toml', sha256: 'a'.repeat(64), commit: '1'.repeat(40) };
     const invocation = { layer: 'invocation', path: '/w/run.toml', sha256: 'b'.repeat(64), commit: null };
