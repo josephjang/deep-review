@@ -116,6 +116,19 @@ describe('resolveSettings: the order of the layers', () => {
     assert.deepEqual(resolved.ignored, [{ layer: 'repository', path: repositoryConfigPath, name: 'budget.usd', reason: 'runtime codex reports no cost in USD, so its run has no budget' }]);
   });
 
+  it('names every file whose run budget a runtime that reports no cost ignores, not only the one that wins', () => {
+    const reason = 'runtime codex reports no cost in USD, so its run has no budget';
+    const files = [file('operator', { 'budget.usd': 50 }), file('clone', {}), file('repository', { 'budget.usd': 120 })];
+    const resolved = resolveSettings(inputs(files, noFlags, { runtime: 'codex', costInUsd: false }));
+    assert.deepEqual(resolved.values['budget.usd'], { value: null, layer: 'default' });
+    assert.deepEqual(resolved.ignored, [
+      { layer: 'repository', path: repositoryConfigPath, name: 'budget.usd', reason },
+      { layer: 'operator', path: '/operator.toml', name: 'budget.usd', reason },
+    ]);
+    const flagged = resolveSettings(inputs(files, flags({ 'budget.usd': 5 }), { runtime: 'codex', costInUsd: false }));
+    assert.deepEqual(flagged.ignored, [], 'a budget flag wins over the files, so no file\'s budget is listed as ignored');
+  });
+
   it('lists the names an operator\'s or a clone\'s file holds that the engine does not know', () => {
     const resolved = resolveSettings(inputs([file('operator', {}, ['report.formats']), file('clone', {}, ['profile'])]));
     assert.deepEqual(resolved.ignored.map((entry) => [entry.layer, entry.name, entry.reason]), [['operator', 'report.formats', 'no such setting'], ['clone', 'profile', 'no such setting']]);

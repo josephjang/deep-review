@@ -260,8 +260,10 @@ export function resolveSettings(inputs: SettingsInputs): ResolvedSettings {
   for (const name of settingNames) {
     let found = winner(name, sources);
     if (name === 'budget.usd' && !inputs.costInUsd && found !== null && found.layer !== 'flag') {
-      const file = inputs.files.find((candidate) => candidate.layer === found!.layer)!;
-      ignored.push({ layer: file.layer as FileLayer, path: file.path, name, reason: `runtime ${inputs.runtime} reports no cost in USD, so its run has no budget` });
+      // Every file that sets the budget is ignored, not only the one that wins, so each is named, lowest layer first.
+      const order = layerOrder[settings[name].owner];
+      const setting = inputs.files.filter((file) => file.values.has(name)).sort((a, b) => order.indexOf(a.layer) - order.indexOf(b.layer));
+      for (const file of setting) ignored.push({ layer: file.layer, path: file.path, name, reason: `runtime ${inputs.runtime} reports no cost in USD, so its run has no budget` });
       found = null;
     }
     const resolved: ResolvedSetting = found ?? { value: name === 'review.base' ? inputs.originHead() : settings[name].defaultOf(inputs.policy, inputs.runtime), layer: 'default' };
