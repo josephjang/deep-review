@@ -11,7 +11,7 @@
  * configuration without a run (R14 of the configuration). The entry point
  * of the bundle and of `npm run review` during development.
  */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
@@ -25,7 +25,7 @@ import { engineIdentity, engineRolesRoot } from './engine.ts';
 import { explainLines, initText, showLines, validateBytes, type ShownScope } from './config/command.ts';
 import { checkFlagsOf, dedicatedFlagValues, policyFlagsOf } from './config/flags.ts';
 import { SettingFlagError } from './config/errors.ts';
-import { cloneConfigPath, maxConfigBytes, operatorConfigPath, repositoryConfigFile } from './config/files.ts';
+import { cloneConfigPath, operatorConfigPath, readConfigBytes, repositoryConfigFile } from './config/files.ts';
 import { flagLayerOf, parseSetFlag, requireBase, resolvedValue, withChangedPaths, type FlagLayer, type ScopeSettings } from './config/resolve.ts';
 import { checkSettingNames, fileLayers, type FileLayer } from './config/settings.ts';
 import { configurationSource, type ConfigurationSource } from './config/source.ts';
@@ -557,10 +557,10 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
     const layer = values.layer ?? 'repository';
     if (!(fileLayers as readonly string[]).includes(layer)) throw new UsageError(`--layer must be one of ${fileLayers.join(', ')}, not ${JSON.stringify(layer)}`);
     const path = argument === undefined ? repositoryConfigFile(location.worktree) : resolve(io.cwd, argument);
-    const stat = statSync(path, { throwIfNoEntry: false });
-    if (stat === undefined || !stat.isFile()) throw new ReviewRefusedError(`${path} is not a file to validate`);
-    if (stat.size > maxConfigBytes) throw new ReviewRefusedError(`${path} holds ${String(stat.size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`);
-    const validated = validateBytes(layer as FileLayer, path, readFileSync(path));
+    const read = readConfigBytes(layer as FileLayer, path);
+    if (read === null) throw new ReviewRefusedError(`${path} is not a file to validate`);
+    if ('problem' in read) throw new ReviewRefusedError(read.problem);
+    const validated = validateBytes(layer as FileLayer, path, read.bytes);
     (validated.valid ? io.stdout : io.stderr)(`${validated.lines.join('\n')}\n`);
     return validated.valid ? 0 : 2;
   }

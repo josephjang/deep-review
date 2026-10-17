@@ -81,17 +81,37 @@ export const repositoryConfigFile = (worktree: string): string => join(worktree,
  * `--config` names must exist.
  */
 export function readConfigFile(layer: Exclude<FileLayer, 'repository'>, path: string): FileRead {
-  const stat = statSync(path, { throwIfNoEntry: false });
-  if (stat === undefined) return layer === 'invocation' ? { file: null, problems: [`${path}: no such file; give --config the path of a configuration file`] } : absent;
-  if (!stat.isFile()) return { file: null, problems: [`${path}: ${layerWords[layer]} is not a regular file; replace it with a TOML file or remove it`] };
-  if (stat.size > maxConfigBytes) return tooLarge(layer, path, stat.size);
-  let bytes: Buffer;
+  const read = readConfigBytes(layer, path);
+  if (read === null) return layer === 'invocation' ? { file: null, problems: [`${path}: no such file; give --config the path of a configuration file`] } : absent;
+  return 'problem' in read ? { file: null, problems: [read.problem] } : parseConfig(layer, path, read.bytes, null);
+}
+
+/** The bytes of a file on disk, or the problem that keeps them from being read. */
+export type BytesRead = { readonly bytes: Buffer } | { readonly problem: string };
+
+/**
+ * Read the bytes of a file of `layer` from disk, as a run's read and
+ * `config validate` both do (R14): null when nothing is at `path`, which
+ * each caller words as it needs; a problem for a path that is not a
+ * regular file, one larger than `maxConfigBytes`, and one that cannot be
+ * read.
+ */
+export function readConfigBytes(layer: FileLayer, path: string): BytesRead | null {
+  const unreadable = (error: unknown): BytesRead => ({ problem: `${path}: ${layerWords[layer]} cannot be read: ${(error as Error).message}` });
+  let stat;
   try {
-    bytes = readFileSync(path);
+    stat = statSync(path, { throwIfNoEntry: false });
   } catch (error) {
-    return { file: null, problems: [`${path}: ${layerWords[layer]} cannot be read: ${(error as Error).message}`] };
+    return unreadable(error);
   }
-  return parseConfig(layer, path, bytes, null);
+  if (stat === undefined) return null;
+  if (!stat.isFile()) return { problem: `${path}: ${layerWords[layer]} is not a regular file; replace it with a TOML file or remove it` };
+  if (stat.size > maxConfigBytes) return { problem: tooLarge(layer, path, stat.size) };
+  try {
+    return { bytes: readFileSync(path) };
+  } catch (error) {
+    return unreadable(error);
+  }
 }
 
 /**
@@ -110,13 +130,11 @@ export function readRepositoryConfig(repo: string, commit: string): FileRead {
   const where = `${repositoryConfigPath} at ${commit}`;
   if (type !== 'blob' || (mode !== '100644' && mode !== '100755')) return { file: null, problems: [`${where}: the repository's file is ${type === 'tree' ? 'a directory' : mode === '120000' ? 'a symlink' : `a ${type}`}, not a regular file; commit a TOML file there, or run with --no-repository-config`] };
   const size = Number(git(repo, ['cat-file', '-s', objectId]).toString('utf8').trim());
-  if (size > maxConfigBytes) return tooLarge('repository', where, size);
+  if (size > maxConfigBytes) return { file: null, problems: [tooLarge('repository', where, size)] };
   return parseConfig('repository', repositoryConfigPath, git(repo, ['cat-file', 'blob', objectId]), commit);
 }
 
-function tooLarge(layer: FileLayer, path: string, size: number): FileRead {
-  return { file: null, problems: [`${path}: ${layerWords[layer]} holds ${String(size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`] };
-}
+const tooLarge = (layer: FileLayer, path: string, size: number): string => `${path}: ${layerWords[layer]} holds ${String(size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`;
 
 /**
  * A value a setting refuses, as a refusal quotes it: as JSON, but with a

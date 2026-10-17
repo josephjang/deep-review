@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -157,6 +157,36 @@ describe('deep-review config', () => {
     err.length = 0;
     assert.equal(await config('validate', 'missing.toml'), 2);
     assert.match(err.join(''), /is not a file to validate/);
+  });
+
+  it('refuses a directory and an oversized file as the layer\'s read words them, exiting 2', async () => {
+    mkdirSync(join(root, 'directory.toml'));
+    assert.equal(await config('validate', join(root, 'directory.toml'), '--layer', 'clone'), 2);
+    assert.match(err.join(''), /directory\.toml: the clone's file is not a regular file; replace it with a TOML file or remove it/);
+    err.length = 0;
+    writeFileSync(join(root, 'large.toml'), `schema = 1\n#${'x'.repeat(65_536)}\n`);
+    assert.equal(await config('validate', join(root, 'large.toml'), '--layer', 'operator'), 2);
+    assert.match(err.join(''), /large\.toml: the operator's file holds \d+ bytes, more than the 65536 the engine reads/);
+  });
+
+  it('refuses a file it cannot read, or cannot stat, as a problem exiting 2, not an error exiting 1', async (t) => {
+    // Windows has no unreadable mode bits and root reads through them; nothing to test then.
+    if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('file modes do not deny reading here');
+    writeFileSync(join(root, 'locked.toml'), 'schema = 1\n');
+    chmodSync(join(root, 'locked.toml'), 0o000);
+    assert.equal(await config('validate', join(root, 'locked.toml')), 2);
+    assert.match(err.join(''), /locked\.toml: the repository's file cannot be read: EACCES/);
+    err.length = 0;
+    mkdirSync(join(root, 'closed'));
+    writeFileSync(join(root, 'closed', 'config.toml'), 'schema = 1\n');
+    chmodSync(join(root, 'closed'), 0o000);
+    try {
+      assert.equal(await config('validate', join(root, 'closed', 'config.toml'), '--layer', 'operator'), 2);
+      assert.match(err.join(''), /config\.toml: the operator's file cannot be read: EACCES/);
+    } finally {
+      // Open again, so the tree can be removed.
+      chmodSync(join(root, 'closed'), 0o700);
+    }
   });
 
   it('writes a new file for each layer, which validates, and refuses to write over one', async () => {
