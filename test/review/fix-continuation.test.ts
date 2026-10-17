@@ -5,8 +5,8 @@ import { describe, it, type TestContext } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { repositoryConfigPath } from '../../src/config/files.ts';
 import { checkFlagsOf, dedicatedFlagValues } from '../../src/config/flags.ts';
-import { flagLayerOf } from '../../src/config/resolve.ts';
-import { configurationSource } from '../../src/config/source.ts';
+import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
+import { configurationSource, type ConfigurationSource } from '../../src/config/source.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -234,6 +234,49 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
   it('creates a new run when HEAD moved, the change otherwise the same', async (t) => {
     const { box, first } = await notContinued(t, (sandbox) => git(sandbox.repo, 'commit', '-q', '--amend', '-m', 'the change under review, reworded'));
     logLine(box, new RegExp(`^run ${first.id}: not continued: HEAD is ${git(box.repo, 'rev-parse', 'HEAD')}, not ${first.scope!.head}$`));
+  });
+
+  /** The settings of a review whose --set leaves docs/ out of the change, with no file of the operator's or the clone's. */
+  const excludingDocs = (box: ReviewSandbox): ConfigurationSource => {
+    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: null, executableArgs: [fakeClaude] }), parseSetFlag('scope.exclude=["docs/**"]')]);
+    return configurationSource({ worktree: box.repo, locations: { operator: null, clone: join(box.directory, 'absent.toml'), invocation: null }, repositoryConfig: true, flags: layer });
+  };
+
+  // A run is compared with the change as its own patterns leave it, and patterns since dropped that refuse it pass that run over rather than refuse the command.
+  it('creates a new run when the --path names only what the finished run\'s own scope.exclude leaves out, naming the refusal, and refuses an empty change', async (t) => {
+    const box = ReviewSandbox.forTest(t, continuedScript);
+    reportText(await box.review('claude', { configuration: excludingDocs(box) }));
+    const first = box.run();
+    assert.deepEqual(first.scope!.request.exclude, ['docs/**']);
+    // The operator has dropped the pattern, and the change now edits only docs/guide.md and src/c.ts.
+    write(box.repo, 'docs/guide.md', '# Guide\n');
+    write(box.repo, 'src/c.ts', 'export const c = 1;\n');
+    commitAll(box.repo, 'a change of the guide');
+    box.script({ triage: { exit: 2 } });
+    // An empty change is refused with no pattern too, so the command ends there and no run is created.
+    const empty = { named: true, request: () => ({ range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }) };
+    await assert.rejects(box.fix('claude', { scope: empty }), (error: unknown) => error instanceof ReviewRefusedError && /^The change is empty: .*; nothing to review$/.test(error.message));
+    assert.equal(box.checkpoint.foldRuns().length, 1);
+    box.logs.length = 0;
+    assert.equal((await box.fix('claude', { scope: { named: true, request: () => ({ paths: ['docs'] }) } })).kind, 'blocked');
+    const created = box.checkpoint.foldRuns().find((run) => run.id !== first.id)!;
+    assert.deepEqual(created.scope!.files.map((file) => file.path), ['docs/guide.md'], 'the new run reviews what today\'s settings leave');
+    logLine(box, /^--fix: no finished read-only run of this worktree reviewed this change as it is; a new run is created$/);
+    logLine(box, new RegExp(`^run ${first.id}: not continued: its scope\\.exclude refuses the change named: Scope path names only changes that scope\\.exclude \\(docs/\\*\\*\\) leaves out: docs$`));
+  });
+
+  it('creates a new run when the finished run\'s own scope.exclude leaves out every path of the change now', async (t) => {
+    const box = ReviewSandbox.forTest(t, continuedScript);
+    reportText(await box.review('claude', { configuration: excludingDocs(box) }));
+    const first = box.run();
+    write(box.repo, 'docs/guide.md', '# Guide\n');
+    commitAll(box.repo, 'a change of the guide alone');
+    box.script({ triage: { exit: 2 } });
+    box.logs.length = 0;
+    assert.equal((await box.fix('claude')).kind, 'blocked');
+    const created = box.checkpoint.foldRuns().find((run) => run.id !== first.id)!;
+    assert.deepEqual(created.scope!.files.map((file) => file.path), ['docs/guide.md']);
+    logLine(box, new RegExp(`^run ${first.id}: not continued: its scope\\.exclude refuses the change named: The change has no path left to review: scope\\.exclude \\(docs/\\*\\*\\) leaves out all 1 of its changed paths$`));
   });
 
   it('creates a new run beside a finished run configured before the decision step, naming it', async (t) => {

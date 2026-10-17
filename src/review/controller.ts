@@ -35,7 +35,7 @@ import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { captureScope, resolveScopeRequest, scopeBase, type ResolvedScope } from '../scope/capture.ts';
-import { EmptyChangeError } from '../scope/errors.ts';
+import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
 import { objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckFlags } from './checks/discover.ts';
@@ -1002,9 +1002,13 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * The finished read-only run a `review --fix` continues (R2, TD8 of fix
  * pass continuation): the newest that qualifies (`continuable`) whose
  * scope the command names, its files as git would store them what the run
- * froze and `HEAD` at its head (`scopeMismatch`). The request is resolved
- * once, at the first candidate, so a request the tree refutes throws
- * there and none is resolved when no run qualifies. None with `--fresh`,
+ * froze and `HEAD` at its head (`scopeMismatch`), the change as the run's
+ * own `scope.exclude` leaves it. The request is resolved once per set of
+ * patterns, from the first candidate on, and none is resolved when no run
+ * qualifies. A candidate whose patterns refuse the change, leaving it
+ * empty or a `--path` with only what they leave out, is passed over with
+ * that refusal as its reason; a request the tree refutes with no pattern
+ * throws there. None with `--fresh`,
  * which says so. When none matches, the log says a new run is created,
  * and names the newest finished read-only run of this worktree with the
  * first reason it was not continued. Either way, it names each run passed
@@ -1017,18 +1021,31 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
     return null;
   }
   // Each candidate is compared with the change as its own patterns leave it, so a run that left dist/ out is the same change today; the request is resolved once per set of patterns.
-  const resolutions = new Map<string, ResolvedScope>();
-  const resolved = (exclude: readonly string[]): ResolvedScope => {
+  const resolutions = new Map<string, ResolvedScope | { readonly refused: string }>();
+  const resolved = (exclude: readonly string[]): ResolvedScope | { readonly refused: string } => {
     const key = JSON.stringify(exclude);
     const known = resolutions.get(key);
     if (known !== undefined) return known;
-    const made = refusingEmptyChange(() => resolveScopeRequest(context.worktree, request(), exclude));
+    const scopeRequest = request();
+    let made: ResolvedScope | { readonly refused: string };
+    if (exclude.length === 0) made = refusingEmptyChange(() => resolveScopeRequest(context.worktree, scopeRequest, exclude));
+    else {
+      try {
+        made = resolveScopeRequest(context.worktree, scopeRequest, exclude);
+      } catch (error) {
+        if (!(error instanceof EmptyChangeError || error instanceof InvalidScopeRequestError)) throw error;
+        // A refusal the request meets with no pattern ends the command there; one only this run's patterns cause passes the run over.
+        resolved([]);
+        made = { refused: `its scope.exclude refuses the change named: ${error.message}` };
+      }
+    }
     resolutions.set(key, made);
     return made;
   };
   const reasons = new Map<string, string>();
   for (const run of continuable(runs, context.worktree)) {
-    const reason = scopeMismatch(resolved(run.scope!.request.exclude), run.scope!, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path));
+    const listed = resolved(run.scope!.request.exclude);
+    const reason = 'refused' in listed ? listed.refused : scopeMismatch(listed, run.scope!, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path));
     if (reason === null) return run;
     reasons.set(run.id, reason);
   }
