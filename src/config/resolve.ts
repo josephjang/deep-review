@@ -8,14 +8,13 @@
  * Pass 2 reads the repository's file at that base and resolves every
  * setting, with the layer each value came from.
  */
-import { resolve } from 'node:path';
 import { parse } from 'smol-toml';
 import { ReviewRefusedError } from '../review/errors.ts';
 import type { PolicyFile } from '../review/policy.ts';
 import { git } from '../scope/git.ts';
 import { SettingFlagError } from './errors.ts';
 import { readConfigFile, refuseProblems, repositoryConfigPath, valueText, type ConfigFile } from './files.ts';
-import { isSettingName, layerOrder, layerWords, settingNames, settings, type FileLayer, type Layer, type ScopeDefault, type SettingName, type SettingValue } from './settings.ts';
+import { isSettingName, layerOrder, layerWords, settingNames, settings, type FileLayer, type Layer, type ScopeDefault, type SettingDeclaration, type SettingName, type SettingValue } from './settings.ts';
 
 /** One flag's value for one setting, with the flag as the command line spelled it, which a refusal names. */
 export interface FlagValue {
@@ -234,7 +233,7 @@ export interface ResolvedSettings {
 export interface SettingsInputs {
   readonly policy: PolicyFile;
   readonly runtime: string;
-  /** Whether the runtime reports its cost in US dollars: a run budget from a file is ignored on one that does not. */
+  /** Whether the runtime reports its cost in US dollars: a file's value of a setting that applies only on one that does is ignored on one that does not. */
   readonly costInUsd: boolean;
   /** Every file read, the repository's among them when it was read. */
   readonly files: readonly ConfigFile[];
@@ -252,10 +251,12 @@ const sameValue = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSO
  * Pass 2 (R3, R5, R7, R11, R12): every setting by its owner's order, the
  * highest layer that sets it winning and a list replacing a lower list
  * whole, else its default. A repository-first value that a higher layer
- * replaces with another is not followed. A run budget a file gives for a
- * runtime that reports no cost is ignored, as is each name an operator's
- * or a clone's file holds that this engine does not know. A relative
- * `tools.path` entry is made absolute against the worktree.
+ * replaces with another is not followed. A file's value of a setting
+ * declared `withoutCostInUsd`, as the run budget is, is ignored for a
+ * runtime that reports no cost, as is each name an operator's or a clone's
+ * file holds that this engine does not know. A setting declared with
+ * `normalize` is made whole against the worktree, as `tools.path` makes
+ * a relative entry absolute.
  */
 export function resolveSettings(inputs: SettingsInputs): ResolvedSettings {
   const sources: Sources = { files: inputs.files, flags: inputs.flags };
@@ -264,16 +265,17 @@ export function resolveSettings(inputs: SettingsInputs): ResolvedSettings {
   const notFollowed: NotFollowed[] = [];
   const values = {} as Record<SettingName, ResolvedSetting>;
   for (const name of settingNames) {
+    const declaration: SettingDeclaration = settings[name];
     let found = winner(name, sources);
-    if (name === 'budget.usd' && !inputs.costInUsd && found !== null && found.layer !== 'flag') {
-      // Every file that sets the budget is ignored, not only the one that wins, so each is named, lowest layer first.
-      const order = layerOrder[settings[name].owner];
+    if (declaration.withoutCostInUsd !== undefined && !inputs.costInUsd && found !== null && found.layer !== 'flag') {
+      // Every file that sets it is ignored, not only the one that wins, so each is named, lowest layer first.
+      const order = layerOrder[declaration.owner];
       const setting = inputs.files.filter((file) => file.values.has(name)).sort((a, b) => order.indexOf(a.layer) - order.indexOf(b.layer));
-      for (const file of setting) ignored.push({ layer: file.layer, path: file.path, name, reason: `runtime ${inputs.runtime} reports no cost in USD, so its run has no budget` });
+      for (const file of setting) ignored.push({ layer: file.layer, path: file.path, name, reason: `runtime ${inputs.runtime} reports no cost in USD, so ${declaration.withoutCostInUsd}` });
       found = null;
     }
-    const resolved: ResolvedSetting = found ?? { value: name === 'review.base' ? inputs.originHead() : settings[name].defaultOf(inputs.policy, inputs.runtime), layer: 'default' };
-    values[name] = name === 'tools.path' ? { ...resolved, value: (resolved.value as string[]).map((directory) => resolve(inputs.worktree, directory)) } : resolved;
+    const resolved: ResolvedSetting = found ?? { value: name === 'review.base' ? inputs.originHead() : declaration.defaultOf(inputs.policy, inputs.runtime), layer: 'default' };
+    values[name] = declaration.normalize === undefined || resolved.value === null ? resolved : { ...resolved, value: declaration.normalize(resolved.value, inputs.worktree) };
     if (repositoryFile !== null && settings[name].owner === 'repository-first' && repositoryFile.values.has(name) && resolved.layer !== 'repository' && !sameValue(resolved.value, repositoryFile.values.get(name))) {
       notFollowed.push({ name, repository: repositoryFile.values.get(name), value: resolved.value, layer: resolved.layer });
     }

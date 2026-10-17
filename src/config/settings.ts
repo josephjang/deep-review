@@ -8,7 +8,7 @@
  * file, and the schema of each layer comes from the owners rather than
  * from a list written by hand.
  */
-import { delimiter } from 'node:path';
+import { delimiter, resolve } from 'node:path';
 import { z } from 'zod';
 import { maxConcurrency, type PolicyFile } from '../review/policy.ts';
 import { checkKinds, userRulesSettingSchema, type CheckKind } from '../review/vocabulary.ts';
@@ -122,7 +122,9 @@ const maxCheckMinutes = checkTimeoutMinutes(maxTimeoutMs);
  * for a run of one runtime, from the role policy where the policy holds it
  * (TD5), or null when the engine decides it some other way, which
  * `defaultWords` says; `example`
- * is what `config init` writes for a setting with no default value.
+ * is what `config init` writes for a setting with no default value. The
+ * resolver reads the optional hooks, so a setting gets its own resolution
+ * by being declared, not by a name the resolver checks.
  */
 export interface SettingDeclaration<V extends z.ZodType = z.ZodType> {
   readonly owner: Owner;
@@ -136,6 +138,10 @@ export interface SettingDeclaration<V extends z.ZodType = z.ZodType> {
   readonly flag: string | null;
   /** One sentence, which `config explain` and `config init` print. */
   readonly describe: string;
+  /** The resolved value made whole against the root of the worktree, as a relative path is made absolute. */
+  normalize?(value: z.infer<V>, worktree: string): z.infer<V>;
+  /** For a setting that applies only on a runtime that reports its cost in USD, what a run of one that does not lacks, as the line naming a file's value ignored says it. */
+  readonly withoutCostInUsd?: string;
 }
 
 const declare = <V extends z.ZodType>(declaration: SettingDeclaration<V>): SettingDeclaration<V> => declaration;
@@ -241,6 +247,7 @@ export const settings = {
     example: ['.venv/bin'],
     flag: null,
     describe: 'Directories that go first on PATH for each check and each worker; a relative one is relative to the root of the worktree.',
+    normalize: (directories, worktree) => directories.map((directory) => resolve(worktree, directory)),
   }),
   'conventions.user_rules': declare({
     owner: 'repository-first',
@@ -259,6 +266,7 @@ export const settings = {
     example: 60,
     flag: '--budget-usd',
     describe: 'The run budget in US dollars, on a runtime that reports its cost.',
+    withoutCostInUsd: 'its run has no budget',
   }),
   'run.concurrency': declare({
     owner: 'operator-only',
