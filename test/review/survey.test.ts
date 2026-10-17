@@ -253,14 +253,17 @@ describe('resolveChecks', () => {
   it('plans each kind by its row: a --no-check, a --check over the survey, the survey\'s command, its missing tool, its none, and a kind nobody answered', () => {
     const resolved = resolveChecks(survey, noCheckFlags);
     assert.deepEqual(resolved.checks, [
-      { kind: 'build', command: null, origin: 'none', reason: 'no build step', source: null },
-      { kind: 'typecheck', command: 'uv run mypy src', origin: 'survey', reason: null, source: { path: 'ci.yml', quote: 'mypy', basis: 'stated' } },
+      { kind: 'build', command: null, origin: 'none', layer: null, reason: 'no build step', source: null },
+      { kind: 'typecheck', command: 'uv run mypy src', origin: 'survey', layer: null, reason: null, source: { path: 'ci.yml', quote: 'mypy', basis: 'stated' } },
     ]);
     assert.deepEqual(resolved.unavailable, [{ kind: 'lint', command: 'pre-commit run', source: 'ci.yml', missingTool: 'pre-commit' }]);
     assert.deepEqual(resolved.uncovered, ['test']);
     const flagged = resolveChecks(survey, { commands: { typecheck: 'mypy .', test: 'pytest' }, dropped: ['lint'] });
-    assert.deepEqual(flagged.checks.map((check) => [check.kind, check.command, check.origin, check.reason]), [['build', null, 'none', 'no build step'], ['typecheck', 'mypy .', 'flag', null], ['lint', null, 'flag', droppedReason], ['test', 'pytest', 'flag', null]]);
+    assert.deepEqual(flagged.checks.map((check) => [check.kind, check.command, check.origin, check.layer, check.reason]), [['build', null, 'none', null, 'no build step'], ['typecheck', 'mypy .', 'setting', 'flag', null], ['lint', null, 'setting', 'flag', droppedReason], ['test', 'pytest', 'setting', 'flag', null]]);
     assert.deepEqual([flagged.unavailable, flagged.uncovered], [[], []]);
+    // R11 of the configuration: a kind a configuration file settled names its layer, and its drop names the setting and the file.
+    const filed = resolveChecks(survey, { commands: { typecheck: 'mypy .', test: 'pytest' }, dropped: ['lint'], layers: { typecheck: 'repository', lint: 'operator' } });
+    assert.deepEqual(filed.checks.map((check) => [check.kind, check.origin, check.layer, check.reason]), [['build', 'none', null, 'no build step'], ['typecheck', 'setting', 'repository', null], ['lint', 'setting', 'operator', 'dropped by checks.lint = false in the operator\'s file'], ['test', 'setting', 'flag', null]]);
   });
 
   it('plans from the flags alone with no survey, leaving every unflagged kind uncovered', () => {

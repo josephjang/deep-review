@@ -55,9 +55,9 @@ export const checkPins: Readonly<Record<string, string>> = {
   GIT_TERMINAL_PROMPT: '0',
 };
 
-/** A check's environment: the caller's, with the build-server pins every worker gets and `checkPins` over every spelling the platform reads as theirs. */
-export function checkEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
-  return pinVariables(workerEnvironment(environment, null, platform), checkPins, platform);
+/** A check's environment: the caller's, with the build-server pins every worker gets, `checkPins` over every spelling the platform reads as theirs, and the directories of `tools.path` first on PATH, as a worker has them (R11, TD10 of the configuration). */
+export function checkEnvironment(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform, toolsPath: readonly string[] = []): NodeJS.ProcessEnv {
+  return pinVariables(workerEnvironment(environment, null, platform, toolsPath), checkPins, platform);
 }
 
 export interface CheckRequest {
@@ -66,6 +66,8 @@ export interface CheckRequest {
   readonly worktree: string;
   /** The environment the check inherits before its pins. */
   readonly environment: NodeJS.ProcessEnv;
+  /** The directories of `tools.path`, first on the check's PATH; none by default. */
+  readonly toolsPath?: readonly string[];
   readonly timeoutMs: number;
   /** A directory that must not exist yet; the check's process files live there until they are frozen, and it is removed after. */
   readonly ioDirectory: string;
@@ -140,7 +142,7 @@ export async function runCheck(evidence: Pick<EvidenceStore, 'put'>, request: Ch
         args: shell.args,
         verbatimArguments: shell.verbatimArguments,
         cwd: request.worktree,
-        environment: checkEnvironment(request.environment),
+        environment: checkEnvironment(request.environment, process.platform, request.toolsPath ?? []),
         stdinFile,
         stdoutFile,
         stderrFile,

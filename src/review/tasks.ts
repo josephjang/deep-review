@@ -12,6 +12,7 @@ import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
+import { layerWords, type Layer } from '../config/settings.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
@@ -19,8 +20,8 @@ export interface SurveyTaskInput {
   readonly platform: NodeJS.Platform;
   /** Whether the run fixes, and so asks for checks (PD10). */
   readonly fix: boolean;
-  /** The kinds a flag settled, with the flag's command, or null for one it dropped. */
-  readonly settled: readonly { readonly kind: CheckKind; readonly command: string | null }[];
+  /** The kinds a setting settled, with its command, or null for one it dropped, and the layer that gave it: the flag layer for `--check` and `--no-check`. */
+  readonly settled: readonly { readonly kind: CheckKind; readonly command: string | null; readonly layer: Exclude<Layer, 'default'> }[];
   /** The kinds the surveyor chooses, in the order the checks run. */
   readonly unsettled: readonly CheckKind[];
   /** The manifest rules' hint for each kind in `unsettled`. */
@@ -151,11 +152,17 @@ export function codeSpan(text: string): string {
 /** The checks part of a fix run's survey task. */
 function fixChecks(input: SurveyTaskInput): string[] {
   const { shell, lookup } = shellOf(input.platform, input.elevatedSandbox);
+  // A kind a configuration file settled names its setting and file; one a flag settled reads as it did before the settings (R11 of the configuration).
+  const byFlags = input.settled.every((entry) => entry.layer === 'flag');
+  const settledLine = (entry: SurveyTaskInput['settled'][number]): string => {
+    if (entry.layer === 'flag') return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
+    return entry.command === null ? `- ${entry.kind}: dropped by checks.${entry.kind} = false in ${layerWords[entry.layer]}` : `- ${entry.kind}: ${codeSpan(entry.command)} (checks.${entry.kind} in ${layerWords[entry.layer]})`;
+  };
   const settled = input.settled.length === 0
     ? []
     : [
-        'Settled by the operator\'s flags, which you leave out of `checks`:',
-        ...input.settled.map((entry) => (entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`)),
+        byFlags ? 'Settled by the operator\'s flags, which you leave out of `checks`:' : 'Settled by the operator\'s flags and the configuration, which you leave out of `checks`:',
+        ...input.settled.map(settledLine),
         '',
       ];
   if (input.unsettled.length === 0) return [kindsToChooseLine(input), '', ...settled, 'Every kind is settled, so return `checks` empty.'];

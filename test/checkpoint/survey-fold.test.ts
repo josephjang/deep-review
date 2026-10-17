@@ -123,7 +123,7 @@ describe('the survey fold', () => {
     it('refuses a setting\'s check that is not the setting the run recorded, by command, by drop or by layer', () => {
       for (const [lint, test] of [
         [undefined, { kind: 'test', command: 'npm run test:fast', origin: 'setting', layer: 'clone', reason: null, source: null }],
-        [undefined, { kind: 'test', command: 'npm test', origin: 'setting', layer: 'flag', reason: null, source: null }],
+        [undefined, { kind: 'test', command: 'npm test', origin: 'setting', layer: 'operator', reason: null, source: null }],
         [{ kind: 'lint', command: 'npm run lint', origin: 'setting', layer: 'repository', reason: null, source: null }, undefined],
       ] as const) {
         assert.throws(() => settled().add('checks.planned', plan(lint, test), 3).fold(), /plans the (lint|test) check as a setting of \w+, which is not the setting the run recorded for it/);
@@ -135,9 +135,16 @@ describe('the survey fold', () => {
       assert.throws(() => settled().add('checks.planned', plan(undefined, surveyed), 3).fold(), /plans the test check as the survey's, which a setting the run recorded settles/);
     });
 
-    it('refuses a setting\'s check for a kind no recorded setting settles', () => {
-      const build = { kind: 'build', command: 'make', origin: 'setting', layer: 'flag', reason: null, source: null };
-      assert.throws(() => settled().add('checks.planned', { checks: [build, ...(plan().checks as unknown[]).slice(1)] }, 3).fold(), /plans the build check as a setting of flag/);
+    it('refuses a setting\'s check for a kind no recorded setting settles, unless a flag settled it', () => {
+      const build = { kind: 'build', command: 'make', origin: 'setting', layer: 'operator', reason: null, source: null };
+      assert.throws(() => settled().add('checks.planned', { checks: [build, ...(plan().checks as unknown[]).slice(1)] }, 3).fold(), /plans the build check as a setting of operator/);
+      const flagged = { ...build, layer: 'flag' };
+      assert.equal(settled().add('checks.planned', { checks: [flagged, ...(plan().checks as unknown[]).slice(1)] }, 3).review().fix?.checks.planned?.checks[0]?.layer, 'flag');
+    });
+
+    it('takes a flag\'s check over a kind the run recorded a setting for, since a flag settles its kind for its invocation (TD6 of the repository survey)', () => {
+      const overridden = settled().add('checks.planned', plan(undefined, { kind: 'test', command: 'npm run test:fast', origin: 'setting', layer: 'flag', reason: null, source: null }), 3).review();
+      assert.equal(overridden.fix?.checks.planned?.checks[3]?.command, 'npm run test:fast');
     });
 
     it('takes a setting\'s check unchecked on a run that recorded no settings, whose flags are not on the ledger', () => {

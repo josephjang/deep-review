@@ -3,14 +3,18 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { repositoryConfigPath } from '../../src/config/files.ts';
+import { checkFlagsOf, dedicatedFlagValues } from '../../src/config/flags.ts';
+import { flagLayerOf } from '../../src/config/resolve.ts';
+import { configurationSource } from '../../src/config/source.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import type { ReviewOutcome } from '../../src/review/controller.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { fixedA, fixedB, reviewScript } from '../helpers/fix-pass-fixture.ts';
-import { until } from '../helpers/launcher.ts';
-import { git, write } from '../helpers/repository.ts';
+import { fakeClaude, until } from '../helpers/launcher.ts';
+import { commitAll, git, write } from '../helpers/repository.ts';
 import { afterFind, fakeCheckCommand, loadedRunnerTimeoutMs, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 import { quietSurvey, reported, withSurvey } from '../helpers/review-history.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
@@ -109,6 +113,36 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 1 });
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
     logLine(box, new RegExp(`^run ${state.id}: check build: ${RegExp.escape(fakeCheckCommand('build'))} \\(flag\\)$`));
+  });
+
+  // R6 of the configuration: the continuation resolves the fix side again, at the run's base, and records it with the pin.
+  it('pins the fix side of the settings with the continuation: the repository\'s file at the run\'s base, the clone\'s file and the flags, each with its layer', async (t) => {
+    const box = ReviewSandbox.forTest(t, continuedScript);
+    // The repository's file is at the base of the last commit, which the read-only review reads.
+    const flags = ReviewSandbox.checkFlags();
+    write(box.repo, repositoryConfigPath, `schema = 1\nchecks.build = ${JSON.stringify(flags.commands.build)}\nchecks.lint = ${JSON.stringify(flags.commands.lint)}\nchecks.timeout_minutes = 30\n`);
+    const base = commitAll(box.repo, 'the policy');
+    write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n\nexport function other() {\n  return parse(null);\n}\n// again\n');
+    commitAll(box.repo, 'a change under the policy');
+    await readOnly(box);
+    const finished = box.run();
+    assert.equal(finished.scope!.base, base);
+    const cloneFile = join(box.directory, 'clone.toml');
+    writeFileSync(cloneFile, `schema = 1\nchecks.test = ${JSON.stringify(flags.commands.test)}\ntools.path = ["bin"]\n`);
+    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: { commands: {}, dropped: ['typecheck'] }, executableArgs: [fakeClaude] })]);
+    const source = configurationSource({ worktree: box.repo, locations: { operator: null, clone: cloneFile, invocation: null }, repositoryConfig: true, flags: layer });
+    box.logs.length = 0;
+    reportText(await box.review('claude', { configuration: source, fix: checkFlagsOf(layer) }));
+    const state = box.run();
+    const pin = box.events(finished.id).find(([kind]) => kind === 'fix.pinned')!;
+    assert.deepEqual(pin[1].settings, {
+      values: { 'checks.build': flags.commands.build, 'checks.typecheck': false, 'checks.lint': flags.commands.lint, 'checks.test': flags.commands.test, 'tools.path': [join(box.repo, 'bin')] },
+      layers: { 'checks.build': 'repository', 'checks.typecheck': 'flag', 'checks.lint': 'repository', 'checks.test': 'clone', 'checks.timeout_minutes': 'repository', 'tools.path': 'clone' },
+    });
+    assert.deepEqual(state.review!.configuration.checks, { timeoutMs: 30 * 60_000 }, 'the repository\'s check timeout');
+    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer]), [['build', 'repository'], ['typecheck', 'flag'], ['lint', 'repository'], ['test', 'clone']]);
+    assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 1 }, 'the settings settle every kind, so no surveyor runs');
+    logLine(box, new RegExp(`^run ${state.id}: check build: ${RegExp.escape(flags.commands.build!)} \\(checks\\.build in the repository's file\\)$`));
   });
 
   it('continues the newest of two finished runs of the same change', async (t) => {

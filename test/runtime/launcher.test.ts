@@ -550,6 +550,20 @@ describe('runWorker', () => {
       assert.equal(seen.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
     });
 
+    // R11, TD10 of the configuration: a worker finds the tools a check finds.
+    it('puts the directories of tools.path first on the worker\'s PATH, under the one spelling the platform passes on', async () => {
+      const tools = [join(box.directory, 'tools', 'bin')];
+      await box.run(box.claude(), {}, { toolsPath: tools });
+      const seen = box.recorded().environment;
+      const spellings = Object.keys(seen).filter((key) => key.toUpperCase() === 'PATH');
+      assert.equal(spellings.length, 1, JSON.stringify(spellings));
+      const path = seen[spellings[0]!]!;
+      assert.ok(path.startsWith(`${tools[0]!}${process.platform === 'win32' ? ';' : ':'}`), path);
+      await box.run(box.claude());
+      const plain = box.recorded().environment;
+      assert.ok(!Object.entries(plain).some(([key, value]) => key.toUpperCase() === 'PATH' && value.includes(tools[0]!)), 'none without tools.path');
+    });
+
     it('refuses an inherited thinking override by name before writing anything', async () => {
       await assert.rejects(box.run(box.claude(), { MAX_THINKING_TOKENS: '1024' }), (error: unknown) => error instanceof InheritedOverrideError && error.variable === 'MAX_THINKING_TOKENS');
       assert.ok(box.untouched());

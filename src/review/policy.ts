@@ -20,7 +20,7 @@ import { maxBudgetUsd, maxTimeoutMs } from '../runtime/contract.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
 import { roleKeySchema } from '../roles/manifest.ts';
 import { InvalidPolicyError } from './errors.ts';
-import { reviewRoles, userRulesSettingSchema } from './vocabulary.ts';
+import { reviewRoles, userRulesSettingSchema, type UserRulesSetting } from './vocabulary.ts';
 
 /** The policy's file name under the roles root. */
 export const policyFileName = 'policy.json';
@@ -111,6 +111,23 @@ export interface PolicyFlags {
   readonly budgetUsd?: number;
   /** How a Codex run's workers are confined on Windows, over the policy's value; pinned on the run like the models. */
   readonly codexWindowsSandbox?: WindowsSandbox;
+}
+
+/**
+ * The values the settings resolved for a run (R12 of the configuration),
+ * each over the role policy's, which is their defaults layer: what a
+ * configuration file or a `--set` gave beside the dedicated flags. A
+ * value left out is the policy's.
+ */
+export interface PolicyOverrides {
+  readonly strongModel?: string;
+  readonly fastModel?: string;
+  readonly concurrency?: number;
+  /** The run budget, or null for none; on a runtime that reports no cost the run has none whatever is given. */
+  readonly budgetUsd?: number | null;
+  readonly codexWindowsSandbox?: WindowsSandbox;
+  readonly checksTimeoutMs?: number;
+  readonly userRules?: UserRulesSetting;
 }
 
 /** The policy as resolved for one runtime: what `review.configured` records, less the executable and version the command adds and whether the run fixes. */
@@ -251,9 +268,13 @@ export function rolesDigest(roles: readonly Pick<AssembledRole, 'key' | 'sha256'
  * controller defaults the platform once, to the process's, and passes the
  * same value here as to every other platform question of the run, so the
  * policy is never resolved for one platform and the workers confined for
- * another.
+ * another. The settings' values (`overrides`) come between the flags and
+ * the policy for the models, the concurrency, the run budget, the Codex
+ * Windows sandbox, the check timeout and the reviewer's own rules (R12 of
+ * the configuration); the flags are checked as before, and the settings
+ * were checked by their registry.
  */
-export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags, platform: NodeJS.Platform): ResolvedPolicy {
+export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[], adapter: RuntimeAdapter, flags: PolicyFlags, platform: NodeJS.Platform, overrides: PolicyOverrides = {}): ResolvedPolicy {
   const named = Object.keys(policy.roles).sort();
   const expected: string[] = [...reviewRoles].sort();
   const missing = expected.filter((role) => !named.includes(role));
@@ -282,14 +303,14 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     if (model !== undefined && (model.length === 0 || model.startsWith('-') || model.includes('\0'))) throw new InvalidPolicyError(`${flag} must be a model name, not ${JSON.stringify(model)}`);
   }
 
-  const models = { strong: flags.strongModel ?? runtime.strong, fast: flags.fastModel ?? runtime.fast };
+  const models = { strong: flags.strongModel ?? overrides.strongModel ?? runtime.strong, fast: flags.fastModel ?? overrides.fastModel ?? runtime.fast };
   const pinned: PinnedRole[] = reviewRoles.map((role) => {
     const entry = policy.roles[role]!;
     return { role, model: models[entry.tier], effort: entry.effort, budgetUsd: capabilities.budgetCap ? entry.budgetUsd : null, timeoutMs: entry.timeoutMs };
   });
   let codex: ResolvedPolicy['codex'] = null;
   if (adapter.name === codexRuntimeName && platform === 'win32') {
-    const windowsSandbox = flags.codexWindowsSandbox ?? runtime.windowsSandbox;
+    const windowsSandbox = flags.codexWindowsSandbox ?? overrides.codexWindowsSandbox ?? runtime.windowsSandbox;
     // The policy file's own check requires the entry's value; a policy built some other way may lack it.
     if (windowsSandbox === undefined) throw new InvalidPolicyError(`The role policy's ${codexRuntimeName} entry names no windowsSandbox; name one of ${windowsSandboxes.join(', ')}`);
     codex = { windowsSandbox };
@@ -299,11 +320,11 @@ export function resolvePolicy(policy: PolicyFile, roles: readonly AssembledRole[
     models,
     roles: pinned,
     rolesDigest: rolesDigest(roles),
-    concurrency: flags.concurrency ?? policy.concurrency,
-    runBudgetUsd: capabilities.costInUsd ? (flags.budgetUsd ?? runtime.runBudgetUsd) : null,
-    checks: policy.checks,
+    concurrency: flags.concurrency ?? overrides.concurrency ?? policy.concurrency,
+    runBudgetUsd: capabilities.costInUsd ? (flags.budgetUsd ?? (overrides.budgetUsd === undefined ? runtime.runBudgetUsd : overrides.budgetUsd)) : null,
+    checks: overrides.checksTimeoutMs === undefined ? policy.checks : { timeoutMs: overrides.checksTimeoutMs },
     fixes: policy.fixes,
-    survey: policy.survey,
+    survey: overrides.userRules === undefined ? policy.survey : { userRules: overrides.userRules },
     codex,
   };
 }

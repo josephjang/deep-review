@@ -58,10 +58,10 @@ describe('nextStep in the survey', () => {
   it('plans a fix run\'s checks from the survey it answered and this invocation\'s flags, a flag over the survey', () => {
     const review = answered(stated).review();
     assert.deepEqual(nextStep(review, idle), { kind: 'plan-checks', without: null, checks: [
-      { kind: 'build', command: null, origin: 'none', reason: 'no build step', source: null },
-      { kind: 'typecheck', command: 'uv run mypy src', origin: 'survey', reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: uv run mypy src', basis: 'stated' } },
-      { kind: 'lint', command: 'ruff check .', origin: 'survey', reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: ruff check .', basis: 'stated' } },
-      { kind: 'test', command: 'uv run pytest', origin: 'survey', reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: uv run pytest', basis: 'stated' } },
+      { kind: 'build', command: null, origin: 'none', layer: null, reason: 'no build step', source: null },
+      { kind: 'typecheck', command: 'uv run mypy src', origin: 'survey', layer: null, reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: uv run mypy src', basis: 'stated' } },
+      { kind: 'lint', command: 'ruff check .', origin: 'survey', layer: null, reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: ruff check .', basis: 'stated' } },
+      { kind: 'test', command: 'uv run pytest', origin: 'survey', layer: null, reason: null, source: { path: '.github/workflows/ci.yml', quote: 'run: uv run pytest', basis: 'stated' } },
     ] });
     const planned = answered(stated).add('checks.planned', { checks: [
       { kind: 'build', command: null, origin: 'none', reason: 'no build step', source: null },
@@ -90,7 +90,7 @@ describe('nextStep in the survey', () => {
     const blocked = answered(missingRuff).finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }])).start('survey', 2);
     const dropped = nextStep(blocked.review(), live({ checkFlags: flags({}, ['lint']) }));
     assert.ok(dropped.kind === 'plan-checks', JSON.stringify(dropped));
-    assert.deepEqual(dropped.kind === 'plan-checks' ? dropped.checks.find((check) => check.kind === 'lint') : null, { kind: 'lint', command: null, origin: 'flag', reason: 'dropped by --no-check', source: null });
+    assert.deepEqual(dropped.kind === 'plan-checks' ? dropped.checks.find((check) => check.kind === 'lint') : null, { kind: 'lint', command: null, origin: 'setting', layer: 'flag', reason: 'dropped by --no-check', source: null });
     const named = nextStep(blocked.review(), live({ checkFlags: flags({ lint: 'npx ruff check .' }) }));
     assert.ok(named.kind === 'plan-checks' && named.checks.find((check) => check.kind === 'lint')?.command === 'npx ruff check .', JSON.stringify(named));
     // With no flag, the tool may have been installed: a fresh surveyor looks again.
@@ -123,10 +123,10 @@ describe('nextStep in the survey', () => {
     assert.deepEqual(nextStep(reentered.review(), live({ checkFlags: flags({ build: 'a', lint: 'b' }, ['test']) })), { kind: 'launch', units: [surveyor] });
     // One step plans the flags' checks and says why the run goes on without the survey, so the two are recorded together.
     const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
-    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: .*; this invocation's --check and --no-check flags settle every check, so the run goes on without it$/);
     // The ledger then finishes the phase degraded.
-    const planned = reentered.clone().add('survey.failed', { reason: 'went on without it', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 2).review();
+    const planned = reentered.clone().add('survey.failed', { reason: 'went on without it', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
     assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 2, outcome: 'degraded', blocker: null });
     // A failure the engine recorded without its plan is a history it never writes.
     assert.throws(() => nextStep(reentered.clone().add('survey.failed', { reason: 'r', conventions: [], userRules: [] }).review(), live({ checkFlags: allFour })), /planned no check/);
@@ -137,9 +137,9 @@ describe('nextStep in the survey', () => {
     const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
     const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
     const plan = nextStep(twice.review(), live({ checkFlags: allFour }));
-    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     assert.equal(plan.kind === 'plan-checks' ? plan.without : null, `${failed.detail}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`);
-    const planned = twice.clone().add('survey.failed', { reason: plan.kind === 'plan-checks' ? plan.without ?? '' : '', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 2).review();
+    const planned = twice.clone().add('survey.failed', { reason: plan.kind === 'plan-checks' ? plan.without ?? '' : '', conventions: [], userRules: [] }).add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
     assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'degraded', blocker: null });
     // Three kinds settled still block, with the action that names the flags.
     const three = nextStep(twice.review(), live({ checkFlags: flags({ build: 'a', lint: 'b' }, ['test']) }));
@@ -162,7 +162,7 @@ describe('nextStep in the survey', () => {
     // The operator restores HEAD and runs again with the same flags: the drift said nothing of the survey, whose failure still stands.
     const restored = drifted.finish('survey', 'blocked', 2, drift).start('survey', 3);
     const plan = nextStep(restored.review(), live({ checkFlags: allFour }));
-    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: /);
     // Without the flags, the operator's other choice: a fresh surveyor.
     assert.deepEqual(nextStep(restored.review(), idle), { kind: 'launch', units: [surveyor] });
@@ -176,7 +176,7 @@ describe('nextStep in the survey', () => {
     const interrupted = failedOnce(reentered.clone(), 3);
     assert.equal(interrupted.review().units.survey.survey?.failures.length, 1);
     const plan = nextStep(interrupted.review(), live({ checkFlags: allFour }));
-    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
     // A worker lost with that engine is no different.
     const lost = reentered.clone()
       .add('worker.launched', launch(worker(3), 'surveyor survey:survey'))
@@ -197,8 +197,8 @@ describe('nextStep in the survey', () => {
     // The flags plan the checks over the earlier answer, and the run records no failure: that answer is still the run's survey.
     const reentered = twice.finish('survey', 'blocked', 2, failed).start('survey', 3);
     const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
-    assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
-    const planned = reentered.add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 2).review();
+    assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
+    const planned = reentered.add('checks.planned', { checks: plan.kind === 'plan-checks' ? plan.checks : [] }, 3).review();
     assert.deepEqual(conventionsKnown(planned.survey), { status: 'surveyed', sources: surveyAnswer(worker(1)).conventions, userRules: [] });
     assert.deepEqual(nextStep(planned, live({ checkFlags: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 3, outcome: 'completed', blocker: null });
   });
@@ -258,6 +258,6 @@ describe('nextStep in a continued run\'s survey', () => {
     const reentered = twice.finish('survey', 'blocked', 2, step.kind === 'finish-phase' ? step.blocker : null).start('survey', 3);
     const plan = nextStep(reentered.review(), live({ checkFlags: allFour }));
     // The read-only answer still stands as the run's survey, so the run records no failure of it.
-    assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'flag'), JSON.stringify(plan));
+    assert.ok(plan.kind === 'plan-checks' && plan.without === null && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
   });
 });

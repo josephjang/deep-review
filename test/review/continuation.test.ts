@@ -124,7 +124,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     reportText(await box.review('claude'));
     const finished = box.run();
     await assert.rejects(box.fix('claude', { fix: { commands: {}, dropped: ['build', 'typecheck'] } }, { FAKE_HELP_OMIT: '--json-schema' }), (error: unknown) => error instanceof ReviewRefusedError
-      && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for lint, test, or start a new run with --fresh`);
+      && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind>, or set checks.<kind>, for lint, test, or start a new run with --fresh`);
     assert.equal(box.run().lastSequence, finished.lastSequence, 'nothing was appended');
   });
 
@@ -167,7 +167,10 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const events = box.events(current.id);
     const payloadOf = (kind: string): Record<string, unknown> => events.find(([candidate]) => candidate === kind)![1];
     const legacy = box.checkpoint.createRun({ worktree: box.repo });
-    box.checkpoint.append(legacy.id, legacy.lastSequence, [{ kind: 'scope.captured', version: 2, payload: payloadOf('scope.captured') }, { kind: 'review.configured', version: 4, payload: payloadOf('review.configured') }]);
+    // Version 4 recorded no settings, which version 6 adds.
+    const configuredV4 = { ...payloadOf('review.configured') };
+    delete configuredV4.settings;
+    box.checkpoint.append(legacy.id, legacy.lastSequence, [{ kind: 'scope.captured', version: 2, payload: payloadOf('scope.captured') }, { kind: 'review.configured', version: 4, payload: configuredV4 }]);
     box.checkpoint.append(current.id, current.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'replaced by the legacy run' } }]);
     assert.equal(box.checkpoint.fold(legacy.id).review?.phases.decision.status, 'skipped');
     box.logs.length = 0;

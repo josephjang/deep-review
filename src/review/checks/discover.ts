@@ -14,6 +14,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Layer } from '../../config/settings.ts';
 import { checkKinds, type CheckKind } from '../vocabulary.ts';
 
 /** The names Task reads its Taskfile under, in the order it looks for them. */
@@ -38,11 +39,23 @@ export interface RootManifests {
   readonly entries: readonly string[];
 }
 
-/** What the command line says about the checks: a command per kind it names, and the kinds it drops. */
+/**
+ * What the settings say about the checks (R11 of the configuration): a
+ * command per kind they name, the kinds they drop, and the layer of each
+ * kind they settle, which `--check` and `--no-check` give as the flag
+ * layer. A kind with no layer named was settled by a flag.
+ */
 export interface CheckFlags {
   readonly commands: Readonly<Partial<Record<CheckKind, string>>>;
   readonly dropped: readonly CheckKind[];
+  readonly layers?: Readonly<Partial<Record<CheckKind, Exclude<Layer, 'default'>>>>;
 }
+
+/** The layer that settled a kind the flags settle: the one they name, else the flag layer. */
+export const settledLayer = (flags: CheckFlags, kind: CheckKind): Exclude<Layer, 'default'> => flags.layers?.[kind] ?? 'flag';
+
+/** Whether a flag of this invocation, rather than a configuration file, settled every kind the flags settle. */
+export const settledByFlagsOnly = (flags: CheckFlags): boolean => checkKinds.every((kind) => !isSettled(flags, kind) || settledLayer(flags, kind) === 'flag');
 
 export const noCheckFlags: CheckFlags = { commands: {}, dropped: [] };
 
@@ -61,11 +74,11 @@ export function flagSetting(flags: CheckFlags, kind: CheckKind): { readonly comm
 /** Whether a flag settles the kind, naming its command or dropping it (R5 of the repository survey). */
 export const isSettled = (flags: CheckFlags, kind: CheckKind): boolean => flagSetting(flags, kind) !== null;
 
-/** The kinds a flag settles, in the order the checks run, each with the flag's command, or null for one it drops. */
-export const settledKinds = (flags: CheckFlags): { readonly kind: CheckKind; readonly command: string | null }[] =>
+/** The kinds a flag settles, in the order the checks run, each with the flag's command, or null for one it drops, and the layer that settled it. */
+export const settledKinds = (flags: CheckFlags): { readonly kind: CheckKind; readonly command: string | null; readonly layer: Exclude<Layer, 'default'> }[] =>
   checkKinds.flatMap((kind) => {
     const setting = flagSetting(flags, kind);
-    return setting === null ? [] : [{ kind, command: setting.command }];
+    return setting === null ? [] : [{ kind, command: setting.command, layer: settledLayer(flags, kind) }];
   });
 
 /** The kinds no flag settles, in the order the checks run: the ones the surveyor chooses. */

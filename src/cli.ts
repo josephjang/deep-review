@@ -21,6 +21,11 @@ import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
+import { checkFlagsOf, dedicatedFlagValues, policyFlagsOf } from './config/flags.ts';
+import { SettingFlagError } from './config/errors.ts';
+import { cloneConfigPath, operatorConfigPath } from './config/files.ts';
+import { flagLayerOf, parseSetFlag, requireBase, type FlagLayer, type ScopeSettings } from './config/resolve.ts';
+import { configurationSource } from './config/source.ts';
 import { EngineError } from './errors.ts';
 import { answerRun } from './review/answer.ts';
 import { findActiveRun, runReview, type ReviewOutcome, type ScopeSource } from './review/controller.ts';
@@ -44,8 +49,9 @@ import { status as gitStatus } from './scope/git.ts';
 export const usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
                       [--strong-model <model>] [--fast-model <model>]
-                      (--last-commit | --worktree | --ref <ref> | --from <rev> --to <rev> [--merge-base])
+                      [--last-commit | --worktree | --branch [--base <rev>] | --ref <ref> | --from <rev> --to <rev> [--merge-base]]
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
+                      [--set <setting>=<value>]... [--config <file>] [--no-repository-config]
                       [--fix [--fresh] [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
                       [--codex-windows-sandbox ${windowsSandboxes.join('|')}]   (with --runtime codex; applies on Windows)
   deep-review status  [--run <id>] [--json] [--repo <dir>]
@@ -70,6 +76,11 @@ const options = {
   from: { type: 'string' },
   to: { type: 'string' },
   'merge-base': { type: 'boolean' },
+  branch: { type: 'boolean' },
+  base: { type: 'string' },
+  set: { type: 'string', multiple: true },
+  config: { type: 'string' },
+  'no-repository-config': { type: 'boolean' },
   path: { type: 'string', multiple: true },
   concurrency: { type: 'string' },
   'budget-usd': { type: 'string' },
@@ -108,7 +119,7 @@ export interface CommandIo {
 
 /** The flags each command takes; any other given flag is refused by name. */
 const allowed: Record<string, readonly (keyof Values)[]> = {
-  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'help'],
+  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'help'],
   status: ['run', 'json', 'repo', 'help'],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
@@ -129,31 +140,67 @@ function number(flag: string, text: string | undefined): number | undefined {
   return value;
 }
 
-/** Whether any scope flag is given. */
+/** Whether any scope flag is given, `--branch` and `--base` among them. */
 export function hasScopeFlags(values: Values): boolean {
-  return values['last-commit'] === true || values.worktree === true || values.ref !== undefined || values.from !== undefined || values.to !== undefined || values['merge-base'] === true || (values.path?.length ?? 0) > 0;
+  return values['last-commit'] === true || values.worktree === true || values.branch === true || values.base !== undefined || values.ref !== undefined || values.from !== undefined || values.to !== undefined || values['merge-base'] === true || (values.path?.length ?? 0) > 0;
 }
 
-/** The scope request the flags name, or null when no scope flag is given; more than one mode is refused. */
-export function scopeRequestOf(values: Values, worktree: string): { mode: 'last-commit' | 'worktree' | 'ref' | 'range'; request: ScopeRequest } | null {
+/**
+ * The scope request the flags name, or, with no scope mode among them,
+ * the one `scope.default` names (pass 1, R8, R9 of the configuration):
+ * `worktree` and `last-commit` as their flags, `branch` as `--branch`,
+ * and `auto` the request with no mode, which the capture resolves by
+ * `git status`, today's rule. `--branch` is the range from `review.base`
+ * to HEAD from their merge base; `--base` applies only to it. More than
+ * one mode is refused.
+ */
+export function scopeRequestOf(values: Values, worktree: string, scope: ScopeSettings): { mode: 'last-commit' | 'worktree' | 'ref' | 'range' | 'auto'; request: ScopeRequest } {
   const paths = values.path ?? [];
-  const modes = [values['last-commit'] === true, values.worktree === true, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
-  if (modes > 1) throw new UsageError('choose one scope: --last-commit, --worktree, --ref <ref>, or --from <rev> --to <rev>');
+  const modes = [values['last-commit'] === true, values.worktree === true, values.branch === true, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
+  if (modes > 1) throw new UsageError('choose one scope: --last-commit, --worktree, --branch, --ref <ref>, or --from <rev> --to <rev>');
   if (values['merge-base'] === true && values.from === undefined) throw new UsageError('--merge-base applies to --from and --to only');
-  if (values['last-commit'] === true) {
-    if (gitStatus(worktree).length > 0) throw new UsageError('--last-commit reviews the last commit of a clean tree, and this tree has uncommitted changes; use --worktree to review them');
+  const chosen = modes === 1 ? null : scope.scopeDefault.value;
+  const branch = values.branch === true || chosen === 'branch';
+  if (values.base !== undefined && !branch) throw new UsageError('--base applies to --branch only, or to a scope.default of branch');
+  if (values['last-commit'] === true || chosen === 'last-commit') {
+    if (gitStatus(worktree).length > 0) throw new UsageError(`${chosen === null ? '--last-commit' : 'scope.default = "last-commit"'} reviews the last commit of a clean tree, and this tree has uncommitted changes; use --worktree to review them`);
     return { mode: 'last-commit', request: { paths } };
   }
-  if (values.worktree === true) {
-    if (gitStatus(worktree).length === 0) throw new UsageError('--worktree reviews uncommitted changes, and this tree has none; use --last-commit to review the last commit');
+  if (values.worktree === true || chosen === 'worktree') {
+    if (gitStatus(worktree).length === 0) throw new UsageError(`${chosen === null ? '--worktree' : 'scope.default = "worktree"'} reviews uncommitted changes, and this tree has none; use --last-commit to review the last commit`);
     return { mode: 'worktree', request: { paths } };
   }
+  if (branch) return { mode: 'range', request: { range: { from: requireBase(scope.reviewBase), to: 'HEAD', mergeBase: true }, paths } };
   if (values.ref !== undefined) return { mode: 'ref', request: { ref: values.ref, paths } };
   if (values.from !== undefined || values.to !== undefined) {
     if (values.from === undefined || values.to === undefined) throw new UsageError('--from and --to go together');
     return { mode: 'range', request: { range: { from: values.from, to: values.to, mergeBase: values['merge-base'] === true }, paths } };
   }
-  return null;
+  return { mode: 'auto', request: { paths } };
+}
+
+/**
+ * The flag layer of a `review` (R13, TD9 of the configuration): the
+ * dedicated flags as settings, then each `--set`, two for one setting
+ * refused with the usage.
+ */
+export function flagLayerOfValues(values: Values, runtime: string, policy: PolicyFlags, checks: CheckFlags | null): FlagLayer {
+  try {
+    return flagLayerOf([
+      ...dedicatedFlagValues({
+        runtime,
+        policy,
+        checks,
+        ...(values.executable === undefined ? {} : { executable: values.executable }),
+        ...(values['executable-arg'] === undefined ? {} : { executableArgs: values['executable-arg'] }),
+        ...(values.base === undefined ? {} : { base: values.base }),
+      }),
+      ...(values.set ?? []).map(parseSetFlag),
+    ]);
+  } catch (error) {
+    if (error instanceof SettingFlagError) throw new UsageError(error.message);
+    throw error;
+  }
 }
 
 /**
@@ -244,7 +291,7 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
   const location = locateCheckpoint(values.repo === undefined ? io.cwd : resolve(io.cwd, values.repo));
   switch (command) {
     case 'review':
-      return review(values, io, location.root, location.worktree);
+      return review(values, io, location.root, location.worktree, location.commonDir);
     case 'status':
       return status(values, io, location.root);
     case 'commit':
@@ -465,7 +512,7 @@ function openCheckpoint(root: string, create: boolean): Checkpoint | null {
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 
-async function review(values: Values, io: CommandIo, root: string, worktree: string): Promise<number> {
+async function review(values: Values, io: CommandIo, root: string, worktree: string, commonDir: string): Promise<number> {
   if (values.runtime === undefined) throw new UsageError('--runtime claude|codex is required');
   const runtimes = defaultRuntimes();
   if (!runtimes.names().includes(values.runtime)) throw new UsageError(`--runtime must be one of ${runtimes.names().join(', ')}, not ${JSON.stringify(values.runtime)}`);
@@ -477,7 +524,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
   if (sandboxProblem !== null) throw new UsageError(sandboxProblem);
   // Past the check a given value names a sandbox; the guard only tells the type so.
   const codexWindowsSandbox = isWindowsSandbox(sandboxFlag) ? sandboxFlag : undefined;
-  const flags: PolicyFlags = {
+  const dedicated: PolicyFlags = {
     ...(values['strong-model'] === undefined ? {} : { strongModel: values['strong-model'] }),
     ...(values['fast-model'] === undefined ? {} : { fastModel: values['fast-model'] }),
     ...(concurrency === undefined ? {} : { concurrency }),
@@ -485,32 +532,40 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
     ...(codexWindowsSandbox === undefined ? {} : { codexWindowsSandbox }),
   };
   // A malformed value is a command-line mistake, refused with the usage before the checkpoint is opened; the policy refuses it with the same message for a caller that does not come through here.
-  const problem = invocationFlagProblem(flags);
+  const problem = invocationFlagProblem(dedicated);
   if (problem !== null) throw new UsageError(problem);
-  const fix = fixRequestOf(values);
+  const checkFlags = fixRequestOf(values);
   const fresh = freshRequestOf(values);
+  const runtime = values.runtime;
+  // The flag layer holds each dedicated flag and each --set; what the policy and the checks read of this invocation's flags comes from it, so a --set acts as the flag it stands for (TD9 of the configuration).
+  const layer = flagLayerOfValues(values, runtime, dedicated, checkFlags);
+  const flags = policyFlagsOf(layer, runtime);
+  const setProblem = invocationFlagProblem(flags);
+  if (setProblem !== null) throw new UsageError(setProblem);
+  const fix = checkFlags === null ? null : checkFlagsOf(layer);
+  const source = configurationSource({
+    worktree,
+    locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === undefined ? null : resolve(io.cwd, values.config) },
+    repositoryConfig: values['no-repository-config'] !== true,
+    flags: layer,
+  });
   const checkpoint = openCheckpoint(root, true)!;
   try {
-    // The controller resolves the scope for a run that has none yet, and to compare it with a finished run's before continuing that run: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on.
+    // The controller resolves the scope for a run that has none yet, and to compare it with a finished run's before continuing that run: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on. Pass 1 reads the operator's files then, and only then (R3 of the configuration).
     const scope: ScopeSource = {
       named: hasScopeFlags(values),
-      request: () => {
-        const chosen = scopeRequestOf(values, worktree);
-        if (chosen === null) throw new UsageError('a new run needs its scope: --last-commit, --worktree, --ref <ref>, or --from <rev> --to <rev>');
-        return chosen.request;
-      },
+      request: () => scopeRequestOf(values, worktree, source.scopeSettings()).request,
     };
-    const runtime = values.runtime;
     const outcome = await runReview({
       checkpoint,
       worktree,
       runtimes,
       runtime,
-      // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned.
-      executable: () => resolveExecutable(values.executable ?? runtime, io.environment, process.platform, io.cwd),
-      executableArgs: values['executable-arg'] ?? [],
+      // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned. The name is the runtime's executable setting, --executable among its layers, else the runtime's own.
+      executable: (configured) => resolveExecutable(configured ?? runtime, io.environment, process.platform, io.cwd),
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,
+      configuration: source,
       scope,
       fix,
       fresh,

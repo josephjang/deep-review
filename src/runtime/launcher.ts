@@ -88,6 +88,8 @@ export interface RunWorkerOptions {
    * the options it was built with.
    */
   readonly pinned?: PinnedRuntimeOptions;
+  /** The directories of `tools.path` the run recorded, first on the worker's PATH (R11, TD10 of the configuration); none by default. */
+  readonly toolsPath?: readonly string[];
 }
 
 /**
@@ -140,7 +142,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     runtimeOptions: pinnedFor(options.pinned, adapter.name),
   };
   const command = adapter.command(invocation, plan);
-  const environment = workerEnvironment(command.environment, scratch, plan.platform);
+  const environment = workerEnvironment(command.environment, scratch, plan.platform, options.toolsPath ?? []);
   const version = await (options.qualify === undefined ? qualify(adapter, invocation, inherited, options.preflightOptions) : options.qualify(adapter, invocation, inherited));
 
   const prompt = composePrompt(invocation.prompt, scratch);

@@ -7,9 +7,10 @@
  * survey. Nothing here asks a model or runs a command.
  */
 import { isAbsolute, join } from 'node:path';
-import type { ConventionSource, PlannedCheckV2, SurveyedCheck, SurveyedSources, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
+import type { ConventionSource, PlannedCheckV3, SurveyedCheck, SurveyedSources, SurveyFailed, SurveyRecorded, UserRuleDecision } from '../checkpoint/events.ts';
+import { layerWords, type Layer } from '../config/settings.ts';
 import { canonicalPath, isFile, isInside } from '../paths.ts';
-import { flagSetting, isSettled, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
+import { flagSetting, isSettled, settledLayer, unsettledKinds, type CheckFlags, type CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { StructuralCheckError } from './errors.ts';
 import { requireNoNul, resolveReportedPath, resolvingPath } from './fix-answer.ts';
@@ -221,6 +222,9 @@ function checkChecks(output: SurveyorOutput, context: SurveyCheckContext): Surve
 /** The reason a kind dropped by `--no-check` has no command. */
 export const droppedReason = 'dropped by --no-check';
 
+/** The reason a kind a setting dropped has no command: `--no-check`'s for the flag layer, else the setting and the file that gave it (R11 of the configuration). */
+export const droppedReasonOf = (kind: CheckKind, layer: Exclude<Layer, 'default'>): string => (layer === 'flag' ? droppedReason : `dropped by checks.${kind} = false in ${layerWords[layer]}`);
+
 /** A check the project defines whose tool this machine lacks, by the surveyor's word (R15). */
 export interface UnavailableCheck {
   readonly kind: CheckKind;
@@ -231,36 +235,39 @@ export interface UnavailableCheck {
 
 /** The plan `resolveChecks` lays out: the checks it settles, the kinds whose tool is missing, and the kinds nobody answered. */
 export interface ResolvedChecks {
-  /** One per kind no flag or survey leaves open, in the order the kinds run; the whole plan when the other two are empty. */
-  readonly checks: readonly PlannedCheckV2[];
+  /** One per kind no setting or survey leaves open, in the order the kinds run; the whole plan when the other two are empty. */
+  readonly checks: readonly PlannedCheckV3[];
   readonly unavailable: readonly UnavailableCheck[];
   readonly uncovered: readonly CheckKind[];
 }
 
 /**
- * The checks of the flags and a survey, kind by kind (R5, R6, R15 of the
- * repository survey): a `--no-check` drops a kind and a `--check` names
- * its command, whatever the survey says; else the survey's command, with
- * its source, unless its tool is missing, which makes the kind
- * unavailable; else no command, with the survey's reason. A kind neither
- * a flag nor the survey answered is uncovered: the survey was asked when
- * a flag, which this invocation no longer gives, settled it.
+ * The checks of the settings and a survey, kind by kind (R5, R6, R15 of
+ * the repository survey, R11 of the configuration): a setting that drops
+ * a kind, as `--no-check` does, or names its command, as `--check` does,
+ * wins whatever the survey says, with the layer that gave it; else the
+ * survey's command, with its source, unless its tool is missing, which
+ * makes the kind unavailable; else no command, with the survey's reason.
+ * A kind neither a setting nor the survey answered is uncovered: the
+ * survey was asked when a flag, which this invocation no longer gives,
+ * settled it.
  */
 export function resolveChecks(answer: Pick<SurveyRecorded, 'checks'> | null, flags: CheckFlags): ResolvedChecks {
-  const checks: PlannedCheckV2[] = [];
+  const checks: PlannedCheckV3[] = [];
   const unavailable: UnavailableCheck[] = [];
   const uncovered: CheckKind[] = [];
   for (const kind of checkKinds) {
     const flagged = flagSetting(flags, kind);
     if (flagged !== null) {
-      checks.push(flagged.command === null ? { kind, command: null, origin: 'flag', reason: droppedReason, source: null } : { kind, command: flagged.command, origin: 'flag', reason: null, source: null });
+      const layer = settledLayer(flags, kind);
+      checks.push(flagged.command === null ? { kind, command: null, origin: 'setting', layer, reason: droppedReasonOf(kind, layer), source: null } : { kind, command: flagged.command, origin: 'setting', layer, reason: null, source: null });
       continue;
     }
     const surveyed = answer?.checks?.find((check) => check.kind === kind);
     if (surveyed === undefined) uncovered.push(kind);
-    else if (surveyed.command === null) checks.push({ kind, command: null, origin: 'none', reason: surveyed.reason, source: null });
+    else if (surveyed.command === null) checks.push({ kind, command: null, origin: 'none', layer: null, reason: surveyed.reason, source: null });
     else if (surveyed.missingTool !== null) unavailable.push({ kind, command: surveyed.command, source: surveyed.source.path, missingTool: surveyed.missingTool });
-    else checks.push({ kind, command: surveyed.command, origin: 'survey', reason: null, source: { ...surveyed.source, basis: surveyed.basis } });
+    else checks.push({ kind, command: surveyed.command, origin: 'survey', layer: null, reason: null, source: { ...surveyed.source, basis: surveyed.basis } });
   }
   return { checks, unavailable, uncovered };
 }

@@ -62,11 +62,12 @@ function recordedCheckSetting(configuration: ReviewConfiguration, kind: PlannedC
  * one. A check the survey decided is the last answer's command for its
  * kind, with its source and basis, and no tool missing; one nobody
  * decided is a kind that answer gave no command. A setting's is the
- * setting the run recorded for its kind, with its layer, and the survey's
- * and nobody's are kinds no recorded setting settles (R11 of the
- * configuration). On a run that recorded no settings, a setting's, a
- * version 2 flag among them, is not checked, since its flags are not on
- * the ledger.
+ * setting the run recorded for its kind, with its layer, unless a flag
+ * gave it, and the survey's and nobody's are kinds no recorded setting
+ * settles (R11 of the configuration). A flag's is not checked, since the
+ * flags are not on the ledger: a run that recorded no settings has only
+ * those, and on one that did a flag settles its kind over the record for
+ * the invocation that gives it.
  */
 function planFromSurvey(state: RunState | undefined, checks: readonly PlannedCheck[], event: DecodedEvent): RunState {
   const { current, review, fix } = requireFix(state, event);
@@ -78,7 +79,8 @@ function planFromSurvey(state: RunState | undefined, checks: readonly PlannedChe
   for (const check of checks) {
     const recorded = recordedCheckSetting(review.configuration, check.kind);
     if (check.origin === 'setting') {
-      if (recorded === undefined) continue;
+      // A flag settles its kind for the invocation that gives it, over what the run recorded, and is not on the ledger (TD6 of the repository survey).
+      if (recorded === undefined || check.layer === 'flag') continue;
       const command = recorded.value === false ? null : recorded.value;
       if (recorded.value === null || command !== check.command || recorded.layer !== check.layer) throw invalid(event, `plans the ${check.kind} check as a setting of ${String(check.layer)}, which is not the setting the run recorded for it`);
       continue;

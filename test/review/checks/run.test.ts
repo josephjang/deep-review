@@ -35,6 +35,26 @@ describe('checkEnvironment', () => {
     assert.equal(checkEnvironment({ ci: 'false' }, 'linux').ci, 'false', 'on POSIX ci and CI are two variables');
     assert.equal(checkEnvironment({}, 'linux').TMPDIR, undefined, 'a check gets no scratch directory of its own');
   });
+
+  // R11, TD10 of the configuration: a check finds the tools a worker finds.
+  it('puts the tools.path directories first on PATH, as a worker has them', () => {
+    assert.equal(checkEnvironment({ PATH: '/bin' }, 'linux', ['/opt/node/bin']).PATH, '/opt/node/bin:/bin');
+    assert.equal(checkEnvironment({ Path: 'C:\\Windows' }, 'win32', ['C:\\tools']).Path, 'C:\\tools;C:\\Windows');
+  });
+
+  it('runs a check with the tools.path directories first on its PATH', async () => {
+    const tools = mkdtempSync(join(tmpdir(), 'dr-tools-'));
+    try {
+      const store = new EvidenceStore(join(tools, 'evidence'));
+      const script = join(tools, 'print-path.mjs');
+      writeFileSync(script, 'process.stdout.write(process.env.PATH ?? process.env.Path ?? "");\n');
+      const result = await runCheck(store, { command: node(script), worktree: tools, environment: baseEnvironment, toolsPath: [join(tools, 'bin')], timeoutMs: 60_000, ioDirectory: join(tools, 'io') });
+      assert.equal(result.outcome, 'passed', result.error ?? '');
+      assert.ok(store.read(result.stdout!).toString('utf8').startsWith(`${join(tools, 'bin')}${process.platform === 'win32' ? ';' : ':'}`));
+    } finally {
+      rmSync(tools, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('checkOutcomeOf', () => {

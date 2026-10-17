@@ -327,6 +327,40 @@ describe('resolvePolicy against the manifest and the runtime', () => {
   });
 });
 
+// R12 of the configuration: the settings' values between the flags and the policy, which is their defaults layer.
+describe('resolvePolicy with the settings\' values', () => {
+  it('takes each value the settings give over the policy\'s, and each flag over both', () => {
+    const overrides = { strongModel: 'opus-next', fastModel: 'haiku', concurrency: 2, budgetUsd: 90, checksTimeoutMs: 600_000, userRules: 'ignore' as const };
+    const resolved = resolvePolicy(committed, roles, claudeAdapter, {}, 'linux', overrides);
+    assert.deepEqual(resolved.models, { strong: 'opus-next', fast: 'haiku' });
+    assert.equal(resolved.concurrency, 2);
+    assert.equal(resolved.runBudgetUsd, 90);
+    assert.deepEqual(resolved.checks, { timeoutMs: 600_000 });
+    assert.deepEqual(resolved.survey, { userRules: 'ignore' });
+    assert.equal(pinnedRole(resolved.roles, 'triage').model, 'opus-next', 'a role runs on its tier\'s model as the settings give it');
+    const flagged = resolvePolicy(committed, roles, claudeAdapter, { strongModel: 'opus', concurrency: 3, budgetUsd: 10 }, 'linux', overrides);
+    assert.deepEqual([flagged.models.strong, flagged.concurrency, flagged.runBudgetUsd], ['opus', 3, 10]);
+  });
+
+  it('gives the policy\'s values when the settings give the defaults, which the policy holds', () => {
+    const defaults = { strongModel: committed.runtimes.claude!.strong, fastModel: committed.runtimes.claude!.fast, concurrency: committed.concurrency, budgetUsd: committed.runtimes.claude!.runBudgetUsd, checksTimeoutMs: committed.checks.timeoutMs, userRules: committed.survey.userRules };
+    assert.deepEqual(resolvePolicy(committed, roles, claudeAdapter, {}, 'win32', defaults), resolvePolicy(committed, roles, claudeAdapter, {}, 'win32'));
+    const codexDefaults = { strongModel: committed.runtimes.codex!.strong, fastModel: committed.runtimes.codex!.fast, codexWindowsSandbox: committed.runtimes.codex!.windowsSandbox!, budgetUsd: null };
+    assert.deepEqual(resolvePolicy(committed, roles, codexAdapter, {}, 'win32', codexDefaults), resolvePolicy(committed, roles, codexAdapter, {}, 'win32'));
+  });
+
+  it('pins no run budget on a runtime that reports no cost, whatever the settings give, and a null budget as none', () => {
+    assert.equal(resolvePolicy(committed, roles, codexAdapter, {}, 'linux', { budgetUsd: 50 }).runBudgetUsd, null);
+    assert.equal(resolvePolicy(committed, roles, claudeAdapter, {}, 'linux', { budgetUsd: null }).runBudgetUsd, null);
+  });
+
+  it('confines a Codex run on Windows by the settings\' sandbox, and pins none elsewhere', () => {
+    assert.deepEqual(resolvePolicy(committed, roles, codexAdapter, {}, 'win32', { codexWindowsSandbox: 'elevated' }).codex, { windowsSandbox: 'elevated' });
+    assert.equal(resolvePolicy(committed, roles, codexAdapter, {}, 'linux', { codexWindowsSandbox: 'elevated' }).codex, null);
+    assert.deepEqual(resolvePolicy(committed, roles, codexAdapter, { codexWindowsSandbox: 'none' }, 'win32', { codexWindowsSandbox: 'elevated' }).codex, { windowsSandbox: 'none' });
+  });
+});
+
 describe('parsePolicy', () => {
   const invalid: [string, (copy: Parameters<typeof changed>[0] extends (policy: infer P) => void ? P : never) => void, RegExp][] = [
     ['another schema version', (copy) => { copy.schemaVersion = 2; }, /schemaVersion/],

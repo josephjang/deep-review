@@ -112,8 +112,8 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
     assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && [...fixPhases, ...answerPhases].includes(payload.phase as never)), 'no phase of the fix pass or of an answer pass started');
     assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 11);
-    // The engine writes the version of each kind that carries a phase that can name the answer pass's phases, and the fifth of the configuration.
-    const written: Record<string, number> = { 'review.configured': 5, 'phase.started': 5, 'phase.finished': 6, 'worktree.checked': 5, 'attempt.failed': 6, 'report.written': 5 };
+    // The engine writes the version of each kind that carries a phase that can name the answer pass's phases, the sixth of the configuration, which records the settings, and the second of the scope.
+    const written: Record<string, number> = { 'review.configured': 6, 'scope.captured': 2, 'phase.started': 5, 'phase.finished': 6, 'worktree.checked': 5, 'attempt.failed': 6, 'report.written': 5 };
     assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => event.kind in written && event.version !== written[event.kind]).map((event) => `${event.kind}@${String(event.version)}`), []);
     assert.ok(kinds.includes('review.configured'));
     // The survey is recorded once, and a read-only run plans no check.
@@ -288,7 +288,9 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     box.script({ triage: { exit: 2 } });
     const first = await box.fix('claude');
     assert.ok(first.kind === 'blocked', JSON.stringify(first));
-    const pinned = box.events(first.runId).find(([kind]) => kind === 'review.configured')![1];
+    // Version 4 recorded no settings, which version 6 adds.
+    const pinned = { ...box.events(first.runId).find(([kind]) => kind === 'review.configured')![1] };
+    delete pinned.settings;
     box.checkpoint.append(first.runId, box.checkpoint.fold(first.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
     const older = box.checkpoint.createRun({ worktree: box.repo });
     const captured = captureScope(box.checkpoint, older.id, { paths: [] });
@@ -324,25 +326,54 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
     assert.equal(box.logs.filter((line) => line.startsWith('phase survey: going on without the survey: the survey blocked, ')).length, 1, box.logs.join('\n'));
     assert.ok(box.logs.includes(`run ${state.id}: survey: no convention source`), box.logs.join('\n'));
-    // No survey answered, so the engine cannot tell which flags an earlier invocation gave: it says they must be given again.
-    assert.deepEqual(box.logs.filter((line) => line.includes('has not planned its checks')), [`run ${state.id} has not planned its checks yet; --check and --no-check apply to each invocation until it does, so give again every one an earlier invocation gave`]);
+    // The run recorded the first invocation's flags with its settings, so only the flags of a later resume need giving again (R11 of the configuration).
+    assert.deepEqual(box.logs.filter((line) => line.includes('has not planned its checks')), [`run ${state.id} has not planned its checks yet; it keeps the check settings it recorded, and --check and --no-check apply over them to each invocation until it plans them, so give again every one an earlier resume gave`]);
     assert.ok(!box.logs.some((line) => line.includes('its survey was asked with')), box.logs.join('\n'));
   });
 
-  it('names the kinds an earlier invocation\'s flags settled for the survey when a resume before the checks are planned leaves them unsettled (TD6 of the repository survey)', async (t) => {
+  /** A surveyed check of the fake package.json, its tool missing when one is named. */
+  const statedCheck = (kind: 'build' | 'typecheck' | 'lint' | 'test', missingTool: string | null = null): Record<string, unknown> =>
+    ({ kind, command: missingTool === null ? fakeCheckCommand(kind) : `${missingTool} check .`, basis: 'stated', source: { path: 'package.json', quote: `"${kind}": "node ..."` }, missingTool, reason: null });
+
+  it('keeps the check flags the run recorded when a resume before the checks are planned gives others, so the survey is not asked again for them (R11 of the configuration)', async (t) => {
     const box = ReviewSandbox.forTest(t);
-    const stated = (kind: 'build' | 'typecheck' | 'lint' | 'test', missingTool: string | null = null): Record<string, unknown> =>
-      ({ kind, command: missingTool === null ? fakeCheckCommand(kind) : `${missingTool} check .`, basis: 'stated', source: { path: 'package.json', quote: `"${kind}": "node ..."` }, missingTool, reason: null });
+    box.script({ surveyor: { output: { conventions: [], userRules: [], checks: [statedCheck('lint', 'ruff'), statedCheck('test')], note: '' } } });
+    const flags = ReviewSandbox.checkFlags();
+    const blocked = await box.review('claude', { fix: { commands: { build: flags.commands.build!, typecheck: flags.commands.typecheck! }, dropped: [] } });
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
+    // The resume answers the block with --no-check lint, and gives neither of the --check flags the run recorded.
+    reportText(await box.review('claude', { fix: { commands: {}, dropped: ['lint'] } }));
+    const state = box.run();
+    assert.ok(!box.logs.some((line) => line.includes('its survey was asked with')), box.logs.join('\n'));
+    assert.equal(state.review!.survey!.answers.length, 1, 'no surveyor was asked again');
+    assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin]), [['build', 'flag'], ['typecheck', 'flag'], ['lint', 'flag'], ['test', 'survey']]);
+    assert.deepEqual(state.review!.configuration.settings?.values['checks.build'], flags.commands.build, 'the first invocation\'s flag is recorded with the settings');
+  });
+
+  it('names the kinds an earlier invocation\'s flags settled for the survey when a resume of a run configured before the settings leaves them unsettled (TD6 of the repository survey)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
     box.script({ surveyor: [
-      { output: { conventions: [], userRules: [], checks: [stated('lint', 'ruff'), stated('test')], note: '' } },
-      { output: { conventions: [], userRules: [], checks: [stated('build'), stated('typecheck'), stated('test')], note: 'asked again' } },
+      { output: { conventions: [], userRules: [], checks: [statedCheck('lint', 'ruff'), statedCheck('test')], note: '' } },
+      { output: { conventions: [], userRules: [], checks: [statedCheck('build'), statedCheck('typecheck'), statedCheck('test')], note: 'asked again' } },
     ] });
     const flags = ReviewSandbox.checkFlags();
     const blocked = await box.review('claude', { fix: { commands: { build: flags.commands.build!, typecheck: flags.commands.typecheck! }, dropped: [] } });
     assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
+    // Stand in for an engine before the settings: the same run, configured at version 5, which records no flag.
+    const recorded = box.checkpoint.ledger.events(blocked.runId);
+    box.checkpoint.append(blocked.runId, box.checkpoint.fold(blocked.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
+    const older = box.checkpoint.createRun({ worktree: box.repo });
+    let sequence = older.lastSequence;
+    for (const event of recorded.filter((candidate) => candidate.kind !== 'run.created')) {
+      const configured = event.kind === 'review.configured';
+      const payload = JSON.parse(event.payload) as Record<string, unknown>;
+      if (configured) delete payload.settings;
+      sequence = box.checkpoint.append(older.id, sequence, [{ kind: event.kind, version: configured ? 5 : event.version, payload }]).lastSequence;
+    }
+    assert.equal(box.checkpoint.fold(older.id).review!.configuration.settings, null, 'the run records no settings');
     // The resume answers the block with --no-check lint, and gives neither of the --check flags the survey was asked with.
     reportText(await box.review('claude', { fix: { commands: {}, dropped: ['lint'] } }));
-    const state = box.run();
+    const state = box.checkpoint.fold(older.id);
     assert.ok(box.logs.includes(`run ${state.id}: its survey was asked with --check or --no-check settling build, typecheck, which this invocation leaves unsettled, so the survey is asked again for them; give those flags again to keep them`), box.logs.join('\n'));
     assert.deepEqual(state.review!.survey!.answers.map((answer) => answer.note), ['', 'asked again']);
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin]), [['build', 'survey'], ['typecheck', 'survey'], ['lint', 'flag'], ['test', 'survey']]);
@@ -357,6 +388,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const pinned = { ...box.events(first.runId).find(([kind]) => kind === 'review.configured')![1] };
     delete pinned.survey;
     delete pinned.codex;
+    delete pinned.settings;
     box.checkpoint.append(first.runId, box.checkpoint.fold(first.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
     const older = box.checkpoint.createRun({ worktree: box.repo });
     const captured = captureScope(box.checkpoint, older.id, { paths: [] });

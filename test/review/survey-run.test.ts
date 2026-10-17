@@ -165,7 +165,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
       const finished = box.run();
       assert.equal(finished.review!.phases.survey.status, 'degraded');
       await assert.rejects(box.review('claude', { fix: halfFlagged }), (error: unknown) => error instanceof ReviewRefusedError
-        && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind> for lint, test, or start a new run with --fresh`);
+        && error.message === `run ${finished.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind>, or set checks.<kind>, for lint, test, or start a new run with --fresh`);
       assert.equal(box.run().lastSequence, finished.lastSequence, 'the run stays complete, nothing appended');
       reportText(await box.fix('claude'));
       const state = box.run();

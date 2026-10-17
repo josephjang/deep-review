@@ -77,7 +77,7 @@ describe('the survey task', () => {
       conventions: [{ path: 'AGENTS.md', level: 'repository' as const, governs: 'comments and commits', appliesTo: null, grounds: null }, { path: '/home/u/.codex/AGENTS.md', level: 'user' as const, governs: 'the reviewer\'s rules', appliesTo: null, grounds: 'the reviewer authors this repository' }],
       userRules: [{ path: '/home/u/.codex/AGENTS.md', applied: true, reason: 'the reviewer authors this repository' }],
     };
-    const continued: SurveyTaskInput = { ...input, offered: ['/home/u/.codex/AGENTS.md'], policySettlesUserRules: false, settled: [{ kind: 'build', command: 'make' }], unsettled: ['typecheck', 'lint', 'test'], standing };
+    const continued: SurveyTaskInput = { ...input, offered: ['/home/u/.codex/AGENTS.md'], policySettlesUserRules: false, settled: [{ kind: 'build', command: 'make', layer: 'flag' }], unsettled: ['typecheck', 'lint', 'test'], standing };
 
     it('lists the recorded sources and user-level decisions as standing, asks them back empty, and offers no file', () => {
       const task = surveyTask(continued);
@@ -144,9 +144,19 @@ describe('the survey task', () => {
   });
 
   it('quotes each --check command in a code span the command cannot close, and names a dropped kind', () => {
-    const task = surveyTask({ ...input, settled: [{ kind: 'build', command: 'echo `git rev-parse HEAD` && make' }, { kind: 'typecheck', command: null }] });
+    const task = surveyTask({ ...input, settled: [{ kind: 'build', command: 'echo `git rev-parse HEAD` && make', layer: 'flag' }, { kind: 'typecheck', command: null, layer: 'flag' }] });
+    assert.match(task, /^Settled by the operator's flags, which you leave out of `checks`:$/m);
     assert.match(task, /^- build: ``echo `git rev-parse HEAD` && make`` \(--check\)$/m);
     assert.match(task, /^- typecheck: dropped by --no-check$/m);
+  });
+
+  // R11 of the configuration: a kind a configuration file settled names its setting and the file.
+  it('names the setting and the file of a kind a configuration file settled, beside a flag\'s', () => {
+    const task = surveyTask({ ...input, settled: [{ kind: 'build', command: 'make', layer: 'flag' }, { kind: 'lint', command: null, layer: 'repository' }, { kind: 'test', command: 'npm test', layer: 'clone' }] });
+    assert.match(task, /^Settled by the operator's flags and the configuration, which you leave out of `checks`:$/m);
+    assert.match(task, /^- build: `make` \(--check\)$/m);
+    assert.match(task, /^- lint: dropped by checks\.lint = false in the repository's file$/m);
+    assert.match(task, /^- test: `npm test` \(checks\.test in the clone's file\)$/m);
   });
 
   it('quotes each hint\'s command in a code span, and keeps its reading as prose', () => {

@@ -34,6 +34,23 @@ export function pinVariables(environment: NodeJS.ProcessEnv, values: Readonly<Re
 }
 
 /**
+ * A copy of the environment with `directories` first on PATH, before what
+ * it held (R11, TD10 of the configuration): one variable however the
+ * platform spells it, under the spelling the process passes on, which is
+ * the one that sorts first by code unit when Windows holds two, so `Path`
+ * keeps its name when it is the only one. The list is joined with the
+ * platform's delimiter; with no directory the environment is returned as
+ * it is.
+ */
+export function withPathFirst(environment: NodeJS.ProcessEnv, directories: readonly string[], platform: NodeJS.Platform): NodeJS.ProcessEnv {
+  if (directories.length === 0) return environment;
+  const [effective] = spellingsOf(environment, 'PATH', platform).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const current = effective?.[1];
+  const delimiter = platform === 'win32' ? ';' : ':';
+  return pinVariables(environment, { [effective?.[0] ?? 'PATH']: [...directories, ...(current === undefined || current === '' ? [] : [current])].join(delimiter) }, platform);
+}
+
+/**
  * Toolchains that keep a build server alive after the command that started
  * it; a surviving server is the descendant every pilot saw outlive a worker
  * (PD2). MSBuild reads the last two as properties, so they reach nested builds.
@@ -53,11 +70,16 @@ export const buildServerPins: Readonly<Record<string, string>> = {
  */
 export const launcherPins: readonly string[] = [...Object.keys(buildServerPins), 'TEMP', 'TMP', 'TMPDIR'];
 
-/** The environment of the spawned process: the adapter's, with the temporary directory and the build-server pins over every inherited spelling the platform reads as theirs (R8). */
-export function workerEnvironment(environment: NodeJS.ProcessEnv, scratch: string | null, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+/**
+ * The environment of the spawned process: the adapter's, with the
+ * temporary directory and the build-server pins over every inherited
+ * spelling the platform reads as theirs (R8), and the directories of
+ * `tools.path` first on PATH (R11 of the configuration).
+ */
+export function workerEnvironment(environment: NodeJS.ProcessEnv, scratch: string | null, platform: NodeJS.Platform = process.platform, toolsPath: readonly string[] = []): NodeJS.ProcessEnv {
   // TEMP and TMP serve Windows programs; POSIX tools read TMPDIR. On Windows
   // those are Git Bash's, which wants forward slashes; elsewhere a backslash
   // is an ordinary filename character and the path is kept as it is.
   const temporary = scratch === null ? {} : { TEMP: scratch, TMP: scratch, TMPDIR: platform === 'win32' ? scratch.replaceAll('\\', '/') : scratch };
-  return pinVariables(environment, { ...buildServerPins, ...temporary }, platform);
+  return withPathFirst(pinVariables(environment, { ...buildServerPins, ...temporary }, platform), toolsPath, platform);
 }

@@ -9,17 +9,19 @@ import { locateCheckpoint } from '../src/checkpoint/locate.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { maxConcurrency, policyFileName } from '../src/review/policy.ts';
 import { caseInsensitiveFileSystem, claimsDirectoryFor, readClaims } from '../src/review/claims.ts';
+import { withoutVariables } from '../src/runtime/environment.ts';
 import { checkpointScratchKey } from '../src/runtime/scratch.ts';
 import { checkKinds, finderAngles } from '../src/review/vocabulary.ts';
 import { fixerAnswer } from './helpers/fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex, type Finished, isAlive, node, until } from './helpers/launcher.ts';
-import { write } from './helpers/repository.ts';
+import { commitAll, git, write } from './helpers/repository.ts';
 import { fakeCheckCommand, otherEngine, ReviewSandbox, sandboxConcurrency } from './helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../src/cli.ts');
 
 describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
-  const environment = (box: ReviewSandbox): NodeJS.ProcessEnv => ({ ...baseEnvironment, FAKE_SCRIPT: box.scriptFile, FAKE_CHECKS: box.checksFile, HOME: box.home, USERPROFILE: box.home });
+  // The operator's configuration directory is the sandbox's, so no file of the person running the suite reaches a command (R2 of the configuration).
+  const environment = (box: ReviewSandbox): NodeJS.ProcessEnv => ({ ...withoutVariables(baseEnvironment, ['APPDATA', 'XDG_CONFIG_HOME'], process.platform), APPDATA: join(box.home, 'AppData', 'Roaming'), XDG_CONFIG_HOME: join(box.home, '.config'), FAKE_SCRIPT: box.scriptFile, FAKE_CHECKS: box.checksFile, HOME: box.home, USERPROFILE: box.home });
   const run = (box: ReviewSandbox, ...args: string[]): Promise<Finished> => node([cli, ...args], { cwd: box.repo, env: environment(box) });
   const claudeFlags = (box: ReviewSandbox, ...more: string[]): string[] => ['review', '--runtime', 'claude', '--executable', process.execPath, '--executable-arg', fakeClaude, '--roles', box.rolesRoot, ...more];
 
@@ -104,7 +106,22 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       assert.match(result.stderr, message, args.join(' '));
       assert.match(result.stderr, /usage:/, `${args.join(' ')} prints the usage`);
     }
-    assert.match((await run(box, ...claudeFlags(box))).stderr, /a new run needs its scope/);
+    // The scope flags and the settings flags (R8, R13 of the configuration).
+    for (const [args, message] of [
+      [claudeFlags(box, '--branch', '--worktree'), /choose one scope: --last-commit, --worktree, --branch/],
+      [claudeFlags(box, '--last-commit', '--base', 'main'), /--base applies to --branch only/],
+      [claudeFlags(box, '--last-commit', '--set', 'nope=1'), /--set names no setting "nope"/],
+      [claudeFlags(box, '--last-commit', '--set', 'checks.test'), /--set takes <setting>=<value>/],
+      [claudeFlags(box, '--last-commit', '--set', 'run.concurrency=0'), /--set run\.concurrency: /],
+      [claudeFlags(box, '--last-commit', '--budget-usd', '5', '--set', 'budget.usd=6'), /--set budget\.usd and --budget-usd both set budget\.usd; give one/],
+      [claudeFlags(box, '--last-commit', '--set', 'scope.exclude=["a"]', '--set', 'scope.exclude=["b"]'), /--set scope\.exclude and --set scope\.exclude both set scope\.exclude/],
+      [['status', '--set', 'budget.usd=1'], /--set does not apply to status/],
+    ] as const) {
+      const result = await run(box, ...args);
+      assert.equal(result.status, 1, `${args.join(' ')}: ${result.stderr}`);
+      assert.match(result.stderr, message, args.join(' '));
+      assert.match(result.stderr, /usage:/, `${args.join(' ')} prints the usage`);
+    }
     // A policy refusal is an engine error, exit 1 without the usage.
     const codexBudget = await run(box, 'review', '--runtime', 'codex', '--executable', process.execPath, '--executable-arg', fakeCodex, '--roles', box.rolesRoot, '--last-commit', '--budget-usd', '5');
     assert.equal(codexBudget.status, 1);
@@ -213,10 +230,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(late.status, 1, late.stderr);
     assert.match(late.stderr, new RegExp(`^run ${runId} is complete; only an active or blocked run can be abandoned\\n`));
     assert.match((await run(box, 'status', '--run', runId)).stdout, new RegExp(`^Run ${runId}: complete\\n`));
-    // Reviewing again starts a new run, since a finished run is not reopened; its scope flags are needed.
-    const again = await run(box, ...claudeFlags(box));
-    assert.equal(again.status, 1);
-    assert.match(again.stderr, /a new run needs its scope/);
+    // Reviewing again starts a new run, since a finished run is not reopened.
     const second = await run(box, ...claudeFlags(box, '--ref', 'HEAD~1', '--path', 'src'));
     assert.equal(second.status, 0, second.stderr);
     assert.equal(box.checkpoint.foldRuns().length, 2);
@@ -254,14 +268,58 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(box.checkpoint.foldRuns().length, 1);
   });
 
-  it('captures the scope the command names for an active run that has none yet, and refuses one without scope flags', async (t) => {
+  // R2, R8, R13 of the configuration: the files and flags of a review, read as the command reads them.
+  it('reviews the branch from origin/HEAD with --branch, under the operator\'s, the clone\'s and the --config file and a --set, each recorded with its layer', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    const start = git(box.repo, 'rev-parse', 'HEAD~1');
+    git(box.repo, 'update-ref', 'refs/remotes/origin/main', start);
+    git(box.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    write(box.repo, 'src/c.ts', 'export const c = 1;\n');
+    commitAll(box.repo, 'a second commit on the branch');
+    const operatorFile = process.platform === 'win32' ? join(box.home, 'AppData', 'Roaming', 'deep-review', 'config.toml') : join(box.home, '.config', 'deep-review', 'config.toml');
+    write(operatorFile, '', 'schema = 1\nbudget.usd = 33\n');
+    const commonDir = locateCheckpoint(box.repo).commonDir;
+    writeFileSync(join(commonDir, 'deep-review.toml'), 'schema = 1\ntools.path = ["bin"]\n');
+    const invocation = join(box.directory, 'run.toml');
+    writeFileSync(invocation, 'schema = 1\nconventions.user_rules = "ignore"\n');
+    const result = await run(box, ...claudeFlags(box, '--branch', '--config', invocation, '--set', 'run.concurrency=2'));
+    assert.equal(result.status, 2, result.stderr);
+    const state = box.run();
+    assert.deepEqual(state.scope?.request, { range: { from: 'origin/main', to: 'HEAD', mergeBase: true }, paths: [], exclude: [] });
+    assert.equal(state.scope?.base, start, 'the merge base of origin/main and HEAD');
+    assert.deepEqual(state.scope?.files.map((file) => file.path).sort(), ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/gone.ts'], 'both commits of the branch');
+    const configuration = state.review!.configuration;
+    assert.equal(configuration.runBudgetUsd, 33);
+    assert.equal(configuration.concurrency, 2);
+    assert.deepEqual(configuration.survey, { userRules: 'ignore' });
+    const settings = configuration.settings!;
+    assert.deepEqual([settings.layers['budget.usd'], settings.layers['run.concurrency'], settings.layers['conventions.user_rules'], settings.layers['tools.path'], settings.layers['review.base']], ['operator', 'flag', 'invocation', 'clone', 'default']);
+    assert.equal(settings.values['review.base'], 'origin/main');
+    assert.deepEqual(settings.values['tools.path'], [join(box.repo, 'bin')]);
+    assert.deepEqual(settings.files.map((file) => [file.layer, file.path]), [['operator', operatorFile], ['clone', join(commonDir, 'deep-review.toml')], ['invocation', invocation]]);
+    assert.match(result.stderr, /settings from the operator's file /);
+  });
+
+  it('refuses --branch in a clone with no origin/HEAD, naming the setting and the flag, and takes --base over it', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    const refused = await run(box, ...claudeFlags(box, '--branch'));
+    assert.equal(refused.status, 2, refused.stderr);
+    assert.match(refused.stderr, /refused: --branch needs the branch the change starts from, and this clone has no origin\/HEAD; set review\.base [^\n]*, or give --base <rev>/);
+    assert.deepEqual(box.checkpoint.foldRuns(), []);
+    const based = await run(box, ...claudeFlags(box, '--branch', '--base', 'HEAD~1'));
+    assert.equal(based.status, 2, based.stderr);
+    assert.deepEqual(box.run().scope?.request.range, { from: 'HEAD~1', to: 'HEAD', mergeBase: true });
+    assert.equal(box.run().review!.configuration.settings!.layers['review.base'], 'flag');
+  });
+
+  it('captures the scope the command names for an active run that has none yet, and refuses a mistaken scope before capturing anything', async (t) => {
 
     const box = ReviewSandbox.forTest(t);
     // A run left without a scope, as a capture that threw leaves it.
     const runId = box.checkpoint.createRun({ worktree: box.repo }).id;
-    const bare = await run(box, ...claudeFlags(box));
-    assert.equal(bare.status, 1, bare.stderr);
-    assert.match(bare.stderr, /needs its scope: --last-commit, --worktree/);
+    const mistaken = await run(box, ...claudeFlags(box, '--base', 'main'));
+    assert.equal(mistaken.status, 1, mistaken.stderr);
+    assert.match(mistaken.stderr, /--base applies to --branch only/);
     assert.equal(box.checkpoint.fold(runId).scope, null, 'nothing was captured');
     box.script({});
     const scoped = await run(box, ...claudeFlags(box, '--ref', 'HEAD~1', '--path', 'src'));

@@ -7,12 +7,12 @@
  * every resume test is a fold test.
  */
 import type { ArtifactReference } from '../evidence/store.ts';
-import type { Blocker, FrozenFile, PlannedCheckV2 } from '../checkpoint/events.ts';
+import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
 import { checksFloor, claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
-import { unsettledKinds, type CheckFlags } from './checks/discover.ts';
+import { settledByFlagsOnly, unsettledKinds, type CheckFlags } from './checks/discover.ts';
 import { resolveChecks, type UnavailableCheck } from './survey.ts';
 import { planFixes, planSecondRound, type FixPlan, type SecondRoundPlan } from './fixes.ts';
 import { planGroups, type PlannedGroup } from './grouping.ts';
@@ -56,7 +56,7 @@ export interface Live {
   readonly spend: BudgetSpend;
   /** Where a frozen blob lives, so a drift blocker names the bytes to restore (R7 of the fix pass). */
   readonly evidencePath: (reference: ArtifactReference) => string;
-  /** This invocation's `--check` and `--no-check` flags, which settle their kinds until the checks are planned (R5, TD6 of the repository survey); none in a run that does not fix. */
+  /** The check settings: the ones the run recorded, or on a run configured before the settings this invocation's `--check` and `--no-check` flags, which settle their kinds until the checks are planned (R5, TD6 of the repository survey, R11 of the configuration); none in a run that does not fix. */
   readonly checkFlags: CheckFlags;
   /** The claims directory this engine found removed while the fixes phase edited, which stops the phase (R12 of commit series integrity); null while none was. */
   readonly claimsLost: string | null;
@@ -88,7 +88,7 @@ export type Step =
   | { readonly kind: 'plan-fixes'; readonly plan: FixPlan }
   | { readonly kind: 'plan-second-round'; readonly plan: SecondRoundPlan }
   /** The checks the run executes, and for a fix run going on without its survey the reason, recorded with them in one append. */
-  | { readonly kind: 'plan-checks'; readonly checks: readonly PlannedCheckV2[]; readonly without: string | null }
+  | { readonly kind: 'plan-checks'; readonly checks: readonly PlannedCheckV3[]; readonly without: string | null }
   | { readonly kind: 'run-check'; readonly phase: CheckPhase; readonly attempt: number; readonly check: DueCheck }
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
@@ -500,7 +500,8 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
     ? `the survey blocked, ${survey.lastBlock.detail}`
     : exhausted(review, unit, state) && !interrupted(state) ? workerFailedBlocker(review, unit, state).detail : null;
   if (failed === null) return null;
-  const without = truncated(`${failed}; this invocation's --check and --no-check flags settle every check, so the run goes on without it`, maxRecordedTextLength);
+  const settledBy = settledByFlagsOnly(live.checkFlags) ? 'this invocation\'s --check and --no-check flags settle' : 'the check settings settle';
+  const without = truncated(`${failed}; ${settledBy} every check, so the run goes on without it`, maxRecordedTextLength);
   return { kind: 'plan-checks', checks: resolveChecks(null, live.checkFlags).checks, without };
 }
 

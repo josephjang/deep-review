@@ -136,8 +136,10 @@ describe('the settled kinds', () => {
     assert.deepEqual(flagSetting(flags, 'build'), { command: null });
     assert.deepEqual(flagSetting(flags, 'test'), { command: 'npm test' });
     assert.equal(flagSetting(flags, 'typecheck'), null);
-    assert.deepEqual(settledKinds(flags), [{ kind: 'build', command: null }, { kind: 'lint', command: 'eslint .' }, { kind: 'test', command: 'npm test' }]);
+    assert.deepEqual(settledKinds(flags), [{ kind: 'build', command: null, layer: 'flag' }, { kind: 'lint', command: 'eslint .', layer: 'flag' }, { kind: 'test', command: 'npm test', layer: 'flag' }]);
     assert.deepEqual(settledKinds({ commands: {}, dropped: [] }), []);
+    // R11 of the configuration: a kind a configuration file settled has that file's layer, and one with none named a flag's.
+    assert.deepEqual(settledKinds({ ...flags, layers: { lint: 'repository' } }).map((entry) => entry.layer), ['flag', 'repository', 'flag']);
   });
 });
 

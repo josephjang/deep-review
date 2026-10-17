@@ -70,6 +70,25 @@ describe('the worker environment the launcher pins (R7, R8)', () => {
     }
   });
 
+  // R11, TD10 of the configuration: tools.path first on PATH, one variable however it is spelled.
+  it('puts the tools.path directories first on PATH, with the platform\'s delimiter, and leaves PATH alone without one', () => {
+    assert.equal(workerEnvironment({ PATH: '/usr/bin' }, null, 'linux', ['/opt/node/bin', '/w/.venv/bin']).PATH, '/opt/node/bin:/w/.venv/bin:/usr/bin');
+    assert.equal(workerEnvironment({ PATH: '/usr/bin' }, null, 'linux').PATH, '/usr/bin');
+    assert.equal(workerEnvironment({}, null, 'linux', ['/opt/bin']).PATH, '/opt/bin', 'no PATH before: the directories alone');
+    assert.equal(workerEnvironment({ PATH: '' }, null, 'darwin', ['/opt/bin']).PATH, '/opt/bin', 'an empty PATH adds no empty entry');
+  });
+
+  it('keeps Path and PATH one variable on Windows, under the spelling the process passes on', () => {
+    const only = workerEnvironment({ Path: 'C:\\Windows' }, null, 'win32', ['C:\\tools']);
+    assert.equal(only.Path, 'C:\\tools;C:\\Windows', 'the system\'s Path keeps its name');
+    assert.equal(only.PATH, undefined);
+    const both = workerEnvironment({ Path: 'C:\\second', PATH: 'C:\\first' }, null, 'win32', ['C:\\tools']);
+    assert.deepEqual(Object.keys(both).filter((name) => name.toUpperCase() === 'PATH'), ['PATH'], 'one spelling left');
+    assert.equal(both.PATH, 'C:\\tools;C:\\first', 'PATH sorts before Path, so it is the one the process passes on');
+    const posix = workerEnvironment({ Path: '/a', PATH: '/b' }, null, 'linux', ['/tools']);
+    assert.deepEqual([posix.Path, posix.PATH], ['/a', '/tools:/b'], 'on POSIX Path is another variable');
+  });
+
   it('writes TMPDIR with forward slashes on Windows only, where Git Bash reads it', () => {
     assert.equal(workerEnvironment({}, 'C:\\scratch\\worker', 'win32').TMPDIR, 'C:/scratch/worker');
     assert.equal(workerEnvironment({}, 'C:\\scratch\\worker', 'win32').TEMP, 'C:\\scratch\\worker');
