@@ -7,7 +7,7 @@
  */
 import type { FixSettingsRecorded, ReviewConfiguration, ReviewConfigurationV5, SettingsRecorded } from '../checkpoint/events.ts';
 import { resolvedValue, type ResolvedSettings } from './resolve.ts';
-import { checkSettingNames, checkTimeoutMinutes, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
+import { checkSettingNames, checkTimeoutMinutes, defaultScope, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
 
 /** A value as the record holds one: what a file or a flag gives is JSON-like. */
 type JsonValue = SettingsRecorded['notFollowed'][number]['value'];
@@ -80,7 +80,7 @@ export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick
     ...sourcesRecordOf(resolved, names),
     values: {
       'review.base': resolvedValue(resolved, 'review.base'),
-      'scope.default': resolvedValue(resolved, 'scope.default') ?? 'auto',
+      'scope.default': resolvedValue(resolved, 'scope.default') ?? defaultScope,
       'scope.exclude': [...(resolvedValue(resolved, 'scope.exclude') ?? [])],
       'tools.path': [...(resolvedValue(resolved, 'tools.path') ?? [])],
       ...checks,

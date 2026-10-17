@@ -14,7 +14,7 @@ import type { PolicyFile } from '../review/policy.ts';
 import { git } from '../scope/git.ts';
 import { SettingFlagError } from './errors.ts';
 import { readConfigFile, refuseProblems, repositoryConfigPath, valueText, type ConfigFile } from './files.ts';
-import { isSettingName, layerOrder, layerWords, settingNames, settings, type FileLayer, type Layer, type ScopeDefault, type SettingDeclaration, type SettingName, type SettingValue } from './settings.ts';
+import { defaultScope, isSettingName, layerOrder, layerWords, settingNames, settings, type FileLayer, type Layer, type ScopeDefault, type SettingDeclaration, type SettingName, type SettingValue } from './settings.ts';
 
 /** One flag's value for one setting, with the flag as the command line spelled it, which a refusal names. */
 export interface FlagValue {
@@ -151,6 +151,9 @@ export function originHeadBranch(repo: string): string | null {
   return ref.startsWith(prefix) && ref.length > prefix.length ? ref.slice(prefix.length) : null;
 }
 
+/** The default of `review.base`, which the registry declares null: the branch `origin/HEAD` names, asked only when no layer gives a base. */
+const defaultBase = (originHead: () => string | null): ResolvedSetting<string | null> => ({ value: originHead(), layer: 'default' });
+
 /** What pass 1 resolves: the two settings that choose the change. */
 export interface ScopeSettings {
   readonly scopeDefault: ResolvedSetting<ScopeDefault>;
@@ -170,8 +173,8 @@ export function resolveScopeSettings(files: readonly ConfigFile[], flags: FlagLa
   const scopeDefault = winner('scope.default', sources) as ResolvedSetting<ScopeDefault> | null;
   const reviewBase = winner('review.base', sources) as ResolvedSetting<string> | null;
   return {
-    scopeDefault: scopeDefault ?? { value: 'auto', layer: 'default' },
-    reviewBase: reviewBase ?? { value: originHead(), layer: 'default' },
+    scopeDefault: scopeDefault ?? { value: defaultScope, layer: 'default' },
+    reviewBase: reviewBase ?? defaultBase(originHead),
   };
 }
 
@@ -274,7 +277,7 @@ export function resolveSettings(inputs: SettingsInputs): ResolvedSettings {
       for (const file of setting) ignored.push({ layer: file.layer, path: file.path, name, reason: `runtime ${inputs.runtime} reports no cost in USD, so ${declaration.withoutCostInUsd}` });
       found = null;
     }
-    const resolved: ResolvedSetting = found ?? { value: name === 'review.base' ? inputs.originHead() : declaration.defaultOf(inputs.policy, inputs.runtime), layer: 'default' };
+    const resolved: ResolvedSetting = found ?? (name === 'review.base' ? defaultBase(inputs.originHead) : { value: declaration.defaultOf(inputs.policy, inputs.runtime), layer: 'default' });
     values[name] = declaration.normalize === undefined || resolved.value === null ? resolved : { ...resolved, value: declaration.normalize(resolved.value, inputs.worktree) };
     if (repositoryFile !== null && settings[name].owner === 'repository-first' && repositoryFile.values.has(name) && resolved.layer !== 'repository' && !sameValue(resolved.value, repositoryFile.values.get(name))) {
       notFollowed.push({ name, repository: repositoryFile.values.get(name), value: resolved.value, layer: resolved.layer });

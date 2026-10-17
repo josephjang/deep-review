@@ -67,6 +67,9 @@ export type ConfiguredRuntime = (typeof configuredRuntimes)[number];
 export const scopeDefaults = ['worktree', 'last-commit', 'branch', 'auto'] as const;
 export type ScopeDefault = (typeof scopeDefaults)[number];
 
+/** The `scope.default` of a run that no layer sets it for: `auto`, today's rule. */
+export const defaultScope: ScopeDefault = 'auto';
+
 /** The most directories `tools.path` holds. */
 export const maxToolDirectories = 64;
 
@@ -202,6 +205,7 @@ export const settings = {
   'review.base': declare({
     owner: 'operator-only',
     value: revisionSchema,
+    // The resolver supplies this default, the branch origin/HEAD names, which no policy holds.
     defaultOf: () => null,
     defaultWords: 'the branch that origin/HEAD names',
     example: 'origin/main',
@@ -211,8 +215,8 @@ export const settings = {
   'scope.default': declare({
     owner: 'operator-only',
     value: z.enum(scopeDefaults),
-    defaultOf: () => 'auto' as const,
-    defaultWords: 'auto',
+    defaultOf: () => defaultScope,
+    defaultWords: defaultScope,
     example: 'auto',
     flag: null,
     describe: 'The scope of a run that names none: worktree, last-commit, branch, or auto, which reviews the uncommitted change when the tree has one and the last commit when it has none.',

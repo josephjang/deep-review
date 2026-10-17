@@ -256,6 +256,24 @@ describe('pass 1: the settings that choose the change', () => {
     assert.equal(asked, 1);
   });
 
+  it('gives the same defaults as pass 2 and the registry, asking origin/HEAD in pass 2 only when no layer gives a base', () => {
+    let asked = 0;
+    const originHead = (): string => {
+      asked += 1;
+      return 'origin/trunk';
+    };
+    const first = resolveScopeSettings([], noFlags, originHead);
+    const second = resolveSettings(inputs([], noFlags, { originHead }));
+    assert.deepEqual(first.scopeDefault, second.values['scope.default']);
+    assert.deepEqual(first.scopeDefault, { value: settings['scope.default'].defaultOf(policy, 'claude'), layer: 'default' });
+    assert.equal(settings['scope.default'].defaultWords, first.scopeDefault.value);
+    assert.deepEqual(first.reviewBase, second.values['review.base']);
+    assert.deepEqual(second.values['review.base'], { value: 'origin/trunk', layer: 'default' });
+    assert.equal(asked, 2);
+    assert.deepEqual(resolveSettings(inputs([file('operator', { 'review.base': 'origin/develop' })], noFlags, { originHead })).values['review.base'], { value: 'origin/develop', layer: 'operator' });
+    assert.equal(asked, 2);
+  });
+
   it('refuses --branch with no base, naming the setting and the flag', () => {
     assert.equal(requireBase({ value: 'origin/main', layer: 'default' }), 'origin/main');
     assert.throws(() => requireBase({ value: null, layer: 'default' }), (error: unknown) => error instanceof ReviewRefusedError && /review\.base/.test(error.message) && /--base <rev>/.test(error.message));
