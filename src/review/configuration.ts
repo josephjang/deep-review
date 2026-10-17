@@ -221,12 +221,15 @@ const comparable = (name: SettingName, value: unknown): unknown => (name === 'ch
  * it recorded that changed, is gone or is not read now, and each recorded
  * setting whose value now differs, which the run does not apply. A
  * setting a dedicated flag gives is left to that flag's own line; the
- * concurrency and the run budget a flag gives apply per invocation; the
- * executable is the one the run pinned, which the resume preflights; and
+ * concurrency and the run budget a flag gives apply per invocation; and
  * a setting the run recorded from a flag is compared only with a flag
- * given now, since a resume keeps it without the flag typed again.
+ * given now, since a resume keeps it without the flag typed again. The
+ * run pinned the path its executable setting resolved to, so the path
+ * `resolveExecutable` gives the setting now is the one compared, and a
+ * setting it cannot resolve now is named with why, without stopping the
+ * resume; a string is the path whatever the setting.
  */
-export function unappliedLines(runId: string, configuration: ReviewConfiguration, now: ResolvedSettings, flags: FlagLayer): string[] {
+export function unappliedLines(runId: string, configuration: ReviewConfiguration, now: ResolvedSettings, flags: FlagLayer, resolveExecutable: string | ((configured: string | null) => string)): string[] {
   // A continuation read the files again, so its record is the one the files are compared with.
   const recordedFiles = (configuration.fixSettings ?? configuration.settings)?.files ?? [];
   const fileLines = recordedFiles.flatMap((file) => {
@@ -241,14 +244,24 @@ export function unappliedLines(runId: string, configuration: ReviewConfiguration
   const settingLines = names.flatMap((name) => {
     const current = now.values[name];
     const flag = flags.get(name);
-    if (name === executable || (flag !== undefined && !flag.flag.startsWith('--set'))) return [];
+    if (flag !== undefined && !flag.flag.startsWith('--set')) return [];
     // The concurrency and the run budget a flag gives apply per invocation, and so do the check settings until the checks are planned.
     if ((name === 'run.concurrency' || name === 'budget.usd' || checkSettingNames.includes(name)) && current.layer === 'flag') return [];
     const recorded = settingOf(configuration, name);
     // A flag an earlier invocation gave is kept without being typed again, so only a flag given now is compared with it.
     if (recorded.layer === 'flag' && flag === undefined) return [];
-    if (JSON.stringify(comparable(name, recorded.value)) === JSON.stringify(comparable(name, current.value))) return [];
-    return [`run ${runId}: ${name} is now ${valueWords(current.value)} from ${flag?.flag ?? layerWords[current.layer]}, which is not applied; the run keeps ${valueWords(recorded.value)}${recorded.layer === null ? '' : ` from ${layerWords[recorded.layer]}`}`];
+    const from = flag?.flag ?? layerWords[current.layer];
+    const kept = `the run keeps ${valueWords(recorded.value)}${recorded.layer === null ? '' : ` from ${layerWords[recorded.layer]}`}`;
+    let value = current.value;
+    if (name === executable) {
+      try {
+        value = typeof resolveExecutable === 'string' ? resolveExecutable : resolveExecutable(current.value as string | null);
+      } catch (error) {
+        return [`run ${runId}: ${name} is now ${valueWords(current.value)} from ${from}, which is not applied and does not resolve now: ${error instanceof Error ? error.message : String(error)}; ${kept}`];
+      }
+    }
+    if (JSON.stringify(comparable(name, recorded.value)) === JSON.stringify(comparable(name, value))) return [];
+    return [`run ${runId}: ${name} is now ${valueWords(value)} from ${from}, which is not applied; ${kept}`];
   });
   return [...fileLines, ...newFiles, ...settingLines];
 }

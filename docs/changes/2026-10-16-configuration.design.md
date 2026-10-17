@@ -195,7 +195,7 @@ The run appends `scope.captured@2` first and `review.configured@6` after it, as 
 
 #### A resumed run
 
-A resumed run reads `review.configured` and ignores the files. It resolves them again only to compare them. If the current value of a recorded setting is different, the engine names it on stderr as not applied (R6). A setting the run recorded from a flag is compared only with a flag given now, since a resume keeps it without the flag typed again. If the engine cannot read a file now, it names it on stderr too. This does not stop the resume, because the run does not use the file. The concurrency and the budget keep the rule of today through `limits.changed@1`: a flag, or else the recorded value.
+A resumed run reads `review.configured` and ignores the files. It resolves them again only to compare them. If the current value of a recorded setting is different, the engine names it on stderr as not applied (R6). A setting the run recorded from a flag is compared only with a flag given now, since a resume keeps it without the flag typed again. The run records the path its executable setting resolved to, so the engine resolves the setting again and compares the paths; a setting it cannot resolve now is named with the reason, and the resume goes on with the pinned path. If the engine cannot read a file now, it names it on stderr too. This does not stop the resume, because the run does not use the file. The concurrency and the budget keep the rule of today through `limits.changed@1`: a flag, or else the recorded value.
 
 #### A continuation into the fix pass
 

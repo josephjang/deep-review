@@ -677,7 +677,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
       worktree,
       runtimes,
       runtime,
-      // Resolved, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned. The name is the runtime's executable setting, --executable among its layers, else the runtime's own.
+      // Pinned, and a shim refused, only for a run not yet configured: a configured run preflights and launches the executable it pinned, and resolves the setting only to name a changed path. The name is the runtime's executable setting, --executable among its layers, else the runtime's own.
       executable: (configured) => resolveExecutable(configured ?? runtime, io.environment, process.platform, io.cwd),
       rolesRoot: values.roles ?? engineRolesRoot(),
       flags,

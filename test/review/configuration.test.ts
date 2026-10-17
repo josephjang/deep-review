@@ -257,6 +257,8 @@ describe('the node of tools.path', () => {
 });
 
 describe('the check settings in force', () => {
+  /** The command's resolver of the executable, as one that finds the runtime's name where the fixture's run pinned it. */
+  const onPath = (configured: string | null): string => configured ?? '/bin/claude';
   const recorded: CheckFlags = { commands: { build: 'make', test: 'npm test' }, dropped: ['lint'], layers: { build: 'repository', test: 'clone', lint: 'operator' } };
 
   /** The settings a resume of a `settingsConfigured(fix)` run resolves when its files and flags are as the run recorded them: the ones version 5 holds read back from its fields. */
@@ -298,27 +300,40 @@ describe('the check settings in force', () => {
   it('names no unapplied setting for a resume whose files and flags are as the run recorded them', () => {
     const configuration = settingsConfigured(false).review().configuration;
     const now = unchangedNow(false);
-    assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([])), []);
-    assert.deepEqual(unappliedLines('r', settingsConfigured(true).review().configuration, unchangedNow(true) as never, flagLayerOf([])), [], 'a fix run reads its check settings back as well');
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'run.concurrency': { value: 2, layer: 'flag' } } } as never, flagLayerOf([{ name: 'run.concurrency', value: 2, flag: '--concurrency' }])), [], 'a concurrency flag applies per invocation');
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'scope.exclude': { value: ['dist/**'], layer: 'clone' } } } as never, flagLayerOf([])), ['run r: scope.exclude is now ["dist/**"] from the clone\'s file, which is not applied; the run keeps [] from the default']);
+    assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([]), onPath), []);
+    assert.deepEqual(unappliedLines('r', settingsConfigured(true).review().configuration, unchangedNow(true) as never, flagLayerOf([]), onPath), [], 'a fix run reads its check settings back as well');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'run.concurrency': { value: 2, layer: 'flag' } } } as never, flagLayerOf([{ name: 'run.concurrency', value: 2, flag: '--concurrency' }]), onPath), [], 'a concurrency flag applies per invocation');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'scope.exclude': { value: ['dist/**'], layer: 'clone' } } } as never, flagLayerOf([]), onPath), ['run r: scope.exclude is now ["dist/**"] from the clone\'s file, which is not applied; the run keeps [] from the default']);
   });
 
   it('compares a setting the run recorded from a flag only with a flag given now', () => {
     const configuration = settingsConfigured(false, { layers: { ...(settingsBlock(false).layers as object), 'runtimes.claude.args': 'flag', 'runtimes.claude.strong': 'flag' } }, { executableArgs: ['--foo'], models: { strong: 'x', fast: 'sonnet' } }).review().configuration;
     const now = unchangedNow(false);
-    assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([])), [], 'a resume without --executable-arg and --strong-model');
+    assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([]), onPath), [], 'a resume without --executable-arg and --strong-model');
     const set = parseSetFlag('runtimes.claude.args=["--bar"]');
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'runtimes.claude.args': { value: ['--bar'], layer: 'flag' } } } as never, flagLayerOf([set])), [`run r: runtimes.claude.args is now ["--bar"] from ${set.flag}, which is not applied; the run keeps ["--foo"] from a flag`]);
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'runtimes.claude.args': { value: ['--bar'], layer: 'flag' } } } as never, flagLayerOf([set]), onPath), [`run r: runtimes.claude.args is now ["--bar"] from ${set.flag}, which is not applied; the run keeps ["--foo"] from a flag`]);
+  });
+
+  it('compares the path the executable setting resolves to now with the path the run pinned, and names one it cannot resolve', () => {
+    const configuration = settingsConfigured(false).review().configuration;
+    const now = unchangedNow(false);
+    const changed = { ...now, values: { ...now.values, 'runtimes.claude.executable': { value: 'claude-beta', layer: 'operator' } } };
+    assert.deepEqual(unappliedLines('r', configuration, changed as never, flagLayerOf([]), (configured) => (configured === 'claude-beta' ? '/opt/claude-beta' : onPath(configured))), ['run r: runtimes.claude.executable is now "/opt/claude-beta" from the operator\'s file, which is not applied; the run keeps "/bin/claude" from the default']);
+    assert.deepEqual(unappliedLines('r', configuration, changed as never, flagLayerOf([]), () => '/bin/claude'), [], 'a setting that resolves to the pinned path');
+    const refused = (): string => {
+      throw new ReviewRefusedError('claude-beta is not on PATH');
+    };
+    assert.deepEqual(unappliedLines('r', configuration, changed as never, flagLayerOf([]), refused), ['run r: runtimes.claude.executable is now "claude-beta" from the operator\'s file, which is not applied and does not resolve now: claude-beta is not on PATH; the run keeps "/bin/claude" from the default']);
+    assert.deepEqual(unappliedLines('r', configuration, now as never, flagLayerOf([]), '/usr/local/bin/claude'), ['run r: runtimes.claude.executable is now "/usr/local/bin/claude" from the default, which is not applied; the run keeps "/bin/claude" from the default'], 'a caller\'s path is the executable whatever the setting');
   });
 
   it('leaves a check command a flag gives to the planning of the checks, but not the check timeout', () => {
     const configuration = settingsConfigured(true).review().configuration;
     const now = unchangedNow(true);
     const command = parseSetFlag('checks.test=make test');
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.test': { value: 'make test', layer: 'flag' } } } as never, flagLayerOf([command])), [], 'a check command applies until the checks are planned');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.test': { value: 'make test', layer: 'flag' } } } as never, flagLayerOf([command]), onPath), [], 'a check command applies until the checks are planned');
     const timeout = parseSetFlag('checks.timeout_minutes=2');
-    assert.equal(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 2, layer: 'flag' } } } as never, flagLayerOf([timeout])).length, 1, 'the check timeout is no check command');
+    assert.equal(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 2, layer: 'flag' } } } as never, flagLayerOf([timeout]), onPath).length, 1, 'the check timeout is no check command');
   });
 
   it('names a recorded file this invocation did not read apart from one that is gone', () => {
@@ -327,21 +342,21 @@ describe('the check settings in force', () => {
     const operator = { layer: 'operator', path: '/home/config.toml', sha256: 'c'.repeat(64), commit: null };
     const configuration = settingsConfigured(false, { files: [repository, operator, invocation], repository: { state: 'read', commit: '1'.repeat(40), edited: false } }).review().configuration;
     const now = unchangedNow(false);
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, repository: { state: 'skipped', commit: null, edited: false } } as never, flagLayerOf([])), [
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, repository: { state: 'skipped', commit: null, edited: false } } as never, flagLayerOf([]), onPath), [
       'run r: the repository\'s file .deep-review/config.toml is skipped by --no-repository-config; the run keeps what it recorded',
       'run r: the operator\'s file /home/config.toml is gone since the run recorded it; the run keeps what it recorded',
       'run r: the --config file /w/run.toml is not given again with --config; the run keeps what it recorded',
     ]);
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, files: [repository, operator, invocation], repository: { state: 'read', commit: '1'.repeat(40), edited: false } } as never, flagLayerOf([])), [], 'every file read again as it was');
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, files: [operator, invocation] } as never, flagLayerOf([])), ['run r: the repository\'s file .deep-review/config.toml is gone since the run recorded it; the run keeps what it recorded'], 'a repository file looked for at the base and not found');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, files: [repository, operator, invocation], repository: { state: 'read', commit: '1'.repeat(40), edited: false } } as never, flagLayerOf([]), onPath), [], 'every file read again as it was');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, files: [operator, invocation] } as never, flagLayerOf([]), onPath), ['run r: the repository\'s file .deep-review/config.toml is gone since the run recorded it; the run keeps what it recorded'], 'a repository file looked for at the base and not found');
   });
 
   it('compares the check timeout in the whole milliseconds the run pinned', () => {
     // 1.23456 minutes is 74073.6 ms, which the pin rounds to 74074, and 74074 ms reads back as 1.2345666666666666 minutes.
     const configuration = settingsConfigured(true, { layers: { ...(settingsBlock(true).layers as object), 'checks.timeout_minutes': 'repository' } }, { checks: { timeoutMs: 74_074 } }).review().configuration;
     const now = unchangedNow(true);
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 1.23456, layer: 'repository' } } } as never, flagLayerOf([])), [], 'the same file, read again');
-    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 1.5, layer: 'repository' } } } as never, flagLayerOf([])), ['run r: checks.timeout_minutes is now 1.5 from the repository\'s file, which is not applied; the run keeps 1.2345666666666666 from the repository\'s file']);
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 1.23456, layer: 'repository' } } } as never, flagLayerOf([]), onPath), [], 'the same file, read again');
+    assert.deepEqual(unappliedLines('r', configuration, { ...now, values: { ...now.values, 'checks.timeout_minutes': { value: 1.5, layer: 'repository' } } } as never, flagLayerOf([]), onPath), ['run r: checks.timeout_minutes is now 1.5 from the repository\'s file, which is not applied; the run keeps 1.2345666666666666 from the repository\'s file']);
   });
 
   it('builds the invocation\'s check flags from --check, --no-check and --set alike', () => {

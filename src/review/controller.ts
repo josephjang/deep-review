@@ -104,12 +104,13 @@ export interface ReviewOptions {
   readonly platform?: NodeJS.Platform;
   /**
    * The executable a run not yet configured pins: its path, or a function
-   * that resolves it, called only for such a run, with the value of the
-   * runtime's `executable` setting, or null when no layer gives one (R12
-   * of the configuration). A configured run preflights and launches the
-   * executable it pinned, so the command's is then neither resolved nor
-   * refused: a run started with `--executable` resumes without it, even
-   * where the runtime's name finds a shim on PATH.
+   * that resolves it, with the value of the runtime's `executable`
+   * setting, or null when no layer gives one (R12 of the configuration). A
+   * configured run preflights and launches the executable it pinned, so
+   * the command's is then not refused: a run started with `--executable`
+   * resumes without it, even where the runtime's name finds a shim on
+   * PATH. A resume calls the function only to name a setting that now
+   * resolves to another path, and names a refusal it throws (R6).
    */
   readonly executable: string | ((configured: string | null) => string);
   /** The arguments a run not yet configured pins before every worker's own, when no configuration source is given; a configured run keeps its pinned ones. */
@@ -781,7 +782,7 @@ interface OpenContext extends ReviewOptions {
 }
 
 /** What holding a configured run to its pin reads beside the run (`resumePinned`): the configuration only to compare a resumed run with what it recorded. */
-type PinnedContext = Pick<OpenContext, 'roles' | 'rolesRoot' | 'adapter' | 'flags' | 'fix' | 'platform' | 'environment' | 'preflightOptions' | 'log'> & { readonly source?: ConfigurationSource | undefined };
+type PinnedContext = Pick<OpenContext, 'roles' | 'rolesRoot' | 'adapter' | 'flags' | 'fix' | 'platform' | 'environment' | 'preflightOptions' | 'log'> & { readonly source?: ConfigurationSource | undefined; readonly executable?: OpenContext['executable'] };
 
 /** What `requirePinned` reads beside the run: the review's options a resume holds the run with, and the adapter of the run's runtime. */
 export interface PinnedOptions extends Pick<ReviewOptions, 'rolesRoot' | 'platform' | 'environment' | 'preflightOptions'> {
@@ -1223,11 +1224,12 @@ function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: Pi
  * configuration): it keeps the ones it recorded, so the files are read
  * again only to name what changed and is not applied. A file the engine
  * cannot read now is named the same way and does not stop the resume.
- * A run recorded before the settings has nothing to compare, unless a
- * continuation recorded its fix side since.
+ * The executable setting is resolved as a new run's would be, to compare
+ * the path with the pinned one. A run recorded before the settings has
+ * nothing to compare, unless a continuation recorded its fix side since.
  */
 function unappliedSettings(run: RunState, pinned: ReviewConfiguration, context: PinnedContext): void {
-  if ((pinned.settings === null && pinned.fixSettings === null) || run.scope === null || context.source === undefined) return;
+  if ((pinned.settings === null && pinned.fixSettings === null) || run.scope === null || context.source === undefined || context.executable === undefined) return;
   let now: ResolvedSettings;
   try {
     now = context.source.resolve({ base: run.scope.base, policy: readPolicy(context.rolesRoot), runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd });
@@ -1235,7 +1237,7 @@ function unappliedSettings(run: RunState, pinned: ReviewConfiguration, context: 
     context.log(`run ${run.id}: the configuration cannot be read now, so the run keeps the settings it recorded: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
-  for (const line of unappliedLines(run.id, pinned, now, context.source.flags)) context.log(line);
+  for (const line of unappliedLines(run.id, pinned, now, context.source.flags, context.executable)) context.log(line);
 }
 
 /**
