@@ -24,7 +24,7 @@ describe('the skill texts', () => {
       const text = read(path);
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}`), 'the bundle path');
       assert.ok(text.includes(`review --runtime ${runtime}`), 'the runtime flag');
-      for (const flag of ['--worktree', '--last-commit', '--ref <ref>', '--from <rev> --to HEAD', '--merge-base', '--path <path>']) assert.ok(text.includes(flag), flag);
+      for (const flag of ['--worktree', '--last-commit', '--branch', '--base <rev>', '--ref <ref>', '--from <rev> --to HEAD', '--merge-base', '--path <path>']) assert.ok(text.includes(flag), flag);
       assert.match(text, /Exit code 0: the last line of stdout is the report's path/);
       assert.match(text, /Exit code 2: the run is blocked or was refused/);
       assert.match(text, /Any other exit code: show stderr verbatim/);
@@ -70,6 +70,25 @@ describe('the skill texts', () => {
       assert.doesNotMatch(text, /write the rule|record the rule/, 'nothing about writing a rule (PD3 of answers)');
     });
 
+    // R9, R15 of the configuration: the engine applies the default scope, and the skill names a scope only when the user does.
+    it(`${name}: gives a scope flag only for a scope the user names, and leaves the rest to the engine's configuration`, () => {
+      const text = read(path);
+      const step1 = text.slice(text.indexOf('1. Decide the scope'), text.indexOf('2. Decide whether to fix'));
+      assert.match(step1, /- the user's branch: `--branch`, adding `--base <rev>` when the user\s+names what the branch starts from/);
+      assert.match(step1, /With no instruction, pass no scope flag: the engine chooses the scope\s+its configuration names\./);
+      assert.doesNotMatch(text, /git status/, 'the engine applies the rule the skill held in prose');
+      // Every scope flag step 1 names is one the engine takes.
+      const usage = read('src/cli.ts');
+      for (const flag of step1.match(/--[a-z-]+/g) ?? []) assert.ok(usage.includes(`'${flag.slice(2)}'`) || usage.includes(` ${flag.slice(2)}: {`), `${flag} is a flag of review`);
+    });
+
+    it(`${name}: shows the configuration with config show when asked about it, and writes the repository's file only as an edit the user asks for`, () => {
+      const text = read(path);
+      assert.match(text, /When the user asks how deep-review is configured, or why a run reviewed\s+what it did, run the step 3 command with `config show` in place of\s+`review`, with the same scope flags and no `--fix`, and show what it\s+prints\./);
+      assert.match(text, /When the user asks to change a preference, name the file that\s+`config show` lists for it\./);
+      assert.match(text, /Write the repository's\s+`\.deep-review\/config\.toml` only as a change the user asks for, as any\s+other edit, never as a step of a review\./);
+    });
+
     it(`${name}: answers a check-unavailable blocker with the flag the user chooses, after showing it (R15 of the repository survey)`, () => {
       const text = read(path);
       assert.match(text, /A `check-unavailable` blocker names a check the project defines whose\s+tool this machine lacks/);
@@ -101,6 +120,50 @@ describe('the skill texts', () => {
     assert.match(codex, /pass that flag only when the user names\s+it/);
     // The engine refuses --codex-windows-sandbox with --runtime claude, so the Claude skill must never offer it.
     assert.doesNotMatch(read('skill/claude/skills/deep-review/SKILL.md'), /codex-windows-sandbox|windowsSandbox/);
+  });
+
+  it('tells the Codex skill to poll the command until it exits and not to end the turn, since codex exec stops it (R15 of the configuration)', () => {
+    assert.match(read('skill/codex/SKILL.md'), /When the command returns to you before it exits, poll it until it\s+exits, and do not end your turn while it runs: `codex exec` stops a\s+command that still runs when the turn ends\./);
+  });
+
+  /**
+   * The lines each runtime words its own way (TD11 of the configuration):
+   * the description and the invocation setting of the front matter, the
+   * run budget, the Codex Windows sandbox, how to run the command and
+   * wait for it, and the path of the engine. Every other line is the same
+   * in both skills, so a change to one that forgets the other fails here.
+   */
+  const ownWords: Readonly<Record<string, readonly string[]>> = {
+    'skill/claude/skills/deep-review/SKILL.md': [
+      'description: Deep review of a change by the deep-review engine, a Node program installed with this plugin. It runs the SCAN triage, nine more finder angles, deduplication, verification, a gap sweep, a merge-and-rank pass and a decision pass, and writes a Markdown report; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for deep-review by name.\n',
+      'disable-model-invocation: true\n',
+      '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
+      '   review then edits nothing and runs no check.\n',
+      '3. Run this from the repository as a background shell command with the\n   longest timeout you can, and wait for it to exit:\n',
+    ],
+    'skill/codex/SKILL.md': [
+      'description: Deep review of a change by the deep-review engine, a Node program installed with this skill. It runs the SCAN triage, nine more finder angles, deduplication, verification, a gap sweep, a merge-and-rank pass and a decision pass, and writes a Markdown report; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for $deep-review by name.\n',
+      '   user limited the review to. `--budget-usd` does not apply to Codex,\n   which reports no cost; do not pass it.\n',
+      '   review then edits nothing and runs no check. With `--fix` on Windows,\n   also tell the user that the workers that edit run with no sandbox and\n   with network access unless the user names\n   `--codex-windows-sandbox unelevated`, under which they cannot run most\n   build and test commands, or `--codex-windows-sandbox elevated`, which\n   needs Codex\'s elevated setup; pass that flag only when the user names\n   it.\n',
+      '3. Run this from the repository, with the longest timeout you can, and\n   wait for it to exit. `engine/main.mjs` is in this skill\'s directory,\n   the one that holds this SKILL.md:\n',
+      '   When the command returns to you before it exits, poll it until it\n   exits, and do not end your turn while it runs: `codex exec` stops a\n   command that still runs when the turn ends.\n\n',
+    ],
+  };
+
+  /** A skill's text less the lines its runtime words its own way, each of which must be there, with the engine's path and runtime named alike. */
+  const sharedText = (path: string): string => {
+    let text = read(path).replaceAll('\r\n', '\n');
+    for (const own of ownWords[path]!) {
+      assert.ok(text.includes(own), `${path} still words this its own way: ${JSON.stringify(own.slice(0, 60))}`);
+      text = text.replace(own, '');
+    }
+    return text.replaceAll('${CLAUDE_PLUGIN_ROOT}', '<root>').replaceAll('<this skill\'s directory>', '<root>').replaceAll('--runtime claude', '--runtime <runtime>').replaceAll('--runtime codex', '--runtime <runtime>');
+  };
+
+  it('keeps the two skills one text, except for the lines each runtime words its own way (TD11 of the configuration)', () => {
+    const claude = sharedText('skill/claude/skills/deep-review/SKILL.md').split('\n');
+    const codex = sharedText('skill/codex/SKILL.md').split('\n');
+    assert.deepEqual(codex, claude);
   });
 
   it('describes the plugin as carrying the engine, in the plugin and the marketplace alike, and no longer as editing nothing', () => {

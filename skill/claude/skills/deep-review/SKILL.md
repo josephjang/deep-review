@@ -10,11 +10,13 @@ it to exit, and relay its result. Node 26 or newer must be installed.
 1. Decide the scope from what the user asked for:
    - the uncommitted changes in the worktree: `--worktree`
    - the last commit of a clean tree: `--last-commit`
+   - the user's branch: `--branch`, adding `--base <rev>` when the user
+     names what the branch starts from
    - everything since a ref: `--ref <ref>`
    - a range ending at HEAD: `--from <rev> --to HEAD`, adding
      `--merge-base` to measure from the merge base
-   With no instruction, use `--worktree` when `git status` shows changes
-   and `--last-commit` otherwise. Add `--path <path>` for each path the
+   With no instruction, pass no scope flag: the engine chooses the scope
+   its configuration names. Add `--path <path>` for each path the
    user limited the review to. Pass `--budget-usd <usd>` only when the
    user names a run budget; the default is 60 USD.
 2. Decide whether to fix. When the user asks for the findings to be
@@ -84,6 +86,14 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    without that check or `--check <kind>=<command>` if they name one
    that runs, and nothing if they installed the tool.
 8. Any other exit code: show stderr verbatim and stop.
+
+When the user asks how deep-review is configured, or why a run reviewed
+what it did, run the step 3 command with `config show` in place of
+`review`, with the same scope flags and no `--fix`, and show what it
+prints. When the user asks to change a preference, name the file that
+`config show` lists for it. Write the repository's
+`.deep-review/config.toml` only as a change the user asks for, as any
+other edit, never as a step of a review.
 
 Never review, fix, revert or commit the change another way under this
 skill's name, and never edit the code yourself: no `git commit`, no
