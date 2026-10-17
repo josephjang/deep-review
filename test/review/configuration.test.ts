@@ -230,6 +230,18 @@ describe('the node of tools.path', () => {
     assert.equal((await box.review('claude', { configuration: sourceFor(box, { clone }) })).kind, 'blocked', 'a read-only run runs no engine command in a fixer');
   });
 
+  it('qualifies the executable with tools.path first on PATH, as its workers run, for a new run and its resume', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    const directory = mkdtempSync(join(tmpdir(), 'dr-tools-first-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const clone = `schema = 1\ntools.path = [${JSON.stringify(directory)}]\n`;
+    const fake = { FAKE_QUALIFIED_FIRST_ON_PATH: directory };
+    assert.equal((await box.review('claude', { configuration: sourceFor(box, { clone }) }, fake)).kind, 'blocked', box.logs.join('\n'));
+    assert.equal(configuredPayload(box).version, '2.1.283');
+    // The resume qualifies the pinned executable with the tools.path the run recorded, which its workers run with.
+    assert.equal((await box.review('claude', { configuration: sourceFor(box, { clone: 'schema = 1\n' }) }, fake)).kind, 'blocked', box.logs.join('\n'));
+  });
+
   it('takes a node of 26 or newer, a directory with no node, and the engine\'s own node without asking it', (t) => {
     const directory = withNode(t);
     refuseOldNode([directory], process.platform, () => 'v26.0.0');

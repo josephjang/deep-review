@@ -374,6 +374,8 @@ The design rejects a value that is always a string, because a string cannot give
 
 The design rejects `tools.path` for checks only. With it, a fixer that runs the tests before it answers sees a different `PATH` from the check that judges it. The surveyor that looks for a tool does too.
 
+The preflight of the runtime's executable runs with the same `PATH` as the workers, `tools.path` first. A runtime CLI that finds its interpreter on `PATH`, as an npm script does, is then qualified under the interpreter its workers use. A new run and a continuation qualify it with the `tools.path` they resolve, and a resume or an answer pass with the one the run recorded.
+
 ### TD11: The two skills stay two files, and a test keeps them equal
 
 The design rejects skills that the build makes from fragments, as it makes the role prompts. The role prompts chose fragments with no markers inside a text. But the two skills are different inside sentences, such as the path of the engine in each command. Fragments for such text are a few words long.

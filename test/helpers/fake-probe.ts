@@ -12,7 +12,11 @@
 //                    paddedVersionBytes of spaces, which the preflight trims, so
 //                    the version still matches but a lower output limit fails
 //   FAKE_HELP_OMIT   a flag to leave out of every help text
+//   FAKE_QUALIFIED_FIRST_ON_PATH  a directory; unless it comes first on PATH the
+//                    version output names another program, so a preflight made
+//                    without it first fails
 import { existsSync } from 'node:fs';
+import { delimiter } from 'node:path';
 
 export const environment = process.env;
 
@@ -21,12 +25,15 @@ export const paddedVersionBytes = 16 * 1024;
 
 /**
  * What `--version` prints: another program's name while FAKE_UNQUALIFIED_WHEN
- * exists, else FAKE_VERSION or the runtime's usual output, padded with
- * spaces while FAKE_PADDED_WHEN exists.
+ * exists or while FAKE_QUALIFIED_FIRST_ON_PATH is not first on PATH, else
+ * FAKE_VERSION or the runtime's usual output, padded with spaces while
+ * FAKE_PADDED_WHEN exists.
  */
 export function versionOutput(usual: string): string {
   const broken = environment.FAKE_UNQUALIFIED_WHEN;
   if (broken !== undefined && existsSync(broken)) return 'an unrelated program 1.0';
+  const first = environment.FAKE_QUALIFIED_FIRST_ON_PATH;
+  if (first !== undefined && (environment.PATH ?? '').split(delimiter)[0] !== first) return 'an unrelated program 1.0';
   const version = environment.FAKE_VERSION ?? usual;
   const padded = environment.FAKE_PADDED_WHEN;
   return padded !== undefined && existsSync(padded) ? version + ' '.repeat(paddedVersionBytes) : version;

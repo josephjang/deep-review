@@ -28,6 +28,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
+import { withPathFirst } from '../runtime/environment.ts';
 import { PreflightError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
@@ -799,7 +800,7 @@ export interface PinnedOptions extends Pick<ReviewOptions, 'rolesRoot' | 'platfo
  */
 export async function requirePinned(run: RunState, options: PinnedOptions): Promise<void> {
   const context: PinnedContext = { ...options, roles: assembleRoles(options.rolesRoot), platform: options.platform ?? process.platform, environment: options.environment ?? process.env };
-  await resumePinned(run, run.review!.configuration, context, 'answer');
+  await resumePinned(run, run.review!.configuration, context, 'answer', settingOf(run.review!.configuration, 'tools.path').value ?? []);
 }
 
 /** An open run: its state, the release of its lock, and what it still needs before its first step. */
@@ -953,7 +954,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     let capture: OpenedRun['capture'] = null;
     if (found !== null && pinned !== null) {
       // Compared only with a configuration the caller gave: one that gives none, as an answer pass, reads no file for it (R6 of the configuration).
-      await resumePinned(found, pinned, { ...context, source: context.configuration }, 'resume');
+      await resumePinned(found, pinned, { ...context, source: context.configuration }, 'resume', settingOf(pinned, 'tools.path').value ?? []);
     } else {
       const policy = readPolicy(context.rolesRoot);
       // Pass 2, at the base of the change: the one a run that captured its scope recorded, else the one the request names now (R4 of the configuration).
@@ -978,11 +979,12 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       if (context.flags.codexWindowsSandbox !== undefined && policyResolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
       const fix = context.fix ?? null;
       // A fix run's fixers run the engine's own commands with the first node on PATH, which tools.path comes first on; the files are on this machine, whatever platform the run is configured for.
-      if (fix !== null) refuseOldNode(resolvedValue(resolved, 'tools.path') ?? [], process.platform);
+      const toolsPath = resolvedValue(resolved, 'tools.path') ?? [];
+      if (fix !== null) refuseOldNode(toolsPath, process.platform);
       const configured = executableOf(resolved);
       const executable = typeof context.executable === 'function' ? context.executable(configured.executable) : context.executable;
       const executableArgs = [...configured.args];
-      const version = await qualify(context.adapter, executable, executableArgs, context, null);
+      const version = await qualify(context.adapter, executable, executableArgs, toolsPath, context, null);
       const { checks, fixes, survey, ...rest } = policyResolved;
       const payload = { ...rest, roles: [...policyResolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
       configure = { payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
@@ -1099,7 +1101,9 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   const scope = run.scope!;
   // The change is the run's, so its paths, the ones left out among them, say whether it edits the repository's file (R4).
   const resolved = withChangedPaths(context.source.resolve({ base: scope.base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd }), [...scope.files.map((file) => file.path), ...scope.excluded.paths]);
-  refuseOldNode(resolvedValue(resolved, 'tools.path') ?? [], process.platform);
+  // The fix pass's workers run with the tools.path the pin records, this invocation's.
+  const toolsPath = resolvedValue(resolved, 'tools.path') ?? [];
+  refuseOldNode(toolsPath, process.platform);
   const settled = checkFlagsOfResolved(resolved);
   const unsettled = unsettledKinds(settled);
   if ((review.survey?.failure ?? null) !== null && unsettled.length > 0) {
@@ -1111,7 +1115,7 @@ async function continuationOf(run: RunState, context: OpenContext): Promise<{ pi
   if (reached !== null) {
     throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; nothing to continue; run it again with --budget-usd above ${reached.spend.usd.toFixed(2)}, or ${wayOut(run.id, 'continue')}`);
   }
-  await resumePinned(run, review.configuration, context, 'continue');
+  await resumePinned(run, review.configuration, context, 'continue', toolsPath);
   const plannedChecks = unsettled.length === 0 ? [...resolveChecks(null, settled).checks] : null;
   // The settings' check timeout as a new run's policy takes it, so both passes pin it the same way.
   return {
@@ -1140,7 +1144,8 @@ function refuseOtherRuntime(runId: string, pinned: Pick<ReviewConfiguration, 'ru
  * as ignored when the run resumes off Windows, whatever it pinned, or
  * pinned none because it was configured off Windows, and is refused when
  * it names another value than the pinned one; the pinned executable, not
- * the command's, must still qualify.
+ * the command's, must still qualify, with `toolsPath`, the directories
+ * the run's workers will find first on PATH, first on it.
  *
  * A finished read-only run continued into the fix pass is held the same
  * way (R3, TD6 of fix pass continuation), its refusals naming a new run
@@ -1149,7 +1154,7 @@ function refuseOtherRuntime(runId: string, pinned: Pick<ReviewConfiguration, 'ru
  * run an answer pass would reopen is held the same way before the pass
  * opens (`requirePinned`), its refusals naming the answer applied by hand.
  */
-async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: PinnedContext, use: PinnedUse): Promise<void> {
+async function resumePinned(run: RunState, pinned: ReviewConfiguration, context: PinnedContext, use: PinnedUse, toolsPath: readonly string[]): Promise<void> {
   const runId = run.id;
   // A fix run routes its findings by their decisions (R6 of the decision step); one configured before the decision step has none to route by, so it cannot go on to plan its fixes, whatever roles it is given.
   if (pinned.fix && run.review?.phases.decision.status === 'skipped' && (run.review.fix?.plan ?? null) === null) {
@@ -1178,7 +1183,7 @@ async function resumePinned(run: RunState, pinned: ReviewConfiguration, context:
   }
   if (use === 'resume') resumedFixFlags(run, pinned, context);
   if (use === 'resume') unappliedSettings(run, pinned, context);
-  await qualify(context.adapter, pinned.executable, pinned.executableArgs, context, { runId, use });
+  await qualify(context.adapter, pinned.executable, pinned.executableArgs, toolsPath, context, { runId, use });
 }
 
 /**
@@ -1248,10 +1253,15 @@ function droppedSinceSurvey(survey: SurveyState | null, flags: CheckFlags | null
   return checkKinds.filter((kind) => !checks.some((check) => check.kind === kind) && (flags === null || !isSettled(flags, kind)));
 }
 
-/** Preflight the executable and return its version, or refuse with `runtime-unqualified`; `pinnedBy` names the configured run that pinned it and how it is held to it, or is null for a new run. */
-async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], context: Pick<OpenContext, 'environment' | 'preflightOptions'>, pinnedBy: { readonly runId: string; readonly use: PinnedUse } | null): Promise<string> {
+/**
+ * Preflight the executable with `toolsPath` first on PATH, as every worker
+ * runs it, and return its version, or refuse with `runtime-unqualified`;
+ * `pinnedBy` names the configured run that pinned it and how it is held to
+ * it, or is null for a new run.
+ */
+async function qualify(adapter: RuntimeAdapter, executable: string, executableArgs: readonly string[], toolsPath: readonly string[], context: Pick<OpenContext, 'environment' | 'platform' | 'preflightOptions'>, pinnedBy: { readonly runId: string; readonly use: PinnedUse } | null): Promise<string> {
   try {
-    return await preflight(adapter, executable, [...executableArgs], context.environment, context.preflightOptions ?? {});
+    return await preflight(adapter, executable, [...executableArgs], withPathFirst(context.environment, toolsPath, context.platform), context.preflightOptions ?? {});
   } catch (error) {
     throw refusalOf(error, pinnedBy === null ? null : { ...pinnedBy, executable });
   }
