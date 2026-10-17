@@ -119,6 +119,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [claudeFlags(box, '--last-commit', '--budget-usd', '5', '--set', 'budget.usd=6'), /--set budget\.usd and --budget-usd both set budget\.usd; give one/],
       [claudeFlags(box, '--last-commit', '--set', 'scope.exclude=["a"]', '--set', 'scope.exclude=["b"]'), /--set scope\.exclude and --set scope\.exclude both set scope\.exclude/],
       [['status', '--set', 'budget.usd=1'], /--set does not apply to status/],
+      [claudeFlags(box, '--last-commit', '--set', 'checks.test=npm test'), /--set checks.test applies only with --fix, as --check does/],
     ] as const) {
       const result = await run(box, ...args);
       assert.equal(result.status, 1, `${args.join(' ')}: ${result.stderr}`);

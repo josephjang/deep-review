@@ -646,6 +646,9 @@ function invocationOf(values: Values, io: CommandIo, worktree: string, commonDir
   const flags = policyFlagsOf(layer, runtime);
   const setProblem = invocationFlagProblem(flags);
   if (setProblem !== null) throw new UsageError(setProblem);
+  // A check setting given by flag acts only in a fix run, so it is refused without --fix as --check is.
+  const setCheck = checkFlags === null ? [...layer.values()].find((entry) => entry.name.startsWith('checks.') && entry.name !== 'checks.timeout_minutes') : undefined;
+  if (setCheck !== undefined) throw new UsageError(`${setCheck.flag} applies only with --fix, as --check does`);
   const source = configurationSource({
     worktree,
     locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === undefined ? null : resolve(io.cwd, values.config) },
