@@ -8,13 +8,16 @@ import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import { maxStraysPerCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { dedicatedFlagValues } from '../../src/config/flags.ts';
+import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
+import { configurationSource } from '../../src/config/source.ts';
 import { claimCommandFor, presurveyRulesFiles, snapshotCommandFor } from '../../src/review/controller.ts';
 import { claimPathPlaceholder } from '../../src/review/tasks.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { InvalidPolicyError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { maxConcurrency, policyFileName } from '../../src/review/policy.ts';
-import { until } from '../helpers/launcher.ts';
+import { fakeClaude, until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -404,6 +407,26 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const triage = box.promptOf(state, 'triage triage:SCAN');
     assert.ok(triage.includes(`### Rules files that govern the change\n\n- ${userFile} (user level)\n- AGENTS.md (repository)\n\n### Patch\n`), triage);
     assert.doesNotMatch(triage, /### Convention sources/);
+  });
+
+  it('refuses to configure a run stopped after its capture under settings whose scope.exclude is not the one its scope was cut with, and configures it under the same', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    write(box.repo, 'dist/c.js', 'built\n');
+    write(box.repo, 'src/c.ts', 'export const c = 1;\n');
+    commitAll(box.repo, 'a change with its build');
+    // A run killed between its capture, with dist/ left out by a --set, and its configuration.
+    const stopped = box.checkpoint.createRun({ worktree: box.repo });
+    const captured = captureScope(box.checkpoint, stopped.id, { paths: [] }, { exclude: ['dist/**'] });
+    assert.deepEqual(captured.scope!.excluded, { paths: ['dist/c.js'], count: 1 });
+    await assert.rejects(box.review('claude'), (error: unknown) => error instanceof ReviewRefusedError
+      && error.message === `run ${stopped.id} captured its scope with scope.exclude ["dist/**"], but this command's settings give []; run it with settings that give the captured patterns, as --set 'scope.exclude=["dist/**"]', or abandon it with \`deep-review abandon --run ${stopped.id} --reason <text>\``);
+    assert.equal(box.checkpoint.fold(stopped.id).lastSequence, captured.lastSequence, 'nothing is recorded');
+    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: null, executableArgs: [fakeClaude] }), parseSetFlag('scope.exclude=["dist/**"]')]);
+    const same = configurationSource({ worktree: box.repo, locations: { operator: null, clone: join(box.directory, 'absent.toml'), invocation: null }, repositoryConfig: true, flags: layer });
+    const resumed = await box.review('claude', { configuration: same });
+    assert.ok(resumed.kind === 'blocked' && resumed.runId === stopped.id, JSON.stringify(resumed));
+    const settings = box.checkpoint.fold(stopped.id).review!.configuration.settings!;
+    assert.deepEqual([settings.values['scope.exclude'], settings.layers['scope.exclude']], [['dist/**'], 'flag'], 'the record says what the scope was cut with');
   });
 
   it('records and logs a run going on without its survey the same way in a read-only review as in a fix run, the user-level files decided by the policy alone (R3, R9 of the repository survey)', async (t) => {

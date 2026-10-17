@@ -966,6 +966,12 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
         resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
         capture = { request: scopeRequest, exclude, base };
       } else if (found?.scope !== null && found?.scope !== undefined) {
+        // A run stopped between its capture and its configuration records the patterns its scope was cut with, whose layer the capture did not record, so other patterns are refused rather than recorded beside it.
+        const captured = found.scope.request.exclude;
+        const exclude = resolvedValue(resolved, 'scope.exclude') ?? [];
+        if (exclude.length !== captured.length || exclude.some((pattern, index) => pattern !== captured[index])) {
+          throw new ReviewRefusedError(`run ${found.id} captured its scope with scope.exclude ${JSON.stringify(captured)}, but this command's settings give ${JSON.stringify(exclude)}; run it with settings that give the captured patterns, as --set 'scope.exclude=${JSON.stringify(captured)}', or ${wayOut(found.id, 'resume')}`);
+        }
         resolved = withChangedPaths(resolved, [...found.scope.files.map((file) => file.path), ...found.scope.excluded.paths]);
       }
       const policyResolved = resolvePolicy(policy, context.roles, context.adapter, context.flags, context.platform, policyOverridesOf(resolved));
