@@ -8,7 +8,7 @@ export type FileOutcome = 'unchanged' | 'modified' | 'deleted' | 'restored';
 
 export interface WorktreeComparison {
   readonly files: readonly { readonly path: string; readonly outcome: FileOutcome }[];
-  /** Paths git reports as changed or untracked that the scope does not cover. */
+  /** Paths git reports as changed or untracked that the scope does not cover and its patterns do not leave out. */
   readonly outside: readonly string[];
 }
 
@@ -28,14 +28,15 @@ export function compareScopeFiles(scope: ScopeState, worktree: string): Worktree
 
 /**
  * Compare the worktree with a captured scope, file by file, and name the
- * changed or untracked paths git reports outside it. Reports only: whether
- * a difference matters is the caller's decision (D9).
+ * changed or untracked paths git reports outside it, less what the scope's
+ * `exclude` patterns left out of it (R10 of the configuration). Reports
+ * only: whether a difference matters is the caller's decision (D9).
  */
 export function compareWorktree(scope: ScopeState, worktree: string): WorktreeComparison {
   const files = compareScopeFiles(scope, worktree);
   const covered = new Set(scope.files.map((file) => file.path));
   const outside = gitApi
-    .status(worktree)
+    .status(worktree, scope.request.exclude)
     .map((entry) => entry.path)
     .filter((path) => !covered.has(path))
     .sort();

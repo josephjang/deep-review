@@ -85,10 +85,10 @@ export interface StatusEntry {
   readonly path: string;
 }
 
-/** `git status` without rename detection, every untracked file listed individually. */
-export function status(repo: string): StatusEntry[] {
+/** `git status` without rename detection, every untracked file listed individually, less what `exclude` leaves out. */
+export function status(repo: string, exclude: readonly string[] = []): StatusEntry[] {
   const entries: StatusEntry[] = [];
-  for (const record of records(gitText(repo, ['-c', 'status.renames=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']))) {
+  for (const record of records(gitText(repo, ['-c', 'status.renames=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--', ...pathspecs([], exclude)]))) {
     entries.push({ code: record.slice(0, 2), path: record.slice(3) });
   }
   return entries;

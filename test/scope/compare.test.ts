@@ -78,6 +78,24 @@ describe('compareWorktree', () => {
     assert.ok(compareWorktree(scope, repo).files.every((file) => file.outcome === 'unchanged'), 'the worktree bytes are what was frozen');
   });
 
+  it('leaves out what the scope\'s exclude patterns left out, and still lists other changes outside it (R10 of the configuration)', () => {
+    const excludedRepo = repositoryWith(join(sandbox, 'excluded'), { 'src/a.ts': 'a\n', 'dist/a.js': 'a\n', 'dist/nested/b.js': 'b\n' });
+    write(excludedRepo, 'src/a.ts', 'a2\n');
+    write(excludedRepo, 'dist/a.js', 'a2\n');
+    write(excludedRepo, 'dist/nested/c.js', 'c\n');
+    const excludedCheckpoint = Checkpoint.open(locateCheckpoint(excludedRepo).root, { engine: '0.0.0-test' });
+    try {
+      const excludedScope = captureScope(excludedCheckpoint, excludedCheckpoint.createRun({ worktree: excludedRepo }).id, { paths: [] }, { exclude: ['dist/**'] }).scope!;
+      assert.deepEqual(excludedScope.excluded, { paths: ['dist/a.js', 'dist/nested/c.js'], count: 2 });
+      assert.deepEqual(compareWorktree(excludedScope, excludedRepo), { files: [{ path: 'src/a.ts', outcome: 'unchanged' }], outside: [] });
+      write(excludedRepo, 'dist/nested/b.js', 'b2\n');
+      write(excludedRepo, 'notes.txt', 'n\n');
+      assert.deepEqual(compareWorktree(excludedScope, excludedRepo).outside, ['notes.txt'], 'a path the patterns leave out is never outside, one they keep still is');
+    } finally {
+      excludedCheckpoint.close();
+    }
+  });
+
   it('writes nothing to the checkpoint', () => {
     const before = checkpoint.ledger.lastSequence(checkpoint.foldRuns()[0]!.id);
     write(repo, 'edit.txt', 'e3\n');
