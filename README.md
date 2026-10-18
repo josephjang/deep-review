@@ -783,9 +783,9 @@ configuration file, it writes it with `config init --repository`,
 answers from that run's record, `status` for the active run and the
 report's `Settings:` line and Limitations for a finished one, since
 `config show` says only what a run would take now. The skill's `allowed-tools` approves the
-engine's own command with any of its arguments, and nothing else, for
-the turn in which the user invokes it, so the run starts without a
-permission prompt. Those arguments include `--check <kind>=<command>`
+engine's own command with any of its arguments, and nothing else, in
+the Bash tool and in the PowerShell tool alike, for the turn in which
+the user invokes it, so the run starts without a permission prompt. Those arguments include `--check <kind>=<command>`
 and `--executable <path>`, which run what they name; the skill passes
 `--check` only for a command the user names. A later
 turn, such as one that commits or answers, prompts again. Node 26 or

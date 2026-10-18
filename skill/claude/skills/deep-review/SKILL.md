@@ -2,7 +2,9 @@
 name: deep-review
 description: Deep review of one change by the deep-review engine, a Node program installed with this plugin. It writes a Markdown report with the evidence for each finding and the engine's own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project's checks, committing nothing. Use only when the user asks for deep-review by name.
 disable-model-invocation: true
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)
+allowed-tools:
+  - Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)
+  - PowerShell(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)
 argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"
 ---
 
@@ -10,8 +12,6 @@ The deep-review engine reviews the change; you run its commands, wait
 for each to exit, and relay its result. Node 26 or newer must be
 installed. Run each command below as it is written, alone, with nothing
 chained before or after it.
-Run them with the Bash tool: the approval in this skill's front matter
-names Bash commands only.
 
 1. Decide the scope from what the user asked for:
    - the uncommitted changes in the worktree: `--worktree`

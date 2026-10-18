@@ -186,19 +186,27 @@ describe('the skill texts', () => {
   // R4 and PD3 of the skill surface corrections: the Claude Code skill approves the engine's command, and nothing else, for the turn the user invokes it.
   it('approves only the engine\'s own command in the Claude skill, in the form every command of the skill takes', () => {
     const text = read('skill/claude/skills/deep-review/SKILL.md');
-    const lines = frontMatter('skill/claude/skills/deep-review/SKILL.md').filter((line) => line.startsWith('allowed-tools:'));
-    assert.deepEqual(lines, ['allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)'], 'one line with one rule');
-    // A Bash rule matches the command text as Claude writes it, quotes included, so every command of the skill starts with the rule's text before its `*`.
-    const prefix = 'node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" ';
+    // A YAML list, since each rule holds spaces and quotes: one rule for each shell tool Claude Code has, Bash and, primary on Windows, PowerShell, both naming the engine alone.
+    const lines = frontMatter('skill/claude/skills/deep-review/SKILL.md');
+    const start = lines.indexOf('allowed-tools:');
+    assert.ok(start >= 0, 'an allowed-tools list');
+    const rules: string[] = [];
+    for (const line of lines.slice(start + 1)) {
+      if (!line.startsWith('  - ')) break;
+      rules.push(line.slice('  - '.length));
+    }
+    const engine = 'node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *';
+    assert.deepEqual(rules, [`Bash(${engine})`, `PowerShell(${engine})`]);
+    // A rule matches the command text as Claude writes it, quotes included, so every command of the skill starts with the rules' text before its `*`.
+    const prefix = engine.slice(0, -1);
     const commands = text.split('\n').filter((line) => line.trimStart().startsWith('node '));
     assert.ok(commands.length >= 4, 'config show, review, commit and answer');
-    for (const command of commands) assert.ok(command.trimStart().startsWith(prefix), `${command.trim()} is a command the rule approves`);
+    for (const command of commands) assert.ok(command.trimStart().startsWith(prefix), `${command.trim()} is a command the rules approve`);
     assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}`));
-    // The rule names Bash, so the skill tells the model to use the Bash tool, which a model on Windows otherwise may not.
-    assert.match(text, /Run them with the Bash tool: the approval in this skill's front matter\s+names Bash commands only\./);
+    // The skill names no shell tool: the host picks one, and both are approved.
+    assert.doesNotMatch(text, /Bash tool|PowerShell tool/);
     // Codex has no such setting, so its skill has no such line.
     assert.ok(!frontMatter('skill/codex/SKILL.md').some((line) => line.startsWith('allowed-tools:')));
-    assert.doesNotMatch(read('skill/codex/SKILL.md'), /Bash tool/);
   });
 
   // R5 of the skill surface corrections: the autocomplete of Claude Code shows what the user can type after the command.
@@ -245,9 +253,7 @@ describe('the skill texts', () => {
     'skill/claude/skills/deep-review/SKILL.md': [
       'description: Deep review of one change by the deep-review engine, a Node program installed with this plugin. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for deep-review by name.\n',
       'disable-model-invocation: true\n',
-      // The approval names Bash commands only; the interactive smoke showed a model on Windows run every engine command through the PowerShell tool and prompt each time (R4).
-      'Run them with the Bash tool: the approval in this skill\'s front matter\nnames Bash commands only.\n',
-      'allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)\n',
+      'allowed-tools:\n  - Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)\n  - PowerShell(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)\n',
       'argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
       '   review then edits nothing and runs no check.\n',
