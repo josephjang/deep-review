@@ -48,7 +48,8 @@ src/review/              the review: policy, schemas, prompts, planner, controll
 src/review/checks/       the fix pass's checks: the manifest rules that hint the surveyor, running one
 src/replay/              replaying a recorded run's verifiers: the recorded prompt, the samples, their summary,
                          and their score against labels
-src/cli.ts               the deep-review command: review, config, status, abandon, commit, answer, snapshot, claim
+src/command.ts           the deep-review command: review, config, status, abandon, commit, answer, snapshot, claim
+src/cli.ts               the command's entry point, which the bundle is built from
 scripts/                 build, fixture, smoke, replay and replay score entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema

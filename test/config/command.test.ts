@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { main, type CommandIo } from '../../src/cli.ts';
+import { main, type CommandIo } from '../../src/command.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { explainLines, initText, tomlValue, validateBytes } from '../../src/config/command.ts';
 import { cloneConfigName, parseConfig, repositoryConfigPath } from '../../src/config/files.ts';

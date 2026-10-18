@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { engineBundleName, engineDirectoryName } from '../src/build/bundle.ts';
-import { main } from '../src/cli.ts';
+import { main } from '../src/command.ts';
 import { settingNames } from '../src/config/settings.ts';
 import { blockerActions, continuedCheckUnavailableAction } from '../src/review/vocabulary.ts';
 
@@ -83,7 +83,7 @@ describe('the skill texts', () => {
       assert.match(step1, /With no instruction, pass no scope flag: the engine chooses the scope\s+its configuration names\./);
       assert.doesNotMatch(text, /git status/, 'the engine applies the rule the skill held in prose');
       // Every scope flag step 1 names is one the engine takes.
-      const usage = read('src/cli.ts');
+      const usage = read('src/command.ts');
       for (const flag of step1.match(/--[a-z-]+/g) ?? []) assert.ok(usage.includes(`'${flag.slice(2)}'`) || usage.includes(` ${flag.slice(2)}: {`), `${flag} is a flag of review`);
     });
 
@@ -101,7 +101,7 @@ describe('the skill texts', () => {
       assert.match(text, /When the user asks for a configuration file\s+that does not exist yet, run the `main\.mjs` of step 3 with only\s+`config init --repository`, `config init --operator` or\s+`config init --clone`, for the repository's file, the operator's or\s+this clone's\./);
       assert.match(text, /It writes a new file with each setting as a comment at\s+its default and a sentence that says what the setting does, prints the\s+file's path, and refuses to write over a file that exists; then edit\s+that file as the user asks\./);
       // config init takes none of the review's flags, so the skill gives it none, and it refuses a file that exists, as the skill says.
-      const usage = read('src/cli.ts');
+      const usage = read('src/command.ts');
       const init = /^\s*init: \[([^\]]*)\]/m.exec(usage);
       assert.ok(init !== null, 'config init has a flag list');
       for (const flag of ['repository', 'operator', 'clone']) assert.ok(init[1]!.includes(`'${flag}'`), `--${flag} is a flag of config init`);
@@ -138,8 +138,8 @@ describe('the skill texts', () => {
       // A stopped run stays active, and the next review would resume it with the wrong scope.
       assert.match(step3, /When the user stops it because its scope is wrong,\s+close it with `abandon --reason <text>` before you run the corrected\s+request, so that the next review starts a new run rather than resume\s+this one\./);
       // The lines the skill names are lines status prints, and the resume is the one the engine logs.
-      const cli = read('src/cli.ts');
-      assert.ok(cli.includes('\'No active run.\\n\'') && cli.includes('\'No run: this repository has no checkpoint yet.\\n\''), 'status prints no Run line when no run is active');
+      const command = read('src/command.ts');
+      assert.ok(command.includes('\'No active run.\\n\'') && command.includes('\'No run: this repository has no checkpoint yet.\\n\''), 'status prints no Run line when no run is active');
       assert.ok(read('src/review/status.ts').includes('`Run ${state.id}: ${status}'), 'status opens with a Run line');
       assert.ok(read('src/review/status.ts').includes('settingsHeaderLine(review.configuration)'), 'status prints the Settings: line');
       assert.ok(read('src/review/controller.ts').includes('is active; its scope flags are ignored and the run continues'), 'a review resumes an active run and ignores its scope flags');

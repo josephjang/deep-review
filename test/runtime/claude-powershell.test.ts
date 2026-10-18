@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { main, type CommandIo } from '../../src/cli.ts';
+import { main, type CommandIo } from '../../src/command.ts';
 import { firstPwshOnPath, sessionStartOutput, storePowerShellWarning, type PresentAt } from '../../src/runtime/claude-powershell.ts';
 
 const store = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps';
