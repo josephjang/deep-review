@@ -9,7 +9,7 @@ import type { ScopeFile, ScopeRequest, ScopeState } from '../../src/checkpoint/e
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { captureScope, freezeLimitBytes, maxScopeFiles, resolveScopeRequest, scopeBase, scopeEnds, validateScopePath } from '../../src/scope/capture.ts';
+import { captureScope, freezeLimitBytes, maxScopeFiles, namesScope, resolveScopeRequest, scopeBase, scopeEnds, validateScopePath } from '../../src/scope/capture.ts';
 import { CaptureRacedError, EmptyChangeError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from '../../src/scope/errors.ts';
 import * as gitApi from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
@@ -544,5 +544,35 @@ describe('captureScope', () => {
       assert.throws(() => resolveScopeRequest(repo, { paths: ['missing'] }), /Scope path names nothing in the change: missing/);
       assert.throws(() => resolveScopeRequest(repo, { ref: 'HEAD', range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }), InvalidScopeRequestError);
     });
+  });
+});
+
+describe('namesScope (R11, TD9 of resumable runs)', () => {
+  const recorded = (mode: ScopeState['mode'], request: Partial<ScopeState['request']> = {}): Pick<ScopeState, 'mode' | 'request'> => ({ mode, request: { paths: [], exclude: [], ...request } });
+
+  it('matches a last-commit or worktree run by its mode, and either with no mode named, without a look at the tree', () => {
+    assert.equal(namesScope({ mode: 'last-commit', request: { paths: [] } }, recorded('last-commit')), true);
+    assert.equal(namesScope({ mode: 'worktree', request: { paths: [] } }, recorded('worktree')), true);
+    assert.equal(namesScope({ mode: 'last-commit', request: { paths: [] } }, recorded('worktree')), false);
+    assert.equal(namesScope({ mode: 'worktree', request: { paths: [] } }, recorded('last-commit')), false);
+    for (const mode of ['last-commit', 'worktree'] as const) assert.equal(namesScope({ mode: 'auto', request: { paths: [] } }, recorded(mode)), true, mode);
+    assert.equal(namesScope({ mode: 'auto', request: { paths: [] } }, recorded('ref', { ref: 'HEAD~1' })), false);
+  });
+
+  it('matches a ref or a range run by the same ref or range, --branch\'s among them', () => {
+    assert.equal(namesScope({ mode: 'ref', request: { ref: 'HEAD~1', paths: [] } }, recorded('ref', { ref: 'HEAD~1' })), true);
+    assert.equal(namesScope({ mode: 'ref', request: { ref: 'HEAD~2', paths: [] } }, recorded('ref', { ref: 'HEAD~1' })), false);
+    const branch = { from: 'origin/main', to: 'HEAD', mergeBase: true };
+    assert.equal(namesScope({ mode: 'range', request: { range: branch, paths: [] } }, recorded('range', { range: branch })), true);
+    assert.equal(namesScope({ mode: 'range', request: { range: { ...branch, mergeBase: false }, paths: [] } }, recorded('range', { range: branch })), false);
+    assert.equal(namesScope({ mode: 'range', request: { range: { ...branch, from: 'main' }, paths: [] } }, recorded('range', { range: branch })), false);
+    assert.equal(namesScope({ mode: 'ref', request: { ref: 'HEAD', paths: [] } }, recorded('range', { range: branch })), false);
+  });
+
+  it('asks for the same paths as the capture spells them, in any order', () => {
+    const run = recorded('last-commit', { paths: ['docs', 'src/a.ts'] });
+    assert.equal(namesScope({ mode: 'last-commit', request: { paths: ['src\\a.ts', 'docs/'] } }, run), true);
+    assert.equal(namesScope({ mode: 'last-commit', request: { paths: ['src/a.ts'] } }, run), false);
+    assert.equal(namesScope({ mode: 'last-commit', request: { paths: [] } }, run), false);
   });
 });

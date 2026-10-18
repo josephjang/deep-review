@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { Checkpoint, NewEvent } from '../../src/checkpoint/checkpoint.ts';
+import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { InvalidHistoryError, RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import { maxStraysPerCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
@@ -26,7 +26,7 @@ import { policyWords } from '../../src/review/survey.ts';
 import { answerPhases, fixPhases, phases } from '../../src/review/vocabulary.ts';
 import { paddedVersionBytes } from '../helpers/fake-probe.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { afterFind, cliEntry, fakeCheckCommand, loadedRunnerTimeoutMs, otherEngine, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { afterFind, cliEntry, fakeCheckCommand, loadedRunnerTimeoutMs, otherEngine, appending, reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
 import { commitAll, git, write } from '../helpers/repository.ts';
 
 /** How a configured run's `runtime-unqualified` refusal ends: an action that works on a resume, which ignores --executable. */
@@ -87,22 +87,6 @@ const lockFree = (acquire: () => ReleaseLock): boolean => {
     throw error;
   }
 };
-
-/** The checkpoint with `seen` called before each append, with the events, which may throw to refuse it; every other member goes to the checkpoint itself. */
-function appending(checkpoint: Checkpoint, seen: (events: readonly NewEvent[]) => void): Checkpoint {
-  return new Proxy(checkpoint, {
-    get(target, property): unknown {
-      if (property === 'append') {
-        return (runId: string, expected: number, events: readonly NewEvent[]) => {
-          seen(events);
-          return target.append(runId, expected, events);
-        };
-      }
-      const value: unknown = Reflect.get(target, property, target);
-      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-    },
-  });
-}
 
 describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
 
@@ -298,7 +282,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.equal(Object.values(state.workers).length, 3, 'the surveyor and the two triage workers');
     box.script({});
     // The run keeps the scope it captured: the command's is never resolved, and the log says it is ignored.
-    const scope = { named: true, request: (): never => assert.fail('a run that captured its scope asked for another') };
+    const scope = { named: true, choice: (): never => assert.fail('a run that captured its scope asked for another'), request: (): never => assert.fail('a run that captured its scope asked for another') };
     reportText(await box.review('claude', { scope }));
     assert.ok(box.logs.includes(`run ${state.id} is active; its scope flags are ignored and the run continues`));
     state = box.run();
@@ -663,7 +647,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     commitAll(box.repo, 'files outside the scope');
     for (const path of outside) write(box.repo, path, 'y\n');
     box.script(fullScript);
-    reportText(await box.review('claude', { scope: { named: true, request: () => ({ ref: 'HEAD~2', paths: ['src'] }) } }));
+    reportText(await box.review('claude', { scope: scopeSource(() => ({ ref: 'HEAD~2', paths: ['src'] })) }));
     const checks = box.run().review!.checks;
     assert.ok(checks.length > 0);
     for (const check of checks) assert.deepEqual(check.strays, outside.slice(0, maxStraysPerCheck), `${check.phase} ${check.moment}`);

@@ -17,8 +17,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Checkpoint } from '../checkpoint/checkpoint.ts';
-import type { CommitsCreated, FrozenFile, TreeRevised } from '../checkpoint/events.ts';
+import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
+import type { CommitsCreated, CommitsPrepared, FrozenFile, TreeRevised } from '../checkpoint/events.ts';
 import { committedRevisions, nextSeries, revisionMessageOf, runHead, type NextSeries } from '../checkpoint/fix-state.ts';
 import { attemptOwner } from './fix-events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -278,34 +278,61 @@ export interface SettledSeries {
 }
 
 /**
- * Settle the series of commits a stop left open (R9, TD6 of resumable
- * runs), before a command reads the run's head: a series `commit`
- * prepared on the ledger and never recorded as created. With `HEAD` at
- * the head the series makes, the branch moved: the index is reset to it,
- * as `commit` does after the move, and the series is recorded as
- * created. With `HEAD` at the head it starts from, the branch did not
- * move: the series is dropped and can be built again. With `HEAD` at
- * any other commit the command refuses, naming both heads, since neither
- * record would be true. The caller holds the run's lock and has checked
+ * What settling a run's open series of commits does with `HEAD` where it
+ * is (R9, TD6 of resumable runs): a series `commit` prepared on the
+ * ledger and never recorded as created. With `HEAD` at the head the
+ * series makes, the branch moved, and the series is completed; with
+ * `HEAD` at the head it starts from, the branch did not move, and the
+ * series is dropped and can be built again; with `HEAD` at any other
+ * commit, neither record would be true. Each settle that records names
+ * its event and the line that says it.
+ */
+export type SeriesSettle =
+  | { readonly kind: 'complete' | 'drop'; readonly series: CommitsPrepared; readonly event: NewEvent; readonly line: string }
+  | { readonly kind: 'elsewhere'; readonly series: CommitsPrepared; readonly head: string };
+
+/** How the run's open series settles with `HEAD` at `head`, or null when no series is open. */
+export function seriesSettleOf(run: RunState, head: string): SeriesSettle | null {
+  const open = run.review?.fix?.openSeries ?? null;
+  if (open === null) return null;
+  if (head === open.to) {
+    const line = `run ${run.id}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the ${commitCount(open.commits.length)} it made ${open.commits.length === 1 ? 'is' : 'are'} recorded now`;
+    return { kind: 'complete', series: open, event: { kind: 'commits.created', version: 1, payload: open }, line };
+  }
+  if (head === open.from) {
+    const line = `run ${run.id}: a commit a stop cut short had left HEAD at ${open.from.slice(0, 12)}; its series is dropped`;
+    return { kind: 'drop', series: open, event: { kind: 'commits.dropped', version: 1, payload: { from: open.from, to: open.to } }, line };
+  }
+  return { kind: 'elsewhere', series: open, head };
+}
+
+/** The commit `HEAD` names in `worktree`. */
+export const headOf = (worktree: string): string => git(worktree, ['rev-parse', 'HEAD']).trim();
+
+/** Reset the index to `HEAD`, as `commit` does once the branch moved; not cut short, since the ledger must then record what the branch holds. */
+export function resetIndex(worktree: string): void {
+  git(worktree, ['reset', '-q'], { timeout: 0 });
+}
+
+/**
+ * Settle the series of commits a stop left open (`seriesSettleOf`) before
+ * a command reads the run's head: a completed series resets the index to
+ * the head the branch moved to, and is recorded as created; a dropped one
+ * is recorded as dropped; with `HEAD` at neither of its heads the command
+ * refuses, naming both. The caller holds the run's lock and has checked
  * that `worktree` is the run's.
  */
 export function settleOpenSeries(checkpoint: Checkpoint, run: RunState, worktree: string, log: (line: string) => void): SettledSeries {
-  const open = run.review?.fix?.openSeries ?? null;
-  if (open === null) return { run, completed: null };
-  const head = git(worktree, ['rev-parse', 'HEAD']).trim();
-  if (head === open.to) {
-    // The ledger must record what the branch already holds, so the reset is not cut short, as in `build`.
-    git(worktree, ['reset', '-q'], { timeout: 0 });
-    const state = checkpoint.append(run.id, run.lastSequence, [{ kind: 'commits.created', version: 1, payload: open }]);
-    log(`run ${run.id}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the ${commitCount(open.commits.length)} it made ${open.commits.length === 1 ? 'is' : 'are'} recorded now`);
-    return { run: state, completed: open };
+  const settle = seriesSettleOf(run, headOf(worktree));
+  if (settle === null) return { run, completed: null };
+  if (settle.kind === 'elsewhere') {
+    const { series, head } = settle;
+    throw new ReviewRefusedError(`a commit of run ${run.id} that a stop cut short was moving HEAD from ${series.from} to ${series.to}, and HEAD is ${head}, at neither; move HEAD to ${series.to} to keep those commits, or to ${series.from} to drop them, and run the command again`);
   }
-  if (head === open.from) {
-    const state = checkpoint.append(run.id, run.lastSequence, [{ kind: 'commits.dropped', version: 1, payload: { from: open.from, to: open.to } }]);
-    log(`run ${run.id}: a commit a stop cut short had left HEAD at ${open.from.slice(0, 12)}; its series is dropped`);
-    return { run: state, completed: null };
-  }
-  throw new ReviewRefusedError(`a commit of run ${run.id} that a stop cut short was moving HEAD from ${open.from} to ${open.to}, and HEAD is ${head}, at neither; move HEAD to ${open.to} to keep those commits, or to ${open.from} to drop them, and run the command again`);
+  if (settle.kind === 'complete') resetIndex(worktree);
+  const state = checkpoint.append(run.id, run.lastSequence, [settle.event]);
+  log(settle.line);
+  return { run: state, completed: settle.kind === 'complete' ? settle.series : null };
 }
 
 /** A count of commits, as a log line names it. */

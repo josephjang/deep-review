@@ -17,7 +17,7 @@ import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { fakeClaude } from '../helpers/launcher.ts';
 import { commitAll, write } from '../helpers/repository.ts';
 import { settingsConfigured, settingsBlock } from '../helpers/review-history.ts';
-import { ReviewSandbox } from '../helpers/review-sandbox.ts';
+import { ReviewSandbox, scopeSource } from '../helpers/review-sandbox.ts';
 
 /** The files and flags of one invocation in a sandbox, as the command line would build them: the fake runtime's argument is a flag, as --executable-arg is. */
 interface SourceOptions {
@@ -132,7 +132,7 @@ describe('the settings in a run (R1, R4 to R6, R10, R11 of the configuration)', 
     policyAtBase(box, 'schema = 1\nscope.exclude = ["dist/**"]\n', { 'dist/c.js': 'built\n' });
     await assert.rejects(box.review('claude', { configuration: sourceFor(box) }), (error: unknown) => error instanceof ReviewRefusedError && /scope\.exclude \(dist\/\*\*\) leaves out all 1 of its changed paths; nothing to review$/.test(error.message));
     assert.deepEqual(box.checkpoint.foldRuns(), [], 'no run was created');
-    await assert.rejects(box.review('claude', { scope: { named: true, request: () => ({ range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }) } }), (error: unknown) => error instanceof ReviewRefusedError && /The change is empty/.test(error.message));
+    await assert.rejects(box.review('claude', { scope: scopeSource(() => ({ range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] })) }), (error: unknown) => error instanceof ReviewRefusedError && /The change is empty/.test(error.message));
     assert.deepEqual(box.checkpoint.foldRuns(), []);
   });
 

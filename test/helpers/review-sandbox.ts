@@ -6,11 +6,12 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { TestContext } from 'node:test';
-import { Checkpoint, type ListedRun } from '../../src/checkpoint/checkpoint.ts';
+import { Checkpoint, type ListedRun, type NewEvent } from '../../src/checkpoint/checkpoint.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { claimsDirectoryFor } from '../../src/review/claims.ts';
-import { runReview, type ReviewOptions, type ReviewOutcome } from '../../src/review/controller.ts';
+import { runReview, type ReviewOptions, type ReviewOutcome, type ScopeSource } from '../../src/review/controller.ts';
+import type { ScopeRequest } from '../../src/checkpoint/events.ts';
 import { flagCheckSettings, type CheckSettings } from '../../src/review/checks/discover.ts';
 import { policyFileName, readPolicy, type PolicyFile } from '../../src/review/policy.ts';
 import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
@@ -83,6 +84,36 @@ export const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => v
 };
 
 /** The text of the report a run ended with; fails the test when the run ended otherwise. */
+/**
+ * The scope a test's command names: its request, and the mode a command
+ * that names it gives, a ref's or a range's, else `auto` as with no mode
+ * flag (R11 of resumable runs).
+ */
+export const scopeSource = (request: () => ScopeRequest, named = true): ScopeSource => ({
+  named,
+  choice: () => {
+    const given = request();
+    return { mode: given.ref !== undefined ? 'ref' : given.range !== undefined ? 'range' : 'auto', request: given };
+  },
+  request,
+});
+
+/** The checkpoint with `seen` called before each append, with the events, which may throw to refuse it; every other member goes to the checkpoint itself. */
+export function appending(checkpoint: Checkpoint, seen: (events: readonly NewEvent[]) => void): Checkpoint {
+  return new Proxy(checkpoint, {
+    get(target, property): unknown {
+      if (property === 'append') {
+        return (runId: string, expected: number, events: readonly NewEvent[]) => {
+          seen(events);
+          return target.append(runId, expected, events);
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
+
 export const reportText = (outcome: ReviewOutcome): string => {
   assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
   return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
@@ -214,7 +245,7 @@ export class ReviewSandbox {
       executableArgs: [runtime === 'claude' ? fakeClaude : fakeCodex],
       rolesRoot: this.rolesRoot,
       flags: {},
-      scope: { named: false, request: () => ({ paths: [] }) },
+      scope: scopeSource(() => ({ paths: [] }), false),
       environment: { ...baseEnvironment, FAKE_SCRIPT: this.scriptFile, FAKE_CHECKS: this.checksFile, ...fake },
       engineEntry: cliEntry,
       scratchRoot: this.scratchRoot,

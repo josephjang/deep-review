@@ -16,7 +16,7 @@ import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime
 import { fixedA, fixedB, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { fakeClaude, until } from '../helpers/launcher.ts';
 import { commitAll, git, write } from '../helpers/repository.ts';
-import { afterFind, fakeCheckCommand, loadedRunnerTimeoutMs, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
+import { afterFind, fakeCheckCommand, loadedRunnerTimeoutMs, reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
 import { quietSurvey, reported, withSurvey } from '../helpers/review-history.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 
@@ -183,7 +183,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
 
   it('counts the user\'s edits outside the --path filter since the read-only report as their own work, which no revision takes and the report names nowhere (R2)', async (t) => {
     const box = ReviewSandbox.forTest(t, continuedScript);
-    const scope = { named: true, request: () => ({ ref: 'HEAD~1', paths: ['src'] }) };
+    const scope = scopeSource(() => ({ ref: 'HEAD~1', paths: ['src'] }));
     reportText(await box.review('claude', { scope }));
     const first = box.run();
     // Edits outside src, which the continuation does not compare: a tracked file a formatter in lint rewrites at every run, and an untracked note.
@@ -255,11 +255,11 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     commitAll(box.repo, 'a change of the guide');
     box.script({ triage: { exit: 2 } });
     // An empty change is refused with no pattern too, so the command ends there and no run is created.
-    const empty = { named: true, request: () => ({ range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }) };
+    const empty = scopeSource(() => ({ range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }));
     await assert.rejects(box.fix('claude', { scope: empty }), (error: unknown) => error instanceof ReviewRefusedError && /^The change is empty: .*; nothing to review$/.test(error.message));
     assert.equal(box.checkpoint.foldRuns().length, 1);
     box.logs.length = 0;
-    assert.equal((await box.fix('claude', { scope: { named: true, request: () => ({ paths: ['docs'] }) } })).kind, 'blocked');
+    assert.equal((await box.fix('claude', { scope: scopeSource(() => ({ paths: ['docs'] })) })).kind, 'blocked');
     const created = box.checkpoint.foldRuns().find((run) => run.id !== first.id)!;
     assert.deepEqual(created.scope!.files.map((file) => file.path), ['docs/guide.md'], 'the new run reviews what today\'s settings leave');
     logLine(box, /^--fix: no finished read-only run of this worktree reviewed this change as it is; a new run is created$/);

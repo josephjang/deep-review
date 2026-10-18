@@ -22,7 +22,7 @@ import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { sessionStartOutput, storePowerShellWarning } from './runtime/claude-powershell.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
 import { answerWords } from './checkpoint/answer-state.ts';
-import { answerNoteLengthV1, type Answer, type ScopeRequest } from './checkpoint/events.ts';
+import { answerNoteLengthV1, type Answer } from './checkpoint/events.ts';
 import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
@@ -52,7 +52,7 @@ import { describeRun } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
-import { resolveScopeRequest, scopeEnds } from './scope/capture.ts';
+import { resolveScopeRequest, scopeEnds, type NamedScope } from './scope/capture.ts';
 import { EmptyChangeError } from './scope/errors.ts';
 import { status as gitStatus } from './scope/git.ts';
 
@@ -186,22 +186,35 @@ export function hasScopeFlags(values: Values): boolean {
  * to HEAD from their merge base; `--base` applies only to it. More than
  * one mode is refused.
  */
-export function scopeRequestOf(values: Values, worktree: string, scope: ScopeSettings): { mode: 'last-commit' | 'worktree' | 'ref' | 'range' | 'auto'; request: ScopeRequest } {
+export function scopeRequestOf(values: Values, worktree: string, scope: ScopeSettings): NamedScope {
+  const named = namedScopeOf(values, scope);
+  // Which of the flags or the default named the mode, as its refusal says it.
+  const by = (flag: string): string => (scopeModeFlagCount(values) === 1 ? flag : `scope.default = "${flag.slice(2)}"`);
+  if (named.mode === 'last-commit' && gitStatus(worktree).length > 0) throw new UsageError(`${by('--last-commit')} reviews the last commit of a clean tree, and this tree has uncommitted changes; use --worktree to review them`);
+  if (named.mode === 'worktree' && gitStatus(worktree).length === 0) throw new UsageError(`${by('--worktree')} reviews uncommitted changes, and this tree has none; use --last-commit to review the last commit`);
+  return named;
+}
+
+/** How many scope modes the flags name. */
+const scopeModeFlagCount = (values: Values): number => [values['last-commit'] === true, values.worktree === true, values.branch === true, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
+
+/**
+ * The scope the flags name, or `scope.default` with no mode among them,
+ * as `scopeRequestOf` gives it but before its check of the tree: what a
+ * `review --fix` compares with a fix run the run budget stopped, whose
+ * fixes or commits changed the tree since (TD9 of resumable runs). Every
+ * refusal of the flags themselves is made here.
+ */
+export function namedScopeOf(values: Values, scope: ScopeSettings): NamedScope {
   const paths = values.path ?? [];
-  const modes = [values['last-commit'] === true, values.worktree === true, values.branch === true, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
+  const modes = scopeModeFlagCount(values);
   if (modes > 1) throw new UsageError('choose one scope: --last-commit, --worktree, --branch, --ref <ref>, or --from <rev> --to <rev>');
   if (values['merge-base'] === true && values.from === undefined) throw new UsageError('--merge-base applies to --from and --to only');
   const chosen = modes === 1 ? null : scope.scopeDefault.value;
   const branch = values.branch === true || chosen === 'branch';
   if (values.base !== undefined && !branch) throw new UsageError('--base applies to --branch only, or to a scope.default of branch');
-  if (values['last-commit'] === true || chosen === 'last-commit') {
-    if (gitStatus(worktree).length > 0) throw new UsageError(`${chosen === null ? '--last-commit' : 'scope.default = "last-commit"'} reviews the last commit of a clean tree, and this tree has uncommitted changes; use --worktree to review them`);
-    return { mode: 'last-commit', request: { paths } };
-  }
-  if (values.worktree === true || chosen === 'worktree') {
-    if (gitStatus(worktree).length === 0) throw new UsageError(`${chosen === null ? '--worktree' : 'scope.default = "worktree"'} reviews uncommitted changes, and this tree has none; use --last-commit to review the last commit`);
-    return { mode: 'worktree', request: { paths } };
-  }
+  if (values['last-commit'] === true || chosen === 'last-commit') return { mode: 'last-commit', request: { paths } };
+  if (values.worktree === true || chosen === 'worktree') return { mode: 'worktree', request: { paths } };
   if (branch) return { mode: 'range', request: { range: { from: requireBase(scope.reviewBase), to: 'HEAD', mergeBase: true }, paths } };
   if (values.ref !== undefined) return { mode: 'ref', request: { ref: values.ref, paths } };
   if (values.from !== undefined || values.to !== undefined) {
@@ -492,7 +505,7 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
       executableArgs: configuration.executableArgs,
       rolesRoot,
       flags,
-      scope: { named: false, request: () => { throw new Error(`Run ${outcome.runId} has its scope`); } },
+      scope: { named: false, choice: () => { throw new Error(`Run ${outcome.runId} has its scope`); }, request: () => { throw new Error(`Run ${outcome.runId} has its scope`); } },
       fix: noCheckSettings,
       engineEntry: io.engineEntry ?? sourceEntry,
       environment: io.environment,
@@ -710,6 +723,7 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
     // The controller resolves the scope for a run that has none yet, and to compare it with a finished run's before continuing that run: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on. Pass 1 reads the operator's files then, and only then (R3 of the configuration).
     const scope: ScopeSource = {
       named: hasScopeFlags(values),
+      choice: () => namedScopeOf(values, source.scopeSettings()),
       request: () => scopeRequestOf(values, worktree, source.scopeSettings()).request,
     };
     const outcome = await runReview({

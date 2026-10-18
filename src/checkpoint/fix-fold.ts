@@ -21,7 +21,7 @@
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
+import { batchOf, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { recordedSetting } from './settings-state.ts';
@@ -556,7 +556,7 @@ const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   if (current.status !== 'active') throw invalid(event, `reopens the fix pass of a run that is ${current.status}`);
   const report = review.report;
   if (report === null) throw invalid(event, 'reopens the fix pass before its report');
-  const stopped = (['fixes', 'repair'] as const).flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled]) => settled.cause === 'budget').map(([key]) => `${phase}:${key}`));
+  const stopped = budgetStoppedUnits(fix).map((unit) => `${unit.phase}:${unit.key}`);
   const listed = payload.units.map((unit) => `${unit.phase}:${unit.key}`);
   if (listed.length !== stopped.length || !stopped.every((unit) => listed.includes(unit))) throw invalid(event, `reopens [${listed.join(', ')}], not each unit the run budget left not attempted [${stopped.join(', ')}]`);
   const notAttempted = { ...fix.notAttempted };

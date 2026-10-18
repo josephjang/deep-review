@@ -366,6 +366,39 @@ function buildPatch(repo: string, mode: ScopeMode, base: string, target: string 
   return Buffer.concat(parts);
 }
 
+/** A scope as a command names it, before any look at the tree: its mode, `auto` when it names none and the capture chooses by `git status`, and its request. */
+export interface NamedScope {
+  readonly mode: ScopeMode | 'auto';
+  readonly request: ScopeRequest;
+}
+
+/**
+ * Whether a command that names `named` names the scope a run captured
+ * (R11, TD9 of resumable runs), compared without a look at the tree, so
+ * the flags still match after the run's fixes or `commit` changed it: a
+ * `last-commit` or `worktree` mode the run of that mode, `auto` a run of
+ * either, a ref or a range the same one, `--branch` among the ranges, and
+ * in each case the same paths as the capture spells them.
+ */
+export function namesScope(named: NamedScope, scope: Pick<ScopeState, 'mode' | 'request'>): boolean {
+  const request = normalizeRequest(named.request);
+  const recorded = scope.request;
+  const paths = [...request.paths].sort();
+  const recordedPaths = [...recorded.paths].sort();
+  if (paths.length !== recordedPaths.length || paths.some((path, index) => path !== recordedPaths[index])) return false;
+  switch (named.mode) {
+    case 'last-commit':
+    case 'worktree':
+      return scope.mode === named.mode;
+    case 'auto':
+      return scope.mode === 'last-commit' || scope.mode === 'worktree';
+    case 'ref':
+      return scope.mode === 'ref' && recorded.ref === request.ref;
+    case 'range':
+      return scope.mode === 'range' && recorded.range !== undefined && request.range !== undefined && recorded.range.from === request.range.from && recorded.range.to === request.range.to && recorded.range.mergeBase === request.range.mergeBase;
+  }
+}
+
 function normalizeRequest(request: ScopeRequest): ScopeRequest {
   const normalized: { ref?: string; range?: { from: string; to: string; mergeBase: boolean }; paths: string[] } = {
     paths: request.paths.map((path) => path.replaceAll('\\', '/').replace(/\/+$/, '')),

@@ -731,6 +731,11 @@ export function notAttemptedNote(fix: FixState, phase: EditingPhase, key: string
   return settled.cause === 'budget' ? `the run budget was reached first: ${settled.reason}` : settled.reason;
 }
 
+/** The units the run budget left not attempted, the batches of the fixes and the repair, in phase order: what a reopened fix pass lists and launches (R11 of resumable runs). */
+export function budgetStoppedUnits(fix: Pick<FixState, 'notAttempted'>): FixReopened['units'] {
+  return (['fixes', 'repair'] as const).flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled]) => settled.cause === 'budget').map(([key]) => ({ phase, key })));
+}
+
 /** Whether a unit of an editing phase is settled as not attempted, after two failures or at the run budget. */
 export function isNotAttempted(fix: FixState, phase: EditingPhase, key: string): boolean {
   return Object.hasOwn(fix.notAttempted[phase], key);

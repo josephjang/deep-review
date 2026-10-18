@@ -15,14 +15,14 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
 import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
-import { batchPosition, revisionMessageOf, routeOf, type CutShortCheck } from '../checkpoint/fix-state.ts';
+import { batchPosition, budgetStoppedUnits, revisionMessageOf, routeOf, type CutShortCheck } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -36,7 +36,7 @@ import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
-import { captureScope, resolveScopeRequest, scopeBase, type ResolvedScope } from '../scope/capture.ts';
+import { captureScope, namesScope, resolveScopeRequest, scopeBase, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
 import { objectFormat } from '../scope/git.ts';
@@ -50,6 +50,8 @@ import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktreeChecked, writeBack, type DriftFound, type RestoredFile } from './drift.ts';
 import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
+import { foldedWith } from './claim-events.ts';
+import { headOf, resetIndex, seriesSettleOf } from './commit.ts';
 import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
@@ -79,6 +81,14 @@ import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditi
 export interface ScopeSource {
   /** Whether the command named a scope, so a resumed run that ignores it can say so. */
   readonly named: boolean;
+  /**
+   * The scope the command names, as its flags or `scope.default` give it,
+   * before any look at the tree: what a `review --fix` compares with a fix
+   * run the run budget stopped, whose fixes or commits changed the tree
+   * since (R11, TD9 of resumable runs); throws, as `request` does, for
+   * flags that name no scope.
+   */
+  readonly choice: () => NamedScope;
   /** The request to capture; throws, creating nothing, when the command names none or one the tree refutes. */
   readonly request: () => ScopeRequest;
 }
@@ -1016,6 +1026,16 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     if (found !== null && context.fresh === true) log(`run ${found.id} is active and resumes; --fresh is ignored`);
     const scopeRequestOf = once(() => context.scope.request());
     if (found === null && fixing) {
+      // A fix run the run budget stopped comes before a read-only run to continue (R11 of resumable runs).
+      const reopened = await reopenRun(runs, context);
+      if (reopened?.kind === 'reopened') return { state: reopened.state, release: reopened.release, capture: null, configure: null, continuation: null };
+      // Another engine reopened it between the find and the lock: it is this worktree's active run now, and is resumed rather than joined by a second.
+      if (reopened?.kind === 'active') {
+        found = reopened.state;
+        release = reopened.release;
+      }
+    }
+    if (found === null && fixing) {
       const chosen = chooseContinuation(runs, context, scopeRequestOf);
       if (chosen !== null) {
         release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
@@ -1157,6 +1177,78 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
   }
   logAnswersNotCarried(runs, context);
   return null;
+}
+
+/** Whether a run is a fix pass the run budget stopped, in this worktree: complete, fixing, with a unit the budget left not attempted (R11 of resumable runs). */
+const budgetStopped = (run: RunState, worktree: string): boolean =>
+  reviewStatus(run) === 'complete' && run.review?.fix !== null && run.review?.fix !== undefined && sameDirectory(run.worktree, worktree) && budgetStoppedUnits(run.review.fix).length > 0;
+
+/**
+ * Reopen the fix pass of a fix run the run budget stopped (R11, R12, TD8,
+ * TD9, TD10 of resumable runs), under the start lock the caller holds,
+ * or give null for the command to go on as it would without one. With
+ * `--fresh`, or a runtime that reports no cost and so has no run budget,
+ * none is considered. The newest such run of this worktree whose scope
+ * the command names, compared before any look at the tree
+ * (`namesScope`), is taken under its lock and read again; one that no
+ * longer qualifies is let go. A series of commits a stop left open is
+ * settled in memory (`seriesSettleOf`), and the tree is compared with the
+ * head that gives: a tree away from where the run left it is no
+ * continuation, and the log names the run and what moved, as a new run
+ * is created. The run is then held as a continuation is held: its
+ * runtime, a budget in force above its spend, else a refusal that names
+ * `--budget-usd` and `--fresh`, its roles digest and its executable. Only
+ * then is anything written: the settle, `fix.reopened` and the limits in
+ * force, in one append, so a refusal appends nothing. A run another
+ * engine reopened between the find and the lock is given as `active`,
+ * for the command to resume as it resumes any active run.
+ */
+async function reopenRun(runs: readonly RunState[], context: OpenContext): Promise<{ readonly kind: 'reopened' | 'active'; readonly state: RunState; readonly release: ReleaseLock } | null> {
+  const { checkpoint, log } = context;
+  if (context.fresh === true || !context.adapter.capabilities.costInUsd) return null;
+  const candidates = runs.filter((run) => budgetStopped(run, context.worktree)).reverse();
+  if (candidates.length === 0) return null;
+  const named = context.scope.choice();
+  const chosen = candidates.find((run) => namesScope(named, run.scope!));
+  if (chosen === undefined) return null;
+  const release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
+  try {
+    const run = refoldUnderLock(checkpoint, chosen.id, log);
+    if (run !== null && isResumable(run)) return { kind: 'active', state: run, release };
+    if (run === null || !budgetStopped(run, context.worktree)) {
+      // Abandoned, or reopened and finished, by another engine between the find and the lock; one this engine cannot read was passed over with its line.
+      if (run !== null) log(`run ${run.id}: no longer a fix pass the run budget stopped once its lock was taken; it is not reopened`);
+      release();
+      return null;
+    }
+    const settle = seriesSettleOf(run, headOf(context.worktree));
+    const settling = settle === null || settle.kind === 'elsewhere' ? [] : [settle.event];
+    const drift = findDrift(foldedWith(run, settling), context.worktree, context.match);
+    if (drifted(drift)) {
+      log(`run ${run.id}: its fix pass, which the run budget stopped, is not reopened: the tree is not where the run left it: ${driftList(drift)}; restore them to reopen it`);
+      release();
+      return null;
+    }
+    const configuration = run.review!.configuration;
+    refuseOtherRuntime(run.id, configuration, context.runtime, wayOut(run.id, 'continue'));
+    const reached = budgetReached(run, context.flags, context.adapter);
+    if (reached !== null) {
+      throw new ReviewRefusedError(`run ${run.id} stopped its fix pass at the run budget: ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}; run the command again with --budget-usd above ${reached.spend.usd.toFixed(2)} to continue it, or with --fresh to review the change again in a new run`);
+    }
+    await resumePinned(run, configuration, context, 'continue', settingOf(configuration, 'tools.path').value ?? []);
+    const units = budgetStoppedUnits(run.review!.fix!);
+    const limits = limitsInForce(configuration, context.flags, context.adapter);
+    const current = run.review!.limits;
+    const changed = current.concurrency !== limits.concurrency || current.runBudgetUsd !== limits.runBudgetUsd;
+    if (settle !== null && settle.kind === 'complete') resetIndex(context.worktree);
+    const state = append(checkpoint, run, [...settling, { kind: 'fix.reopened', version: 1, payload: { units } satisfies FixReopened }, ...(changed ? [{ kind: 'limits.changed', version: 1, payload: limits }] : [])]);
+    if (settle !== null && settle.kind !== 'elsewhere') log(settle.line);
+    log(`run ${run.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => unit.phase === 'repair' ? 'the repair' : `batch ${unit.key}`).join(', ')}; ${spendWords(budgetSpendOf(run, context.adapter).usd, limits.runBudgetUsd)}`);
+    return { kind: 'reopened', state, release };
+  } catch (error) {
+    release();
+    throw error;
+  }
 }
 
 /** Name each continuable run of this worktree a new run passes over whose person's answers stay with it, since the new run does not carry them (R4 of answers). */
