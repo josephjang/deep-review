@@ -3,7 +3,8 @@
 // crashes or exits, so a test can see whether the child's tree outlives it.
 // One file plays every role:
 //   node process-engine.ts worker <pidFile>
-//     start a grandchild, write {"worker","grandchild"} pids to pidFile, never exit
+//     start a grandchild, write {"worker","grandchild","parent"} pids to pidFile, never exit;
+//     its parent is the guard runProcess starts it through (R8 of resumable runs)
 //   node process-engine.ts engine <mode> <directory>
 //     run the worker through runProcess, wait for its pid file, then end as <mode> says
 //   node process-engine.ts probe-engine <mode> <directory>
@@ -12,7 +13,7 @@
 // where <mode> is one of:
 //       crash        throw an uncaught exception
 //       exit         call process.exit(3)
-//       wait         wait for a signal, with no handler of its own
+//       wait         wait for a signal, with no handler of its own, or for a kill from outside
 //       own-handler  wait for SIGINT, which its own handler turns into exit code 42
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -21,10 +22,11 @@ import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { preflight } from '../../src/runtime/preflight.ts';
 import { runProcess } from '../../src/runtime/process.ts';
 
-/** The pids a worker writes once its grandchild is running. */
+/** The pids a worker writes once its grandchild is running, and its parent's. */
 export interface WorkerPids {
   readonly worker: number;
   readonly grandchild: number;
+  readonly parent: number;
 }
 
 export const processEngine = import.meta.filename;
@@ -44,7 +46,7 @@ const fakeHangingProbe = resolve(import.meta.dirname, 'fake-hanging-probe.ts');
  */
 function worker(pidFile: string): void {
   const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true, detached: process.platform === 'win32' });
-  const pids: WorkerPids = { worker: process.pid, grandchild: grandchild.pid! };
+  const pids: WorkerPids = { worker: process.pid, grandchild: grandchild.pid!, parent: process.ppid };
   writeFileSync(pidFile, JSON.stringify(pids));
   setInterval(() => {}, 1000);
 }

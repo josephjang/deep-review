@@ -214,8 +214,9 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
 
   // From here on a finish is appended whatever fails: the launcher's own
   // failures (a full disk, a vanished directory) are recorded with what is
-  // known rather than leaving the launch open. Neither runProcess nor settle
-  // throws, so nothing stands between the launch and the finish's append.
+  // known rather than leaving the launch open. A throw of runProcess is a
+  // start that failed, and settle does not throw, so nothing stands between
+  // the launch and the finish's append.
   let result: ProcessResult;
   try {
     result = await runProcess({
@@ -494,7 +495,7 @@ export function workerVerdict(invocation: Invocation, result: ProcessResult, dec
     const how = result.treeKillError === null ? 'was killed with its process tree' : `was killed, but only its root: ${result.treeKillError}; descendants may still run`;
     return { outcome: 'timeout', error: `The worker ran past its timeout of ${String(invocation.timeoutMs)} ms and ${how}`, output: null };
   }
-  if (endedByKill(result)) return { outcome: 'failed', error: `The worker was ended by ${killMarkWords(result)}, a kill mark: a kill from outside the engine`, output: null, cause: 'cut' };
+  if (endedByKill(result)) return { outcome: 'failed', error: `The worker ended with ${killMarkWords(result)}: a kill from outside the engine`, output: null, cause: 'cut' };
   switch (decoded.kind) {
     case 'budget':
       return { outcome: 'budget', error: decoded.error, output: null };

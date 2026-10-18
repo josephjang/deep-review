@@ -41,9 +41,6 @@ export const marks: readonly Mark[] = [
   ...failing(['child fixer fixes:c1-1#1'], [...stops, 'child'], everySystem, ['nothing false', 'report'], 'R10'),
   // W6: a stop after commit moved the branch leaves commits the ledger does not hold, and the next commit refuses.
   ...failing(['update-ref after'], stops, everySystem, ['exit', 'nothing false'], 'R9'),
-  // W3: on Windows the descendants of a child outlive a hard kill of the engine alone; W2: on POSIX each child, in its own process group, outlives every kill but the engine's own.
-  ...failing(['child *'], ['kill'], ['win32'], ['no orphan'], 'R8'),
-  ...failing(['child *'], ['kill', 'tree', 'child'], posix, ['no orphan'], 'R8'),
 ];
 
 /** Whether the mark covers the case. */
@@ -69,5 +66,3 @@ export function unexpected(point: string, way: StopWay, platform: NodeJS.Platfor
     ...covering.filter((mark) => !broken.has(mark.part)).map((mark) => `${mark.part} held, but a mark for ${mark.closedBy} expects it to fail`),
   ];
 }
-
-

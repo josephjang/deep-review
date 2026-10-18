@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -9,6 +9,7 @@ import { bundleEngine, engineBundleName, engineDirectoryName, engineRolesDirecto
 import { engineIdentity, engineRolesRoot, engineSidecarName, engineVersion, readEngineSidecar } from '../../src/engine.ts';
 import { assembleRoles, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { readPolicy } from '../../src/review/policy.ts';
+import { guardResultFile } from '../../src/runtime/process.ts';
 import { repositoryWith } from '../helpers/repository.ts';
 
 const repositoryRoot = resolve(import.meta.dirname, '../..');
@@ -61,6 +62,22 @@ describe('bundleEngine', { timeout: 300_000 }, () => {
     assert.equal(usage.status, 1);
     assert.match(usage.stderr, /--runtime claude\|codex is required/);
     assert.equal(existsSync(join(repo, '.git', 'deep-review-checkpoint')), false);
+  });
+
+  // R8 of resumable runs: the bundle's runProcess starts the bundle itself as the guard, so the bundle must run one.
+  it('runs as the guard of a child: the child runs, and the result file says how it ended', async () => {
+    await bundleEngine(sandbox, repositoryEngine(repositoryRoot));
+    const main = join(sandbox, engineDirectoryName, engineBundleName);
+    writeFileSync(join(sandbox, 'stdin'), 'input');
+    const request = join(sandbox, 'stdout.guard.json');
+    writeFileSync(request, JSON.stringify({ executable: process.execPath, args: ['-e', 'process.stdout.write(require("fs").readFileSync(0, "utf8")); process.exit(5)'], cwd: sandbox, stdinFile: join(sandbox, 'stdin'), verbatimArguments: false }));
+    const stdout = openSync(join(sandbox, 'stdout'), 'wx');
+    const guard = spawn(process.execPath, [main, 'guard', request], { stdio: ['pipe', stdout, 'ignore'], windowsHide: true, detached: true });
+    closeSync(stdout);
+    const code = await new Promise((done) => guard.once('close', done));
+    assert.equal(code, 5);
+    assert.equal(readFileSync(join(sandbox, 'stdout'), 'utf8'), 'input');
+    assert.deepEqual(JSON.parse(readFileSync(guardResultFile(request), 'utf8')), { termination: 'exited', exitCode: 5, signal: null });
   });
 
   it('refuses a missing entry or roles root before writing anything', async () => {

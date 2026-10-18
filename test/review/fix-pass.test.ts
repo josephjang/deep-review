@@ -505,7 +505,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.deepEqual(fix.restorations.map((restoration) => [restoration.check, restoration.files.map((file) => file.path)]), [[{ kind: 'lint', attempt: 1 }, ['src/a.ts']]]);
     assert.ok(!fix.revisions.some((revision) => revision.source.kind === 'check'), 'no revision of the half rewrite');
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA);
-    assert.match(box.logs.join('\n'), /check lint \(checks\): cut by exit code 143, a kill mark; it runs again/);
+    assert.match(box.logs.join('\n'), /check lint \(checks\): cut, it ended with exit code 143, a kill mark; it runs again/);
     assert.deepEqual(fix.checks.runs['repair-checks'], [], 'a cut is no failure for the repair');
   });
 
@@ -517,7 +517,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const fix = box.run().review!.fix!;
     const lint = fix.checks.runs.checks.filter((run) => run.kind === 'lint');
     assert.deepEqual(lint.map((run) => run.outcome), ['cut', 'failed']);
-    assert.equal(lint[1]!.error, 'cut twice in attempt 1: first by exit code 143, then by exit code 130, each a kill mark');
+    assert.equal(lint[1]!.error, 'cut twice in attempt 1: it ended first with exit code 143, a kill mark, then with exit code 130, a kill mark');
     assert.equal(fix.restorations.length, 2, 'the second cut is written back as the first is');
     assert.ok(!fix.revisions.some((revision) => revision.source.kind === 'check'));
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA, 'the repair worked on the tree of the fixes');

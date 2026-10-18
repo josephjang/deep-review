@@ -74,6 +74,7 @@ describe('checkOutcomeOf', () => {
     for (const exitCode of killMarkCodes) assert.equal(checkOutcomeOf({ termination: 'exited', exitCode, signal: null, ...at }), 'cut', String(exitCode));
     assert.deepEqual(killMarkCodes, [129, 130, 131, 137, 143, 3221225786]);
     for (const signal of ['SIGTERM', 'SIGINT', 'SIGKILL']) assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: null, signal, ...at }), 'cut', signal);
+    assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: null, signal: null, ...at }), 'cut', 'a guard with no result is a mark too (R8)');
     assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: 1, signal: null, ...at }), 'failed', 'taskkill leaves exit code 1, the accepted risk of PD5');
     assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: 128, signal: null, ...at }), 'failed');
   });

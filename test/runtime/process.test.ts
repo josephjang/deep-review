@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -63,6 +63,40 @@ describe('runProcess', () => {
     const result = await runProcess(request([], { executable: join(directory, 'no-such-executable') }));
     assert.equal(result.termination, 'not-started');
     assert.match(result.termination === 'not-started' ? result.error : '', /ENOENT/);
+  });
+
+  it('reports a process whose working directory does not exist as one that could not be started', async () => {
+    const result = await runProcess(request(['-e', ''], { cwd: join(directory, 'missing') }));
+    assert.equal(result.termination, 'not-started');
+    assert.match(result.termination === 'not-started' ? result.error : '', /ENOENT/);
+  });
+
+  it('runs the process under a guard, and leaves none of the guard\'s files behind (R8 of resumable runs)', async () => {
+    const result = await runProcess(request(['-e', 'process.stdout.write(String(process.ppid))']));
+    assert.equal(result.termination, 'exited');
+    assert.equal(result.exitCode, 0);
+    const parent = Number(readFileSync(join(directory, 'stdout'), 'utf8'));
+    assert.ok(parent > 0 && parent !== process.pid, `the parent of the process is its guard, not the engine: ${String(parent)}`);
+    assert.deepEqual(readdirSync(directory).sort(), ['stderr', 'stdin', 'stdout']);
+  });
+
+  it('gives a process whose guard a kill from outside ended no exit code and no signal, and ends what the guard held (R8 of resumable runs)', async () => {
+    const pidFile = workerPidFile(directory);
+    const running = runProcess(request([processEngine, 'worker', pidFile]));
+    await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').length > 0, 'the worker to start');
+    const pids = JSON.parse(readFileSync(pidFile, 'utf8')) as WorkerPids;
+    try {
+      process.kill(pids.parent, 'SIGKILL');
+      const result = await running;
+      assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', null, null]);
+      // The guard's job ends the worker on Windows; on POSIX the engine kills the group the guard led, the grandchild with it.
+      await until(() => !isAlive(pids.worker), `worker ${String(pids.worker)} to die`, 10_000);
+      if (posix) await until(() => !isAlive(pids.grandchild), `grandchild ${String(pids.grandchild)} to die`, 10_000);
+      assert.deepEqual(readdirSync(directory).sort(), ['pids.json', 'stderr', 'stdin', 'stdout']);
+    } finally {
+      reap(pids.worker);
+      reap(pids.grandchild);
+    }
   });
 
   it('kills the process with its whole tree at the timeout and says the whole tree was reached', async () => {
@@ -171,16 +205,25 @@ describe('an engine that ends while a worker runs', () => {
     return { engine, ended, pids: JSON.parse(readFileSync(pidFile, 'utf8')) as WorkerPids };
   }
 
-  /** The worker and its grandchild both die; whatever is left is reaped so no test leaks a process. */
+  /** The worker, its grandchild and its guard all die; whatever is left is reaped so no test leaks a process. */
   async function assertTreeDies(pids: WorkerPids): Promise<void> {
     try {
       await until(() => !isAlive(pids.worker), `worker ${String(pids.worker)} to die`, 10_000);
       await until(() => !isAlive(pids.grandchild), `grandchild ${String(pids.grandchild)} to die`, 10_000);
+      await until(() => !isAlive(pids.parent), `guard ${String(pids.parent)} to die`, 10_000);
     } finally {
       reap(pids.worker);
       reap(pids.grandchild);
+      reap(pids.parent);
     }
   }
+
+  it('kills the worker tree through its guard when the engine is killed outright, which runs no handler (R8 of resumable runs)', async () => {
+    const { engine, ended, pids } = await start('wait');
+    engine.kill('SIGKILL');
+    assert.deepEqual(await ended, [null, 'SIGKILL']);
+    await assertTreeDies(pids);
+  });
 
   it('kills the worker tree when the engine crashes', async () => {
     const { ended, pids } = await start('crash');

@@ -282,7 +282,8 @@ export interface CutShortCheck {
  * Whether a run of a check was cut short by a kill, its writes no work of a
  * complete check (R4, R7 of resumable runs): a run that ended cut, one the
  * engine killed at its timeout, or the second cut of a kind in one attempt,
- * which is recorded failed with the kill mark it ended with.
+ * which is recorded failed with the kill mark it ended with, or with no
+ * result from its guard.
  */
 export const killedRun = (run: Pick<CheckRunState, 'outcome' | 'termination' | 'exitCode' | 'signal'>): boolean => run.outcome === 'cut' || run.termination === 'killed' || (run.outcome === 'failed' && endedByKill(run));
 

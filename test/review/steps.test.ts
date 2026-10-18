@@ -186,7 +186,7 @@ describe('nextStep', () => {
   });
 
   it('blocks the phase, rather than degrade, when a degrading unit ran out of attempts with a cut worker among its failures, and launches it again at once after one (R4 of resumable runs)', () => {
-    const cutOnce = triaged().start('finders').add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'failed: The worker was ended by exit code 143, a kill mark', fault: 'cut' }, 7);
+    const cutOnce = triaged().start('finders').add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'failed: The worker ended with exit code 143, a kill mark: a kill from outside the engine', fault: 'cut' }, 7);
     const again = nextStep(cutOnce.review(), idle);
     assert.ok(again.kind === 'launch' && again.units.some((unit) => unit.key === 'RIPPLE'), JSON.stringify(again));
     const cutTwice = cutOnce.add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(4), reason: 'failed: The worker exited with code 1', fault: 'unit' }, 7).review();

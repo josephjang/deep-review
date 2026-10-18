@@ -627,13 +627,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       // The second cut of a kind in one attempt is its result, a failure that names both marks (R4 of resumable runs).
       const cutAgain = result.outcome === 'cut' && due.replaces?.why === 'cut' && due.replaces.run.attempt === attempt;
       const outcome = cutAgain ? 'failed' : result.outcome;
-      const error = cutAgain ? `cut twice in attempt ${String(attempt)}: first by ${killMarkWords(due.replaces!.run)}, then by ${killMarkWords(result)}, each a kill mark` : result.error;
+      const error = cutAgain ? `cut twice in attempt ${String(attempt)}: it ended first with ${killMarkWords(due.replaces!.run)}, then with ${killMarkWords(result)}` : result.error;
       log(`check ${due.kind} (${phase}): ${outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${error === null ? '' : `: ${error}`}`);
-      if (outcome === 'cut') log(`check ${due.kind} (${phase}): cut by ${killMarkWords(result)}, a kill mark; it runs again`);
+      if (outcome === 'cut') log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
       const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error === null ? null : truncated(error, maxRecordedTextLength), replaces };
       const recorded: NewEvent = { kind: 'check.ran', version: 3, payload: ran };
-      // A run a kill ended, the engine's at the timeout or one from outside with a kill mark, records no revision: what it wrote is written back instead, read from the process result rather than the outcome, so a second cut, recorded failed, is written back too.
-      if (result.termination === 'killed' || (result.termination === 'exited' && endedByKill(result))) {
+      // A run a kill ended, the engine's at the timeout or one from outside with a kill mark or no result from its guard, records no revision: what it wrote is written back instead, read from the process result rather than the outcome, so a second cut, recorded failed, is written back too.
+      if (result.termination === 'killed' || endedByKill(result)) {
         restore(phase, attempt, { kind: due.kind, attempt }, restoredFiles(state, options.worktree, content.match, checkpoint.evidence), [recorded]);
         return;
       }

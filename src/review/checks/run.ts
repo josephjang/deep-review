@@ -93,8 +93,9 @@ export interface CheckResult {
 /**
  * The outcome a process result gives a check: 0 after an exit of its own
  * passes; an exit with a kill mark, a signal or a code a shell or Windows
- * gives a process a kill ended, is cut, which has no result of its own
- * and runs again (R4 of resumable runs); any other exit fails. A check the
+ * gives a process a kill ended, or with no result from its guard, is cut,
+ * which has no result of its own and runs again (R4, R8 of resumable
+ * runs); any other exit fails. A check the
  * engine killed at its timeout timed out. A kill with no mark, such as
  * `taskkill`'s exit code 1, still reads as a failure, the risk PD5 of
  * resumable runs accepts.
@@ -111,12 +112,13 @@ export function checkOutcomeOf(result: ProcessResult): RunOutcome {
   }
 }
 
-/** The error a check records with its outcome: the spawn's failure, a timeout's partial kill, or null. */
+/** The error a check records with its outcome: the spawn's failure, a timeout's partial kill, a guard that left no result, or null. */
 function checkError(result: ProcessResult, timeoutMs: number): string | null {
   if (result.termination === 'not-started') return result.error;
   if (result.termination === 'killed') {
     return result.treeKillError === null ? null : `The check ran past its timeout of ${String(timeoutMs)} ms and was killed, but only its root: ${result.treeKillError}; descendants may still run`;
   }
+  if (result.exitCode === null && result.signal === null) return 'The check ended with no result from its guard: a kill from outside the engine ended the guard';
   return null;
 }
 

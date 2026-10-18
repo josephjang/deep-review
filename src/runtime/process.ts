@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { closeSync, openSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 /** One worker process: what to run, where, and the files its standard streams are bound to. */
 export interface ProcessRequest {
@@ -28,6 +28,13 @@ export interface ProcessRequest {
 export type ProcessResult =
   | {
       readonly termination: 'exited';
+      /**
+       * The exit code, or the signal, the child ended with. Both are null
+       * when its guard ended with no result (R8 of resumable runs): a kill
+       * from outside the engine ended the guard, and how the child ended is
+       * unknown. Node never reports an exit with neither, so the two nulls
+       * say it in the ledger too.
+       */
       readonly exitCode: number | null;
       readonly signal: string | null;
       readonly startedAt: string;
@@ -65,13 +72,27 @@ export type ProcessResult =
  */
 export const killMarkCodes: readonly number[] = [129, 130, 131, 137, 143, 3221225786];
 
-/** Whether a child ended with a kill mark: a signal, or one of `killMarkCodes`. Checks and workers read this one list, so the two cannot disagree on a mark. */
-export function endedByKill(end: { readonly exitCode: number | null; readonly signal: string | null }): boolean {
-  return end.signal !== null || (end.exitCode !== null && killMarkCodes.includes(end.exitCode));
+/** The end of a child as a kill mark reads it, live or as the ledger recorded it. */
+type ChildEnd = { readonly termination: ProcessResult['termination'] | null; readonly exitCode: number | null; readonly signal: string | null };
+
+/**
+ * Whether a child that exited was ended by a kill from outside the engine:
+ * a signal, one of `killMarkCodes`, or no result from its guard (R4, R8 of
+ * resumable runs). Checks and workers read this one list, so the two
+ * cannot disagree on a mark. A child the engine killed at its timeout is no
+ * mark: its termination is `killed`.
+ */
+export function endedByKill(end: ChildEnd): boolean {
+  if (end.termination !== 'exited') return false;
+  return end.signal !== null || end.exitCode === null || killMarkCodes.includes(end.exitCode);
 }
 
-/** A kill mark as a log line or an error names it: the signal, or the exit code. */
-export const killMarkWords = (end: { readonly exitCode: number | null; readonly signal: string | null }): string => (end.signal !== null ? `signal ${end.signal}` : `exit code ${String(end.exitCode)}`);
+/** How a child a kill from outside ended, as a log line or an error names it: the signal or the exit code it left, or no result from its guard. */
+export function killMarkWords(end: ChildEnd): string {
+  if (end.signal !== null) return `signal ${end.signal}, a kill mark`;
+  if (end.exitCode === null) return 'no result from its guard';
+  return `exit code ${String(end.exitCode)}, a kill mark`;
+}
 
 /** The result for a process that never existed, and why; it ended when the attempt did, `endedAt` by default now. */
 export function notStarted(error: string, startedAt: string, endedAt: string = new Date().toISOString()): Extract<ProcessResult, { termination: 'not-started' }> {
@@ -79,19 +100,73 @@ export function notStarted(error: string, startedAt: string, endedAt: string = n
 }
 
 /**
- * Whether a worker or a preflight probe is spawned detached. On POSIX it
- * leads a process group of its own, which `killTree` addresses; on Windows
- * it stays attached to the engine's console, so Ctrl-C ends it with the
- * engine. A synchronous git call is detached on Windows instead
+ * Whether a preflight probe is spawned detached. On POSIX it leads a
+ * process group of its own, which `killTree` addresses; on Windows it
+ * stays attached to the engine's console, so Ctrl-C ends it with the
+ * engine. The guard of a worker or a check is detached on both systems
+ * (`runProcess`), and so is a synchronous git call on Windows
  * (src/runtime/git-sync.ts says why).
  */
 export const detachedChild = process.platform !== 'win32';
 
+/** What the guard of one child runs (src/runtime/guard.ts): the request file `runProcess` writes. */
+export interface GuardRequest {
+  readonly executable: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly stdinFile: string;
+  readonly verbatimArguments: boolean;
+}
+
+/** How the guard's child ended, as the guard's result file holds it: on its own, or never started. */
+export type GuardResult =
+  | { readonly termination: 'exited'; readonly exitCode: number | null; readonly signal: string | null }
+  | { readonly termination: 'not-started'; readonly error: string };
+
+/** Where the guard of `requestFile` writes its result: beside the request. */
+export const guardResultFile = (requestFile: string): string => `${requestFile}.result`;
+
+/** The request a guard reads, checked field by field, since a guard that misread it would run the wrong command. */
+export function parseGuardRequest(text: string): GuardRequest {
+  const value = JSON.parse(text) as Partial<Record<keyof GuardRequest, unknown>> | null;
+  const strings = (field: unknown): field is readonly string[] => Array.isArray(field) && field.every((entry) => typeof entry === 'string');
+  if (value === null || typeof value !== 'object' || typeof value.executable !== 'string' || !strings(value.args) || typeof value.cwd !== 'string' || typeof value.stdinFile !== 'string' || typeof value.verbatimArguments !== 'boolean') {
+    throw new Error('the guard request does not hold an executable, its arguments, a directory, a standard input file and whether the arguments are verbatim');
+  }
+  return { executable: value.executable, args: value.args, cwd: value.cwd, stdinFile: value.stdinFile, verbatimArguments: value.verbatimArguments };
+}
+
+/** The guard's result, read once its process closed, or null when it left none. */
+function readGuardResult(resultFile: string): GuardResult | null {
+  if (!existsSync(resultFile)) return null;
+  const value = JSON.parse(readFileSync(resultFile, 'utf8')) as Partial<GuardResult> | null;
+  if (value?.termination === 'exited') return { termination: 'exited', exitCode: value.exitCode ?? null, signal: value.signal ?? null };
+  if (value?.termination === 'not-started' && typeof value.error === 'string') return { termination: 'not-started', error: value.error };
+  throw new Error(`The guard's result file ${resultFile} holds no end of its child`);
+}
+
 /**
- * Run one process to its end, killing it with its whole tree at the
- * timeout (PD2, TD13). On POSIX it is spawned as the leader of its own
- * process group, which the kill addresses; on Windows `taskkill /T` walks
- * the tree. No shell is involved, so no argument is ever reinterpreted.
+ * The script the guard runs as, which is the engine's own entry. In the
+ * bundle every module is `main.mjs`, the entry itself; from the sources
+ * this module is `src/runtime/process.ts`, beside `src/cli.ts`. Both
+ * dispatch `guard` before they load the command.
+ */
+const guardEntry = import.meta.filename.endsWith('.ts') ? join(import.meta.dirname, '..', 'cli.ts') : import.meta.filename;
+
+/**
+ * Run one process to its end through its guard (R8 of resumable runs,
+ * src/runtime/guard.ts), killing it with its whole tree at the timeout
+ * (PD2, TD13). No shell is involved, so no argument is ever reinterpreted.
+ *
+ * The guard is `node <engine entry> guard <request file>`, detached on both
+ * systems: on POSIX it leads a process group, which holds the child and
+ * which the kill addresses; on Windows it leaves the job object libuv puts
+ * the engine's children in, and `taskkill /T` walks its tree. It holds a
+ * pipe from the engine on its standard input and kills the child's tree
+ * when that pipe closes, so a child does not outlive an engine killed
+ * outright. The end of the child comes from the guard's result file; a
+ * guard that left none, and that the engine did not kill, was killed from
+ * outside, and the result says so with an exit code and a signal both null.
  *
  * While it runs it is also killed with its tree if the engine exits or,
  * on POSIX, is interrupted by a signal: its own process group keeps a
@@ -100,52 +175,93 @@ export const detachedChild = process.platform !== 'win32';
 export async function runProcess(request: ProcessRequest): Promise<ProcessResult> {
   const descriptors: number[] = [];
   const startedAt = new Date().toISOString();
+  const requestFile = `${request.stdoutFile}.guard.json`;
+  const resultFile = guardResultFile(requestFile);
   try {
-    descriptors.push(openSync(request.stdinFile, 'r'));
+    // The guard opens the input; this fails as before when it is missing, and before an output file exists.
+    closeSync(openSync(request.stdinFile, 'r'));
     descriptors.push(openSync(request.stdoutFile, 'wx'));
     descriptors.push(openSync(request.stderrFile, 'wx'));
-    let child: ChildProcess;
+    const guarded: GuardRequest = { executable: request.executable, args: request.args, cwd: request.cwd, stdinFile: request.stdinFile, verbatimArguments: request.verbatimArguments === true };
+    writeFileSync(requestFile, JSON.stringify(guarded), { flag: 'wx' });
+    let guard: ChildProcess;
     try {
-      child = spawn(request.executable, [...request.args], {
-        cwd: request.cwd,
+      guard = spawn(process.execPath, [guardEntry, 'guard', requestFile], {
+        // The request's directory exists, so a missing working directory is the child's spawn error, which the guard reports.
+        cwd: dirname(requestFile),
         env: request.environment,
-        stdio: descriptors,
+        stdio: ['pipe', descriptors[0]!, descriptors[1]!],
         shell: false,
         windowsHide: true,
-        detached: detachedChild,
-        windowsVerbatimArguments: request.verbatimArguments === true,
+        detached: true,
       });
     } catch (error) {
-      // A synchronous refusal, such as an argument Node will not pass: the process never existed.
+      // A synchronous refusal: the guard never existed, and neither did the process.
       return notStarted((error as Error).message, startedAt);
     }
-    superviseChild(child);
-    return await new Promise<ProcessResult>((resolve) => {
+    superviseChild(guard);
+    return await new Promise<ProcessResult>((resolve, reject) => {
       let started = false;
       let kill: TreeKill | undefined;
       const timer = setTimeout(() => {
-        kill = killTreeNow(child);
+        kill = killTreeNow(guard);
       }, request.timeoutMs);
-      child.once('spawn', () => {
+      guard.once('spawn', () => {
         started = true;
       });
-      child.on('error', (error) => {
+      guard.on('error', (error) => {
         // After a successful spawn an error (such as a failed kill) is not the end; 'close' still follows.
         if (started) return;
         clearTimeout(timer);
-        resolve(notStarted(error.message, startedAt));
+        resolve(notStarted(`the guard did not start: ${error.message}`, startedAt));
       });
-      child.once('close', (code, signal) => {
+      // The pipe's own end is not the guard's: an error on it changes nothing the guard reports.
+      guard.stdin?.on('error', () => {});
+      guard.once('close', (code, signal) => {
         if (!started) return;
         clearTimeout(timer);
+        guard.stdin?.destroy();
         const endedAt = new Date().toISOString();
-        // A process that exited on its own just as the timer fired was not killed.
-        if (kill === undefined || kill.status === 'not-running') resolve({ termination: 'exited', exitCode: code, signal, startedAt, endedAt });
-        else resolve({ termination: 'killed', exitCode: code, signal, treeKillError: kill.status === 'root-only' ? kill.error : null, startedAt, endedAt });
+        let result: GuardResult | null;
+        try {
+          result = readGuardResult(resultFile);
+        } catch (error) {
+          // A result the guard wrote whole but the engine cannot read is the engine's own fault, as an output file it cannot open is.
+          reject(error as Error);
+          return;
+        }
+        // A child that ended on its own just as the timer fired was not killed.
+        if (result?.termination === 'exited') resolve({ termination: 'exited', exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
+        else if (result?.termination === 'not-started') resolve(notStarted(result.error, startedAt, endedAt));
+        else if (kill !== undefined && kill.status !== 'not-running') resolve({ termination: 'killed', exitCode: code, signal, treeKillError: kill.status === 'root-only' ? kill.error : null, startedAt, endedAt });
+        else {
+          endLeftGroup(guard.pid!);
+          resolve({ termination: 'exited', exitCode: null, signal: null, startedAt, endedAt });
+        }
       });
     });
   } finally {
     for (const descriptor of descriptors) closeSync(descriptor);
+    rmSync(requestFile, { force: true });
+    rmSync(resultFile, { force: true });
+  }
+}
+
+/**
+ * End what a guard killed from outside left of its process group, so a
+ * child it no longer guards does not run beside the rerun (R8 of
+ * resumable runs). On POSIX the group's id cannot name another group
+ * while any member lives, so the kill is safe after the guard is reaped;
+ * no group is no member left. On Windows the descendants of the child
+ * leave the guard's job, and nothing reaches them, which the design
+ * accepts.
+ */
+function endLeftGroup(guardPid: number): void {
+  if (process.platform === 'win32') return;
+  try {
+    process.kill(-guardPid, 'SIGKILL');
+  } catch {
+    // ESRCH: no member of the group is left.
   }
 }
 
@@ -153,19 +269,24 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
 const interruptions: readonly NodeJS.Signals[] = process.platform === 'win32' ? [] : ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'];
 
 /**
- * The processes under supervision that have not closed yet (every worker
- * `runProcess` starts and every preflight probe), and the listeners that
- * kill their trees when the engine ends. The listeners exist only while
- * a process is live, so an idle engine keeps Node's own signal behavior
- * untouched.
+ * The processes under supervision that have not closed yet (the guard of
+ * every worker and check `runProcess` starts, and every preflight probe),
+ * and the listeners that kill their trees when the engine ends. The
+ * listeners exist only while a process is live, so an idle engine keeps
+ * Node's own signal behavior untouched.
  *
- * On Windows no signal listener is needed: Ctrl-C reaches every process
- * on the console, and libuv's job object ends the workers and probes with
- * the engine. The exit listener still runs there, because a descendant that left the
- * job survives the engine unless `taskkill /T` reaches it first.
+ * On Windows no signal listener is needed: Ctrl-C reaches the engine and
+ * every probe on the console, and libuv's job object ends the probes with
+ * the engine. A guard has no console and is in no job of the engine's, so
+ * Ctrl-C reaches none, and the guard ends its child when the engine's
+ * pipe closes. The exit listener still runs there, because a descendant
+ * that left the job survives the engine unless `taskkill /T` reaches it
+ * first.
  *
  * An engine killed outright (SIGKILL, a crash of Node itself) runs no
- * listener; that case cannot be handled from inside the process.
+ * listener; that case cannot be handled from inside the process, and the
+ * guard of each child handles it (R8 of resumable runs). A probe has no
+ * guard and may outlive it.
  */
 class LiveProcesses {
   readonly #children = new Set<ChildProcess>();
@@ -275,7 +396,7 @@ export function killTree(child: KillableProcess): Promise<TreeKill> {
  * check and the kill; the price is that the loop waits for `taskkill`,
  * at most its ten-second limit.
  */
-function killTreeNow(child: KillableProcess): TreeKill {
+export function killTreeNow(child: KillableProcess): TreeKill {
   const pid = child.pid;
   if (pid === undefined || child.exitCode !== null || child.signalCode !== null) return { status: 'not-running' };
   if (process.platform === 'win32') {
