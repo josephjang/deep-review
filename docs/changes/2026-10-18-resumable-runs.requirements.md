@@ -58,7 +58,7 @@ When the ledger, the evidence store or the git data is lost or damaged, the engi
 
 ### Limits of the environment that no run showed
 
-A sleep of the machine, a failure of the network, and the limits of Codex get no recovery here. Principle 11 still applies to the environment (PD2). For the sleep, the design says what to measure first.
+A sleep of the machine, a failure of the network, and the limits of Codex get no recovery here. The one exception is a check that timed out, which runs again once (PD7). Principle 11 still applies to the environment (PD2). For the sleep, the design says what to measure first.
 
 ### A killed check, told apart by its output
 
@@ -78,7 +78,7 @@ An answer pass blocks at the budget (TD8 of answers), and the same command with 
 
 ## Requirements
 
-Some requirements are for ways that no run showed: R4 for units, R5, R6, the record of the start of each check and the write back of R7, R8, R9 and R10. Each of them holds only when the test of R2 shows its way as a failure (PD1).
+Some requirements are for ways that no run showed: R4 for units, R5, R6, R8, R9 and R10, and two parts of R7. These are the record of the start of each check, and the write back at the next command for a check with no end. Each of them holds only when the test of R2 shows its way as a failure (PD1).
 
 ### R1: Resumable means five things
 
@@ -204,15 +204,15 @@ The reason is the kind of failure. The proof of concept built recovery for failu
 
 The proposal suggests new words for principle 11 in the next vision note, in three sentences. The first is "A stop of the engine at any point of its work is resumable". The second is "A test that stops the engine at that point shows the need". The third is "A failure of the environment gets its recovery when a run shows it". The proposal rejects the other choice, a separate fix for each point when a paid run meets it. The search already found nine such ways, and each fix waits for a run that costs tens of dollars.
 
-On 2026-10-18, the author accepted this departure, with one condition. A requirement for a way that no run showed holds only when the test of R2 shows that way as a failure. These are R4 for units, R5, R6, the record of the start of each check and the write back of R7, R8, R9 and R10. When the test does not show a way, an amendment removes its requirement before the work builds its mechanism. Thus the analysis of the code finds the candidates, and the test shows the need, as the second of the three sentences says.
+On 2026-10-18, the author accepted this departure, with one condition. A requirement for a way that no run showed holds only when the test of R2 shows that way as a failure. These are R4 for units, R5, R6, R8, R9 and R10, and two parts of R7, as the head of Requirements names them. When the test does not show a way, an amendment removes its requirement before the work builds its mechanism. Thus the analysis of the code finds the candidates, and the test shows the need, as the second of the three sentences says.
 
-On 2026-10-19, the author put the record of the start of each check under the condition too. It serves only a check with no end on the ledger, which no run showed (PD4).
+On 2026-10-19, the author put the record of the start of each check under the condition too. It serves only a check with no end on the ledger, which no run showed (PD4). Two other write backs are not under the condition: the one after a cut while the engine lives, and the one after a timeout. R4 and the choice of PD7 for a timeout need them.
 
 ### PD2: "Any reason" covers each stop of the engine and the two limits that runs showed
 
 A stop of the engine is the same event to the engine, whatever stopped it. Many things can stop it: Ctrl-C, a closed console, a signal, a hard kill, a host that stops a command, a crash and a loss of power. Each one ends the process at a point of its work. Thus one contract covers them all.
 
-A limit of the environment is different, because each limit has its own signs and its own recovery. Runs showed two of them: the run budget (#48) and the usage limit of Claude Code (#40). The proposal handles these two. The sleep of a machine, a failure of the network and the limits of Codex wait for a run (principle 11). The proposal rejects a general rule that retries each failure of a worker, because a real failure then costs money again and again.
+A limit of the environment is different, because each limit has its own signs and its own recovery. Runs showed two of them: the run budget (#48) and the usage limit of Claude Code (#40). The proposal handles these two. The sleep of a machine, a failure of the network and the limits of Codex wait for a run (principle 11). The one exception is a check that timed out, which runs again once (PD7). The proposal rejects a general rule that retries each failure of a worker, because a real failure then costs money again and again.
 
 ### PD3: Run again what did not pass, not each kind and not only the last record
 
@@ -252,11 +252,13 @@ A stop can kill a worker before the engine, and the engine then records a failur
 
 ### PD7: Write back what a cut check wrote, and keep what was there
 
-A check can write files: a formatter in lint, a generator in build. When a stop cuts it, its writes are on no record, and today the next start of the phase blocks on drift. A person must then write back the bytes that the run expected. The engine knows these bytes, so it does this itself (R7). It first keeps the bytes in the tree as evidence, so nothing is lost if a person also changed one of these files. On 2026-10-18, the author kept this write back, under the condition of PD1.
+A check can write files: a formatter in lint, a generator in build. When a stop cuts it, its writes are on no record, and today the next start of the phase blocks on drift. A person must then write back the bytes that the run expected. The engine knows these bytes, so it does this itself (R7). It first keeps the bytes in the tree as evidence, so nothing is lost if a person also changed one of these files. On 2026-10-18, the author kept this write back, under the condition of PD1 for a check with no end.
 
 The same holds for a check that ended cut while the engine lived (R4). Today the engine records the writes of each check that ends as its revision, and `commit` makes that revision a commit. A half rewrite of `dist/` then becomes a commit of its own. Thus a cut run records no revision, and the write back comes before the check runs again.
 
 On 2026-10-18, the author chose the same for a check that the engine killed at its timeout, which today records its half rewrite too. On 2026-10-19, the author chose to run such a check again once, as a cut check runs. A timeout can come from a slow moment of the machine or from its sleep. A second run tells such a moment from a real hang. A second timeout of the kind in one attempt is its result. These choices for a timeout do not wait for the test of R2 (PD1), because a timeout is not a stop.
+
+The rerun of a timeout departs from principle 11. No run showed a timeout from a slow moment or from a sleep (W9 of the design). The author chose it on 2026-10-19 for the reason above, and the next vision note can revise the principle for it.
 
 The proposal rejects a record of these writes as a revision of the cut check. That record can take the edit of a person as the work of the check. The proposal also rejects the block of today for this case, because the engine caused the drift. And it rejects a rerun with no write back. The rerun then starts from half a rewrite. A formatter that a stop cut can leave half a file, and the lint that runs again can fail on it.
 
@@ -322,7 +324,7 @@ A run that the budget stopped names the work that it did not do and the command 
 
 ### Principle 11, recovery without a person
 
-The proposal departs from this principle for the stops of the engine (PD1). It builds recovery for the points that a test shows, before a run meets them. It keeps the principle for the limits of the environment (PD2), and it builds recovery for the two limits that runs showed. The proposal suggests new words for the principle in the next vision note.
+The proposal departs from this principle for the stops of the engine (PD1). It builds recovery for the points that a test shows, before a run meets them. It keeps the principle for the limits of the environment (PD2), and it builds recovery for the two limits that runs showed. It also departs for a check that timed out, which runs again once (PD7). No run showed a timeout from a slow moment or a sleep. The proposal suggests new words for the principle in the next vision note.
 
 ### Principle 12, a real run is the gate
 

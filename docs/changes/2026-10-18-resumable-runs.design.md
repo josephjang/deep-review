@@ -33,7 +33,7 @@ After a cut check, the engine writes back only the files that the run expects (R
 
 ### No sleep detection
 
-A timeout can count the time that the machine slept (W9 in Context). No run showed this in this engine, so the design does not detect a sleep. An Open Question says what to measure.
+A timeout can count the time that the machine slept (W9 in Context). No run showed this in this engine, so the design does not detect a sleep. An Open Question says what to measure. A check that timed out still runs again once (R7), which also serves a timeout that a sleep caused.
 
 ### No change to the continuation into the fix pass, to #44, or to the answer pass at the budget
 
