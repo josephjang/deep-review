@@ -432,7 +432,8 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
         io.stdout('the run only reviewed; run review --fix to apply the answer with the fixes\n');
         return 0;
       case 'record-only':
-        io.stdout('recorded only; the next deep-review answer on this run without --record-only applies it\n');
+        // The next pass applies every recorded answer that owes an edit, not this one alone (R10 of the skill surface corrections).
+        io.stdout('recorded only; the next deep-review answer on this run without --record-only applies it, with every other recorded answer that owes an edit\n');
         return 0;
       case 'nothing-owed':
         io.stdout('the tree already holds this answer; nothing to apply\n');

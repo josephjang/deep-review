@@ -164,7 +164,8 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     // One answer recorded only, rejecting the departure; the same answer given again opens a second pass over that finding alone, which follows the rule.
     const recordOnly = await run(box, '--finding', departing, '--reject', '--record-only');
     assert.equal(recordOnly.status, 0, recordOnly.stderr);
-    assert.equal(recordOnly.stdout, `answer recorded: run ${finished.id}, ${departing} rejected\nrecorded only; the next deep-review answer on this run without --record-only applies it\n`);
+    // The line names every recorded answer the next pass applies, not this one alone (R10 of the skill surface corrections).
+    assert.equal(recordOnly.stdout, `answer recorded: run ${finished.id}, ${departing} rejected\nrecorded only; the next deep-review answer on this run without --record-only applies it, with every other recorded answer that owes an edit\n`);
     assert.equal(box.run().review!.answerPasses.length, 1, 'no pass opened');
     const retry = await run(box, '--finding', departing, '--reject');
     assert.equal(retry.status, 0, retry.stderr);
