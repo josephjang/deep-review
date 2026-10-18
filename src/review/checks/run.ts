@@ -11,11 +11,11 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceStore, ArtifactReference } from '../../evidence/store.ts';
 import { pinVariables, workerEnvironment } from '../../runtime/environment.ts';
-import { notStarted, runProcess, type ProcessResult } from '../../runtime/process.ts';
+import { endedByKill, notStarted, runProcess, type ProcessResult } from '../../runtime/process.ts';
 import type { CheckOutcome } from '../vocabulary.ts';
 
-/** How a check that ran ended: its command exited 0, exited otherwise, ran past its timeout, or never started. `skipped` is recorded for a check the planner never ran. */
-export type RunOutcome = Exclude<CheckOutcome, 'skipped' | 'cut'>;
+/** How a check that ran ended: its command exited 0, a kill from outside ended it, it exited otherwise, ran past its timeout, or never started. `skipped` is recorded for a check the planner never ran. */
+export type RunOutcome = Exclude<CheckOutcome, 'skipped'>;
 
 /** The shell a check runs through, and the arguments that hand it the command. */
 export interface ShellInvocation {
@@ -92,9 +92,12 @@ export interface CheckResult {
 
 /**
  * The outcome a process result gives a check: 0 after an exit of its own
- * passes, any other exit fails. A check killed because the engine itself
- * was being stopped fails too, and a resume does not run it again:
- * https://github.com/josephjang/deep-review/issues/25
+ * passes; an exit with a kill mark, a signal or a code a shell or Windows
+ * gives a process a kill ended, is cut, which has no result of its own
+ * and runs again (R4 of resumable runs); any other exit fails. A check the
+ * engine killed at its timeout timed out. A kill with no mark, such as
+ * `taskkill`'s exit code 1, still reads as a failure, the risk PD5 of
+ * resumable runs accepts.
  */
 export function checkOutcomeOf(result: ProcessResult): RunOutcome {
   switch (result.termination) {
@@ -103,7 +106,8 @@ export function checkOutcomeOf(result: ProcessResult): RunOutcome {
     case 'killed':
       return 'timeout';
     case 'exited':
-      return result.exitCode === 0 && result.signal === null ? 'passed' : 'failed';
+      if (result.exitCode === 0 && result.signal === null) return 'passed';
+      return endedByKill(result) ? 'cut' : 'failed';
   }
 }
 

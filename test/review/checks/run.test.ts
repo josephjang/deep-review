@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { EvidenceStore } from '../../../src/evidence/store.ts';
+import { spawnSync } from 'node:child_process';
 import { checkEnvironment, checkOutcomeOf, checkPins, runCheck, shellInvocation, type CheckRequest } from '../../../src/review/checks/run.ts';
+import { killMarkCodes } from '../../../src/runtime/process.ts';
+import { killWithMark } from '../../helpers/resume-contract.ts';
 import { buildServerPins } from '../../../src/runtime/environment.ts';
 import { baseEnvironment, isAlive, until, waitForPid } from '../../helpers/launcher.ts';
 
@@ -62,9 +65,17 @@ describe('checkOutcomeOf', () => {
   it('passes an exit code of 0 alone', () => {
     assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: 0, signal: null, ...at }), 'passed');
     assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: 1, signal: null, ...at }), 'failed');
-    assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: null, signal: 'SIGTERM', ...at }), 'failed');
+    assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: 134, signal: null, ...at }), 'failed', 'a test runner that aborts gives 134, a real failure');
     assert.equal(checkOutcomeOf({ termination: 'killed', exitCode: null, signal: 'SIGKILL', treeKillError: null, ...at }), 'timeout');
     assert.equal(checkOutcomeOf({ termination: 'not-started', exitCode: null, signal: null, error: 'ENOENT', ...at }), 'not-started');
+  });
+
+  it('cuts a check that ended with a kill mark, a signal or a code a shell or Windows gives a killed process, and fails one with exit code 1 (R4 of resumable runs)', () => {
+    for (const exitCode of killMarkCodes) assert.equal(checkOutcomeOf({ termination: 'exited', exitCode, signal: null, ...at }), 'cut', String(exitCode));
+    assert.deepEqual(killMarkCodes, [129, 130, 131, 137, 143, 3221225786]);
+    for (const signal of ['SIGTERM', 'SIGINT', 'SIGKILL']) assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: null, signal, ...at }), 'cut', signal);
+    assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: 1, signal: null, ...at }), 'failed', 'taskkill leaves exit code 1, the accepted risk of PD5');
+    assert.equal(checkOutcomeOf({ termination: 'exited', exitCode: 128, signal: null, ...at }), 'failed');
   });
 });
 
@@ -157,6 +168,26 @@ setInterval(() => {}, 1000);
         // Already gone.
       }
     }
+  });
+
+  /** Run a check that writes its pid and waits, end it with `kill` once the pid is there, and return what the check came to. */
+  const killedBy = async (kill: (pid: number) => void): Promise<string> => {
+    const pidFile = join(directory, `waiting-${String((serial += 1))}.pid`);
+    const path = script(`wait-${String(serial)}.mjs`, `(await import('node:fs')).writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);
+`);
+    const pending = runCheck(evidence, request(node(path)));
+    kill(await waitForPid(pidFile));
+    return (await pending).outcome;
+  };
+
+  it('cuts a real check that SIGTERM or SIGINT ends on POSIX (R4 of resumable runs)', { skip: process.platform === 'win32' ? 'POSIX signals' : false }, async () => {
+    assert.equal(await killedBy((pid) => process.kill(pid, 'SIGTERM')), 'cut');
+    assert.equal(await killedBy((pid) => process.kill(pid, 'SIGINT')), 'cut');
+  });
+
+  it('cuts a real check the kill of Git for Windows ends, and fails one taskkill ends, the accepted risk (R4, PD5 of resumable runs)', { skip: process.platform === 'win32' ? false : 'Windows tools' }, async () => {
+    assert.equal(await killedBy(killWithMark), 'cut');
+    assert.equal(await killedBy((pid) => spawnSync(join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'taskkill.exe'), ['/PID', String(pid), '/F'], { windowsHide: true, stdio: 'ignore' })), 'failed');
   });
 
   it('records a shell that cannot start as not started, with the reason', async () => {

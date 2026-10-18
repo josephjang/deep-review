@@ -5,7 +5,8 @@
 //   "pass"                          exit 0
 //   "fail"                          print a failure and exit 1
 //   "hang"                          start a grandchild, write its pid beside the file, and never exit
-//   { "write": { "<path>": "<text>" } }   write the files (relative to the worktree), then pass, or with "hang": true never exit
+//   { "write": { "<path>": "<text>" } }   write the files (relative to the worktree), then pass, with "hang": true never exit, or with "exit": <code> exit so
+//   { "exit": <code> }              exit with the code, as a check a kill ended with a kill mark does
 //   { "replace": { "<path>": { "from": "<text>", "to": "<text>" } } }   rewrite each file that holds `from` with `to` in its place, as a formatter does, then pass
 //   { "failIfContains": { "<path>": "<text>" } }   fail while a file holds the text, pass otherwise
 // Every run appends `<kind>` to `<FAKE_CHECKS>.runs`, so a test sees what ran and in what order.
@@ -82,7 +83,10 @@ if (rule === 'hang') {
   }
   holdIfNamed(`check ${kind}`);
   if (rule.hang === true) setInterval(() => {}, 1000);
-  else process.exit(0);
+  else process.exit(rule.exit ?? 0);
+} else if (typeof rule === 'object' && rule !== null && 'exit' in rule) {
+  holdIfNamed(`check ${kind}`);
+  process.exit(rule.exit);
 } else if (typeof rule === 'object' && rule !== null && 'replace' in rule) {
   for (const [path, { from, to }] of Object.entries(rule.replace)) {
     const file = join(process.cwd(), ...path.split('/'));

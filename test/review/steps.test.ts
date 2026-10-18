@@ -185,6 +185,17 @@ describe('nextStep', () => {
     assert.deepEqual(nextStep(history.review(), idle), { kind: 'finish-phase', phase: 'finders', attempt: 2, outcome: 'completed', blocker: null }, 'no angle was given up');
   });
 
+  it('blocks the phase, rather than degrade, when a degrading unit ran out of attempts with a cut worker among its failures, and launches it again at once after one (R4 of resumable runs)', () => {
+    const cutOnce = triaged().start('finders').add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason: 'failed: The worker was ended by exit code 143, a kill mark', fault: 'cut' }, 7);
+    const again = nextStep(cutOnce.review(), idle);
+    assert.ok(again.kind === 'launch' && again.units.some((unit) => unit.key === 'RIPPLE'), JSON.stringify(again));
+    const cutTwice = cutOnce.add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(4), reason: 'failed: The worker exited with code 1', fault: 'unit' }, 7).review();
+    const done = (review: typeof cutTwice): typeof cutTwice => ({ ...review, units: { ...review.units, finders: Object.fromEntries(finderAngles.map((angle) => [angle, angle === 'RIPPLE' ? review.units.finders.RIPPLE! : { answeredBy: worker(9), failures: [] }])) } });
+    const step = nextStep(done(cutTwice), idle);
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked', JSON.stringify(step));
+    assert.match(step.kind === 'finish-phase' ? step.blocker?.detail ?? '' : '', /^the finder-RIPPLE worker for finders:RIPPLE failed twice, a worker a kill from outside ended with a kill mark among the failures: /);
+  });
+
   it('gives a running phase\'s units fresh attempts when a resumed engine re-enters it, so a unit lost twice launches again (R5 of resumable runs)', () => {
     const reentered = findersLostTwice().add('phase.started', { phase: 'finders', attempt: 2 }).add('worktree.checked', { phase: 'finders', attempt: 2, drifted: false, files: [] }).review();
     assert.deepEqual(reentered.units.finders.RIPPLE?.failures, []);

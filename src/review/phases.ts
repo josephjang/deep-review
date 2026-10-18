@@ -519,7 +519,8 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
 
 /** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault, or for a unit that ran while its claims directory was removed, the environment's (R12 of commit series integrity). */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string, fault: AttemptFault): NewEvent {
-  return { kind: 'attempt.failed', version: 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
+  // The faults version 6 records stay at version 6, which an engine before resumable runs reads; `cut` and `limit` need version 7.
+  return { kind: 'attempt.failed', version: fault === 'cut' || fault === 'limit' ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
@@ -595,7 +596,8 @@ export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: Cont
   // A fixer that ran without its claims directory is not answered, whatever it returned: its edits are kept, and the failure is its environment's (R12 of commit series integrity).
   if (unit.phase === 'fixes' && context.claimsLost) return failedWithEdits(unit, receipt, 'the claims directory was removed while the unit ran', context, 'environment');
   // Every other failure is the unit's, a runtime's usage limit included, which retrying cannot mend: https://github.com/josephjang/deep-review/issues/40
-  if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context);
+  // A worker a kill from outside ended with a kill mark is an interruption of its unit, as a lost one is (R4 of resumable runs).
+  if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context, receipt.cause === 'cut' ? 'cut' : 'unit');
   const review = requireReview(context.state);
   try {
     return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review, context)];

@@ -495,6 +495,35 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA, 'the repair worked on the tree of the fixes');
   });
 
+  it('runs a check a kill mark ended again, writing back what it wrote and recording no revision of it (R4, R7 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.checks({ lint: ['pass', { write: { 'src/a.ts': 'export function parse(' }, exit: 143 }, 'pass'] });
+    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    reportText(await box.fix('claude'));
+    const fix = box.run().review!.fix!;
+    assert.deepEqual(fix.checks.runs.checks.filter((run) => run.kind === 'lint').map((run) => [run.outcome, run.exitCode, run.replaces?.outcome ?? null]), [['cut', 143, null], ['passed', 0, 'cut']]);
+    assert.deepEqual(fix.restorations.map((restoration) => [restoration.check, restoration.files.map((file) => file.path)]), [[{ kind: 'lint', attempt: 1 }, ['src/a.ts']]]);
+    assert.ok(!fix.revisions.some((revision) => revision.source.kind === 'check'), 'no revision of the half rewrite');
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA);
+    assert.match(box.logs.join('\n'), /check lint \(checks\): cut by exit code 143, a kill mark; it runs again/);
+    assert.deepEqual(fix.checks.runs['repair-checks'], [], 'a cut is no failure for the repair');
+  });
+
+  it('records the second cut of a check in one attempt as its failure, naming both marks, and writes back after it too (R4 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.checks({ lint: ['pass', { write: { 'src/a.ts': 'export function parse(' }, exit: 143 }, { write: { 'src/a.ts': 'export function' }, exit: 130 }] });
+    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) }, 'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [] }]) } });
+    reportText(await box.fix('claude'));
+    const fix = box.run().review!.fix!;
+    const lint = fix.checks.runs.checks.filter((run) => run.kind === 'lint');
+    assert.deepEqual(lint.map((run) => run.outcome), ['cut', 'failed']);
+    assert.equal(lint[1]!.error, 'cut twice in attempt 1: first by exit code 143, then by exit code 130, each a kill mark');
+    assert.equal(fix.restorations.length, 2, 'the second cut is written back as the first is');
+    assert.ok(!fix.revisions.some((revision) => revision.source.kind === 'check'));
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA, 'the repair worked on the tree of the fixes');
+    assert.deepEqual(fix.answers.repair.repair!.findings.map((finding) => finding.id), ['lint'], 'the failure is the result the repair takes');
+  });
+
   it('leaves a check the repair did not fix failing in the report, runs no check after a repair that changed nothing, and completes (TD11 of resumable runs)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.checks({ test: { failIfContains: { 'src/a.ts': 'BROKEN' } } });

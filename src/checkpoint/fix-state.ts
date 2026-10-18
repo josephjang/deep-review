@@ -13,6 +13,7 @@
 import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ClaimsLost, CommitsCreated, CommitsPrepared, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, FixReopened, PlannedCheckV2, PlannedCheckV3, RecordedDecision, ReportWritten, ScopeMode, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
+import { endedByKill } from '../runtime/process.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
 
@@ -277,8 +278,13 @@ export interface CutShortCheck {
   readonly attempt: number;
 }
 
-/** Whether a run of a check was cut short by a kill, its writes no work of a complete check (R7 of resumable runs): a run that ended cut, or one the engine killed at its timeout. */
-export const killedRun = (run: Pick<CheckRunState, 'outcome' | 'termination'>): boolean => run.outcome === 'cut' || run.termination === 'killed';
+/**
+ * Whether a run of a check was cut short by a kill, its writes no work of a
+ * complete check (R4, R7 of resumable runs): a run that ended cut, one the
+ * engine killed at its timeout, or the second cut of a kind in one attempt,
+ * which is recorded failed with the kill mark it ended with.
+ */
+export const killedRun = (run: Pick<CheckRunState, 'outcome' | 'termination' | 'exitCode' | 'signal'>): boolean => run.outcome === 'cut' || run.termination === 'killed' || (run.outcome === 'failed' && endedByKill(run));
 
 /**
  * The last check of a checks phase that a kill cut short in an attempt

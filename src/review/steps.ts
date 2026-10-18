@@ -301,9 +301,10 @@ function degraded(review: ReviewState, unit: Unit): boolean {
 
 /**
  * Whether a failure of the environment is among a unit's: a worker lost
- * with its engine, which nothing observed failing, or an attempt that ran
+ * with its engine, which nothing observed failing, an attempt that ran
  * while its claims directory was removed (R12 of commit series
- * integrity). Either is an interruption, not the unit failing.
+ * integrity), or a worker a kill from outside ended with a kill mark (R4
+ * of resumable runs). Each is an interruption, not the unit failing.
  */
 const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.cause !== 'unit') ?? false;
 
@@ -349,7 +350,7 @@ const usd = (value: number): string => value.toFixed(2);
  */
 export function workerFailedBlocker(review: ReviewState, unit: Unit, state: UnitState | undefined): Blocker {
   const causes = new Set(state?.failures.map((failure) => failure.cause));
-  const interruption = causes.has('lost') ? ', a worker lost with its engine among the failures' : causes.has('environment') ? ', an attempt whose claims directory was removed among the failures' : '';
+  const interruption = causes.has('lost') ? ', a worker lost with its engine among the failures' : causes.has('cut') ? ', a worker a kill from outside ended with a kill mark among the failures' : causes.has('environment') ? ', an attempt whose claims directory was removed among the failures' : '';
   const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
   const action = unit.phase === 'survey' && degradationOf(review, unit) === null ? surveyWorkerFailedAction : blockerActions['worker-failed'];
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };

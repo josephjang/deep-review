@@ -55,6 +55,24 @@ export type ProcessResult =
       readonly endedAt: string;
     };
 
+/**
+ * The exit codes a kill from outside the engine leaves on a child (R4,
+ * PD5, TD4 of resumable runs): 128 plus the number of SIGHUP, SIGINT,
+ * SIGQUIT, SIGKILL or SIGTERM, which a shell gives a process that signal
+ * ended, and 3221225786, STATUS_CONTROL_C_EXIT, which Windows gives a
+ * process Ctrl-C ended. Exit code 1 is no mark: `taskkill` leaves it, and
+ * so does a check that fails by itself.
+ */
+export const killMarkCodes: readonly number[] = [129, 130, 131, 137, 143, 3221225786];
+
+/** Whether a child ended with a kill mark: a signal, or one of `killMarkCodes`. Checks and workers read this one list, so the two cannot disagree on a mark. */
+export function endedByKill(end: { readonly exitCode: number | null; readonly signal: string | null }): boolean {
+  return end.signal !== null || (end.exitCode !== null && killMarkCodes.includes(end.exitCode));
+}
+
+/** A kill mark as a log line or an error names it: the signal, or the exit code. */
+export const killMarkWords = (end: { readonly exitCode: number | null; readonly signal: string | null }): string => (end.signal !== null ? `signal ${end.signal}` : `exit code ${String(end.exitCode)}`);
+
 /** The result for a process that never existed, and why; it ended when the attempt did, `endedAt` by default now. */
 export function notStarted(error: string, startedAt: string, endedAt: string = new Date().toISOString()): Extract<ProcessResult, { termination: 'not-started' }> {
   return { termination: 'not-started', exitCode: null, signal: null, error, startedAt, endedAt };

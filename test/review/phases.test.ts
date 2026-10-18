@@ -25,6 +25,7 @@ const receipt = (output: unknown, change: Partial<WorkerReceipt> = {}): WorkerRe
   workerId: '00000000-0000-4000-8000-0000000000aa',
   outcome: 'completed',
   error: null,
+  cause: null,
   process: { exitCode: 0, signal: null, termination: 'exited', startedAt: '2026-09-27T00:00:00.000Z', endedAt: '2026-09-27T00:00:01.000Z' },
   runtime: { name: 'claude', version: '2.1.283', sessionIds: [], usage: null },
   denials: [],

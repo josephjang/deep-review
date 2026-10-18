@@ -889,7 +889,15 @@ describe('workerVerdict', () => {
 
   it('fails an answer from a process that did not exit cleanly', () => {
     assert.deepEqual(workerVerdict(invocation, exited(3), answer), { outcome: 'failed', error: 'The worker exited with code 3', output: null });
-    assert.deepEqual(workerVerdict(invocation, exited(null, 'SIGTERM'), answer), { outcome: 'failed', error: 'The worker was ended by signal SIGTERM', output: null });
+  });
+
+  it('fails a worker a kill mark ended with the cause cut, whatever it printed, and one that exited 1 as its unit\'s own (R4 of resumable runs)', () => {
+    for (const [result, mark] of [[exited(null, 'SIGTERM'), 'signal SIGTERM'], [exited(143), 'exit code 143'], [exited(3221225786), 'exit code 3221225786']] as const) {
+      const verdict = { outcome: 'failed', error: `The worker was ended by ${mark}, a kill mark: a kill from outside the engine`, output: null, cause: 'cut' };
+      assert.deepEqual(workerVerdict(invocation, result, answer), verdict, mark);
+      assert.deepEqual(workerVerdict(invocation, result, { kind: 'failed', error: 'no envelope' }), verdict, `${mark}, with no envelope`);
+    }
+    assert.deepEqual(workerVerdict(invocation, exited(1), answer), { outcome: 'failed', error: 'The worker exited with code 1', output: null });
   });
 
   it('completes with the validated answer, and fails one the schema rejects', () => {

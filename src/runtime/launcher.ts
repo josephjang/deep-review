@@ -12,7 +12,7 @@ import { compileOutputSchema, parseInvocation, type Invocation, type InvocationI
 import { withPathFirst, workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
 import { preflight, type PreflightOptions } from './preflight.ts';
-import { notStarted, runProcess, type ProcessResult } from './process.ts';
+import { endedByKill, killMarkWords, notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes, type PinnedRuntimeOptions } from './runtimes.ts';
 import { checkpointScratchKey, chooseScratch, chooseShared, defaultScratchRoot } from './scratch.ts';
@@ -50,6 +50,8 @@ export interface WorkerReceipt {
   readonly denials: readonly DeniedTool[] | null;
   /** The answer, validated against the output schema; null unless the outcome is `completed`. */
   readonly output: unknown;
+  /** Why a failed worker failed when it was no fault of its unit's, or null (R4 of resumable runs). */
+  readonly cause: FailureCause | null;
   readonly evidence: {
     readonly prompt: ArtifactReference;
     readonly schema: ArtifactReference;
@@ -238,6 +240,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     runtime: { name: adapter.name, version, sessionIds: finish.sessionIds, usage: settled.usage },
     denials: finish.denials,
     output: settled.output,
+    cause: settled.cause,
     evidence: { prompt: promptReference, schema: schemaReference, stdout: finish.stdout, stderr: finish.stderr, finalMessage: finish.finalMessage, output: finish.output },
   };
 }
@@ -394,6 +397,7 @@ interface Settled {
   readonly observedSessionIds: readonly string[];
   readonly usage: unknown;
   readonly output: unknown;
+  readonly cause: FailureCause | null;
   /** Some process file could not be frozen, so the io directory holds its only copy. */
   readonly keepProcessFiles: boolean;
 }
@@ -445,17 +449,26 @@ export const withPinnedSession = (pinned: string | null, observed: readonly stri
 /** A decode that has no answer to offer: the session ids the outputs named, and why. */
 const undecoded = (sessionIds: readonly string[], error: string): Decoded => ({ sessionIds, usage: null, denials: null, result: { kind: 'failed', error } });
 
-/** How a worker ended, as the ledger records it: an answer only when completed, and a reason otherwise. */
+/**
+ * Why a failed worker failed when it was no fault of its unit's: `cut`, a
+ * kill from outside the engine that left a kill mark (R4 of resumable
+ * runs). The ledger records it with the failure (`attempt.failed@7`),
+ * not with the finish, whose shape does not change.
+ */
+export type FailureCause = 'cut';
+
+/** How a worker ended, as the ledger records it: an answer only when completed, and a reason otherwise, with the cause of a failure that was no fault of its unit's. */
 export type Verdict =
-  | { readonly outcome: 'completed'; readonly error: null; readonly output: unknown }
-  | { readonly outcome: Exclude<WorkerOutcome, 'completed'>; readonly error: string; readonly output: null };
+  | { readonly outcome: 'completed'; readonly error: null; readonly output: unknown; readonly cause?: undefined }
+  | { readonly outcome: Exclude<WorkerOutcome, 'completed'>; readonly error: string; readonly output: null; readonly cause?: FailureCause };
 
 const failedWith = (error: string): Verdict => ({ outcome: 'failed', error, output: null });
 
 /**
  * Decide the outcome (R5, TD5). What happened to the process comes first: a
- * worker that never started failed, and one killed at its timeout timed out.
- * Then what the runtime said: a budget stop or a failure it reported; then
+ * worker that never started failed, one killed at its timeout timed out,
+ * and one a kill from outside ended with a kill mark failed with the cause
+ * `cut`, whatever it printed (R4 of resumable runs). Then what the runtime said: a budget stop or a failure it reported; then
  * an exit that was not clean; then the answer, checked against the schema.
  * A schema whose check throws makes this throw.
  */
@@ -465,6 +478,7 @@ export function workerVerdict(invocation: Invocation, result: ProcessResult, dec
     const how = result.treeKillError === null ? 'was killed with its process tree' : `was killed, but only its root: ${result.treeKillError}; descendants may still run`;
     return { outcome: 'timeout', error: `The worker ran past its timeout of ${String(invocation.timeoutMs)} ms and ${how}`, output: null };
   }
+  if (endedByKill(result)) return { outcome: 'failed', error: `The worker was ended by ${killMarkWords(result)}, a kill mark: a kill from outside the engine`, output: null, cause: 'cut' };
   switch (decoded.kind) {
     case 'budget':
       return { outcome: 'budget', error: decoded.error, output: null };
@@ -520,7 +534,7 @@ function settleOutputs(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocati
   const strange = decoded.sessionIds.filter((id) => !sessionIdSchema.safeParse(id).success);
   known.sessionIds = sessionIds;
 
-  const { outcome, error, output } = withUnrecordableSessions(workerVerdict(invocation, result, decoded.result), strange);
+  const { outcome, error, output, cause } = withUnrecordableSessions(workerVerdict(invocation, result, decoded.result), strange);
 
   const outputJson = outcome === 'completed' ? JSON.stringify(output) : undefined;
   return {
@@ -543,6 +557,7 @@ function settleOutputs(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocati
     observedSessionIds: sessionIds,
     usage: decoded.usage ?? null,
     output,
+    cause: cause ?? null,
     keepProcessFiles: false,
   };
 }
@@ -622,6 +637,7 @@ function launcherFailure(result: ProcessResult, error: unknown, known: Known, io
     observedSessionIds: known.sessionIds,
     usage: null,
     output: null,
+    cause: null,
     keepProcessFiles: !known.frozen,
   };
 }
