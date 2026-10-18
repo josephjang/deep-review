@@ -11,6 +11,7 @@
  */
 import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend } from '../checkpoint/events.ts';
 import { standingAnswers } from '../checkpoint/answer-state.ts';
+import { budgetStoppedUnits } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
@@ -40,8 +41,13 @@ export interface ReportInput {
   readonly engineEntry: string;
   /** One row per phase the run did not skip, and the total. */
   readonly statistics: { readonly phases: readonly (Spend & { readonly phase: Phase })[]; readonly total: Spend; readonly budgetApplied: boolean };
-  /** For a fix run: where a frozen blob is, for the checks' output, and the patch series' paths in ledger order. */
-  readonly fix?: { readonly evidencePath: (reference: ArtifactReference) => string; readonly patches: readonly string[] };
+  /**
+   * For a fix run: where a frozen blob is, for the checks' output; the
+   * patch series' paths in ledger order; and the command that continues
+   * a fix pass the run budget stopped (`continueCommand`), else null (R15
+   * of resumable runs).
+   */
+  readonly fix?: { readonly evidencePath: (reference: ArtifactReference) => string; readonly patches: readonly string[]; readonly continueCommand: string | null };
 }
 
 const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
@@ -102,6 +108,12 @@ function statisticsTable(review: ReviewState, input: ReportInput): string {
     ...phases.filter((phase) => review.phases[phase].status !== 'skipped').map((phase) => row(phase, input.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
     row('Total', input.statistics.total),
   ].join('\n');
+}
+
+/** The units the run budget left, as the line that names how to continue them says them: the batches by their count, then the repair. */
+function stoppedUnitWords(units: readonly { readonly phase: 'fixes' | 'repair' }[]): string {
+  const batches = units.filter((unit) => unit.phase === 'fixes').length;
+  return [...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]), ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : [])].join(' and ');
 }
 
 /** What bounded the run's spend: the run budget in force at the end, or why there was none. */
@@ -172,6 +184,9 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
   const fate = blocked === drifted.length ? 'each blocked the run until the tree was restored' : blocked === 0 ? 'each was written back after a check a kill cut short' : `${String(drifted.length - blocked)} ${drifted.length - blocked === 1 ? 'was' : 'were'} written back after a check a kill cut short, and each other blocked the run until the tree was restored`;
   lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? `none found a difference from ${against}` : `${String(drifted.length)} found a difference in ${drifted.map(({ check }) => `${check.phase} (attempt ${String(check.attempt)}: ${[...headMoved(check), ...check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`)].join(', ')})`).join('; ')}; ${fate}`}.`);
   lines.push(budgetLine(review, input.statistics));
+  const stopped = review.fix === null ? [] : budgetStoppedUnits(review.fix);
+  const command = input.fix?.continueCommand ?? null;
+  if (stopped.length > 0 && command !== null) lines.push(`- The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${command} continues it and reviews nothing again.`);
   const unreported = input.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show.${input.statistics.budgetApplied ? ' The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.' : ''}`);
@@ -225,6 +240,21 @@ function answersLines(review: ReviewState, input: ReportInput): string[] {
   return lines;
 }
 
+/**
+ * The header's line of a fix pass the run budget stopped and the same
+ * command reopened (R15 of resumable runs): when it was last reopened,
+ * how many times when more than one, and where the report it replaced
+ * is. None for a run never reopened.
+ */
+function reopenedLine(review: ReviewState, input: ReportInput): string[] {
+  const reopenings = review.fix?.reopenings ?? [];
+  const last = reopenings.at(-1);
+  if (last === undefined) return [];
+  if (input.fix === undefined) throw new Error('A reopened run is a fix run, whose report names where its evidence is');
+  const when = reopenings.length === 1 ? `on ${last.at}` : `${String(reopenings.length)} times, the last on ${last.at}`;
+  return [`Reopened: the fix pass past the run budget ${when}, after the report at ${inlineText(input.fix.evidencePath(last.reportBefore.report))}`];
+}
+
 /** Render the report from the fold. The run must be configured for review and have its scope. */
 export function renderReport(state: RunState, input: ReportInput): string {
   const review = state.review;
@@ -251,6 +281,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(configuration.settings === null && configuration.fixSettings === null ? [] : [inlineText(settingsHeaderLine(configuration))]),
     ...continuedLine(review, input),
     ...answersLines(review, input),
+    ...reopenedLine(review, input),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
     ...[fixHeaderLine(review)].filter((line) => line !== null),
   ];

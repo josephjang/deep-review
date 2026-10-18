@@ -41,7 +41,8 @@ import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
-import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, type PolicyFlags } from './review/policy.ts';
+import { assembleRoles } from './roles/assemble.ts';
+import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
@@ -779,7 +780,8 @@ function status(values: Values, io: CommandIo, root: string): number {
       return 0;
     }
     const adapter = defaultRuntimes().get(state.review?.configuration.runtime ?? 'claude');
-    const described = describeRun(state, adapter, (reference) => checkpoint.evidence.pathOf(reference));
+    // A fix pass the run budget stopped is continued with this engine, which the line names (R15 of resumable runs).
+    const described = describeRun(state, adapter, (reference) => checkpoint.evidence.pathOf(reference), { engineEntry: io.engineEntry ?? sourceEntry, ownRolesDigest: () => rolesDigest(assembleRoles(engineRolesRoot())) });
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
     return 0;
   } finally {

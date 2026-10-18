@@ -19,7 +19,7 @@ describe('describeRun', () => {
       'Workers: 0 running, 0 finished, 0 lost',
       'Spend: none',
     ]);
-    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, continuedFrom: null, decisions: null, answers: [], answerPasses: [], fix: null, patches: [], commits: [], review: null });
+    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, continuedFrom: null, decisions: null, answers: [], answerPasses: [], fix: null, patches: [], commits: [], continueCommand: null, review: null });
   });
 
   it('names the reason of an abandoned run on its first line', () => {

@@ -786,16 +786,17 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const revisions = fixState === null ? [] : fixState.revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fixState, revision) } }));
           const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
-          const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
+          // A fix pass the run budget stopped is continued by the same command with a higher budget, which the report and the log name (R11, R15 of resumable runs).
+          const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
+          const continuing = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options.rolesRoot), stoppedSpend);
+          const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)), continueCommand: continuing } };
           const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, ...fix }));
           state = append(checkpoint, state, [
             { kind: 'report.written', version: 5, payload: { report, statistics, patches } },
             { kind: 'phase.finished', version: 6, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
-          // A fix pass the run budget stopped is continued by the same command with a higher budget, which the line names (R11, R15 of resumable runs).
-          const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
-          if (stoppedSpend !== null) log(`run ${runId}: the run budget stopped its fix pass; ${continueCommand(state, engineEntry, namedRoles(options.rolesRoot), stoppedSpend)} continues it`);
+          if (continuing !== null) log(`run ${runId}: the run budget stopped its fix pass; ${continuing} continues it`);
           break;
         }
       }

@@ -10,12 +10,15 @@ import { answerRun, type AnswerOptions } from '../../src/review/answer.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { gitContent } from '../../src/review/content.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { budgetSpendOf } from '../../src/review/spend.ts';
+import { describeRun, rolesPlaceholder } from '../../src/review/status.ts';
+import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { fixedA, found, noLeads } from '../helpers/fix-pass-fixture.ts';
 import { baseEnvironment, fakeClaude, type Finished, node } from '../helpers/launcher.ts';
 import { commitAll, git, write } from '../helpers/repository.ts';
-import { afterFind, appending, loadedRunnerTimeoutMs, reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
+import { afterFind, appending, cliEntry, loadedRunnerTimeoutMs, reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
 
 const cli = resolve(import.meta.dirname, '../../src/cli.ts');
 
@@ -37,18 +40,28 @@ const budgetScript: Script = {
 /**
  * A sandbox whose fix run the run budget stopped, at a batch size of 1 and
  * a budget of 1 USD, and that run, which left `units` not attempted for the
- * budget and whose end logged the command that continues it.
+ * budget, and whose end logged, reported and gave `status` the command
+ * that continues it (R15 of resumable runs).
  */
-async function stoppedRun(t: TestContext, script: Script = budgetScript, units: readonly { phase: 'fixes' | 'repair'; key: string }[] = [{ phase: 'fixes', key: 'c1-2' }], prepare: (box: ReviewSandbox) => void = () => {}): Promise<{ box: ReviewSandbox; stopped: RunState }> {
+async function stoppedRun(t: TestContext, script: Script = budgetScript, units: readonly { phase: 'fixes' | 'repair'; key: string }[] = [{ phase: 'fixes', key: 'c1-2' }], prepare: (box: ReviewSandbox) => void = () => {}): Promise<{ box: ReviewSandbox; stopped: RunState; text: string }> {
   const box = ReviewSandbox.forTest(t, script);
   box.editPolicy((policy) => ({ ...policy, fixes: { batchSize: 1 } }));
   prepare(box);
-  reportText(await box.fix('claude', { flags: { budgetUsd: 1 } }));
+  const text = reportText(await box.fix('claude', { flags: { budgetUsd: 1 } }));
   const stopped = box.run();
   assert.deepEqual(budgetStoppedUnits(stopped.review!.fix!), units);
-  const line = new RegExp(`^run ${stopped.id}: the run budget stopped its fix pass; node "[^"]+cli\\.ts" review --runtime claude --last-commit --fix --budget-usd \\d+ --roles "[^"]+" continues it$`);
-  assert.ok(box.logs.some((entry) => line.test(entry)), box.logs.join('\n'));
-  return { box, stopped };
+  const spend = budgetSpendOf(stopped, claudeAdapter).usd!;
+  const command = `node "${cliEntry}" review --runtime claude --last-commit --fix --budget-usd ${String(Math.floor(spend) + 1)} --roles "${box.rolesRoot}"`;
+  assert.ok(box.logs.includes(`run ${stopped.id}: the run budget stopped its fix pass; ${command} continues it`), box.logs.join('\n'));
+  const batches = units.filter((unit) => unit.phase === 'fixes').length;
+  const left = [...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]), ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : [])].join(' and ');
+  assert.ok(text.includes(`\n- The run budget stopped the fix pass: ${left} did not start. ${command} continues it and reviews nothing again.\n`), text);
+  // status names the same command, and in place of a roles directory it is not given, a placeholder it explains.
+  const status = (ownRolesDigest: string): string[] => describeRun(stopped, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference), { engineEntry: cliEntry, ownRolesDigest: () => ownRolesDigest }).lines;
+  const withoutRoles = command.replace(` --roles "${box.rolesRoot}"`, '');
+  assert.ok(status(stopped.review!.configuration.rolesDigest).includes(`Continue: ${withoutRoles}, which continues the fix pass the run budget stopped and reviews nothing again`));
+  assert.ok(status('0'.repeat(64)).includes(`Continue: ${withoutRoles} --roles "${rolesPlaceholder}", which continues the fix pass the run budget stopped and reviews nothing again, with the roles directory the run was reviewed with in place of ${rolesPlaceholder}`));
+  return { box, stopped, text };
 }
 
 /** The labels of the workers `after` launched that `before` had not. */
@@ -80,6 +93,10 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), secondA);
     assert.ok(box.logs.some((line) => line.startsWith(`run ${stopped.id}: reopened its fix pass, which the run budget stopped, for batch c1-2; `)), box.logs.join('\n'));
     assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted,/m);
+    const reopening = state.review!.fix!.reopenings[0]!;
+    assert.ok(text.includes(`\nReopened: the fix pass past the run budget on ${reopening.at}, after the report at ${box.checkpoint.evidence.pathOf(stopped.review!.report!.report)}\n`), text);
+    assert.doesNotMatch(text, /The run budget stopped the fix pass/, 'nothing is left for the budget');
+    assert.ok(!describeRun(state, claudeAdapter, () => '', { engineEntry: cliEntry, ownRolesDigest: () => '' }).lines.some((line) => line.startsWith('Continue: ')));
   });
 
   it('refuses the same command with a budget not above the spend, or the pinned one, naming --budget-usd and --fresh, and appends nothing (R12 of resumable runs)', async (t) => {
@@ -220,12 +237,17 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     assert.deepEqual(budgetStoppedUnits(twice.review!.fix!), []);
     assert.deepEqual(launchedSince(stopped, twice), ['fixer fixes:c1-2', 'fixer fixes:c1-3']);
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), thirdA);
+    const last = twice.review!.fix!.reopenings.at(-1)!;
+    assert.match(readFileSync(box.checkpoint.evidence.pathOf(twice.review!.report!.report), 'utf8'), new RegExp(`^Reopened: the fix pass past the run budget 2 times, the last on ${last.at.replaceAll('.', '\\.')}, after the report at `, 'm'));
   });
 
   it('reopens a run commit committed, and the next commit commits the reopened work as a later series (R11 of resumable runs)', async (t) => {
     const { box, stopped } = await stoppedRun(t);
     const first = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
-    reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
+    const text = reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
+    assert.match(text, /^What the fix pass did with each finding, in rank order\. Patch 1 is committed; patch 2, the reopened fix pass's, is in the working tree, uncommitted;/m);
+    assert.match(text, /^2\. fix\(a\): Pass a text to parse \(c1-2, the reopened fix pass after the commits\): /m);
+    assert.match(text, /^1\. fix\(a\): Return 0 for a null text \(c1-1\): /m);
     const later = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
     assert.equal(git(box.repo, 'rev-parse', `${later.commits[0]!.sha}^`), first.commits.at(-1)!.sha);
     assert.deepEqual(later.commits.map((commit) => commit.subject), ['fix(a): Pass a text to parse']);
@@ -281,6 +303,25 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     assert.equal(state.review!.fix!.answers.fixes['c1-2']!.findings[0]!.status, 'already-applied');
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), answeredA, 'the fixer kept what the answer pass applied');
     assert.ok(state.review!.fix!.checks.runs.checks.length > passed.review!.fix!.checks.runs.checks.length, 'the answer pass revised the tree after the last runs of the checks');
+  });
+
+  it('plans no second round while the budget left the first, says so of the finding the first round blocked, and plans and runs it once reopened (PD13, R15 of resumable runs)', async (t) => {
+    // c1 owns src/a.ts, whose first batch is blocked on src/b.ts and spends past the budget, so c1-2 is left; c2 fixes src/b.ts.
+    const script: Script = {
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+      'fixer:fixes:c1-1': { costUsd: 5, output: fixerAnswer([{ status: 'blocked', files: [], requiredFiles: ['src/b.ts'], note: 'needs src/b.ts' }]) },
+      'fixer:fixes:c1-2': budgetScript['fixer:fixes:c1-2']!,
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': 'import { parse } from \'./a.ts\';\nexport const b = parse("x");\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+      'fixer:fixes:c3-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts', 'src/b.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
+    };
+    const { box, stopped, text } = await stoppedRun(t, script);
+    assert.equal(stopped.review!.fix!.secondRound, null);
+    assert.match(text, /^### 1\. SCAN-1 blocked\n\nNote: needs src\/b\.ts\n[\s\S]*?^Second round not planned: the run budget stopped the first round$/m);
+    reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
+    const state = box.checkpoint.fold(stopped.id);
+    assert.deepEqual(state.review!.fix!.secondRound?.batches.map((batch) => batch.key), ['c3-1'], 'planned from the whole first round');
+    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2', 'fixer fixes:c3-1']);
+    assert.doesNotMatch(readFileSync(box.checkpoint.evidence.pathOf(state.review!.report!.report), 'utf8'), /Second round not planned/);
   });
 
   it('marks the After answers column of a run reopened after an answer pass, whose reopened batch changed the tree since (R15 of resumable runs)', async (t) => {

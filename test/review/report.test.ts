@@ -352,7 +352,7 @@ describe('a report after an answer pass (R10 of answers)', () => {
   const evidencePath = (reference: { sha256: string }): string => `/evidence/${reference.sha256.slice(0, 8)}`;
   /** The decided fix run, its departure rejected and SWEEP-1 answered with option 2, through a pass that applied the first and deferred the second, to its second report. */
   const passed = (): History => passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['RIPPLE-1', 'SWEEP-1'] }), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2);
-  const render = (state: RunState): string => renderReport(state, { ...reportInput, fix: { evidencePath, patches: ['/evidence/p1', '/evidence/p2'] } });
+  const render = (state: RunState): string => renderReport(state, { ...reportInput, fix: { evidencePath, patches: ['/evidence/p1', '/evidence/p2'], continueCommand: null } });
 
   it('says in the header how many answers the run holds, when the last pass ran and where the report before it is', () => {
     const history = passed();
@@ -383,7 +383,7 @@ describe('a report after an answer pass (R10 of answers)', () => {
     const report = render(passed().fold());
     assert.match(report, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \| After answers \|$/m);
     const quiet = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1);
-    const quietReport = renderReport(quiet.fold(), { ...reportInput, fix: { evidencePath, patches: ['/evidence/p1'] } });
+    const quietReport = renderReport(quiet.fold(), { ...reportInput, fix: { evidencePath, patches: ['/evidence/p1'], continueCommand: null } });
     assert.match(quietReport, /^- After answers: not run, since no answer pass changed a file\.$/m);
     assert.doesNotMatch(render(decidedFixRun().fold()), /After answers/, 'a run with no pass has no such column or line');
   });
@@ -404,7 +404,7 @@ describe('a report after an answer pass (R10 of answers)', () => {
 // R7 of fix pass continuation.
 describe('the report of a run continued into the fix pass', () => {
   const evidencePath = (artifact: { sha256: string; bytes: number }): string => `/evidence/${artifact.sha256.slice(0, 8)}-${String(artifact.bytes)}`;
-  const fix = { evidencePath, patches: ['/evidence/patch-1'] };
+  const fix = { evidencePath, patches: ['/evidence/patch-1'], continueCommand: null };
 
   it('says in its header when the run was continued and where its read-only report is, after the roles digest', () => {
     const state = continuedToReport().fold();

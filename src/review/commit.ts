@@ -91,8 +91,9 @@ function gitFailure(args: readonly string[], error: unknown, timeout?: number): 
 /**
  * Why a run cannot be committed, or null when it can: a fix run with its
  * report and a revision no series of commits holds yet, which is every
- * revision of a run never committed and the revisions an answer pass
- * added after its commits (R8 of answers).
+ * revision of a run never committed and the revisions an answer pass or
+ * a reopened fix pass added after its commits (R8 of answers, R11 of
+ * resumable runs).
  */
 function whyNotCommittable(run: RunState): string | null {
   const fix = run.review?.fix ?? null;

@@ -9,7 +9,7 @@
  */
 import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, planOfRound, repairTargets, revisionMessageOf, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -143,6 +143,8 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(', ')}`);
   if (fate.firstBlockedOn !== null) lines.push(`First blocked on: ${fate.firstBlockedOn.map(inlineText).join(', ')}, which the second round gave it`);
   if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
+  // A finding the first round blocked has no second round while the run budget left a batch of the first, until a reopen runs it (PD13 of resumable runs).
+  if (fate.answer?.status === 'blocked' && fix.secondRound === null && !secondRoundPlannable(fix)) lines.push('Second round not planned: the run budget stopped the first round');
   return lines;
 }
 
@@ -167,7 +169,10 @@ function patchSpan(from: number, to: number): { readonly subject: string; readon
   return from === to ? { subject: `patch ${String(from)}`, verb: 'is' } : { subject: `patches ${String(from)} to ${String(to)}`, verb: 'are' };
 }
 
-/** Where the run's edits are, as a lowercase clause: every one in the working tree, uncommitted, or the ones `deep-review commit` committed and the rest (R8 of answers). */
+/** Which pass made a revision after a committed series (R8 of answers, R15 of resumable runs): an answer pass, or the fix pass a reopen continued, its fixes, checks and repair. */
+const laterPass = (revision: Pick<TreeRevised, 'phase'>): string => (revision.phase === 'answer' || revision.phase === 'answer-checks' ? 'an answer pass' : 'the reopened fix pass');
+
+/** Where the run's edits are, as a lowercase clause: every one in the working tree, uncommitted, or the ones `deep-review commit` committed and the rest, named by the passes that made them (R8 of answers, R15 of resumable runs). */
 function committedWords(fix: FixState): string {
   const committed = committedRevisions(fix);
   if (committed === 0) return 'every edit is in the working tree, uncommitted';
@@ -176,7 +181,8 @@ function committedWords(fix: FixState): string {
   const head = `${done.subject} ${done.verb} committed`;
   if (committed >= total) return head;
   const rest = patchSpan(committed + 1, total);
-  return `${head}; ${rest.subject}, an answer pass's, ${rest.verb} in the working tree, uncommitted`;
+  const passes = [...new Set(fix.revisions.slice(committed).map(laterPass))].sort().reverse().map((pass) => `${pass}'s`).join(' and ');
+  return `${head}; ${rest.subject}, ${passes}, ${rest.verb} in the working tree, uncommitted`;
 }
 
 const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
@@ -333,7 +339,9 @@ function changedFilesSection(fix: FixState, patches: readonly string[]): string[
     const { by, files } = revised.get(path)!;
     return `| ${tableCell(path)} | ${finalStatus(files)} | ${tableCell([...by].join(', '))} | ${tableCell(holderOf(path))} |`;
   });
-  const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}): ${patches[index] ?? 'not written'}`);
+  // A revision after a committed series names the pass that made it, which a later series commits (R15 of resumable runs).
+  const committed = committedRevisions(fix);
+  const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}${committed > 0 && index >= committed ? `, ${laterPass(revision)} after the commits` : ''}): ${patches[index] ?? 'not written'}`);
   return [
     '## Changed files',
     '',

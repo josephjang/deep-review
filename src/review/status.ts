@@ -12,10 +12,11 @@
  * answers and answer passes (R10 of answers), as text lines and as JSON.
  */
 import { answerWords, standingAnswers } from '../checkpoint/answer-state.ts';
-import { allBatches, allClusters, earlierTreeEdit, isNotAttempted, lastRecordedRun } from '../checkpoint/fix-state.ts';
+import { allBatches, allClusters, budgetStoppedUnits, earlierTreeEdit, isNotAttempted, lastRecordedRun } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
+import { continueCommand } from './continue-command.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
@@ -23,7 +24,32 @@ import { currentPhase, reviewStatus } from './state.ts';
 import { checkPhases, decisionCounts, decisionCountWords } from './vocabulary.ts';
 
 /** What `status` prints about a run, as text lines and as a JSON value. */
-export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string): { lines: string[]; json: Record<string, unknown> } {
+/**
+ * What `status` names a complete fix run the run budget stopped with
+ * (R11, R15 of resumable runs): the engine that runs the command that
+ * continues it, and whether the run's roles are the engine's own, by
+ * their digest, since `status` is given no roles directory.
+ */
+export interface StatusContinuation {
+  readonly engineEntry: string;
+  readonly ownRolesDigest: () => string;
+}
+
+/** The placeholder the continue command of `status` gives for roles that are not the engine's own, whose directory the run does not record. */
+export const rolesPlaceholder = '<roles>';
+
+/** The line that names how to continue a fix pass the run budget stopped, or none for any other run. */
+function continueLine(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, continuation: StatusContinuation | null): { line: string; command: string } | null {
+  const review = state.review;
+  if (continuation === null || review === null || review.fix === null || reviewStatus(state) !== 'complete' || budgetStoppedUnits(review.fix).length === 0) return null;
+  const spend = budgetSpendOf(state, adapter).usd;
+  if (spend === null) return null;
+  const own = review.configuration.rolesDigest === continuation.ownRolesDigest();
+  const command = continueCommand(state, continuation.engineEntry, own ? null : rolesPlaceholder, spend);
+  return { command, line: `Continue: ${command}, which continues the fix pass the run budget stopped and reviews nothing again${own ? '' : `, with the roles directory the run was reviewed with in place of ${rolesPlaceholder}`}` };
+}
+
+export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string, continuation: StatusContinuation | null = null): { lines: string[]; json: Record<string, unknown> } {
   const status = reviewStatus(state);
   const review = state.review;
   const workers = Object.values(state.workers);
@@ -43,6 +69,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const fix = review === null ? null : fixStatus(state, review);
   // How many findings the decision step decided each way (R8 of the decision step), or null while it has recorded none.
   const decisions = review?.decisions === null || review?.decisions === undefined ? null : decisionCounts(review.decisions);
+  const continuing = continueLine(state, adapter, continuation);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
@@ -59,13 +86,14 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
     ...(continuedFrom === null ? [] : [`Continued from: ${continuedFrom.report}, into the fix pass on ${continuedFrom.at}`]),
     ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
+    ...(continuing === null ? [] : [continuing.line]),
     ...(decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`]),
     ...(review === null ? [] : answersLine(review)),
     ...(fix === null ? [] : fix.lines),
     ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
     ...(review?.fix?.commits ?? []).map((series) => `Commits: ${String(series.commits.length)} created, ${series.from} to ${series.to}`),
   ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, answers: review?.answers ?? [], answerPasses: review?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], review };
+  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, answers: review?.answers ?? [], answerPasses: review?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], continueCommand: continuing?.command ?? null, review };
   return { lines, json };
 }
 

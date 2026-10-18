@@ -15,7 +15,7 @@ const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evid
 const patches = ['/evidence/patch-1', '/evidence/patch-2', '/evidence/patch-3'];
 
 describe('the report of a fix run', () => {
-  const render = (state: RunState = fixRun().fold()): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches } });
+  const render = (state: RunState = fixRun().fold()): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
 
   it('renders exactly as the committed snapshot, which a person read once in review', () => {
     assert.equal(render(), readFileSync(snapshotPath, 'utf8'), `the report changed; if on purpose, write the new text to ${snapshotPath}`);
@@ -211,7 +211,7 @@ describe('the report of a fix run', () => {
 });
 
 describe('the report of a fix run with the decision step (R8 of the decision step)', () => {
-  const render = (state: RunState): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches } });
+  const render = (state: RunState): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
 
   it('says of a finding no fixer saw that the decision left it, with the reason, and counts it so in the header', () => {
     const report = render(decidedOf(fixRun()).fold());

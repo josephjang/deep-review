@@ -72,7 +72,7 @@ function withoutConventionsFinder(history: History): History {
 }
 
 describe('the report of a surveyed run', () => {
-  const render = (state: RunState = surveyedFixRun().fold()): string => renderReport(state, { ...reportInput, statistics: surveyStatistics, fix: { evidencePath, patches } });
+  const render = (state: RunState = surveyedFixRun().fold()): string => renderReport(state, { ...reportInput, statistics: surveyStatistics, fix: { evidencePath, patches, continueCommand: null } });
 
   it('renders exactly as the committed snapshot, which a person read once in review', () => {
     assert.equal(render(), readFileSync(snapshotPath, 'utf8'), `the report changed; if on purpose, write the new text to ${snapshotPath}`);
@@ -144,7 +144,7 @@ describe('the report of a surveyed run', () => {
   });
 
   it('renders a run configured before the survey existed with no Conventions section and no Source column, as it did', () => {
-    const older = renderReport(fixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches } });
+    const older = renderReport(fixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
     assert.ok(!older.includes('## Conventions'));
     assert.match(older, /^\| Check \| Command \| Before the fixes \|/m);
   });
@@ -166,7 +166,7 @@ describe('the Conventions section of a run continued into the fix pass', () => {
 
   it('says the continuation asked for the checks alone, and shows the review\'s note on the conventions beside the note on the checks', () => {
     const state = noted(continuedToReport(), { [worker(80)]: 'AGENTS.md imports the reviewer\'s rules', [worker(81)]: 'checks only; the conventions stand' }).fold();
-    const section = conventionsOf(renderReport(state, { ...reportInput, fix: { evidencePath, patches } }));
+    const section = conventionsOf(renderReport(state, { ...reportInput, fix: { evidencePath, patches, continueCommand: null } }));
     assert.doesNotMatch(section, /answered/, 'neither a repeated survey nor a review that answered twice');
     assert.ok(section.endsWith([
       '',
