@@ -457,9 +457,10 @@ answer applied, or a departure as the fix made it owes nothing and runs
 no fixer; any other option owes an edit, even one that keeps the code
 as it is. The pass is refused, the answer staying recorded, when
 `HEAD` or a file the run expects moved, or when the spend has reached
-the run budget; `--record-only` records without a pass, and the next
-answer given without it applies that answer with every other recorded
-answer that owes an edit.
+the run budget; `--record-only` records without a pass, and when the
+answer owes an edit the next answer given without it applies that
+answer with every other recorded answer that owes one; of an answer
+that owes nothing, it says so, as an answer without it does.
 
 An answer is applied to its run and recorded there. Nothing yet carries
 it to the next review, which may ask the same question again. See

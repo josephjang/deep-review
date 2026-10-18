@@ -231,4 +231,19 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(box.run().review!.answerPasses.length, 0);
     assert.equal(box.run().lastSequence, finished.lastSequence + 2);
   });
+
+  it('says the tree already holds an answer recorded only that owes no edit, rather than that a later pass applies it', async (t) => {
+    const box = ReviewSandbox.forTest(t, answerable);
+    reportText(await box.fix('claude'));
+    const finished = box.run();
+    const { departing, question } = findingsOf(finished);
+    // The departure as the fix made it, and the default the fix applied: neither owes an edit, so no later pass applies them.
+    const accepted = await run(box, '--finding', departing, '--accept', '--record-only');
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.equal(accepted.stdout, `answer recorded: run ${finished.id}, ${departing} accepted\nthe tree already holds this answer; nothing to apply\n`);
+    const held = await run(box, '--finding', question, '--option', '1', '--record-only');
+    assert.equal(held.stdout, `answer recorded: run ${finished.id}, ${question} option 1\nthe tree already holds this answer; nothing to apply\n`);
+    assert.equal(box.run().review!.answerPasses.length, 0);
+    assert.equal(box.run().lastSequence, finished.lastSequence + 2);
+  });
 });

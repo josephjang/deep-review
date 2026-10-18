@@ -56,7 +56,7 @@ export interface AnswerOutcome {
   readonly recorded: boolean;
   /** The answer as it stands on the ledger now. */
   readonly standing: RecordedAnswer;
-  /** What happens next: a pass to run; the run only reviewed; recorded only; or nothing owed. */
+  /** What happens next: a pass to run; the run only reviewed; recorded only, an answer that owes an edit; or nothing owed, recorded only or not. */
   readonly next: 'pass' | 'read-only' | 'record-only' | 'nothing-owed';
   /** The run as it is after the append. */
   readonly state: RunState;
@@ -211,9 +211,10 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       const recorded = standingAnswer(run.review!, options.finding)!;
       const outcome = (next: AnswerOutcome['next'], state: RunState): AnswerOutcome => ({ runId: run.id, recorded: !retry, standing: recorded, next, state });
       if (!fixes) return outcome('read-only', run);
-      if (options.recordOnly) return outcome('record-only', run);
-      // In rank order, as the pass's fixer works them.
       const owed = owedAnswers(run.review!);
+      // An answer the tree already holds is applied by no later pass, so recording it only says so as a pass would.
+      if (options.recordOnly) return outcome(owed.some((answer) => answer.id === options.finding) ? 'record-only' : 'nothing-owed', run);
+      // In rank order, as the pass's fixer works them.
       const order = rankedFindings(run.review!).map((entry) => entry.finding.id);
       const ids = owed.map((answer) => answer.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
       if (ids.length === 0) return outcome('nothing-owed', run);
