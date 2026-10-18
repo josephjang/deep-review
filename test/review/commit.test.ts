@@ -4,6 +4,8 @@ import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it, type TestContext } from 'node:test';
 import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
+import type { CommitsPrepared } from '../../src/checkpoint/events.ts';
+import { runHead } from '../../src/checkpoint/fix-state.ts';
 import { commitRun, currentBranch, moveFailure } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
@@ -259,7 +261,69 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
         },
       }), refused(/refs\/heads\/main moved while the commits were built, so it was left where it is/));
       assert.equal(git(box.repo, 'rev-parse', 'HEAD'), landed);
-      assert.deepEqual(box.run().review!.fix!.commits, []);
+      const fix = box.run().review!.fix!;
+      assert.deepEqual(fix.commits, []);
+      // git refused the move, so the series it prepared did not happen and is dropped at once (R9 of resumable runs).
+      assert.equal(fix.openSeries, null);
+      assert.equal(fix.droppedSeries.length, 1);
+    });
+
+    /** Cut a commit after it recorded its series and before the ref moved, as a stop there does, and give the series it prepared. */
+    const cutBeforeMove = (): CommitsPrepared => {
+      assert.throws(() => commitRun({
+        checkpoint: box.checkpoint,
+        worktree: box.repo,
+        beforeMove: () => {
+          throw new Error('stopped before update-ref');
+        },
+      }), /stopped before update-ref/);
+      const open = box.run().review!.fix!.openSeries;
+      assert.ok(open !== null, 'the series is on the ledger before the ref moves');
+      return open;
+    };
+
+    it('drops a series a stop cut short before the ref moved, and builds it again at the next commit (R9 of resumable runs)', () => {
+      const head = git(box.repo, 'rev-parse', 'HEAD');
+      const open = cutBeforeMove();
+      assert.equal(git(box.repo, 'rev-parse', 'HEAD'), head);
+      assert.equal(runHead(box.run()), head, 'the run\'s head does not move for an open series');
+      const logs: string[] = [];
+      const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo, log: (line) => logs.push(line) });
+      assert.deepEqual(logs, [`run ${runId}: a commit a stop cut short had left HEAD at ${head.slice(0, 12)}; its series is dropped`]);
+      const fix = box.run().review!.fix!;
+      assert.deepEqual(fix.droppedSeries, [open]);
+      assert.equal(fix.openSeries, null);
+      assert.equal(fix.commits.length, 1);
+      assert.equal(git(box.repo, 'rev-parse', 'HEAD'), outcome.commits.at(-1)!.sha);
+      assert.equal(git(box.repo, 'status', '--porcelain'), '');
+    });
+
+    it('completes a series a stop cut short after the ref moved, at the next commit, which makes no commit of its own (R9 of resumable runs)', () => {
+      const open = cutBeforeMove();
+      // What the cut commit did next: the ref moved, and neither the index reset nor the record of the commits followed.
+      git(box.repo, 'update-ref', 'refs/heads/main', open.to, open.from);
+      assert.notEqual(git(box.repo, 'status', '--porcelain'), '', 'the index still holds the old head');
+      const logs: string[] = [];
+      const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo, log: (line) => logs.push(line) });
+      assert.deepEqual(outcome, { runId, commits: open.commits.map((commit) => ({ sha: commit.sha, subject: commit.subject })), unstaged: [] });
+      assert.deepEqual(logs, [`run ${runId}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the 2 commits it made are recorded now`]);
+      const fix = box.run().review!.fix!;
+      assert.deepEqual(fix.commits, [open]);
+      assert.equal(fix.openSeries, null);
+      assert.equal(runHead(box.run()), open.to);
+      assert.equal(git(box.repo, 'rev-parse', 'HEAD'), open.to);
+      assert.equal(git(box.repo, 'status', '--porcelain'), '', 'the index is reset to the new head');
+      assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId }), refused(/commits were already created/));
+    });
+
+    it('refuses a series a stop cut short when HEAD is at neither of its heads, naming both, and records nothing (R9 of resumable runs)', () => {
+      const open = cutBeforeMove();
+      git(box.repo, 'commit', '-q', '--allow-empty', '-m', 'a commit after the stop');
+      const third = git(box.repo, 'rev-parse', 'HEAD');
+      const sequence = box.checkpoint.ledger.lastSequence(runId);
+      assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo }), refused(new RegExp(`was moving HEAD from ${open.from} to ${open.to}, and HEAD is ${third}, at neither; move HEAD to ${open.to} to keep those commits, or to ${open.from} to drop them`)));
+      assert.equal(box.checkpoint.ledger.lastSequence(runId), sequence);
+      assert.deepEqual(box.run().review!.fix!.openSeries, open);
     });
 
     it('unstages a staged path no commit holds, naming it, and leaves its bytes in the tree', () => {

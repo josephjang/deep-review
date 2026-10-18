@@ -6,6 +6,7 @@ import { UnknownRunError } from '../../src/checkpoint/errors.ts';
 import type { Answer } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { answerRun, whyNotAnswerable, type AnswerOptions } from '../../src/review/answer.ts';
+import { commitRun } from '../../src/review/commit.ts';
 import { gitContent } from '../../src/review/content.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
@@ -200,6 +201,26 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(outcome.next, 'pass');
     reportText(await box.review('claude'));
     assert.deepEqual(box.run().review!.answers[0]!.appliedBy, { phase: 'answer', key: 'pass-1' });
+  });
+
+  it('completes a series of commits a stop cut short after the branch moved, and opens the pass on the head it made (R9 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t, answerable);
+    reportText(await box.fix('claude'));
+    const finished = box.run();
+    const { question } = findingsOf(finished);
+    box.script({ ...answerable, ...passFixer(1, [['src/b.ts', otherB]]) });
+    // A commit cut after it recorded its series and moved the branch, before it recorded the commits.
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, beforeMove: () => {
+      throw new Error('stopped');
+    } }), /stopped/);
+    const open = box.run().review!.fix!.openSeries!;
+    git(box.repo, 'update-ref', 'refs/heads/main', open.to, open.from);
+    const logs: string[] = [];
+    const outcome = await answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { log: (line) => logs.push(line) }));
+    assert.equal(outcome.next, 'pass', 'the head the series made is the run\'s head, so the tree is where the run left it');
+    assert.deepEqual(logs, [`run ${finished.id}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the 1 commit it made is recorded now`]);
+    assert.deepEqual(box.run().review!.fix!.commits, [open]);
+    assert.equal(git(box.repo, 'status', '--porcelain'), '');
   });
 
   it('refuses the pass at the run budget before anything opens, naming --budget-usd, and blocks the pass\'s fixer on two failures until review completes it (R5, R6, TD8)', async (t) => {

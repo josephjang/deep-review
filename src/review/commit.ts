@@ -6,7 +6,10 @@
  * temporary index, commits with commit-tree), so no file of the worktree
  * is written and no hook runs; the branch, or a detached HEAD, moves once
  * at the end with a compare-and-swap against the head the command started
- * from, and the index is reset to it so the tree shows clean. A run whose
+ * from, and the index is reset to it so the tree shows clean. The ledger
+ * records the series before the branch moves and again after, so the next
+ * command completes or drops a series a stop cut short between the two
+ * (R9 of resumable runs). A run whose
  * revisions were committed and that then gained revisions in an answer
  * pass is committed again, as a later series from the last commit the
  * first made (R8 of answers).
@@ -268,11 +271,55 @@ function refuse(run: RunState, worktree: string, changeMessage: string | undefin
   }
 }
 
+/** What settling a run's open series of commits did: the run as it stands after, and the series it completed, if it completed one. */
+export interface SettledSeries {
+  readonly run: RunState;
+  readonly completed: CommitsCreated | null;
+}
+
+/**
+ * Settle the series of commits a stop left open (R9, TD6 of resumable
+ * runs), before a command reads the run's head: a series `commit`
+ * prepared on the ledger and never recorded as created. With `HEAD` at
+ * the head the series makes, the branch moved: the index is reset to it,
+ * as `commit` does after the move, and the series is recorded as
+ * created. With `HEAD` at the head it starts from, the branch did not
+ * move: the series is dropped and can be built again. With `HEAD` at
+ * any other commit the command refuses, naming both heads, since neither
+ * record would be true. The caller holds the run's lock and has checked
+ * that `worktree` is the run's.
+ */
+export function settleOpenSeries(checkpoint: Checkpoint, run: RunState, worktree: string, log: (line: string) => void): SettledSeries {
+  const open = run.review?.fix?.openSeries ?? null;
+  if (open === null) return { run, completed: null };
+  const head = git(worktree, ['rev-parse', 'HEAD']).trim();
+  if (head === open.to) {
+    // The ledger must record what the branch already holds, so the reset is not cut short, as in `build`.
+    git(worktree, ['reset', '-q'], { timeout: 0 });
+    const state = checkpoint.append(run.id, run.lastSequence, [{ kind: 'commits.created', version: 1, payload: open }]);
+    log(`run ${run.id}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the ${commitCount(open.commits.length)} it made ${open.commits.length === 1 ? 'is' : 'are'} recorded now`);
+    return { run: state, completed: open };
+  }
+  if (head === open.from) {
+    const state = checkpoint.append(run.id, run.lastSequence, [{ kind: 'commits.dropped', version: 1, payload: { from: open.from, to: open.to } }]);
+    log(`run ${run.id}: a commit a stop cut short had left HEAD at ${open.from.slice(0, 12)}; its series is dropped`);
+    return { run: state, completed: null };
+  }
+  throw new ReviewRefusedError(`a commit of run ${run.id} that a stop cut short was moving HEAD from ${open.from} to ${open.to}, and HEAD is ${head}, at neither; move HEAD to ${open.to} to keep those commits, or to ${open.from} to drop them, and run the command again`);
+}
+
+/** A count of commits, as a log line names it. */
+const commitCount = (count: number): string => `${String(count)} commit${count === 1 ? '' : 's'}`;
+
 /**
  * Commit a completed fix run's revisions (R17): under the checkpoint's
- * start lock and the run's lock, refuse what cannot be committed, build
- * every commit, move the ref once with a compare-and-swap, reset the index
- * to the new head, and record the commits on the run's ledger.
+ * start lock and the run's lock, settle a series a stop left open (R9 of
+ * resumable runs), refuse what cannot be committed, build every commit,
+ * record the series as prepared, move the ref once with a
+ * compare-and-swap, reset the index to the new head, and record the
+ * commits as created on the run's ledger. A run whose open series the
+ * settle completed and that has nothing left to commit gives that series
+ * as what the command made.
  */
 export function commitRun(options: CommitOptions): CommitOutcome {
   const { checkpoint, worktree } = options;
@@ -285,8 +332,11 @@ export function commitRun(options: CommitOptions): CommitOutcome {
     const release = acquireRunLock(checkpoint.root, chosen.id);
     try {
       // Read again under the run's lock, as every writer does: another command may have committed it since it was chosen.
-      const run = requireCommittable(checkpoint.fold(chosen.id));
-      if (!sameDirectory(run.worktree, worktree)) throw new ReviewRefusedError(`run ${run.id} was reviewed in worktree ${run.worktree}, not ${worktree}; run the command there`);
+      const folded = requireCommittable(checkpoint.fold(chosen.id));
+      if (!sameDirectory(folded.worktree, worktree)) throw new ReviewRefusedError(`run ${folded.id} was reviewed in worktree ${folded.worktree}, not ${worktree}; run the command there`);
+      const { run, completed } = settleOpenSeries(checkpoint, folded, worktree, log);
+      if (completed !== null && whyNotCommittable(run) !== null) return { runId: run.id, commits: completed.commits.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: [] };
+      requireCommittable(run);
       refuse(run, worktree, options.changeMessage, gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match);
       return build(run, options);
     } finally {
@@ -311,7 +361,14 @@ export function moveFailure(ref: string, last: string, error: Error): Error {
   return new ReviewRefusedError(`${ref} moved while the commits were built, so it was left where it is and the commits are unreferenced: ${error.message}`);
 }
 
-/** Build the commits, move the ref, reset the index and record them; every refusal has been made. */
+/**
+ * Build the commits, record the series as prepared, move the ref, reset
+ * the index and record the series as created; every refusal has been
+ * made. A stop between the two records leaves the series open, which the
+ * next command settles by where `HEAD` is (`settleOpenSeries`, R9 of
+ * resumable runs); a move git refused leaves the ref where it was, so the
+ * series is dropped at once.
+ */
 function build(run: RunState, options: CommitOptions): CommitOutcome {
   const { checkpoint, worktree } = options;
   const scope = run.scope!;
@@ -346,21 +403,25 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
     // What the user had staged that no commit holds is unstaged by the reset below, and named; nothing is lost from the tree.
     const staged = git(worktree, ['diff', '--cached', '--name-only', '-z', 'HEAD']).split('\0').filter((path) => path.length > 0 && !series.paths.has(path));
 
-    options.beforeMove?.();
     const last = parent;
+    const payload: CommitsCreated = { commits: made, from: series.head, to: last };
+    // The series is on the ledger before the ref moves, so a stop past the move leaves a record to complete, not commits the ledger does not hold (R9 of resumable runs).
+    const prepared = checkpoint.append(run.id, checkpoint.fold(run.id).lastSequence, [{ kind: 'commits.prepared', version: 1, payload }]);
+    options.beforeMove?.();
     const branch = currentBranch(worktree);
     try {
       // The compare-and-swap: the ref moves only from the head the command started from.
       if (branch === '') git(worktree, ['update-ref', '--no-deref', '-m', `deep-review commit: run ${run.id}`, 'HEAD', last, series.head]);
       else git(worktree, ['update-ref', '-m', `deep-review commit: run ${run.id}`, branch, last, series.head]);
     } catch (error) {
-      throw moveFailure(branch === '' ? 'HEAD' : branch, last, error as Error);
+      const failure = moveFailure(branch === '' ? 'HEAD' : branch, last, error as Error);
+      // git refused the move and left the ref where it was, so the series did not happen; a git ended at its timeout may have moved it, and its series stays open for the next command to settle by HEAD.
+      if (failure instanceof ReviewRefusedError) checkpoint.append(run.id, prepared.lastSequence, [{ kind: 'commits.dropped', version: 1, payload: { from: payload.from, to: payload.to } }]);
+      throw failure;
     }
     // The ref has moved and the ledger must still record the commits, so the reset is not cut short; it waits on neither a lock nor a remote.
     git(worktree, ['reset', '-q'], { timeout: 0 });
-    const payload: CommitsCreated = { commits: made, from: series.head, to: last };
-    const state = checkpoint.fold(run.id);
-    checkpoint.append(run.id, state.lastSequence, [{ kind: 'commits.created', version: 1, payload }]);
+    checkpoint.append(run.id, prepared.lastSequence, [{ kind: 'commits.created', version: 1, payload }]);
     return { runId: run.id, commits: made.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: staged };
   } finally {
     rmSync(temporary, { recursive: true, force: true });

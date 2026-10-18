@@ -39,8 +39,6 @@ const failing = (points: readonly string[], ways: readonly StopWay[], systems: r
 export const marks: readonly Mark[] = [
   // W8: the edit of a person while the engine is down goes into the revision of the lost fixer.
   ...failing(['child fixer fixes:c1-1#1'], [...stops, 'child'], everySystem, ['nothing false', 'report'], 'R10'),
-  // W6: a stop after commit moved the branch leaves commits the ledger does not hold, and the next commit refuses.
-  ...failing(['update-ref after'], stops, everySystem, ['exit', 'nothing false'], 'R9'),
 ];
 
 /** Whether the mark covers the case. */

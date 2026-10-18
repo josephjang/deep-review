@@ -16,6 +16,7 @@ import type { Answer, RecordedDecision } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
+import { settleOpenSeries } from './commit.ts';
 import { budgetReached, driftList, isResumable, requirePinned, type PinnedOptions } from './controller.ts';
 import { drifted, findDrift } from './drift.ts';
 import { ReviewRefusedError } from './errors.ts';
@@ -197,6 +198,8 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       let run = checkpoint.fold(chosen.id);
       const reason = whyNotAnswerable(run, worktree);
       if (reason !== null) throw new ReviewRefusedError(reason);
+      // The pass is held to the run's head, which a series of commits a stop left open has not moved yet (R9 of resumable runs).
+      run = settleOpenSeries(checkpoint, run, worktree, options.log).run;
       requireAdmitted(run, options.finding, options.answer);
       const fixes = run.review!.fix !== null;
       const standing = standingAnswer(run.review!, options.finding);
