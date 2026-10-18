@@ -120,7 +120,9 @@ The cost is small. The survey blocks before any other worker, so the blocked run
 
 ## Against the vision note
 
-The proposal does not depart from a principle. R2 adds three lines before the run and no wait, so principle 7 applies. R1, R2 and R9 change words that the skill shows as printed and that the report prints. The skill still does not summarize or interpret, so principle 1 applies. R7 adds words to stderr, which is not the report, and principle 5 is about the report. R8 changes the words of a recorded action and no event schema, so an older ledger reads as before (principle 2).
+The proposal departs from one principle, in R9, and the last paragraph of this section names it. R2 adds three lines before the run and no wait, so principle 7 applies. R1, R2 and R9 change words that the skill shows as printed and that the report prints. The skill still does not summarize or interpret, so principle 1 applies. R7 adds words to stderr, which is not the report, and principle 5 is about the report. R8 changes the words of a recorded action and no event schema, so an older ledger reads as before (principle 2).
+
+R9 adds two sentences to the Decisions section of each report that has a question or a departure: one on the command at a terminal, and one on the skill. The Decisions section is the part that the person reads first, and the vision note counts a proposal against it if "It increases what the person must read". The reason is in PD5. The sentences come one time in place of a path on each `Answer with:` line, and they give a command that a person at a terminal could not run before, because no `deep-review` executable is installed. So principle 6, a question in the form that is the easiest to decide on, and principle 5, a first part that holds only what the person must know and decide, conflict here. The proposal follows principle 6 and takes R9 as a departure from principle 5.
 
 ## Risks
 
