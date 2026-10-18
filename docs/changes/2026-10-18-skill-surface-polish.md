@@ -56,7 +56,7 @@ The same paragraph keeps `config show` for how deep-review is configured, that i
 
 ### R4: The Claude Code skill approves its own command for its turn
 
-The frontmatter of the Claude Code skill gets an `allowed-tools` line with one rule. The rule approves the command of the engine under `${CLAUDE_PLUGIN_ROOT}/engine/main.mjs`, with any of its arguments, and nothing else. Those arguments include `--check <kind>=<command>` and `--executable <path>`, which run the command or the binary that they name. The skill passes `--check` only for a command that the user names. Claude Code applies the grant for the turn in which the user invokes the skill, and clears it at the next message. So the review command of step 3 runs without a prompt in that turn. A later turn that runs `commit` or `answer` prompts again, or the user invokes the skill again. Codex does not have this setting, and its skill gets no line.
+The frontmatter of the Claude Code skill gets an `allowed-tools` list with one rule for each shell tool of Claude Code: Bash, and PowerShell, which is the primary shell on Windows. Each rule approves the command of the engine under `${CLAUDE_PLUGIN_ROOT}/engine/main.mjs`, with any of its arguments, and nothing else. Those arguments include `--check <kind>=<command>` and `--executable <path>`, which run the command or the binary that they name. The skill passes `--check` only for a command that the user names. Claude Code applies the grant for the turn in which the user invokes the skill, and clears it at the next message. So the review command of step 3 runs without a prompt in that turn. A later turn that runs `commit` or `answer` prompts again, or the user invokes the skill again. Codex does not have this setting, and its skill gets no line.
 
 ### R5: The Claude Code skill shows an argument hint
 
@@ -102,9 +102,11 @@ The display takes seconds, and a person who is present can stop the command. So 
 
 The report's first remedy of F3 splits the skill into review, answer and status. This proposal keeps one skill and adds the hint of R5. The answers on the pull request (principle 7) will move most answers from the terminal to the pull request. The value of a separate answer skill depends on how many answers remain at the terminal. The split comes after that work, which gives the facts for the decision.
 
-### PD3: One rule in `allowed-tools`, for the engine only
+### PD3: One rule for each shell tool in `allowed-tools`, for the engine only
 
-R4 approves the one command of the engine, not each `node` command and not Bash. The grant is for the turn of the invocation, which Claude Code decides, not the skill. The proposal rejects a broader rule, such as each `node` command, because the skill then approves commands that are not its own. A rule for each subcommand that the skill runs is not narrower: a Bash prefix rule still matches each flag after the subcommand, `--check` and `--executable` among them. The rule uses `${CLAUDE_PLUGIN_ROOT}`, which Claude Code substitutes in `allowed-tools` as in the text. A real session shows if the rule matches the quoted path of step 3. If it does not, the skill writes the command in the form that the rule matches, and Verification records the form.
+R4 approves the one command of the engine, not each `node` command and not each command of a shell. The grant is for the turn of the invocation, which Claude Code decides, not the skill. The proposal rejects a broader rule, such as each `node` command, because the skill then approves commands that are not its own. A rule for each subcommand that the skill runs is not narrower: a Bash prefix rule still matches each flag after the subcommand, `--check` and `--executable` among them. The rule uses `${CLAUDE_PLUGIN_ROOT}`, which Claude Code substitutes in `allowed-tools` as in the text. A real session shows if the rule matches the quoted path of step 3. If it does not, the skill writes the command in the form that the rule matches, and Verification records the form.
+
+The skill does not choose the shell tool, because Claude Code does. On Windows, the PowerShell tool is the primary shell, and Git for Windows, which gives the Bash tool, is optional. A skill that tells the model to use the Bash tool fails where there is no Bash tool, and it works against the choice of the host where there is one. So R4 gives a rule to each shell tool with the same text. The documentation says that Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` in Bash rules, and it does not say if it does so in PowerShell rules. A PowerShell rule that is not substituted approves nothing, and the user sees a prompt as before. Verification records what each shell tool did on Windows.
 
 ### PD4: Progress as time and spend, not as a count of phases
 
@@ -134,7 +136,7 @@ R9 adds two sentences to the Decisions section of each report that has a questio
 
 ### The `allowed-tools` rule can fail to match the command as the skill writes it
 
-The documentation gives `Bash(<command> *)` rules and says that Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` in them. It does not say if the rule matches a path in double quotes. PD3 and Verification cover this risk: the gate records if the command of step 3 ran without a prompt.
+The documentation gives `Bash(<command> *)` rules and says that Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` in them. It does not say if the rule matches a path in double quotes. PD3 and Verification cover this risk: the gate records if the command of step 3 ran without a prompt. The documentation also does not say if Claude Code substitutes the variable in a PowerShell rule, and Verification records what the PowerShell tool did.
 
 ### The grant is for one turn
 
