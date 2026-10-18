@@ -185,10 +185,11 @@ describe('nextStep', () => {
     assert.deepEqual(nextStep(history.review(), idle), { kind: 'finish-phase', phase: 'finders', attempt: 2, outcome: 'completed', blocker: null }, 'no angle was given up');
   });
 
-  it('keeps a running phase\'s losses when a resumed engine re-enters it, so a second loss still blocks', () => {
+  it('gives a running phase\'s units fresh attempts when a resumed engine re-enters it, so a unit lost twice launches again (R5 of resumable runs)', () => {
     const reentered = findersLostTwice().add('phase.started', { phase: 'finders', attempt: 2 }).add('worktree.checked', { phase: 'finders', attempt: 2, drifted: false, files: [] }).review();
+    assert.deepEqual(reentered.units.finders.RIPPLE?.failures, []);
     const step = nextStep(reentered, idle);
-    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.attempt === 2, JSON.stringify(step));
+    assert.ok(step.kind === 'launch' && step.units.some((unit) => unit.key === 'RIPPLE'), JSON.stringify(step));
   });
 
   it('blocks the run when a blocking role fails twice, after the running workers finish', () => {

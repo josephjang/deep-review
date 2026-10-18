@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, revisionMessageOf, runHead, secondRoundFiles, settledClusters, unitIdsOf } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastRun, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
+import type { TreeRevised } from '../../src/checkpoint/events.ts';
 import { standingAnswer } from '../../src/checkpoint/answer-state.ts';
-import { foldRun } from '../../src/checkpoint/fold.ts';
-import { isAnswered, preRunStrays } from '../../src/checkpoint/review-fold.ts';
+import { firstUnknownEvent, foldRun } from '../../src/checkpoint/fold.ts';
+import { isAnswered, preRunStrays, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { reviewStatus } from '../../src/review/state.ts';
 import { fixPlanOf, secondRoundOf } from '../../src/review/steps.ts';
 import { fixPhases } from '../../src/review/vocabulary.ts';
@@ -48,6 +49,7 @@ import {
   withSurvey,
   worker,
 } from '../helpers/review-history.ts';
+import { modelWithout, resumableRunsEntries } from '../helpers/model.ts';
 
 const commit = (fill: string): string => fill.repeat(40);
 const launchOf = (workerId: string): Record<string, unknown> => launch(workerId, 'fixer fixes:c1-1');
@@ -727,4 +729,196 @@ describe('the continuation into the fix pass', () => {
       assert.throws(() => build().fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), name);
     });
   }
+});
+
+describe('the records of resumable runs', () => {
+  const commandOf = (kind: string): string => plannedChecks.checks.find((check) => check.kind === kind)?.command ?? 'none';
+  const started = (phase: string, kind: string, attempt = 1): Record<string, unknown> => ({ phase, attempt, kind, command: commandOf(kind) });
+  const ranV3 = (phase: string, kind: string, outcome = 'passed', attempt = 1, replaces: Record<string, unknown> | null = null, change: Record<string, unknown> = {}): Record<string, unknown> => ({ ...checkRun(phase, kind, outcome, attempt), replaces, ...change });
+  /** A check that ran at version 3: its start, then its run. */
+  const ranWithStart = (history: History, phase: string, kind: string, outcome = 'passed', attempt = 1, replaces: Record<string, unknown> | null = null, change: Record<string, unknown> = {}): History =>
+    history.add('check.started', started(phase, kind, attempt)).add('check.ran', ranV3(phase, kind, outcome, attempt, replaces, change), 3);
+  const refused = (history: History, message: RegExp): void => {
+    assert.throws(() => history.fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), message.source);
+  };
+  /** A fix run in its baseline, at attempt 1, with no check run yet. */
+  const inBaseline = (): History => withFixPass(mergeRanked()).start('baseline-checks');
+  /** The review as the run-state questions read it, with its fix state. */
+  const withFix = (history: History): ReviewState & { readonly fix: FixState } => {
+    const review = history.review();
+    return { ...review, fix: review.fix! };
+  };
+
+  it('folds a check\'s start and its run at version 3 in ledger order, each run with the revisions before it (TD3)', () => {
+    const fix = ranWithStart(inBaseline(), 'baseline-checks', 'build').review().fix!;
+    assert.deepEqual(fix.checks.starts['baseline-checks'].map((start) => [start.kind, start.attempt, start.runsBefore]), [['build', 1, 0]]);
+    assert.deepEqual(fix.checks.runs['baseline-checks'].map((run) => [run.kind, run.outcome, run.replaces, run.revisionsBefore]), [['build', 'passed', null, 0]]);
+    const after = fixed().review().fix!;
+    assert.deepEqual(after.checks.runs['baseline-checks'].map((run) => [run.replaces, run.revisionsBefore]), [[null, 0], [null, 0], [null, 0]], 'a version 2 run replaces nothing');
+    assert.deepEqual(after.checks.finished, { 'baseline-checks': 1, checks: 0, 'repair-checks': 0, 'answer-checks': 0 }, 'the baseline finished its first attempt');
+  });
+
+  it('refuses a version 3 run with no start of its own, a start of a kind that ran, and a second start with no run between (R7)', () => {
+    refused(inBaseline().add('check.ran', ranV3('baseline-checks', 'build'), 3), /with no start of it in attempt 1/);
+    refused(ranWithStart(inBaseline(), 'baseline-checks', 'build').add('check.started', started('baseline-checks', 'build')), /starts the build check in baseline-checks, whose last current run is its result/);
+    refused(inBaseline().add('check.started', started('baseline-checks', 'build')).add('check.started', started('baseline-checks', 'build')), /starts the build check twice in attempt 1/);
+    refused(inBaseline().add('check.started', { ...started('baseline-checks', 'build'), command: 'make' }), /starts "make" for the build check, pinned as "npm run build"/);
+    assert.doesNotThrow(() => inBaseline().add('check.ran', ranV3('baseline-checks', 'lint', 'skipped'), 3).fold(), 'a skipped check never started');
+  });
+
+  it('runs again in a cut attempt only a kind whose last current run did not pass, and names it (R3)', () => {
+    // Attempt 1 ran build and failed lint, and a stop cut it before test and before its phase.finished.
+    const cut = ranWithStart(ranWithStart(inBaseline(), 'baseline-checks', 'build'), 'baseline-checks', 'lint', 'failed').start('baseline-checks', 2);
+    const review = withFix(cut);
+    assert.equal(isCutAttempt(review, 'baseline-checks', 1), true);
+    assert.equal(isCutAttempt(review, 'baseline-checks', 2), false, 'the current attempt is never cut');
+    assert.deepEqual(runStanding(review, 'baseline-checks', 'lint'), { kind: 'again', run: review.fix.checks.runs['baseline-checks'][1], why: 'cut-attempt' });
+    assert.equal(runStanding(review, 'baseline-checks', 'build'), null, 'a kind that passed stays passed');
+    assert.deepEqual(runStanding(review, 'baseline-checks', 'test'), { kind: 'first' });
+    const rerun = ranWithStart(cut.clone(), 'baseline-checks', 'lint', 'passed', 2, { attempt: 1, outcome: 'failed' }).review().fix!;
+    assert.deepEqual(rerun.checks.runs['baseline-checks'].map((run) => [run.kind, run.attempt, run.outcome]), [['build', 1, 'passed'], ['lint', 1, 'failed'], ['lint', 2, 'passed']]);
+    refused(ranWithStart(cut.clone(), 'baseline-checks', 'lint', 'passed', 2), /as its first, when it has a current run there/);
+    refused(ranWithStart(cut.clone(), 'baseline-checks', 'lint', 'passed', 2, { attempt: 1, outcome: 'timeout' }), /replacing a timeout run at attempt 1, which is not its last current run/);
+    refused(cut.clone().add('check.started', started('baseline-checks', 'build', 2)), /whose last current run is its result/);
+    // A failure in a finished attempt is its result: only a cut attempt is run again.
+    const finished = ranWithStart(inBaseline(), 'baseline-checks', 'lint', 'failed').finish('baseline-checks', 'blocked', 1, { code: 'drift', detail: 'd', action: 'a' }).start('baseline-checks', 2);
+    refused(finished.add('check.started', started('baseline-checks', 'lint', 2)), /whose last current run is its result/);
+  });
+
+  it('runs a cut check again in its own attempt, and refuses a second cut of a kind in one attempt (R4)', () => {
+    const cut = ranWithStart(inBaseline(), 'baseline-checks', 'build', 'cut', 1, null, { exitCode: 143 });
+    assert.equal(runStanding(withFix(cut), 'baseline-checks', 'build')?.kind, 'again');
+    assert.doesNotThrow(() => ranWithStart(cut.clone(), 'baseline-checks', 'build', 'passed', 1, { attempt: 1, outcome: 'cut' }).fold());
+    refused(ranWithStart(cut.clone(), 'baseline-checks', 'build', 'cut', 1, { attempt: 1, outcome: 'cut' }, { exitCode: 143 }), /second cut of the build check in one attempt/);
+    // A cut of an earlier attempt is replaced by a cut of the next one, the next attempt's first.
+    assert.doesNotThrow(() => ranWithStart(cut.clone().start('baseline-checks', 2), 'baseline-checks', 'build', 'cut', 2, { attempt: 1, outcome: 'cut' }, { exitCode: 143 }).fold());
+  });
+
+  it('runs a check that timed out again once in its attempt, and takes its second timeout as the result (R7, PD7)', () => {
+    const timedOut = ranWithStart(inBaseline(), 'baseline-checks', 'test', 'timeout');
+    assert.equal(runStanding(withFix(timedOut), 'baseline-checks', 'test')?.kind, 'again');
+    const twice = ranWithStart(timedOut.clone(), 'baseline-checks', 'test', 'timeout', 1, { attempt: 1, outcome: 'timeout' });
+    assert.equal(runStanding(withFix(twice), 'baseline-checks', 'test'), null, 'the second timeout is the result');
+    refused(twice.clone().add('check.started', started('baseline-checks', 'test')), /whose last current run is its result/);
+  });
+
+  it('makes a run old only by a later revision of the state its phase checks, never a baseline run (TD3)', () => {
+    const review = withFix(checksPhase(fixed(), 'checks'));
+    const fix = review.fix;
+    const run = fix.checks.runs.checks[0]!;
+    assert.equal(isOldRun(fix, 'checks', run), false);
+    const revisionIn = (phase: string, source: Record<string, unknown>): TreeRevised => ({ phase, source, change: { findings: [], message: { subject: 's', body: '' } }, files: [] }) as unknown as TreeRevised;
+    const later = { ...fix, revisions: [...fix.revisions, revisionIn('answer', { kind: 'attempt', key: 'pass-1', workerId: worker(70) })] };
+    assert.equal(isOldRun(later, 'checks', run), true, 'an answer pass revised the tree the checks after the fixes checked');
+    assert.equal(isOldRun(later, 'answer-checks', run), false, 'an answer pass runs answer-checks again by its floor, not by age');
+    assert.equal(isOldRun(later, 'baseline-checks', fix.checks.runs['baseline-checks'][0]!), false, 'a baseline run checks the tree before every edit');
+    assert.equal(isOldRun({ ...fix, revisions: [...fix.revisions, revisionIn('checks', { kind: 'check', check: 'lint' })] }, 'checks', run), false, 'a check\'s own writes make no run old');
+    assert.equal(isOldRun({ ...fix, revisions: [...fix.revisions, revisionIn('repair', { kind: 'attempt', key: 'repair', workerId: worker(71) })] }, 'repair-checks', run), true, 'a revision of the repair makes a run after the repair old');
+    assert.equal(lastCurrentRun({ ...review, fix: later }, 'checks', 'build'), null);
+    assert.equal(lastCurrentRun(review, 'checks', 'build'), run);
+  });
+
+  it('folds a write back after a check it knows, and a check of the tree after it (R7, TD7)', () => {
+    const file = { path: 'src/a.ts', before: { blob: reference('5') }, beforeSymlink: false, expected: { blob: reference('a') }, expectedSymlink: false };
+    const cut = inBaseline().add('check.started', started('baseline-checks', 'lint')).start('baseline-checks', 2);
+    const restored = cut.clone().add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [file] }).add('worktree.checked', { phase: 'baseline-checks', attempt: 2, moment: 'restored', drifted: false, head: null, files: [], strays: [] }, 6);
+    const review = restored.review();
+    assert.deepEqual(review.fix!.restorations.map((restoration) => [restoration.check.kind, restoration.files.length, restoration.checksBefore]), [['lint', 1, review.checks.length - 1]]);
+    assert.equal(review.checks.at(-1)!.moment, 'restored');
+    refused(cut.clone().add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'test', attempt: 1 }, files: [] }), /after the test check of attempt 1 in baseline-checks, which never started there/);
+    refused(cut.clone().add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 3 }, files: [] }), /past the phase's attempt 2/);
+    refused(cut.clone().add('worktree.checked', { phase: 'baseline-checks', attempt: 2, moment: 'restored', drifted: false, head: null, files: [], strays: [] }, 6), /after a write back in attempt 2 of baseline-checks, which wrote nothing back/);
+  });
+
+  it('folds a cut worker and a usage limit as failures of their own causes, and the environment only in the fixes (R4, R14)', () => {
+    const inFixes = (): History => baselined().start('fixes').add('fixes.planned', fixPlan);
+    const review = inFixes()
+      .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(2), reason: 'killed', fault: 'cut' }, 7)
+      .add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(3), reason: 'the session limit', fault: 'limit' }, 7)
+      .review();
+    assert.deepEqual(review.units.fixes['c1-1']?.failures.map((failure) => failure.cause), ['cut', 'limit']);
+    refused(inBaseline().add('attempt.failed', { phase: 'baseline-checks', key: 'build', workerId: worker(2), reason: 'r', fault: 'environment' }, 7), /for its environment, which only a fixes-phase unit records/);
+  });
+
+  /** A complete fix run whose budget left c1-1 not attempted, with no revision, its report written. */
+  const budgetStopped = (): History => baselined()
+    .start('fixes')
+    .add('fixes.planned', fixPlan)
+    .add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'budget', reason: 'spent 61.16 USD of the 60.00 USD run budget' })
+    .add('fixes.replanned', { blocked: [], clusters: [], batches: [] })
+    .add('worktree.checked', endCheck('fixes'), 2)
+    .finish('fixes', 'degraded')
+    .start('checks').finish('checks').start('repair').finish('repair').start('repair-checks').finish('repair-checks')
+    .start('report').add('report.written', { report: reference('e', 2048), statistics, patches: [] }, 2).finish('report');
+
+  it('reopens a fix pass the run budget stopped: its units launch again, the later phases are pending, and the report is kept beside it (R11)', () => {
+    const before = budgetStopped().review();
+    assert.equal(reviewStatus(budgetStopped().fold()), 'complete');
+    const reopened = budgetStopped().add('fix.reopened', { units: [{ phase: 'fixes', key: 'c1-1' }] });
+    const review = reopened.review();
+    assert.deepEqual(review.fix!.notAttempted.fixes, {});
+    assert.equal(review.report, null);
+    assert.deepEqual(review.fix!.reopenings.map((reopening) => [reopening.units, reopening.reportBefore, reopening.attempts]), [[[{ phase: 'fixes', key: 'c1-1' }], before.report, { checks: 1, 'repair-checks': 1 }]]);
+    for (const phase of ['fixes', 'checks', 'repair', 'repair-checks', 'report'] as const) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: before.phases[phase].attempt }, phase);
+    assert.equal(review.phases['merge-rank'].status, 'completed', 'no read-only phase opens again');
+    assert.equal(reviewStatus(reopened.fold()), 'active');
+    assert.doesNotThrow(() => reopened.clone().add('limits.changed', { concurrency: 4, runBudgetUsd: 120 }).fold(), 'the reopened run takes new limits, its report cleared');
+    assert.doesNotThrow(() => reopened.clone().start('fixes', 2).fold(), 'the fixes start again');
+  });
+
+  it('refuses to reopen a run with no report or with a list other than the units the budget stopped', () => {
+    refused(baselined().add('fix.reopened', { units: [{ phase: 'fixes', key: 'c1-1' }] }), /reopens the fix pass before its report/);
+    refused(budgetStopped().add('fix.reopened', { units: [{ phase: 'repair', key: 'repair' }] }), /reopens \[repair:repair\], not each unit the run budget left not attempted \[fixes:c1-1\]/);
+    refused(complete().add('fix.reopened', { units: [{ phase: 'fixes', key: 'c1-1' }] }), /not each unit the run budget left not attempted \[\]/);
+  });
+
+  /** A complete fix run with one revision, ready to commit. */
+  function complete(): History {
+    return checksPhase(fixed(), 'checks').start('repair').finish('repair').start('repair-checks').finish('repair-checks').start('report').add('report.written', { report: reference('e'), statistics, patches: [reference('1')] }, 2).finish('report');
+  }
+  const series = { commits: [{ sha: commit('a'), revision: 'change', subject: 'the change' }, { sha: commit('b'), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: commit('b') };
+
+  it('keeps a prepared series open, the run\'s head where it was, until it is created or dropped (R9)', () => {
+    const prepared = complete().add('commits.prepared', series);
+    const open = prepared.fold();
+    assert.deepEqual(open.review!.fix!.openSeries, series);
+    assert.equal(runHead(open), '2'.repeat(40), 'the head does not move for an open series');
+    const created = prepared.clone().add('commits.created', series).review().fix!;
+    assert.equal(created.openSeries, null);
+    assert.deepEqual(created.commits, [series]);
+    const dropped = prepared.clone().add('commits.dropped', { from: series.from, to: series.to }).review().fix!;
+    assert.equal(dropped.openSeries, null);
+    assert.deepEqual(dropped.droppedSeries, [series]);
+    assert.deepEqual(dropped.commits, []);
+    assert.doesNotThrow(() => prepared.clone().add('commits.dropped', { from: series.from, to: series.to }).add('commits.prepared', series).add('commits.created', series).fold(), 'a dropped series is prepared again');
+  });
+
+  it('gives an engine before these records a run that holds one as unreadable, naming the first, which this engine folds (R16)', () => {
+    const older = modelWithout(resumableRunsEntries);
+    const ranAt2 = (): History => inBaseline().add('check.ran', checkRun('baseline-checks', 'lint', 'failed')).start('baseline-checks', 2);
+    const histories: [string, History][] = [
+      ['check.started@1', inBaseline().add('check.started', started('baseline-checks', 'build'))],
+      ['check.ran@3', inBaseline().add('check.ran', ranV3('baseline-checks', 'lint', 'skipped'), 3)],
+      ['tree.restored@1', ranAt2().add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [] })],
+      ['worktree.checked@6', inBaseline().add('worktree.checked', { phase: 'baseline-checks', attempt: 1, moment: 'answer', drifted: false, head: null, files: [], strays: [] }, 6)],
+      ['attempt.failed@7', baselined().start('fixes').add('fixes.planned', fixPlan).add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: worker(2), reason: 'killed', fault: 'cut' }, 7)],
+      ['fix.reopened@1', budgetStopped().add('fix.reopened', { units: [{ phase: 'fixes', key: 'c1-1' }] })],
+      // A dropped series always follows its prepared one, which an older engine meets first.
+      ['commits.prepared@1', complete().add('commits.prepared', series).add('commits.dropped', { from: series.from, to: series.to })],
+    ];
+    for (const [first, history] of histories) {
+      assert.doesNotThrow(() => history.fold(), first);
+      const unknown = firstUnknownEvent(history.events, older);
+      assert.equal(unknown === null ? null : `${unknown.kind}@${String(unknown.version)}`, first);
+    }
+    assert.equal(firstUnknownEvent(fixed().events, older), null, 'a run with none of them is read as before');
+  });
+
+  it('refuses a series created otherwise than prepared, a second prepared series, and a drop of a series that is not open', () => {
+    const prepared = complete().add('commits.prepared', series);
+    refused(prepared.clone().add('commits.created', { ...series, commits: [series.commits[0], { ...series.commits[1], sha: commit('c') }], to: commit('c') }), /while the series it prepared to b{40} is open/);
+    refused(prepared.clone().add('commits.prepared', series), /prepares a series of commits while the series to b{40} is open/);
+    refused(complete().add('commits.dropped', { from: series.from, to: series.to }), /drops the series from 2{40} to b{40}, which is not the open series/);
+    refused(complete().add('commits.prepared', { ...series, from: '3'.repeat(40) }), /prepares commits on 3{40}, not the run's head 2{40}/);
+  });
 });

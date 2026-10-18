@@ -12,6 +12,7 @@ import {
   attemptFailedV4,
   attemptFailedV5,
   attemptFailedV6,
+  attemptFailedV7,
   blockerSchema,
   blockerSchemaV3,
   blockerSchemaV5,
@@ -19,11 +20,17 @@ import {
   candidatesRecordedV1,
   checkRanV1,
   checkRanV2,
+  checkRanV3,
+  checkStartedV1,
+  commitsCreatedV1,
+  commitsDroppedV1,
+  commitsPreparedV1,
   decisionsRecordedV1,
   filesClaimedV1,
   fixPinnedV1,
   fixRecordedV1,
   fixRecordedV2,
+  fixReopenedV1,
   groupUnverifiedV1,
   phaseFinishedV2,
   phaseFinishedV3,
@@ -51,7 +58,9 @@ import {
   reviewVocabularyV4,
   reviewVocabularyV5,
   reviewVocabularyV6,
+  reviewVocabularyV7,
   surveyFailedV1,
+  treeRestoredV1,
   treeRevisedV1,
   treeRevisedV2,
   unitUnattemptedV1,
@@ -64,6 +73,7 @@ import {
   worktreeCheckedV3,
   worktreeCheckedV4,
   worktreeCheckedV5,
+  worktreeCheckedV6,
 } from '../../src/checkpoint/events.ts';
 import { hintRules } from '../../src/review/checks/discover.ts';
 import { normalizeClaimPath } from '../../src/review/claims.ts';
@@ -102,6 +112,7 @@ import {
   validationMethods,
   verdicts,
   verificationPhases,
+  worktreeMoments,
 } from '../../src/review/vocabulary.ts';
 
 // The review events freeze the vocabulary they record. If a test against
@@ -190,8 +201,9 @@ describe('the review vocabulary frozen by the v2 events', () => {
   });
 
   it('is today\'s vocabulary in every word the survey and the answers did not change, and its rules are the hints\' rules', () => {
-    const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, checkOrigins: frozenOrigins, checkPhases: frozenCheckPhases, editingPhases: frozenEditingPhases, ...rest } = reviewVocabularyV2;
-    assert.deepEqual(rest, { phaseOutcomes, checkKinds, checkOutcomes, fixStatuses, validationMethods, suiteResults });
+    const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, checkOrigins: frozenOrigins, checkPhases: frozenCheckPhases, editingPhases: frozenEditingPhases, checkOutcomes: frozenOutcomes, ...rest } = reviewVocabularyV2;
+    assert.deepEqual(rest, { phaseOutcomes, checkKinds, fixStatuses, validationMethods, suiteResults });
+    assert.deepEqual(frozenOutcomes, checkOutcomes.filter((outcome) => outcome !== 'cut'), 'resumable runs added the outcome cut and nothing else');
     assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'survey' && phase !== 'decision'), 'the survey and the decision step added a phase each, the answers two, and nothing else');
     assert.deepEqual(frozenCheckPhases, checkPhases.filter((phase) => phase !== 'answer-checks'), 'the answers added their check phase and nothing else');
     assert.deepEqual(frozenEditingPhases, editingPhases.filter((phase) => phase !== 'answer'), 'the answers added their editing phase and nothing else');
@@ -401,7 +413,7 @@ describe('the review vocabulary frozen by the v5 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
 
   it('is today\'s vocabulary, word for word and in order', () => {
-    assert.deepEqual(reviewVocabularyV5, { recordedBlockerCodes, attemptFaults, lostClaimReasons });
+    assert.deepEqual(reviewVocabularyV5, { recordedBlockerCodes, attemptFaults: attemptFaults.filter((fault) => fault !== 'cut' && fault !== 'limit'), lostClaimReasons });
   });
 
   it('records claims-lost only from version 5 of phase.finished, and only there', () => {
@@ -416,7 +428,8 @@ describe('the review vocabulary frozen by the v5 events', () => {
   it('requires a fault on attempt.failed@5, the unit\'s or the environment\'s, and caps its reason as version 1 does', () => {
     const failure = { phase: 'fixes', key: 'c1-1', workerId, reason: 'the claims directory was removed while the unit ran' };
     assert.equal(attemptFailedV5.safeParse(failure).success, false, 'no fault');
-    for (const fault of attemptFaults) assert.equal(attemptFailedV5.safeParse({ ...failure, fault }).success, true, fault);
+    for (const fault of reviewVocabularyV5.attemptFaults) assert.equal(attemptFailedV5.safeParse({ ...failure, fault }).success, true, fault);
+    for (const fault of ['cut', 'limit']) assert.equal(attemptFailedV6.safeParse({ ...failure, fault }).success, false, `${fault} is version 7's`);
     assert.equal(attemptFailedV5.safeParse({ ...failure, fault: 'engine' }).success, false);
     assert.equal(attemptFailedV4.safeParse({ ...failure, fault: 'unit' }).success, false, 'version 4 has no fault');
     assert.equal(attemptFailedV5.safeParse({ ...failure, fault: 'unit', reason: 'x'.repeat(recordedTextLengthV1) }).success, true);
@@ -606,5 +619,68 @@ describe('fix.pinned@1', () => {
     assert.equal(pinned({ checks: null }), false);
     assert.equal(pinned({ fixes: null }), false);
     assert.equal(pinned({ extra: true }), false);
+  });
+});
+
+// Version 7 of attempt.failed, version 6 of worktree.checked, version 3 of
+// check.ran and the new kinds of resumable runs record the vocabulary that
+// resumable runs widened; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v7 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const blob = (fill: string): { blob: { sha256: string; bytes: number } } => ({ blob: { sha256: fill.repeat(64), bytes: 1 } });
+  const ran = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ phase: 'checks', attempt: 2, kind: 'test', command: 'npm test', outcome: 'passed', exitCode: 0, signal: null, termination: 'exited', startedAt: '2026-10-19T00:00:00.000Z', endedAt: '2026-10-19T00:00:01.000Z', stdout: blob('b').blob, stderr: blob('c').blob, error: null, replaces: null, ...change });
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV7, { checkOutcomes, attemptFaults, worktreeMoments });
+  });
+
+  it('refuses the new words in the last version of each event that carries them, and accepts them in the new one', () => {
+    const cut = ran({ outcome: 'cut', exitCode: 143 });
+    const cutV2 = Object.fromEntries(Object.entries(cut).filter(([key]) => key !== 'replaces'));
+    assert.equal(checkRanV2.safeParse(cutV2).success, false, 'check.ran@2 refuses a cut run');
+    assert.equal(checkRanV3.safeParse(cut).success, true);
+    const failure = { phase: 'fixes', key: 'c1-1', workerId, reason: 'r' };
+    for (const fault of ['cut', 'limit']) {
+      assert.equal(attemptFailedV6.safeParse({ ...failure, fault }).success, false, `attempt.failed@6 refuses ${fault}`);
+      assert.equal(attemptFailedV7.safeParse({ ...failure, fault }).success, true, fault);
+    }
+    assert.equal(attemptFailedV7.safeParse({ ...failure, fault: 'environment' }).success, true, 'the fault environment stays');
+    const restored = { phase: 'checks', attempt: 2, moment: 'restored', drifted: false, head: null, files: [], strays: [] };
+    assert.equal(worktreeCheckedV5.safeParse(restored).success, false);
+    assert.equal(worktreeCheckedV6.safeParse(restored).success, true);
+  });
+
+  it('holds check.ran@3 to the rules of the old versions, a cut run to its exit, and what it replaces to an attempt and an outcome', () => {
+    assert.equal(checkRanV3.safeParse(ran({ outcome: 'cut', termination: 'killed', exitCode: null, signal: 'SIGKILL' })).success, false, 'a cut check exited');
+    assert.equal(checkRanV3.safeParse(ran({ outcome: 'cut', exitCode: null, signal: null })).success, true, 'a guard with no result leaves no code');
+    assert.equal(checkRanV3.safeParse(ran({ outcome: 'passed', exitCode: 1 })).success, false, 'a passed check exited 0');
+    assert.equal(checkRanV3.safeParse(ran({ replaces: { attempt: 1, outcome: 'failed' } })).success, true);
+    assert.equal(checkRanV3.safeParse(ran({ replaces: { attempt: 0, outcome: 'failed' } })).success, false);
+    assert.equal(checkRanV3.safeParse(ran({ replaces: { attempt: 1, outcome: 'gone' } })).success, false);
+    const noReplaces = Object.fromEntries(Object.entries(ran()).filter(([key]) => key !== 'replaces'));
+    assert.equal(checkRanV3.safeParse(noReplaces).success, false, 'version 3 names what it replaces, null for nothing');
+  });
+
+  it('records a check\'s start, a write back once per path, and a reopened fix pass once per unit', () => {
+    assert.equal(checkStartedV1.safeParse({ phase: 'baseline-checks', attempt: 1, kind: 'build', command: 'npm run build' }).success, true);
+    assert.equal(checkStartedV1.safeParse({ phase: 'fixes', attempt: 1, kind: 'build', command: 'npm run build' }).success, false, 'no check runs in an editing phase');
+    const file = { path: 'src/a.ts', before: blob('1'), beforeSymlink: false, expected: blob('2'), expectedSymlink: false };
+    const restored = { phase: 'checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [file] };
+    assert.equal(treeRestoredV1.safeParse(restored).success, true);
+    assert.equal(treeRestoredV1.safeParse({ ...restored, files: [] }).success, true, 'a write back that found nothing differing');
+    assert.equal(treeRestoredV1.safeParse({ ...restored, files: [{ ...file, before: null, expected: null }] }).success, true, 'a file absent before and expected absent');
+    assert.equal(treeRestoredV1.safeParse({ ...restored, files: [file, file] }).success, false, 'one path twice');
+    assert.equal(fixReopenedV1.safeParse({ units: [{ phase: 'fixes', key: 'c1-2' }, { phase: 'repair', key: 'repair' }] }).success, true);
+    assert.equal(fixReopenedV1.safeParse({ units: [] }).success, false, 'at least one unit');
+    assert.equal(fixReopenedV1.safeParse({ units: [{ phase: 'fixes', key: 'c1-2' }, { phase: 'fixes', key: 'c1-2' }] }).success, false, 'one unit twice');
+    assert.equal(fixReopenedV1.safeParse({ units: [{ phase: 'answer', key: 'pass-1' }] }).success, false, 'only the fixes and the repair stop at the budget');
+  });
+
+  it('prepares a series of commits in the shape it is created in, and drops one by its two heads', () => {
+    const series = { commits: [{ sha: 'a'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: 'b'.repeat(40), to: 'a'.repeat(40) };
+    assert.equal(commitsPreparedV1.safeParse(series).success, true);
+    assert.deepEqual(z.toJSONSchema(commitsPreparedV1), z.toJSONSchema(commitsCreatedV1));
+    assert.equal(commitsDroppedV1.safeParse({ from: series.from, to: series.to }).success, true);
+    assert.equal(commitsDroppedV1.safeParse({ from: series.from }).success, false);
   });
 });

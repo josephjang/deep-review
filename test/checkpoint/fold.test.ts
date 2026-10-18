@@ -25,15 +25,18 @@ describe('registry', () => {
    * the kinds that carry a phase, version 5 of the two that carry a
    * blocker code or a fault, and versions 2 to 6 of the configuration,
    * the fix pass's with versions 2 and 3 of its plan of checks, the
-   * survey's, the decision step's, the claims', and version 2 of the scope
-   * and of the continuation's pin, which the settings added.
+   * survey's, the decision step's, the claims', version 2 of the scope
+   * and of the continuation's pin, which the settings added, and the kinds
+   * and versions of resumable runs: the start and version 3 of a check's
+   * run, the write back, version 6 of the worktree check and 7 of a failed
+   * attempt, the reopened fix pass, and the prepared and dropped series.
    */
   const declaredKinds = [
-    'angle.failed@1', 'answer.pass@1', 'answer.recorded@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'attempt.failed@5', 'attempt.failed@6', 'candidates.recorded@1', 'check.ran@1', 'check.ran@2', 'checks.planned@1', 'checks.planned@2', 'checks.planned@3', 'claims.lost@1', 'commits.created@1',
-    'decisions.recorded@1', 'deduplication.recorded@1', 'files.claimed@1', 'fix.pinned@1', 'fix.pinned@2', 'fix.recorded@1', 'fix.recorded@2', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
+    'angle.failed@1', 'answer.pass@1', 'answer.recorded@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'attempt.failed@5', 'attempt.failed@6', 'attempt.failed@7', 'candidates.recorded@1', 'check.ran@1', 'check.ran@2', 'check.ran@3', 'check.started@1', 'checks.planned@1', 'checks.planned@2', 'checks.planned@3', 'claims.lost@1', 'commits.created@1', 'commits.dropped@1', 'commits.prepared@1',
+    'decisions.recorded@1', 'deduplication.recorded@1', 'files.claimed@1', 'fix.pinned@1', 'fix.pinned@2', 'fix.recorded@1', 'fix.recorded@2', 'fix.reopened@1', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
     'phase.finished@1', 'phase.finished@2', 'phase.finished@3', 'phase.finished@4', 'phase.finished@5', 'phase.finished@6', 'phase.started@1', 'phase.started@2', 'phase.started@3', 'phase.started@4', 'phase.started@5', 'ranking.recorded@1', 'report.written@1', 'report.written@2', 'report.written@3', 'report.written@4', 'report.written@5',
-    'review.configured@1', 'review.configured@2', 'review.configured@3', 'review.configured@4', 'review.configured@5', 'review.configured@6', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'scope.captured@2', 'survey.failed@1', 'survey.recorded@1', 'tree.revised@1', 'tree.revised@2', 'unit.unattempted@1', 'verdicts.recorded@1', 'verification.planned@1',
-    'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worker.lost@2', 'worker.lost@3', 'worker.lost@4', 'worker.lost@5', 'worktree.checked@1', 'worktree.checked@2', 'worktree.checked@3', 'worktree.checked@4', 'worktree.checked@5',
+    'review.configured@1', 'review.configured@2', 'review.configured@3', 'review.configured@4', 'review.configured@5', 'review.configured@6', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'scope.captured@2', 'survey.failed@1', 'survey.recorded@1', 'tree.restored@1', 'tree.revised@1', 'tree.revised@2', 'unit.unattempted@1', 'verdicts.recorded@1', 'verification.planned@1',
+    'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worker.lost@2', 'worker.lost@3', 'worker.lost@4', 'worker.lost@5', 'worktree.checked@1', 'worktree.checked@2', 'worktree.checked@3', 'worktree.checked@4', 'worktree.checked@5', 'worktree.checked@6',
   ];
 
   it('lists every kind and version, sorted, and hashes that list', () => {

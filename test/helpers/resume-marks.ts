@@ -40,8 +40,6 @@ export const marks: readonly Mark[] = [
   // W5: a stop between the end of a worker and the record of its answer launches it again.
   // RIPPLE's first worker fails, and a unit's failed attempt is launched again by design.
   ...failing(['worker.finished *', '!worker.finished finder-RIPPLE finders:RIPPLE'], stops, everySystem, ['launches'], 'R6'),
-  // W1: a unit whose first attempt failed and whose second a stop cut blocks the next command, out of attempts.
-  ...failing(['worker.launched finder-RIPPLE finders:RIPPLE', 'child finder-RIPPLE finders:RIPPLE#2'], stops, everySystem, ['exit', 'report'], 'R5'),
   // W1 and #25: a worker or a check that a kill ends first, with a kill mark, is recorded failed, which degrades the unit or makes the check's result false.
   ...failing(['child finder-RIPPLE finders:RIPPLE#2', 'child check *'], ['child'], everySystem, ['nothing false', 'report'], 'R4'),
   // W4: a check that rewrote a file and that a stop cut leaves an unrecorded write, which blocks the next command on drift.

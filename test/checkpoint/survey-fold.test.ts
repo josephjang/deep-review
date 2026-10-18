@@ -63,7 +63,7 @@ describe('the survey fold', () => {
     assert.deepEqual(reentered.survey?.lastBlock, unavailable);
   });
 
-  it('opens a re-entered survey\'s unit again, keeping its answer as the run\'s last, its failures, and accepting a new answer that replaces it', () => {
+  it('opens a re-entered survey\'s unit again, keeping its answer as the run\'s last and accepting a new answer that replaces it', () => {
     const blocked = surveying(surveyConfiguredFix()).add('survey.recorded', surveyAnswer(worker(1), { checks: fourChecks })).finish('survey', 'blocked', 1, unavailable);
     const reentered = blocked.start('survey', 2);
     const review = reentered.review();
@@ -72,9 +72,9 @@ describe('the survey fold', () => {
     const resurveyed = reentered.worker(2, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(2), { checks: fourChecks.map((check) => ({ ...check, missingTool: null })) })).review();
     assert.deepEqual(resurveyed.survey?.answers.map((answer) => answer.workerId), [worker(1), worker(2)]);
     assert.equal(lastSurvey(resurveyed.survey!)?.workerId, worker(2));
-    // A survey left running by an engine that stopped is opened again too, and an interrupted attempt keeps counting against it.
+    // A survey left running by an engine that stopped is opened again too, with fresh attempts, as every phase a stop left running (R5 of resumable runs).
     const lost = surveyConfigured().start('survey').add('worker.launched', launch(worker(3), 'surveyor survey:survey')).add('worker.lost', { workerId: worker(3), phase: 'survey', key: 'survey', reason: 'the engine exited' }, 3);
-    assert.deepEqual(lost.start('survey', 2).review().units.survey.survey, { answeredBy: null, failures: [{ workerId: worker(3), reason: 'the engine exited', cause: 'lost' }] });
+    assert.deepEqual(lost.start('survey', 2).review().units.survey.survey, { answeredBy: null, failures: [] });
   });
 
   it('goes on without a read-only run\'s survey, recording CONVENTIONS as not run when no source is left, and running it on the policy\'s file when one is', () => {

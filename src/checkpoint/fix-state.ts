@@ -12,7 +12,7 @@
  */
 import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
-import type { CheckRan, ChecksPlannedV1, ClaimsLost, CommitsCreated, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, PlannedCheckV2, PlannedCheckV3, RecordedDecision, ScopeMode, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, CheckStarted, ChecksPlannedV1, ClaimsLost, CommitsCreated, CommitsPrepared, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, FixReopened, PlannedCheckV2, PlannedCheckV3, RecordedDecision, ReportWritten, ScopeMode, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
 
@@ -76,12 +76,48 @@ export interface NotAttempted {
   readonly reason: string;
 }
 
+/**
+ * A run of a check as the fold holds it (TD3 of resumable runs): its
+ * record, a version 1 or 2 run replacing nothing, and how many revisions
+ * of the tree the ledger held before it, so a reader tells a run a later
+ * revision made old from a current one.
+ */
+export interface CheckRunState extends CheckRan {
+  readonly revisionsBefore: number;
+}
+
+/** A start of a check as the fold holds it (R7 of resumable runs): its record, and how many runs of its phase the ledger held before it, so a reader finds a start no run came after. */
+export interface CheckStartState extends CheckStarted {
+  readonly runsBefore: number;
+}
+
+/** A write back as the fold holds it (R7 of resumable runs): its record, and how many worktree checks the run held before it, since the drift rule reads only the checks after it. */
+export interface RestorationState extends TreeRestored {
+  readonly checksBefore: number;
+}
+
+/**
+ * A reopening of a fix pass the run budget stopped (R11 of resumable
+ * runs): when it was recorded, the units it reopened, the report it
+ * replaces, and the attempts `checks` and `repair-checks` were at.
+ */
+export interface ReopeningState {
+  readonly at: string;
+  readonly units: FixReopened['units'];
+  readonly reportBefore: ReportWritten;
+  readonly attempts: Readonly<Record<'checks' | 'repair-checks', number>>;
+}
+
 export interface FixState {
   readonly checks: {
     /** The checks the run executes, pinned at configuration by a version 1 plan and when the survey completes by a version 2 one, or null until `checks.planned` is folded. */
     readonly planned: ChecksPlanned | null;
     /** Every run or skip of a check, by checks phase, in ledger order. */
-    readonly runs: Readonly<Record<CheckPhase, readonly CheckRan[]>>;
+    readonly runs: Readonly<Record<CheckPhase, readonly CheckRunState[]>>;
+    /** Every recorded start of a check, by checks phase, in ledger order (R7 of resumable runs); none before `check.started` existed. */
+    readonly starts: Readonly<Record<CheckPhase, readonly CheckStartState[]>>;
+    /** The last attempt of each checks phase that a `phase.finished` ended, 0 for none (R3 of resumable runs). */
+    readonly finished: Readonly<Record<CheckPhase, number>>;
   };
   /** The routes, clusters and batches, or null until the fixes phase plans them. */
   readonly plan: FixesPlanned | null;
@@ -101,12 +137,25 @@ export interface FixState {
   readonly violationHolders: Readonly<Record<string, Readonly<Record<string, PathHolder>>>>;
   /** Every series of commits built from the run after a report, in ledger order: the first from the scope's head, each later one from the last commit of the one before (R8 of answers). Empty until `deep-review commit` builds one. */
   readonly commits: readonly CommitsCreated[];
+  /** A series `commit` prepared and neither completed nor dropped yet, which a stop left open (R9 of resumable runs); null when none is open. */
+  readonly openSeries: CommitsPrepared | null;
+  /** Every prepared series a later command dropped, since the branch had not moved, in ledger order. */
+  readonly droppedSeries: readonly CommitsPrepared[];
+  /** Every write back after a check that a kill cut short, in ledger order (R7 of resumable runs). */
+  readonly restorations: readonly RestorationState[];
+  /** Every reopening of the fix pass, in ledger order (R11 of resumable runs). */
+  readonly reopenings: readonly ReopeningState[];
 }
 
 /** The fix state of a run just configured with the fix pass. */
 export function emptyFixState(): FixState {
   return {
-    checks: { planned: null, runs: Object.fromEntries(checkPhases.map((phase) => [phase, []])) as unknown as Record<CheckPhase, CheckRan[]> },
+    checks: {
+      planned: null,
+      runs: Object.fromEntries(checkPhases.map((phase) => [phase, []])) as unknown as Record<CheckPhase, CheckRunState[]>,
+      starts: Object.fromEntries(checkPhases.map((phase) => [phase, []])) as unknown as Record<CheckPhase, CheckStartState[]>,
+      finished: Object.fromEntries(checkPhases.map((phase) => [phase, 0])) as Record<CheckPhase, number>,
+    },
     plan: null,
     secondRound: null,
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecorded>>,
@@ -116,12 +165,86 @@ export function emptyFixState(): FixState {
     lostClaims: [],
     violationHolders: {},
     commits: [],
+    openSeries: null,
+    droppedSeries: [],
+    restorations: [],
+    reopenings: [],
   };
 }
 
 /** The last run of a kind's check in a checks phase at an attempt past `after`, or null when it has none; any attempt by default. */
-export function lastRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRan | null {
+export function lastRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRunState | null {
   return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > after) ?? null;
+}
+
+/**
+ * The editing phases whose revisions make a run of each checks phase old
+ * (TD3 of resumable runs): a later revision makes a run old only when it
+ * changes the state its phase checks. A baseline run checks the tree
+ * before every edit and never grows old; a revision by a check makes no
+ * run old, since a check that writes files records its own writes; and an
+ * answer pass's revision runs `answer-checks` again through its floor
+ * (`checksFloor`), not by making its runs old.
+ */
+const stalingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = {
+  'baseline-checks': [],
+  checks: ['fixes', 'answer'],
+  'repair-checks': ['fixes', 'repair', 'answer'],
+  'answer-checks': ['fixes', 'repair'],
+};
+
+/** Whether a run of a checks phase is old: a revision the ledger holds after it changed the state its phase checks. */
+export function isOldRun(fix: Pick<FixState, 'revisions'>, phase: CheckPhase, run: Pick<CheckRunState, 'revisionsBefore'>): boolean {
+  const staling: readonly string[] = stalingPhases[phase];
+  return fix.revisions.slice(run.revisionsBefore).some((revision) => staling.includes(revision.phase));
+}
+
+/** The last current run of a kind in a checks phase (TD3 of resumable runs): past the phase's floor (`checksFloor`) and made old by no later revision; null when the kind has none. */
+export function lastCurrentRun(review: Pick<ReviewState, 'answerPasses'> & { readonly fix: FixState }, phase: CheckPhase, kind: CheckKind): CheckRunState | null {
+  const floor = checksFloor(review, phase);
+  const fix = review.fix;
+  return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > floor && !isOldRun(fix, phase, run)) ?? null;
+}
+
+/**
+ * Whether an attempt of a checks phase was cut (R3 of resumable runs):
+ * after the phase's last finished attempt and before its current one, so
+ * a stop ended it with no `phase.finished`. The current attempt is never a
+ * cut attempt.
+ */
+export function isCutAttempt(review: Pick<ReviewState, 'phases'> & { readonly fix: FixState }, phase: CheckPhase, attempt: number): boolean {
+  return attempt > review.fix.checks.finished[phase] && attempt < review.phases[phase].attempt;
+}
+
+/**
+ * What a new run of a kind in a checks phase stands to its last current
+ * run, by the rules of `check.ran@3` (R3, R4, R7 of resumable runs):
+ * `first` when the kind has no current run; `again` with that run and why
+ * when it was cut, when it is the first timeout of the kind in the current
+ * attempt, or when it did not pass in a cut attempt; null when the kind may
+ * not run again, since its last current run is its result.
+ */
+export type RunStanding =
+  | { readonly kind: 'first' }
+  | { readonly kind: 'again'; readonly run: CheckRunState; readonly why: 'cut' | 'timeout' | 'cut-attempt' }
+  | null;
+
+export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'> & { readonly fix: FixState }, phase: CheckPhase, kind: CheckKind): RunStanding {
+  const last = lastCurrentRun(review, phase, kind);
+  if (last === null) return { kind: 'first' };
+  if (last.outcome === 'cut') return { kind: 'again', run: last, why: 'cut' };
+  const current = review.phases[phase].attempt;
+  const firstTimeout = review.fix.checks.runs[phase].find((run) => run.kind === kind && run.attempt === current && run.outcome === 'timeout');
+  if (last.outcome === 'timeout' && last.attempt === current && firstTimeout === last) return { kind: 'again', run: last, why: 'timeout' };
+  if (last.outcome !== 'passed' && isCutAttempt(review, phase, last.attempt)) return { kind: 'again', run: last, why: 'cut-attempt' };
+  return null;
+}
+
+/** The start of a kind's check at an attempt that no run of the kind at that attempt came after, or null: a check a stop cut, or one running now (R7 of resumable runs). */
+export function openStart(fix: FixState, phase: CheckPhase, kind: CheckKind, attempt: number): CheckStartState | null {
+  const start = fix.checks.starts[phase].findLast((candidate) => candidate.kind === kind && candidate.attempt === attempt) ?? null;
+  if (start === null) return null;
+  return fix.checks.runs[phase].slice(start.runsBefore).some((run) => run.kind === kind && run.attempt === attempt) ? null : start;
 }
 
 /**

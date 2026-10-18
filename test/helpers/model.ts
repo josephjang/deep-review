@@ -16,3 +16,16 @@ export const testModel: RunModel = defineModel(testRegistry, {
   'test.note@1': (state, _payload, event) => ({ ...requireState(state, event), lastSequence: event.sequence }),
   'test.evidence@1': (state, _payload, event) => ({ ...requireState(state, event), lastSequence: event.sequence }),
 });
+
+/** The event kinds and versions resumable runs added (R16 of resumable runs), which an engine before them does not declare. */
+export const resumableRunsEntries = ['check.started@1', 'check.ran@3', 'tree.restored@1', 'worktree.checked@6', 'attempt.failed@7', 'fix.reopened@1', 'commits.prepared@1', 'commits.dropped@1'] as const;
+
+/** The engine's model less `entries`, each `<kind>@<version>`: the model of an older engine, which declares none of them. */
+export function modelWithout(entries: readonly string[]): RunModel {
+  const registry = Object.fromEntries(Object.entries(eventRegistry).flatMap(([kind, versions]) => {
+    const kept = Object.fromEntries(Object.entries(versions).filter(([version]) => !entries.includes(`${kind}@${version}`)));
+    return Object.keys(kept).length === 0 ? [] : [[kind, kept]];
+  }));
+  const kept = Object.fromEntries(Object.entries(reducers).filter(([key]) => !entries.includes(key)));
+  return defineModel(defineRegistry(registry as typeof eventRegistry), kept as typeof reducers);
+}

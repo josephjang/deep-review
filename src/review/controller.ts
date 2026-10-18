@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, CheckRanV2, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
@@ -541,7 +541,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (due.skip !== null) {
         log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
         const now = new Date().toISOString();
-        const skipped: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip };
+        const skipped: CheckRanV2 = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip };
         return [{ kind: 'check.ran', version: 2, payload: skipped }];
       }
       log(`check ${due.kind} (${phase}): ${due.command}`);
@@ -550,7 +550,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       const manifest = prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree);
       const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options.worktree, environment, toolsPath, timeoutMs, ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`) });
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? '' : `: ${result.error}`}`);
-      const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
+      const ran: CheckRanV2 = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
       const revision = checkRevision(revisionContext(), phase, due.kind, due.command, manifest);
       if (revision !== null) {
         const expected = expectedTreeOf(state);

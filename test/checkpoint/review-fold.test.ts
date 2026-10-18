@@ -301,14 +301,25 @@ describe('the review fold', () => {
     assert.equal(before.review!.units.finders.RIPPLE?.failures.length, 1, 'the state before the start is left as it was');
   });
 
-  it('keeps a running phase\'s failures when a resumed engine re-enters it', () => {
-    const review = triaged()
+  it('gives a running phase\'s units fresh attempts when a resumed engine re-enters it, keeping their answers and degradations (R5 of resumable runs)', () => {
+    const running = triaged()
       .start('finders')
       .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'failed' })
-      .add('phase.started', { phase: 'finders', attempt: 2 })
-      .review();
+      .add('worker.launched', launch(worker(3), 'finder-DESIGN finders:DESIGN'))
+      .add('worker.lost', { workerId: worker(3), phase: 'finders', key: 'DESIGN', reason: 'the engine exited while the worker ran' }, 2)
+      .add('attempt.failed', { phase: 'finders', key: 'WRAPPERS', workerId: worker(4), reason: 'failed' })
+      .add('attempt.failed', { phase: 'finders', key: 'WRAPPERS', workerId: worker(5), reason: 'failed again' })
+      .add('angle.failed', { angle: 'WRAPPERS', reason: '2 attempts did not complete' })
+      .add('candidates.recorded', { phase: 'finders', key: 'REMOVALS', workerId: worker(6), candidates: [], leads: null });
+    const before = running.fold();
+    const review = running.add('phase.started', { phase: 'finders', attempt: 2 }).review();
     assert.deepEqual(review.phases.finders, { status: 'running', attempt: 2 });
-    assert.equal(review.units.finders.RIPPLE?.failures.length, 1);
+    assert.deepEqual(review.units.finders.RIPPLE, { answeredBy: null, failures: [] }, 'a failure the stop may have caused costs the unit nothing');
+    assert.deepEqual(review.units.finders.DESIGN, { answeredBy: null, failures: [] }, 'a lost worker too');
+    assert.deepEqual(review.units.finders.REMOVALS, { answeredBy: worker(6), failures: [] }, 'an answer stays');
+    assert.equal(review.anglesNotRun.WRAPPERS, '2 attempts did not complete', 'a degraded unit stays degraded');
+    assert.equal(review.units.triage.SCAN?.answeredBy !== null, true, 'the triage is not re-entered');
+    assert.equal(before.review!.units.finders.RIPPLE?.failures.length, 1, 'the state before the start is left as it was');
   });
 
   it('records a drift check with its files', () => {

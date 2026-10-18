@@ -15,7 +15,7 @@ import { notStarted, runProcess, type ProcessResult } from '../../runtime/proces
 import type { CheckOutcome } from '../vocabulary.ts';
 
 /** How a check that ran ended: its command exited 0, exited otherwise, ran past its timeout, or never started. `skipped` is recorded for a check the planner never ran. */
-export type RunOutcome = Exclude<CheckOutcome, 'skipped'>;
+export type RunOutcome = Exclude<CheckOutcome, 'skipped' | 'cut'>;
 
 /** The shell a check runs through, and the arguments that hand it the command. */
 export interface ShellInvocation {

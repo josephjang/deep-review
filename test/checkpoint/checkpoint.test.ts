@@ -19,7 +19,8 @@ import { runModel } from '../../src/checkpoint/fold.ts';
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { testModel } from '../helpers/model.ts';
+import { modelWithout, resumableRunsEntries, testModel } from '../helpers/model.ts';
+import { mergeRanked, withFixPass } from '../helpers/review-history.ts';
 
 const fixedClock = (): (() => string) => {
   let tick = 0;
@@ -135,6 +136,25 @@ describe('Checkpoint', () => {
     assert.throws(() => checkpoint.append(created.id, 1, [{ kind: 'test.note', version: 1, payload: { text: 'x', extra: true } }]), InvalidPayloadError);
     assert.throws(() => checkpoint.append(created.id, 1, []), InvalidPayloadError);
     assert.equal(checkpoint.fold(created.id).lastSequence, 1);
+  });
+
+  it('passes over a run with a record of resumable runs in an engine before them, and reads the same run in this one (R16 of resumable runs)', () => {
+    const writer = open({ engine: '0.1.0-writer', model: runModel });
+    const run = writer.createRun({ worktree: '/w' }).id;
+    const plain = writer.createRun({ worktree: '/w' }).id;
+    // A fix run at its baseline whose first check is started, as each check of the new engine is; its events past run.created go in as rows, as the writer's appends would.
+    const history = withFixPass(mergeRanked()).start('baseline-checks').add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'build', command: 'npm run build' });
+    writer.ledger.write((tx) => {
+      for (const event of history.events.slice(1)) tx.insertEvent({ runId: run, kind: event.kind, version: event.version, payload: JSON.stringify(event.payload), recordedAt: event.recordedAt, engine: '0.1.0-writer' });
+    });
+    assert.equal(writer.fold(run).review?.fix?.checks.starts['baseline-checks'].length, 1, 'the engine that wrote it reads it');
+    const startedAt = writer.ledger.events(run).at(-1)!.sequence;
+    writer.close();
+    opened.splice(0);
+    const older = open({ engine: '0.0.9-reader', model: modelWithout(resumableRunsEntries) });
+    const runs = older.listRuns();
+    assert.deepEqual(runs.map((listed) => [listed.id, isUnreadable(listed)]), [[run, true], [plain, false]]);
+    assert.deepEqual(isUnreadable(runs[0]!) ? runs[0].unreadable : null, { sequence: startedAt, kind: 'check.started', version: 1, engine: '0.1.0-writer' });
   });
 
   describe('a run holding an event this engine does not declare', () => {

@@ -48,8 +48,47 @@ class ReviewHistory {
   }
 
   add(kind: string, payload: unknown, version = 1): void {
-    const event: NewEvent = { kind, version, payload };
-    this.#lastSequence = this.#checkpoint.append(this.#runId, this.#lastSequence, [event]).lastSequence;
+    this.addAll([{ kind, version, payload }]);
+  }
+
+  /** Append several events in one append, as the engine records what one step decided together. */
+  addAll(events: readonly NewEvent[]): void {
+    this.#lastSequence = this.#checkpoint.append(this.#runId, this.#lastSequence, events).lastSequence;
+  }
+
+  /**
+   * Start a phase at `attempt` with a clean worktree check, as the engine
+   * now writes them, and nothing more: a phase a stop cuts is never
+   * finished, and the next engine starts it again at the next attempt.
+   */
+  startedAt(phase: Phase, attempt: number): void {
+    this.#attempts[phase] = attempt;
+    this.add('phase.started', { phase, attempt }, 5);
+    this.add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 6);
+  }
+
+  /** Finish a phase at its current attempt, as the engine now writes it. */
+  finishedAt(phase: Phase, finish: 'completed' | 'degraded' | PhaseBlocker = 'completed'): void {
+    const attempt = this.#attempts[phase] ?? 1;
+    const finished = typeof finish === 'string' ? { outcome: finish, blocker: null } : { outcome: 'blocked', blocker: finish };
+    this.add('phase.finished', { phase, attempt, ...finished }, 6);
+  }
+
+  /** One check's start and its run at version 3 (R3, R4, R7 of resumable runs), at the phase's current attempt: what it ended as and the run it replaces, if any. */
+  checkV3(phase: 'baseline-checks' | 'checks' | 'repair-checks' | 'answer-checks', kind: string, command: string, outcome: 'passed' | 'failed' | 'cut' | 'timeout', replaces: { attempt: number; outcome: string } | null = null): void {
+    const attempt = this.#attempts[phase] ?? 1;
+    this.add('check.started', { phase, attempt, kind, command });
+    const ended = {
+      passed: { exitCode: 0, signal: null, termination: 'exited' },
+      failed: { exitCode: 1, signal: null, termination: 'exited' },
+      cut: { exitCode: 143, signal: null, termination: 'exited' },
+      timeout: { exitCode: null, signal: 'SIGKILL', termination: 'killed' },
+    }[outcome];
+    this.add('check.ran', {
+      phase, attempt, kind, command, outcome, ...ended,
+      startedAt: '2026-10-19T02:00:00.000Z', endedAt: '2026-10-19T02:00:04.000Z',
+      stdout: this.#checkpoint.evidence.put(`${kind} ${outcome}\n`), stderr: this.#checkpoint.evidence.put(''), error: null, replaces,
+    }, 3);
   }
 
   /** Start a phase at its next attempt with a clean worktree check at version 2, as the fix pass's engine wrote them, run `body`, and finish it. */
@@ -1574,6 +1613,206 @@ try {
       ignored: [],
     },
   }, 2);
+  // A fourteenth run, a fix run that holds each record of resumable runs
+  // (R16 of resumable runs). A stop cuts its finders while RIPPLE's worker,
+  // ended by a kill mark, has failed and DESIGN's is in flight; the next
+  // engine records DESIGN lost and starts the phase again, which gives each
+  // unit fresh attempts (R5). Its baseline runs build, then test, which a
+  // kill mark cuts; the engine writes back the file test wrote (R7) and
+  // runs test again, which times out, and once more, which fails; a stop
+  // cuts the attempt, and the next one runs the failed test again, which
+  // passes (R3, R4). Its fixer meets the usage limit of Claude Code, which
+  // blocks the fixes (R14); at the next attempt the run budget leaves its
+  // batch not attempted, so no second round is planned, and the run writes
+  // its report. The same command with a higher budget reopens the fix pass
+  // in one append with the new limits (R11, TD8), whose fixer applies the
+  // fix; the checks after it run, and a second report is written. Its first
+  // series of commits is prepared, dropped since the branch did not move,
+  // prepared again and created (R9).
+  const resumedRun = checkpoint.createRun({ worktree: '/fixture/resumed' });
+  const resumed = new ReviewHistory(checkpoint, resumedRun.id, checkpoint.append(resumedRun.id, resumedRun.lastSequence, [{ kind: 'scope.captured', version: 2, payload: { ...fixScope, request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 } } }]).lastSequence);
+  const resumedChecks = { build: 'npm run build', test: 'npm test' };
+  resumed.add('review.configured', {
+    runtime: 'claude',
+    executable: '/fixture/bin/claude',
+    executableArgs: [],
+    version: '2.1.320',
+    models: { strong: 'opus', fast: 'sonnet' },
+    roles: decidedRoles,
+    rolesDigest: 'e'.repeat(64),
+    concurrency: 4,
+    runBudgetUsd: 20,
+    fix: true,
+    checks: { timeoutMs: 1_200_000 },
+    fixes: { batchSize: 4 },
+    survey: { userRules: 'judge' },
+    codex: null,
+    settings: {
+      files: [],
+      repository: { state: 'absent', commit: fixScope.base, edited: false },
+      values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'checks.build': null, 'checks.typecheck': null, 'checks.lint': null, 'checks.test': null },
+      layers: {
+        'review.base': 'default', 'scope.default': 'default', 'scope.exclude': 'default', 'tools.path': 'default', 'conventions.user_rules': 'default', 'budget.usd': 'flag', 'run.concurrency': 'default',
+        'checks.build': 'default', 'checks.typecheck': 'default', 'checks.lint': 'default', 'checks.test': 'default', 'checks.timeout_minutes': 'default',
+        'runtimes.claude.strong': 'default', 'runtimes.claude.fast': 'default', 'runtimes.claude.executable': 'default', 'runtimes.claude.args': 'default',
+      },
+      notFollowed: [],
+      ignored: [],
+    },
+  }, 6);
+  resumed.phaseV6('survey', () => {
+    resumed.launch('a01', 'surveyor survey:survey');
+    resumed.finishWorker('a01');
+    resumed.add('survey.recorded', {
+      workerId: resumed.id('a01'),
+      conventions: [],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: resumedChecks.build, basis: 'stated', source: { path: 'package.json', quote: '"build"' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'the build typechecks' },
+        { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no linter' },
+        { kind: 'test', command: resumedChecks.test, basis: 'stated', source: { path: 'package.json', quote: '"test"' }, missingTool: null, reason: null },
+      ],
+      note: '',
+    });
+    resumed.add('checks.planned', { checks: [
+      { kind: 'build', command: resumedChecks.build, origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"build"', basis: 'stated' } },
+      { kind: 'typecheck', command: null, origin: 'none', layer: null, reason: 'the build typechecks', source: null },
+      { kind: 'lint', command: null, origin: 'none', layer: null, reason: 'the project has no linter', source: null },
+      { kind: 'test', command: resumedChecks.test, origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"test"', basis: 'stated' } },
+    ] }, 3);
+  });
+  resumed.phaseV6('triage', () => {
+    resumed.launch('a02', 'triage triage:SCAN');
+    resumed.finishWorker('a02');
+    resumed.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: resumed.id('a02'), candidates: [resumed.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+  });
+  // The finders' first attempt: RIPPLE's worker ends with exit code 143, a kill mark, and DESIGN's is in flight when a stop cuts the engine.
+  resumed.startedAt('finders', 1);
+  for (const angle of finderAngles) {
+    const tag = `a${String(10 + finderAngles.indexOf(angle))}`;
+    resumed.launch(tag, `finder-${angle} finders:${angle}`);
+    if (angle === 'DESIGN') continue;
+    if (angle === 'RIPPLE') {
+      resumed.finishWorker(tag, 'failed');
+      resumed.add('attempt.failed', { phase: 'finders', key: angle, workerId: resumed.id(tag), reason: 'failed: The worker exited with code 143, a kill mark', fault: 'cut' }, 7);
+      continue;
+    }
+    resumed.finishWorker(tag);
+    resumed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: resumed.id(tag), candidates: [], leads: null });
+  }
+  // The next engine records DESIGN lost and starts the finders again, each unit with fresh attempts.
+  resumed.add('worker.lost', { workerId: resumed.id(`a${String(10 + finderAngles.indexOf('DESIGN'))}`), phase: 'finders', key: 'DESIGN', reason: 'the engine exited while the worker ran' }, 5);
+  resumed.startedAt('finders', 2);
+  for (const angle of ['RIPPLE', 'DESIGN'] as const) {
+    const tag = `a${String(20 + finderAngles.indexOf(angle))}`;
+    resumed.launch(tag, `finder-${angle} finders:${angle}`);
+    resumed.finishWorker(tag);
+    resumed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: resumed.id(tag), candidates: [], leads: null });
+  }
+  resumed.finishedAt('finders');
+  resumed.phaseV6('deduplication', () => {});
+  resumed.phaseV6('verification', () => {
+    resumed.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }] });
+    resumed.launch('a31', 'verifier verification:g1');
+    resumed.finishWorker('a31');
+    resumed.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: resumed.id('a31'), verdicts: [{ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives' }] });
+  });
+  resumed.phaseV6('sweep', () => {
+    resumed.launch('a32', 'sweep sweep:sweep');
+    resumed.finishWorker('a32');
+    resumed.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: resumed.id('a32'), candidates: [], leads: null });
+  });
+  resumed.phaseV6('sweep-deduplication', () => {});
+  resumed.phaseV6('sweep-verification', () => resumed.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  resumed.phaseV6('merge-rank', () => {
+    resumed.launch('a33', 'merge-rank merge-rank:merge-rank');
+    resumed.finishWorker('a33');
+    resumed.add('ranking.recorded', { workerId: resumed.id('a33'), findings: [{ id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' }] });
+  });
+  resumed.phaseV6('decision', () => {
+    resumed.launch('a34', 'decider decision:decision');
+    resumed.finishWorker('a34');
+    resumed.add('decisions.recorded', { workerId: resumed.id('a34'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: null },
+    ] });
+  });
+  // The baseline's first attempt: build passes; a kill mark cuts test, whose write the engine puts back before test runs again; test times out, runs once more and fails; a stop cuts the attempt there.
+  resumed.startedAt('baseline-checks', 1);
+  resumed.checkV3('baseline-checks', 'build', resumedChecks.build, 'passed');
+  resumed.checkV3('baseline-checks', 'test', resumedChecks.test, 'cut');
+  resumed.addAll([{ kind: 'tree.restored', version: 1, payload: { phase: 'baseline-checks', attempt: 1, check: { kind: 'test', attempt: 1 }, files: [
+    { path: fixScope.files[0]!.path, before: resumed.frozen('after; // half a snapshot\n'), beforeSymlink: false, expected: fixScope.files[0]!.after, expectedSymlink: false },
+  ] } }]);
+  resumed.add('worktree.checked', { phase: 'baseline-checks', attempt: 1, moment: 'restored', drifted: false, head: null, files: [], strays: [] }, 6);
+  resumed.checkV3('baseline-checks', 'test', resumedChecks.test, 'timeout', { attempt: 1, outcome: 'cut' });
+  resumed.checkV3('baseline-checks', 'test', resumedChecks.test, 'failed', { attempt: 1, outcome: 'timeout' });
+  // The next attempt runs again the test that failed in the cut attempt; build passed, so it stays.
+  resumed.startedAt('baseline-checks', 2);
+  resumed.checkV3('baseline-checks', 'test', resumedChecks.test, 'passed', { attempt: 1, outcome: 'failed' });
+  resumed.finishedAt('baseline-checks');
+  // The fixer meets the usage limit, which blocks the fixes; at the next attempt the budget leaves the batch not attempted.
+  resumed.startedAt('fixes', 1);
+  resumed.add('fixes.planned', {
+    routes: [{ id: 'SCAN-1', route: 'fixer' }],
+    clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }],
+    batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] }],
+  });
+  resumed.launch('a40', 'fixer fixes:c1-1');
+  resumed.finishWorker('a40', 'failed');
+  resumed.add('attempt.failed', { phase: 'fixes', key: 'c1-1', workerId: resumed.id('a40'), reason: 'failed: You\'ve hit your session limit, resets 12:10pm (Asia/Seoul)', fault: 'limit' }, 7);
+  resumed.finishedAt('fixes', { code: 'worker-failed', detail: 'the fixer worker for fixes:c1-1 met the usage limit of Claude Code, which resets 12:10pm (Asia/Seoul)', action: 'run the command again, which gives the failed worker two fresh attempts, or abandon the run' });
+  resumed.startedAt('fixes', 2);
+  resumed.add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'budget', reason: 'spent 20.50 USD of the 20.00 USD run budget' });
+  resumed.add('worktree.checked', { phase: 'fixes', attempt: 2, moment: 'end', drifted: false, head: null, files: [], strays: [] }, 6);
+  resumed.finishedAt('fixes', 'degraded');
+  resumed.phaseV6('checks', () => {});
+  resumed.phaseV6('repair', () => {});
+  resumed.phaseV6('repair-checks', () => {});
+  const resumedSpend = (workers: number) => ({ workers, seconds: workers * 30, costUsd: workers * 0.5, costUnreported: 0, inputTokens: workers * 1000, cachedInputTokens: workers * 200, outputTokens: workers * 100 });
+  resumed.phaseV6('report', () => {
+    resumed.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix pass the run budget stopped\n'),
+      statistics: { phases: phases.map((phase) => ({ phase, ...resumedSpend(0) })), total: resumedSpend(0), budgetApplied: true },
+      patches: [],
+    }, 5);
+  });
+  // The same command with --budget-usd 40 reopens the fix pass, with its new limits in the same append.
+  resumed.addAll([
+    { kind: 'fix.reopened', version: 1, payload: { units: [{ phase: 'fixes', key: 'c1-1' }] } },
+    { kind: 'limits.changed', version: 1, payload: { concurrency: 4, runBudgetUsd: 40 } },
+  ]);
+  resumed.startedAt('fixes', 3);
+  resumed.launch('a41', 'fixer fixes:c1-1');
+  resumed.finishWorker('a41');
+  resumed.add('fix.recorded', { phase: 'fixes', key: 'c1-1', workerId: resumed.id('a41'), findings: [finding('SCAN-1', 'applied', ['src/changed.ts'], 'fix: Guard the null in changed()')], drift: [], tests: [], suite: { result: 'pass', command: resumedChecks.test, failures: '' }, violations: [] }, 2);
+  resumed.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1-1', workerId: resumed.id('a41') }, change: { findings: ['SCAN-1'], message: message('fix: Guard the null in changed()') }, files: [
+    { path: 'src/changed.ts', status: 'modified', before: resumed.frozen('after\n'), beforeSymlink: false, symlink: false, after: resumed.frozen('after; // guarded\n') },
+  ] }, 2);
+  resumed.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
+  resumed.add('worktree.checked', { phase: 'fixes', attempt: 3, moment: 'end', drifted: false, head: null, files: [], strays: [] }, 6);
+  resumed.finishedAt('fixes');
+  resumed.startedAt('checks', 2);
+  resumed.checkV3('checks', 'build', resumedChecks.build, 'passed');
+  resumed.checkV3('checks', 'test', resumedChecks.test, 'passed');
+  resumed.finishedAt('checks');
+  resumed.startedAt('repair', 2);
+  resumed.finishedAt('repair');
+  resumed.startedAt('repair-checks', 2);
+  resumed.finishedAt('repair-checks');
+  resumed.startedAt('report', 2);
+  resumed.add('report.written', {
+    report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a reopened fix pass\n'),
+    statistics: { phases: phases.map((phase) => ({ phase, ...resumedSpend(phase === 'fixes' ? 1 : 0) })), total: resumedSpend(1), budgetApplied: true },
+    patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Guard the null in changed()\n\n---\n')],
+  }, 5);
+  resumed.finishedAt('report');
+  // deep-review commit prepares its series; a stop cuts it before the branch moves, so the next one drops it, and prepares and creates it again.
+  const resumedSeries = { commits: [{ sha: 'a'.repeat(40), revision: 'change', subject: 'feat: Accept an empty input' }, { sha: 'b'.repeat(40), revision: 0, subject: 'fix: Guard the null in changed()' }], from: fixScope.head, to: 'b'.repeat(40) };
+  resumed.add('commits.prepared', resumedSeries);
+  resumed.add('commits.dropped', { from: resumedSeries.from, to: resumedSeries.to });
+  resumed.add('commits.prepared', resumedSeries);
+  resumed.add('commits.created', resumedSeries);
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

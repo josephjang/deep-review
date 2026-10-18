@@ -11,12 +11,17 @@
  * another cluster holds (R3 of commit series integrity), a continuation
  * into the fix pass of a run that has no report or fixes already (R6 of
  * fix pass continuation), a series of commits that does not start at the
- * run's head or commits nothing new (R8 of answers).
+ * run's head or commits nothing new (R8 of answers). Of the records of
+ * resumable runs, they refuse a check started or run again when its last
+ * current run is its result, a run at version 3 with no start of its own,
+ * a write back after a check that never started, a series prepared while
+ * another is open or created otherwise than prepared, and a reopening of
+ * other units than those the run budget left not attempted.
  */
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
-import type { CheckRan, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixSettingsRecorded, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, checksFloor, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastRun, nextSeries, plannedCheckOfV2, roundOf, routeOf, runHead, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type FixState, type PathHolder, type PlannedCheck } from './fix-state.ts';
+import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
+import { batchOf, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { recordedSetting } from './settings-state.ts';
@@ -226,17 +231,87 @@ function requireBatches(event: DecodedEvent, routes: FixesPlanned['routes'], clu
   }
 }
 
-const checkRan: Reducer<CheckRan> = (state, payload, event) => {
-  const { current, review, fix } = requireFix(state, event);
+/** The phase's running attempt and the planned command of a kind, which a check's start and run must name; refused before the checks are planned or for a kind with no command. */
+function requirePlannedCheck(review: ReviewState, fix: FixState, event: DecodedEvent, payload: Pick<CheckStarted, 'phase' | 'attempt' | 'kind' | 'command'>, verb: string): void {
   requireRunning(review, event, payload.phase, payload.attempt);
   const planned = fix.checks.planned?.checks.find((check) => check.kind === payload.kind);
-  if (planned === undefined) throw invalid(event, `runs the ${payload.kind} check before the checks are planned`);
-  if (planned.command === null) throw invalid(event, `runs the ${payload.kind} check, which has no command`);
-  if (planned.command !== payload.command) throw invalid(event, `runs ${JSON.stringify(payload.command)} for the ${payload.kind} check, pinned as ${JSON.stringify(planned.command)}`);
-  // Each check runs once in its phase, and in answer-checks once per answer pass (R5 of answers).
-  if (lastRun(fix, payload.phase, payload.kind, checksFloor(review, payload.phase)) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}${payload.phase === 'answer-checks' ? ' for one answer pass' : ''}`);
-  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], payload] };
+  if (planned === undefined) throw invalid(event, `${verb} the ${payload.kind} check before the checks are planned`);
+  if (planned.command === null) throw invalid(event, `${verb} the ${payload.kind} check, which has no command`);
+  if (planned.command !== payload.command) throw invalid(event, `${verb} ${JSON.stringify(payload.command)} for the ${payload.kind} check, pinned as ${JSON.stringify(planned.command)}`);
+}
+
+/** The run state of a check's run as the fold keeps it: its record, and the revisions the ledger held before it (TD3 of resumable runs). */
+const runState = (fix: FixState, payload: CheckRan): CheckRunState => ({ ...payload, revisionsBefore: fix.revisions.length });
+
+/**
+ * A version 1 or 2 run of a check, which replaces nothing: each kind runs
+ * once in its phase, and in answer-checks once per answer pass (R5 of
+ * answers), so the kind must have no current run there.
+ */
+const checkRan: Reducer<Omit<CheckRan, 'replaces'>> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requirePlannedCheck(review, fix, event, payload, 'runs');
+  if (lastCurrentRun({ ...review, fix }, payload.phase, payload.kind) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}${payload.phase === 'answer-checks' ? ' for one answer pass' : ''}`);
+  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null })] };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);
+};
+
+/**
+ * A version 3 run of a check (R3, R4, R7 of resumable runs): one that
+ * replaces nothing when the kind has no current run in its phase, or one
+ * that names the last current run when that run was cut, is the first
+ * timeout of the kind in the current attempt, or did not pass in a cut
+ * attempt (`runStanding`). A run that ran has the start of its kind in its
+ * attempt, with no run after that start; a skipped one has none. The
+ * second cut of a kind in one attempt is a failure, so a cut run never
+ * replaces a cut run of its own attempt.
+ */
+const checkRanV3: Reducer<CheckRan> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requirePlannedCheck(review, fix, event, payload, 'runs');
+  const standing = runStanding({ ...review, fix }, payload.phase, payload.kind);
+  if (standing === null) throw invalid(event, `runs the ${payload.kind} check again in ${payload.phase}, whose last current run is its result`);
+  if (payload.replaces === null && standing.kind !== 'first') throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} as its first, when it has a current run there`);
+  if (payload.replaces !== null && (standing.kind !== 'again' || standing.run.attempt !== payload.replaces.attempt || standing.run.outcome !== payload.replaces.outcome)) {
+    throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} as replacing a ${payload.replaces.outcome} run at attempt ${String(payload.replaces.attempt)}, which is not its last current run`);
+  }
+  if (payload.outcome === 'cut' && standing.kind === 'again' && standing.why === 'cut' && standing.run.attempt === payload.attempt) throw invalid(event, `records a second cut of the ${payload.kind} check in one attempt, which is a failure`);
+  if (payload.outcome !== 'skipped' && openStart(fix, payload.phase, payload.kind, payload.attempt) === null) throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} with no start of it in attempt ${String(payload.attempt)}`);
+  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload)] };
+  return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);
+};
+
+/**
+ * The start of a check (R7 of resumable runs): while its phase runs at the
+ * attempt, of a planned kind with its command, that is due (`runStanding`),
+ * and with no start of its own in the attempt that no run came after.
+ */
+const checkStarted: Reducer<CheckStarted> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requirePlannedCheck(review, fix, event, payload, 'starts');
+  if (runStanding({ ...review, fix }, payload.phase, payload.kind) === null) throw invalid(event, `starts the ${payload.kind} check in ${payload.phase}, whose last current run is its result`);
+  if (openStart(fix, payload.phase, payload.kind, payload.attempt) !== null) throw invalid(event, `starts the ${payload.kind} check twice in attempt ${String(payload.attempt)} of ${payload.phase} with no run between`);
+  const start: CheckStartState = { ...payload, runsBefore: fix.checks.runs[payload.phase].length };
+  const starts = { ...fix.checks.starts, [payload.phase]: [...fix.checks.starts[payload.phase], start] };
+  return withFix(current, review, { ...fix, checks: { ...fix.checks, starts } }, event);
+};
+
+/**
+ * A write back after a check that a kill cut short (R7, TD7 of resumable
+ * runs): while its phase runs at the attempt, for a check of the phase,
+ * by its kind and an attempt no later, that the ledger holds a start or a
+ * run of. It changes nothing the run expects: the bytes it writes are the
+ * ones the run expected already.
+ */
+const treeRestored: Reducer<TreeRestored> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requireRunning(review, event, payload.phase, payload.attempt);
+  const { kind, attempt } = payload.check;
+  if (attempt > payload.attempt) throw invalid(event, `writes back after the ${kind} check of attempt ${String(attempt)}, past the phase's attempt ${String(payload.attempt)}`);
+  const known = [...fix.checks.starts[payload.phase], ...fix.checks.runs[payload.phase]].some((check) => check.kind === kind && check.attempt === attempt);
+  if (!known) throw invalid(event, `writes back after the ${kind} check of attempt ${String(attempt)} in ${payload.phase}, which never started there`);
+  const restoration: RestorationState = { ...payload, checksBefore: review.checks.length };
+  return withFix(current, review, { ...fix, restorations: [...fix.restorations, restoration] }, event);
 };
 
 const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDrafts) => {
@@ -411,27 +486,86 @@ const fixPinned: Reducer<FixPinned> = (state, payload, event, drafts) => pinFix(
 /** A version 2 pin, with the fix side of the settings the continuation resolved (R6 of the configuration). */
 const fixPinnedV2: Reducer<FixPinnedV2> = (state, payload, event, drafts) => pinFix(state, payload, payload.settings, event, drafts);
 
+/** Hold a series of commits to the run, as `commits.created` and `commits.prepared` both record one (`commitsCreated`); `verb` names what the event does. */
+function requireNextSeries(current: RunState, review: ReviewState, fix: FixState, payload: CommitsCreated, event: DecodedEvent, verb: string): void {
+  if (review.report === null) throw invalid(event, `${verb} commits before its report`);
+  if (current.scope === null) throw invalid(event, `${verb} commits before its scope is captured`);
+  const head = runHead(current);
+  if (payload.from !== head) throw invalid(event, `${verb} commits on ${payload.from}, not the run's head ${head}`);
+  const next = nextSeries(fix, current.scope.mode);
+  if (next.revisions.length === 0) throw invalid(event, `${verb} commits when every one of its ${String(fix.revisions.length)} revisions is committed`);
+  const expected: (number | 'change')[] = [...(next.change ? ['change' as const] : []), ...next.revisions.map(({ index }) => index)];
+  const given = payload.commits.map((commit) => commit.revision);
+  if (given.length !== expected.length || given.some((revision, index) => revision !== expected[index])) throw invalid(event, `${verb} commits for [${given.join(', ')}], not [${expected.join(', ')}]`);
+  if (payload.commits.at(-1)!.sha !== payload.to) throw invalid(event, 'moves the branch to a commit that is not its last');
+}
+
 /**
  * A series of commits built from the run (R17 of the fix pass, R8 of
  * answers): after a report, from the run's head, which is the scope's head
  * for the first series and the last commit of the one before for a later
  * one; the captured change first in worktree mode, by the first series
  * only; then every revision no series holds yet, once each, in ledger
- * order, and at least one of them.
+ * order, and at least one of them. A series prepared before the branch
+ * moved (R9 of resumable runs) is completed by this record of it exactly,
+ * by the command that prepared it or by the next one.
  */
 const commitsCreated: Reducer<CommitsCreated> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
-  if (review.report === null) throw invalid(event, 'creates commits before its report');
-  if (current.scope === null) throw invalid(event, 'creates commits before its scope is captured');
-  const head = runHead(current);
-  if (payload.from !== head) throw invalid(event, `creates commits on ${payload.from}, not the run's head ${head}`);
-  const next = nextSeries(fix, current.scope.mode);
-  if (next.revisions.length === 0) throw invalid(event, `creates commits when every one of its ${String(fix.revisions.length)} revisions is committed`);
-  const expected: (number | 'change')[] = [...(next.change ? ['change' as const] : []), ...next.revisions.map(({ index }) => index)];
-  const given = payload.commits.map((commit) => commit.revision);
-  if (given.length !== expected.length || given.some((revision, index) => revision !== expected[index])) throw invalid(event, `creates commits for [${given.join(', ')}], not [${expected.join(', ')}]`);
-  if (payload.commits.at(-1)!.sha !== payload.to) throw invalid(event, 'moves the branch to a commit that is not its last');
-  return withFix(current, review, { ...fix, commits: [...fix.commits, payload] }, event);
+  requireNextSeries(current, review, fix, payload, event, 'creates');
+  if (fix.openSeries !== null && JSON.stringify(fix.openSeries) !== JSON.stringify(payload)) throw invalid(event, `creates a series of commits to ${payload.to} while the series it prepared to ${fix.openSeries.to} is open`);
+  return withFix(current, review, { ...fix, commits: [...fix.commits, payload], openSeries: null }, event);
+};
+
+/**
+ * A series of commits prepared before `commit` moves the branch (R9, TD6
+ * of resumable runs): held to the run as a created series is, while no
+ * other series is open. The run's head does not move for it, and the next
+ * command that reads the head completes or drops it.
+ */
+const commitsPrepared: Reducer<CommitsPrepared> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  if (fix.openSeries !== null) throw invalid(event, `prepares a series of commits while the series to ${fix.openSeries.to} is open`);
+  requireNextSeries(current, review, fix, payload, event, 'prepares');
+  return withFix(current, review, { ...fix, openSeries: payload }, event);
+};
+
+/** An open series dropped, since the branch did not move (R9 of resumable runs): it names the open series by both heads, and the series can be prepared again. */
+const commitsDropped: Reducer<CommitsDropped> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  const open = fix.openSeries;
+  if (open === null || open.from !== payload.from || open.to !== payload.to) throw invalid(event, `drops the series from ${payload.from} to ${payload.to}, which is not the open series`);
+  return withFix(current, review, { ...fix, openSeries: null, droppedSeries: [...fix.droppedSeries, open] }, event);
+};
+
+/**
+ * A complete fix run the run budget stopped, reopened (R11, TD8 of
+ * resumable runs): on an active run with its report written that fixes,
+ * listing each unit the budget left not attempted, a batch of the fixes or
+ * the repair, once, and only those. Each listed unit is no longer not
+ * attempted, so it can launch again, and its failures stay. The report is
+ * kept beside the reopening and cleared; `checks`, `repair`,
+ * `repair-checks` and `report` are pending at their attempts, and `fixes`
+ * too when a batch of it is listed. `checks` opens again in each case,
+ * since an answer pass can revise the tree after its last runs. With
+ * `fix.pinned` and `answer.pass`, this is one of the three reducers that
+ * move a phase out of `completed`, `degraded` or `skipped`.
+ */
+const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  if (current.status !== 'active') throw invalid(event, `reopens the fix pass of a run that is ${current.status}`);
+  const report = review.report;
+  if (report === null) throw invalid(event, 'reopens the fix pass before its report');
+  const stopped = (['fixes', 'repair'] as const).flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled]) => settled.cause === 'budget').map(([key]) => `${phase}:${key}`));
+  const listed = payload.units.map((unit) => `${unit.phase}:${unit.key}`);
+  if (listed.length !== stopped.length || !stopped.every((unit) => listed.includes(unit))) throw invalid(event, `reopens [${listed.join(', ')}], not each unit the run budget left not attempted [${stopped.join(', ')}]`);
+  const notAttempted = { ...fix.notAttempted };
+  for (const unit of payload.units) notAttempted[unit.phase] = Object.fromEntries(Object.entries(notAttempted[unit.phase]).filter(([key]) => key !== unit.key));
+  const reopening: ReopeningState = { at: event.recordedAt, units: payload.units, reportBefore: report, attempts: { checks: review.phases.checks.attempt, 'repair-checks': review.phases['repair-checks'].attempt } };
+  const phaseStates = { ...review.phases };
+  const reopenedPhases: Phase[] = [...(payload.units.some((unit) => unit.phase === 'fixes') ? ['fixes' as const] : []), 'checks', 'repair', 'repair-checks', 'report'];
+  for (const phase of reopenedPhases) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
+  return withReview(current, { ...review, phases: phaseStates, report: null, fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
 };
 
 /** The fix pass's reducers, registered by `fold.ts` beside the review's. */
@@ -441,16 +575,22 @@ export const fixReducers = {
   'checks.planned@3': checksPlannedV3,
   'fixes.planned@1': fixesPlanned,
   'fixes.replanned@1': fixesReplanned,
+  'check.started@1': checkStarted,
   'check.ran@1': checkRan,
   'check.ran@2': checkRan,
+  'check.ran@3': checkRanV3,
+  'tree.restored@1': treeRestored,
   'fix.recorded@1': fixRecorded,
   'fix.recorded@2': fixRecorded,
   'tree.revised@1': treeRevised,
   'tree.revised@2': treeRevised,
   'unit.unattempted@1': unitUnattempted,
+  'commits.prepared@1': commitsPrepared,
   'commits.created@1': commitsCreated,
+  'commits.dropped@1': commitsDropped,
   'files.claimed@1': filesClaimed,
   'claims.lost@1': claimsLost,
   'fix.pinned@1': fixPinned,
   'fix.pinned@2': fixPinnedV2,
+  'fix.reopened@1': fixReopened,
 } as const;

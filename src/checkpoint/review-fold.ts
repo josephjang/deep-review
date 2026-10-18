@@ -12,6 +12,7 @@ import {
   deduplicationPhases,
   finderAngles,
   fixPhases,
+  isCheckPhase,
   phases,
   singleUnitKey,
   unitName,
@@ -52,7 +53,7 @@ import type {
   VerdictsRecorded,
   VerificationPlanned,
   WorktreeCheckV1,
-  WorktreeCheckV5,
+  WorktreeCheckV6,
 } from './events.ts';
 import type { AnswerState } from './answer-state.ts';
 import { emptyFixState, type FixState } from './fix-state.ts';
@@ -90,10 +91,12 @@ export interface UnitState {
  * Why an attempt of a unit did not contribute: `unit`, a worker that
  * failed or answered what the engine refused; `environment`, a unit that
  * ran while its claims directory was removed (R12 of commit series
- * integrity); or `lost`, a worker lost with the engine that ran it
- * (`worker.lost`), which nothing observed failing. The first two are the
- * fault `attempt.failed` records; before version 5 it records none, which
- * reads as `unit`.
+ * integrity); `cut`, a worker a kill from outside the engine ended with a
+ * kill mark (R4 of resumable runs); `limit`, a worker the provider's usage
+ * limit failed (R14); or `lost`, a worker lost with the engine that ran it
+ * (`worker.lost`), which nothing observed failing. All but the last are
+ * the fault `attempt.failed` records, `cut` and `limit` from version 7 on;
+ * before version 5 it records none, which reads as `unit`.
  */
 export type FailureCause = AttemptFault | 'lost';
 
@@ -134,10 +137,12 @@ export function rawLocation(candidate: Pick<RecordedCandidate, 'rawFile' | 'rawL
  * One worktree check as the fold holds it, whichever version recorded it.
  * A version 1 check reads as one at the attempt's start when it was the
  * attempt's first, else before an answer; it recorded no head, no strays
- * and not the expected state of a file, which its files then lack.
+ * and not the expected state of a file, which its files then lack. Only
+ * version 6 records the moment `restored`, after a write back (R7 of
+ * resumable runs).
  */
-export interface WorktreeCheckState extends Omit<WorktreeCheckV5, 'files'> {
-  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV5['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
+export interface WorktreeCheckState extends Omit<WorktreeCheckV6, 'files'> {
+  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV6['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
 }
 
 /**
@@ -398,8 +403,8 @@ const phaseStarted: Reducer<PhaseStarted> = (state, payload, event, drafts) => {
     const status = review.phases[earlier].status;
     if (status !== 'completed' && status !== 'degraded' && status !== 'skipped') throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status}`);
   }
-  // A re-entry after a block gives the phase's units fresh attempts: the operator's action for worker-failed is to run again.
-  let units = phase.status === 'blocked' ? withFreshAttempts(review, drafts, payload.phase) : review.units;
+  // A re-entry after a block gives the phase's units fresh attempts: the operator's action for worker-failed is to run again. So does a re-entry after a stop, which left the phase running (R5 of resumable runs): a failure the stop caused, a worker it killed before the engine, cannot be told from a real one, and a unit that did not settle gets its two attempts again.
+  let units = phase.status === 'blocked' || phase.status === 'running' ? withFreshAttempts(review, drafts, payload.phase) : review.units;
   // A re-entered survey opens its unit again, so its unit is answered only by a surveyor of the invocation that started the attempt, whose flags it was told (R6, R15, TD6, TD7 of the repository survey). Its last answer stays the run's survey, and the planner surveys again only when that answer does not settle this invocation's checks.
   if (payload.phase === 'survey' && payload.attempt > 1 && (review.fix?.checks.planned ?? null) === null) units = reopened({ ...review, units }, drafts, payload.phase, singleUnitKey(payload.phase));
   const phaseStates = { ...review.phases, [payload.phase]: { status: 'running' as const, attempt: payload.attempt } };
@@ -415,12 +420,18 @@ const phaseFinished: Reducer<PhaseFinished> = (state, payload, event) => {
   const blocker = payload.blocker === null ? null : { ...payload.blocker, phase: payload.phase };
   // The survey's last blocker of its own outlives the next start, which clears the run's: a re-entered survey reads from it whether the flags may stand in for it. A drift or budget block leaves it, so it never hides the survey's failure.
   const survey = payload.phase === 'survey' && review.survey !== null && payload.blocker !== null && surveyBlocker(payload.blocker) ? { ...review.survey, lastBlock: payload.blocker } : review.survey;
-  return withReview(current, { ...review, phases: phaseStates, blocker, survey }, event);
+  // A checks phase keeps its last finished attempt, so an attempt after it and before the current one is known as cut (R3 of resumable runs).
+  const fix = review.fix !== null && isCheckPhase(payload.phase) ? { ...review.fix, checks: { ...review.fix.checks, finished: { ...review.fix.checks.finished, [payload.phase]: payload.attempt } } } : review.fix;
+  return withReview(current, { ...review, phases: phaseStates, blocker, survey, fix }, event);
 };
 
+/** A worktree check while its phase runs at the attempt; one after a write back follows a write back of that attempt (R7 of resumable runs). */
 const worktreeChecked: Reducer<WorktreeCheckState> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase, payload.attempt);
+  if (payload.moment === 'restored' && !(review.fix?.restorations.some((restoration) => restoration.phase === payload.phase && restoration.attempt === payload.attempt) ?? false)) {
+    throw invalid(event, `checks the tree after a write back in attempt ${String(payload.attempt)} of ${payload.phase}, which wrote nothing back`);
+  }
   return withReview(current, { ...review, checks: [...review.checks, payload] }, event);
 };
 
@@ -465,7 +476,7 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, 
   return withReview(current, { ...review, candidates, leads, units: answered(review, drafts, unit, payload.workerId) }, event);
 };
 
-/** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. Version 6 widens the phases of version 5. */
+/** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. Version 6 widens the phases of version 5, and version 7 its faults, with `cut` and `limit` (R4, R14 of resumable runs). */
 const attemptFailed: Reducer<Omit<AttemptFailed, 'fault'> & { readonly fault?: AttemptFailed['fault'] }> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
@@ -644,6 +655,7 @@ export const reviewReducers = {
   'worktree.checked@3': worktreeChecked,
   'worktree.checked@4': worktreeChecked,
   'worktree.checked@5': worktreeChecked,
+  'worktree.checked@6': worktreeChecked,
   'candidates.recorded@1': candidatesRecorded,
   'attempt.failed@1': attemptFailed,
   'attempt.failed@2': attemptFailed,
@@ -651,6 +663,7 @@ export const reviewReducers = {
   'attempt.failed@4': attemptFailed,
   'attempt.failed@5': attemptFailed,
   'attempt.failed@6': attemptFailed,
+  'attempt.failed@7': attemptFailed,
   'angle.failed@1': angleFailed,
   'deduplication.recorded@1': deduplicationRecorded,
   'verification.planned@1': verificationPlanned,

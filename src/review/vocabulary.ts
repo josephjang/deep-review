@@ -139,8 +139,13 @@ export const clusterIdSchema = z.string().regex(/^c[1-9][0-9]*$/, 'a cluster id 
 /** A fixer batch's key, the unit key of a fixes-phase worker (R18 of the fix pass): its cluster's id, a dash, and its number in the cluster from 1. */
 export const batchKeySchema = z.string().regex(/^c[1-9][0-9]*-[1-9][0-9]*$/, 'a batch key is a cluster id, a dash and a number from 1');
 
-/** How one run of a check ended (R9 of the fix pass): its exit code, its timeout, a spawn that failed, or not run because `build` did not pass. */
-export const checkOutcomes = ['passed', 'failed', 'timeout', 'not-started', 'skipped'] as const;
+/**
+ * How one run of a check ended (R9 of the fix pass): its exit code, its
+ * timeout, a spawn that failed, or not run because `build` did not pass;
+ * or cut, ended by a kill from outside the engine with no result of its
+ * own (R4 of resumable runs), which only `check.ran@3` records.
+ */
+export const checkOutcomes = ['passed', 'failed', 'timeout', 'not-started', 'skipped', 'cut'] as const;
 export const checkOutcomeSchema = z.enum(checkOutcomes);
 export type CheckOutcome = z.infer<typeof checkOutcomeSchema>;
 
@@ -179,11 +184,18 @@ export type RecordedBlockerCode = z.infer<typeof recordedBlockerCodeSchema>;
 
 /**
  * Whose fault a failed attempt was (R12 of commit series integrity): the
- * unit's, which counts against its attempts, or its environment's, a
- * claims directory removed while it ran, which counts against none.
+ * unit's, or its environment's, a claims directory removed while it ran;
+ * or, from `attempt.failed@7` on, a kill from outside the engine that left
+ * a kill mark (`cut`, R4 of resumable runs) or the provider's usage limit
+ * (`limit`, R14). Each uses an attempt, but only the unit's can degrade
+ * the unit: one out of attempts with another among its failures blocks
+ * its phase instead (`interrupted` in steps.ts).
  */
-export const attemptFaults = ['unit', 'environment'] as const;
+export const attemptFaults = ['unit', 'environment', 'cut', 'limit'] as const;
 export type AttemptFault = (typeof attemptFaults)[number];
+
+/** When a worktree check is made: at an attempt's start, before an answer is recorded, once an editing phase's last unit settled, or after a write back (R7 of resumable runs). */
+export const worktreeMoments = ['start', 'answer', 'end', 'restored'] as const;
 
 /**
  * Why the engine left a claim marker out of the ledger (R3 of commit
