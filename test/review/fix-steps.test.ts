@@ -24,19 +24,24 @@ describe('nextStep in the fix pass', () => {
   it('runs the available checks one at a time, build first, passing over a kind with no command, then finishes the phase', () => {
     const history = withFixPass(mergeRanked()).start('baseline-checks');
     const step = (): Step => nextStep(history.review(), idle);
-    assert.deepEqual(step(), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'build', command: 'npm run build', skip: null } });
+    assert.deepEqual(step(), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'build', command: 'npm run build', skip: null, replaces: null } });
     history.add('check.ran', checkRun('baseline-checks', 'build'));
-    assert.deepEqual(step(), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'lint', command: 'npm run lint', skip: null } }, 'typecheck has no command');
+    assert.deepEqual(step(), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'lint', command: 'npm run lint', skip: null, replaces: null } }, 'typecheck has no command');
     history.add('check.ran', checkRun('baseline-checks', 'lint', 'failed'));
-    assert.deepEqual(step(), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'test', command: 'npm run test', skip: null } }, 'a failed lint does not stop test');
+    assert.deepEqual(step(), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'test', command: 'npm run test', skip: null, replaces: null } }, 'a failed lint does not stop test');
     history.add('check.ran', checkRun('baseline-checks', 'test'));
     assert.deepEqual(step(), { kind: 'finish-phase', phase: 'baseline-checks', attempt: 1, outcome: 'completed', blocker: null });
   });
 
-  it('skips every later check once build did not pass, saying why', () => {
+  it('skips every later check once build did not pass, saying why, a build that timed out once running again first (R7 of resumable runs)', () => {
     for (const [outcome, reason] of [['failed', 'build failed'], ['timeout', 'build timed out'], ['not-started', 'build did not start']] as const) {
       const history = withFixPass(mergeRanked()).start('baseline-checks').add('check.ran', checkRun('baseline-checks', 'build', outcome));
-      assert.deepEqual(nextStep(history.review(), idle), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'lint', command: 'npm run lint', skip: reason } }, outcome);
+      if (outcome === 'timeout') {
+        const again = nextStep(history.review(), idle);
+        assert.ok(again.kind === 'run-check' && again.check.kind === 'build' && again.check.replaces?.why === 'timeout', JSON.stringify(again));
+        history.add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'build', command: 'npm run build' }).add('check.ran', { ...checkRun('baseline-checks', 'build', outcome), replaces: { attempt: 1, outcome } }, 3);
+      }
+      assert.deepEqual(nextStep(history.review(), idle), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'lint', command: 'npm run lint', skip: reason, replaces: null } }, outcome);
     }
   });
 
@@ -46,7 +51,7 @@ describe('nextStep in the fix pass', () => {
       .add('check.ran', checkRun('baseline-checks', 'build'))
       .add('phase.started', { phase: 'baseline-checks', attempt: 2 }, 2)
       .add('worktree.checked', { phase: 'baseline-checks', attempt: 2, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 2);
-    assert.deepEqual(nextStep(history.review(), idle), { kind: 'run-check', phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', command: 'npm run lint', skip: null } });
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'run-check', phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', command: 'npm run lint', skip: null, replaces: null } });
   });
 
   it('plans the fixes from the ranked findings and their decisions, then launches one fixer per cluster, and awaits it', () => {
@@ -281,16 +286,16 @@ describe('nextStep in an answer pass (R5 of answers)', () => {
 
   it('runs every check again after a pass that revised the tree, at each pass, and none after a pass that did not', () => {
     const revised = opened().start('answer').worker(71, 'fixer answer:pass-1').add('fix.recorded', passAnswer(worker(71), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']]), 2).add('tree.revised', passRevision(worker(71), 1, 'RIPPLE-1'), 2).add('worktree.checked', endCheck('answer'), 5).finish('answer').start('answer-checks');
-    assert.deepEqual(dueCheck(revised.review(), 'answer-checks'), { kind: 'build', command: 'npm run build', skip: null });
+    assert.deepEqual(dueCheck(revised.review(), 'answer-checks'), { kind: 'build', command: 'npm run build', skip: null, replaces: null });
     const unrevised = opened().start('answer').worker(71, 'fixer answer:pass-1').add('fix.recorded', passAnswer(worker(71), 1, [['RIPPLE-1', 'deferred'], ['SWEEP-1', 'deferred']]), 2).add('worktree.checked', endCheck('answer'), 5).finish('answer').start('answer-checks');
     assert.equal(dueCheck(unrevised.review(), 'answer-checks'), null);
     assert.deepEqual(nextStep(unrevised.review(), idle), { kind: 'finish-phase', phase: 'answer-checks', attempt: 1, outcome: 'completed', blocker: null });
     // The second pass runs them again, whatever the first ran.
     const first = passToReport(opened(), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2);
     const second = first.add('answer.pass', { ids: ['SWEEP-1'] }).start('answer', 2).worker(72, 'fixer answer:pass-2').add('fix.recorded', passAnswer(worker(72), 2, [['SWEEP-1', 'applied']]), 2).add('tree.revised', passRevision(worker(72), 2, 'SWEEP-1'), 2).add('worktree.checked', endCheck('answer', 2), 5).finish('answer', 'completed', 2).start('answer-checks', 2);
-    assert.deepEqual(dueCheck(second.review(), 'answer-checks'), { kind: 'build', command: 'npm run build', skip: null });
+    assert.deepEqual(dueCheck(second.review(), 'answer-checks'), { kind: 'build', command: 'npm run build', skip: null, replaces: null });
     second.add('check.ran', checkRun('answer-checks', 'build', 'passed', 2), 2);
-    assert.deepEqual(dueCheck(second.review(), 'answer-checks'), { kind: 'lint', command: 'npm run lint', skip: null }, 'counted within the second pass');
+    assert.deepEqual(dueCheck(second.review(), 'answer-checks'), { kind: 'lint', command: 'npm run lint', skip: null, replaces: null }, 'counted within the second pass');
   });
 
   it('plans a continued run\'s answered finding to a fixer, which its decision held', () => {
@@ -299,5 +304,98 @@ describe('nextStep in an answer pass (R5 of answers)', () => {
     assert.deepEqual(plan.routes, [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }]);
     assert.deepEqual(plan.batches.map((entry) => entry.findingIds), [['RIPPLE-1'], ['SWEEP-1']]);
     assert.doesNotThrow(() => continued.add('fixes.planned', plan).fold(), 'the fold holds the plan to the same rule');
+  });
+});
+
+describe('nextStep in the checks after a stop (R3, R7, TD11 of resumable runs)', () => {
+  const commandOf = (kind: string): string => ({ build: 'npm run build', lint: 'npm run lint', test: 'npm run test' })[kind] ?? 'none';
+  /** A check that ran at version 3: its start, then its run, which replaces `replaces`. */
+  const ranV3 = (history: History, phase: string, kind: string, outcome: string, attempt: number, replaces: Record<string, unknown> | null = null): History =>
+    history.add('check.started', { phase, attempt, kind, command: commandOf(kind) }).add('check.ran', { ...checkRun(phase, kind, outcome, attempt), replaces }, 3);
+  const restart = (history: History, phase: string, attempt: number, files: readonly Record<string, unknown>[] = [], head: Record<string, unknown> | null = null): History =>
+    history.add('phase.started', { phase, attempt }, 5).add('worktree.checked', { phase, attempt, moment: 'start', drifted: files.length > 0 || head !== null, head, files, strays: [] }, 5);
+  const inBaseline = (): History => withFixPass(mergeRanked()).start('baseline-checks');
+  const runCheck = (step: Step): { kind: string; replaces: string | null; skip: string | null } | null =>
+    step.kind === 'run-check' ? { kind: step.check.kind, replaces: step.check.replaces === null ? null : `${step.check.replaces.why} ${step.check.replaces.run.outcome}@${String(step.check.replaces.run.attempt)}`, skip: step.check.skip } : null;
+
+  it('runs again, in the order of the kinds, each kind whose last run did not pass in a cut attempt, and not one that passed (R3)', () => {
+    for (const outcome of ['failed', 'timeout', 'not-started', 'skipped'] as const) {
+      // Attempt 1 ran build and lint and was cut before test and before its phase.finished; build passed.
+      const history = ranV3(inBaseline(), 'baseline-checks', 'build', 'passed', 1);
+      if (outcome === 'skipped') history.add('check.ran', { ...checkRun('baseline-checks', 'lint', 'skipped'), replaces: null }, 3);
+      else ranV3(history, 'baseline-checks', 'lint', outcome, 1);
+      restart(history, 'baseline-checks', 2);
+      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: `cut-attempt ${outcome}@1`, skip: null }, outcome);
+      ranV3(history, 'baseline-checks', 'lint', 'passed', 2, { attempt: 1, outcome });
+      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'test', replaces: null, skip: null }, `${outcome}: test has no run yet`);
+    }
+  });
+
+  it('runs a build again first when it did not pass in a cut attempt, and the kinds after it read its new outcome', () => {
+    const history = ranV3(inBaseline(), 'baseline-checks', 'build', 'failed', 1).add('check.ran', { ...checkRun('baseline-checks', 'lint', 'skipped'), replaces: null }, 3);
+    restart(history, 'baseline-checks', 2);
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'build', replaces: 'cut-attempt failed@1', skip: null });
+    ranV3(history, 'baseline-checks', 'build', 'passed', 2, { attempt: 1, outcome: 'failed' });
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: 'cut-attempt skipped@1', skip: null }, 'lint runs now that build passed');
+  });
+
+  it('runs nothing again from an attempt that finished, nor a failure of the current attempt', () => {
+    const finished = ranV3(inBaseline(), 'baseline-checks', 'lint', 'failed', 1).add('phase.finished', { phase: 'baseline-checks', attempt: 1, outcome: 'blocked', blocker: { code: 'drift', detail: 'd', action: 'a' } }, 6);
+    restart(finished, 'baseline-checks', 2);
+    assert.deepEqual(runCheck(nextStep(finished.review(), idle)), { kind: 'build', replaces: null, skip: null }, 'lint failed in an attempt that finished, which stays its result');
+    const current = ranV3(inBaseline(), 'baseline-checks', 'build', 'passed', 1);
+    ranV3(current, 'baseline-checks', 'lint', 'failed', 1);
+    assert.deepEqual(runCheck(nextStep(current.review(), idle)), { kind: 'test', replaces: null, skip: null }, 'a failure of the current attempt is its result');
+  });
+
+  it('runs a check that timed out once again in its attempt, and takes a second timeout as its result (R7)', () => {
+    const history = ranV3(inBaseline(), 'baseline-checks', 'build', 'passed', 1);
+    ranV3(history, 'baseline-checks', 'lint', 'timeout', 1);
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: 'timeout timeout@1', skip: null });
+    ranV3(history, 'baseline-checks', 'lint', 'timeout', 1, { attempt: 1, outcome: 'timeout' });
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'test', replaces: null, skip: null });
+  });
+
+  const drifted = { path: 'src/a.ts', outcome: 'modified', expected: { blob: reference('a') } };
+
+  it('writes back a drift at the start that a check a kill cut short in an earlier attempt explains, instead of blocking (R7, TD7)', () => {
+    const cut = inBaseline().add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'lint', command: 'npm run lint' });
+    restart(cut, 'baseline-checks', 2, [drifted]);
+    assert.deepEqual(nextStep(cut.review(), idle), { kind: 'restore-tree', phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [drifted] });
+    // Once the write back is recorded, the drift before it no longer blocks, and the tree is checked again.
+    cut.add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [{ path: 'src/a.ts', before: { blob: reference('5') }, beforeSymlink: false, expected: { blob: reference('a') }, expectedSymlink: false }] });
+    assert.deepEqual(nextStep(cut.review(), idle), { kind: 'check-worktree', phase: 'baseline-checks', attempt: 2, moment: 'restored' });
+    cut.add('worktree.checked', { phase: 'baseline-checks', attempt: 2, moment: 'restored', drifted: false, head: null, files: [], strays: [] }, 6);
+    assert.deepEqual(runCheck(nextStep(cut.review(), idle)), { kind: 'build', replaces: null, skip: null });
+  });
+
+  it('writes back again at the next start when a stop cut the write back between its record and its writes', () => {
+    const cut = inBaseline().add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'lint', command: 'npm run lint' });
+    restart(cut, 'baseline-checks', 2, [drifted]).add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [] });
+    restart(cut, 'baseline-checks', 3, [drifted]);
+    assert.deepEqual(nextStep(cut.review(), idle), { kind: 'restore-tree', phase: 'baseline-checks', attempt: 3, check: { kind: 'lint', attempt: 1 }, files: [drifted] });
+  });
+
+  it('still blocks on a drift of HEAD, on one no cut check explains, on one whose bytes were too large to keep, and on one left after a write back', () => {
+    const blocked = (step: Step): boolean => step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'drift';
+    const cut = (): History => inBaseline().add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'lint', command: 'npm run lint' });
+    assert.ok(blocked(nextStep(restart(cut(), 'baseline-checks', 2, [drifted], { expected: '1'.repeat(40), actual: '2'.repeat(40) }).review(), idle)), 'HEAD moved');
+    assert.ok(blocked(nextStep(restart(ranV3(inBaseline(), 'baseline-checks', 'build', 'passed', 1), 'baseline-checks', 2, [drifted]).review(), idle)), 'no check was cut');
+    assert.ok(blocked(nextStep(restart(cut(), 'baseline-checks', 2, [{ ...drifted, expected: { oversized: { sha256: 'f'.repeat(64), size: 1 } } }]).review(), idle)), 'the bytes were too large to keep');
+    const after = restart(cut(), 'baseline-checks', 2, [drifted])
+      .add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [] })
+      .add('worktree.checked', { phase: 'baseline-checks', attempt: 2, moment: 'restored', drifted: true, head: null, files: [drifted], strays: [] }, 6);
+    assert.ok(blocked(nextStep(after.review(), idle)), 'the write back did not hold');
+  });
+
+  it('runs the checks after the repair only when the repair changed the tree (TD11)', () => {
+    const toRepair = checksPhase(fixed(), 'checks', { test: 'failed' }).start('repair').worker(60, 'fixer repair:repair');
+    const deferred = toRepair.clone().add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'test', status: 'deferred', file: 'src/a.ts', line: null, note: 'n', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] }, 2).add('worktree.checked', endCheck('repair'), 2).finish('repair').start('repair-checks');
+    assert.deepEqual(nextStep(deferred.review(), idle), { kind: 'finish-phase', phase: 'repair-checks', attempt: 1, outcome: 'completed', blocker: null }, 'a repair that changed nothing');
+    const applied = toRepair.clone()
+      .add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'test', status: 'applied', file: 'src/a.ts', line: 1, note: 'n', message: { subject: 's', body: 'b' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }] }, 2)
+      .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['test'], message: { subject: 's', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('f') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] })
+      .add('worktree.checked', endCheck('repair'), 2).finish('repair').start('repair-checks');
+    assert.deepEqual(runCheck(nextStep(applied.review(), idle)), { kind: 'build', replaces: null, skip: null });
   });
 });

@@ -12,7 +12,7 @@
  * answers and answer passes (R10 of answers), as text lines and as JSON.
  */
 import { answerWords, standingAnswers } from '../checkpoint/answer-state.ts';
-import { allBatches, allClusters, isNotAttempted, lastRun } from '../checkpoint/fix-state.ts';
+import { allBatches, allClusters, earlierTreeEdit, isNotAttempted, lastRecordedRun } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -105,14 +105,16 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
   const checks = (fix.checks.planned?.checks ?? []).map((check) => ({
     kind: check.kind,
     command: check.command,
-    outcomes: Object.fromEntries(shown.map((phase) => [phase, lastRun(fix, phase, check.kind)?.outcome ?? null])),
+    outcomes: Object.fromEntries(shown.map((phase) => [phase, lastRecordedRun(fix, phase, check.kind)?.outcome ?? null])),
+    // A run a later fix or repair made old checked an earlier tree, as the report's Checks table marks it (TD3 of resumable runs).
+    earlier: shown.filter((phase) => { const run = lastRecordedRun(fix, phase, check.kind); return run !== null && earlierTreeEdit(fix, phase, run) !== null; }),
   }));
   const claimingClusters = new Set(fix.claims.map((claim) => claim.cluster)).size;
   const late = fix.claims.filter((claim) => claim.claimedAt === null).length;
   const lines = [
     fix.plan === null ? 'Fix pass: not planned yet' : `Fix pass: ${batches.length === 0 ? 'no batch' : batches.map((batch) => `${batch.key} ${batch.state}`).join(', ')}; ${String(held.length)} ${heldWords}`,
     ...(fix.plan === null ? [] : [`Claims: ${String(fix.claims.length)} by ${String(claimingClusters)} cluster${claimingClusters === 1 ? '' : 's'}, ${String(late)} late, ${String(fix.lostClaims.length)} lost`]),
-    ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : shown.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}`).join(', ')}`),
+    ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : shown.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}${check.earlier.includes(phase) ? ' (an earlier tree)' : ''}`).join(', ')}`),
   ];
   return { lines, json: { clusters, batches, held, claims: fix.claims, lostClaims: fix.lostClaims, checks, revisions: fix.revisions.length } };
 }

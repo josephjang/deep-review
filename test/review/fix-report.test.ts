@@ -168,6 +168,28 @@ describe('the report of a fix run', () => {
     assert.match(render({ ...state, review: { ...state.review!, fix: unchanged } }), /^- After the fixes: not run, since no fix changed a file\.$/m);
   });
 
+  it('marks a column whose runs checked a tree a later fix changed, never for an answer pass, and says what came after (TD3 of resumable runs)', () => {
+    const state = fixRun().fold();
+    const fix = state.review!.fix!;
+    const later = (phase: string): RunState => ({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [...fix.revisions, { ...fix.revisions[1]!, phase } as never] } } });
+    const header = (report: string): string => report.split('\n').find((line) => line.startsWith('| Check |'))!;
+    assert.doesNotMatch(header(render()), /an earlier tree/);
+    const refixed = render(later('fixes'));
+    assert.match(header(refixed), /\| After the fixes \(an earlier tree\) \| After the repair \(an earlier tree\) \|$/);
+    assert.match(refixed, /^- After the fixes: its runs checked an earlier tree, which a later revision of the fixes changed\.$/m);
+    assert.doesNotMatch(header(render(later('answer'))), /an earlier tree/, 'the column after answers shows the tree an answer pass left');
+    assert.match(header(render(later('repair'))), /\| After the fixes \| After the repair \(an earlier tree\) \|$/);
+  });
+
+  it('says why the checks after the repair did not run: no failure to repair, a repair not attempted, or one that changed nothing (TD11 of resumable runs)', () => {
+    const state = fixRun().fold();
+    const fix = state.review!.fix!;
+    const without = (change: Partial<typeof fix>): string => render({ ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'repair-checks': [] } }, ...change } } });
+    assert.match(without({}), /^- After the repair: not run, since the repair changed no file\.$/m);
+    assert.match(without({ notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the repair: not run, since the repair was not attempted\.$/m);
+    assert.match(without({ checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: fix.checks.runs.checks.map((run) => ({ ...run, outcome: 'passed' as const })), 'repair-checks': [] } } }), /^- After the repair: not run, since no check failed after the fixes\.$/m);
+  });
+
   it('renders a run without the fix pass with none of these sections', () => {
     const report = renderReport(reported().fold(), reportInput);
     for (const heading of ['## Fixes', '## Checks', '## Changed files']) assert.ok(!report.includes(heading), heading);

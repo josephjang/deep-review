@@ -41,10 +41,8 @@ export const marks: readonly Mark[] = [
   // RIPPLE's first worker fails, and a unit's failed attempt is launched again by design.
   ...failing(['worker.finished *', '!worker.finished finder-RIPPLE finders:RIPPLE'], stops, everySystem, ['launches'], 'R6'),
   // W1 and #25: a worker or a check that a kill ends first, with a kill mark, is recorded failed, which degrades the unit or makes the check's result false.
-  ...failing(['child finder-RIPPLE finders:RIPPLE#2', 'child check *'], ['child'], everySystem, ['nothing false', 'report'], 'R4'),
-  // W4: a check that rewrote a file and that a stop cut leaves an unrecorded write, which blocks the next command on drift.
-  ...failing(['child check lint#2'], stops, everySystem, ['exit', 'report'], 'R7'),
-  ...failing(['child check typecheck#2'], ['child'], everySystem, ['exit'], 'R7'),
+  // A check with another after it in its phase is run again by R3, since the engine dies before the phase finishes; the first and the last of a phase are not.
+  ...failing(['child finder-RIPPLE finders:RIPPLE#2', 'child check build#1', 'child check test#1', 'child check build#2', 'child check test#2'], ['child'], everySystem, ['nothing false', 'report'], 'R4'),
   // W8: the edit of a person while the engine is down goes into the revision of the lost fixer.
   ...failing(['child fixer fixes:c1-1#1'], stops, everySystem, ['nothing false', 'report'], 'R10'),
   // W6: a stop after commit moved the branch leaves commits the ledger does not hold, and the next commit refuses.

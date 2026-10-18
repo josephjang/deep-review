@@ -172,8 +172,19 @@ export function emptyFixState(): FixState {
   };
 }
 
-/** The last run of a kind's check in a checks phase at an attempt past `after`, or null when it has none; any attempt by default. */
+/**
+ * The last current run of a kind's check in a checks phase at an attempt
+ * past `after`, any attempt by default (TD3 of resumable runs): one no
+ * later revision made old (`isOldRun`), or null when the kind has none. A
+ * baseline run never grows old, so the last baseline run is always its
+ * current one.
+ */
 export function lastRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRunState | null {
+  return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > after && !isOldRun(fix, phase, run)) ?? null;
+}
+
+/** The last run of a kind's check in a checks phase at an attempt past `after`, current or old, or null when it has none: what the Checks table shows of a phase that did not run again. */
+export function lastRecordedRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRunState | null {
   return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > after) ?? null;
 }
 
@@ -193,6 +204,21 @@ const stalingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = {
   'answer-checks': ['fixes', 'repair'],
 };
 
+/**
+ * The editing phases whose later revisions make the Checks table and
+ * `status` say a run checked an earlier tree (R15, TD3 of resumable runs):
+ * the fixes and the repair, after any phase but the baseline, which checks
+ * the tree before every edit. An answer pass marks no run, since the runs
+ * after answers show the tree it left.
+ */
+const markingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = { 'baseline-checks': [], checks: ['fixes'], 'repair-checks': ['fixes', 'repair'], 'answer-checks': ['fixes', 'repair'] };
+
+/** The editing phase of the first revision after a run that changed the tree it checked, as the record names it, or null when none did. */
+export function earlierTreeEdit(fix: Pick<FixState, 'revisions'>, phase: CheckPhase, run: Pick<CheckRunState, 'revisionsBefore'>): EditingPhase | null {
+  const marking: readonly string[] = markingPhases[phase];
+  return (fix.revisions.slice(run.revisionsBefore).find((revision) => marking.includes(revision.phase))?.phase as EditingPhase | undefined) ?? null;
+}
+
 /** Whether a run of a checks phase is old: a revision the ledger holds after it changed the state its phase checks. */
 export function isOldRun(fix: Pick<FixState, 'revisions'>, phase: CheckPhase, run: Pick<CheckRunState, 'revisionsBefore'>): boolean {
   const staling: readonly string[] = stalingPhases[phase];
@@ -201,9 +227,7 @@ export function isOldRun(fix: Pick<FixState, 'revisions'>, phase: CheckPhase, ru
 
 /** The last current run of a kind in a checks phase (TD3 of resumable runs): past the phase's floor (`checksFloor`) and made old by no later revision; null when the kind has none. */
 export function lastCurrentRun(review: Pick<ReviewState, 'answerPasses'> & { readonly fix: FixState }, phase: CheckPhase, kind: CheckKind): CheckRunState | null {
-  const floor = checksFloor(review, phase);
-  const fix = review.fix;
-  return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > floor && !isOldRun(fix, phase, run)) ?? null;
+  return lastRun(review.fix, phase, kind, checksFloor(review, phase));
 }
 
 /**
@@ -247,6 +271,34 @@ export function openStart(fix: FixState, phase: CheckPhase, kind: CheckKind, att
   return fix.checks.runs[phase].slice(start.runsBefore).some((run) => run.kind === kind && run.attempt === attempt) ? null : start;
 }
 
+/** A check that a kill cut short (R7 of resumable runs), by its kind and the attempt it ran in. */
+export interface CutShortCheck {
+  readonly kind: CheckKind;
+  readonly attempt: number;
+}
+
+/** Whether a run of a check was cut short by a kill, its writes no work of a complete check (R7 of resumable runs): a run that ended cut, or one the engine killed at its timeout. */
+export const killedRun = (run: Pick<CheckRunState, 'outcome' | 'termination'>): boolean => run.outcome === 'cut' || run.termination === 'killed';
+
+/**
+ * The last check of a checks phase that a kill cut short in an attempt
+ * before the current one (R7 of resumable runs): a start no run came
+ * after, which a stop cut, or a run that a kill ended (`killedRun`); null
+ * when there is none. A drift its writes explain is written back, not
+ * blocked on.
+ */
+export function cutShortBefore(review: Pick<ReviewState, 'phases'> & { readonly fix: FixState }, phase: CheckPhase): CutShortCheck | null {
+  const { fix } = review;
+  const current = review.phases[phase].attempt;
+  // Ledger order, by the count of runs before each start, so the last one wins whatever its kind.
+  const candidates = [
+    ...fix.checks.runs[phase].map((run, index) => ({ check: run, at: index + 0.5, cut: killedRun(run) })),
+    ...fix.checks.starts[phase].map((start) => ({ check: start, at: start.runsBefore, cut: openStart(fix, phase, start.kind, start.attempt) === start })),
+  ].filter((candidate) => candidate.cut && candidate.check.attempt < current).sort((a, b) => a.at - b.at);
+  const last = candidates.at(-1);
+  return last === undefined ? null : { kind: last.check.kind, attempt: last.check.attempt };
+}
+
 /**
  * The attempt of a checks phase past which its runs are the current ones:
  * for `answer-checks`, the attempt it was at when the current answer pass
@@ -258,7 +310,7 @@ export function checksFloor(review: Pick<ReviewState, 'answerPasses'>, phase: Ch
   return phase === 'answer-checks' ? (currentPass(review)?.pass.openedAt.checks ?? 0) : 0;
 }
 
-/** Whether a kind's check failed or timed out before any edit (R10, R24 of the fix pass). */
+/** Whether a kind's check failed or timed out before any edit (R10, R24 of the fix pass), by its last baseline run, which never grows old. */
 export function failedAtBaseline(fix: FixState, kind: CheckKind): boolean {
   return ['failed', 'timeout'].includes(lastRun(fix, 'baseline-checks', kind)?.outcome ?? '');
 }
@@ -269,7 +321,8 @@ export function failedAtBaseline(fix: FixState, kind: CheckKind): boolean {
  * edit, which the fixes broke, or having failed then too, whose output
  * may hide a failure the fixes added. The repair worker reads which
  * failures are new; a kind that did not start at baseline, its tool
- * missing, is never one.
+ * missing, is never one. It reads the last baseline run and the last
+ * current run after the fixes (TD3 of resumable runs).
  */
 export function repairTargets(fix: FixState): CheckKind[] {
   const planned = fix.checks.planned?.checks ?? [];

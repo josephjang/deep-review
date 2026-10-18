@@ -162,11 +162,15 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
   for (const group of unverifiedGroupsOf(review)) {
     lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(', ')}) carry PLAUSIBLE with the unverified mark.`);
   }
-  const drifted = review.checks.filter((check) => check.drifted);
+  const drifted = review.checks.map((check, index) => ({ check, index })).filter(({ check }) => check.drifted);
   // A fix run's tree is compared with what the run expected, the change and every revision since; a read-only run's with the change alone.
   const against = review.fix === null ? 'the reviewed change' : 'what the run expected';
-  const headMoved = (check: (typeof drifted)[number]): string[] => (check.head === null ? [] : [`HEAD moved to ${check.head.actual}`]);
-  lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? `none found a difference from ${against}` : `${String(drifted.length)} found a difference in ${drifted.map((check) => `${check.phase} (attempt ${String(check.attempt)}: ${[...headMoved(check), ...check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`)].join(', ')})`).join('; ')}; each blocked the run until the tree was restored`}.`);
+  const headMoved = (check: (typeof review.checks)[number]): string[] => (check.head === null ? [] : [`HEAD moved to ${check.head.actual}`]);
+  // A drift a later write back of its attempt resolved came from a check a kill cut short (R7 of resumable runs); every other one blocked the run.
+  const writtenBack = ({ check, index }: (typeof drifted)[number]): boolean => review.fix?.restorations.some((restoration) => restoration.phase === check.phase && restoration.attempt === check.attempt && restoration.checksBefore > index) ?? false;
+  const blocked = drifted.filter((entry) => !writtenBack(entry)).length;
+  const fate = blocked === drifted.length ? 'each blocked the run until the tree was restored' : blocked === 0 ? 'each was written back after a check a kill cut short' : `${String(drifted.length - blocked)} ${drifted.length - blocked === 1 ? 'was' : 'were'} written back after a check a kill cut short, and each other blocked the run until the tree was restored`;
+  lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? `none found a difference from ${against}` : `${String(drifted.length)} found a difference in ${drifted.map(({ check }) => `${check.phase} (attempt ${String(check.attempt)}: ${[...headMoved(check), ...check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`)].join(', ')})`).join('; ')}; ${fate}`}.`);
   lines.push(budgetLine(review, input.statistics));
   const unreported = input.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {

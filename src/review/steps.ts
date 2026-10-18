@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { checksFloor, claimsOfRound, earlierBatches, isNotAttempted, lastAnswerOf, lastRun, repairTargets, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, lastAnswerOf, lastCurrentRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -73,24 +73,32 @@ type DegradationTarget =
 /** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. */
 export type Degradation = DegradationTarget & { readonly reason: string };
 
-/** A check due in a checks phase: run it, or record it skipped with the reason when `build` did not pass. */
+/**
+ * A check due in a checks phase: run it, or record it skipped with the
+ * reason when `build` did not pass; with the run it replaces, its last
+ * current run, and why that one runs again, or null for the kind's first
+ * current run (R3, R4, R7 of resumable runs).
+ */
 export interface DueCheck {
   readonly kind: CheckKind;
   readonly command: string;
   readonly skip: string | null;
+  readonly replaces: { readonly run: CheckRunState; readonly why: 'cut' | 'timeout' | 'cut-attempt' } | null;
 }
 
 export type Step =
   | { readonly kind: 'blocked'; readonly blocker: Blocker & { readonly phase: Phase } }
   | { readonly kind: 'complete' }
   | { readonly kind: 'start-phase'; readonly phase: Phase; readonly attempt: number }
-  | { readonly kind: 'check-worktree'; readonly phase: Phase; readonly attempt: number; readonly moment: 'start' | 'end' }
+  | { readonly kind: 'check-worktree'; readonly phase: Phase; readonly attempt: number; readonly moment: 'start' | 'end' | 'restored' }
   | { readonly kind: 'plan-verification'; readonly phase: VerificationPhase; readonly groups: readonly PlannedGroup[] }
   | { readonly kind: 'plan-fixes'; readonly plan: FixPlan }
   | { readonly kind: 'plan-second-round'; readonly plan: SecondRoundPlan }
   /** The checks the run executes, and for a fix run going on without its survey the reason, recorded with them in one append. */
   | { readonly kind: 'plan-checks'; readonly checks: readonly PlannedCheckV3[]; readonly without: string | null }
   | { readonly kind: 'run-check'; readonly phase: CheckPhase; readonly attempt: number; readonly check: DueCheck }
+  /** Write back the files the run expects that a check a kill cut short in an earlier attempt left changed, instead of the drift block (R7, TD7 of resumable runs). */
+  | { readonly kind: 'restore-tree'; readonly phase: CheckPhase; readonly attempt: number; readonly check: CutShortCheck; readonly files: readonly WorktreeCheckState['files'][number][] }
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
   | { readonly kind: 'degrade'; readonly phase: Phase; readonly degradations: readonly Degradation[] }
@@ -417,19 +425,39 @@ export function claimsLostBlocker(directory: string): Blocker {
   return { code: 'claims-lost', detail: truncated(`the claims directory ${directory} was removed while the run was editing`, maxRecordedTextLength), action: blockerActions['claims-lost'] };
 }
 
+/**
+ * The write back a drift at the start of a checks phase's attempt calls
+ * for, or null when the drift blocks (R7, TD7 of resumable runs): a check
+ * a kill cut short in an earlier attempt explains the drift when `HEAD`
+ * did not move and each drifted file has the bytes the run expects on
+ * record, or is expected absent. A file whose expected bytes were too
+ * large to keep cannot be written back, and blocks as before.
+ */
+function restoreStep(review: ReviewState, phase: CheckPhase, attempt: number, drift: WorktreeCheckState): Step | null {
+  if (review.fix === null || drift.moment !== 'start' || drift.head !== null) return null;
+  const check = cutShortBefore({ ...review, fix: review.fix }, phase);
+  if (check === null) return null;
+  const writable = drift.files.every((file) => file.expected === null || (file.expected !== undefined && 'blob' in file.expected));
+  return writable ? { kind: 'restore-tree', phase, attempt, check, files: drift.files } : null;
+}
+
 /** Whether the answer pass with this unit key revised the tree: its fixer's answer, or an attempt of it that ended without one. */
 const passRevised = (fix: FixState, key: string): boolean => unitRevisions(fix, 'answer', key).length > 0;
 
 /**
  * The check a checks phase runs next (R9, R10, PD7 of the fix pass), or
  * null when none is due: the first available kind in the order `build`,
- * `typecheck`, `lint`, `test` that has no run in this phase, one at a time;
- * once `build` ran and did not pass, each later kind is skipped with the
- * reason instead. The three after `build` never wait on one another. The
- * `checks` phase runs only when the fixes changed the tree,
- * `repair-checks` only when the repair phase had a unit, and
- * `answer-checks` only when the current answer pass changed it, and then
- * every check again, its runs for an earlier pass not counting
+ * `typecheck`, `lint`, `test` that is due, one at a time; once the last
+ * current run of `build` did not pass, each later kind is skipped with the
+ * reason instead. The three after `build` never wait on one another. A
+ * kind is due when it has no current run in the phase, or when its last
+ * current run did not pass in a cut attempt (R3 of resumable runs), was
+ * cut (R4), or is its first timeout in the current attempt (R7), each of
+ * which it runs again (`runStanding`). A run is current when no later
+ * revision made it old (TD3). The `checks` phase runs only when the fixes
+ * changed the tree, `repair-checks` only when the repair changed it (TD11),
+ * and `answer-checks` only when the current answer pass changed it, and
+ * then every check again, its runs for an earlier pass not counting
  * (`checksFloor`; R5 of answers).
  */
 export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | null {
@@ -437,17 +465,20 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
   const planned = fix?.checks.planned ?? null;
   if (fix === null || planned === null) return null;
   if (phase === 'checks' && !fix.revisions.some((revision) => revision.phase === 'fixes')) return null;
-  if (phase === 'repair-checks' && repairTargets(fix).length === 0) return null;
+  if (phase === 'repair-checks' && !fix.revisions.some((revision) => revision.phase === 'repair')) return null;
   if (phase === 'answer-checks') {
     const pass = currentPass(review);
     if (pass === null || !passRevised(fix, pass.key)) return null;
   }
-  const floor = checksFloor(review, phase);
-  const build = lastRun(fix, phase, 'build', floor);
+  const withFix = { ...review, fix };
   for (const check of planned.checks) {
-    if (check.command === null || lastRun(fix, phase, check.kind, floor) !== null) continue;
+    if (check.command === null) continue;
+    const standing = runStanding(withFix, phase, check.kind);
+    if (standing === null) continue;
+    // Read now, not before the loop: a build that runs again runs first, and the kinds after it read its new outcome.
+    const build = lastCurrentRun(withFix, phase, 'build');
     const skip = check.kind !== 'build' && build !== null && build.outcome !== 'passed' ? `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}` : null;
-    return { kind: check.kind, command: check.command, skip };
+    return { kind: check.kind, command: check.command, skip, replaces: standing.kind === 'first' ? null : { run: standing.run, why: standing.why } };
   }
   return null;
 }
@@ -515,7 +546,9 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
  * a written report is complete; a phase that is not running starts; a
  * running phase is checked against the worktree once per attempt, and an
  * attempt with a drifted check (at its start, before an answer, or at its
- * end) blocks once no worker is in flight; then a verification phase or
+ * end) blocks once no worker is in flight, unless a check a kill cut short
+ * in an earlier attempt explains a drift at the start of a checks phase,
+ * which is written back instead (R7 of resumable runs); then a verification phase or
  * the fixes are planned, the report is written, a checks phase runs its
  * checks one at a time, and units are degraded, blocked, launched or
  * awaited; an editing phase whose units have all settled is checked once
@@ -531,11 +564,20 @@ export function nextStep(review: ReviewState, live: Live): Step {
     return { kind: 'start-phase', phase: pending, attempt: review.phases[pending].attempt + 1 };
   }
   const attempt = review.phases[phase].attempt;
-  const checks = review.checks.filter((check) => check.phase === phase && check.attempt === attempt);
-  if (checks.length === 0) return { kind: 'check-worktree', phase, attempt, moment: 'start' };
+  const ofAttempt = review.checks.map((check, index) => ({ check, index })).filter(({ check }) => check.phase === phase && check.attempt === attempt);
+  if (ofAttempt.length === 0) return { kind: 'check-worktree', phase, attempt, moment: 'start' };
+  // A write back resolves the drift the checks before it found (R7 of resumable runs), so the drift rule reads only the checks after the attempt's last one; the tree is checked again after it.
+  const restorations = review.fix?.restorations.filter((restoration) => restoration.phase === phase && restoration.attempt === attempt) ?? [];
+  const restoredAt = restorations.at(-1)?.checksBefore ?? -1;
+  const checks = ofAttempt.filter(({ index }) => index >= restoredAt).map(({ check }) => check);
+  if (checks.length === 0) return { kind: 'check-worktree', phase, attempt, moment: 'restored' };
   // A drift found at the attempt's start, before an answer was recorded, or at its end, blocks the attempt once every worker in flight has settled; nothing more is launched.
   const drift = checks.find((check) => check.drifted);
-  if (drift !== undefined) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: driftBlocker(drift, live.evidencePath) };
+  if (drift !== undefined) {
+    if (live.running.size > 0) return { kind: 'await' };
+    const restore = isCheckPhase(phase) && restorations.length === 0 ? restoreStep(review, phase, attempt, drift) : null;
+    return restore ?? { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: driftBlocker(drift, live.evidencePath) };
+  }
   // A claims directory removed while the fixes phase edits stops it the same way: the units in flight are recorded as failed attempts as they end, and the phase blocks with the action that seeds the directory again (R12 of commit series integrity).
   if (phase === 'fixes' && live.claimsLost !== null) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: claimsLostBlocker(live.claimsLost) };
   if ((phase === 'verification' || phase === 'sweep-verification') && review.plans[phase] === null) return { kind: 'plan-verification', phase, groups: groupsOf(review, phase) };

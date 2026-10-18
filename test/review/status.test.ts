@@ -155,6 +155,14 @@ describe('describeRun of an answered run (R10 of answers)', () => {
     assert.deepEqual(json.commits, []);
   });
 
+  it('marks a check run a later fix made old as one of an earlier tree, and not one an answer pass followed (TD3 of resumable runs)', () => {
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    const lines = (phase: string): string[] => describeRun({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [...fix.revisions, { ...fix.revisions[0]!, phase } as never] } } }, claudeAdapter, evidencePath).lines;
+    assert.ok(lines('fixes').some((line) => /^Check build: baseline-checks passed, checks passed \(an earlier tree\), /.test(line)), lines('fixes').join('\n'));
+    assert.ok(lines('answer').some((line) => /^Check build: baseline-checks passed, checks passed, /.test(line)), lines('answer').join('\n'));
+  });
+
   it('names every series of commits', () => {
     const first = { commits: [{ sha: 'a'.repeat(40), revision: 'change', subject: 'the change' }, { sha: 'b'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'b'.repeat(40) };
     const lines = describeRun(decidedFixRun().add('commits.created', first).fold(), claudeAdapter, evidencePath).lines;

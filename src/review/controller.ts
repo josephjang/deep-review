@@ -15,14 +15,14 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRanV2, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
 import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
-import { batchPosition, revisionMessageOf, routeOf } from '../checkpoint/fix-state.ts';
+import { batchPosition, revisionMessageOf, routeOf, type CutShortCheck } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -46,7 +46,7 @@ import { caseInsensitiveFileSystem } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
-import { drifted, expectedTreeOf, findDrift, phaseCheck, worktreeChecked, type DriftFound } from './drift.ts';
+import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktreeChecked, writeBack, type DriftFound, type RestoredFile } from './drift.ts';
 import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
@@ -226,6 +226,22 @@ function refoldUnderLock(checkpoint: Checkpoint, runId: string, log: (line: stri
 }
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
+
+/** Why a check runs again, as its log line names the run it replaces (R3, R4, R7 of resumable runs). */
+function rerunWords(replaces: NonNullable<DueCheck['replaces']>): string {
+  const { run, why } = replaces;
+  const took = seconds(Date.parse(run.endedAt) - Date.parse(run.startedAt));
+  switch (why) {
+    case 'cut-attempt': {
+      const ended = run.outcome === 'skipped' ? 'skipped it' : run.outcome === 'not-started' ? 'could not start it' : `${run.outcome === 'timeout' ? 'timed out' : run.outcome === 'cut' ? 'was cut' : 'failed'} in ${took}`;
+      return `attempt ${String(run.attempt)} ${ended} before the phase started again`;
+    }
+    case 'timeout':
+      return `it timed out after ${took} at its first run in this attempt`;
+    case 'cut':
+      return `its run of attempt ${String(run.attempt)} was cut after ${took}, with no result of its own`;
+  }
+}
 const usd = (value: number | null): string => (value === null ? '' : `, ${value.toFixed(2)} USD`);
 
 /** A function that reads its value the first time it is called and returns that value after; a read that throws is tried again on the next call. */
@@ -530,34 +546,65 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       return { kind: 'survey.failed', version: 1, payload: failure };
     };
     /**
-     * Run one due check, or record it skipped, as the events to append: its
-     * `check.ran`, and a revision when it wrote to files the run expects or
-     * to any other tracked file (R9, TD6 of the fix pass; PD9 of commit
-     * series integrity), judged against a manifest of the tracked files
-     * taken just before it into the run's own scratch. The engine runs at
-     * most one check, and no worker, at a time, so it awaits the check here.
+     * Write back what a check a kill cut short left changed in the files the
+     * run expects (R7, TD7 of resumable runs): `tree.restored` first, after
+     * the events `before` gives, in one append, with what the tree held
+     * frozen as evidence, then the expected bytes, then the check of the
+     * tree, recorded with the moment `restored`. A stop between the record
+     * and the writes leaves the drift, which the next start writes back
+     * again.
      */
-    const runDueCheck = async (phase: CheckPhase, attempt: number, due: DueCheck): Promise<NewEvent[]> => {
+    const restore = (phase: CheckPhase, attempt: number, check: CutShortCheck, files: readonly RestoredFile[], before: readonly NewEvent[] = []): void => {
+      state = append(checkpoint, state, [...before, { kind: 'tree.restored', version: 1, payload: { phase, attempt, check, files: [...files] } satisfies TreeRestored }]);
+      writeBack(options.worktree, files, (reference) => checkpoint.evidence.read(reference));
+      for (const file of files) log(`check ${check.kind} (${phase}): wrote back ${file.path}, which it changed before a kill cut it short in attempt ${String(check.attempt)}; the bytes before are ${file.before === null ? 'none, the file was absent' : 'blob' in file.before ? `at ${checkpoint.evidence.pathOf(file.before.blob)}` : `${file.before.oversized.sha256}, too large to have been kept`}`);
+      const { payload } = phaseCheck(state, options.worktree, phase, attempt, 'restored', content.match);
+      if (payload.drifted) log(`phase ${phase}: the worktree still differs from what the run expects after the write back: ${driftList(payload)}`);
+      state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 6, payload }]);
+    };
+    /**
+     * Run one due check, or record it skipped, and append what it did: its
+     * start before it runs (R7 of resumable runs), then its `check.ran@3`,
+     * which names the run it replaces (R3), and a revision when it wrote
+     * to files the run expects or to any other tracked file (R9, TD6 of the
+     * fix pass; PD9 of commit series integrity), judged against a manifest
+     * of the tracked files taken just before it into the run's own scratch.
+     * A run the engine killed at its timeout records no revision: its
+     * writes are no work of a complete check, so the files the run expects
+     * are written back in the same step, and the check runs once more. The
+     * engine runs at most one check, and no worker, at a time, so it awaits
+     * the check here.
+     */
+    const runDueCheck = async (phase: CheckPhase, attempt: number, due: DueCheck): Promise<void> => {
+      const replaces = due.replaces === null ? null : { attempt: due.replaces.run.attempt, outcome: due.replaces.run.outcome };
       if (due.skip !== null) {
         log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
         const now = new Date().toISOString();
-        const skipped: CheckRanV2 = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip };
-        return [{ kind: 'check.ran', version: 2, payload: skipped }];
+        const skipped: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip, replaces };
+        state = append(checkpoint, state, [{ kind: 'check.ran', version: 3, payload: skipped }]);
+        return;
       }
+      if (due.replaces !== null) log(`check ${due.kind} (${phase}): running again; ${rerunWords(due.replaces)}`);
       log(`check ${due.kind} (${phase}): ${due.command}`);
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === undefined) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
+      state = append(checkpoint, state, [{ kind: 'check.started', version: 1, payload: { phase, attempt, kind: due.kind, command: due.command } satisfies CheckStarted }]);
       const manifest = prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree);
       const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options.worktree, environment, toolsPath, timeoutMs, ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`) });
       log(`check ${due.kind} (${phase}): ${result.outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${result.error === null ? '' : `: ${result.error}`}`);
-      const ran: CheckRanV2 = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength) };
+      const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: result.outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: result.error === null ? null : truncated(result.error, maxRecordedTextLength), replaces };
+      const recorded: NewEvent = { kind: 'check.ran', version: 3, payload: ran };
+      if (result.termination === 'killed') {
+        restore(phase, attempt, { kind: due.kind, attempt }, restoredFiles(state, options.worktree, content.match, checkpoint.evidence), [recorded]);
+        return;
+      }
       const revision = checkRevision(revisionContext(), phase, due.kind, due.command, manifest);
       if (revision !== null) {
         const expected = expectedTreeOf(state);
         const outside = (revision.payload as TreeRevised).files.filter((file) => !expected.has(file.path)).length;
         log(`check ${due.kind} (${phase}): rewrote ${fileCount((revision.payload as TreeRevised).files.length)}${outside === 0 ? ' the run expects' : `, ${String(outside)} of them outside what the run expects`}; recorded as its revision`);
       }
-      return [{ kind: 'check.ran', version: 2, payload: ran }, ...(revision === null ? [] : [revision])];
+      state = append(checkpoint, state, [recorded, ...(revision === null ? [] : [revision])]);
     };
 
     for (;;) {
@@ -579,7 +626,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const { payload: check, unlisted } = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check)}`);
           if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}${unlisted === 0 ? '' : `, and ${String(unlisted)} more the check does not list`}`);
-          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 5, payload: check }]);
+          // Only version 6 records the check after a write back; every other check stays at version 5, which a read-only run's older reader declares.
+          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: step.moment === 'restored' ? 6 : 5, payload: check }]);
+          break;
+        }
+        case 'restore-tree': {
+          // A drift at the start of the attempt that a check a kill cut short explains (R7 of resumable runs): written back rather than blocked on.
+          log(`phase ${step.phase}: the ${step.check.kind} check was cut short in attempt ${String(step.check.attempt)}; writing back the files it left changed: ${driftList({ files: step.files, head: null })}`);
+          restore(step.phase, step.attempt, step.check, restoredFiles(state, options.worktree, content.match, checkpoint.evidence, new Set(step.files.map((file) => file.path))));
           break;
         }
         case 'plan-verification':
@@ -606,7 +660,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         }
         case 'run-check':
-          state = append(checkpoint, state, await runDueCheck(step.phase, step.attempt, step.check));
+          await runDueCheck(step.phase, step.attempt, step.check);
           break;
         case 'degrade': {
           /** Log one degradation of the phase, by what it gives up, with its reason. */

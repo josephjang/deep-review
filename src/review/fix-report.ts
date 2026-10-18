@@ -9,7 +9,7 @@
  */
 import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, lastRun, notAttemptedNote, planOfRound, revisionMessageOf, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, planOfRound, repairTargets, revisionMessageOf, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
@@ -17,7 +17,7 @@ import { leftAs } from './decision-report.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, droppedByOperator, unavailableCell } from './survey-report.ts';
-import { checkPhases, editingPhases, lostClaimWords, repairUnitKey, type CheckPhase, type EditingPhase } from './vocabulary.ts';
+import { checkPhases, editingPhases, lostClaimWords, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
 
 /**
  * What became of one ranked finding, as the report names it: a fixer's
@@ -227,30 +227,39 @@ function checkCell(run: CheckRan | null, evidencePath: (reference: { sha256: str
 function checksSection(fix: FixState, survey: SurveyState | null, answered: boolean, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
-  const failedAtBaseline = (kind: string): boolean => ['failed', 'timeout', 'not-started'].includes(fix.checks.runs['baseline-checks'].find((run) => run.kind === kind)?.outcome ?? '');
+  // The last baseline run, which never grows old, with not-started among the failures the mark names.
+  const failedAtBaseline = (kind: CheckKind): boolean => ['failed', 'timeout', 'not-started'].includes(lastRun(fix, 'baseline-checks', kind)?.outcome ?? '');
   const sourceCell = (check: (typeof planned)[number]): string[] => (survey === null ? [] : [checkSourceCell(survey, check)]);
+  // Each column shows the last run of each kind, and is marked when a later edit changed the tree its runs checked.
+  const shown = (phase: CheckPhase, kind: CheckKind): CheckRunState | null => lastRecordedRun(fix, phase, kind);
+  const edits = new Map(ran.map((phase) => [phase, planned.map((check) => shown(phase, check.kind)).flatMap((run) => (run === null ? [] : [earlierTreeEdit(fix, phase, run)])).find((edit) => edit !== null) ?? null]));
   const rows = planned.map((check) => {
     if (check.command === null) return `| ${[check.kind, unavailableCell(survey, check), ...sourceCell(check), ...ran.map(() => '-')].join(' | ')} |`;
-    const cells = ran.map((phase) => checkCell(lastRun(fix, phase, check.kind), evidencePath, phase !== 'baseline-checks' && failedAtBaseline(check.kind)));
+    const cells = ran.map((phase) => checkCell(shown(phase, check.kind), evidencePath, phase !== 'baseline-checks' && failedAtBaseline(check.kind)));
     return `| ${[check.kind, tableCell(check.command), ...sourceCell(check), ...cells].join(' | ')} |`;
   });
   // Why a checks phase ran nothing: with no kind given a command, none ever runs, whatever the fixes did; otherwise the phase's own condition.
+  const repairWhy = repairTargets(fix).length === 0 ? 'no check failed after the fixes' : isNotAttempted(fix, 'repair', repairUnitKey) ? 'the repair was not attempted' : 'the repair changed no file';
   const notRun = planned.every((check) => check.command === null)
     ? ['- No check ran in any phase, since no kind has a command.']
     : [
         ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
-        ...(fix.checks.runs['repair-checks'].length === 0 ? ['- After the repair: not run, since no check failed after the fixes.'] : []),
+        ...(fix.checks.runs['repair-checks'].length === 0 ? [`- After the repair: not run, since ${repairWhy}.`] : []),
         ...(answered && fix.checks.runs['answer-checks'].length === 0 ? ['- After answers: not run, since no answer pass changed a file.'] : []),
       ];
+  const earlier = ran.flatMap((phase) => {
+    const edit = edits.get(phase) ?? null;
+    return edit === null ? [] : [`- ${phaseTitles[phase]}: its runs checked an earlier tree, which a later revision of the ${edit === 'fixes' ? 'fixes' : 'repair'} changed.`];
+  });
   // One list of columns gives the header and the separator, so the two cannot disagree on the count.
-  const columns = ['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => phaseTitles[phase])];
+  const columns = ['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => `${phaseTitles[phase]}${edits.get(phase) === null ? '' : ' (an earlier tree)'}`)];
   return [
     '## Checks',
     '',
     `| ${columns.join(' | ')} |`,
     `|${columns.map(() => '---').join('|')}|`,
     ...rows,
-    ...(notRun.length === 0 ? [] : ['', ...notRun]),
+    ...(notRun.length + earlier.length === 0 ? [] : ['', ...notRun, ...earlier]),
   ];
 }
 

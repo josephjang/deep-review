@@ -422,8 +422,10 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.match(repair, /^\[0\] lint: .*\n {4}exited with code 1\n[\s\S]*?\n {4}It failed before any fixer edited the tree too: fix only the failures its output then does not show/m);
     // Each fixer was told what failed before it edited anything.
     assert.match(box.promptOf(state, 'fixer fixes:c1-1'), /^These failed before any fixer edited the tree; their output then is at the paths given\. [^\n]*\n- lint: \S/m);
-    assert.deepEqual(fix.checks.runs['repair-checks'].map((run) => run.kind), ['build', 'typecheck', 'lint', 'test'], 'the checks ran once more after the repair');
+    // The repair changed no file, so nothing runs the checks again on a tree the checks after the fixes already checked (TD11 of resumable runs).
+    assert.deepEqual(fix.checks.runs['repair-checks'], [], 'the repair changed no file');
     assert.match(text, /^- lint check deferred: every failure was there before the fixes; no patch$/m);
+    assert.match(text, /^- After the repair: not run, since the repair changed no file.$/m);
   });
 
   it('never sends the repair a check that failed before any edit and passes after', async (t) => {
@@ -457,7 +459,43 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.match(repair, /^- c1-1 SCAN-1 applied: fake applied \[0\]$/m);
   });
 
-  it('leaves a check the repair did not fix failing in the report, and completes', async (t) => {
+  /** Lint after the fixes rewrites half of src/a.ts and hangs, as a formatter a slow moment stops, each time `hangs` says; the checks time out after 10 s. */
+  const halfFormatter = (box: ReviewSandbox, hangs: readonly boolean[]): void => {
+    box.editPolicy((policy) => ({ ...policy, checks: { timeoutMs: 10_000 } }));
+    box.checks({ lint: ['pass', ...hangs.map((hang) => (hang ? { write: { 'src/a.ts': 'export function parse(' }, hang: true } : 'pass'))] });
+    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+  };
+
+  it('writes back what a check that timed out wrote, records no revision of it, and runs it once more (R7, PD7 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    halfFormatter(box, [true, false]);
+    reportText(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(fix.checks.runs.checks.filter((run) => run.kind === 'lint').map((run) => [run.outcome, run.replaces?.outcome ?? null]), [['timeout', null], ['passed', 'timeout']]);
+    assert.deepEqual(fix.restorations.map((restoration) => [restoration.phase, restoration.check, restoration.files.map((file) => file.path)]), [['checks', { kind: 'lint', attempt: 1 }, ['src/a.ts']]]);
+    assert.equal(box.checkpoint.evidence.read((fix.restorations[0]!.files[0]!.before as { blob: { sha256: string; bytes: number } }).blob).toString('utf8'), 'export function parse(', 'the half rewrite is kept as evidence');
+    assert.ok(!fix.revisions.some((revision) => revision.source.kind === 'check'), 'no revision of the half rewrite');
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA);
+    assert.ok(state.review!.checks.some((check) => check.phase === 'checks' && check.moment === 'restored' && !check.drifted));
+    assert.match(box.logs.join('\n'), /check lint \(checks\): running again; it timed out after [\d.]+ s at its first run in this attempt/);
+    assert.match(box.logs.join('\n'), /check lint \(checks\): wrote back src\/a\.ts, which it changed before a kill cut it short in attempt 1; the bytes before are at /);
+  });
+
+  it('takes a second timeout as the result, and gives the repair the tree of the fixes with no half rewrite in it', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    halfFormatter(box, [true, true]);
+    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) }, 'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [] }]) } });
+    reportText(await box.fix('claude'));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(fix.checks.runs.checks.filter((run) => run.kind === 'lint').map((run) => run.outcome), ['timeout', 'timeout']);
+    assert.equal(fix.restorations.length, 2, 'each timed-out run is written back');
+    assert.deepEqual(fix.answers.repair.repair!.findings.map((finding) => [finding.id, finding.status]), [['lint', 'deferred']], 'the second timeout is the result the repair takes');
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA, 'the repair worked on the tree of the fixes');
+  });
+
+  it('leaves a check the repair did not fix failing in the report, runs no check after a repair that changed nothing, and completes (TD11 of resumable runs)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.checks({ test: { failIfContains: { 'src/a.ts': 'BROKEN' } } });
     box.script({
@@ -465,10 +503,13 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}// BROKEN\n` } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
       'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [] }]) },
     });
-    reportText(await box.fix('claude'));
+    const text = reportText(await box.fix('claude'));
     const fix = box.run().review!.fix!;
-    assert.equal(fix.checks.runs['repair-checks'].find((run) => run.kind === 'test')?.outcome, 'failed');
+    assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'test')?.outcome, 'failed');
+    assert.deepEqual(fix.checks.runs['repair-checks'], []);
     assert.equal(box.run().review!.phases['repair-checks'].status, 'completed');
+    assert.match(text, /^| test | .* | failed, [d.]+ s; output .*|$/m);
+    assert.match(text, /^- After the repair: not run, since the repair changed no file.$/m);
   });
 
   it('blocks with drift naming HEAD when a commit lands during the fixes, whatever the files say', async (t) => {
