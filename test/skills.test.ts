@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { engineBundleName, engineDirectoryName } from '../src/build/bundle.ts';
+import { settingNames } from '../src/config/settings.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const read = (path: string): string => readFileSync(resolve(root, path), 'utf8');
@@ -63,7 +64,7 @@ describe('the skill texts', () => {
       assert.match(text, /`--accept` or `--reject` in place of `--option <n>` for a\s+departure, and `--note <text>` with what the user said beyond the\s+choice/);
       assert.match(text, /as a background shell command with\s+the longest timeout you can/);
       assert.match(text, /the last line of stdout is the new report's\s+path: show it as in step 4 and offer to commit the new edits as in\s+step 5/);
-      assert.match(text, /it says that `review --fix`\s+applies the answer: offer to run the step 3 command with `--fix`/);
+      assert.match(text, /it says that `review --fix`\s+applies the answer: offer to run step 3 again with `--fix`/);
       assert.match(text, /When it says the tree already holds the answer, tell the user nothing\s+was applied/);
       assert.match(text, /Exit code 2: show stderr verbatim and stop; when it says\s+the answer is recorded, the same command applies it once the cause\s+it names is gone/);
       assert.ok(text.indexOf(' commit\n') < text.indexOf(' answer --finding') && text.indexOf(' answer --finding') < text.indexOf('Exit code 2: the run is blocked'), 'after the commit step, before the blocked run');
@@ -84,9 +85,31 @@ describe('the skill texts', () => {
 
     it(`${name}: shows the configuration with config show when asked about it, and writes the repository's file only as an edit the user asks for`, () => {
       const text = read(path);
-      assert.match(text, /When the user asks how deep-review is configured, or why a run reviewed\s+what it did, run the step 3 command with `config show` in place of\s+`review`, with the same scope flags and no `--fix`, and show what it\s+prints\./);
+      assert.match(text, /When the user asks how deep-review is configured, or why a run reviewed\s+what it did, run the `config show` command of step 3 with the same\s+scope flags and no `--fix`, and show all that it prints\./);
       assert.match(text, /When the user asks to change a preference, name the file that\s+`config show` lists for it\./);
       assert.match(text, /Write the repository's\s+`\.deep-review\/config\.toml` only as a change the user asks for, as any\s+other edit, never as a step of a review\./);
+    });
+
+    // R2 and PD1 of the skill surface corrections: the user sees the scope, the budget and the fix choice before the run, and nothing waits for the user.
+    it(`${name}: shows the scope, the budget and the fix choice with config show before the review, and does not wait`, () => {
+      const text = read(path);
+      const step3 = text.slice(text.indexOf('3. '), text.indexOf('4. Exit code 0'));
+      const show = step3.match(/^ {3}node "[^"\n]+" config show (.*)$/m);
+      const review = step3.match(/^ {3}node "[^"\n]+" review (.*)$/m);
+      assert.ok(show !== null && review !== null, 'step 3 holds both commands');
+      // The same engine, runtime and flags, so the scope shown is the scope reviewed.
+      assert.equal(show[0].replace(' config show ', ' review '), review[0]);
+      assert.equal(show[1], `--runtime ${runtime} <scope flags> [--fix]`);
+      assert.ok(show.index! < review.index!, 'config show runs before the review');
+      assert.match(step3, /Show the user its `Scope:` line and the `budget\.usd` line under its\s+`Settings:` as it prints them, and say whether the run fixes\./);
+      assert.match(step3, /start the review at once: do not ask the user to confirm, and do not\s+wait for an answer\./);
+      assert.match(step3, /A user who sees a wrong scope stops the review/);
+      assert.match(step3, /When `config show` exits with code 2,\s+show stderr verbatim and stop, as step 7 says for a refusal\./);
+      assert.doesNotMatch(step3, /wait for (the user|a yes|confirmation)|ask the user whether/);
+      // The two lines the skill names are lines config show prints.
+      assert.ok(read('src/config/command.ts').includes('`Scope: ${scope.mode} from ${scope.base}'), 'config show prints a Scope: line');
+      assert.ok(read('src/config/command.ts').includes('\'Settings:\','), 'config show prints a Settings: header');
+      assert.ok((settingNames as readonly string[]).includes('budget.usd'), 'budget.usd is a setting config show lists');
     });
 
     it(`${name}: answers a check-unavailable blocker with the flag the user chooses, after showing it (R15 of the repository survey)`, () => {
@@ -139,13 +162,15 @@ describe('the skill texts', () => {
       'disable-model-invocation: true\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
       '   review then edits nothing and runs no check.\n',
-      '3. Run this from the repository as a background shell command with the\n   longest timeout you can, and wait for it to exit:\n',
+      '   exit:\n',
+      '   Run the review from the repository as a background shell command with\n   the longest timeout you can, and wait for it to exit:\n',
     ],
     'skill/codex/SKILL.md': [
       'description: Deep review of one change by the deep-review engine, a Node program installed with this skill. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for $deep-review by name.\n',
       '   user limited the review to. `--budget-usd` does not apply to Codex,\n   which reports no cost; do not pass it.\n',
       '   review then edits nothing and runs no check. With `--fix` on Windows,\n   also tell the user that the workers that edit run with no sandbox and\n   with network access unless the user names\n   `--codex-windows-sandbox unelevated`, under which they cannot run most\n   build and test commands, or `--codex-windows-sandbox elevated`, which\n   needs Codex\'s elevated setup; pass that flag only when the user names\n   it.\n',
-      '3. Run this from the repository, with the longest timeout you can, and\n   wait for it to exit. `engine/main.mjs` is in this skill\'s directory,\n   the one that holds this SKILL.md:\n',
+      '   exit. `engine/main.mjs` is in this skill\'s directory, the one that\n   holds this SKILL.md:\n',
+      '   Run the review from the repository, with the longest timeout you can,\n   and wait for it to exit:\n',
       '   When the command returns to you before it exits, poll it until it\n   exits, and do not end your turn while it runs: `codex exec` stops a\n   command that still runs when the turn ends.\n\n',
     ],
   };

@@ -33,8 +33,22 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    runs the check commands it chose from the repository, and that the
    run commits nothing. Without such a request, do not pass `--fix`: the
    review then edits nothing and runs no check.
-3. Run this from the repository as a background shell command with the
-   longest timeout you can, and wait for it to exit:
+3. First show the user what the run will review. Run this from the
+   repository, with the flags the review below takes, and wait for it to
+   exit:
+
+   node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" config show --runtime claude <scope flags> [--fix]
+
+   Show the user its `Scope:` line and the `budget.usd` line under its
+   `Settings:` as it prints them, and say whether the run fixes. Then
+   start the review at once: do not ask the user to confirm, and do not
+   wait for an answer. A user who sees a wrong scope stops the review
+   before it has spent much; until its fixes phase the run has edited
+   nothing, and `abandon` closes it. When `config show` exits with code 2,
+   show stderr verbatim and stop, as step 7 says for a refusal.
+
+   Run the review from the repository as a background shell command with
+   the longest timeout you can, and wait for it to exit:
 
    node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" review --runtime claude <scope flags> [--fix]
 
@@ -73,7 +87,7 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    that owes an edit, and the last line of stdout is the new report's
    path: show it as in step 4 and offer to commit the new edits as in
    step 5. On a run that only reviewed, it says that `review --fix`
-   applies the answer: offer to run the step 3 command with `--fix`.
+   applies the answer: offer to run step 3 again with `--fix`.
    When it says the tree already holds the answer, tell the user nothing
    was applied. Exit code 2: show stderr verbatim and stop; when it says
    the answer is recorded, the same command applies it once the cause
@@ -88,9 +102,8 @@ it to exit, and relay its result. Node 26 or newer must be installed.
 8. Any other exit code: show stderr verbatim and stop.
 
 When the user asks how deep-review is configured, or why a run reviewed
-what it did, run the step 3 command with `config show` in place of
-`review`, with the same scope flags and no `--fix`, and show what it
-prints. When the user asks to change a preference, name the file that
+what it did, run the `config show` command of step 3 with the same
+scope flags and no `--fix`, and show all that it prints. When the user asks to change a preference, name the file that
 `config show` lists for it. Write the repository's
 `.deep-review/config.toml` only as a change the user asks for, as any
 other edit, never as a step of a review.
