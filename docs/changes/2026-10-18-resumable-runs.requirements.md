@@ -88,7 +88,9 @@ With the fake runtimes and the fake checks of the test suite, it reaches the sam
 
 ### R2: A test checks the contract at each point
 
-A test runs a fix run on the fakes and stops the engine at a point. Then it runs the same command again and checks R1 against a run with no stop. It stops the engine in three ways: a signal that the engine handles, a hard kill of the engine alone, and a hard kill of its process tree.
+A test runs a fix run on the fakes and stops the engine at a point. Then it runs the same command again and checks R1 against a run with no stop.
+
+It stops the engine in four ways. Three of them are a handled signal, a hard kill of the engine alone and a hard kill of its process tree. In these three ways, the engine records nothing after the stop. The fourth way kills a child before the engine. That is the order of run `8dbe23ad`, where the stop killed the check and the engine stopped less than 0.4 seconds later. Thus only the fourth way can show #25, or a worker that a stop kills before the engine.
 
 The test suite runs a fixed set of points. They are where a phase starts or ends and where a worker or a check runs. They are also where the engine edits the tree or git, and where it writes the report. A script runs each point between two appends, and the gate of R18 runs it. CI runs the suite on Linux, macOS and Windows.
 
@@ -302,7 +304,7 @@ R18 is real runs on the pull request of this change. They have a stop during a c
 
 ### The test makes the suite longer
 
-A run on the fakes takes seconds, and the test stops it at many points in three ways. The suite runs a fixed set of points, and a script runs each point. The proposal accepts a longer suite, because the contract has no other proof.
+A run on the fakes takes seconds, and the test stops it at many points in four ways. The suite runs a fixed set of points, and a script runs each point. The proposal accepts a longer suite, because the contract has no other proof.
 
 ### The fakes are not the real runtimes
 

@@ -109,17 +109,21 @@ A search of the code found these nine ways in which a stop can leave work undone
 
 ### The contract test (R1, R2)
 
-A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append`, counts the appends, and stops the process after the append that the test names. For a point while a child runs, the fakes write a file when they start, and the helper stops the engine when that file appears.
+A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. In that run, the first attempt of one unit fails, so that a stop can meet a unit at its last attempt. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append`, counts the appends, and stops the process after the append that the test names. For a point while a child runs, the fakes write a file when they start, and the helper stops the engine when that file appears.
 
-The helper stops the engine in three ways. For a handled signal, the preload emits SIGINT in the process, which runs the path of `releaseOnExit` on each platform. For a hard kill of the engine alone, the helper calls `process.kill` with SIGKILL on the engine's pid, which is `TerminateProcess` on Windows. For a hard kill of the tree, it runs `taskkill /T /F` on Windows and a SIGKILL of the process group on POSIX.
+The helper stops the engine in four ways. For a handled signal, the preload emits SIGINT in the process, which runs the path of `releaseOnExit` on each platform. For a hard kill of the engine alone, the helper calls `process.kill` with SIGKILL on the engine's pid, which is `TerminateProcess` on Windows. For a hard kill of the tree, it runs `taskkill /T /F` on Windows and a SIGKILL of the process group on POSIX.
+
+For a kill of a child before the engine, the fake writes its pid in the file that marks its start. The helper kills the tree of that pid, and 100 milliseconds later it kills the engine alone as above. This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. A gap of 100 milliseconds thus lets the engine of today make the failure final, and it is less than the gap of that run.
 
 The helper then runs the same command again with no preload, until the run writes its report or blocks. It checks R1 against a run of the same repository with no stop, in four parts.
 
-First, the second command exits as the run with no stop exits, with no added flag. Second, no worker that settled before the stop is launched again, and a unit in flight at the stop is launched one more time. Third, nothing is false. Each current run of a check has the outcome of the run with no stop. No `attempt.failed` with the fault `unit` names a worker that the stop killed, and no revision holds a file that its unit did not touch.
+First, the second command exits as the run with no stop exits, with no added flag. Second, no worker that settled before the stop is launched again. The next command launches one more time each unit that was in flight when the engine ended.
+
+Third, nothing is false. Each current run of a check has the outcome of the run with no stop. A failure of a worker that the stop killed costs its unit nothing: the unit does not degrade, and it gets its two attempts again at the next command. No revision holds a file that its unit did not touch.
 
 Fourth, the report equals the report of the run with no stop after a normalization. The normalization removes times, durations, paths of the evidence, run ids, and the lines of R15.
 
-The suite runs a fixed set of points. They are the first and the last append of each phase, and the launch and the end of a worker and of a check. They are also the record of a revision, the write of the report, and `commit` before and after it moves the branch. A script, `npm run resume-test`, runs each append of the run in each of the three ways. CI runs the suite on three systems, and the gate runs the script.
+The suite runs a fixed set of points. They are the first and the last append of each phase, and the launch and the end of a worker and of a check. They are also the record of a revision, the write of the report, and `commit` before and after it moves the branch. A script, `npm run resume-test`, runs each append of the run in each of the first three ways. It runs each child of the run in the fourth way. CI runs the suite on three systems, and the gate runs the script.
 
 ### Old and current runs of a check (R3, R11)
 
@@ -359,13 +363,13 @@ W9 depends on one question: do the timers of Node count a sleep on Windows, macO
 
 ### How long does the script of R2 take?
 
-A fix run on the fakes appends a few hundred events, and each point runs two commands in three ways. Step 1 measures the time. If the script is too slow for each pull request, the gate runs it, and CI runs the fixed set.
+A fix run on the fakes appends a few hundred events, and each point runs two commands in each way that applies to it. Step 1 measures the time. If the script is too slow for each pull request, the gate runs it, and CI runs the fixed set.
 
 ## Test Strategy
 
 ### R1 and R2: The contract
 
-`test/review/resume-contract.test.ts` runs the fixed set of points in the three ways, on the three systems of CI, against a run with no stop. Each point checks the four parts of the contract in the Design. Step 1 records the points that fail on the engine as it is, and each later step removes the marks that it closes. The script runs each append in each way.
+`test/review/resume-contract.test.ts` runs the fixed set of points in the four ways, on the three systems of CI, against a run with no stop. Each point checks the four parts of the contract in the Design. Step 1 records the points that fail on the engine as it is, and each later step removes the marks that it closes. The script runs each point in each way that applies to it.
 
 ### R3: A check that a stop cut short runs again
 
