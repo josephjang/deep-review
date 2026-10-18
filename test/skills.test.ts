@@ -127,8 +127,8 @@ describe('the skill texts', () => {
       assert.match(step3, /When `status` prints a `Run ` line instead, that run is active and the\s+review below resumes it: run no `config show`, and in that message\s+copy the `Run ` line and the `Settings:` line of `status` into a code\s+block, character for character, and say that the review continues\s+that run with the scope and the settings it recorded and ignores the\s+scope flags\./);
       // In the reply, not only as the command's output: the smoke on Claude Code showed a model that ran config show and told the user nothing of it.
       assert.match(step3, /When it exits 0, write the user a message before your next tool call,\s+in this same reply: copy its `Scope:` line and the `budget\.usd` line\s+under its `Settings:` into a code block, character for character, and\s+below it say whether the run fixes\./);
-      // Copied, not retold: the interactive smoke showed a model that called the base after `from` the commit reviewed.
-      assert.match(step3, /Do not restate them in your own\s+words: the commit after `from` is the base the change is measured\s+from, not the commit the review reads\./);
+      // A retelling stays right because the Scope: line names both ends of the change (R11, tested with config show), so the skill no longer explains them.
+      assert.doesNotMatch(step3, /the commit after `from`/);
       assert.match(step3, /The user does not see the command's output, so this message is where\s+they see the scope\./);
       // A reply with the message alone ends the turn: the allowed-tools grant lapses in Claude Code, and `codex exec` ends the session, so no review runs.
       assert.match(step3, /Then, in the same reply, start the review at once;\s+the message does not end your turn: do not ask the user to confirm,\s+and do not wait for an answer\./);

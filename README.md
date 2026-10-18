@@ -612,8 +612,10 @@ setting changed since and is not applied; the concurrency and the run
 budget still change per invocation by flag. The report's header names
 the files a run read, and its limitations name the paths left out, each
 repository value a higher layer replaced, and each setting ignored.
-`deep-review config show` prints what a run would use, each value with
-its origin, without starting one; `config validate` checks a file as
+`deep-review config show` prints what a run would use, without starting
+one: the change, as `Scope: <mode>, the change from <base> to <end>`
+with the end a commit or the working tree, and each value with its
+origin; `config validate` checks a file as
 its layer reads it, the repository's of the working tree by default;
 and `config init --repository`, `--operator` or `--clone` writes a new
 file with every setting commented at its default.
