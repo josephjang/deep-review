@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { blockerSchemaV5 } from '../../src/checkpoint/events.ts';
+import { checkSettingName } from '../../src/config/settings.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { blockerActions, blockerCodes, recordedBlockerCodes, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -35,6 +36,10 @@ describe('the blocker codes', () => {
     assert.match(blockerActions['check-unavailable'], /install the missing tool and run the command again/);
     assert.match(blockerActions['check-unavailable'], /--no-check <kind> to go without that check/);
     assert.match(blockerActions['check-unavailable'], /--check <kind>=<command> to name one that runs/);
+    // R8 and PD7 of the skill surface corrections: the clone's file settles the kind for a new run; the blocked run keeps the settings it recorded, so the action says to start one.
+    assert.match(blockerActions['check-unavailable'], /or set checks\.<kind> in the clone's file, which deep-review config init --clone writes, then abandon this run and start a new one, which needs the flag on no resume; this run keeps the settings it recorded$/);
+    assert.equal(checkSettingName('lint'), 'checks.lint', 'the setting the action names');
+    assert.ok(blockerActions['check-unavailable'].length <= 1000, 'a recorded action is at most 1000 characters');
     assert.match(surveyWorkerFailedAction, /surveys the repository afresh/);
     assert.match(surveyWorkerFailedAction, /--check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test/);
   });

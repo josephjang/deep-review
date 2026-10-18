@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { checkFlagsOf, dedicatedFlagValues } from '../../src/config/flags.ts';
+import { flagLayerOf } from '../../src/config/resolve.ts';
+import { configurationSource } from '../../src/config/source.ts';
 import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import type { PolicyFile } from '../../src/review/policy.ts';
 import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
+import { fakeClaude } from '../helpers/launcher.ts';
 import { fakeCheckCommand, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** A surveyed check of the sandbox's package.json: the stand-in check's command, stated, with the tool given missing. */
@@ -40,6 +44,40 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin, check.reason]), [['build', 'flag', null], ['typecheck', 'flag', null], ['lint', 'flag', 'dropped by --no-check'], ['test', 'survey', null]]);
     assert.deepEqual(box.checkRuns(), ['build', 'typecheck', 'test'], 'the baseline ran the flagged checks and the survey\'s, and lint never');
     assert.ok(box.logs.some((line) => /^phase survey: re-entered \(attempt 2\), clearing the check-unavailable blocker; \d+ min \d+ s since the run started; /.test(line)), box.logs.join('\n'));
+  });
+
+  // R8 and PD7 of the skill surface corrections: the action's fourth way works as it says, and only as it says.
+  it('settles a missing tool by the clone\'s file for a new run, not for the blocked run, which keeps the settings it recorded', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.script({ surveyor: { output: { conventions: [], userRules: [], checks: [fromPackage('lint', 'ruff', 'ruff check .'), fromPackage('test')], note: '' } } });
+    const cloneFile = join(box.directory, 'clone.toml');
+    const layer = flagLayerOf([...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: halfFlagged, executableArgs: [fakeClaude] })]);
+    // Each invocation reads the files afresh, as each command of the engine does.
+    const options = () => ({ configuration: configurationSource({ worktree: box.repo, locations: { operator: null, clone: cloneFile, invocation: null }, repositoryConfig: true, flags: layer }), fix: checkFlagsOf(layer) });
+    const blocked = await box.review('claude', options());
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable', JSON.stringify(blocked));
+    const first = box.run();
+    assert.equal(first.review!.blocker!.action, blockerActions['check-unavailable'], 'the ledger records the action that names the clone\'s file');
+    // The user follows the fourth way's first half: the clone's file settles lint.
+    writeFileSync(cloneFile, 'schema = 1\nchecks.lint = false\n');
+    // A resume of the blocked run does not apply it: it surveys again, pays for it, and blocks again.
+    box.logs.length = 0;
+    const again = await box.review('claude', options());
+    assert.ok(again.kind === 'blocked' && again.blocker.code === 'check-unavailable', JSON.stringify(again));
+    assert.equal(surveyors(box), 2);
+    assert.ok(box.logs.some((line) => line.includes(`${cloneFile} is new since the run recorded its settings; it does not apply`)), box.logs.join('\n'));
+    // The second half: abandon the blocked run and start a new one, which reads the clone's file and needs no flag for lint.
+    const blockedRun = box.run();
+    box.checkpoint.append(blockedRun.id, blockedRun.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'lint settled in the clone\'s file' } }]);
+    // The new run's surveyor is asked for test alone, since the flags settle build and typecheck and the clone's file lint.
+    box.script({ surveyor: { output: { conventions: [], userRules: [], checks: [fromPackage('test')], note: '' } } });
+    reportText(await box.review('claude', options()));
+    assert.match(box.promptOf(box.checkpoint.foldRuns().find((run) => run.id !== first.id)!, 'surveyor survey:survey'), /^Kinds to choose: test$/m);
+    const runs = box.checkpoint.foldRuns();
+    assert.equal(runs.length, 2);
+    const fresh = runs.find((run) => run.id !== first.id)!;
+    assert.deepEqual(fresh.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin, check.command]), [['build', 'flag', fakeCheckCommand('build')], ['typecheck', 'flag', fakeCheckCommand('typecheck')], ['lint', 'clone', null], ['test', 'survey', fakeCheckCommand('test')]]);
+    assert.deepEqual(box.checkRuns(), ['build', 'typecheck', 'test'], 'lint never ran');
   });
 
   it('surveys again a survey blocked on a missing tool when no flag settles it, and goes on once the new answer finds the tool (R15)', async (t) => {
