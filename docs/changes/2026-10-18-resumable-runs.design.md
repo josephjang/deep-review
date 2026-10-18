@@ -17,7 +17,7 @@ The design has one test and nine mechanisms. The test (R2) runs a fix run on the
 | A prepared series of commits | `commit` appends `commits.prepared@1` before it moves the branch, and the next command completes or drops the series. | R9 |
 | A bounded lost attempt | The revision of a lost attempt holds only its snapshots, its owned files and its claimed files. | R10 |
 | A reopened fix pass | `fix.reopened@1` reopens a complete fix run that the budget stopped. | R11, R12, R13 |
-| A usage limit | The Claude adapter knows the words of a usage limit. `attempt.failed@7` records the failure as a fault of the environment in any phase, and the phase blocks at once. | R14 |
+| A usage limit | The Claude adapter knows the words of a usage limit. `attempt.failed@7` records the failure with the fault `limit`, and the phase blocks at once. | R14 |
 
 This design calls the continuation of R11 a reopened fix pass. It is apart from the continuation of a read-only run into the fix pass, which `fix.pinned` records.
 
@@ -192,7 +192,7 @@ A stop between the append and the writes is safe, because the next start finds t
 
 No reader of the last current run then sees `cut` as a result: `failedAtBaseline`, `repairTargets`, the task of a fixer and the Checks table. The log says `check typecheck (baseline-checks): cut by exit code 143, a kill mark; it runs again`.
 
-For a worker, `workerVerdict` in `src/runtime/launcher.ts` reads the mark right after its checks for a worker that did not start or ran past its timeout. It gives such a worker the outcome `failed`, so `worker.finished` does not change, and the receipt gets the cause `cut`. `contributionOf` then records `attempt.failed@7` with the fault `cut`, a third fault of that version. The fold counts it as an interruption, as a lost worker. It uses an attempt, and `exhaustedOutcome` blocks a unit with a cut among its failures and never degrades it.
+For a worker, `workerVerdict` in `src/runtime/launcher.ts` reads the mark right after its checks for a worker that did not start or ran past its timeout. It gives such a worker the outcome `failed`, so `worker.finished` does not change, and the receipt gets the cause `cut`. `contributionOf` then records `attempt.failed@7` with the fault `cut`, a new fault of that version. The fold counts it as an interruption, as a lost worker. It uses an attempt, and `exhaustedOutcome` blocks a unit with a cut among its failures and never degrades it.
 
 The planner launches a unit with an attempt left again at once, as after each failure. A cut does not block the phase at once, as the limit of R14 does.
 
@@ -281,9 +281,11 @@ Figure 1. A reopened run does only the work that the budget left. The earlier ru
 
 ### The usage limit (R14)
 
-The Claude adapter returns a new kind of decoded result, `limit`, for a result with `is_error` true. That result has text that names a usage limit or a session limit. It keeps the text, with the time of the reset. `workerVerdict` gives such a worker the outcome `failed`, so `worker.finished` does not change, and the receipt gets the cause `limit`. `contributionOf` then records `attempt.failed@7` with the fault `environment` and the reason, and it keeps the edits of a failed fixer as today. `attempt.failed@7` is version 6 with the `environment` fault permitted in each phase, and with the third fault `cut` of R4.
+The Claude adapter returns a new kind of decoded result, `limit`, for a result with `is_error` true. That result has text that names a usage limit or a session limit. It keeps the text, with the time of the reset. `workerVerdict` gives such a worker the outcome `failed`, so `worker.finished` does not change, and the receipt gets the cause `limit`. `contributionOf` then records `attempt.failed@7` with the fault `limit` and the reason, and it keeps the edits of a failed fixer as today.
 
-The planner blocks the phase at the first such failure, after the workers in flight end. The blocker is `worker-failed`, its detail names the limit and the reset, and its action is the action of today. The next start of the phase gives fresh attempts (R5 and the rule after a block). The words that the adapter knows are in one list beside the adapter, and a test pins them with the text of run `e21b026d`.
+`attempt.failed@7` is version 6 with two more faults: `cut` (R4) and `limit` (R14). The fault `environment` stays as it is, in its phase: an attempt of the fixes whose claims directory was removed.
+
+The planner blocks the phase at the first failure with the fault `limit`, after the workers in flight end. This rule comes before the rule for a unit out of attempts. The blocker is `worker-failed`, and `workerFailedBlocker` gets its own words for `limit` and for `cut`: the detail names the limit and the reset, or the kill mark. Its action is the action of today. The next start of the phase gives fresh attempts (R5 and the rule after a block). The words that the adapter knows are in one list beside the adapter, and a test pins them with the text of run `e21b026d`.
 
 ### The record of a stop (R15)
 

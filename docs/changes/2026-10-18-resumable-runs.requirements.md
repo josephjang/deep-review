@@ -158,7 +158,7 @@ An answer pass can apply the answer of a person to a finding after the budget st
 
 ### R14: A usage limit of the provider blocks the run, and the same command resumes it
 
-A worker can fail because the provider says that a usage limit or a session limit is reached. The engine then records the failure as a fault of the environment. The phase blocks at once with `worker-failed`. The detail names the limit, and the time of its reset when the provider gives one.
+A worker can fail because the provider says that a usage limit or a session limit is reached. The engine then records the failure as a usage limit, not as a fault of the unit. The phase blocks at once with `worker-failed`. The detail names the limit, and the time of its reset when the provider gives one.
 
 No unit degrades because of the limit, and each unit keeps its attempts. The same command, run after the reset, resumes the run. This applies to the words that Claude Code uses for its limits.
 
