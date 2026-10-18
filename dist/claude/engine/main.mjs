@@ -21265,7 +21265,8 @@ var blockerActions = {
   "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
   budget: "run the command again with --budget-usd above the spend, or abandon the run",
   drift: "restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one",
-  "check-unavailable": "install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs",
+  // The survey blocks before any other worker, so a new run costs one survey; a resume would not read the clone's file (R8, PD7 of the skill surface corrections).
+  "check-unavailable": "install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs, or set checks.<kind> in the clone's file, which deep-review config init --clone writes, then abandon this run and start a new one, which needs the flag on no resume; this run keeps the settings it recorded",
   "claims-lost": "run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts, or abandon the run",
   "lock-held": "wait for that engine to finish; the lock clears itself when its process ends",
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
@@ -21533,6 +21534,11 @@ function passLeftEdits(review2, id) {
 function clusterOfBatch(fix, key) {
   const batch = batchOf(fix, key);
   return batch === null ? null : clusterOf(fix, batch.cluster);
+}
+function batchPosition(fix, key) {
+  const batches = planOfRound(fix, roundOf(fix, key))?.batches ?? [];
+  const index2 = batches.findIndex((batch) => batch.key === key);
+  return index2 < 0 ? null : { index: index2 + 1, count: batches.length };
 }
 function earlierBatches(fix, key) {
   const batch = batchOf(fix, key);
@@ -28598,6 +28604,18 @@ function budgetSpendOf(state, adapter) {
   }
   return { usd: cents(usd4), charged, lost: settled2.length - finished.length };
 }
+function spendWords(spentUsd, budgetUsd) {
+  if (spentUsd === null) return "no cost reported";
+  return budgetUsd === null ? `spent ${spentUsd.toFixed(2)} USD, no run budget` : `spent ${spentUsd.toFixed(2)} USD of the ${budgetUsd.toFixed(2)} USD run budget`;
+}
+function minutesAndSeconds(ms) {
+  const total = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1e3)) : 0;
+  return `${String(Math.floor(total / 60))} min ${String(total % 60)} s`;
+}
+function progressWords(state, adapter, now) {
+  const elapsed = minutesAndSeconds(now - Date.parse(state.createdAt));
+  return `${elapsed} since the run started; ${spendWords(budgetSpendOf(state, adapter).usd, state.review?.limits.runBudgetUsd ?? null)}`;
+}
 var counted = (count2, one, many) => `${String(count2)} ${count2 === 1 ? one : many}`;
 function budgetSpendNote({ charged, lost }) {
   const parts = [
@@ -29668,6 +29686,14 @@ import { join as join25 } from "node:path";
 // src/review/markdown.ts
 var tableCell = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 var inlineText = (text2) => text2.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
+function codeSpan(text2) {
+  const inline = inlineText(text2);
+  if (inline === "") return "` `";
+  const longest = Math.max(0, ...(inline.match(/`+/g) ?? []).map((run2) => run2.length));
+  const fence = "`".repeat(longest + 1);
+  const pad = inline.startsWith("`") || inline.endsWith("`") ? " " : "";
+  return `${fence}${pad}${inline}${pad}${fence}`;
+}
 function paragraphText(text2) {
   const line = inlineText(text2).trimStart();
   if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
@@ -29823,7 +29849,7 @@ function surveyTask(input2) {
     ...checks
   ].join("\n");
 }
-function codeSpan(text2) {
+function codeSpan2(text2) {
   let longest = 0;
   for (const run2 of text2.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
   const delimiter3 = "`".repeat(longest + 1);
@@ -29835,8 +29861,8 @@ function fixChecks(input2) {
   const { shell, lookup } = shellOf(input2.platform, input2.elevatedSandbox);
   const byFlags = input2.settled.every((entry) => entry.layer === "flag");
   const settledLine = (entry) => {
-    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
-    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
+    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan2(entry.command)} (--check)`;
+    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan2(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
   };
   const settled2 = input2.settled.length === 0 ? [] : [
     byFlags ? "Settled by the operator's flags, which you leave out of `checks`:" : "Settled by the operator's flags and the configuration, which you leave out of `checks`:",
@@ -29844,7 +29870,7 @@ function fixChecks(input2) {
     ""
   ];
   if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled2, "Every kind is settled, so return `checks` empty."];
-  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
+  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan2(hint.command)} (${hint.reading})`);
   return [
     kindsToChooseLine(input2),
     "",
@@ -30649,6 +30675,7 @@ function appliedWords(review2, answer2, held) {
 }
 var answerCommand = (id, options2) => `deep-review answer --finding ${id} --option <${options2 === 1 ? "1" : `1..${String(options2)}`}>`;
 var reviewCommand = (id) => `deep-review answer --finding ${id} --accept`;
+var answerAtTerminal = (engineEntry) => `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node "${engineEntry}" answer --finding <id> --option <n>`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 function decisionLine(decision) {
   const grounds = inlineText(decision.grounds);
   switch (decision.decision) {
@@ -30660,7 +30687,7 @@ function decisionLine(decision) {
       return `Decision: fix${decision.departure === null ? "" : ", departing from a rule"}: ${grounds}`;
   }
 }
-function decisionsSection(review2) {
+function decisionsSection(review2, engineEntry) {
   if (review2.phases.decision.status === "skipped") return null;
   const findings = rankedFindings(review2);
   if (findings.length === 0) return null;
@@ -30700,7 +30727,7 @@ function decisionsSection(review2) {
   const left = numbered.flatMap(({ number: number5, decision }) => decision.decision === "leave" ? [`- ${label({ number: number5, decision })}, ${leftAs(decision.leave)}: ${inlineText(decision.grounds)}`] : []);
   const count2 = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
   const defaults = review2.fix === null ? "This run does not fix: no fixer ran, and the tree is unchanged." : "A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing.";
-  const answering = questions.length === 0 && departures === 0 ? [] : ["", `An answer given with \`deep-review answer\` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits \`deep-review commit\` commits, on top of any commits it already made for the run; on a run that only reviewed, by \`review --fix\`, which continues it. Nothing yet carries an answer to the next review, which may ask the same question again.`];
+  const answering = questions.length === 0 && departures === 0 ? [] : ["", `An answer given with \`deep-review answer\` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits \`deep-review commit\` commits, on top of any commits it already made for the run; on a run that only reviewed, by \`review --fix\`, which continues it. Nothing yet carries an answer to the next review, which may ask the same question again. ${answerAtTerminal(engineEntry)}`];
   return [
     "## Decisions",
     "",
@@ -31272,7 +31299,7 @@ function renderReport(state, input2) {
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
     ...[fixHeaderLine(review2)].filter((line) => line !== null)
   ];
-  const decisions = decisionsSection(review2);
+  const decisions = decisionsSection(review2, input2.engineEntry);
   const decidedFor2 = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const anglesSection = ["## Angles", "", "| Angle | Ran | Lead from SCAN |", "|---|---|---|", ...angles.map((angle) => angleRow(review2, angle))];
   const conventions = conventionsReportSection(review2);
@@ -31335,6 +31362,11 @@ function once2(read) {
   let memo2 = null;
   return () => (memo2 ??= { value: read() }).value;
 }
+function batchWords(state, unit) {
+  const fix = state.review?.fix ?? null;
+  const position = unit.phase === "fixes" && fix !== null ? batchPosition(fix, unit.key) : null;
+  return position === null ? "" : `; batch ${String(position.index)} of ${String(position.count)}`;
+}
 var fileCount = (count2) => `${String(count2)} file${count2 === 1 ? "" : "s"}`;
 function claimLines(event) {
   if (event.kind === "files.claimed") {
@@ -31356,10 +31388,6 @@ var revisionSummary = (revision) => {
   const files = fileCount(revision.files.length);
   return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(", ")}`;
 };
-function spendWords(spentUsd, budgetUsd) {
-  if (spentUsd === null) return "no cost reported";
-  return budgetUsd === null ? `spent ${spentUsd.toFixed(2)} USD, no run budget` : `spent ${spentUsd.toFixed(2)} USD of the ${budgetUsd.toFixed(2)} USD run budget`;
-}
 var checkLine = (check2) => {
   const origin = check2.origin === "survey" ? `survey, ${check2.source.basis} in ${check2.source.path}` : check2.origin === "setting" ? check2.layer === "flag" ? "flag" : checkSettingWords(check2.kind, check2.layer, false) : check2.origin;
   return check2.command === null ? `not available (${origin}: ${check2.reason})` : `${check2.command} (${origin})`;
@@ -31500,7 +31528,7 @@ async function runReview(options2) {
     if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options2.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, { worktree: options2.worktree, match: content.match, claims }, log);
-    state = reenterPhase(checkpoint, state, log);
+    state = reenterPhase(checkpoint, state, adapter, log);
     const scope = state.scope;
     const blocks = {};
     const scopeBlockFor = (phase) => {
@@ -31553,7 +31581,7 @@ async function runReview(options2) {
         case "complete":
           return { kind: "report", runId, reportPath: checkpoint.evidence.pathOf(review2.report.report) };
         case "start-phase":
-          log(`phase ${step.phase}: started (attempt ${String(step.attempt)})`);
+          log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
           state = append(checkpoint, state, [{ kind: "phase.started", version: 5, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case "check-worktree": {
@@ -31625,7 +31653,7 @@ async function runReview(options2) {
             if (unit.phase === "fixes" && !directories.prepare(unit.key)) break;
             const invocation = invocationFor(unit, context);
             if (invocation.scratch !== void 0) prepareSnapshots(join26(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
-            log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
+            log(`worker ${unit.role} ${unit.phase}:${unit.key}: started${batchWords(state, unit)}`);
             const startedAt = Date.now();
             const promise2 = runWorker(checkpoint, runId, invocation, {
               runtimes: options2.runtimes,
@@ -31655,7 +31683,7 @@ async function runReview(options2) {
           const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const fix = state.review.fix === null ? {} : { fix: { evidencePath: (reference) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
-          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
+          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, ...fix }));
           state = append(checkpoint, state, [
             { kind: "report.written", version: 5, payload: { report, statistics, patches } },
             { kind: "phase.finished", version: 6, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
@@ -32007,12 +32035,12 @@ function recordLostWorkers(checkpoint, state, context, log) {
   }
   return state;
 }
-function reenterPhase(checkpoint, state, log) {
+function reenterPhase(checkpoint, state, adapter, log) {
   const review2 = state.review;
   const phase = currentPhase(review2);
   if (phase === null) return state;
   const attempt = review2.phases[phase].attempt + 1;
-  log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}`);
+  log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
   return append(checkpoint, state, [{ kind: "phase.started", version: 5, payload: { phase, attempt } }]);
 }
 
@@ -32771,7 +32799,7 @@ async function answer(values, io, root, worktree) {
         io.stdout("the run only reviewed; run review --fix to apply the answer with the fixes\n");
         return 0;
       case "record-only":
-        io.stdout("recorded only; the next deep-review answer on this run without --record-only applies it\n");
+        io.stdout("recorded only; the next deep-review answer on this run without --record-only applies it, with every other recorded answer that owes an edit\n");
         return 0;
       case "nothing-owed":
         io.stdout("the tree already holds this answer; nothing to apply\n");

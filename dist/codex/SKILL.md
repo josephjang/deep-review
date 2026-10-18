@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Deep review of a change by the deep-review engine, a Node program installed with this skill. It runs the SCAN triage, nine more finder angles, deduplication, verification, a gap sweep, a merge-and-rank pass and a decision pass, and writes a Markdown report; when the user asks, its own workers also apply the fixes and it runs the project's checks, committing nothing. Use only when the user asks for $deep-review by name.
+description: Deep review of one change by the deep-review engine, a Node program installed with this skill. It writes a Markdown report with the evidence for each finding and the engine's own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project's checks, committing nothing. Use only when the user asks for $deep-review by name.
 ---
 
 The deep-review engine reviews the change; you run one command, wait for
@@ -38,9 +38,23 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    build and test commands, or `--codex-windows-sandbox elevated`, which
    needs Codex's elevated setup; pass that flag only when the user names
    it.
-3. Run this from the repository, with the longest timeout you can, and
-   wait for it to exit. `engine/main.mjs` is in this skill's directory,
-   the one that holds this SKILL.md:
+3. First show the user what the run will review. Run this from the
+   repository, with the flags the review below takes, and wait for it to
+   exit. `engine/main.mjs` is in this skill's directory, the one that
+   holds this SKILL.md:
+
+   node "<this skill's directory>/engine/main.mjs" config show --runtime codex <scope flags> [--fix]
+
+   Show the user its `Scope:` line and the `budget.usd` line under its
+   `Settings:` as it prints them, and say whether the run fixes. Then
+   start the review at once: do not ask the user to confirm, and do not
+   wait for an answer. A user who sees a wrong scope stops the review
+   before it has spent much; until its fixes phase the run has edited
+   nothing, and `abandon` closes it. When `config show` exits with code 2,
+   show stderr verbatim and stop, as step 7 says for a refusal.
+
+   Run the review from the repository, with the longest timeout you can,
+   and wait for it to exit:
 
    node "<this skill's directory>/engine/main.mjs" review --runtime codex <scope flags> [--fix]
 
@@ -83,7 +97,7 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    that owes an edit, and the last line of stdout is the new report's
    path: show it as in step 4 and offer to commit the new edits as in
    step 5. On a run that only reviewed, it says that `review --fix`
-   applies the answer: offer to run the step 3 command with `--fix`.
+   applies the answer: offer to run step 3 again with `--fix`.
    When it says the tree already holds the answer, tell the user nothing
    was applied. Exit code 2: show stderr verbatim and stop; when it says
    the answer is recorded, the same command applies it once the cause
@@ -94,14 +108,27 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    tool this machine lacks; when the user answers it, run the same
    command again, adding `--no-check <kind>` if they choose to go
    without that check or `--check <kind>=<command>` if they name one
-   that runs, and nothing if they installed the tool.
+   that runs, and nothing if they installed the tool. When they choose to
+   settle it in the clone's file instead, write that file with
+   `config init --clone` when it does not exist, as the configuration
+   paragraph below says, set its `checks.<kind>` line as they ask, then
+   close the blocked run with `abandon --reason <text>` and run the same
+   command again, which starts a new run: the blocked run keeps the
+   settings it recorded.
 8. Any other exit code: show stderr verbatim and stop.
 
 When the user asks how deep-review is configured, or why a run reviewed
-what it did, run the step 3 command with `config show` in place of
-`review`, with the same scope flags and no `--fix`, and show what it
-prints. When the user asks to change a preference, name the file that
-`config show` lists for it. Write the repository's
+what it did, run the `config show` command of step 3 with the same
+scope flags and no `--fix`, and show all that it prints. When the user
+asks to change a preference, name the file that
+`config show` lists for it. When the user asks for a configuration file
+that does not exist yet, run the `main.mjs` of step 3 with only
+`config init --repository`, `config init --operator` or
+`config init --clone`, for the repository's file, the operator's or
+this clone's. It writes a new file with each setting as a comment at
+its default and a sentence that says what the setting does, prints the
+file's path, and refuses to write over a file that exists; then edit
+that file as the user asks. Write the repository's
 `.deep-review/config.toml` only as a change the user asks for, as any
 other edit, never as a step of a review.
 
