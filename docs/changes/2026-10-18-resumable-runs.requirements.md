@@ -100,7 +100,7 @@ When the engine starts a checks phase again after a stop, it runs again each kin
 
 ### R4: A child that something outside ended is cut, not failed
 
-The engine records a check or a worker as cut when its process ended with a kill mark. A kill mark is a signal, or one of the exit codes 129, 130, 131, 137 and 143, or the exit code 3221225786. A shell gives a process that a signal ended the code 128 plus the number of the signal. Windows gives the last code to a process that Ctrl-C ended. Any other exit code that is not 0 is a failure, as today. A timeout that the engine enforced stays a timeout.
+The engine records a check or a worker as cut when its process ended with a kill mark. A kill mark is a signal, or one of the exit codes 129, 130, 131, 137 and 143, or the exit code 3221225786. A shell gives a process that a signal ended the code 128 plus the number of the signal. Windows gives the last code to a process that Ctrl-C ended. Any other exit code that is not 0 is a failure, and a timeout that the engine enforced is a timeout, as today. A child whose end has no record, while the engine lives, is cut too (R8).
 
 A cut check has no result, so its phase does not finish while it is cut. A cut run records no revision, because its writes are not the work of a complete check. Before the check runs again, the engine writes back each file that the run expects and that differs (R7). The engine runs the check again at once, or the next command runs it (R3). The second cut of a kind in one attempt is a failure, and its error names both marks.
 
@@ -123,6 +123,8 @@ Before the next step after such a check, at once or at the next command, the eng
 ### R8: No child of an ended engine continues
 
 When the engine ends in any way, each of its workers and checks ends too, with each process that the child started.
+
+The engine reads the end of each child from a record that the means of R8 writes when the child ends. When a child ended with no such record, something killed the means first, and the engine counts the child as cut (R4).
 
 ### R9: A `commit` that a stop cut short completes at the next command
 
@@ -236,7 +238,7 @@ A test on Windows on 2026-10-18 started a check as `runCheck` does and ended it 
 | The `kill` of Git Bash on its process | 143 | none |
 | The `kill` of Git Bash on its shell | 143 | none |
 
-The 143 of run `8dbe23ad` is the mark of the `kill` of Git Bash: 128 plus 15, the number of SIGTERM. A kill with `taskkill` leaves no mark, because its code is the code of a real failure. Thus the list of R4 does not hold 1, and that gap is an accepted risk.
+The 143 of run `8dbe23ad` is the mark of the `kill` of Git Bash: 128 plus 15, the number of SIGTERM. A kill with `taskkill` leaves no mark, because its code is the code of a real failure. Thus the list of R4 does not hold 1, and that gap is an accepted risk. The means of R8 makes the gap smaller: a kill of that means leaves no record of the end of the child, and that is a mark too.
 
 The rule costs nothing for an ordinary failure. On run `f57bcc23`, the last kind, test, failed before the fixes, after the fixes and after the repair, each time with exit code 1. A rule that runs each last failure again before its phase ends costs 11.6 minutes there, or 17.7 minutes with the check after the repair. A wait of 10 seconds costs 30 seconds. This rule costs nothing, because 1 is not a mark.
 
@@ -340,7 +342,7 @@ A check or a unit that fails for a real reason runs again after each stop of its
 
 ### A kill with no mark
 
-A stop that ends a child with an ordinary exit code, before it ends the engine, leaves a failure, as today. `taskkill` gives such a code (PD5). The proposal accepts this, because no run showed it. A tree kill with `taskkill` from outside ended the engine first in each try, so the engine recorded nothing (Context of the design). R3 still runs such a failure again while its phase is open.
+A stop that ends the process of a check alone with an ordinary exit code, before it ends the engine, leaves a failure, as today. `taskkill` gives such a code (PD5). A kill of the means of R8 leaves a mark, because no record of the end of the child follows. The proposal accepts the rest, because no run showed it. A tree kill with `taskkill` from outside ended the engine first in each try, so the engine recorded nothing (Context of the design). R3 still runs such a failure again while its phase is open.
 
 ### A check that hangs runs to its timeout twice
 

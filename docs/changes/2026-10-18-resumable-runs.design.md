@@ -174,7 +174,7 @@ A stop between the append and the writes is safe, because the next start finds t
 
 ### The outcome `cut` (R4)
 
-`endedByKill` in `src/runtime/process.ts` holds the one list of kill marks: a signal, or the exit code 129, 130, 131, 137, 143 or 3221225786. `checkOutcomeOf` gives `cut` for a check that exited with a mark, and `check.ran@3` permits that outcome. A check that the engine killed at its timeout stays `timeout`, because its process result is `killed`, not `exited`.
+`endedByKill` in `src/runtime/process.ts` holds the one list of kill marks: a signal, or the exit code 129, 130, 131, 137, 143 or 3221225786. `checkOutcomeOf` gives `cut` for a check that exited with a mark, and `check.ran@3` permits that outcome. A check that the engine killed at its timeout stays `timeout`, because its process result is `killed`, not `exited`. Under the guard of R8, the exit code and the signal come from the result file of the guard. A guard with no result file is a mark too.
 
 `dueCheck` treats a cut run as no run. Thus the kind is due again, and a phase does not finish while a kind is cut. `runDueCheck` records the second cut of a kind in one attempt as `failed`, with an error that names both marks. It records no revision for a run that ended cut or timed out, because `checkRevision` runs only for the other outcomes. The write back of R7 then comes before the next step.
 
@@ -196,7 +196,9 @@ The launcher no longer appends `worker.finished`. It returns the payload of the 
 
 `runProcess` starts each worker and each check through a guard: `node <engine entry> guard`, with the command, its directory, its environment and its files in a file that the engine writes. On Windows, the guard is detached, so it leaves the job object of libuv. On POSIX, it leads the process group of the child, as the child does today.
 
-The guard starts the child and waits for it. It holds a pipe from the engine on its standard input. When the pipe closes before the child ends, the engine ended, so the guard kills the child's tree: `taskkill /T /F` on Windows, a SIGKILL of the group on POSIX. Then it exits. When the child ends, the guard exits with the child's exit code, and it writes the child's signal to a file in its directory. The engine still owns the timeout: it kills the tree of the guard, which holds the tree of the child.
+The guard starts the child and waits for it. It holds a pipe from the engine on its standard input. When the pipe closes before the child ends, the engine ended, so the guard kills the child's tree: `taskkill /T /F` on Windows, a SIGKILL of the group on POSIX. Then it exits.
+
+When the child ends, the guard writes the child's exit code and signal to a result file in its directory. Then it exits with the child's exit code. The engine reads the end of the child from that file, not from the exit of the guard. A guard that ends with no result file, when the engine did not kill it at the timeout, was killed from outside. The engine then records the run as cut (R4), whatever code the guard left. The engine still owns the timeout: it kills the tree of the guard, which holds the tree of the child.
 
 The guard is the same file as the engine, so the build ships nothing more. A stop that kills the whole tree also kills the guard, and that case needs no guard. A stop that kills the engine alone leaves the guard, which ends the child at once.
 
@@ -417,7 +419,7 @@ A fake check writes a file of the run and then runs past its timeout. Its run re
 
 ### R8: Each child ends with the engine
 
-In `test/runtime/process.test.ts`, an engine starts a worker with a grandchild through the guard. A hard kill of the engine alone then ends both, on each system. The cases of today stay: a timeout, a crash, an exit and the signals.
+In `test/runtime/process.test.ts`, an engine starts a worker with a grandchild through the guard. A hard kill of the engine alone then ends both, on each system. The cases of today stay: a timeout, a crash, an exit and the signals. A kill of the guard alone, while its check runs, leaves no result file, and the engine records the check as cut.
 
 ### R9: `commit`
 
