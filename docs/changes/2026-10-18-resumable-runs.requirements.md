@@ -84,7 +84,7 @@ Some requirements are for ways that no run showed: R4 for units, R5, R6, the wri
 
 After a stop at any point of the work of the engine, the same command does five things. It needs no other action of a person, except a higher budget after the run budget stopped the work. It does again only the work that the stop cut short. It pays for no worker that settled before the stop. It leaves no false statement on the ledger or in the report. And it reaches a report, as the same run with no stop does.
 
-With the fake runtimes and the fake checks of the test suite, it reaches the same report as the run with no stop. Only the lines that say what the stop did are different. A point of the work is a point between two appends to the ledger, or a point while a worker or a check runs.
+With the fake runtimes and the fake checks of the test suite, it reaches the report of the run with no stop. The findings, the decisions, the fixes, the results of the checks, the changed files and the patches are the same. Only what a resume changes by its nature differs: the lines that say what the stop did, the statistics and the spend. A point of the work is a point between two appends to the ledger, or a point while a worker or a check runs. The point after the record of the report is not one, because the run is complete there.
 
 ### R2: A test checks the contract at each point
 
@@ -339,6 +339,10 @@ A point can pass on the fakes and fail with Claude Code or Codex, for example in
 ### A real failure runs again after a stop
 
 A check or a unit that fails for a real reason runs again after each stop of its phase. The proposal accepts this, because a stop is rare and the cost is the time of a check or one attempt (PD3, PD6).
+
+### A stop after the report is written
+
+The run is complete when the engine stops after the record of its report. The same command then starts a new run, which reviews the change again and pays again. On 2026-10-19, the author accepted this, because that stop cuts no work: the report is written, and `status` names it. The contract test leaves this point out.
 
 ### A kill with no mark
 

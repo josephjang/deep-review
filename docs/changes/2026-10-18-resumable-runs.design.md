@@ -131,11 +131,11 @@ First, the second command exits as the run with no stop exits, with no added fla
 
 Third, nothing is false. Each current run of a check has the outcome of the run with no stop. A failure of a worker that the stop killed costs its unit nothing: the unit does not degrade, and it gets its two attempts again at the next command. No revision holds a file that its unit did not touch.
 
-Fourth, the report equals the report of the run with no stop after a normalization. The normalization removes times, durations, paths of the evidence, run ids, and the lines of R15.
+Fourth, the report holds the same findings, decisions, fixes, check results, changed files and patches as the report of the run with no stop. The comparison leaves out what a resume changes by its nature: times, durations, paths of the evidence, run ids and the lines of R15. It also leaves out the Statistics table, the spend, the workers with no reported cost and the count of the checks of the tree.
 
 Fifth, no process that the stopped engine started is alive a short time after the stop (R8). The helper reads the pids from the start markers before it writes the release file, and then it ends each process that is still alive.
 
-The suite runs a fixed set of points. They are the first and the last append of each phase, and the launch and the end of a worker and of a check. They are also the record of a revision, the write of the report, and `commit` before and after it moves the branch. A script, `npm run resume-test`, runs each append of the run in the first three ways. It runs each child of the run in each of the four ways.
+The suite runs a fixed set of points. They are the first and the last append of each phase, and the launch and the end of a worker and of a check. They are also the record of a revision, the write of the report before its record, and `commit` before and after it moves the branch. The point after the record of the report is not in the set, because the run is complete there (Risks of the product part). A script, `npm run resume-test`, runs each append of the run in the first three ways. It runs each child of the run in each of the four ways.
 
 CI runs the suite on three systems, and the gate runs the script. The marks of the known failures are kept for each system, because some ways show on one system only: W2 on POSIX, and W3 on Windows.
 
