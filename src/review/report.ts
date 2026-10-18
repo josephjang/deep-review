@@ -36,6 +36,8 @@ const codexSandboxWords: Readonly<Record<PinnedWindowsSandbox, string>> = {
 export interface ReportInput {
   /** The identity of the engine writing the report. */
   readonly engine: string;
+  /** The absolute path of the engine's own entry, its `main.mjs` or `src/cli.ts`, which a person at a terminal runs `answer` with (R9 of the skill surface corrections). */
+  readonly engineEntry: string;
   /** One row per phase the run did not skip, and the total. */
   readonly statistics: { readonly phases: readonly (Spend & { readonly phase: Phase })[]; readonly total: Spend; readonly budgetApplied: boolean };
   /** For a fix run: where a frozen blob is, for the checks' output, and the patch series' paths in ledger order. */
@@ -249,7 +251,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...[fixHeaderLine(review)].filter((line) => line !== null),
   ];
   // A run with the decision step says what it decided right after the header; one configured before the step has no such section.
-  const decisions = decisionsSection(review);
+  const decisions = decisionsSection(review, input.engineEntry);
   const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const anglesSection = ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has no such section.

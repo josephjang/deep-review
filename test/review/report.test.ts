@@ -5,20 +5,20 @@ import { describe, it } from 'node:test';
 import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { renderReport } from '../../src/review/report.ts';
-import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker, engineEntry } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
 
 describe('renderReport', () => {
   it('renders the synthetic run exactly as the committed snapshot, which a person read once in review', () => {
-    const rendered = renderReport(reported().fold(), { engine: '0.0.0+dev', statistics });
+    const rendered = renderReport(reported().fold(), { engineEntry, engine: '0.0.0+dev', statistics });
     const snapshot = readFileSync(snapshotPath, 'utf8');
     assert.equal(rendered, snapshot, `the report changed; if on purpose, write the new text to ${snapshotPath}`);
   });
 
   it('exercises every section and mark in the snapshot', () => {
-    const report = renderReport(reported().fold(), { engine: '0.0.0+dev', statistics });
+    const report = renderReport(reported().fold(), { engineEntry, engine: '0.0.0+dev', statistics });
     for (const heading of ['# Deep review report', '## Angles', '## Findings', '## Refuted at verification', '## Statistics', '## Limitations']) assert.ok(report.includes(`${heading}\n`), heading);
     assert.match(report, /^\| FOOTGUNS \| not run \(2 attempts did not complete: .*\) \| none \|$/m);
     assert.match(report, /^\| RIPPLE \| run \| the callers of parse\(\) \|$/m);
@@ -46,15 +46,15 @@ describe('renderReport', () => {
     assert.deepEqual(Object.keys(expected).sort(), [...codexWindowsSandboxesV4].sort(), 'every value the ledger can record is rendered');
     for (const windowsSandbox of codexWindowsSandboxesV4) {
       const words = expected[windowsSandbox];
-      const report = renderReport(pinning({ windowsSandbox }), { engine: '0.0.0+dev', statistics });
+      const report = renderReport(pinning({ windowsSandbox }), { engineEntry, engine: '0.0.0+dev', statistics });
       assert.match(report, new RegExp(`^Runtime: codex [^\n]*\nCodex Windows sandbox: ${RegExp.escape(words)}\nModels: `, 'm'), windowsSandbox);
     }
-    assert.doesNotMatch(renderReport(pinning(null), { engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Codex run off Windows');
-    assert.doesNotMatch(renderReport(state, { engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Claude Code run');
+    assert.doesNotMatch(renderReport(pinning(null), { engineEntry, engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Codex run off Windows');
+    assert.doesNotMatch(renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics }), /Windows sandbox/, 'a Claude Code run');
   });
 
   it('names the unelevated sandbox for a Codex run configured before the setting existed only when its worktree is on Windows (R3, R7 of the Codex sandbox)', () => {
-    const codexAt = (worktree: string): string => renderReport(new History().add('run.created', { worktree }).add('scope.captured', scope).add('review.configured', { ...configurationV3, runtime: 'codex', runBudgetUsd: null }, 3).fold(), { engine: '0.0.0+dev', statistics });
+    const codexAt = (worktree: string): string => renderReport(new History().add('run.created', { worktree }).add('scope.captured', scope).add('review.configured', { ...configurationV3, runtime: 'codex', runBudgetUsd: null }, 3).fold(), { engineEntry, engine: '0.0.0+dev', statistics });
     assert.doesNotMatch(codexAt('/home/me/repo'), /Windows sandbox/, 'a run off Windows names no Windows sandbox');
     for (const worktree of ['C:\\repo', '\\\\server\\share\\repo']) assert.match(codexAt(worktree), /^Runtime: codex [^\n]*\nCodex Windows sandbox: unelevated\nModels: /m, worktree);
   });
@@ -70,7 +70,7 @@ describe('renderReport', () => {
       .start('merge-rank').finish('merge-rank').start('report');
     // What statisticsOf gives through a runtime that reports no cost in USD: no cost, and no unreported count.
     const noCost = { phases: statistics.phases.map((row) => ({ ...row, costUsd: null, costUnreported: null })), total: { ...statistics.total, costUsd: null, costUnreported: null }, budgetApplied: false };
-    const report = renderReport(history.fold(), { engine: '0.0.1+abc', statistics: noCost });
+    const report = renderReport(history.fold(), { engineEntry, engine: '0.0.1+abc', statistics: noCost });
     assert.match(report, /^Engine: 0\.0\.1\+abc \(run created by 0\.0\.0\)$/m);
     assert.match(report, /## Findings\n\nNo finding survived verification\.\n/);
     assert.match(report, /## Refuted at verification\n\n- SCAN-1 \(SCAN\)  src\/a\.ts:3  SCAN-1 summary\n  Evidence: line 3 is a comment\n/);
@@ -83,7 +83,7 @@ describe('renderReport', () => {
   it('names the run budget in force at the end, not the one the run was configured with', () => {
     const raised = ranked().add('limits.changed', { concurrency: 4, runBudgetUsd: 75.5 }).fold();
     assert.equal(raised.review!.configuration.runBudgetUsd, 30);
-    const report = renderReport(raised, { engine: '0.0.0', statistics });
+    const report = renderReport(raised, { engineEntry, engine: '0.0.0', statistics });
     assert.match(report, /^- Run budget: 75\.50 USD, checked before every launch; spent 4\.50 USD\.$/m);
     assert.doesNotMatch(report, /30\.00 USD/);
   });
@@ -91,11 +91,11 @@ describe('renderReport', () => {
   it('says a runtime that reports cost ran without a run budget, rather than that it reports no cost', () => {
     const state = ranked().fold();
     const unbudgeted = { ...state, review: { ...state.review!, limits: { ...state.review!.limits, runBudgetUsd: null } } };
-    const report = renderReport(unbudgeted, { engine: '0.0.0', statistics: { ...statistics, total: { ...statistics.total, costUnreported: 0 }, budgetApplied: false } });
+    const report = renderReport(unbudgeted, { engineEntry, engine: '0.0.0', statistics: { ...statistics, total: { ...statistics.total, costUnreported: 0 }, budgetApplied: false } });
     assert.match(report, /^- No run budget was set, so only the per-worker budgets and timeouts bounded this run; spent 4\.50 USD\.$/m);
     assert.doesNotMatch(report, /reports no cost in USD/);
     assert.doesNotMatch(report, /no reported cost/, 'no line for zero unreported workers');
-    const withUnreported = renderReport(unbudgeted, { engine: '0.0.0', statistics: { ...statistics, budgetApplied: false } });
+    const withUnreported = renderReport(unbudgeted, { engineEntry, engine: '0.0.0', statistics: { ...statistics, budgetApplied: false } });
     assert.match(withUnreported, /^- Workers with no reported cost: 1\. .* so the run cost more than the totals show\.$/m, 'no budget check ran, so the line says nothing of one');
   });
 
@@ -107,7 +107,7 @@ describe('renderReport', () => {
       review: { ...state.review!, checks: [...state.review!.checks, { phase: 'report' as const, attempt: 1, moment: 'start' as const, drifted: true, head: null, files: [{ path: 'src/a.ts', outcome: 'modified' as const }], strays: [] }] },
       scope: { ...state.scope!, files: [...state.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] },
     };
-    const report = renderReport(drifted, { engine: '0.0.0', statistics });
+    const report = renderReport(drifted, { engineEntry, engine: '0.0.0', statistics });
     assert.match(report, /- Worktree checks: 10, 1 found a difference in report \(attempt 1: src\/a\.ts modified\); each blocked the run/);
     assert.match(report, /- Files too large to freeze, which no worker could be given a frozen state of: big\.bin\./);
   });
@@ -129,7 +129,7 @@ describe('renderReport', () => {
         unverifiedGroups: { ...review.unverifiedGroups, 'sweep-verification': { g1: 'failed\n# Group heading' } },
       },
     };
-    const report = renderReport(hostile, { engine: '0.0.0+dev', statistics });
+    const report = renderReport(hostile, { engineEntry, engine: '0.0.0+dev', statistics });
     const headings = report.split('\n').filter((line) => line.startsWith('#'));
     assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# Deep review report', '## Angles', '## Findings', '## Refuted at verification', '## Statistics', '## Limitations']);
     assert.equal(headings.filter((line) => line.startsWith('### ')).length, 2, 'one heading per finding, and nothing else at that level');
@@ -155,7 +155,7 @@ describe('renderReport', () => {
   };
 
   it('says why each unlocated candidate is unlocated: a path the repository does not hold, a file the change deletes, or a line past the end', () => {
-    const report = renderReport(withUnlocated({ 'SWEEP-3': ['src/gone.ts', 42], 'SWEEP-4': ['src/a.ts', 999], 'SWEEP-5': ['./SRC/A.ts', 998] }), { engine: '0.0.0', statistics });
+    const report = renderReport(withUnlocated({ 'SWEEP-3': ['src/gone.ts', 42], 'SWEEP-4': ['src/a.ts', 999], 'SWEEP-5': ['./SRC/A.ts', 998] }), { engineEntry, engine: '0.0.0', statistics });
     assert.match(report, /^- Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)\.$/m);
     assert.match(report, /^- Unlocated candidates on a file the change deletes, which has no after state for a line to point into: SWEEP-3 \(src\/gone\.ts:42\)\.$/m);
     assert.match(report, /^- Unlocated candidates on a line past the end of the changed file: SWEEP-4 \(src\/a\.ts:999\), SWEEP-5 \(\.\/SRC\/A\.ts:998\)\.$/m, 'a whole path spelled with ./ or in another case names the changed file');
@@ -165,7 +165,7 @@ describe('renderReport', () => {
 
   it('never pins a candidate whose path only ends with a changed path to that changed path, since the ledger cannot tell it from an unchanged file', () => {
     // test/src/a.ts may be an unchanged file too short for line 3, rather than src/a.ts; /repo/src/gone.ts and a bare a.ts may be either.
-    const report = renderReport(withUnlocated({ 'SWEEP-3': ['test/src/a.ts', 3], 'SWEEP-4': ['/repo/src/gone.ts', 42], 'SWEEP-5': ['a.ts', 5] }), { engine: '0.0.0', statistics });
+    const report = renderReport(withUnlocated({ 'SWEEP-3': ['test/src/a.ts', 3], 'SWEEP-4': ['/repo/src/gone.ts', 42], 'SWEEP-5': ['a.ts', 5] }), { engineEntry, engine: '0.0.0', statistics });
     assert.match(
       report,
       /^- Unlocated candidates on a path that ends with a changed path, naming either that changed file or an unchanged path of the repository, neither with such a line: SWEEP-3 \(test\/src\/a\.ts:3\), SWEEP-4 \(\/repo\/src\/gone\.ts:42\), SWEEP-5 \(a\.ts:5\)\.$/m,
@@ -184,7 +184,7 @@ describe('renderReport', () => {
   };
 
   it('prints a candidate outside the change at its canonical path with a mark, and lists it apart from the unlocated ones', () => {
-    const report = renderReport(withOutside(), { engine: '0.0.0', statistics });
+    const report = renderReport(withOutside(), { engineEntry, engine: '0.0.0', statistics });
     assert.match(report, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/caller\.ts:12 \(outside the change; unverified\)$/m);
     assert.match(report, /^- Candidates on files outside the reviewed change: SWEEP-1 \(src\/caller\.ts:12\)\. Each points at an unchanged file of the repository, its line checked against the file as the worktree held it; no worktree check covers such a file\.$/m);
     assert.doesNotMatch(report, /Unlocated candidates/, 'a candidate on an unchanged file is located');
@@ -192,21 +192,21 @@ describe('renderReport', () => {
   });
 
   it('lists no candidate outside the change when none is, and leaves out a duplicate', () => {
-    assert.doesNotMatch(renderReport(reported().fold(), { engine: '0.0.0', statistics }), /outside the reviewed change|outside the change/);
+    assert.doesNotMatch(renderReport(reported().fold(), { engineEntry, engine: '0.0.0', statistics }), /outside the reviewed change|outside the change/);
     const state = withOutside();
     const review = state.review!;
     const duplicate = { ...state, review: { ...review, candidates: { ...review.candidates, 'SWEEP-1': { ...review.candidates['SWEEP-1']!, duplicateOf: 'RIPPLE-1' } } } };
-    assert.doesNotMatch(renderReport(duplicate, { engine: '0.0.0', statistics }), /Candidates on files outside the reviewed change/);
+    assert.doesNotMatch(renderReport(duplicate, { engineEntry, engine: '0.0.0', statistics }), /Candidates on files outside the reviewed change/);
   });
 
   it('refuses a run without a review', () => {
     const state = configured().fold();
-    assert.throws(() => renderReport({ ...state, review: null }, { engine: 'e', statistics }), /Run run-1 has no review to report on/);
+    assert.throws(() => renderReport({ ...state, review: null }, { engineEntry, engine: 'e', statistics }), /Run run-1 has no review to report on/);
   });
 });
 
 describe('the Decisions section (R8 of the decision step)', () => {
-  const render = (state: RunState): string => renderReport(state, { engine: '0.0.0+dev', statistics });
+  const render = (state: RunState): string => renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics });
   const departing = { ...decisions[0], departure: { rule: 'parse trusts its callers', source: 'src/a.ts:1', reason: 'the comment came with a caller that is gone' } };
 
   it('follows the header and comes before Angles, counting the decisions and the fixes that depart from a rule', () => {
@@ -223,10 +223,29 @@ describe('the Decisions section (R8 of the decision step)', () => {
   });
 
   it('says once what an answer does and that the next review may ask again, when there is a question or a departure, and never without (R10 of answers)', () => {
-    const sentence = /^An answer given with `deep-review answer` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits `deep-review commit` commits, on top of any commits it already made for the run; on a run that only reviewed, by `review --fix`, which continues it\. Nothing yet carries an answer to the next review, which may ask the same question again\.$/gm;
+    const sentence = /^An answer given with `deep-review answer` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits `deep-review commit` commits, on top of any commits it already made for the run; on a run that only reviewed, by `review --fix`, which continues it\. Nothing yet carries an answer to the next review, which may ask the same question again\. /gm;
     assert.equal(render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold()).match(sentence)?.length, 1);
     assert.equal(render(decidedOf(reported(), [departing, decisions[1]]).fold()).match(sentence)?.length, 1, 'a departure alone');
     assert.equal(render(decidedOf(reported()).fold()).match(sentence), null, 'no question and no departure');
+  });
+
+  // R9 and PD5 of the skill surface corrections: no `deep-review` executable is installed, so the report says once what a person at a terminal types, with the path of the engine that wrote it.
+  it('says once how a person at a terminal runs the answer command, with the path of the engine that wrote the report, and keeps the short name on each line', () => {
+    const terminal = 'At a terminal, type it from the repository with the engine that wrote this report in place of `deep-review`: `node "/opt/deep review/engine/main.mjs" answer --finding <id> --option <n>`, with `--accept` or `--reject` in place of `--option <n>` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.';
+    const asked = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
+    assert.equal(asked.split(terminal).length - 1, 1, 'said once, after what an answer does');
+    assert.match(asked, /which may ask the same question again\. At a terminal, type it from the repository/);
+    // Each question and departure keeps the short name a reader cites.
+    assert.match(asked, /^ {2}- Answer with: `deep-review answer --finding SWEEP-1 --option <1\.\.2>`$/m);
+    assert.match(asked, /^ {2}- Review with: `deep-review answer --finding RIPPLE-1 --accept` or `--reject`$/m);
+    assert.ok(render(decidedOf(reported(), [departing, decisions[1]]).fold()).includes(terminal), 'a departure alone');
+    assert.ok(!render(decidedOf(reported()).fold()).includes('At a terminal'), 'no question and no departure');
+    // The path is the one the report's writer was given, as a Windows install spells it too.
+    const windows = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { engineEntry: 'C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs', engine: '0.0.0+dev', statistics });
+    assert.ok(windows.includes('`node "C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs" answer --finding <id> --option <n>`'), windows);
+    // A path with a backtick cannot close the code span early.
+    const ticked = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { engineEntry: '/opt/a`b/main.mjs', engine: '0.0.0+dev', statistics });
+    assert.ok(ticked.includes('``node "/opt/a`b/main.mjs" answer --finding <id> --option <n>``'), ticked);
   });
 
   it('ends an unreviewed departure with the command that reviews it, and a reviewed one with the answer and what applied it', () => {
@@ -315,7 +334,7 @@ describe('a report after an answer pass (R10 of answers)', () => {
   const evidencePath = (reference: { sha256: string }): string => `/evidence/${reference.sha256.slice(0, 8)}`;
   /** The decided fix run, its departure rejected and SWEEP-1 answered with option 2, through a pass that applied the first and deferred the second, to its second report. */
   const passed = (): History => passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['RIPPLE-1', 'SWEEP-1'] }), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2);
-  const render = (state: RunState): string => renderReport(state, { engine: '0.0.0+dev', statistics, fix: { evidencePath, patches: ['/evidence/p1', '/evidence/p2'] } });
+  const render = (state: RunState): string => renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics, fix: { evidencePath, patches: ['/evidence/p1', '/evidence/p2'] } });
 
   it('says in the header how many answers the run holds, when the last pass ran and where the report before it is', () => {
     const history = passed();
@@ -346,7 +365,7 @@ describe('a report after an answer pass (R10 of answers)', () => {
     const report = render(passed().fold());
     assert.match(report, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \| After answers \|$/m);
     const quiet = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1);
-    const quietReport = renderReport(quiet.fold(), { engine: '0.0.0+dev', statistics, fix: { evidencePath, patches: ['/evidence/p1'] } });
+    const quietReport = renderReport(quiet.fold(), { engineEntry, engine: '0.0.0+dev', statistics, fix: { evidencePath, patches: ['/evidence/p1'] } });
     assert.match(quietReport, /^- After answers: not run, since no answer pass changed a file\.$/m);
     assert.doesNotMatch(render(decidedFixRun().fold()), /After answers/, 'a run with no pass has no such column or line');
   });
@@ -371,18 +390,18 @@ describe('the report of a run continued into the fix pass', () => {
 
   it('says in its header when the run was continued and where its read-only report is, after the roles digest', () => {
     const state = continuedToReport().fold();
-    const report = renderReport(state, { engine: '0.0.0+dev', statistics, fix });
+    const report = renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics, fix });
     const at = state.review!.continuedFrom!.at;
     assert.match(report, new RegExp(`^Roles digest: d{64}\\nContinued: into the fix pass on ${at.replaceAll('.', '\\.')}, after the read-only report at /evidence/eeeeeeee-2048\\nFindings: `, 'm'));
     assert.match(report, /^## Fixes$/m, 'a full fix run\'s report');
   });
 
   it('has no such line for a run never continued, read-only or fixing', () => {
-    assert.doesNotMatch(renderReport(readOnlyReported().fold(), { engine: '0.0.0+dev', statistics }), /^Continued:/m);
-    assert.doesNotMatch(renderReport(fixRun().fold(), { engine: '0.0.0+dev', statistics, fix }), /^Continued:/m);
+    assert.doesNotMatch(renderReport(readOnlyReported().fold(), { engineEntry, engine: '0.0.0+dev', statistics }), /^Continued:/m);
+    assert.doesNotMatch(renderReport(fixRun().fold(), { engineEntry, engine: '0.0.0+dev', statistics, fix }), /^Continued:/m);
   });
 
   it('is rendered only as a fix run\'s, which names where its evidence is', () => {
-    assert.throws(() => renderReport(continuedToReport().fold(), { engine: '0.0.0+dev', statistics }), /A continued run is a fix run/);
+    assert.throws(() => renderReport(continuedToReport().fold(), { engineEntry, engine: '0.0.0+dev', statistics }), /A continued run is a fix run/);
   });
 });

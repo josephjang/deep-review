@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { inlineText, paragraphText, tableCell } from '../../src/review/markdown.ts';
+import { codeSpan, inlineText, paragraphText, tableCell } from '../../src/review/markdown.ts';
+
+describe('codeSpan', () => {
+  it('fences text in one backtick more than its longest run, pads an edge backtick, and keeps it on one line', () => {
+    assert.equal(codeSpan('node "/a/main.mjs" answer'), '`node "/a/main.mjs" answer`');
+    assert.equal(codeSpan('a`b'), '``a`b``');
+    assert.equal(codeSpan('a``b`c'), '```a``b`c```');
+    assert.equal(codeSpan('`edge'), '`` `edge ``', 'a span cannot start with its own fence');
+    assert.equal(codeSpan('one\ntwo'), '`one two`');
+    assert.equal(codeSpan(''), '` `', 'two backticks alone open no span');
+  });
+});
 
 describe('inlineText', () => {
   it('joins every line with one space, whatever the line ending and the blanks around it', () => {

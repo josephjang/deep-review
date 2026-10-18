@@ -154,9 +154,11 @@ export interface ReviewOptions {
    */
   readonly fresh?: boolean;
   /**
-   * The script a fixer's snapshot command runs with `node`: the engine's
-   * own entry, the bundle or `src/cli.ts`. `process.argv[1]` by default,
-   * which is that entry when the engine runs as the command.
+   * The script a fixer's snapshot and claim commands run with `node`, and
+   * the report names for a person who answers at a terminal (R9 of the
+   * skill surface corrections): the engine's own entry, the bundle or
+   * `src/cli.ts`. `process.argv[1]` by default, which is that entry when
+   * the engine runs as the command.
    */
   readonly engineEntry?: string;
 }
@@ -687,7 +689,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
           const statistics = statisticsOf(state, adapter);
           const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)) } };
-          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, statistics, ...fix }));
+          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, ...fix }));
           state = append(checkpoint, state, [
             { kind: 'report.written', version: 5, payload: { report, statistics, patches } },
             { kind: 'phase.finished', version: 6, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },

@@ -16,6 +16,22 @@ export const tableCell = (text: string): string => text.replaceAll('|', '\\|').r
 export const inlineText = (text: string): string => text.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, ' ');
 
 /**
+ * Text as one inline Markdown code span: inline, as `inlineText` makes it,
+ * and fenced by one backtick more than its longest run of backticks, so
+ * no backtick inside can close the span; a space pads text that begins or
+ * ends with a backtick, which Markdown strips again. Empty text is one
+ * space, since two backticks alone open no span.
+ */
+export function codeSpan(text: string): string {
+  const inline = inlineText(text);
+  if (inline === '') return '` `';
+  const longest = Math.max(0, ...(inline.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(longest + 1);
+  const pad = inline.startsWith('`') || inline.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${inline}${pad}${fence}`;
+}
+
+/**
  * Text as a paragraph of its own: inline, without leading blanks (four of
  * them would open a code block), and with a leading character that would
  * open a block escaped: a heading, quote, list item, table row, fence or

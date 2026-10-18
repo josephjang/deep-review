@@ -12,7 +12,7 @@ import { answerWords, passOf, standingAnswer, type RecordedAnswer } from '../che
 import type { RecordedDecision } from '../checkpoint/events.ts';
 import { appliedOptionOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
-import { inlineText } from './markdown.ts';
+import { codeSpan, inlineText } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { decisionCounts, decisionCountWords, type LeaveReason } from './vocabulary.ts';
 
@@ -90,6 +90,16 @@ export const answerCommand = (id: string, options: number): string => `deep-revi
 /** The command that reviews a departure, its finding filled in, as a reader runs it. */
 export const reviewCommand = (id: string): string => `deep-review answer --finding ${id} --accept`;
 
+/**
+ * How a person runs the answer command (R9, PD5 of the skill surface
+ * corrections): at a terminal, `deep-review` is the engine this report's
+ * writer ran, named by its path, since no executable of that name is
+ * installed; through the skill, the agent runs it. Said once, so each
+ * `Answer with:` line keeps the short name a reader cites.
+ */
+export const answerAtTerminal = (engineEntry: string): string =>
+  `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node "${engineEntry}" answer --finding <id> --option <n>`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+
 /** A finding's decision as one line of its block under Findings: what was decided and on what grounds. */
 export function decisionLine(decision: RecordedDecision): string {
   const grounds = inlineText(decision.grounds);
@@ -110,8 +120,11 @@ export function decisionLine(decision: RecordedDecision): string {
  * left with their reason, each under the number and id the Findings
  * section gives it. Null for a run whose decision phase is skipped, and
  * for one that ranked no finding, which had nothing to decide.
+ * `engineEntry` is the path of the engine writing the report, which the
+ * section names once as what a person at a terminal runs (R9 of the skill
+ * surface corrections).
  */
-export function decisionsSection(review: ReviewState): string[] | null {
+export function decisionsSection(review: ReviewState, engineEntry: string): string[] | null {
   if (review.phases.decision.status === 'skipped') return null;
   const findings = rankedFindings(review);
   if (findings.length === 0) return null;
@@ -155,8 +168,8 @@ export function decisionsSection(review: ReviewState): string[] | null {
   const left = numbered.flatMap(({ number, decision }) => (decision.decision === 'leave' ? [`- ${label({ number, decision })}, ${leftAs(decision.leave)}: ${inlineText(decision.grounds)}`] : []));
   const count = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
   const defaults = review.fix === null ? 'This run does not fix: no fixer ran, and the tree is unchanged.' : 'A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing.';
-  // Said once, where the section first offers a way to answer: what an answer does, and that it is not yet carried to the next review (PD3 of answers).
-  const answering = questions.length === 0 && departures === 0 ? [] : ['', `An answer given with \`deep-review answer\` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits \`deep-review commit\` commits, on top of any commits it already made for the run; on a run that only reviewed, by \`review --fix\`, which continues it. Nothing yet carries an answer to the next review, which may ask the same question again.`];
+  // Said once, where the section first offers a way to answer: what an answer does, that it is not yet carried to the next review (PD3 of answers), and how a person types it, since no `deep-review` executable is installed (R9, PD5 of the skill surface corrections).
+  const answering = questions.length === 0 && departures === 0 ? [] : ['', `An answer given with \`deep-review answer\` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits \`deep-review commit\` commits, on top of any commits it already made for the run; on a run that only reviewed, by \`review --fix\`, which continues it. Nothing yet carries an answer to the next review, which may ask the same question again. ${answerAtTerminal(engineEntry)}`];
   return [
     '## Decisions',
     '',

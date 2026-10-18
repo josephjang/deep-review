@@ -234,6 +234,9 @@ export const ranking = [
   { id: 'RIPPLE-1', members: ['SWEEP-2'], severity: 'major', summary: 'null dereference', reason: 'same root cause at lines 4 and 7' },
   { id: 'SWEEP-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one improvement' },
 ];
+/** The engine entry a rendered report names for a person at a terminal: a path with a space, as an install can have. */
+export const engineEntry = '/opt/deep review/engine/main.mjs';
+
 export const statistics = {
   phases: reviewVocabularyV1.phases.map((phase) => ({ phase, workers: 1, seconds: 2.5, costUsd: 0.5, costUnreported: phase === 'finders' ? 1 : 0, inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 })),
   total: { workers: 9, seconds: 22.5, costUsd: 4.5, costUnreported: 1, inputTokens: 900, cachedInputTokens: 180, outputTokens: 90 },
