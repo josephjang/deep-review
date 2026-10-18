@@ -181,6 +181,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.deepEqual(Object.entries(fix.answers.fixes).map(([key, answer]) => [key, answer.findings.map((finding) => finding.status)]), [['c1-1', ['applied']], ['c1-2', ['already-applied']]]);
     assert.deepEqual(fix.revisions.filter((revision) => revision.phase === 'fixes').map((revision) => [revision.source.kind === 'fix' ? revision.source.key : null, revision.change.findings]), [['c1-1', ['SCAN-1']]]);
     assert.ok(describeRun(state, claudeAdapter, (reference) => reference.sha256).lines.includes('Fix pass: c1-1 answered, c1-2 answered; 0 no fixer sees, as decided'));
+    // Each fixer's start line says where its batch stands among the batches the plan made (R7 of the skill surface corrections).
+    assert.deepEqual(box.logs.filter((line) => line.startsWith('worker fixer ') && line.includes(': started')), ['worker fixer fixes:c1-1: started; batch 1 of 2', 'worker fixer fixes:c1-2: started; batch 2 of 2']);
   });
 
   it('stops launching fixers once the run budget is reached, reports what it did not attempt, and completes instead of blocking (R19)', async (t) => {
@@ -245,6 +247,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nCluster: c3, batch c3-1 \(src\/a\.ts, src\/b\.ts\); patch \d\nFirst blocked on: src\/b\.ts, which the second round gave it$/m);
     assert.ok(state.review!.checks.every((check) => !check.drifted));
     assert.ok(box.logs.includes('phase fixes: second round for SCAN-1, in 1 cluster and 1 batch'), box.logs.join('\n'));
+    // The second round counts its own batches from 1 again (R7 of the skill surface corrections).
+    assert.deepEqual(box.logs.filter((line) => line.startsWith('worker fixer ') && line.includes(': started')), ['worker fixer fixes:c1-1: started; batch 1 of 2', 'worker fixer fixes:c2-1: started; batch 2 of 2', 'worker fixer fixes:c3-1: started; batch 1 of 1']);
   });
 
   it('completes a batch holding a blocked finding with no edits on its first attempt, commits its applied finding under the fixer\'s message, and gives the blocked one the second round (R3, R4 of fixer edits)', async (t) => {

@@ -182,7 +182,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(sweep, /- SCAN-2 \(SCAN\) at src\/a\.ts:6: other\(\) passes null; refuted because: other\(\) is never called/);
     assert.match(box.promptOf(state, 'verifier verification:g1'), /\[0\] RIPPLE-1 \(RIPPLE\) at src\/a\.ts:2\n[\s\S]*\[1\] SCAN-2 \(SCAN\) at src\/a\.ts:6/);
     assert.match(box.promptOf(state, 'merge-rank merge-rank:merge-rank'), /3 findings, numbered \[0\] to \[2\]/);
-    assert.ok(box.logs.some((line) => /^phase triage: started \(attempt 1\)$/.test(line)));
+    assert.ok(box.logs.some((line) => /^phase triage: started \(attempt 1\); \d+ min \d+ s since the run started; spent \d+\.\d\d USD of the 60\.00 USD run budget$/.test(line)), box.logs.join('\n'));
     assert.ok(box.logs.some((line) => /^worker finder-WRAPPERS finders:WRAPPERS: attempt failed: failed: The answer does not match the output schema/.test(line)));
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released');
   });
@@ -200,6 +200,38 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(text, /No finding survived verification\./);
     assert.match(text, /- The run budget did not apply: runtime codex reports no cost in USD/);
     assert.match(text, /^\| Total \| 12 \| [0-9.]+ \| - \| \d+ \| 0 \| \d+ \|$/m);
+    // Each phase line says how long the run has been in progress, and that Codex reports no cost (R7 of the skill surface corrections).
+    const phaseLines = box.logs.filter((line) => /^phase [a-z-]+: started /.test(line));
+    assert.ok(phaseLines.length >= 5, box.logs.join('\n'));
+    for (const line of phaseLines) assert.match(line, /^phase [a-z-]+: started \(attempt 1\); \d+ min \d+ s since the run started; no cost reported$/);
+  });
+
+  // R7 of the skill surface corrections: a person who watches stderr sees on each phase line the time and the spend against the budget.
+  it('says on each phase line the time since the run started and the spend so far against the run budget', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.script({ '*': { costUsd: 0.25 } });
+    reportText(await box.review('claude'));
+    const state = box.run();
+    const phaseLine = (phase: string): string => {
+      const line = box.logs.find((candidate) => candidate.startsWith(`phase ${phase}: started (attempt 1); `));
+      assert.ok(line !== undefined, box.logs.join('\n'));
+      return line;
+    };
+    const progress = /^phase [a-z-]+: started \(attempt 1\); (\d+) min (\d+) s since the run started; spent (\d+\.\d\d) USD of the 60\.00 USD run budget$/;
+    // The first phase starts before any worker; each later one counts every worker settled before it, as the budget check does.
+    assert.match(phaseLine('survey'), /; spent 0\.00 USD of the 60\.00 USD run budget$/);
+    assert.match(phaseLine('triage'), /; spent 0\.25 USD of the 60\.00 USD run budget$/);
+    assert.match(phaseLine('finders'), /; spent 0\.50 USD of the 60\.00 USD run budget$/);
+    // The time is the engine's clock since the run was created, whole seconds under 60.
+    const elapsedMs = Date.now() - Date.parse(state.createdAt);
+    for (const line of box.logs.filter((candidate) => progress.test(candidate))) {
+      const [, minutes, secondsPart] = progress.exec(line)!;
+      assert.ok(Number(secondsPart) < 60, line);
+      assert.ok((Number(minutes) * 60 + Number(secondsPart)) * 1000 <= elapsedMs, `${line} is no later than now`);
+    }
+    // The spend never goes down from one phase line to the next.
+    const spent = box.logs.filter((line) => progress.test(line)).map((line) => Number(progress.exec(line)![3]));
+    assert.deepEqual(spent, [...spent].sort((a, b) => a - b));
   });
 
   it('degrades an angle whose finder fails twice, tells the sweep, and names it in the report', async (t) => {
@@ -255,7 +287,8 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual(state.review!.phases.triage, { status: 'completed', attempt: 2 });
     assert.equal(state.review!.blocker, null);
     assert.equal(box.checkpoint.foldRuns().length, 1, 'the same run continued');
-    assert.ok(box.logs.some((line) => /^phase triage: re-entered \(attempt 2\), clearing the worker-failed blocker$/.test(line)));
+    // A re-entered phase's line says how far the run has come, as a started one's does (R7 of the skill surface corrections): the surveyor and the two failed triage workers spent 0.001 USD each.
+    assert.ok(box.logs.some((line) => /^phase triage: re-entered \(attempt 2\), clearing the worker-failed blocker; \d+ min \d+ s since the run started; spent 0\.00 USD of the 60\.00 USD run budget$/.test(line)), box.logs.join('\n'));
   });
 
   it('blocks with worker-failed when the decider fails twice, with no degrade, and running again decides and completes (R9 of the decision step)', async (t) => {
@@ -798,7 +831,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const log = (line: string): void => {
       box.logs.push(line);
       // Another writer breaks in between the plan that starts the first phase and its append.
-      if (line === 'phase survey: started (attempt 1)') {
+      if (line.startsWith('phase survey: started (attempt 1);')) {
         const state = box.run();
         box.checkpoint.append(state.id, state.lastSequence, [{ kind: 'worker.launched', version: 1, payload: frozenLaunch(box.checkpoint, worker(90), 'another writer') }]);
         foreign += 1;

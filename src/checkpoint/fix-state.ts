@@ -403,6 +403,18 @@ export function clusterOfBatch(fix: FixState, key: string): PlannedCluster | nul
   return batch === null ? null : clusterOf(fix, batch.cluster);
 }
 
+/**
+ * Where a fixes-phase batch stands in its round, 1-based, out of the
+ * batches that round planned (R7 of the skill surface corrections), or
+ * null for a key neither round plans: the second round counts from 1
+ * again, since it is planned only when the first has settled.
+ */
+export function batchPosition(fix: FixState, key: string): { readonly index: number; readonly count: number } | null {
+  const batches = planOfRound(fix, roundOf(fix, key))?.batches ?? [];
+  const index = batches.findIndex((batch) => batch.key === key);
+  return index < 0 ? null : { index: index + 1, count: batches.length };
+}
+
 /** The batches of the same cluster planned before this one, in their order; none for a key the plan does not have. */
 export function earlierBatches(fix: FixState, key: string): PlannedBatch[] {
   const batch = batchOf(fix, key);

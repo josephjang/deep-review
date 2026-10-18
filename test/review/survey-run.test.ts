@@ -39,7 +39,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 2 });
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer ?? check.origin, check.reason]), [['build', 'flag', null], ['typecheck', 'flag', null], ['lint', 'flag', 'dropped by --no-check'], ['test', 'survey', null]]);
     assert.deepEqual(box.checkRuns(), ['build', 'typecheck', 'test'], 'the baseline ran the flagged checks and the survey\'s, and lint never');
-    assert.ok(box.logs.some((line) => /^phase survey: re-entered \(attempt 2\), clearing the check-unavailable blocker$/.test(line)), box.logs.join('\n'));
+    assert.ok(box.logs.some((line) => /^phase survey: re-entered \(attempt 2\), clearing the check-unavailable blocker; \d+ min \d+ s since the run started; /.test(line)), box.logs.join('\n'));
   });
 
   it('surveys again a survey blocked on a missing tool when no flag settles it, and goes on once the new answer finds the tool (R15)', async (t) => {

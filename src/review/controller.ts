@@ -22,7 +22,7 @@ import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../confi
 import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
-import { revisionMessageOf, routeOf } from '../checkpoint/fix-state.ts';
+import { batchPosition, revisionMessageOf, routeOf } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -59,7 +59,7 @@ import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConven
 import { renderReport } from './report.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
 import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
-import { budgetSpendOf, statisticsOf, type BudgetSpend } from './spend.ts';
+import { budgetSpendOf, progressWords, spendWords, statisticsOf, type BudgetSpend } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { checkSettingWords, resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
@@ -232,6 +232,13 @@ function once<T>(read: () => T): () => T {
   return (): T => (memo ??= { value: read() }).value;
 }
 
+/** Where a fixer's batch stands in its round, as its start line names it (R7 of the skill surface corrections); nothing for another phase's unit, an answer pass's fixer among them, whose phase is `answer`. */
+function batchWords(state: RunState, unit: Pick<Unit, 'phase' | 'key'>): string {
+  const fix = state.review?.fix ?? null;
+  const position = unit.phase === 'fixes' && fix !== null ? batchPosition(fix, unit.key) : null;
+  return position === null ? '' : `; batch ${String(position.index)} of ${String(position.count)}`;
+}
+
 /** A count of files, as the log names it. */
 const fileCount = (count: number): string => `${String(count)} file${count === 1 ? '' : 's'}`;
 
@@ -266,12 +273,6 @@ const revisionSummary = (revision: TreeRevised): string => {
   const files = fileCount(revision.files.length);
   return revision.change.findings.length === 0 ? `revised ${files} after its last snapshot` : `revised ${files} for ${revision.change.findings.join(', ')}`;
 };
-
-/** A run's spend so far against the run budget in force, as a continuation's log names it before its first launch (PD7 of fix pass continuation). */
-function spendWords(spentUsd: number | null, budgetUsd: number | null): string {
-  if (spentUsd === null) return 'no cost reported';
-  return budgetUsd === null ? `spent ${spentUsd.toFixed(2)} USD, no run budget` : `spent ${spentUsd.toFixed(2)} USD of the ${budgetUsd.toFixed(2)} USD run budget`;
-}
 
 /** One planned check as the log names it: its command and who decided it, with the survey's source or the setting's layer, as `flag` for a flag as before the settings, or why it has none. */
 const checkLine = (check: PlannedCheckV3): string => {
@@ -497,7 +498,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     if (unelevatedEditors) log(unelevatedEditorsWarning(runId));
     state = recordLimits(checkpoint, state, limitsInForce(configuration, options.flags, adapter), log);
     state = recordLostWorkers(checkpoint, state, { worktree: options.worktree, match: content.match, claims }, log);
-    state = reenterPhase(checkpoint, state, log);
+    state = reenterPhase(checkpoint, state, adapter, log);
 
     const scope = state.scope!;
     const blocks: { survey?: string; rest?: string } = {};
@@ -576,7 +577,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         case 'complete':
           return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report) };
         case 'start-phase':
-          log(`phase ${step.phase}: started (attempt ${String(step.attempt)})`);
+          log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
           state = append(checkpoint, state, [{ kind: 'phase.started', version: 5, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case 'check-worktree': {
@@ -654,7 +655,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             const invocation = invocationFor(unit, context);
             // An editing worker's snapshots compare with the tree as it is now, from a manifest taken here, outside its sandbox (R23, TD20).
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
-            log(`worker ${unit.role} ${unit.phase}:${unit.key}: started`);
+            log(`worker ${unit.role} ${unit.phase}:${unit.key}: started${batchWords(state, unit)}`);
             const startedAt = Date.now();
             const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, {
               runtimes: options.runtimes,
@@ -1349,12 +1350,12 @@ function recordLostWorkers(checkpoint: Checkpoint, state: RunState, context: Pic
   return state;
 }
 
-/** A phase left running or blocked by a previous engine is re-entered at the next attempt, which checks the worktree again and clears a blocker. */
-function reenterPhase(checkpoint: Checkpoint, state: RunState, log: (line: string) => void): RunState {
+/** A phase left running or blocked by a previous engine is re-entered at the next attempt, which checks the worktree again and clears a blocker; its line says how far the run has come, as a started phase's does. */
+function reenterPhase(checkpoint: Checkpoint, state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, log: (line: string) => void): RunState {
   const review = state.review!;
   const phase = currentPhase(review);
   if (phase === null) return state;
   const attempt = review.phases[phase].attempt + 1;
-  log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}`);
+  log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
   return append(checkpoint, state, [{ kind: 'phase.started', version: 5, payload: { phase, attempt } }]);
 }

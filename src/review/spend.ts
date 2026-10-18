@@ -143,6 +143,31 @@ export function budgetSpendOf(state: RunState, adapter: Pick<RuntimeAdapter, 'su
   return { usd: cents(usd), charged, lost: settled.length - finished.length };
 }
 
+/** A run's spend so far against the run budget in force, as the log names it: before a continuation's first launch (PD7 of fix pass continuation) and on each phase line. */
+export function spendWords(spentUsd: number | null, budgetUsd: number | null): string {
+  if (spentUsd === null) return 'no cost reported';
+  return budgetUsd === null ? `spent ${spentUsd.toFixed(2)} USD, no run budget` : `spent ${spentUsd.toFixed(2)} USD of the ${budgetUsd.toFixed(2)} USD run budget`;
+}
+
+/** A span of milliseconds in whole minutes and seconds, as `12 min 5 s`; a span that is negative or not a number, which a clock set back or an unreadable time gives, as none. */
+function minutesAndSeconds(ms: number): string {
+  const total = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
+  return `${String(Math.floor(total / 60))} min ${String(total % 60)} s`;
+}
+
+/**
+ * How far a run has come, as each phase line ends (R7, PD4 of the skill
+ * surface corrections): the time since the run was created, by this
+ * engine's clock at `now`, and the spend as the budget check counts it
+ * (`budgetSpendOf`) against the run budget in force, or that the runtime
+ * reports no cost. The line is progress for the person who watches; the
+ * report's Statistics hold the measured wall seconds.
+ */
+export function progressWords(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, now: number): string {
+  const elapsed = minutesAndSeconds(now - Date.parse(state.createdAt));
+  return `${elapsed} since the run started; ${spendWords(budgetSpendOf(state, adapter).usd, state.review?.limits.runBudgetUsd ?? null)}`;
+}
+
 const counted = (count: number, one: string, many: string): string => `${String(count)} ${count === 1 ? one : many}`;
 
 /**

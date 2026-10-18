@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseUnitLabel, unitLabel } from '../../src/review/labels.ts';
 import type { WorkerState } from '../../src/checkpoint/fold.ts';
-import { budgetSpendNote, budgetSpendOf, settledWorkers, spendOf, statisticsOf, usageOf } from '../../src/review/spend.ts';
+import { budgetSpendNote, budgetSpendOf, progressWords, settledWorkers, spendOf, spendWords, statisticsOf, usageOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { codexAdapter } from '../../src/runtime/codex.ts';
 import { History, configurationV1, configured, finish, launch, reported, scope, worker } from '../helpers/review-history.ts';
@@ -82,6 +82,25 @@ describe('spend', () => {
     assert.deepEqual(budgetSpendOf(state, codexAdapter), { usd: null, charged: 0, lost: 0 }, 'a runtime that reports no cost has no budget to count against');
     assert.equal(statisticsOf(state, codexAdapter).budgetApplied, false);
     assert.equal(statisticsOf(state, claudeAdapter).budgetApplied, true);
+  });
+
+  // R7 of the skill surface corrections: each phase line says how long the run has been in progress and what it spent.
+  it('says how far a run has come: the minutes and seconds since it was created, and the spend the budget check counts against the budget in force', () => {
+    const state = reported().fold();
+    // The history's first event is recorded at 00:00:01.
+    const created = Date.parse(state.createdAt);
+    assert.equal(created, Date.parse('2026-09-27T00:00:01.000Z'));
+    const budget = state.review!.limits.runBudgetUsd!;
+    assert.equal(progressWords(state, claudeAdapter, created + 125_400), `2 min 5 s since the run started; spent 15.50 USD of the ${budget.toFixed(2)} USD run budget`, 'whole seconds, and the spend counts the timed-out finder at its cap, as the budget check does');
+    assert.equal(progressWords(state, claudeAdapter, created + 3 * 3_600_000), `180 min 0 s since the run started; spent 15.50 USD of the ${budget.toFixed(2)} USD run budget`, 'minutes past the hour');
+    assert.equal(progressWords(state, claudeAdapter, created), `0 min 0 s since the run started; spent 15.50 USD of the ${budget.toFixed(2)} USD run budget`);
+    assert.match(progressWords(state, claudeAdapter, created - 60_000), /^0 min 0 s since the run started; /, 'a clock set back gives no time, not a negative one');
+    assert.match(progressWords(state, claudeAdapter, Number.NaN), /^0 min 0 s since the run started; /);
+    assert.equal(progressWords(state, codexAdapter, created + 59_999), '0 min 59 s since the run started; no cost reported', 'a runtime that reports no cost');
+    const lifted = configured().worker(1, 'triage triage:SCAN', {}, 0.25).add('limits.changed', { concurrency: 4, runBudgetUsd: null }).fold();
+    assert.equal(progressWords(lifted, claudeAdapter, Date.parse(lifted.createdAt) + 1_000), '0 min 1 s since the run started; spent 0.25 USD, no run budget', 'the budget in force, lifted on a resume');
+    assert.equal(spendWords(0, 60), 'spent 0.00 USD of the 60.00 USD run budget');
+    assert.equal(spendWords(null, 60), 'no cost reported');
   });
 
   it('says the run budget applied from the limits in force at the end, not the pinned budget', () => {
