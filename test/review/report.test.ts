@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
@@ -243,9 +244,26 @@ describe('the Decisions section (R8 of the decision step)', () => {
     // The path is the one the report's writer was given, as a Windows install spells it too.
     const windows = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: 'C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs' });
     assert.ok(windows.includes('`node "C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs" answer --finding <id> --option <n>`'), windows);
-    // A path with a backtick cannot close the code span early.
+    // A path with a backtick cannot close the code span early, and is single-quoted, since bash would run it as a command substitution inside double quotes.
     const ticked = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/opt/a`b/main.mjs' });
-    assert.ok(ticked.includes('``node "/opt/a`b/main.mjs" answer --finding <id> --option <n>``'), ticked);
+    assert.ok(ticked.includes('``node \'/opt/a`b/main.mjs\' answer --finding <id> --option <n>``'), ticked);
+    // A `$` or a `"` would be expanded or end double quotes, so such a path is single-quoted too.
+    const dollar = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/home/me/$work/main.mjs' });
+    assert.ok(dollar.includes('`node \'/home/me/$work/main.mjs\' answer --finding <id> --option <n>`'), dollar);
+    const quoted = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/opt/a"b/main.mjs' });
+    assert.ok(quoted.includes('`node \'/opt/a"b/main.mjs\' answer --finding <id> --option <n>`'), quoted);
+  });
+
+  // FOOTGUNS-1 of the gate: the command a person pastes reaches the shell with the engine's path intact, whatever it holds.
+  it('names the engine\'s path in a form bash hands on as written, when it holds a space, $, a backtick or a "', (t) => {
+    if (spawnSync('bash', ['-c', 'printf %s ok'], { windowsHide: true }).status !== 0) return t.skip('no bash here');
+    for (const engineEntry of ['/opt/deep review/engine/main.mjs', '/home/me/$work/main.mjs', '/opt/a`b`/main.mjs', '/opt/a"b/main.mjs', "/opt/it's/main.mjs"]) {
+      const report = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry });
+      const path = /`+ ?node (.+?) answer --finding <id> --option <n> ?`+/.exec(report)?.[1];
+      assert.ok(path !== undefined, report);
+      const result = spawnSync('bash', ['-c', `printf %s ${path}`], { encoding: 'utf8', windowsHide: true });
+      assert.equal(result.stdout, engineEntry, `${engineEntry}: ${result.stderr}`);
+    }
   });
 
   it('ends an unreviewed departure with the command that reviews it, and a reviewed one with the answer and what applied it', () => {

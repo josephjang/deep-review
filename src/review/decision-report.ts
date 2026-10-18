@@ -13,6 +13,7 @@ import type { RecordedDecision } from '../checkpoint/events.ts';
 import { appliedOptionOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { codeSpan, inlineText } from './markdown.ts';
+import { shellQuoted } from './shell.ts';
 import { rankedFindings } from './state.ts';
 import { decisionCounts, decisionCountWords, type LeaveReason } from './vocabulary.ts';
 
@@ -94,6 +95,14 @@ export const answerCommand = (id: string, options: number): string => `deep-revi
 export const reviewCommand = (id: string): string => `deep-review ${answerArguments(id, '--accept')}`;
 
 /**
+ * The engine's path as a person's terminal takes it: in double quotes,
+ * which cmd.exe, bash and PowerShell all unquote, unless the path holds a
+ * `$`, a backtick or a `"`, which bash or PowerShell would expand or end
+ * inside double quotes; such a path is quoted by `shellQuoted` instead.
+ */
+const terminalQuoted = (path: string): string => (/[$`"]/.test(path) ? shellQuoted(path) : `"${path}"`);
+
+/**
  * How a person runs the answer command (R9, PD5 of the skill surface
  * corrections): at a terminal, `deep-review` is the engine this report's
  * writer ran, named by its path, since no executable of that name is
@@ -101,7 +110,7 @@ export const reviewCommand = (id: string): string => `deep-review ${answerArgume
  * `Answer with:` line keeps the short name a reader cites.
  */
 export const answerAtTerminal = (engineEntry: string): string =>
-  `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node "${engineEntry}" ${answerArguments('<id>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+  `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments('<id>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 
 /** A finding's decision as one line of its block under Findings: what was decided and on what grounds. */
 export function decisionLine(decision: RecordedDecision): string {

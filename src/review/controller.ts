@@ -58,6 +58,7 @@ import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuse
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
+import { shellQuoted } from './shell.ts';
 import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, progressWords, spendWords, statisticsOf, type BudgetSpend } from './spend.ts';
 import { currentPhase, reviewStatus } from './state.ts';
@@ -342,15 +343,6 @@ export const driftList = (found: { readonly files: readonly { readonly path: str
 export function snapshotCommandFor(engineEntry: string, into: string): string {
   return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
 }
-
-/**
- * One of the engine's own paths quoted for a fixer's shell: single quotes,
- * which bash and PowerShell alike take as written, so a space, `$`, a
- * backtick or `\` in a scratch or install path reaches the command intact;
- * double quotes only for a path that itself holds a `'`, which neither
- * shell can put inside single quotes without an escape of its own.
- */
-const shellQuoted = (path: string): string => (path.includes("'") ? `"${path}"` : `'${path}'`);
 
 /**
  * The command a fixer runs to claim a file for its cluster (R1, R2 of
