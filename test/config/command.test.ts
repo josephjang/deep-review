@@ -89,11 +89,12 @@ describe('deep-review config', () => {
     const base = commitAll(repo, 'the policy');
     write(repo, 'src/b.ts', 'b\n');
     write(repo, 'dist/b.js', 'built\n');
-    commitAll(repo, 'a change under the policy');
+    const head = commitAll(repo, 'a change under the policy');
     writeFileSync(join(locateCheckpoint(repo).commonDir, cloneConfigName), 'schema = 1\nchecks.test = "make test"\n');
     assert.equal(await config('show', '--runtime', 'claude', '--set', 'run.concurrency=2'), 0, err.join(''));
     const text = out.join('');
-    assert.match(text, new RegExp(`^Scope: last-commit from ${base}$`, 'm'));
+    // Both ends of the change, so a retelling of the line cannot take the base for the commit reviewed (R11 of the skill surface corrections).
+    assert.match(text, new RegExp(`^Scope: last-commit, the change from ${base} to ${head}$`, 'm'));
     assert.match(text, /^ {2}scope\.exclude +\[ "dist\/\*\*" \] {2}from the repository's file$/m);
     assert.match(text, /^ {2}checks\.test +"make test" {2}from the clone's file$/m);
     assert.match(text, /^ {2}run\.concurrency +2 {2}from a flag$/m);
@@ -101,9 +102,9 @@ describe('deep-review config', () => {
     assert.doesNotMatch(text, /runtimes\.codex/, 'only the settings of the run\'s runtime');
     out.length = 0;
     assert.equal(await config('show', '--runtime', 'claude', '--json'), 0, err.join(''));
-    const json = JSON.parse(out.join('')) as { values: Record<string, { value: unknown; layer: string }>; scope: { mode: string; base: string }; repository: { state: string } };
+    const json = JSON.parse(out.join('')) as { values: Record<string, { value: unknown; layer: string }>; scope: { mode: string; base: string; target: string | null }; repository: { state: string } };
     assert.deepEqual(json.values['scope.exclude'], { value: ['dist/**'], layer: 'repository' });
-    assert.deepEqual(json.scope, { mode: 'last-commit', base, empty: null });
+    assert.deepEqual(json.scope, { mode: 'last-commit', base, target: head, empty: null });
     assert.equal(json.repository.state, 'read');
     assert.equal(existsSync(join(locateCheckpoint(repo).root, 'ledger.sqlite')), false, 'no checkpoint, so no run');
   });
@@ -114,7 +115,7 @@ describe('deep-review config', () => {
     write(repo, 'src/c.ts', 'c\n');
     const head = git(repo, 'rev-parse', 'HEAD');
     assert.equal(await config('show', '--runtime', 'claude'), 0, err.join(''));
-    assert.match(out.join(''), new RegExp(`^Scope: auto from ${head}; The change has no path left to review: scope\\.exclude \\(src/\\*\\*\\) leaves out all 1 of its changed paths$`, 'm'));
+    assert.match(out.join(''), new RegExp(`^Scope: auto, the change from ${head} to the working tree; The change has no path left to review: scope\\.exclude \\(src/\\*\\*\\) leaves out all 1 of its changed paths$`, 'm'));
   });
 
   it('refuses show without a runtime, a mistaken subcommand, an argument or a flag the subcommand does not take, with the usage', async () => {

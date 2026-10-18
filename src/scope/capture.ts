@@ -125,8 +125,21 @@ export function resolveScopeRequest(repo: string, input: ScopeRequest, exclude: 
  * refused here the same way.
  */
 export function scopeBase(repo: string, input: ScopeRequest): string {
+  return scopeEnds(repo, input).base;
+}
+
+/**
+ * Both ends of a request's change, as the capture would choose them
+ * against `HEAD` and the tree as they are now, listing no path: the commit
+ * it starts from, and the commit a `last-commit` scope ends at, or null
+ * for a change that ends at the working tree. `config show` names both, so
+ * a line that is said again in other words cannot take the start for the
+ * commit reviewed (R11 of the skill surface corrections).
+ */
+export function scopeEnds(repo: string, input: ScopeRequest): { readonly base: string; readonly target: string | null } {
   validateRequest(input);
-  return chooseMode(repo, normalizeRequest(input), gitApi.head(repo)).base;
+  const { base, target } = chooseMode(repo, normalizeRequest(input), gitApi.head(repo));
+  return { base, target };
 }
 
 /** What a capture is held to beside its request (R4, R10 of the configuration). */

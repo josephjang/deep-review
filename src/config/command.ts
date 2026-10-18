@@ -32,6 +32,8 @@ const settingsOfRuntime = (runtime: string): SettingName[] => settingNames.filte
 export interface ShownScope {
   readonly mode: string;
   readonly base: string;
+  /** The commit the change ends at, a `last-commit` scope's, or null for a change that ends at the working tree. */
+  readonly target: string | null;
   /** Why the change has nothing to review, or null when it has a path left. */
   readonly empty: string | null;
 }
@@ -47,7 +49,8 @@ export function showLines(resolved: ResolvedSettings, scope: ShownScope): string
   const width = Math.max(...names.map((name) => name.length));
   const repository = resolved.repository;
   return [
-    `Scope: ${scope.mode} from ${scope.base}${scope.empty === null ? '' : `; ${scope.empty}`}`,
+    // Both ends, so a retelling cannot take the start for the commit reviewed (R11 of the skill surface corrections).
+    `Scope: ${scope.mode}, the change from ${scope.base} to ${scope.target ?? 'the working tree'}${scope.empty === null ? '' : `; ${scope.empty}`}`,
     `Runtime: ${resolved.runtime}`,
     'Settings:',
     ...names.map((name) => {

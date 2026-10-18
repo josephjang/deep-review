@@ -9,7 +9,7 @@ import type { ScopeFile, ScopeRequest, ScopeState } from '../../src/checkpoint/e
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
-import { captureScope, freezeLimitBytes, maxScopeFiles, resolveScopeRequest, scopeBase, validateScopePath } from '../../src/scope/capture.ts';
+import { captureScope, freezeLimitBytes, maxScopeFiles, resolveScopeRequest, scopeBase, scopeEnds, validateScopePath } from '../../src/scope/capture.ts';
 import { CaptureRacedError, EmptyChangeError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from '../../src/scope/errors.ts';
 import * as gitApi from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, link, remove, repositoryWith, write } from '../helpers/repository.ts';
@@ -518,10 +518,16 @@ describe('captureScope', () => {
         'range with merge base': { range: { from: 'side', to: 'HEAD', mergeBase: true }, paths: [] },
       };
       for (const [mode, request] of Object.entries(requests)) assert.equal(scopeBase(repo, request), resolveScopeRequest(repo, request).base, mode);
+      // Both ends, as the capture chooses them, for each mode (R11 of the skill surface corrections).
+      for (const [mode, request] of Object.entries(requests)) {
+        const resolved = resolveScopeRequest(repo, request);
+        assert.deepEqual(scopeEnds(repo, request), { base: resolved.base, target: resolved.target }, mode);
+      }
       assert.equal(scopeBase(repo, requests['range with merge base']!), root, 'the merge base of the side branch and HEAD');
       write(repo, 'a.txt', '4\n');
       assert.equal(scopeBase(repo, noRequest), git(repo, 'rev-parse', 'HEAD'), 'a dirty tree is reviewed from HEAD');
       assert.equal(scopeBase(repo, noRequest), resolveScopeRequest(repo, noRequest).base);
+      assert.deepEqual(scopeEnds(repo, noRequest), { base: git(repo, 'rev-parse', 'HEAD'), target: null }, 'a dirty tree\'s change ends at the working tree');
       // A path that names nothing is not looked at: scopeBase lists no path.
       assert.equal(scopeBase(repo, { paths: ['missing'] }), git(repo, 'rev-parse', 'HEAD'));
       assert.throws(() => scopeBase(repo, { ref: 'HEAD', range: { from: 'HEAD', to: 'HEAD', mergeBase: false }, paths: [] }), InvalidScopeRequestError);

@@ -47,7 +47,7 @@ import { describeRun } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
-import { resolveScopeRequest, scopeBase } from './scope/capture.ts';
+import { resolveScopeRequest, scopeEnds } from './scope/capture.ts';
 import { EmptyChangeError } from './scope/errors.ts';
 import { status as gitStatus } from './scope/git.ts';
 
@@ -581,9 +581,9 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   const { runtime, source } = invocationOf(values, io, location.worktree, location.commonDir);
   const adapter = defaultRuntimes().get(runtime);
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
-  const base = scopeBase(location.worktree, chosen.request);
+  const { base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  let shown: ShownScope = { mode: chosen.mode, base, empty: null };
+  let shown: ShownScope = { mode: chosen.mode, base, target, empty: null };
   try {
     const listed = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, 'scope.exclude') ?? []);
     resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
