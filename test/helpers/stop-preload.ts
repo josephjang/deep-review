@@ -10,7 +10,11 @@
  *                     FAKE_HOLD names holds (the fakes write `started.json` in FAKE_START_DIR),
  *                     `update-ref before` or `update-ref after`
  *   RESUME_STOP_WAY   `signal` to stop the process from inside, as a handled signal does; any
- *                     other way leaves the kill to the helper (resume-contract.ts)
+ *                     other way leaves the kill to the helper (resume-contract.ts); with
+ *                     `child` at the point `child`, the helper kills the held child first, and
+ *                     the preload stops the engine at its next step after it recorded the
+ *                     child's end: its next append that launches a worker, starts a check or
+ *                     finishes a phase
  *   RESUME_RECORD     a file to append the name of every append to, in order, for a run with no stop
  * At the point it writes `stopped` in the directory. For `signal` it then
  * emits SIGINT in the process, which runs the path of `releaseOnExit`
@@ -69,13 +73,24 @@ function stop(at: string): never {
   for (;;) Atomics.wait(pause, 0, 0, 1000);
 }
 
+/** The kinds of event that begin the engine's next step after the end of a child: a launch, the start of a check, the end of a phase. */
+const nextStepKinds: ReadonlySet<string> = new Set(['worker.launched', 'check.started', 'phase.finished']);
+
 if (directory !== undefined) {
+  const starts = process.env.FAKE_START_DIR;
+  const started = starts === undefined ? null : join(starts, 'started.json');
+  // The fourth way: the first append after the held child started records its end, since the run has one worker at a time.
+  let childEnded = false;
   const original = Checkpoint.prototype.append;
   Checkpoint.prototype.append = function append(this: Checkpoint, runId: string, expectedLastSequence: number, events: readonly NewEvent[]): RunState {
     const state = original.call(this, runId, expectedLastSequence, events);
     const name = appendName(events, state);
     if (record !== undefined) appendFileSync(record, `${name}\n`);
     if (point === name) stop(name);
+    if (point === 'child' && way === 'child' && started !== null) {
+      if (childEnded && events.some((event) => nextStepKinds.has(event.kind))) stop('child');
+      else if (!childEnded && existsSync(started)) childEnded = true;
+    }
     return state;
   };
 
@@ -92,10 +107,8 @@ if (directory !== undefined) {
     syncBuiltinESMExports();
   }
 
-  const starts = process.env.FAKE_START_DIR;
-  if (point === 'child' && way === 'signal' && starts !== undefined) {
+  if (point === 'child' && way === 'signal' && started !== null) {
     // A handled signal while the held child runs: the engine is idle in its event loop then, awaiting the child.
-    const started = join(starts, 'started.json');
     setInterval(() => {
       if (existsSync(started)) stop('child');
     }, 20).unref();

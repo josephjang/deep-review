@@ -34,8 +34,8 @@ export const stopPreload = resolve(import.meta.dirname, 'stop-preload.ts');
 /**
  * How the test stops the engine: a handled signal, a hard kill of the
  * engine alone, a hard kill of its process tree, or a kill of the held
- * child with a kill mark and of the engine alone 100 ms later, the order
- * of run 8dbe23ad (R2).
+ * child with a kill mark and of the engine alone at its next step after it
+ * recorded the child's end, the order of run 8dbe23ad (R2).
  */
 export const stopWays = ['signal', 'kill', 'tree', 'child'] as const;
 export type StopWay = (typeof stopWays)[number];
@@ -382,8 +382,9 @@ export async function stopAndResume(point: Point, way: StopWay): Promise<Stopped
           killTree(pid);
           break;
         case 'child':
+          // The preload stops the engine at its next step after it recorded the child's end, by which the engine of today makes a failure final.
           killWithMark(held!.pid);
-          await sleep(100);
+          await untilOrEnded(() => existsSync(stoppedMarker), engine, `the next step after the end of ${point.name}`, commandTimeoutMs);
           killAlone(pid);
           break;
       }
