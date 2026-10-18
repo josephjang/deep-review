@@ -8,13 +8,16 @@
  * a fix worker runs after each finding (R6), and `claim` what it runs
  * before its first edit of a file outside its cluster (R1, R2 of commit
  * series integrity), and `config` shows, explains, checks and starts the
- * configuration without a run (R14 of the configuration). The entry point
+ * configuration without a run (R14 of the configuration), and `hook
+ * session-start` is what the Claude Code plugin runs when a session starts
+ * (R12 of the skill surface corrections). The entry point
  * of the bundle and of `npm run review` during development.
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
+import { sessionStartOutput, storePowerShellWarning } from './runtime/claude-powershell.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
 import { answerWords } from './checkpoint/answer-state.ts';
 import { answerNoteLengthV1, type Answer, type ScopeRequest } from './checkpoint/events.ts';
@@ -70,8 +73,9 @@ export const usage = `usage:
                       [--record-only] [--run <id>] [--budget-usd <usd>] [--roles <dir>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
+  deep-review hook    session-start   (run by the Claude Code plugin when a session starts; prints a warning for the user, or nothing, and exits 0)
 
-exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -141,6 +145,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
   claim: ['path', 'unit', 'in', 'help'],
+  hook: ['help'],
 };
 
 /** A command-line mistake: the usage is printed with it. */
@@ -297,6 +302,7 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
   if (!Object.hasOwn(allowed, command)) throw new UsageError(`unknown command ${JSON.stringify(command)}`);
   // config takes its subcommand and, for explain and validate, one argument; every other command takes none.
   if (command === 'config') return configCommand(values, rest, io);
+  if (command === 'hook') return hookCommand(values, rest, io);
   if (rest.length > 0) throw new UsageError(`unexpected argument ${JSON.stringify(rest[0])}`);
   for (const flag of Object.keys(values) as (keyof Values)[]) {
     if (values[flag] !== undefined && !allowed[command]!.includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
@@ -318,6 +324,27 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
     default:
       return abandon(values, io, location.root);
   }
+}
+
+/**
+ * `deep-review hook session-start` (R12 of the skill surface corrections):
+ * what the Claude Code plugin runs when a new session starts. It reads no
+ * repository and nothing on stdin, prints the warning for a machine whose
+ * PowerShell 7 is the Microsoft Store build, or nothing, and exits 0 even
+ * when the check fails, so that a fault of its own never shows at the
+ * start of a session.
+ */
+function hookCommand(values: Values, rest: readonly string[], io: CommandIo): number {
+  if (rest.length !== 1 || rest[0] !== 'session-start') throw new UsageError(`hook takes session-start${rest.length === 0 ? '' : `, not ${JSON.stringify(rest.join(' '))}`}`);
+  for (const flag of Object.keys(values) as (keyof Values)[]) {
+    if (values[flag] !== undefined && flag !== 'help') throw new UsageError(`--${flag} does not apply to hook`);
+  }
+  try {
+    io.stdout(sessionStartOutput(storePowerShellWarning(process.platform, io.environment)));
+  } catch {
+    // The warning is advice; a check that cannot run says nothing.
+  }
+  return 0;
 }
 
 /**
