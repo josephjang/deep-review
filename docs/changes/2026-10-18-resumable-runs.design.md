@@ -146,9 +146,11 @@ A phase that runs each kind again moves its floor to its attempt at the last `fi
 
 On 2026-10-19, the author chose that the "After the fixes" column takes no mark for an answer pass. The "After answers" column shows that tree.
 
-R3 is a separate rule, for a stop in the middle of a phase. The fold keeps the last finished attempt of each checks phase. A cut attempt is an attempt after it, with no `phase.finished`.
+R3 is a separate rule, for a stop in the middle of a phase. The fold keeps the last finished attempt of each checks phase. A cut attempt is an attempt after it and before the current attempt, with no `phase.finished`. The current attempt is never a cut attempt, so a check that fails in it does not run again by R3.
 
-`dueCheck` returns the first kind, in the order of the kinds, with a command and one of two states. The kind has no current run, or its last current run did not pass and is from a cut attempt. The skip rule reads the last current run of `build`. Thus a `build` that runs again runs first, and the kinds after it read its new outcome. A run from a completed attempt never runs again by R3.
+`dueCheck` returns the first kind, in the order of the kinds, with a command and one of four states. The kind has no current run. Its last current run did not pass and is from a cut attempt (R3). Its last current run is cut (R4). Or its last current run is its first timeout in the current attempt (R7).
+
+The skip rule reads the last current run of `build`. Thus a `build` that runs again runs first, and the kinds after it read its new outcome. A run from a completed attempt never runs again by R3.
 
 Each reader reads the last current run of its phase: `dueCheck`, the reducer, `repairTargets`, the Checks table and `status`. `failedAtBaseline` and the task of a fixer read the last baseline run, which never grows old. Thus `repairTargets` reads the last baseline run and the last current run of `checks`. The own `failedAtBaseline` of the Checks table goes, and the table reads the same last baseline run, with its mark for `not-started` as today. The notes under the table read the current runs, so a phase with no current run says why it did not run.
 
@@ -156,7 +158,9 @@ Each reader reads the last current run of its phase: `dueCheck`, the reducer, `r
 
 `runDueCheck` appends `check.started@1` with the phase, the attempt, the kind and the command before it starts the check. The reducer refuses a start of a kind that is not due. `check.ran@3` is `check.ran@2` with one more field, `replaces`. It is null for the first current run of a kind. Else it holds the attempt and the outcome of the run that it replaces.
 
-The reducer folds version 3 with three rules. With `replaces` null, the kind has no current run in the phase. With `replaces` set, the last current run of the kind has that attempt and that outcome. That outcome is not `passed`, and that attempt is a cut attempt. And a version 3 run has a start of the same kind in the same attempt, with no run after that start. Versions 1 and 2 keep their rule: the kind has no current run, and no start is necessary.
+The reducer folds version 3 with three rules. With `replaces` null, the kind has no current run in the phase. With `replaces` set, it names the last current run of the kind by its attempt and its outcome, and one of three cases holds. In the first, that run did not pass and is from a cut attempt (R3). In the second, that run is cut (R4). In the third, it is the first timeout of the kind in the current attempt (R7).
+
+A version 3 run that ran has a start of the same kind in the same attempt, with no run after that start. A skipped run has no start, because nothing ran. Versions 1 and 2 keep their rule: the kind has no current run, and no start is necessary.
 
 Before a rerun, `runDueCheck` logs `check typecheck (baseline-checks): running again; attempt 1 failed in 4.4 s before the phase started again`. Each new fix run has `check.started@1`, so an older engine passes over each new fix run (R16).
 
@@ -166,7 +170,7 @@ A cut check is a `check.started` with no `check.ran` after it in the same attemp
 
 In the same attempt, after a run that ended cut or timed out, the planner compares the files that the run expects. When one differs, it returns `restore-tree` before its next step: the rerun of the check, or the next kind after a second timeout.
 
-`dueCheck` also returns a kind whose last current run is its first timeout in the attempt, so the kind runs again. A second timeout of the kind in the attempt is its result, as the readers take a timeout today.
+`dueCheck` also returns a kind whose last current run is its first timeout in the attempt, so the kind runs again. Its rerun names the timeout in `replaces`. A second timeout of the kind in the attempt is its result, as the readers take a timeout today.
 
 For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again.
 
@@ -176,7 +180,7 @@ A stop between the append and the writes is safe, because the next start finds t
 
 `endedByKill` in `src/runtime/process.ts` holds the one list of kill marks: a signal, or the exit code 129, 130, 131, 137, 143 or 3221225786. `checkOutcomeOf` gives `cut` for a check that exited with a mark, and `check.ran@3` permits that outcome. A check that the engine killed at its timeout stays `timeout`, because its process result is `killed`, not `exited`. Under the guard of R8, the exit code and the signal come from the result file of the guard. A guard with no result file is a mark too.
 
-`dueCheck` treats a cut run as no run. Thus the kind is due again, and a phase does not finish while a kind is cut. `runDueCheck` records the second cut of a kind in one attempt as `failed`, with an error that names both marks. It records no revision for a run that ended cut or timed out, because `checkRevision` runs only for the other outcomes. The write back of R7 then comes before the next step.
+`dueCheck` treats a cut run as a run with no result. Thus the kind is due again, its rerun names the cut run in `replaces`, and a phase does not finish while a kind is cut. `runDueCheck` records the second cut of a kind in one attempt as `failed`, with an error that names both marks. It records no revision for a run that ended cut or timed out, because `checkRevision` runs only for the other outcomes. The write back of R7 then comes before the next step.
 
 No reader of the last current run then sees `cut` as a result: `failedAtBaseline`, `repairTargets`, the task of a fixer and the Checks table. The log says `check typecheck (baseline-checks): cut by exit code 143, a kill mark; it runs again`.
 
