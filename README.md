@@ -211,6 +211,11 @@ and line is kept and marked unlocated, never dropped. A blocked
 run exits 2 with the blocker and its action on stderr, and so does a
 refusal, such as another engine holding the run, a runtime that does not
 qualify, or an active run that belongs to another worktree or runtime.
+While it runs, stderr has a line per phase and per worker: each phase
+line ends with the time since the run was created and the spend so far
+against the run budget, as the budget check counts it (or `no cost
+reported`), and each fixer's start line says `batch <k> of <n>` of its
+round.
 A resumed run keeps the scope, policy, executable and Codex Windows
 sandbox it pinned, and refuses a `--codex-windows-sandbox` naming
 another; only
@@ -437,7 +442,9 @@ rejects a fix's departure from a rule, with `deep-review answer
 --finding <id>` and one of `--option <n>`, `--accept` or `--reject`,
 after the run has written its report. The report's Decisions section
 ends each question and each departure with the command that answers
-it. The answer is recorded on the run's ledger first, with an optional
+it, and says once how a person at a terminal types it: no `deep-review`
+executable is installed, so it names `node "<entry>" answer ...` with
+the path of the engine that wrote the report. The answer is recorded on the run's ledger first, with an optional
 `--note`. On a run that only reviewed, `review --fix` then continues
 the run and gives the answered finding to a fixer, which is told the
 answer. On a run that fixed, the command opens an answer pass: one
@@ -450,7 +457,9 @@ answer applied, or a departure as the fix made it owes nothing and runs
 no fixer; any other option owes an edit, even one that keeps the code
 as it is. The pass is refused, the answer staying recorded, when
 `HEAD` or a file the run expects moved, or when the spend has reached
-the run budget; `--record-only` records without a pass.
+the run budget; `--record-only` records without a pass, and the next
+answer given without it applies that answer with every other recorded
+answer that owes an edit.
 
 An answer is applied to its run and recorded there. Nothing yet carries
 it to the next review, which may ask the same question again. See
@@ -502,7 +511,11 @@ no check. When it reports a tool missing, the survey blocks with
 kind, the command, its source and the tool: the operator installs the
 tool and runs the command again, which surveys afresh, or runs it again
 with `--no-check <kind>` or `--check <kind>=<command>`, which settles
-the block with no new survey. A survey that fails twice degrades a
+the block with no new survey. The action also names `checks.<kind>` in
+the clone's file, which `config init --clone` writes, for a new run in
+place of the blocked one: a resumed run keeps the settings it recorded,
+so only a new run reads that file, and no resume of it needs the flag.
+A survey that fails twice degrades a
 read-only review, `CONVENTIONS` not run when no source is left, and
 blocks a fix run until the command runs again or flags settle all four
 kinds; a fix run whose flags already settle all four goes on without
@@ -745,14 +758,24 @@ The repository is its own plugin marketplace. In a Claude Code session:
 /plugin install deep-review@deep-review
 ```
 
-The skill is then `/deep-review:deep-review`. It runs the bundled engine
-with `--runtime claude` on the scope the user named (the dirty worktree
-by default, else the last commit), waits for it, and shows the report's
-path. Asked to fix the findings, it passes `--fix`, says first that the
-engine's workers will edit the working tree and that it runs the check
-commands it chose from the repository, and afterwards offers to commit
-the edits with `deep-review commit`. Node 26 or newer must be on
-the machine. The plugin carries no
+The skill is then `/deep-review:deep-review`, and the autocomplete hints
+what can follow it: a scope in words, `fix`, and paths. It runs the
+bundled engine with `--runtime claude` on the scope the user named, or
+with none named on the one `scope.default` names (the dirty worktree,
+else the last commit), waits for it, and shows the report's path.
+Before the run it runs `config show` with the same flags and shows the
+`Scope:` line, the `budget.usd` line and whether the run fixes, then
+starts the run without waiting for a reply; a user who sees a wrong
+scope stops it. Asked to fix the findings, it passes `--fix`, says
+first that the engine's workers will edit the working tree and that it
+runs the check commands it chose from the repository, and afterwards
+offers to commit the edits with `deep-review commit`. Asked for a
+configuration file, it writes it with `config init --repository`,
+`--operator` or `--clone`. The skill's `allowed-tools` approves the
+engine's own command, and nothing else, for the turn in which the user
+invokes it, so the run starts without a permission prompt; a later
+turn, such as one that commits or answers, prompts again. Node 26 or
+newer must be on the machine. The plugin carries no
 version field on purpose, so `/plugin marketplace update deep-review`
 follows the latest commit. The repository is private; adding it uses the
 git credentials already on the machine.
@@ -770,5 +793,6 @@ dist/codex/**   ->   ~/.agents/skills/deep-review/
 ```
 
 The skill is then `$deep-review`. It runs the bundled engine beside its
-`SKILL.md` with `--runtime codex`; Codex reports no cost, so a Codex run
-has no budget and its report says so.
+`SKILL.md` with `--runtime codex`, after the same `config show` step;
+Codex reports no cost, so a Codex run has no budget and its report says
+so. Codex has no counterpart of the argument hint or of `allowed-tools`.
