@@ -21265,12 +21265,13 @@ var blockerActions = {
   "worker-failed": "run the command again, which gives the failed worker two fresh attempts, or abandon the run",
   budget: "run the command again with --budget-usd above the spend, or abandon the run",
   drift: "restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one",
-  // The survey blocks before any other worker, so a new run costs one survey; a resume would not read the clone's file (R8, PD7 of the skill surface corrections).
+  // A run not continued from a read-only review blocks in its survey before any other worker, so a new run costs one survey; a resume would not read the clone's file (R8, PD7 of the skill surface corrections). A continued run records continuedCheckUnavailableAction.
   "check-unavailable": "install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs, or set checks.<kind> in the clone's file, which deep-review config init --clone writes, then abandon this run and start a new one, which needs the flag on no resume; this run keeps the settings it recorded",
   "claims-lost": "run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts, or abandon the run",
   "lock-held": "wait for that engine to finish; the lock clears itself when its process ends",
   "runtime-unqualified": "fix the runtime installation or pass --executable with a qualifying binary, then run the command again"
 };
+var continuedCheckUnavailableAction = "install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs";
 var surveyWorkerFailedAction = "run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without surveying again, with the convention sources of an earlier survey of this run if one answered, and with none otherwise, or abandon the run";
 function wayOut(runId, use) {
   switch (use) {
@@ -21536,7 +21537,7 @@ function clusterOfBatch(fix, key) {
   return batch === null ? null : clusterOf(fix, batch.cluster);
 }
 function batchPosition(fix, key) {
-  const batches = planOfRound(fix, roundOf(fix, key))?.batches ?? [];
+  const { batches } = roundPlan(fix, roundOf(fix, key));
   const index2 = batches.findIndex((batch) => batch.key === key);
   return index2 < 0 ? null : { index: index2 + 1, count: batches.length };
 }
@@ -28853,10 +28854,11 @@ function workerFailedBlocker(review2, unit, state) {
   const action = unit.phase === "survey" && degradationOf(review2, unit) === null ? surveyWorkerFailedAction : blockerActions["worker-failed"];
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
-function checkUnavailableBlocker(unavailable) {
+function checkUnavailableBlocker(unavailable, continued) {
   const prefix = `the project defines ${unavailable.length === 1 ? "a check" : "checks"} this machine cannot run: `;
   const items = unavailable.map((check2) => `${check2.kind}: \`${check2.command}\` (from ${check2.source}), ${check2.missingTool} not found`);
-  return { code: "check-unavailable", detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions["check-unavailable"] };
+  const action = continued ? continuedCheckUnavailableAction : blockerActions["check-unavailable"];
+  return { code: "check-unavailable", detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action };
 }
 function budgetDegradations(review2, units, live2, spent) {
   return units.filter((unit) => !settled(review2, unit) && !live2.running.has(unitName(unit.phase, unit.key))).map((unit) => ({ kind: "unit.unattempted", phase: unit.phase, key: unit.key, cause: "budget", reason: spent }));
@@ -28920,7 +28922,7 @@ function surveyStep(review2, live2, attempt) {
   if (answer2 !== null) {
     const resolved = resolveChecks(answer2, live2.checkSettings);
     if (answered2 && resolved.uncovered.length > 0) throw new Error(`The survey answered in this attempt leaves ${resolved.uncovered.join(", ")} unchosen, which its task asked for`);
-    if (answered2 && resolved.unavailable.length > 0) return { kind: "finish-phase", phase: "survey", attempt, outcome: "blocked", blocker: checkUnavailableBlocker(resolved.unavailable) };
+    if (answered2 && resolved.unavailable.length > 0) return { kind: "finish-phase", phase: "survey", attempt, outcome: "blocked", blocker: checkUnavailableBlocker(resolved.unavailable, review2.continuedFrom !== null) };
     if (resolved.unavailable.length === 0 && resolved.uncovered.length === 0) return { kind: "plan-checks", checks: resolved.checks, without: null };
     return null;
   }
@@ -29687,12 +29689,12 @@ import { join as join25 } from "node:path";
 var tableCell = (text2) => text2.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
 var inlineText = (text2) => text2.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
 function codeSpan(text2) {
-  const inline = inlineText(text2);
-  if (inline === "") return "` `";
-  const longest = Math.max(0, ...(inline.match(/`+/g) ?? []).map((run2) => run2.length));
-  const fence = "`".repeat(longest + 1);
-  const pad = inline.startsWith("`") || inline.endsWith("`") ? " " : "";
-  return `${fence}${pad}${inline}${pad}${fence}`;
+  let longest = 0;
+  for (const run2 of text2.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
+  const delimiter3 = "`".repeat(longest + 1);
+  const padded = text2.startsWith("`") || text2.endsWith("`") || text2.startsWith(" ") && text2.endsWith(" ") && text2.trim() !== "";
+  const pad = padded ? " " : "";
+  return `${delimiter3}${pad}${text2}${pad}${delimiter3}`;
 }
 function paragraphText(text2) {
   const line = inlineText(text2).trimStart();
@@ -29849,20 +29851,12 @@ function surveyTask(input2) {
     ...checks
   ].join("\n");
 }
-function codeSpan2(text2) {
-  let longest = 0;
-  for (const run2 of text2.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
-  const delimiter3 = "`".repeat(longest + 1);
-  const padded = text2.startsWith("`") || text2.endsWith("`") || text2.startsWith(" ") && text2.endsWith(" ") && text2.trim() !== "";
-  const pad = padded ? " " : "";
-  return `${delimiter3}${pad}${text2}${pad}${delimiter3}`;
-}
 function fixChecks(input2) {
   const { shell, lookup } = shellOf(input2.platform, input2.elevatedSandbox);
   const byFlags = input2.settled.every((entry) => entry.layer === "flag");
   const settledLine = (entry) => {
-    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan2(entry.command)} (--check)`;
-    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan2(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
+    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
+    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
   };
   const settled2 = input2.settled.length === 0 ? [] : [
     byFlags ? "Settled by the operator's flags, which you leave out of `checks`:" : "Settled by the operator's flags and the configuration, which you leave out of `checks`:",
@@ -29870,7 +29864,7 @@ function fixChecks(input2) {
     ""
   ];
   if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled2, "Every kind is settled, so return `checks` empty."];
-  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan2(hint.command)} (${hint.reading})`);
+  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
   return [
     kindsToChooseLine(input2),
     "",
@@ -30630,6 +30624,9 @@ function contributionEvent(unit, receipt, review2, context) {
   }
 }
 
+// src/review/shell.ts
+var shellQuoted = (path) => path.includes("'") ? `"${path}"` : `'${path}'`;
+
 // src/review/decision-report.ts
 var leaveReasonWords = {
   "outside-change-not-regression": "outside the change, and not a regression",
@@ -30673,9 +30670,11 @@ function appliedWords(review2, answer2, held) {
     }
   }
 }
-var answerCommand = (id, options2) => `deep-review answer --finding ${id} --option <${options2 === 1 ? "1" : `1..${String(options2)}`}>`;
-var reviewCommand = (id) => `deep-review answer --finding ${id} --accept`;
-var answerAtTerminal = (engineEntry) => `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node "${engineEntry}" answer --finding <id> --option <n>`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+var answerArguments = (id, choice) => `answer --finding ${id} ${choice}`;
+var answerCommand = (id, options2) => `deep-review ${answerArguments(id, `--option <${options2 === 1 ? "1" : `1..${String(options2)}`}>`)}`;
+var reviewCommand = (id) => `deep-review ${answerArguments(id, "--accept")}`;
+var terminalQuoted = (path) => /[$`"]/.test(path) ? shellQuoted(path) : `"${path}"`;
+var answerAtTerminal = (engineEntry) => `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments("<id>", "--option <n>")}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 function decisionLine(decision) {
   const grounds = inlineText(decision.grounds);
   switch (decision.decision) {
@@ -31423,7 +31422,6 @@ var driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.a
 function snapshotCommandFor(engineEntry, into) {
   return `node "${engineEntry}" snapshot --finding ${snapshotIndexPlaceholder} --into "${into}"`;
 }
-var shellQuoted = (path) => path.includes("'") ? `"${path}"` : `'${path}'`;
 function claimCommandFor(engineEntry, unit, into) {
   return `node ${shellQuoted(engineEntry)} claim --path '${claimPathPlaceholder}' --unit ${unit} --in ${shellQuoted(into)}`;
 }
@@ -32139,8 +32137,8 @@ async function answerRun(options2) {
       const recorded = standingAnswer(run2.review, options2.finding);
       const outcome = (next, state) => ({ runId: run2.id, recorded: !retry, standing: recorded, next, state });
       if (!fixes) return outcome("read-only", run2);
-      if (options2.recordOnly) return outcome("record-only", run2);
       const owed = owedAnswers(run2.review);
+      if (options2.recordOnly) return outcome(owed.some((answer2) => answer2.id === options2.finding) ? "record-only" : "nothing-owed", run2);
       const order = rankedFindings(run2.review).map((entry) => entry.finding.id);
       const ids = owed.map((answer2) => answer2.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
       if (ids.length === 0) return outcome("nothing-owed", run2);

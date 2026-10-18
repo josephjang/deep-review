@@ -38,21 +38,35 @@ chained before or after it.
    run commits nothing. Without such a request, do not pass `--fix`: the
    review then edits nothing and runs no check.
 3. First show the user what the run will review. Run this from the
-   repository, with the flags the review below takes, and wait for it to
-   exit:
+   repository and wait for it to exit:
+
+   node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" status
+
+   When it prints no line that starts with `Run `, no run is active. Run
+   this from the repository, with the flags the review below takes, and
+   wait for it to exit:
 
    node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" config show --runtime claude <scope flags> [--fix]
 
-   When it exits 0, your next step is a message to the user, not a tool
-   call: quote its `Scope:` line and the `budget.usd` line under its
-   `Settings:` exactly as it prints them, and say whether the run fixes.
+   When it exits 0, write the user a message before your next tool call,
+   in this same reply: quote its `Scope:` line and the `budget.usd` line
+   under its `Settings:` exactly as it prints them, and say whether the
+   run fixes.
+   When `status` prints a `Run ` line instead, that run is active and the
+   review below resumes it: run no `config show`, and in that message
+   quote the `Run ` line and the `Settings:` line of `status` exactly as
+   it prints them, and say that the review continues that run with the
+   scope and the settings it recorded and ignores the scope flags.
    The user does not see the command's output, so this message is where
-   they see the scope. Then start the review at once: do not ask the user
-   to confirm, and do not wait for an answer. A user who sees a wrong
-   scope stops the review before it has spent much; until its fixes phase
-   the run has edited nothing, and `abandon` closes it. When `config show`
-   exits with code 2, show stderr verbatim and stop, as step 7 says for a
-   refusal.
+   they see the scope. Then, in the same reply, start the review at once;
+   the message does not end your turn: do not ask the user to confirm,
+   and do not wait for an answer. A user who sees a wrong scope stops the
+   review before it has spent much; until its fixes phase the run has
+   edited nothing. When the user stops it because its scope is wrong,
+   close it with `abandon --reason <text>` before you run the corrected
+   request, so that the next review starts a new run rather than resume
+   this one. When `config show` exits with code 2, show stderr verbatim
+   and stop, as step 7 says for a refusal.
 
    Run the review from the repository as a background shell command with
    the longest timeout you can, and wait for it to exit:
@@ -105,13 +119,16 @@ chained before or after it.
    tool this machine lacks; when the user answers it, run the same
    command again, adding `--no-check <kind>` if they choose to go
    without that check or `--check <kind>=<command>` if they name one
-   that runs, and nothing if they installed the tool. When they choose to
-   settle it in the clone's file instead, write that file with
-   `config init --clone` when it does not exist, as the configuration
-   paragraph below says, set its `checks.<kind>` line as they ask, then
-   close the blocked run with `abandon --reason <text>` and run the same
-   command again, which starts a new run: the blocked run keeps the
-   settings it recorded.
+   that runs, and nothing if they installed the tool. When the action
+   names the clone's file and they choose to settle it there instead,
+   write that file with `config init --clone` when it does not exist,
+   as the configuration paragraph below says, set its `checks.<kind>`
+   line as they ask, then close the blocked run with
+   `abandon --reason <text>` and run the same command again, which
+   starts a new run: the blocked run keeps the settings it recorded. The
+   action of a run that `--fix` continued from a read-only review does
+   not name that file, since an abandoned run cannot be continued and its
+   review would be lost; do not offer it then.
 8. Any other exit code: show stderr verbatim and stop.
 
 When the user asks how deep-review is configured, or why a run reviewed
