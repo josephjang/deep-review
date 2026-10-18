@@ -117,7 +117,7 @@ A point while a child runs is a point of its own kind. At an append, no child of
 
 The helper stops the engine when the marker appears, in each of the four ways. For the handled signal, the preload watches for the marker. After the stop, the helper writes the release file and starts the next command. In the run with no stop, the release file is there from the start.
 
-The run holds each case that a way needs. The first attempt of one unit fails, so that a stop can meet a unit at its last attempt. One fake check rewrites a file that the run expects, as a formatter does, before it writes the file that marks its start. A stop at that check thus cuts a check after its first write.
+The run holds each case that a way needs. The first attempt of one unit fails, so that a stop can meet a unit at its last attempt. One fake check rewrites a file that the run expects, as a formatter does, before it writes the file that marks its start. A stop at that check thus cuts a check after its first write. At one point while a fixer runs, the helper also edits another file of the change, as a person does (W8). It does this after the stop and before the next command.
 
 The helper stops the engine in four ways. For a handled signal, the preload emits SIGINT in the process, which runs the path of `releaseOnExit` on each platform. For a hard kill of the engine alone, the helper calls `process.kill` with SIGKILL on the engine's pid, which is `TerminateProcess` on Windows. For a hard kill of the tree, it runs `taskkill /T /F` on Windows and a SIGKILL of the process group on POSIX.
 
@@ -125,13 +125,15 @@ For a kill of a child before the engine, the fake writes its pid in the file tha
 
 This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. A gap of 100 milliseconds thus lets the engine of today make the failure final, and it is less than the gap of that run.
 
-The helper then runs the same command again with no preload, until the run writes its report or blocks. It checks R1 against a run of the same repository with no stop, in four parts.
+The helper then runs the same command again with no preload, until the run writes its report or blocks. It checks R1 against a run of the same repository with no stop, in four parts, and it checks R8 in a fifth.
 
 First, the second command exits as the run with no stop exits, with no added flag. Second, no worker that settled before the stop is launched again. The next command launches one more time each unit that was in flight when the engine ended.
 
 Third, nothing is false. Each current run of a check has the outcome of the run with no stop. A failure of a worker that the stop killed costs its unit nothing: the unit does not degrade, and it gets its two attempts again at the next command. No revision holds a file that its unit did not touch.
 
 Fourth, the report equals the report of the run with no stop after a normalization. The normalization removes times, durations, paths of the evidence, run ids, and the lines of R15.
+
+Fifth, no process that the stopped engine started is alive a short time after the stop (R8). The helper reads the pids from the start markers before it writes the release file, and then it ends each process that is still alive.
 
 The suite runs a fixed set of points. They are the first and the last append of each phase, and the launch and the end of a worker and of a check. They are also the record of a revision, the write of the report, and `commit` before and after it moves the branch. A script, `npm run resume-test`, runs each append of the run in the first three ways. It runs each child of the run in each of the four ways.
 
@@ -405,7 +407,7 @@ A fix run on the fakes appends a few hundred events, and each point runs two com
 
 ### R1 and R2: The contract
 
-`test/review/resume-contract.test.ts` runs the fixed set of points in the four ways, on the three systems of CI, against a run with no stop. Each point checks the four parts of the contract in the Design. Step 1 records the points that fail on the engine as it is, and each later step removes the marks that it closes. The script runs each point in each way that applies to it.
+`test/review/resume-contract.test.ts` runs the fixed set of points in the four ways, on the three systems of CI, against a run with no stop. Each point checks the five parts of the contract in the Design. Step 1 records the points that fail on the engine as it is, and each later step removes the marks that it closes. The script runs each point in each way that applies to it.
 
 ### R3: A check that a stop cut short runs again
 
