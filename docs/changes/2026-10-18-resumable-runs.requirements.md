@@ -78,7 +78,7 @@ An answer pass blocks at the budget (TD8 of answers), and the same command with 
 
 ## Requirements
 
-Some requirements are for ways that no run showed: R4 for units, R5, R6, the write back of R7, R8, R9 and R10. Each of them holds only when the test of R2 shows its way as a failure (PD1).
+Some requirements are for ways that no run showed: R4 for units, R5, R6, the record of the start of each check and the write back of R7, R8, R9 and R10. Each of them holds only when the test of R2 shows its way as a failure (PD1).
 
 ### R1: Resumable means five things
 
@@ -170,7 +170,7 @@ A run that the budget stopped names the command that continues it: `deep-review 
 
 ### R16: An older engine passes over the new records
 
-The records of this proposal have event kinds and versions that an older engine does not declare. Each fix run of the new engine has some of them, because the ledger records the start of each check. Thus an older engine passes over each new fix run, with one line, as it passes over each run that it cannot read. It does not stop the commands of the repository.
+The records of this proposal have event kinds and versions that an older engine does not declare. Each fix run of the new engine has some of them, because each run of a check is recorded at a new version. Thus an older engine passes over each new fix run, with one line, as it passes over each run that it cannot read. It does not stop the commands of the repository.
 
 ### R17: The skills and the README say what resumes
 
@@ -204,7 +204,9 @@ The reason is the kind of failure. The proof of concept built recovery for failu
 
 The proposal suggests new words for principle 11 in the next vision note, in three sentences. The first is "A stop of the engine at any point of its work is resumable". The second is "A test that stops the engine at that point shows the need". The third is "A failure of the environment gets its recovery when a run shows it". The proposal rejects the other choice, a separate fix for each point when a paid run meets it. The search already found nine such ways, and each fix waits for a run that costs tens of dollars.
 
-On 2026-10-18, the author accepted this departure, with one condition. A requirement for a way that no run showed holds only when the test of R2 shows that way as a failure. These are R4 for units, R5, R6, the write back of R7, R8, R9 and R10. When the test does not show a way, an amendment removes its requirement before the work builds its mechanism. Thus the analysis of the code finds the candidates, and the test shows the need, as the second of the three sentences says. R7 keeps the record of the start of each check in each case, because PD4 uses it for the killed check of #25.
+On 2026-10-18, the author accepted this departure, with one condition. A requirement for a way that no run showed holds only when the test of R2 shows that way as a failure. These are R4 for units, R5, R6, the record of the start of each check and the write back of R7, R8, R9 and R10. When the test does not show a way, an amendment removes its requirement before the work builds its mechanism. Thus the analysis of the code finds the candidates, and the test shows the need, as the second of the three sentences says.
+
+On 2026-10-19, the author put the record of the start of each check under the condition too. It serves only a check with no end on the ledger, which no run showed (PD4).
 
 ### PD2: "Any reason" covers each stop of the engine and the two limits that runs showed
 
@@ -222,7 +224,7 @@ The proposal also rejects a rerun of only the last recorded run of the cut attem
 
 An outcome `interrupted` needs the engine to know that a stop is in progress. The engine did not know it on run `8dbe23ad`, so the proposal rejects that outcome. The outcome `cut` of R4 needs less: it reads how the child ended (PD5). When a signal reaches the engine first, the engine records nothing for the check. When the stop reaches the check first, the check ends with an exit code. That code carries a kill mark when the stop left one.
 
-The record of the start of each check (R7) closes the gap of the first order. A check that started and has no end on the ledger is a check that a stop cut. For the second order, R4 records a marked kill as cut, not as a verdict, and R3 runs the check again. A kill with no mark stays a failure, and R3 runs it again while its phase is open. The killed run stays on the ledger, and the later run names it as the run that it replaces (R15). This is the rule of the ledger for a wrong event: a later event corrects it and says so.
+The record of the start of each check (R7) closes the gap of the first order, which no run showed (PD1). A check that started and has no end on the ledger is a check that a stop cut. For the second order, R4 records a marked kill as cut, not as a verdict, and R3 runs the check again. A kill with no mark stays a failure, and R3 runs it again while its phase is open. The killed run stays on the ledger, and the later run names it as the run that it replaces (R15). This is the rule of the ledger for a wrong event: a later event corrects it and says so.
 
 ### PD5: The exit status tells a cut child from a failed one
 

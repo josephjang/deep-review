@@ -170,7 +170,7 @@ The reducer folds version 3 with three rules. With `replaces` null, the kind has
 
 A version 3 run that ran has a start of the same kind in the same attempt, with no run after that start. A skipped run has no start, because nothing ran. Versions 1 and 2 keep their rule: the kind has no current run, and no start is necessary.
 
-Before a rerun, `runDueCheck` logs `check typecheck (baseline-checks): running again; attempt 1 failed in 4.4 s before the phase started again`. Each new fix run has `check.started@1`, so an older engine passes over each new fix run (R16).
+Before a rerun, `runDueCheck` logs `check typecheck (baseline-checks): running again; attempt 1 failed in 4.4 s before the phase started again`. Each new fix run records its checks with `check.ran@3`, so an older engine passes over each new fix run (R16).
 
 ### A check that a stop cut (R7)
 
