@@ -90,6 +90,12 @@ The paragraph of the Decisions section that says what an answer does gets one mo
 
 After `deep-review answer --record-only`, the second line of stdout changes. It says that the next `deep-review answer` on this run without `--record-only` applies this answer and each other recorded answer that needs an edit.
 
+### R11: The `Scope:` line of `config show` names both ends of the change
+
+The `Scope:` line of `config show` names the mode, the commit that the change starts from, and where the change ends: the commit of a `last-commit` scope, or the working tree for each other mode. An example is `Scope: last-commit, the change from ee70117 to 7cb3658`. Until now, the line named the start only, as `Scope: last-commit from ee70117`.
+
+An interactive session showed the reason. The model read `last-commit from ee70117` as "the last commit, ee70117", and told the user the base as the commit that the run reviews. Four different words in step 3 did not stop the model from writing the line in its own words. A line that names both ends stays correct when a model or a person says it again in other words. The text of `config show` is for persons, so no record and no schema changes. The `--json` output gets the end as `scope.target`, null for the working tree.
+
 ## Product Decisions
 
 ### PD1: Show and start, not show and wait
