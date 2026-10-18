@@ -40,7 +40,8 @@ src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
 src/config/              the configuration: the settings registry, the four files, the two passes of resolution,
                          the record, and the config command
-src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher
+src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher,
+                         and the guard each worker and check runs under
 src/roles/               assembling each role's prompt from roles/
 src/review/              the review: policy, schemas, prompts, planner, controller, report, the survey's check of
                          its answer, the decision step's report, and the fix pass's routing, expected tree, snapshots,
@@ -49,7 +50,7 @@ src/review/checks/       the fix pass's checks: the manifest rules that hint the
 src/replay/              replaying a recorded run's verifiers: the recorded prompt, the samples, their summary,
                          and their score against labels
 src/command.ts           the deep-review command: review, config, status, abandon, commit, answer, snapshot, claim
-src/cli.ts               the command's entry point, which the bundle is built from
+src/cli.ts               the command's entry point, which the bundle is built from, and of the guard
 scripts/                 build, fixture, smoke, replay and replay score entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
@@ -467,6 +468,37 @@ An answer is applied to its run and recorded there. Nothing yet carries
 it to the next review, which may ask the same question again. See
 `docs/changes/2026-10-11-answers.requirements.md` and its design.
 
+## Resuming after a stop
+
+A run can be stopped at any point: a Ctrl-C, a kill of the engine
+alone or with its process tree, or a kill of the worker or check it is
+waiting on. The same command then resumes it, and needs nothing else
+from a person. It does again only the work the stop cut short, pays for
+no worker that settled before the stop, records nothing false, and
+reaches the report the run with no stop would have written; only the
+lines that say what the stop did, the statistics and the spend differ.
+A check a kill ended (a signal, or an exit code a shell or Windows
+gives a killed process) is cut, not failed: what it wrote is written
+back, and it runs again. A fixer lost with its engine keeps only its own
+files, so a person's edit made while no engine ran is found as a drift.
+Each worker and check runs under a small guard process, the engine's own
+`guard` command, which ends the child's tree when the engine is gone, so
+no child outlives a killed engine. A `deep-review commit` cut short
+records its series before the branch moves, and the next command
+completes it or drops it by where `HEAD` is. The report's Limitations
+and `status` name what each stop did. `npm run resume-test` stops a run
+on the fakes at every point, in each way, and checks this contract; the
+suite runs a fixed set of those points.
+
+On a runtime that reports cost, a fix pass the run budget stopped is a
+complete run with work left. The same `review --fix` with a
+`--budget-usd` above the spend reopens it, launches only what the budget
+left, and reviews nothing again; the end of the run, its report and
+`status` name that command. A worker that meets a usage or session limit
+of Claude Code blocks the phase at once, naming the reset, and the same
+command after the reset resumes the run with no unit given up. See
+`docs/changes/2026-10-18-resumable-runs.requirements.md` and its design.
+
 ## The repository survey
 
 Every run, read-only or fixing, begins with a `survey` phase before the
@@ -664,6 +696,7 @@ npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
 npm run smoke -- --claude <path> --codex <path> --codex-model <model> [--codex-windows-sandbox unelevated|elevated|none]   # real runtimes, by hand
 npm run roles -- --output <dir>   # write every assembled role prompt to <dir> for reading
+npm run resume-test   # stop a fix run on the fakes at every point, in each way, and check that the same command resumes it
 npm run review -- review --runtime claude --last-commit [--fix]   # run the engine from the sources; also status, abandon and commit
 npm run replay -- --checkpoint <dir> --run <id> --tree <dir> --output <dir> --runtime <claude|codex>   # a recorded run's verifiers again, real runtimes, by hand
 npm run replay-score -- --results <results.json> --labels <labels.json>   # the replay's samples against labels; calls no model
