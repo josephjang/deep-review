@@ -37,9 +37,6 @@ const failing = (points: readonly string[], ways: readonly StopWay[], systems: r
  * them.
  */
 export const marks: readonly Mark[] = [
-  // W5: a stop between the end of a worker and the record of its answer launches it again.
-  // RIPPLE's first worker fails, and a unit's failed attempt is launched again by design.
-  ...failing(['worker.finished *', '!worker.finished finder-RIPPLE finders:RIPPLE'], stops, everySystem, ['launches'], 'R6'),
   // W8: the edit of a person while the engine is down goes into the revision of the lost fixer.
   ...failing(['child fixer fixes:c1-1#1'], [...stops, 'child'], everySystem, ['nothing false', 'report'], 'R10'),
   // W6: a stop after commit moved the branch leaves commits the ledger does not hold, and the next commit refuses.

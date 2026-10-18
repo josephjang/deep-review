@@ -440,7 +440,16 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const { claims } = directories;
   /** What turning a worker's work into events reads, from the fold as it is now. */
   const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
-  /** Log a settled worker and append what it contributes; a launcher error is thrown, since nothing was recorded for its unit. */
+  /**
+   * Log a settled worker and append its finish with what it contributes,
+   * in one append, so a stop cannot record the one without the other (R6
+   * of resumable runs). An answer set aside because the tree of a phase
+   * that only reads drifted is no contribution, so its finish goes alone,
+   * and the worker is not lost at the next start. A contribution that
+   * cannot be built, or that the fold refuses, leaves the finish alone on
+   * the ledger and is thrown. A launcher error is thrown, since nothing was
+   * recorded for its unit.
+   */
   const record = (settled: Settled, startedAt: number): void => {
     const name = unitName(settled.unit.phase, settled.unit.key);
     // The launcher threw instead of returning a receipt (a run abandoned meanwhile, an invocation it refused, a runtime that no longer qualifies): the review cannot go on.
@@ -449,23 +458,41 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd(summary.costUsd)}${settled.receipt.error === null ? '' : `: ${settled.receipt.error}`}`);
     state = checkpoint.fold(runId);
     const { phase } = settled.unit;
+    const { finish } = settled.receipt;
+    const withFinish = (events: readonly NewEvent[]): NewEvent[] => [...(finish === null ? [] : [finish]), ...events];
+    // The finish alone, after a failure to record it with a contribution; a failure of this append too leaves the first error to surface.
+    const finishAlone = (): void => {
+      if (finish === null) return;
+      try {
+        state = append(checkpoint, state, [finish]);
+      } catch (error) {
+        log(`worker ${settled.unit.role} ${name}: its finish is not recorded either: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
     // An answer of a reading phase is recorded only while the tree is the one the run expects (PD10): once it drifted in this attempt, every answer settling is set aside, neither recorded nor counted as a failure, and the attempt blocks when the workers in flight have settled. An editing phase's tree changes by design, and its end check judges it instead (TD2 of the fix pass).
     if (settled.receipt.outcome === 'completed' && !isEditingPhase(phase)) {
       const attempt = state.review!.phases[phase].attempt;
       const recorded = state.review!.checks.find((check) => check.phase === phase && check.attempt === attempt && check.drifted);
       if (recorded !== undefined) {
         log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
+        if (finish !== null) state = append(checkpoint, state, [finish]);
         return;
       }
       const found = findDrift(state, options.worktree, content.match);
       if (drifted(found)) {
         log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-        state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 5, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload }]);
+        state = append(checkpoint, state, withFinish([{ kind: 'worktree.checked', version: 5, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload }]));
         return;
       }
     }
     const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : { access: claims, lost: false };
-    const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+    let events: NewEvent[];
+    try {
+      events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+    } catch (error) {
+      finishAlone();
+      throw error;
+    }
     for (const event of events) {
       for (const line of claimLines(event)) log(line);
       if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
@@ -473,7 +500,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (event.kind === 'survey.recorded') for (const line of surveyLines(runId, event.payload as SurveyRecorded)) log(line);
       if (event.kind === 'decisions.recorded') log(`worker ${settled.unit.role} ${name}: decided ${decisionCountWords(decisionCounts((event.payload as DecisionsRecorded).decisions))}`);
     }
-    state = append(checkpoint, state, events);
+    try {
+      state = append(checkpoint, state, withFinish(events));
+    } catch (error) {
+      finishAlone();
+      throw error;
+    }
     // The round's directory is prepared again at once, not at the next launch: a late claim just recorded holds its file there too, and a cluster that has just settled holds nothing more, before any sibling's next claim (R1, TD2 of commit series integrity). A directory found gone is lost, as at a launch.
     if (phase === 'fixes' && directories.lost() === null) directories.prepare(settled.unit.key);
   };
@@ -713,6 +745,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started${batchWords(state, unit)}`);
             const startedAt = Date.now();
             const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, {
+              // The finish is appended with the worker's contribution, in record (R6 of resumable runs).
+              deferFinish: true,
               runtimes: options.runtimes,
               pinned,
               environment,

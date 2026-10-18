@@ -52,6 +52,20 @@ describe('runWorker', () => {
     assert.equal(read(receipt.evidence.schema), read(worker.launch.schema));
   };
 
+  it('hands the finish to a caller that asks for it, appending none, for the caller to append with the worker\'s contribution (R6 of resumable runs)', async () => {
+    const receipt = await box.run(box.claude(), {}, { deferFinish: true });
+    assert.equal(receipt.outcome, 'completed');
+    assert.equal(box.worker(receipt.workerId).status, 'running', 'the launcher appended no finish');
+    assert.deepEqual(box.events().map(([kind]) => kind), ['run.created', 'worker.launched']);
+    assert.ok(receipt.finish !== null && receipt.finish.kind === 'worker.finished');
+    const state = box.checkpoint.fold(box.runId);
+    box.checkpoint.append(box.runId, state.lastSequence, [receipt.finish]);
+    assertEvidence(receipt);
+    const appended = await box.run(box.claude());
+    assert.equal(appended.finish, null, 'without it, the launcher appends the finish itself');
+    assert.equal(box.worker(appended.workerId).status, 'finished');
+  });
+
   describe('Claude Code', () => {
     it('completes: records both events, freezes every byte exchanged, and returns the validated answer', async () => {
       const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: '{session}', structured_output: { answer: 'fine' }, permission_denials: [], usage: { input_tokens: 5 }, total_cost_usd: 0.002 });

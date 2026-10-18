@@ -29,9 +29,9 @@ const fixedPoints = [
   'child check test#1',
   // The check after the fixes that rewrites a file, while it runs after its write (W4).
   'child check lint#2',
-  // A fixer while it runs, where a person then edits a file of the change (W8), and the record of its revision.
+  // A fixer while it runs, where a person then edits a file of the change (W8), and the record of its end with its answer and revision, one append since R6.
   'child fixer fixes:c1-1#1',
-  'fix.recorded fixer fixes:c1-1',
+  'worker.finished fixer fixes:c1-1',
   // The last step before the report is written.
   'worktree.checked report start',
   // `commit` before and after it moves the branch (W6).

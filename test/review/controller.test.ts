@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
-import { RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
+import type { Checkpoint, NewEvent } from '../../src/checkpoint/checkpoint.ts';
+import { InvalidHistoryError, RunClosedError, StaleRevisionError } from '../../src/checkpoint/errors.ts';
 import { maxStraysPerCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { dedicatedFlagValues } from '../../src/config/flags.ts';
@@ -87,6 +87,22 @@ const lockFree = (acquire: () => ReleaseLock): boolean => {
     throw error;
   }
 };
+
+/** The checkpoint with `seen` called before each append, with the events, which may throw to refuse it; every other member goes to the checkpoint itself. */
+function appending(checkpoint: Checkpoint, seen: (events: readonly NewEvent[]) => void): Checkpoint {
+  return new Proxy(checkpoint, {
+    get(target, property): unknown {
+      if (property === 'append') {
+        return (runId: string, expected: number, events: readonly NewEvent[]) => {
+          seen(events);
+          return target.append(runId, expected, events);
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
 
 describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
 
@@ -595,6 +611,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual({ ...check, files: check.files.map((file) => ({ path: file.path, outcome: file.outcome })) }, { phase: 'triage', attempt: 1, moment: 'answer', drifted: true, head: null, files: [{ path: 'src/b.ts', outcome: 'modified' }], strays: [] });
     assert.equal(state.review!.leads, null, 'the answer computed against the edited tree is not recorded');
     assert.deepEqual(state.review!.units.triage, {}, 'nor counted as a failure');
+    assert.deepEqual(Object.values(state.workers).filter((worker) => worker.launch.label === 'triage triage:SCAN').map((worker) => worker.status), ['finished'], 'its finish is recorded alone, so it is not lost at the next start (R6 of resumable runs)');
     assert.ok(box.logs.some((line) => /^worker triage triage:SCAN: answer set aside: the worktree drifted from what the run expects: src\/b\.ts \(modified\)$/.test(line)), box.logs.join('\n'));
     // Still drifted: the check at the re-entered attempt's start blocks again at once, without a worker.
     const again = await box.review('claude');
@@ -610,6 +627,32 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'attempt.failed'), []);
     // The survey's one check; triage attempt 1 has its clean check at the start and the drifted one before its answer; attempts 2 and 3 one each; nine more phases, the decision among them.
     assert.match(text, /- Worktree checks: 14, 2 found a difference in triage \(attempt 1: src\/b\.ts modified\); triage \(attempt 2: src\/b\.ts modified\)/);
+  });
+
+  it('appends each worker\'s finish with what it contributed, in one append (R6 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const appends: string[][] = [];
+    reportText(await box.review('claude', { checkpoint: appending(box.checkpoint, (events) => appends.push(events.map((event) => event.kind))) }));
+    const finishing = appends.filter((kinds) => kinds.includes('worker.finished'));
+    assert.ok(finishing.length >= 10, JSON.stringify(finishing));
+    for (const kinds of finishing) {
+      assert.equal(kinds[0], 'worker.finished', JSON.stringify(kinds));
+      assert.ok(kinds.length >= 2, `a finish and its contribution: ${JSON.stringify(kinds)}`);
+    }
+  });
+
+  it('leaves the finish of a worker alone on the ledger when the fold refuses its contribution, and throws (R6 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    let refused = false;
+    const refusing = appending(box.checkpoint, (events) => {
+      if (refused || !events.some((event) => event.kind === 'candidates.recorded')) return;
+      refused = true;
+      throw new InvalidHistoryError('the fold refuses this contribution, as the test makes it');
+    });
+    await assert.rejects(box.review('claude', { checkpoint: refusing }), /the fold refuses this contribution/);
+    const state = box.run();
+    assert.deepEqual(Object.values(state.workers).filter((worker) => worker.launch.label === 'triage triage:SCAN').map((worker) => worker.status), ['finished'], 'the finish is recorded alone');
+    assert.equal(state.review!.units.triage.SCAN, undefined, 'and nothing of its answer');
   });
 
   it('records the first strays in path order up to the event\'s cap and logs how many more, so a tree with more tracked edits outside the scope is still reviewed', async (t) => {
@@ -957,7 +1000,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
 // signal listeners every run lock adds, sees every concurrent test's too: it
 // runs alone, after the concurrent tests above.
 describe('runReview, alone in its process', { timeout: 600_000 }, () => {
-  it('ends with the launcher\'s error when the run is abandoned under a running worker, and no rejection goes unhandled', async (t) => {
+  it('ends with the refusal of the closed run when it is abandoned under a running worker, and no rejection goes unhandled', async (t) => {
     const box = ReviewSandbox.forTest(t);
     const marker = join(box.directory, 'triage-may-answer');
     box.script({ triage: { waitFor: marker } });

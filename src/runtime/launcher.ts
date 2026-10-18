@@ -52,6 +52,8 @@ export interface WorkerReceipt {
   readonly output: unknown;
   /** Why a failed worker failed when it was no fault of its unit's, or null (R4 of resumable runs). */
   readonly cause: FailureCause | null;
+  /** The `worker.finished` the caller appends with what the worker contributed when it asked for it (`deferFinish`), or null when the launcher appended it. */
+  readonly finish: NewEvent | null;
   readonly evidence: {
     readonly prompt: ArtifactReference;
     readonly schema: ArtifactReference;
@@ -93,6 +95,14 @@ export interface RunWorkerOptions {
   readonly pinned?: PinnedRuntimeOptions;
   /** The directories of `tools.path` the run recorded, first on the worker's PATH (R11, TD10 of the configuration); none by default. */
   readonly toolsPath?: readonly string[];
+  /**
+   * Return the worker's `worker.finished` in the receipt instead of
+   * appending it, for a caller that appends it with what the worker
+   * contributed, in one append, so a stop cannot record the one without
+   * the other (R6 of resumable runs). The caller must append it, or the
+   * worker reads as lost at the next start.
+   */
+  readonly deferFinish?: boolean;
 }
 
 /**
@@ -100,14 +110,17 @@ export interface RunWorkerOptions {
  * closed run, a malformed invocation or a missing capability; build the
  * command; qualify the executable; freeze the prompt and schema; create the
  * scratch directory; append `worker.launched`; spawn; decode; freeze every
- * output; append `worker.finished`; return the receipt.
+ * output; append `worker.finished`, or with `deferFinish` hand it to the
+ * caller in the receipt, to append with what the worker contributed (R6
+ * of resumable runs); return the receipt.
  *
  * Nothing is appended unless every check before the launch passes. Once
  * the launch is appended, a finish is appended for it whatever happens to
- * the process, so the ledger holds no launched worker without a finish from
- * this launcher; the one exception is a run abandoned while its worker ran,
- * which accepts no finish and makes this function throw `RunClosedError`
- * with the worker's evidence already frozen.
+ * the process, here or by the caller that asked for it, so the ledger
+ * holds no launched worker without a finish; the one exception is a run
+ * abandoned while its worker ran, which accepts no finish and makes this
+ * function throw `RunClosedError` with the worker's evidence already
+ * frozen.
  *
  * A refused launch leaves no process files, and removes the scratch
  * directory it created for the worker; the roots above it may be shared
@@ -222,8 +235,10 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   const settled = settle(checkpoint, adapter, invocation, plan, result, io, emptyReference);
   // The pinned or continued session is on every finish, whatever the outputs named, so its transcript is never unnamed.
   const finish: WorkerFinish = { workerId, ...settled.finish, sessionIds: withPinnedSession(plan.sessionId, settled.observedSessionIds) };
+  const finished: NewEvent = { kind: 'worker.finished', version: 1, payload: finish };
   try {
-    appendFresh(checkpoint, runId, { kind: 'worker.finished', version: 1, payload: finish });
+    // A caller that records what the worker contributed appends the finish with it, in one append (R6 of resumable runs).
+    if (options.deferFinish !== true) appendFresh(checkpoint, runId, finished);
   } finally {
     // Once every process file is evidence the directory goes, whether or not
     // the finish could be appended (a run abandoned meanwhile accepts none).
@@ -241,6 +256,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     denials: finish.denials,
     output: settled.output,
     cause: settled.cause,
+    finish: options.deferFinish === true ? finished : null,
     evidence: { prompt: promptReference, schema: schemaReference, stdout: finish.stdout, stderr: finish.stderr, finalMessage: finish.finalMessage, output: finish.output },
   };
 }
