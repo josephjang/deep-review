@@ -8,7 +8,7 @@ The report calls the other packages the turned report, the entry points and reco
 
 After the change, the description of the skill says what the user gets. Before a run, the skill shows the scope, the budget and the fix choice as `config show` prints them. Then the skill starts the run and does not wait. The Claude Code skill approves the command of the engine for its own turn. Its autocomplete shows what the user can type after the command, and the skill names `config init`.
 
-On stderr, each phase line says how long the run is in progress and what it spent against its budget. Each fixer line says the number of its batch and the number of batches. The action of the `check-unavailable` blocker names the clone's file, which prevents the flags on each resume. The report says one time how a person at a terminal runs `deep-review answer`. The line after `--record-only` says that the next answer applies all the recorded answers.
+On stderr, each phase line says how long the run is in progress and what it spent against its budget. Each fixer line says the number of its batch and the number of batches. The action of the `check-unavailable` blocker names the clone's file, and a new run that reads that file needs the flags on no resume. The report says one time how a person at a terminal runs `deep-review answer`. The line after `--record-only` says that the next answer applies all the recorded answers.
 
 ## Problem
 
@@ -24,7 +24,7 @@ The report prints `deep-review answer ...` as the command for an answer, and the
 
 The user learns from the description what a run gives. The user sees the scope, the budget and the fix choice before the run starts, and nothing waits for the user. The Claude Code host does not ask the user to approve the command of the engine in the turn that starts the run. The user can ask for a policy file and get the file that `config init` writes. During a run, the user can see how long it is in progress and what it spent.
 
-A user whose machine does not have a tool of a check learns the option that prevents the flags on each resume. A user at a terminal can run the answer command that the report names. The two skills remain one text, except for the lines that are different for each runtime.
+A user whose machine does not have a tool of a check learns how to start a run that needs the flags on no resume. A user at a terminal can run the answer command that the report names. The two skills remain one text, except for the lines that are different for each runtime.
 
 ## Non-Goals
 
@@ -72,7 +72,9 @@ A fixer's start line, `worker fixer fixes:<key>: started`, gets the position of 
 
 ### R8: The `check-unavailable` action names the clone's file
 
-The action of the `check-unavailable` blocker gets a fourth option: a `checks.<kind>` line in the clone's file, which `deep-review config init --clone` writes, so that no resume needs the flag again. The three options of today remain. The ledger records the action as a string, and no schema changes.
+The action of the `check-unavailable` blocker gets a fourth option: a `checks.<kind>` line in the clone's file, which `deep-review config init --clone` writes, and then a new run in place of the blocked run. No resume of the new run needs the flag again. The three options of today remain. The ledger records the action as a string, and no schema changes.
+
+Step 7 of both skills says the same. When the user puts the line in the clone's file, the skill abandons the blocked run and runs the command again, which starts the new run.
 
 ### R9: The report says one time how a person runs the answer command
 
@@ -109,6 +111,12 @@ R9 adds one sentence to the paragraph that each report with a question or a depa
 ### PD6: One proposal and one pull request for both packages
 
 The skill text and the output lines change together, in one proposal and one pull request. Each is small, and the gate of one run covers both (principle 12). The gate runs on Claude Code. The Codex skill changes in the same lines, and the skills test keeps the two texts equal. A smoke test of the Codex skill with the new step of R2 is sufficient for Codex.
+
+### PD7: A new run for the clone's file, not a resume
+
+A resumed run keeps the settings that it recorded (R6 of the configuration). It names a clone's file that changed or is new since then, and it does not apply it. So a `checks.<kind>` line that the user adds after the block does not change the blocked run. A resume after that edit surveys again, pays for a new surveyor, and blocks again. Thus R8 names a new run, and the action says so.
+
+The cost is small. The survey blocks before any other worker, so the blocked run spent only its surveyor, and the new run surveys again. The alternative reads the clone's check settings again on each resume until the checks are planned. That changes the rule of R6 of the configuration for one kind of setting, and this proposal does not change the configuration.
 
 ## Against the vision note
 
