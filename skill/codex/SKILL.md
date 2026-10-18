@@ -108,7 +108,13 @@ it to exit, and relay its result. Node 26 or newer must be installed.
    tool this machine lacks; when the user answers it, run the same
    command again, adding `--no-check <kind>` if they choose to go
    without that check or `--check <kind>=<command>` if they name one
-   that runs, and nothing if they installed the tool.
+   that runs, and nothing if they installed the tool. When they choose to
+   settle it in the clone's file instead, write that file with
+   `config init --clone` when it does not exist, as the configuration
+   paragraph below says, set its `checks.<kind>` line as they ask, then
+   close the blocked run with `abandon --reason <text>` and run the same
+   command again, which starts a new run: the blocked run keeps the
+   settings it recorded.
 8. Any other exit code: show stderr verbatim and stop.
 
 When the user asks how deep-review is configured, or why a run reviewed

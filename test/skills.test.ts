@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { engineBundleName, engineDirectoryName } from '../src/build/bundle.ts';
 import { settingNames } from '../src/config/settings.ts';
+import { blockerActions } from '../src/review/vocabulary.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const read = (path: string): string => readFileSync(resolve(root, path), 'utf8');
@@ -123,6 +124,10 @@ describe('the skill texts', () => {
       const text = read(path);
       assert.match(text, /A `check-unavailable` blocker names a check the project defines whose\s+tool this machine lacks/);
       assert.match(text, /run the same\s+command again, adding `--no-check <kind>` if they choose to go\s+without that check or `--check <kind>=<command>` if they name one\s+that runs, and nothing if they installed the tool/);
+      // R8 and PD7 of the skill surface corrections: the clone's file settles the kind for a new run, so the skill closes the blocked one first.
+      assert.match(text, /When they choose to\s+settle it in the clone's file instead, write that file with\s+`config init --clone` when it does not exist, as the configuration\s+paragraph below says, set its `checks\.<kind>` line as they ask, then\s+close the blocked run with `abandon --reason <text>` and run the same\s+command again, which starts a new run: the blocked run keeps the\s+settings it recorded\./);
+      // The way out the skill offers is one the engine's action names.
+      assert.ok(blockerActions['check-unavailable'].includes('checks.<kind> in the clone\'s file, which deep-review config init --clone writes, then abandon this run and start a new one'));
     });
   }
 
