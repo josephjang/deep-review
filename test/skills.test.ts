@@ -216,6 +216,7 @@ describe('the skill texts', () => {
       'argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
       '   review then edits nothing and runs no check.\n',
+      // Step 3's first sentence ends here with `exit:` on its own line; the Codex skill goes on, on that line, with where engine/main.mjs is, so the shared text wraps apart only here.
       '   exit:\n',
       '   Run the review from the repository as a background shell command with\n   the longest timeout you can, and wait for it to exit:\n',
     ],
