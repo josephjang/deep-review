@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { engineBundleName, engineDirectoryName } from '../src/build/bundle.ts';
+import { main } from '../src/cli.ts';
 import { settingNames } from '../src/config/settings.ts';
 import { blockerActions, continuedCheckUnavailableAction } from '../src/review/vocabulary.ts';
 
@@ -203,13 +204,32 @@ describe('the skill texts', () => {
     assert.ok(commands.length >= 4, 'config show, review, commit and answer');
     for (const command of commands) assert.ok(command.trimStart().startsWith(prefix), `${command.trim()} is a command the rules approve`);
     assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}`));
-    // The skill names no shell tool: the host picks one, and both are approved.
-    assert.doesNotMatch(text, /Bash tool|PowerShell tool/);
+    // The host picks the shell tool, and both are approved; the skill names one only for the fault of the Store PowerShell, where the PowerShell tool cannot check a command (R12).
+    assert.deepEqual(text.split('\n').filter((line) => /Bash tool|PowerShell tool/.test(line)), ['If the PowerShell tool cannot check a command of this skill ("malformed', 'Bash tool from then on.']);
+    assert.match(text, /If the PowerShell tool cannot check a command of this skill \("malformed\s+syntax that cannot be parsed"\), run the commands of this skill with the\s+Bash tool from then on\./);
     // Codex has no such setting, so its skill has no such line.
     assert.ok(!frontMatter('skill/codex/SKILL.md').some((line) => line.startsWith('allowed-tools:')));
   });
 
   // R5 of the skill surface corrections: the autocomplete of Claude Code shows what the user can type after the command.
+  // R12 of the skill surface corrections: the plugin's hook warns a Windows user about the Store PowerShell when a new session starts.
+  it('runs the engine\'s session-start hook from the Claude plugin when a new session starts, with no shell, and gives Codex no hook', async () => {
+    const hooks = JSON.parse(read('skill/claude/hooks/hooks.json')) as { description: string; hooks: Record<string, { matcher?: string; hooks: Record<string, unknown>[] }[]> };
+    assert.deepEqual(Object.keys(hooks.hooks), ['SessionStart'], 'no other event');
+    const [group, ...more] = hooks.hooks.SessionStart!;
+    assert.equal(more.length, 0);
+    // Only a new session: resume, clear and compact would repeat the warning.
+    assert.equal(group!.matcher, 'startup');
+    // Exec form, so no shell runs it, whichever shell Windows would pick; the engine of the plugin itself.
+    assert.deepEqual(group!.hooks, [{ type: 'command', command: 'node', args: [`\${CLAUDE_PLUGIN_ROOT}/${engineDirectoryName}/${engineBundleName}`, 'hook', 'session-start'], timeout: 10 }]);
+    assert.match(hooks.description, /issues\/102430/);
+    // The arguments the hook passes are a command the engine takes, and it exits 0.
+    const args = group!.hooks[0]!.args as string[];
+    const err: string[] = [];
+    assert.equal(await main(args.slice(1), { stdout: () => undefined, stderr: (text) => err.push(text), environment: {}, cwd: root }), 0, err.join(''));
+    assert.equal(existsSync(resolve(root, 'skill/codex/hooks')), false);
+  });
+
   it('hints the arguments of the Claude skill, quoted so YAML reads one string, and gives the Codex skill no hint', () => {
     const lines = frontMatter('skill/claude/skills/deep-review/SKILL.md').filter((line) => line.startsWith('argument-hint:'));
     // Unquoted, a value that starts with `[` is a YAML flow sequence, and the text after its `]` makes the front matter invalid.
@@ -254,6 +274,8 @@ describe('the skill texts', () => {
       'description: Deep review of one change by the deep-review engine, a Node program installed with this plugin. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for deep-review by name.\n',
       'disable-model-invocation: true\n',
       'allowed-tools:\n  - Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)\n  - PowerShell(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)\n',
+      // Codex has no PowerShell tool whose check can fail this way (R12).
+      'If the PowerShell tool cannot check a command of this skill ("malformed\nsyntax that cannot be parsed"), run the commands of this skill with the\nBash tool from then on.\n',
       'argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
       '   review then edits nothing and runs no check.\n',

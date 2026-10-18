@@ -12,6 +12,9 @@ The deep-review engine reviews the change; you run its commands, wait
 for each to exit, and relay its result. Node 26 or newer must be
 installed. Run each command below as it is written, alone, with nothing
 chained before or after it.
+If the PowerShell tool cannot check a command of this skill ("malformed
+syntax that cannot be parsed"), run the commands of this skill with the
+Bash tool from then on.
 
 1. Decide the scope from what the user asked for:
    - the uncommitted changes in the worktree: `--worktree`
