@@ -111,7 +111,9 @@ A search of the code found these nine ways in which a stop can leave work undone
 
 ### The contract test (R1, R2)
 
-A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. In that run, the first attempt of one unit fails, so that a stop can meet a unit at its last attempt. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append`, counts the appends, and stops the process after the append that the test names. For a point while a child runs, the fakes write a file when they start, and the helper stops the engine when that file appears.
+A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append`, counts the appends, and stops the process after the append that the test names. For a point while a child runs, the fakes write a file when they start, and the helper stops the engine when that file appears.
+
+The run holds each case that a way needs. The first attempt of one unit fails, so that a stop can meet a unit at its last attempt. One fake check rewrites a file that the run expects, as a formatter does, before it writes the file that marks its start. A stop at that check thus cuts a check after its first write.
 
 The helper stops the engine in four ways. For a handled signal, the preload emits SIGINT in the process, which runs the path of `releaseOnExit` on each platform. For a hard kill of the engine alone, the helper calls `process.kill` with SIGKILL on the engine's pid, which is `TerminateProcess` on Windows. For a hard kill of the tree, it runs `taskkill /T /F` on Windows and a SIGKILL of the process group on POSIX.
 

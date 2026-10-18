@@ -88,7 +88,7 @@ With the fake runtimes and the fake checks of the test suite, it reaches the sam
 
 ### R2: A test checks the contract at each point
 
-A test runs a fix run on the fakes and stops the engine at a point. Then it runs the same command again and checks R1 against a run with no stop.
+A test runs a fix run on the fakes and stops the engine at a point. Then it runs the same command again and checks R1 against a run with no stop. Its run holds each case that a way needs: a check that writes a file of the run, and a unit whose first attempt fails.
 
 It stops the engine in four ways. Three of them are a handled signal, a hard kill of the engine alone and a hard kill of its process tree. In these three ways, the engine records nothing after the stop. The fourth way kills a child before the engine, with a kill mark (R4). That is the order of run `8dbe23ad`, where the stop killed the check and the engine stopped less than 0.4 seconds later. Thus only the fourth way can show #25, or a worker that a stop kills before the engine.
 
