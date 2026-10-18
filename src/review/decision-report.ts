@@ -84,11 +84,14 @@ function appliedWords(review: Pick<ReviewState, 'answerPasses'>, answer: Recorde
   }
 }
 
+/** The answer command's arguments after the program, for a finding and a choice such as `--accept`: the one spelling of its flags that every command the report names is built from. */
+const answerArguments = (id: string, choice: string): string => `answer --finding ${id} ${choice}`;
+
 /** The command that answers a question, its finding and its options' numbers filled in, as a reader runs it. */
-export const answerCommand = (id: string, options: number): string => `deep-review answer --finding ${id} --option <${options === 1 ? '1' : `1..${String(options)}`}>`;
+export const answerCommand = (id: string, options: number): string => `deep-review ${answerArguments(id, `--option <${options === 1 ? '1' : `1..${String(options)}`}>`)}`;
 
 /** The command that reviews a departure, its finding filled in, as a reader runs it. */
-export const reviewCommand = (id: string): string => `deep-review answer --finding ${id} --accept`;
+export const reviewCommand = (id: string): string => `deep-review ${answerArguments(id, '--accept')}`;
 
 /**
  * How a person runs the answer command (R9, PD5 of the skill surface
@@ -98,7 +101,7 @@ export const reviewCommand = (id: string): string => `deep-review answer --findi
  * `Answer with:` line keeps the short name a reader cites.
  */
 export const answerAtTerminal = (engineEntry: string): string =>
-  `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node "${engineEntry}" answer --finding <id> --option <n>`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+  `At a terminal, type it from the repository with the engine that wrote this report in place of \`deep-review\`: ${codeSpan(`node "${engineEntry}" ${answerArguments('<id>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 
 /** A finding's decision as one line of its block under Findings: what was decided and on what grounds. */
 export function decisionLine(decision: RecordedDecision): string {
