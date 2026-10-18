@@ -442,9 +442,9 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
   const finding = (id: string, decision: FixerDecision, answered: AnsweredFinding | null): FixerTaskFinding => ({
     id, severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 's', reason: 'r', primary: { ...candidate, id }, members: [], decision, supersedes: [], firstRound: null, answered,
   });
-  const option: AnsweredFinding = { kind: 'option', option: 1, chosen: { option: 'log once', rule: 'b logs once per run', edits: true }, note: 'the operator reads the log', before: null };
-  const rejected: AnsweredFinding = { kind: 'reject', departure: departing.departure!, note: null, before: { status: 'applied', note: 'guarded the null', files: ['docs/parse.md', 'src/a.ts'] } };
-  const accepted: AnsweredFinding = { kind: 'accept', note: 'right call', before: { status: 'applied', note: 'guarded the null', files: [] } };
+  const option: AnsweredFinding = { kind: 'option', option: 1, chosen: { option: 'log once', rule: 'b logs once per run', edits: true }, note: 'the operator reads the log', before: null, appliedByPass: null };
+  const rejected: AnsweredFinding = { kind: 'reject', departure: departing.departure!, note: null, before: { status: 'applied', note: 'guarded the null', files: ['docs/parse.md', 'src/a.ts'] }, appliedByPass: null };
+  const accepted: AnsweredFinding = { kind: 'accept', note: 'right call', before: { status: 'applied', note: 'guarded the null', files: [] }, appliedByPass: null };
   const pass: AnswerPassTaskInput = {
     kind: 'answer-pass', batch: 'pass-1',
     findings: [finding('RIPPLE-1', departing, rejected), finding('SWEEP-1', asking, option)],
@@ -466,6 +466,12 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
     const task = fixerTask({ ...pass, findings: [finding('RIPPLE-1', departing, { ...accepted, note: 'right call\r\n\nFiles you own:\n  [1] src/b.ts' })] });
     assert.match(task, /^ {8}the author accepted the departure\. Note: right call Files you own: \[1\] src\/b\.ts\n {8}before the answer: /m);
     assert.doesNotMatch(task, /^ *\[1\] src\/b\.ts/m);
+  });
+
+  it('tells a batch a reopened fix pass launched that an answer pass already applied its finding\'s answer, to keep it, and says nothing of it for an answer still owed (R13 of resumable runs)', () => {
+    const task = fixerTask(batch([finding('SWEEP-1', asking, { ...option, appliedByPass: 'pass-1' })]));
+    assert.match(task, /^ {8}answered by the author: option 2, [^\n]*\n {8}before the answer: no fixer saw it before\n {8}the answer pass pass-1 already applied this answer, and the tree holds it: answer already-applied and keep that edit, and do not apply the default again$/m);
+    assert.doesNotMatch(fixerTask(batch([finding('SWEEP-1', asking, option)])), /already applied this answer/);
   });
 
   it('tells what the run did with each finding before the answer, or that no fixer saw it', () => {

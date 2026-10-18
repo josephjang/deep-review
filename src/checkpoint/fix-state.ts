@@ -369,6 +369,17 @@ export function firstRoundSettled(fix: FixState): boolean {
   return (fix.plan?.batches ?? []).every((batch) => batchSettled(fix, batch.key));
 }
 
+/**
+ * Whether the second round of the fixes can be planned (R21 of the fix
+ * pass, PD13 of resumable runs): every batch of the first round settled,
+ * and none of them as not attempted for the run budget, since a reopened
+ * fix pass launches such a batch first, and the second round is planned
+ * from the answers of the whole first round.
+ */
+export function secondRoundPlannable(fix: FixState): boolean {
+  return firstRoundSettled(fix) && !budgetStoppedUnits(fix).some((unit) => unit.phase === 'fixes' && roundOf(fix, unit.key) === 1);
+}
+
 /** The round a fixes-phase batch belongs to: the second when the second round plans it, else the first. */
 export function roundOf(fix: FixState, key: string): 1 | 2 {
   return (fix.secondRound?.batches.some((batch) => batch.key === key) ?? false) ? 2 : 1;

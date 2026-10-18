@@ -182,17 +182,23 @@ export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
  * option chosen, its text, rule and whether it edits, for a rejection the
  * departure it rejects; its note; and what the run did with
  * the finding before, the last fixer answer and the files of that unit's
- * revisions for it, or none when no fixer saw it. Null for a finding
- * nobody answered, or whose answer the tree already holds, which owes no
- * edit and so is no fixer's to apply.
+ * revisions for it, or none when no fixer saw it. An answer an answer
+ * pass applied is given too, naming that pass: a batch the run budget
+ * left, launched by a reopened fix pass after the pass, keeps what the
+ * tree holds rather than apply the default again (R13 of resumable
+ * runs). Null for a finding nobody answered, or whose answer the tree
+ * held when it was recorded or a batch of the fixes applied, which owes
+ * no edit and so is no fixer's to apply.
  */
 function answeredFor(review: ReviewState, decision: FixerDecision | null, id: string): AnsweredFinding | null {
   const standing = standingAnswer(review, id);
-  if (standing === null || standing.appliedBy !== null || decision === null) return null;
+  if (standing === null || decision === null) return null;
+  const appliedBy = standing.appliedBy;
+  if (appliedBy !== null && (appliedBy === 'tree' || appliedBy.phase !== 'answer')) return null;
   const fix = review.fix;
   const last = fix === null ? null : lastAnswerOf(fix, id);
   const files = last === null || fix === null ? [] : [...new Set(unitRevisions(fix, last.phase, last.key).filter((revision) => revision.change.findings.includes(id)).flatMap((revision) => revision.files.map((file) => file.path)))].sort();
-  const shared = { note: standing.note, before: last === null ? null : { status: last.finding.status, note: last.finding.note, files } };
+  const shared = { note: standing.note, before: last === null ? null : { status: last.finding.status, note: last.finding.note, files }, appliedByPass: appliedBy === null ? null : appliedBy.key };
   const answer = standing.answer;
   // The ledger admits an answer only as its decision does (`admits`), so these hold for every answer recorded.
   switch (answer.kind) {

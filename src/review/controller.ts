@@ -51,6 +51,7 @@ import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktree
 import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { foldedWith } from './claim-events.ts';
+import { continueCommand, namedRoles } from './continue-command.ts';
 import { headOf, resetIndex, seriesSettleOf } from './commit.ts';
 import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
@@ -792,6 +793,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             { kind: 'phase.finished', version: 6, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
+          // A fix pass the run budget stopped is continued by the same command with a higher budget, which the line names (R11, R15 of resumable runs).
+          const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
+          if (stoppedSpend !== null) log(`run ${runId}: the run budget stopped its fix pass; ${continueCommand(state, engineEntry, namedRoles(options.rolesRoot), stoppedSpend)} continues it`);
           break;
         }
       }

@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, lastAnswerOf, lastCurrentRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -325,13 +325,18 @@ function exhaustedOutcome(review: ReviewState, unit: Unit, state: UnitState | un
 const settled = (review: ReviewState, unit: Unit): boolean => isAnswered(review, unit.phase, unit.key) || degraded(review, unit);
 
 /**
- * Whether a fixer batch must wait for its cluster (R18 of the fix pass):
- * an earlier batch of the same cluster has not settled, so its files may
- * still have an editor.
+ * Whether a fixer batch must wait (R18, R21 of the fix pass; PD13 of
+ * resumable runs): an earlier batch of the same cluster has not settled,
+ * so its files may still have an editor; or, for a batch of the second
+ * round, a batch of the first round of any cluster has not, as when a
+ * reopened fix pass launches a first-round batch the run budget left in a
+ * run whose second round an older engine planned already.
  */
 function waitsForItsCluster(review: ReviewState, unit: Unit): boolean {
   if (unit.phase !== 'fixes' || review.fix === null) return false;
-  return earlierBatches(review.fix, unit.key).some((batch) => !settled(review, { phase: 'fixes', key: batch.key, role: 'fixer' }));
+  const unsettled = (key: string): boolean => !settled(review, { phase: 'fixes', key, role: 'fixer' });
+  if (earlierBatches(review.fix, unit.key).some((batch) => unsettled(batch.key))) return true;
+  return roundOf(review.fix, unit.key) === 2 && (review.fix.plan?.batches ?? []).some((batch) => unsettled(batch.key));
 }
 
 /** Whether a unit may be given a worker: not settled, with an attempt left, and not waiting on an earlier batch of its cluster. */
@@ -619,8 +624,8 @@ export function nextStep(review: ReviewState, live: Live): Step {
     return capacity > 0 ? { kind: 'launch', units: launchable.slice(0, capacity) } : { kind: 'await' };
   }
   if (running.length > 0) return { kind: 'await' };
-  // Once the first round of the fixes has settled, the findings blocked only on other clusters' files get their second round (R21 of the fix pass).
-  if (phase === 'fixes' && review.fix !== null && review.fix.plan !== null && review.fix.secondRound === null) return { kind: 'plan-second-round', plan: secondRoundOf(review) };
+  // Once the first round of the fixes has settled, the findings blocked only on other clusters' files get their second round (R21 of the fix pass); not while the run budget left a first-round batch, which a reopened fix pass launches first (PD13 of resumable runs).
+  if (phase === 'fixes' && review.fix !== null && review.fix.plan !== null && review.fix.secondRound === null && secondRoundPlannable(review.fix)) return { kind: 'plan-second-round', plan: secondRoundOf(review) };
   // An editing phase's tree is checked whole once its last unit settled, so a change no answer accounted for blocks it (TD2 of the fix pass).
   if (isEditingPhase(phase) && units.length > 0 && !checks.some((check) => check.moment === 'end')) return { kind: 'check-worktree', phase, attempt, moment: 'end' };
   const outcome = units.some((unit) => degraded(review, unit)) ? 'degraded' : 'completed';

@@ -409,11 +409,14 @@ export interface FixerTaskFinding {
  * departure it rejects, whose rule the fix is to follow; an acceptance
  * carries nothing more. Then the note, and what the run did with the
  * finding before, the last fixer's status and note and the files of its
- * revisions, or null when no fixer saw it.
+ * revisions, or null when no fixer saw it; and the answer pass that
+ * already applied it, or null while it owes an edit (R13 of resumable
+ * runs).
  */
 export type AnsweredFinding = {
   readonly note: string | null;
   readonly before: { readonly status: string; readonly note: string; readonly files: readonly string[] } | null;
+  readonly appliedByPass: string | null;
 } & (
   | { readonly kind: 'option'; readonly option: number; readonly chosen: { readonly option: string; readonly rule: string; readonly edits: boolean } }
   | { readonly kind: 'reject'; readonly departure: FixerDeparture }
@@ -530,7 +533,9 @@ function answeredLines(answered: AnsweredFinding): string[] {
   const line = `${answerLine(answered)}${note}`;
   const before = answered.before;
   const did = before === null ? 'no fixer saw it before' : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? '' : `, in ${before.files.join(', ')}`}`;
-  return [`        ${line}`, `        before the answer: ${did}`];
+  // A batch a reopened fix pass launches after an answer pass applied its finding's answer keeps that edit (R13 of resumable runs).
+  const applied = answered.appliedByPass === null ? [] : [`        the answer pass ${answered.appliedByPass} already applied this answer, and the tree holds it: answer already-applied and keep that edit, and do not apply the default again`];
+  return [`        ${line}`, `        before the answer: ${did}`, ...applied];
 }
 
 /** The author's answer as a fixer's task words it, by its kind. */

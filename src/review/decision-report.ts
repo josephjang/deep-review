@@ -13,7 +13,7 @@ import type { RecordedDecision } from '../checkpoint/events.ts';
 import { appliedOptionOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { codeSpan, inlineText } from './markdown.ts';
-import { shellQuoted } from './shell.ts';
+import { terminalQuoted } from './shell.ts';
 import { rankedFindings } from './state.ts';
 import { decisionCounts, decisionCountWords, type LeaveReason } from './vocabulary.ts';
 
@@ -94,13 +94,6 @@ export const answerCommand = (id: string, options: number): string => `deep-revi
 /** The command that reviews a departure, its finding filled in, as a reader runs it. */
 export const reviewCommand = (id: string): string => `deep-review ${answerArguments(id, '--accept')}`;
 
-/**
- * The engine's path as a person's terminal takes it: in double quotes,
- * which cmd.exe, bash and PowerShell all unquote, unless the path holds a
- * `$`, a backtick or a `"`, which bash or PowerShell would expand or end
- * inside double quotes; such a path is quoted by `shellQuoted` instead.
- */
-const terminalQuoted = (path: string): string => (/[$`"]/.test(path) ? shellQuoted(path) : `"${path}"`);
 
 /**
  * How a person runs the answer command (R9, PD5 of the skill surface
