@@ -29,6 +29,8 @@ describe('the skill texts', () => {
       for (const flag of ['--worktree', '--last-commit', '--branch', '--base <rev>', '--ref <ref>', '--from <rev> --to HEAD', '--merge-base', '--path <path>']) assert.ok(text.includes(flag), flag);
       assert.match(text, /Exit code 0: the last line of stdout is the report's path/);
       assert.match(text, /Exit code 2: the run is blocked or was refused/);
+      // The blocker as printed and nothing more: the interactive smoke showed a model that retold a budget block wrongly.
+      assert.match(text, /Show both verbatim in a code\s+block and stop, with no account of your own of what the run did,\s+spent or left undone\./);
       assert.match(text, /Any other exit code: show stderr verbatim/);
       assert.match(text, /wait for it to exit/);
       assert.match(text, /Do not poll the\s+ledger/);
@@ -122,9 +124,11 @@ describe('the skill texts', () => {
       assert.ok(status !== null && status.index! < show.index!, 'status runs before config show');
       assert.equal(status[0].replace(/ status$/, ' review '), review[0].slice(0, review[0].indexOf(' review ') + ' review '.length));
       assert.match(step3, /When it prints no line that starts with `Run `, no run is active\./);
-      assert.match(step3, /When `status` prints a `Run ` line instead, that run is active and the\s+review below resumes it: run no `config show`, and in that message\s+quote the `Run ` line and the `Settings:` line of `status` exactly as\s+it prints them, and say that the review continues that run with the\s+scope and the settings it recorded and ignores the scope flags\./);
+      assert.match(step3, /When `status` prints a `Run ` line instead, that run is active and the\s+review below resumes it: run no `config show`, and in that message\s+copy the `Run ` line and the `Settings:` line of `status` into a code\s+block, character for character, and say that the review continues\s+that run with the scope and the settings it recorded and ignores the\s+scope flags\./);
       // In the reply, not only as the command's output: the smoke on Claude Code showed a model that ran config show and told the user nothing of it.
-      assert.match(step3, /When it exits 0, write the user a message before your next tool call,\s+in this same reply: quote its `Scope:` line and the `budget\.usd` line\s+under its `Settings:` exactly as it prints them, and say whether the\s+run fixes\./);
+      assert.match(step3, /When it exits 0, write the user a message before your next tool call,\s+in this same reply: copy its `Scope:` line and the `budget\.usd` line\s+under its `Settings:` into a code block, character for character, and\s+below it say whether the run fixes\./);
+      // Copied, not retold: the interactive smoke showed a model that called the base after `from` the commit reviewed.
+      assert.match(step3, /Do not restate them in your own\s+words: the commit after `from` is the base the change is measured\s+from, not the commit the review reads\./);
       assert.match(step3, /The user does not see the command's output, so this message is where\s+they see the scope\./);
       // A reply with the message alone ends the turn: the allowed-tools grant lapses in Claude Code, and `codex exec` ends the session, so no review runs.
       assert.match(step3, /Then, in the same reply, start the review at once;\s+the message does not end your turn: do not ask the user to confirm,\s+and do not wait for an answer\./);
@@ -190,8 +194,11 @@ describe('the skill texts', () => {
     assert.ok(commands.length >= 4, 'config show, review, commit and answer');
     for (const command of commands) assert.ok(command.trimStart().startsWith(prefix), `${command.trim()} is a command the rule approves`);
     assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}`));
+    // The rule names Bash, so the skill tells the model to use the Bash tool, which a model on Windows otherwise may not.
+    assert.match(text, /Run them with the Bash tool: the approval in this skill's front matter\s+names Bash commands only\./);
     // Codex has no such setting, so its skill has no such line.
     assert.ok(!frontMatter('skill/codex/SKILL.md').some((line) => line.startsWith('allowed-tools:')));
+    assert.doesNotMatch(read('skill/codex/SKILL.md'), /Bash tool/);
   });
 
   // R5 of the skill surface corrections: the autocomplete of Claude Code shows what the user can type after the command.
@@ -238,6 +245,8 @@ describe('the skill texts', () => {
     'skill/claude/skills/deep-review/SKILL.md': [
       'description: Deep review of one change by the deep-review engine, a Node program installed with this plugin. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for deep-review by name.\n',
       'disable-model-invocation: true\n',
+      // The approval names Bash commands only; the interactive smoke showed a model on Windows run every engine command through the PowerShell tool and prompt each time (R4).
+      'Run them with the Bash tool: the approval in this skill\'s front matter\nnames Bash commands only.\n',
       'allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)\n',
       'argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
