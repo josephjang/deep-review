@@ -131,10 +131,15 @@ chained before or after it.
    review would be lost; do not offer it then.
 8. Any other exit code: show stderr verbatim and stop.
 
-When the user asks how deep-review is configured, or why a run reviewed
-what it did, run the `config show` command of step 3 with the same
-scope flags and no `--fix`, and show all that it prints. When the user
-asks to change a preference, name the file that
+When the user asks how deep-review is configured, or what a run would
+take now, run the `config show` command of step 3 with the same scope
+flags and no `--fix`, and show all that it prints. When the user asks
+why a run reviewed what it did, answer from that run's own record, not
+from `config show`, which reads today's files and flags: for the active
+run, run the `status` command of step 3 and show all that it prints;
+for a finished run, show the `Settings:` line of its report's header
+and its `## Limitations` section exactly as the report prints them.
+When the user asks to change a preference, name the file that
 `config show` lists for it. When the user asks for a configuration file
 that does not exist yet, run the `main.mjs` of step 3 with only
 `config init --repository`, `config init --operator` or

@@ -779,7 +779,10 @@ first that the engine's workers will edit the working tree and that it
 runs the check commands it chose from the repository, and afterwards
 offers to commit the edits with `deep-review commit`. Asked for a
 configuration file, it writes it with `config init --repository`,
-`--operator` or `--clone`. The skill's `allowed-tools` approves the
+`--operator` or `--clone`. Asked why a run reviewed what it did, it
+answers from that run's record, `status` for the active run and the
+report's `Settings:` line and Limitations for a finished one, since
+`config show` says only what a run would take now. The skill's `allowed-tools` approves the
 engine's own command with any of its arguments, and nothing else, for
 the turn in which the user invokes it, so the run starts without a
 permission prompt. Those arguments include `--check <kind>=<command>`

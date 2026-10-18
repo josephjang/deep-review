@@ -86,7 +86,13 @@ describe('the skill texts', () => {
 
     it(`${name}: shows the configuration with config show when asked about it, and writes the repository's file only as an edit the user asks for`, () => {
       const text = read(path);
-      assert.match(text, /When the user asks how deep-review is configured, or why a run reviewed\s+what it did, run the `config show` command of step 3 with the same\s+scope flags and no `--fix`, and show all that it prints\./);
+      assert.match(text, /When the user asks how deep-review is configured, or what a run would\s+take now, run the `config show` command of step 3 with the same scope\s+flags and no `--fix`, and show all that it prints\./);
+      // A question about a run is answered from that run's record: config show reads today's files and flags, which may differ from those the run recorded or a resume ignored.
+      assert.match(text, /When the user asks\s+why a run reviewed what it did, answer from that run's own record, not\s+from `config show`, which reads today's files and flags: for the active\s+run, run the `status` command of step 3 and show all that it prints;\s+for a finished run, show the `Settings:` line of its report's header\s+and its `## Limitations` section exactly as the report prints them\./);
+      assert.doesNotMatch(text, /why a run reviewed\s+what it did, run the `config show`/);
+      // The record the skill names holds the run's settings: status and the report give the same settings lines.
+      for (const source of ['src/review/status.ts', 'src/review/report.ts']) assert.ok(read(source).includes('settingsHeaderLine(') && read(source).includes('settingsLimitations('), `${source} prints the run's recorded settings`);
+      assert.ok(read('src/review/report.ts').includes('\'## Limitations\''), 'the report has a Limitations section');
       assert.match(text, /When the user\s+asks to change a preference, name the file that\s+`config show` lists for it\./);
       // R3 of the skill surface corrections: a new file comes from config init, each setting commented at its default, not from TOML the model writes.
       assert.match(text, /When the user asks for a configuration file\s+that does not exist yet, run the `main\.mjs` of step 3 with only\s+`config init --repository`, `config init --operator` or\s+`config init --clone`, for the repository's file, the operator's or\s+this clone's\./);

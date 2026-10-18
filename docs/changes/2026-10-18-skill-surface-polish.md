@@ -52,6 +52,8 @@ The review resumes an active run with the scope and the settings that the run re
 
 The last paragraphs of both skills name `config init --repository`, `--operator` and `--clone`, in place of `review`. The command writes a new file with each setting, its default value and a comment. A user who asks for a policy file gets that file, edited as the user asks. The skill still writes the repository's file only as an edit that the user asks for.
 
+The same paragraph keeps `config show` for how deep-review is configured, that is, what a run takes now. A question about why a run reviewed what it did is answered from the record of that run: `status` for the active run, and for a finished run the `Settings:` line of the header and the Limitations of its report. The `config show` command reads the files and flags of today, which can differ from the ones that the run recorded or that a resume ignored.
+
 ### R4: The Claude Code skill approves its own command for its turn
 
 The frontmatter of the Claude Code skill gets an `allowed-tools` line with one rule. The rule approves the command of the engine under `${CLAUDE_PLUGIN_ROOT}/engine/main.mjs`, with any of its arguments, and nothing else. Those arguments include `--check <kind>=<command>` and `--executable <path>`, which run the command or the binary that they name. The skill passes `--check` only for a command that the user names. Claude Code applies the grant for the turn in which the user invokes the skill, and clears it at the next message. So the review command of step 3 runs without a prompt in that turn. A later turn that runs `commit` or `answer` prompts again, or the user invokes the skill again. Codex does not have this setting, and its skill gets no line.
