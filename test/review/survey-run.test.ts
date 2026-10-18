@@ -7,7 +7,7 @@ import { flagLayerOf } from '../../src/config/resolve.ts';
 import { configurationSource } from '../../src/config/source.ts';
 import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import type { PolicyFile } from '../../src/review/policy.ts';
-import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
+import { blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
 import { fakeClaude } from '../helpers/launcher.ts';
@@ -224,6 +224,9 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
       ] });
       const blocked = await box.review('claude', { fix: halfFlagged });
       assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'check-unavailable' && blocked.blocker.phase === 'survey', JSON.stringify(blocked));
+      // An abandoned run cannot be continued, so the action offers no new run in place of the read-only review (R8, PD7 of the skill surface corrections).
+      assert.equal(blocked.blocker.action, continuedCheckUnavailableAction);
+      assert.equal(box.run().review!.blocker!.action, continuedCheckUnavailableAction, 'the ledger records the action without the clone\'s file');
       reportText(await box.review('claude', { fix: halfFlagged }));
       const state = box.run();
       assert.equal(surveyors(box), 3, 'the review\'s surveyor, and two asked for the checks');

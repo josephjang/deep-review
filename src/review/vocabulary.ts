@@ -202,12 +202,21 @@ export const blockerActions: Readonly<Record<BlockerCode, string>> = {
   'worker-failed': 'run the command again, which gives the failed worker two fresh attempts, or abandon the run',
   budget: 'run the command again with --budget-usd above the spend, or abandon the run',
   drift: 'restore the named files to the bytes the run expected, which the detail gives as evidence paths (a file expected absent is removed), reset a moved HEAD to the recorded head, and run the command again, or abandon the run and start a new one',
-  // The survey blocks before any other worker, so a new run costs one survey; a resume would not read the clone's file (R8, PD7 of the skill surface corrections).
+  // A run not continued from a read-only review blocks in its survey before any other worker, so a new run costs one survey; a resume would not read the clone's file (R8, PD7 of the skill surface corrections). A continued run records continuedCheckUnavailableAction.
   'check-unavailable': 'install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs, or set checks.<kind> in the clone\'s file, which deep-review config init --clone writes, then abandon this run and start a new one, which needs the flag on no resume; this run keeps the settings it recorded',
   'claims-lost': 'run the command again, which seeds the claims directory from the ledger and gives the units that ran without it fresh attempts, or abandon the run',
   'lock-held': 'wait for that engine to finish; the lock clears itself when its process ends',
   'runtime-unqualified': 'fix the runtime installation or pass --executable with a qualifying binary, then run the command again',
 };
+
+/**
+ * The `check-unavailable` action of a run continued from a read-only
+ * review into the fix pass (R8, PD7 of the skill surface corrections):
+ * its survey blocks after the whole review, and an abandoned run cannot
+ * be continued, so the clone's file, which only a new run reads, would
+ * throw that review away; the action names the three ways a resume takes.
+ */
+export const continuedCheckUnavailableAction = 'install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs';
 
 /**
  * The `worker-failed` action when the survey of a fix run blocks (R9 of

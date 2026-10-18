@@ -46,7 +46,7 @@ function surveyedFixRun(): History {
       ],
       note: 'CONTRIBUTING.md links to a style guide outside the repository',
     })
-    .finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'typecheck', command: 'npx tsc --noEmit', source: '.github/workflows/ci.yml', missingTool: 'tsc' }]))
+    .finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'typecheck', command: 'npx tsc --noEmit', source: '.github/workflows/ci.yml', missingTool: 'tsc' }], false))
     .start('survey', 2)
     .add('checks.planned', { checks: [
       { kind: 'build', command: 'npm run build', origin: 'survey', reason: null, source: { path: 'package.json', quote: '"build": "tsc -b"', basis: 'hint' } },
@@ -136,7 +136,7 @@ describe('the report of a surveyed run', () => {
     assert.doesNotMatch(resumedText, /blocked/);
     const blocked = withSurvey(fixRun(), (history) => history
       .start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', answer(80))
-      .finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'test', command: 'npx vitest run', source: 'CONTRIBUTING.md', missingTool: 'vitest' }]))
+      .finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'test', command: 'npx vitest run', source: 'CONTRIBUTING.md', missingTool: 'vitest' }], false))
       .start('survey', 2).worker(81, 'surveyor survey:survey').add('survey.recorded', answer(81))
       .add('checks.planned', plan, 2).finish('survey', 'completed', 2));
     assert.match(conventionsOf(blocked), /^The survey answered 2 times; it last blocked on a check this machine could not run, and the last answer is shown\.$/m);
@@ -183,7 +183,7 @@ describe('the Conventions section of a run continued into the fix pass', () => {
     const missing = [surveyedCheck('build', 'npm run build'), surveyedCheck('typecheck', null), surveyedCheck('lint', 'ruff check .', 'ruff'), surveyedCheck('test', 'npm run test')];
     const history = continuedRun()
       .start('survey', 2).worker(81, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(81), { checks: missing, note: 'ruff is missing' }))
-      .finish('survey', 'blocked', 2, checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }]))
+      .finish('survey', 'blocked', 2, checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }], true))
       .start('survey', 3).worker(82, 'surveyor survey:survey').add('survey.recorded', surveyAnswer(worker(82), { checks: quietSurveyedChecks(), note: 'ruff is installed now' }));
     const section = conventionsReportSection(history.review())!;
     assert.deepEqual(section.slice(-4), [

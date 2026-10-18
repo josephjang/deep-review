@@ -125,13 +125,16 @@ chained before or after it.
    tool this machine lacks; when the user answers it, run the same
    command again, adding `--no-check <kind>` if they choose to go
    without that check or `--check <kind>=<command>` if they name one
-   that runs, and nothing if they installed the tool. When they choose to
-   settle it in the clone's file instead, write that file with
-   `config init --clone` when it does not exist, as the configuration
-   paragraph below says, set its `checks.<kind>` line as they ask, then
-   close the blocked run with `abandon --reason <text>` and run the same
-   command again, which starts a new run: the blocked run keeps the
-   settings it recorded.
+   that runs, and nothing if they installed the tool. When the action
+   names the clone's file and they choose to settle it there instead,
+   write that file with `config init --clone` when it does not exist,
+   as the configuration paragraph below says, set its `checks.<kind>`
+   line as they ask, then close the blocked run with
+   `abandon --reason <text>` and run the same command again, which
+   starts a new run: the blocked run keeps the settings it recorded. The
+   action of a run that `--fix` continued from a read-only review does
+   not name that file, since an abandoned run cannot be continued and its
+   review would be lost; do not offer it then.
 8. Any other exit code: show stderr verbatim and stop.
 
 When the user asks how deep-review is configured, or why a run reviewed

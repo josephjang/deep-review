@@ -516,7 +516,10 @@ the block with no new survey. The action also names `checks.<kind>` in
 the clone's file, which `config init --clone` writes, for a new run in
 place of the blocked one: a resumed run keeps the settings it recorded,
 so only a new run reads that file, and no resume of it needs the flag.
-A survey that fails twice degrades a
+A run that `review --fix` continued from a read-only review blocks in
+its survey after that whole review, and an abandoned run cannot be
+continued, so its action leaves the clone's file out and names the
+three ways alone. A survey that fails twice degrades a
 read-only review, `CONVENTIONS` not run when no source is left, and
 blocks a fix run until the command runs again or flags settle all four
 kinds; a fix run whose flags already settle all four goes on without

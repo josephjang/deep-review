@@ -76,7 +76,9 @@ A fixer's start line, `worker fixer fixes:<key>: started`, gets the position of 
 
 The action of the `check-unavailable` blocker gets a fourth option: a `checks.<kind>` line in the clone's file, which `deep-review config init --clone` writes, and then a new run in place of the blocked run. No resume of the new run needs the flag again. The three options of today remain. The ledger records the action as a string, and no schema changes.
 
-Step 7 of both skills says the same. When the user puts the line in the clone's file, the skill abandons the blocked run and runs the command again, which starts the new run.
+The fourth option is for a run that was not continued from a read-only review. A run that `review --fix` continued records the action with the three options of today, and PD7 says why.
+
+Step 7 of both skills says the same. When the action names the clone's file and the user puts the line there, the skill abandons the blocked run and runs the command again, which starts the new run. When the action does not name the file, the skill does not offer it.
 
 ### R9: The report says one time how a person runs the answer command
 
@@ -118,7 +120,7 @@ The skill text and the output lines change together, in one proposal and one pul
 
 A resumed run keeps the settings that it recorded (R6 of the configuration). It names a clone's file that changed or is new since then, and it does not apply it. So a `checks.<kind>` line that the user adds after the block does not change the blocked run. A resume after that edit surveys again, pays for a new surveyor, and blocks again. Thus R8 names a new run, and the action says so.
 
-The cost is small. The survey blocks before any other worker, so the blocked run spent only its surveyor, and the new run surveys again. The alternative reads the clone's check settings again on each resume until the checks are planned. That changes the rule of R6 of the configuration for one kind of setting, and this proposal does not change the configuration.
+The cost is small for a run that was not continued. Its survey blocks before any other worker, so the blocked run spent only its surveyor, and the new run surveys again. A run that `review --fix` continued from a read-only review is different. Its survey asks for the checks after the whole review, and a run that is abandoned cannot be continued. So a new run in its place loses the findings, the decisions and the spend of that review, and reviews the change again. Thus the action of a continued run does not name the clone's file. The alternative reads the clone's check settings again on each resume until the checks are planned. That changes the rule of R6 of the configuration for one kind of setting, and this proposal does not change the configuration.
 
 ## Against the vision note
 

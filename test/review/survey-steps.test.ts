@@ -74,20 +74,20 @@ describe('nextStep in the survey', () => {
 
   it('blocks with check-unavailable when the answer of this attempt names a missing tool, naming the kind, command, source and tool (R15)', () => {
     const step = nextStep(answered(missingRuff).review(), idle);
-    assert.deepEqual(step, { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'blocked', blocker: checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }]) });
+    assert.deepEqual(step, { kind: 'finish-phase', phase: 'survey', attempt: 1, outcome: 'blocked', blocker: checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }], false) });
     assert.ok(step.kind === 'finish-phase' && step.blocker !== null);
     if (step.kind === 'finish-phase' && step.blocker !== null) {
       assert.equal(step.blocker.detail, 'the project defines a check this machine cannot run: lint: `ruff check .` (from .github/workflows/ci.yml), ruff not found');
       assert.equal(step.blocker.action, blockerActions['check-unavailable']);
     }
-    const two = checkUnavailableBlocker([{ kind: 'lint', command: 'a', source: 's', missingTool: 'x' }, { kind: 'test', command: 'b', source: 's', missingTool: 'y' }]);
+    const two = checkUnavailableBlocker([{ kind: 'lint', command: 'a', source: 's', missingTool: 'x' }, { kind: 'test', command: 'b', source: 's', missingTool: 'y' }], false);
     assert.equal(two.detail, 'the project defines checks this machine cannot run: lint: `a` (from s), x not found, test: `b` (from s), y not found');
     // A flag of the same invocation settles the kind before the block: nothing blocks.
     assert.equal(nextStep(answered(missingRuff).review(), live({ checkSettings: flags({}, ['lint']) })).kind, 'plan-checks');
   });
 
   it('plans from the blocked survey with no worker when the re-entering invocation\'s flags settle the block, and surveys again otherwise (TD7)', () => {
-    const blocked = answered(missingRuff).finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }])).start('survey', 2);
+    const blocked = answered(missingRuff).finish('survey', 'blocked', 1, checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }], false)).start('survey', 2);
     const dropped = nextStep(blocked.review(), live({ checkSettings: flags({}, ['lint']) }));
     assert.ok(dropped.kind === 'plan-checks', JSON.stringify(dropped));
     assert.deepEqual(dropped.kind === 'plan-checks' ? dropped.checks.find((check) => check.kind === 'lint') : null, { kind: 'lint', command: null, origin: 'setting', layer: 'flag', reason: 'dropped by --no-check', source: null });
@@ -187,7 +187,7 @@ describe('nextStep in the survey', () => {
   });
 
   it('goes on from an earlier answer, its convention sources standing, when the flags settle a survey that failed twice after it, as the action says (R9)', () => {
-    const unavailable = checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }]);
+    const unavailable = checkUnavailableBlocker([{ kind: 'lint', command: 'ruff check .', source: '.github/workflows/ci.yml', missingTool: 'ruff' }], false);
     const resurveyed = answered(missingRuff).finish('survey', 'blocked', 1, unavailable).start('survey', 2);
     const twice = failedOnce(failedOnce(resurveyed, 2), 3);
     const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);

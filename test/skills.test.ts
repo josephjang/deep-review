@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { engineBundleName, engineDirectoryName } from '../src/build/bundle.ts';
 import { settingNames } from '../src/config/settings.ts';
-import { blockerActions } from '../src/review/vocabulary.ts';
+import { blockerActions, continuedCheckUnavailableAction } from '../src/review/vocabulary.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const read = (path: string): string => readFileSync(resolve(root, path), 'utf8');
@@ -146,9 +146,12 @@ describe('the skill texts', () => {
       assert.match(text, /A `check-unavailable` blocker names a check the project defines whose\s+tool this machine lacks/);
       assert.match(text, /run the same\s+command again, adding `--no-check <kind>` if they choose to go\s+without that check or `--check <kind>=<command>` if they name one\s+that runs, and nothing if they installed the tool/);
       // R8 and PD7 of the skill surface corrections: the clone's file settles the kind for a new run, so the skill closes the blocked one first.
-      assert.match(text, /When they choose to\s+settle it in the clone's file instead, write that file with\s+`config init --clone` when it does not exist, as the configuration\s+paragraph below says, set its `checks\.<kind>` line as they ask, then\s+close the blocked run with `abandon --reason <text>` and run the same\s+command again, which starts a new run: the blocked run keeps the\s+settings it recorded\./);
-      // The way out the skill offers is one the engine's action names.
+      assert.match(text, /When the action\s+names the clone's file and they choose to settle it there instead,\s+write that file with `config init --clone` when it does not exist,\s+as the configuration paragraph below says, set its `checks\.<kind>`\s+line as they ask, then close the blocked run with\s+`abandon --reason <text>` and run the same command again, which\s+starts a new run: the blocked run keeps the settings it recorded\./);
+      // A continued run's abandon would lose its read-only review, so its action leaves the clone's file out, and the skill offers it only when the action names it.
+      assert.match(text, /The\s+action of a run that `--fix` continued from a read-only review does\s+not name that file, since an abandoned run cannot be continued and its\s+review would be lost; do not offer it then\./);
+      // The way out the skill offers is one the engine's action names, and only the action of a run not continued names it.
       assert.ok(blockerActions['check-unavailable'].includes('checks.<kind> in the clone\'s file, which deep-review config init --clone writes, then abandon this run and start a new one'));
+      assert.ok(!continuedCheckUnavailableAction.includes('clone\'s file'));
     });
   }
 

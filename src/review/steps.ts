@@ -20,6 +20,7 @@ import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, rankedFindings, workingList } from './state.ts';
 import {
   blockerActions,
+  continuedCheckUnavailableAction,
   finderAngles,
   isBudgetDegradingPhase,
   isCheckPhase,
@@ -350,12 +351,15 @@ export function workerFailedBlocker(review: ReviewState, unit: Unit, state: Unit
  * The blocker the survey finishes with when the project defines a check
  * this machine cannot run, by the surveyor's word (R15, PD12 of the
  * repository survey): each such kind with its command, its source and
- * the missing tool, as many as the detail holds.
+ * the missing tool, as many as the detail holds. A run `continued` from
+ * a read-only review names no new run in its action, since abandoning it
+ * would throw that review away (R8, PD7 of the skill surface corrections).
  */
-export function checkUnavailableBlocker(unavailable: readonly UnavailableCheck[]): Blocker {
+export function checkUnavailableBlocker(unavailable: readonly UnavailableCheck[], continued: boolean): Blocker {
   const prefix = `the project defines ${unavailable.length === 1 ? 'a check' : 'checks'} this machine cannot run: `;
   const items = unavailable.map((check) => `${check.kind}: \`${check.command}\` (from ${check.source}), ${check.missingTool} not found`);
-  return { code: 'check-unavailable', detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action: blockerActions['check-unavailable'] };
+  const action = continued ? continuedCheckUnavailableAction : blockerActions['check-unavailable'];
+  return { code: 'check-unavailable', detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action };
 }
 
 /**
@@ -484,7 +488,7 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   if (answer !== null) {
     const resolved = resolveChecks(answer, live.checkSettings);
     if (answered && resolved.uncovered.length > 0) throw new Error(`The survey answered in this attempt leaves ${resolved.uncovered.join(', ')} unchosen, which its task asked for`);
-    if (answered && resolved.unavailable.length > 0) return { kind: 'finish-phase', phase: 'survey', attempt, outcome: 'blocked', blocker: checkUnavailableBlocker(resolved.unavailable) };
+    if (answered && resolved.unavailable.length > 0) return { kind: 'finish-phase', phase: 'survey', attempt, outcome: 'blocked', blocker: checkUnavailableBlocker(resolved.unavailable, review.continuedFrom !== null) };
     if (resolved.unavailable.length === 0 && resolved.uncovered.length === 0) return { kind: 'plan-checks', checks: resolved.checks, without: null };
     return null;
   }
