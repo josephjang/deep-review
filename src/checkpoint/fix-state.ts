@@ -410,7 +410,7 @@ export function clusterOfBatch(fix: FixState, key: string): PlannedCluster | nul
  * again, since it is planned only when the first has settled.
  */
 export function batchPosition(fix: FixState, key: string): { readonly index: number; readonly count: number } | null {
-  const batches = planOfRound(fix, roundOf(fix, key))?.batches ?? [];
+  const { batches } = roundPlan(fix, roundOf(fix, key));
   const index = batches.findIndex((batch) => batch.key === key);
   return index < 0 ? null : { index: index + 1, count: batches.length };
 }
