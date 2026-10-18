@@ -260,6 +260,8 @@ The proposal rejects a record of these writes as a revision of the cut check. Th
 
 After a hard kill of the engine alone, its children can continue. On POSIX, they run in their own process groups. On Windows, the direct children end with the engine, but their descendants continue (tested). A check or a fixer that continues can write files while the resumed run reads them. Thus each child ends with the engine (R8). The design gives the means.
 
+On 2026-10-19, the author chose the guard of the design on each system, under the condition of PD1. Each system has a means of its own, but none serves all three. Windows ends each process of a job object when the last handle to the job closes, but Node cannot make a job object. Linux has a signal on the death of a parent and PID namespaces, each with limits, and macOS has neither. A watcher process is the usual means where the system has none, and the guard is such a watcher.
+
 ### PD9: `commit` records its series before the branch moves
 
 `commit` moves the branch and then records the commits. A stop between the two leaves commits on the branch that the ledger does not hold, and each later command refuses. Principle 2 asks for the record before the action. Thus the ledger records the series first, and the next command completes or drops it (R9).

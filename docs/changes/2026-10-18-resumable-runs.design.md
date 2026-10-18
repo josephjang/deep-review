@@ -339,11 +339,15 @@ The rule "a run is old when a worker revised the tree after it" covers each orde
 
 One list in `process.ts` serves checks and workers, so the two cannot disagree on a mark. A wait in the controller was the first design. It held a checks phase or a degradation for 10 seconds after the recorded end of a failed child. It was rejected for the reasons of PD5, and also for two faults of its own. It held back the record of the other workers in flight, and a change of the clock moved its end. The list does not hold 1, because `taskkill` gives it, and so does a program that fails.
 
-### TD5: A guard per child, not a cleanup at the resume
+### TD5: A guard per child, not a cleanup at the resume or the means of each system
 
 A cleanup at the resume was the other choice. On POSIX it can kill each recorded process group that is still alive. On Windows it must find the descendants of a dead child by their parent pid, with a list of the processes from WMI or PowerShell. It must also guard against reused pids by the start time. That list is slow and depends on a tool that the engine does not use today.
 
 Also, an orphan writes to the tree from the stop to the resume, which can be hours later. The guard ends the child at the stop, on both systems, with code that the engine already has (`killTreeNow`). The cost is one more Node process for each child, which starts in a fraction of a second.
+
+The means of each system were rejected for now. A Windows job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` ends the whole tree when its last handle closes, also after a hard kill of its owner. Node has no API for it, and the job of libuv permits silent breakaway, so the children of a child leave it. A native helper, such as the Rust tool `w32die`, makes the repository ship a native binary for each architecture, and today it ships none.
+
+On Linux, `PR_SET_PDEATHSIG` reaches only the direct child, and `unshare --pid --fork --kill-child` needs user namespaces, which some systems restrict. macOS has no such means. Revisit the job object if a run shows the guard fail on Windows.
 
 ### TD6: `commits.prepared` before the branch moves, not an adoption by the trailers of the commits
 
