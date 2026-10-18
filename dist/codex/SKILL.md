@@ -55,9 +55,7 @@ chained before or after it.
    When it exits 0, write the user a message before your next tool call,
    in this same reply: copy its `Scope:` line and the `budget.usd` line
    under its `Settings:` into a code block, character for character, and
-   below it say whether the run fixes. Do not restate them in your own
-   words: the commit after `from` is the base the change is measured
-   from, not the commit the review reads.
+   below it say whether the run fixes.
    When `status` prints a `Run ` line instead, that run is active and the
    review below resumes it: run no `config show`, and in that message
    copy the `Run ` line and the `Settings:` line of `status` into a code

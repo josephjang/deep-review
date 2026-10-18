@@ -25089,8 +25089,12 @@ function resolveScopeRequest(repo, input2, exclude = []) {
   return { request, mode, base, target, guard: guardBefore, changes, excluded: excluded2 };
 }
 function scopeBase(repo, input2) {
+  return scopeEnds(repo, input2).base;
+}
+function scopeEnds(repo, input2) {
   validateRequest(input2);
-  return chooseMode(repo, normalizeRequest(input2), head(repo)).base;
+  const { base, target } = chooseMode(repo, normalizeRequest(input2), head(repo));
+  return { base, target };
 }
 function captureScope(checkpoint, runId, input2, options2 = {}) {
   const state = checkpoint.fold(runId);
@@ -25589,7 +25593,8 @@ function showLines(resolved, scope) {
   const width = Math.max(...names.map((name) => name.length));
   const repository = resolved.repository;
   return [
-    `Scope: ${scope.mode} from ${scope.base}${scope.empty === null ? "" : `; ${scope.empty}`}`,
+    // Both ends, so a retelling cannot take the start for the commit reviewed (R11 of the skill surface corrections).
+    `Scope: ${scope.mode}, the change from ${scope.base} to ${scope.target ?? "the working tree"}${scope.empty === null ? "" : `; ${scope.empty}`}`,
     `Runtime: ${resolved.runtime}`,
     "Settings:",
     ...names.map((name) => {
@@ -32924,9 +32929,9 @@ async function configCommand(values, rest, io) {
   const { runtime, source } = invocationOf(values, io, location.worktree, location.commonDir);
   const adapter = defaultRuntimes().get(runtime);
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
-  const base = scopeBase(location.worktree, chosen.request);
+  const { base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  let shown = { mode: chosen.mode, base, empty: null };
+  let shown = { mode: chosen.mode, base, target, empty: null };
   try {
     const listed = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, "scope.exclude") ?? []);
     resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
