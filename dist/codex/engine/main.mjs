@@ -22894,6 +22894,81 @@ function decode3(row) {
   return { ...row, payload: JSON.parse(row.payload) };
 }
 
+// src/runtime/claude-powershell.ts
+import { lstatSync as lstatSync2 } from "node:fs";
+import { posix, win32 } from "node:path";
+
+// src/runtime/environment.ts
+function comparable(name, platform) {
+  return platform === "win32" ? name.toUpperCase() : name;
+}
+function spellingsOf(environment, name, platform) {
+  const wanted = comparable(name, platform);
+  return Object.entries(environment).filter(([key]) => comparable(key, platform) === wanted);
+}
+function withoutVariables(environment, names, platform) {
+  const removed = new Set(names.map((name) => comparable(name, platform)));
+  return Object.fromEntries(Object.entries(environment).filter(([key]) => !removed.has(comparable(key, platform))));
+}
+function pinVariables(environment, values, platform) {
+  return { ...withoutVariables(environment, Object.keys(values), platform), ...values };
+}
+function withPathFirst(environment, directories, platform) {
+  if (directories.length === 0) return environment;
+  const [effective] = spellingsOf(environment, "PATH", platform).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const current = effective?.[1];
+  const delimiter3 = platform === "win32" ? ";" : ":";
+  return pinVariables(environment, { [effective?.[0] ?? "PATH"]: [...directories, ...current === void 0 || current === "" ? [] : [current]].join(delimiter3) }, platform);
+}
+var buildServerPins = {
+  MSBUILDDISABLENODEREUSE: "1",
+  DOTNET_CLI_USE_MSBUILD_SERVER: "0",
+  UseSharedCompilation: "false",
+  UseRazorBuildServer: "false"
+};
+var launcherPins = [...Object.keys(buildServerPins), "TEMP", "TMP", "TMPDIR"];
+function workerEnvironment(environment, scratch, platform = process.platform, toolsPath = []) {
+  const temporary = scratch === null ? {} : { TEMP: scratch, TMP: scratch, TMPDIR: platform === "win32" ? scratch.replaceAll("\\", "/") : scratch };
+  return withPathFirst(pinVariables(environment, { ...buildServerPins, ...temporary }, platform), toolsPath, platform);
+}
+
+// src/runtime/claude-powershell.ts
+var lstatPresent = (path) => {
+  try {
+    lstatSync2(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+function firstPwshOnPath(environment, present = lstatPresent) {
+  const path = spellingsOf(environment, "PATH", "win32").map(([, value]) => value ?? "").find((value) => value.length > 0) ?? "";
+  for (const directory of path.split(win32.delimiter)) {
+    const trimmed = directory.replaceAll('"', "").trim();
+    if (trimmed.length === 0) continue;
+    const candidate = win32.join(trimmed, "pwsh.exe");
+    if (present(candidate)) return candidate;
+  }
+  return null;
+}
+var isStoreAlias = (path) => posix.normalize(path.replaceAll("\\", "/")).toLowerCase().includes("/microsoft/windowsapps/");
+function storePowerShellWarning(platform, environment, present = lstatPresent) {
+  if (platform !== "win32") return null;
+  if (spellingsOf(environment, "CLAUDE_CODE_USE_POWERSHELL_TOOL", platform).some(([, value]) => value === "0")) return null;
+  const pwsh = firstPwshOnPath(environment, present);
+  if (pwsh === null || !isStoreAlias(pwsh)) return null;
+  return [
+    `deep-review: PowerShell 7 on this machine is the Microsoft Store build (${pwsh}).`,
+    "With it, Claude Code cannot check the commands of its PowerShell tool, so each one asks for approval, deep-review's too (https://github.com/anthropics/claude-code/issues/102430).",
+    'To fix it, add "env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0" } to ~/.claude/settings.json, so that Claude Code uses Git Bash, which needs Git for Windows.',
+    "To keep PowerShell instead, install PowerShell 7 from the MSI or the zip and put its folder before %LOCALAPPDATA%\\Microsoft\\WindowsApps on PATH."
+  ].join(" ");
+}
+function sessionStartOutput(warning) {
+  return warning === null ? "" : `${JSON.stringify({ systemMessage: warning })}
+`;
+}
+
 // src/checkpoint/locate.ts
 import { realpathSync } from "node:fs";
 import { join as join4, resolve as resolve4 } from "node:path";
@@ -22901,7 +22976,7 @@ import { join as join4, resolve as resolve4 } from "node:path";
 // src/runtime/git-sync.ts
 import { execFileSync } from "node:child_process";
 import { existsSync as existsSync2 } from "node:fs";
-import { win32 } from "node:path";
+import { win32 as win322 } from "node:path";
 var gitTimeoutMs = 6e4;
 var onDriveOrShare = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/;
 function realGit(run2 = execFileSync, exists = existsSync2) {
@@ -22912,7 +22987,7 @@ function realGit(run2 = execFileSync, exists = existsSync2) {
     return "git";
   }
   if (!onDriveOrShare.test(execPath)) return "git";
-  const binary = win32.join(execPath, "git.exe");
+  const binary = win322.join(execPath, "git.exe");
   return exists(binary) ? binary : "git";
 }
 function gitLocator(resolve12 = realGit) {
@@ -22928,7 +23003,7 @@ function runGitSync(args, options2 = {}, host = {}) {
   const run2 = host.run ?? execFileSync;
   const platform = host.platform ?? process.platform;
   const file2 = host.file ?? installedGit(platform);
-  const detached = platform === "win32" && win32.isAbsolute(file2);
+  const detached = platform === "win32" && win322.isAbsolute(file2);
   const timeout = options2.timeout ?? (detached ? gitTimeoutMs : void 0);
   return run2(file2, args, { ...options2, windowsHide: true, detached, ...timeout === void 0 ? {} : { timeout } });
 }
@@ -22974,7 +23049,7 @@ import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:f
 import { join as join6 } from "node:path";
 
 // src/roles/assemble.ts
-import { lstatSync as lstatSync2, readdirSync, readFileSync as readFileSync2 } from "node:fs";
+import { lstatSync as lstatSync3, readdirSync, readFileSync as readFileSync2 } from "node:fs";
 import { join as join5, resolve as resolve5 } from "node:path";
 
 // src/roles/errors.ts
@@ -23091,10 +23166,10 @@ function loadRoleFragment(rolesRoot, name) {
       throw new InvalidRoleFragmentError(name, `cannot be read: ${error62.message}`);
     }
   };
-  if (examine(() => lstatSync2(directory).isSymbolicLink())) {
+  if (examine(() => lstatSync3(directory).isSymbolicLink())) {
     throw new InvalidRoleFragmentError(name, `is in a ${fragmentsDirectoryName}/ that is a link; fragments live in the roles directory itself`);
   }
-  if (!examine(() => lstatSync2(path).isFile())) throw new InvalidRoleFragmentError(name, "is not a regular file");
+  if (!examine(() => lstatSync3(path).isFile())) throw new InvalidRoleFragmentError(name, "is not a regular file");
   let bytes;
   try {
     bytes = readFileSync2(path);
@@ -23135,7 +23210,7 @@ function reconcileFragments(rolesRoot, manifest) {
       throw new InvalidRoleManifestError(`Cannot list ${fragmentsDirectory}: ${error62.message}`);
     }
   };
-  if (list(() => lstatSync2(fragmentsDirectory).isSymbolicLink())) {
+  if (list(() => lstatSync3(fragmentsDirectory).isSymbolicLink())) {
     throw new InvalidRoleManifestError(`The fragments directory ${fragmentsDirectory} is a link; fragments live in the roles directory itself`);
   }
   const entries = list(() => readdirSync(fragmentsDirectory));
@@ -24154,40 +24229,6 @@ var ReviewRefusedError = class extends EngineError {
   }
 };
 
-// src/runtime/environment.ts
-function comparable(name, platform) {
-  return platform === "win32" ? name.toUpperCase() : name;
-}
-function spellingsOf(environment, name, platform) {
-  const wanted = comparable(name, platform);
-  return Object.entries(environment).filter(([key]) => comparable(key, platform) === wanted);
-}
-function withoutVariables(environment, names, platform) {
-  const removed = new Set(names.map((name) => comparable(name, platform)));
-  return Object.fromEntries(Object.entries(environment).filter(([key]) => !removed.has(comparable(key, platform))));
-}
-function pinVariables(environment, values, platform) {
-  return { ...withoutVariables(environment, Object.keys(values), platform), ...values };
-}
-function withPathFirst(environment, directories, platform) {
-  if (directories.length === 0) return environment;
-  const [effective] = spellingsOf(environment, "PATH", platform).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  const current = effective?.[1];
-  const delimiter3 = platform === "win32" ? ";" : ":";
-  return pinVariables(environment, { [effective?.[0] ?? "PATH"]: [...directories, ...current === void 0 || current === "" ? [] : [current]].join(delimiter3) }, platform);
-}
-var buildServerPins = {
-  MSBUILDDISABLENODEREUSE: "1",
-  DOTNET_CLI_USE_MSBUILD_SERVER: "0",
-  UseSharedCompilation: "false",
-  UseRazorBuildServer: "false"
-};
-var launcherPins = [...Object.keys(buildServerPins), "TEMP", "TMP", "TMPDIR"];
-function workerEnvironment(environment, scratch, platform = process.platform, toolsPath = []) {
-  const temporary = scratch === null ? {} : { TEMP: scratch, TMP: scratch, TMPDIR: platform === "win32" ? scratch.replaceAll("\\", "/") : scratch };
-  return withPathFirst(pinVariables(environment, { ...buildServerPins, ...temporary }, platform), toolsPath, platform);
-}
-
 // src/scope/git.ts
 import { createHash as createHash2 } from "node:crypto";
 var maxOutputBytes = 512 * 1024 * 1024;
@@ -24995,7 +25036,7 @@ function pinnedRole(roles, role) {
 }
 
 // src/scope/capture.ts
-import { lstatSync as lstatSync3, readFileSync as readFileSync5 } from "node:fs";
+import { lstatSync as lstatSync4, readFileSync as readFileSync5 } from "node:fs";
 import { join as join9 } from "node:path";
 
 // src/paths.ts
@@ -25218,7 +25259,7 @@ function readBase(repo, base, entry) {
 }
 function readWorktree(repo, path) {
   const absolute = join9(repo, ...path.split("/"));
-  const stat = lstatSync3(absolute, { throwIfNoEntry: false });
+  const stat = lstatSync4(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
   if (stat.isFile()) return { bytes: readFileSync5(absolute), symlink: false };
@@ -27267,7 +27308,7 @@ function claimFile(dir, rawPath, unit, now = () => /* @__PURE__ */ new Date()) {
 import { isAbsolute as isAbsolute5, relative as relative3, sep as sep3 } from "node:path";
 
 // src/review/locations.ts
-import { closeSync as closeSync3, lstatSync as lstatSync4, openSync as openSync3, readdirSync as readdirSync4, readSync } from "node:fs";
+import { closeSync as closeSync3, lstatSync as lstatSync5, openSync as openSync3, readdirSync as readdirSync4, readSync } from "node:fs";
 import { join as join16 } from "node:path";
 var unlocated = { file: null, line: null, located: false, inScope: false };
 function normalizeFileName(file2) {
@@ -27357,7 +27398,7 @@ function* fileChunks(path) {
 }
 function worktreeLines(worktree, path) {
   const absolute = join16(worktree, ...path.split("/"));
-  const stat = lstatSync4(absolute, { throwIfNoEntry: false });
+  const stat = lstatSync5(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return countLines(readLinkText(absolute));
   if (stat.isFile()) return countLinesOf(fileChunks(absolute));
@@ -28073,7 +28114,7 @@ function renderMail(message, number5, total, diff) {
 }
 
 // src/review/tree.ts
-import { lstatSync as lstatSync5, readFileSync as readFileSync11 } from "node:fs";
+import { lstatSync as lstatSync6, readFileSync as readFileSync11 } from "node:fs";
 import { join as join19 } from "node:path";
 function expectedAt(expected, base, path) {
   return expected.has(path) ? expected.get(path) ?? null : base(path);
@@ -28106,7 +28147,7 @@ function readTreeEntry(worktree, path) {
   const absolute = join19(worktree, ...path.split("/"));
   let stat;
   try {
-    stat = lstatSync5(absolute, { throwIfNoEntry: false });
+    stat = lstatSync6(absolute, { throwIfNoEntry: false });
   } catch (error62) {
     if (error62.code === "ENOTDIR") return null;
     throw error62;
@@ -29267,7 +29308,7 @@ function checkDecisions(output2, count2) {
 
 // src/review/snapshot.ts
 import { createHash as createHash7 } from "node:crypto";
-import { existsSync as existsSync7, lstatSync as lstatSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync12, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync7, lstatSync as lstatSync7, mkdirSync as mkdirSync6, readdirSync as readdirSync5, readFileSync as readFileSync12, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname3, join as join22 } from "node:path";
 var snapshotManifestFileName = "manifest.json";
 var snapshotsDirectoryName = "snapshots";
@@ -29307,7 +29348,7 @@ function readManifest(into) {
 function statOf(worktree, path) {
   let stat;
   try {
-    stat = lstatSync6(join22(worktree, ...path.split("/")), { throwIfNoEntry: false });
+    stat = lstatSync7(join22(worktree, ...path.split("/")), { throwIfNoEntry: false });
   } catch (error62) {
     if (error62.code === "ENOTDIR") return null;
     throw error62;
@@ -32159,7 +32200,7 @@ async function answerRun(options2) {
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter as delimiter2, extname, isAbsolute as isAbsolute8, join as join27, posix, resolve as resolve10, win32 as win322 } from "node:path";
+import { delimiter as delimiter2, extname, isAbsolute as isAbsolute8, join as join27, posix as posix2, resolve as resolve10, win32 as win323 } from "node:path";
 var defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
 var shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
 var windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -32168,7 +32209,7 @@ var unspawnable = (why) => new ReviewRefusedError(
   "runtime-unqualified"
 );
 function refuseShim(executable, platform = process.platform) {
-  const extension = (platform === "win32" ? win322 : posix).extname(executable);
+  const extension = (platform === "win32" ? win323 : posix2).extname(executable);
   if (shellShims.has(extension.toLowerCase())) {
     throw unspawnable(`${executable} is a ${extension} shim, which cannot be spawned without a shell`);
   }
@@ -32503,8 +32544,9 @@ var usage = `usage:
                       [--record-only] [--run <id>] [--budget-usd <usd>] [--roles <dir>] [--repo <dir>]
   deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
+  deep-review hook    session-start   (run by the Claude Code plugin when a session starts; prints a warning for the user, or nothing, and exits 0)
 
-exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
+exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 var options = {
   runtime: { type: "string" },
   executable: { type: "string" },
@@ -32560,7 +32602,8 @@ var allowed = {
   commit: ["run", "change-message", "repo", "help"],
   answer: ["finding", "option", "accept", "reject", "note", "record-only", "run", "budget-usd", "roles", "repo", "help"],
   snapshot: ["finding", "into", "repo", "help"],
-  claim: ["path", "unit", "in", "help"]
+  claim: ["path", "unit", "in", "help"],
+  hook: ["help"]
 };
 var UsageError = class extends EngineError {
   name = "UsageError";
@@ -32690,6 +32733,7 @@ async function run(argv, io) {
   }
   if (!Object.hasOwn(allowed, command)) throw new UsageError(`unknown command ${JSON.stringify(command)}`);
   if (command === "config") return configCommand(values, rest, io);
+  if (command === "hook") return hookCommand(values, rest, io);
   if (rest.length > 0) throw new UsageError(`unexpected argument ${JSON.stringify(rest[0])}`);
   for (const flag of Object.keys(values)) {
     if (values[flag] !== void 0 && !allowed[command].includes(flag)) throw new UsageError(`--${flag} does not apply to ${command}`);
@@ -32709,6 +32753,17 @@ async function run(argv, io) {
     default:
       return abandon(values, io, location.root);
   }
+}
+function hookCommand(values, rest, io) {
+  if (rest.length !== 1 || rest[0] !== "session-start") throw new UsageError(`hook takes session-start${rest.length === 0 ? "" : `, not ${JSON.stringify(rest.join(" "))}`}`);
+  for (const flag of Object.keys(values)) {
+    if (values[flag] !== void 0 && flag !== "help") throw new UsageError(`--${flag} does not apply to hook`);
+  }
+  try {
+    io.stdout(sessionStartOutput(storePowerShellWarning(process.platform, io.environment)));
+  } catch {
+  }
+  return 0;
 }
 function commit(values, io, root, worktree) {
   const checkpoint = openCheckpoint(root, false);

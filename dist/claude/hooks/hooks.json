@@ -1,0 +1,18 @@
+{
+  "description": "deep-review: warn a Windows user whose PowerShell 7 is the Microsoft Store build, with which Claude Code asks to approve every PowerShell command (https://github.com/anthropics/claude-code/issues/102430)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/engine/main.mjs", "hook", "session-start"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
