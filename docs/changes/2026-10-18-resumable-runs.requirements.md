@@ -118,7 +118,7 @@ The ledger records the end of each worker and what the worker contributed, or wh
 
 The ledger records the start of each check. A check can then have a start and no end on the ledger. Such a check, and a check that ended cut (R4), is a cut check. A check that the engine killed at its timeout is cut short too. No check that a kill cut short records a revision, because its writes are not the work of a complete check.
 
-Before the next step after such a check, at once or at the next command, the engine handles the files that the run expects. For each such file that differs from what the run recorded, it keeps the bytes in the tree as evidence. Then it writes back the bytes that the run recorded. The log and the report name each such file. Then a cut check runs again (R3, R4), and a check that timed out keeps its result.
+Before the next step after such a check, at once or at the next command, the engine handles the files that the run expects. For each such file that differs from what the run recorded, it keeps the bytes in the tree as evidence. Then it writes back the bytes that the run recorded. The log and the report name each such file. Then the check runs again, a cut check by R3 and R4. A check that timed out runs again once in the attempt, and a second timeout of the kind is its result.
 
 ### R8: No child of an ended engine continues
 
@@ -250,9 +250,9 @@ A stop can kill a worker before the engine, and the engine then records a failur
 
 A check can write files: a formatter in lint, a generator in build. When a stop cuts it, its writes are on no record, and today the next start of the phase blocks on drift. A person must then write back the bytes that the run expected. The engine knows these bytes, so it does this itself (R7). It first keeps the bytes in the tree as evidence, so nothing is lost if a person also changed one of these files. On 2026-10-18, the author kept this write back, under the condition of PD1.
 
-The same holds for a check that ended cut while the engine lived (R4). Today the engine records the writes of each check that ends as its revision, and `commit` makes that revision a commit. A half rewrite of `dist/` then becomes a commit of its own. Thus a cut run records no revision, and the write back comes before the check runs again. On 2026-10-18, the author chose the same for a check that the engine killed at its timeout, which today records its half rewrite too. Its result stays a timeout and it does not run again, because the engine knows the cause.
+The same holds for a check that ended cut while the engine lived (R4). Today the engine records the writes of each check that ends as its revision, and `commit` makes that revision a commit. A half rewrite of `dist/` then becomes a commit of its own. Thus a cut run records no revision, and the write back comes before the check runs again.
 
-This choice for a timeout does not wait for the test of R2 (PD1), because a timeout is not a stop.
+On 2026-10-18, the author chose the same for a check that the engine killed at its timeout, which today records its half rewrite too. On 2026-10-19, the author chose to run such a check again once, as a cut check runs. A timeout can come from a slow moment of the machine or from its sleep. A second run tells such a moment from a real hang. A second timeout of the kind in one attempt is its result. These choices for a timeout do not wait for the test of R2 (PD1), because a timeout is not a stop.
 
 The proposal rejects a record of these writes as a revision of the cut check. That record can take the edit of a person as the work of the check. The proposal also rejects the block of today for this case, because the engine caused the drift. And it rejects a rerun with no write back. The rerun then starts from half a rewrite. A formatter that a stop cut can leave half a file, and the lint that runs again can fail on it.
 
@@ -339,6 +339,10 @@ A check or a unit that fails for a real reason runs again after each stop of its
 ### A kill with no mark
 
 A stop that ends a child with an ordinary exit code, before it ends the engine, leaves a failure, as today. `taskkill` gives such a code (PD5). The proposal accepts this, because no run showed it. A tree kill with `taskkill` from outside ended the engine first in each try, so the engine recorded nothing (Context of the design). R3 still runs such a failure again while its phase is open.
+
+### A check that hangs runs to its timeout twice
+
+A check that hangs for a real reason now runs to its timeout two times. With the default of 20 minutes, it costs 20 more minutes. The proposal accepts this, because a check that hangs is rare, and a second run tells a real hang from a slow moment.
 
 ### A real failure with a kill mark runs once more
 
