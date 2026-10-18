@@ -3,8 +3,10 @@ name: deep-review
 description: Deep review of one change by the deep-review engine, a Node program installed with this skill. It writes a Markdown report with the evidence for each finding and the engine's own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project's checks, committing nothing. Use only when the user asks for $deep-review by name.
 ---
 
-The deep-review engine reviews the change; you run one command, wait for
-it to exit, and relay its result. Node 26 or newer must be installed.
+The deep-review engine reviews the change; you run its commands, wait
+for each to exit, and relay its result. Node 26 or newer must be
+installed. Run each command below as it is written, alone, with nothing
+chained before or after it.
 
 1. Decide the scope from what the user asked for:
    - the uncommitted changes in the worktree: `--worktree`
@@ -45,13 +47,16 @@ it to exit, and relay its result. Node 26 or newer must be installed.
 
    node "<this skill's directory>/engine/main.mjs" config show --runtime codex <scope flags> [--fix]
 
-   Show the user its `Scope:` line and the `budget.usd` line under its
-   `Settings:` as it prints them, and say whether the run fixes. Then
-   start the review at once: do not ask the user to confirm, and do not
-   wait for an answer. A user who sees a wrong scope stops the review
-   before it has spent much; until its fixes phase the run has edited
-   nothing, and `abandon` closes it. When `config show` exits with code 2,
-   show stderr verbatim and stop, as step 7 says for a refusal.
+   When it exits 0, your next step is a message to the user, not a tool
+   call: quote its `Scope:` line and the `budget.usd` line under its
+   `Settings:` exactly as it prints them, and say whether the run fixes.
+   The user does not see the command's output, so this message is where
+   they see the scope. Then start the review at once: do not ask the user
+   to confirm, and do not wait for an answer. A user who sees a wrong
+   scope stops the review before it has spent much; until its fixes phase
+   the run has edited nothing, and `abandon` closes it. When `config show`
+   exits with code 2, show stderr verbatim and stop, as step 7 says for a
+   refusal.
 
    Run the review from the repository, with the longest timeout you can,
    and wait for it to exit:

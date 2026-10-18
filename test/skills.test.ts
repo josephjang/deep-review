@@ -109,10 +109,13 @@ describe('the skill texts', () => {
       assert.equal(show[0].replace(' config show ', ' review '), review[0]);
       assert.equal(show[1], `--runtime ${runtime} <scope flags> [--fix]`);
       assert.ok(show.index! < review.index!, 'config show runs before the review');
-      assert.match(step3, /Show the user its `Scope:` line and the `budget\.usd` line under its\s+`Settings:` as it prints them, and say whether the run fixes\./);
-      assert.match(step3, /start the review at once: do not ask the user to confirm, and do not\s+wait for an answer\./);
-      assert.match(step3, /A user who sees a wrong scope stops the review/);
-      assert.match(step3, /When `config show` exits with code 2,\s+show stderr verbatim and stop, as step 7 says for a refusal\./);
+      // In the reply, not only as the command's output: the smoke on Claude Code showed a model that ran config show and told the user nothing of it.
+      assert.match(step3, /When it exits 0, your next step is a message to the user, not a tool\s+call: quote its `Scope:` line and the `budget\.usd` line under its\s+`Settings:` exactly as it prints them, and say whether the run fixes\.\s+The user does not see the command's output, so this message is where\s+they see the scope\./);
+      assert.match(step3, /start the review at once: do not ask the user\s+to confirm, and do not wait for an answer\./);
+      assert.match(step3, /A user who sees a wrong\s+scope stops the review/);
+      assert.match(step3, /When `config show`\s+exits with code 2, show stderr verbatim and stop, as step 7 says for a\s+refusal\./);
+      // A command with anything chained to it is not the command the Claude Code approval names (R4).
+      assert.match(text, /Run each command below as it is written, alone, with nothing\s+chained before or after it\./);
       assert.doesNotMatch(step3, /wait for (the user|a yes|confirmation)|ask the user whether/);
       // The two lines the skill names are lines config show prints.
       assert.ok(read('src/config/command.ts').includes('`Scope: ${scope.mode} from ${scope.base}'), 'config show prints a Scope: line');
