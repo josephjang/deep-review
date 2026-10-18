@@ -9,8 +9,10 @@
  */
 import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import type { ArtifactReference } from '../evidence/store.ts';
+import { killMarkWords } from '../runtime/process.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { leftAs } from './decision-report.ts';
@@ -145,6 +147,50 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
   if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
   // A finding the first round blocked has no second round while the run budget left a batch of the first, until a reopen runs it (PD13 of resumable runs).
   if (fate.answer?.status === 'blocked' && fix.secondRound === null && !secondRoundPlannable(fix)) lines.push('Second round not planned: the run budget stopped the first round');
+  return lines;
+}
+
+/**
+ * What a stop did to the checks and to the tree, and what the resumed run
+ * did about it (R15 of resumable runs), for Limitations and `status`, in
+ * the order of the checks phases: each run that replaced one, with both
+ * outcomes, by why it ran again (a cut, a first timeout, or a stop of its
+ * attempt); each start with no end on record; each file written back,
+ * with where the bytes it overwrote are; and a series of commits a stop
+ * left open, or that the next command dropped.
+ */
+export function stopLimitations(review: ReviewState, evidencePath: (reference: ArtifactReference) => string): string[] {
+  const fix = review.fix;
+  if (fix === null) return [];
+  const lines: string[] = [];
+  for (const phase of checkPhases) {
+    const runs = fix.checks.runs[phase];
+    runs.forEach((run, index) => {
+      if (run.replaces === null) return;
+      const replaced = runs.slice(0, index).findLast((earlier) => earlier.kind === run.kind && earlier.attempt === run.replaces!.attempt && earlier.outcome === run.replaces!.outcome);
+      if (replaced === undefined) return;
+      const now = `${run.outcome} in ${runSeconds(run)}`;
+      if (replaced.outcome === 'cut') lines.push(`- Cut: ${run.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
+      else if (replaced.outcome === 'timeout') lines.push(`- Ran again after a timeout: ${run.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
+      else lines.push(`- Ran again after a stop: ${run.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run.attempt)}.`);
+    });
+    for (const start of fix.checks.starts[phase]) {
+      if (openStart(fix, phase, start.kind, start.attempt) === start) lines.push(`- Cut by a stop: ${start.kind} in ${phase} at attempt ${String(start.attempt)}, with no end on record.`);
+    }
+  }
+  fix.restorations.forEach((restoration, index) => {
+    // A write back in the step of the run a kill ended follows that run, the kinds' killed runs of the attempt in order; one at a later attempt follows a check a stop cut.
+    const { kind, attempt } = restoration.check;
+    const same = (other: (typeof fix.restorations)[number]): boolean => other.phase === restoration.phase && other.check.kind === kind && other.check.attempt === attempt && other.attempt === attempt;
+    const ran = restoration.attempt !== attempt ? undefined : fix.checks.runs[restoration.phase].filter((run) => run.kind === kind && run.attempt === attempt && killedRun(run))[fix.restorations.slice(0, index).filter(same).length];
+    const after = ran?.outcome === 'timeout' ? `after ${kind} timed out` : `after a cut ${kind} check`;
+    for (const file of restoration.files) {
+      const before = file.before === null ? 'it did not exist before' : 'oversized' in file.before ? 'the bytes before were too large to keep' : `the bytes before are at ${evidencePath(file.before.blob)}`;
+      lines.push(`- Written back ${after} in ${restoration.phase}: ${inlineText(file.path)}; ${before}.`);
+    }
+  });
+  if (fix.openSeries !== null) lines.push(`- A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);
+  for (const dropped of fix.droppedSeries) lines.push(`- Dropped: the series of commits from ${dropped.from} to ${dropped.to} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`);
   return lines;
 }
 

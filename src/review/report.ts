@@ -16,7 +16,8 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { decisionLine, decisionsSection } from './decision-report.ts';
-import { fixHeaderLine, fixLimitations, fixSections } from './fix-report.ts';
+import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
+import { endedByKill, killMarkWords } from '../runtime/process.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
@@ -168,7 +169,23 @@ function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedRe
   return scope.files.find((file) => file.path === match.path)?.after === null ? 'deleted' : 'past-end';
 }
 
-function limitations(scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
+/**
+ * Each worker a kill from outside the engine ended with a kill mark, or
+ * whose guard left no result, and whether its unit ran again (R15 of
+ * resumable runs): its failure costs the unit nothing, so a later worker
+ * of the same label is its rerun.
+ */
+export function cutWorkerLines(workers: RunState['workers']): string[] {
+  const all = Object.values(workers);
+  return all.flatMap((worker) => {
+    if (worker.status !== 'finished' || !endedByKill(worker.finish)) return [];
+    const label = worker.launch.label ?? worker.launch.workerId;
+    const again = all.some((other) => other.launch.label === worker.launch.label && other.launchedAt > worker.launchedAt);
+    return [`- Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? 'ran again' : 'did not run again'}.`];
+  });
+}
+
+function limitations(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
   for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
   for (const group of unverifiedGroupsOf(review)) {
@@ -206,6 +223,9 @@ function limitations(scope: ScopeState, review: ReviewState, input: ReportInput)
   lines.push(...settingsLimitations(review.configuration, scope).map((line) => `- ${inlineText(line)}`));
   lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
+  // What a stop did, and what the resumed run did about it (R15 of resumable runs).
+  lines.push(...cutWorkerLines(state.workers));
+  if (input.fix !== undefined) lines.push(...stopLimitations(review, input.fix.evidencePath));
   return lines;
 }
 
@@ -302,7 +322,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
   ];
   const statisticsSection = ['## Statistics', '', statisticsTable(review, input)];
-  const limitationsSection = ['## Limitations', '', ...limitations(scope, review, input)];
+  const limitationsSection = ['## Limitations', '', ...limitations(state, scope, review, input)];
   // A fix run's sections follow its findings; a run without the fix pass has none.
   const fixed = input.fix === undefined ? [] : fixSections(state, input.fix.evidencePath, input.fix.patches);
   return [header, ...(decisions === null ? [] : [decisions]), anglesSection, ...(conventions === null ? [] : [conventions]), findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';

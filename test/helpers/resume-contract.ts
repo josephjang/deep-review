@@ -252,7 +252,7 @@ export function normalizedReport(text: string, sandbox: string): string {
     .split('\n')
     .filter((line) => !/^(Repository|Base|Head|Run|Reopened): /.test(line))
     .filter((line) => !/^- (Worktree checks|Run budget|Workers with no reported cost): /.test(line))
-    .filter((line) => !/^- (Ran again after|Cut|Cut by a stop|Written back after|The run budget stopped)/.test(line))
+    .filter((line) => !/^- (Ran again after|Cut|Cut by a stop|Written back after|The run budget stopped|A stop cut|Dropped: )/.test(line))
     .map((line) => line.split(sandbox).join('<sandbox>'))
     .map((line) => line.replace(/<sandbox>[^\s|)]*artifacts[\\/][0-9a-f]{64}/g, '<artifact>'))
     .map((line) => line.replace(/, [\d.]+ (s|min)\b/g, '').replace(/\b[0-9a-f]{40}\b/g, '<sha>').replace(runId, '<run>'))

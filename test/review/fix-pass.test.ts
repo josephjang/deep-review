@@ -497,8 +497,12 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
   it('writes back what a check that timed out wrote, records no revision of it, and runs it once more (R7, PD7 of resumable runs)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     halfFormatter(box, [true, false]);
-    reportText(await box.fix('claude'));
+    const text = reportText(await box.fix('claude'));
     const state = box.run();
+    // The report and status say what the timeout did and what the run did about it (R15 of resumable runs).
+    assert.match(text, /^- Ran again after a timeout: lint in checks timed out after [\d.]+ s at its first run, and passed in [\d.]+ s at its second\.$/m);
+    assert.match(text, /^- Written back after lint timed out in checks: src\/a\.ts; the bytes before are at .+\.$/m);
+    assert.ok(describeRun(state, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference)).lines.some((line) => /^Stop: Ran again after a timeout: lint in checks /.test(line)));
     const fix = state.review!.fix!;
     assert.deepEqual(fix.checks.runs.checks.filter((run) => run.kind === 'lint').map((run) => [run.outcome, run.replaces?.outcome ?? null]), [['timeout', null], ['passed', 'timeout']]);
     assert.deepEqual(fix.restorations.map((restoration) => [restoration.phase, restoration.check, restoration.files.map((file) => file.path)]), [['checks', { kind: 'lint', attempt: 1 }, ['src/a.ts']]]);
@@ -527,8 +531,10 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     box.checks({ lint: ['pass', { write: { 'src/a.ts': 'export function parse(' }, exit: 143 }, 'pass'] });
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
-    reportText(await box.fix('claude'));
+    const text = reportText(await box.fix('claude'));
     const fix = box.run().review!.fix!;
+    assert.match(text, /^- Cut: lint in checks ended with exit code 143, a kill mark, and ran again: passed in [\d.]+ s\.$/m);
+    assert.match(text, /^- Written back after a cut lint check in checks: src\/a\.ts; the bytes before are at .+\.$/m);
     assert.deepEqual(fix.checks.runs.checks.filter((run) => run.kind === 'lint').map((run) => [run.outcome, run.exitCode, run.replaces?.outcome ?? null]), [['cut', 143, null], ['passed', 0, 'cut']]);
     assert.deepEqual(fix.restorations.map((restoration) => [restoration.check, restoration.files.map((file) => file.path)]), [[{ kind: 'lint', attempt: 1 }, ['src/a.ts']]]);
     assert.ok(!fix.revisions.some((revision) => revision.source.kind === 'check'), 'no revision of the half rewrite');

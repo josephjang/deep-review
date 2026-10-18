@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { fixLimitations } from '../../src/review/fix-report.ts';
-import { renderReport } from '../../src/review/report.ts';
+import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts';
+import { cutWorkerLines, renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput } from '../helpers/review-history.ts';
@@ -291,5 +291,64 @@ describe('status of a fix run', () => {
     assert.ok(describeRun(history.fold(), claudeAdapter, evidencePath).lines.includes('Fix pass: c1-1 pending; 1 held for the author'));
     history.add('worker.launched', { ...(history.events.find((event) => event.kind === 'worker.launched')?.payload as object), workerId: worker(70), label: 'fixer fixes:c1-1' });
     assert.ok(describeRun(history.fold(), claudeAdapter, evidencePath).lines.includes('Fix pass: c1-1 running; 1 held for the author'));
+  });
+});
+
+describe('the record of a stop (R15 of resumable runs)', () => {
+  const state = fixRun().fold();
+  const review = state.review!;
+  const fix = review.fix!;
+  const first = fix.checks.runs.checks[0]!;
+  /** A run of a check in `checks`, as `first` with the fields given and the time it took. */
+  const run = (fields: Partial<typeof first>, seconds: number): typeof first => ({ ...first, ...fields, startedAt: '2026-10-19T00:00:00.000Z', endedAt: new Date(Date.parse('2026-10-19T00:00:00.000Z') + seconds * 1000).toISOString() });
+  const lines = (change: Partial<typeof fix>): string[] => stopLimitations({ ...review, fix: { ...fix, ...change } }, evidencePath);
+
+  it('says nothing for a run no stop touched', () => {
+    assert.deepEqual(stopLimitations(review, evidencePath), []);
+  });
+
+  it('names each check that ran again with both runs, by why it ran again, and each start with no end on record', () => {
+    const runs = [
+      run({ kind: 'lint', attempt: 1, outcome: 'failed', exitCode: 1 }, 4.4),
+      run({ kind: 'lint', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'failed' } }, 3.1),
+      run({ kind: 'typecheck', attempt: 2, outcome: 'cut', exitCode: 143 }, 1),
+      run({ kind: 'typecheck', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'cut' } }, 3.1),
+      run({ kind: 'test', attempt: 2, outcome: 'cut', exitCode: null, signal: null }, 1),
+      run({ kind: 'test', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'cut' } }, 5.2),
+      run({ kind: 'build', attempt: 2, outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL' }, 1200),
+      run({ kind: 'build', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'timeout' } }, 312),
+    ];
+    const starts = [{ phase: 'checks' as const, attempt: 1, kind: 'test' as const, command: 'npm test', runsBefore: 1 }];
+    assert.deepEqual(lines({ checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: runs }, starts: { ...fix.checks.starts, checks: starts } } }), [
+      '- Ran again after a stop: lint in checks, failed in 4.4 s at attempt 1, passed in 3.1 s at attempt 2.',
+      '- Cut: typecheck in checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.',
+      '- Cut: test in checks ended with no result from its guard, and ran again: passed in 5.2 s.',
+      '- Ran again after a timeout: build in checks timed out after 1200.0 s at its first run, and passed in 312.0 s at its second.',
+      '- Cut by a stop: test in checks at attempt 1, with no end on record.',
+    ]);
+  });
+
+  it('names each file written back, and where the bytes it overwrote are, or that there were none', () => {
+    const blob = reference('7');
+    const restorations = [{ phase: 'checks' as const, attempt: 2, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: { blob }, beforeSymlink: false, expected: null, expectedSymlink: false }, { path: 'src/new.ts', before: null, beforeSymlink: false, expected: null, expectedSymlink: false }] }];
+    assert.deepEqual(lines({ restorations }), [`- Written back after a cut test check in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`, '- Written back after a cut test check in checks: src/new.ts; it did not exist before.']);
+  });
+
+  it('names a series of commits a stop left open, and each one the next command dropped', () => {
+    const series = { commits: [{ sha: 'b'.repeat(40), revision: 0, subject: 's' }], from: 'a'.repeat(40), to: 'b'.repeat(40) };
+    assert.deepEqual(lines({ openSeries: series }), [`- A stop cut \`deep-review commit\` short: its series from ${'a'.repeat(40)} to ${'b'.repeat(40)} is not recorded yet, and the next command completes it or drops it by where HEAD is.`]);
+    assert.deepEqual(lines({ droppedSeries: [series] }), [`- Dropped: the series of commits from ${'a'.repeat(40)} to ${'b'.repeat(40)} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`]);
+  });
+
+  it('names each worker a kill from outside ended, and whether its unit ran again, in the report and in status', () => {
+    const [launched] = Object.values(state.workers).filter((candidate) => candidate.status === 'finished');
+    if (launched?.status !== 'finished') throw new Error('the fix run has a finished worker');
+    const cut = { ...launched, finish: { ...launched.finish, exitCode: 143, signal: null, termination: 'exited' as const } };
+    const rerun = { ...launched, launchedAt: '2999-01-01T00:00:00.000Z', launch: { ...launched.launch, workerId: worker(98) } };
+    const label = launched.launch.label;
+    assert.deepEqual(cutWorkerLines({ [launched.launch.workerId]: cut }), [`- Cut: the worker of ${label} ended with exit code 143, a kill mark, and did not run again.`]);
+    const workers = { [launched.launch.workerId]: cut, [worker(98)]: rerun };
+    assert.deepEqual(cutWorkerLines(workers), [`- Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`]);
+    assert.ok(describeRun({ ...state, workers }, claudeAdapter, evidencePath).lines.includes(`Stop: Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`));
   });
 });
