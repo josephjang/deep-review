@@ -764,10 +764,14 @@ what can follow it: a scope in words, `fix`, and paths. It runs the
 bundled engine with `--runtime claude` on the scope the user named, or
 with none named on the one `scope.default` names (the dirty worktree,
 else the last commit), waits for it, and shows the report's path.
-Before the run it runs `config show` with the same flags and shows the
-`Scope:` line, the `budget.usd` line and whether the run fixes, then
-starts the run without waiting for a reply; a user who sees a wrong
-scope stops it. Asked to fix the findings, it passes `--fix`, says
+Before the run it runs `status`. With no active run, it runs
+`config show` with the same flags and shows the `Scope:` line, the
+`budget.usd` line and whether the run fixes; with one, which the
+review resumes with the scope and settings it recorded whatever the
+scope flags say, it shows that run's `Run` and `Settings:` lines and
+says so. It then starts the run without waiting for a reply; a user who
+sees a wrong scope stops it, and the skill abandons the stopped run
+before the corrected request, so that request starts a new run. Asked to fix the findings, it passes `--fix`, says
 first that the engine's workers will edit the working tree and that it
 runs the check commands it chose from the repository, and afterwards
 offers to commit the edits with `deep-review commit`. Asked for a
@@ -794,6 +798,7 @@ dist/codex/**   ->   ~/.agents/skills/deep-review/
 ```
 
 The skill is then `$deep-review`. It runs the bundled engine beside its
-`SKILL.md` with `--runtime codex`, after the same `config show` step;
+`SKILL.md` with `--runtime codex`, after the same `status` and
+`config show` step;
 Codex reports no cost, so a Codex run has no budget and its report says
 so. Codex has no counterpart of the argument hint or of `allowed-tools`.

@@ -38,21 +38,33 @@ chained before or after it.
    run commits nothing. Without such a request, do not pass `--fix`: the
    review then edits nothing and runs no check.
 3. First show the user what the run will review. Run this from the
-   repository, with the flags the review below takes, and wait for it to
-   exit:
+   repository and wait for it to exit:
+
+   node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" status
+
+   When it prints no line that starts with `Run `, no run is active. Run
+   this from the repository, with the flags the review below takes, and
+   wait for it to exit:
 
    node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" config show --runtime claude <scope flags> [--fix]
 
    When it exits 0, your next step is a message to the user, not a tool
    call: quote its `Scope:` line and the `budget.usd` line under its
    `Settings:` exactly as it prints them, and say whether the run fixes.
+   When `status` prints a `Run ` line instead, that run is active and the
+   review below resumes it: run no `config show`, and in that message
+   quote the `Run ` line and the `Settings:` line of `status` exactly as
+   it prints them, and say that the review continues that run with the
+   scope and the settings it recorded and ignores the scope flags.
    The user does not see the command's output, so this message is where
    they see the scope. Then start the review at once: do not ask the user
    to confirm, and do not wait for an answer. A user who sees a wrong
    scope stops the review before it has spent much; until its fixes phase
-   the run has edited nothing, and `abandon` closes it. When `config show`
-   exits with code 2, show stderr verbatim and stop, as step 7 says for a
-   refusal.
+   the run has edited nothing. When the user stops it because its scope
+   is wrong, close it with `abandon --reason <text>` before you run the
+   corrected request, so that the next review starts a new run rather
+   than resume this one. When `config show` exits with code 2, show
+   stderr verbatim and stop, as step 7 says for a refusal.
 
    Run the review from the repository as a background shell command with
    the longest timeout you can, and wait for it to exit:

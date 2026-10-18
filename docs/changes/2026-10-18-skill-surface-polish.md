@@ -46,6 +46,8 @@ Before the review command of step 3, the skill runs `config show` with the same 
 
 When `config show` exits with code 2, the skill shows its stderr as printed and stops, as step 7 says for a refusal.
 
+The review resumes an active run with the scope and the settings that the run recorded, and it ignores the scope flags. The `config show` command does not look for an active run. So the skill runs `status` first. When `status` names an active run, the skill does not run `config show`. It shows the `Run` line and the `Settings:` line of `status`, and it says that the review continues that run. A review that the user stops stays active. So when the user stops it because its scope is wrong, the skill runs `abandon --reason <text>` before the corrected request, and that request starts a new run.
+
 ### R3: The skill names `config init`
 
 The last paragraphs of both skills name `config init --repository`, `--operator` and `--clone`, in place of `review`. The command writes a new file with each setting, its default value and a comment. A user who asks for a policy file gets that file, edited as the user asks. The skill still writes the repository's file only as an edit that the user asks for.
