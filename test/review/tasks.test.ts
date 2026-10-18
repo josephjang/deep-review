@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { claimPathPlaceholder, codeSpan, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { claimPathPlaceholder, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -30,27 +30,6 @@ describe('describeLocation', () => {
     assert.equal(describeLocation(candidate('SCAN-1', 'SCAN')), 'src/a.ts:4');
     assert.equal(describeLocation(outside), 'src/caller.ts:12 (outside the change: an unchanged file of the repository)', 'the canonical path, not the finder\'s spelling');
     assert.equal(describeLocation(unlocated), 'C:\\x\\b.ts:9 (unlocated: no file of the repository has this path and line)');
-  });
-});
-
-describe('codeSpan', () => {
-  it('quotes plain text in single backticks', () => {
-    assert.equal(codeSpan('npm run lint'), '`npm run lint`');
-  });
-
-  it('uses a delimiter one backtick longer than the longest run inside, so the text cannot close the span', () => {
-    assert.equal(codeSpan('echo `date` now'), '``echo `date` now``');
-    assert.equal(codeSpan('a ``b`` c'), '```a ``b`` c```');
-  });
-
-  it('pads with a space a text that starts or ends with a backtick, which would otherwise join the delimiter', () => {
-    assert.equal(codeSpan('`x'), '`` `x ``');
-    assert.equal(codeSpan('echo `date`'), '`` echo `date` ``');
-  });
-
-  it('pads a text that both starts and ends with a space, which a renderer would otherwise strip', () => {
-    assert.equal(codeSpan(' x '), '`  x  `');
-    assert.equal(codeSpan(' x'), '` x`', 'a space at one end only is kept as it is');
   });
 });
 

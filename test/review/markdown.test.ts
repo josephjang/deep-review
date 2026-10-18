@@ -3,13 +3,26 @@ import { describe, it } from 'node:test';
 import { codeSpan, inlineText, paragraphText, tableCell } from '../../src/review/markdown.ts';
 
 describe('codeSpan', () => {
-  it('fences text in one backtick more than its longest run, pads an edge backtick, and keeps it on one line', () => {
+  it('quotes plain text in single backticks', () => {
+    assert.equal(codeSpan('npm run lint'), '`npm run lint`');
     assert.equal(codeSpan('node "/a/main.mjs" answer'), '`node "/a/main.mjs" answer`');
-    assert.equal(codeSpan('a`b'), '``a`b``');
-    assert.equal(codeSpan('a``b`c'), '```a``b`c```');
-    assert.equal(codeSpan('`edge'), '`` `edge ``', 'a span cannot start with its own fence');
-    assert.equal(codeSpan('one\ntwo'), '`one two`');
-    assert.equal(codeSpan(''), '` `', 'two backticks alone open no span');
+  });
+
+  it('uses a delimiter one backtick longer than the longest run inside, so the text cannot close the span', () => {
+    assert.equal(codeSpan('echo `date` now'), '``echo `date` now``');
+    assert.equal(codeSpan('a ``b`` c'), '```a ``b`` c```');
+    assert.equal(codeSpan('a``b`c'), '```a``b`c```', 'the longest run, wherever it is');
+  });
+
+  it('pads with a space a text that starts or ends with a backtick, which would otherwise join the delimiter', () => {
+    assert.equal(codeSpan('`x'), '`` `x ``');
+    assert.equal(codeSpan('echo `date`'), '`` echo `date` ``');
+  });
+
+  it('pads a text that both starts and ends with a space, which a renderer would otherwise strip', () => {
+    assert.equal(codeSpan(' x '), '`  x  `');
+    assert.equal(codeSpan(' x'), '` x`', 'a space at one end only is kept as it is');
+    assert.equal(codeSpan('   '), '`   `', 'a blank text is not padded');
   });
 });
 

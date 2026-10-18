@@ -16,19 +16,19 @@ export const tableCell = (text: string): string => text.replaceAll('|', '\\|').r
 export const inlineText = (text: string): string => text.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, ' ');
 
 /**
- * Text as one inline Markdown code span: inline, as `inlineText` makes it,
- * and fenced by one backtick more than its longest run of backticks, so
- * no backtick inside can close the span; a space pads text that begins or
- * ends with a backtick, which Markdown strips again. Empty text is one
- * space, since two backticks alone open no span.
+ * Text as a Markdown code span the text cannot close, the CommonMark way:
+ * a delimiter one backtick longer than the longest run the text holds,
+ * and a space inside each end when the text starts or ends with a
+ * backtick, which would otherwise join the delimiter, or starts and ends
+ * with a space, of which a renderer strips one from each end.
  */
 export function codeSpan(text: string): string {
-  const inline = inlineText(text);
-  if (inline === '') return '` `';
-  const longest = Math.max(0, ...(inline.match(/`+/g) ?? []).map((run) => run.length));
-  const fence = '`'.repeat(longest + 1);
-  const pad = inline.startsWith('`') || inline.endsWith('`') ? ' ' : '';
-  return `${fence}${pad}${inline}${pad}${fence}`;
+  let longest = 0;
+  for (const run of text.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
+  const delimiter = '`'.repeat(longest + 1);
+  const padded = text.startsWith('`') || text.endsWith('`') || (text.startsWith(' ') && text.endsWith(' ') && text.trim() !== '');
+  const pad = padded ? ' ' : '';
+  return `${delimiter}${pad}${text}${pad}${delimiter}`;
 }
 
 /**

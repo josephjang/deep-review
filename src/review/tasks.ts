@@ -10,7 +10,7 @@ import { rawLocation, repositoryLocation, type CandidateState } from '../checkpo
 import type { Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
-import { inlineText } from './markdown.ts';
+import { codeSpan, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import type { Layer } from '../config/settings.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
@@ -132,22 +132,6 @@ export function surveyTask(input: SurveyTaskInput): string {
     '',
     ...checks,
   ].join('\n');
-}
-
-/**
- * Text as a Markdown code span the text cannot close, the CommonMark way:
- * a delimiter one backtick longer than the longest run the text holds,
- * and a space inside each end when the text starts or ends with a
- * backtick, which would otherwise join the delimiter, or starts and ends
- * with a space, of which a renderer strips one from each end.
- */
-export function codeSpan(text: string): string {
-  let longest = 0;
-  for (const run of text.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
-  const delimiter = '`'.repeat(longest + 1);
-  const padded = text.startsWith('`') || text.endsWith('`') || (text.startsWith(' ') && text.endsWith(' ') && text.trim() !== '');
-  const pad = padded ? ' ' : '';
-  return `${delimiter}${pad}${text}${pad}${delimiter}`;
 }
 
 /** The checks part of a fix run's survey task. */
