@@ -92,7 +92,7 @@ A test runs a fix run on the fakes and stops the engine at a point. Then it runs
 
 It stops the engine in four ways. Three of them are a handled signal, a hard kill of the engine alone and a hard kill of its process tree. In these three ways, the engine records nothing after the stop. The fourth way kills a child before the engine, with a kill mark (R4). That is the order of run `8dbe23ad`, where the stop killed the check and the engine stopped less than 0.4 seconds later. Thus only the fourth way can show #25, or a worker that a stop kills before the engine.
 
-The test suite runs a fixed set of points. They are where a phase starts or ends and where a worker or a check runs. They are also where the engine edits the tree or git, and where it writes the report. A script runs each point between two appends, and the gate of R18 runs it. CI runs the suite on Linux, macOS and Windows.
+The test suite runs a fixed set of points. They are where a phase starts or ends and where a worker or a check runs. They are also where the engine edits the tree or git, and where it writes the report. A script runs each point between two appends and each point while a child runs, and the gate of R18 runs it. At a point while a child runs, each of the four ways applies. CI runs the suite on Linux, macOS and Windows.
 
 ### R3: A check that a stop cut short runs again
 

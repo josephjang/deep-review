@@ -111,7 +111,11 @@ A search of the code found these nine ways in which a stop can leave work undone
 
 ### The contract test (R1, R2)
 
-A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append`, counts the appends, and stops the process after the append that the test names. For a point while a child runs, the fakes write a file when they start, and the helper stops the engine when that file appears.
+A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append` and stops the process after the append that the test names. A test names an append by the kind of its event and its unit, not by a count. The order of the appends of concurrent workers changes from one run to the next.
+
+A point while a child runs is a point of its own kind. At an append, no child of that step runs yet: the launcher spawns a worker right after the append of `worker.launched`, and the engine starts a check right after `check.started`. Thus each fake writes a start marker with its pid, starts a grandchild, and waits for a release file.
+
+The helper stops the engine when the marker appears, in each of the four ways. For the handled signal, the preload watches for the marker. After the stop, the helper writes the release file and starts the next command. In the run with no stop, the release file is there from the start.
 
 The run holds each case that a way needs. The first attempt of one unit fails, so that a stop can meet a unit at its last attempt. One fake check rewrites a file that the run expects, as a formatter does, before it writes the file that marks its start. A stop at that check thus cuts a check after its first write.
 
@@ -129,7 +133,9 @@ Third, nothing is false. Each current run of a check has the outcome of the run 
 
 Fourth, the report equals the report of the run with no stop after a normalization. The normalization removes times, durations, paths of the evidence, run ids, and the lines of R15.
 
-The suite runs a fixed set of points. They are the first and the last append of each phase, and the launch and the end of a worker and of a check. They are also the record of a revision, the write of the report, and `commit` before and after it moves the branch. A script, `npm run resume-test`, runs each append of the run in each of the first three ways. It runs each child of the run in the fourth way. CI runs the suite on three systems, and the gate runs the script.
+The suite runs a fixed set of points. They are the first and the last append of each phase, and the launch and the end of a worker and of a check. They are also the record of a revision, the write of the report, and `commit` before and after it moves the branch. A script, `npm run resume-test`, runs each append of the run in the first three ways. It runs each child of the run in each of the four ways.
+
+CI runs the suite on three systems, and the gate runs the script. The marks of the known failures are kept for each system, because some ways show on one system only: W2 on POSIX, and W3 on Windows.
 
 ### Old and current runs of a check (R3, R11)
 
