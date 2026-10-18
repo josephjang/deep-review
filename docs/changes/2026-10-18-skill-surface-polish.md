@@ -150,6 +150,38 @@ Claude Code keeps the description out of the context of the model for this skill
 
 ## Verification
 
-No check ran yet. This is the plan. The skills test (`test/skills.test.ts`) checks R1 to R6 against both files and the two manifests. The controller test checks the two parts of the phase line and the batch count of the fixer line (R7). It uses the fake runtime, with and without a reported cost. The test of the survey block checks the vocabulary of the blocker action (R8).
+### The implementation
 
-The report test checks the sentence of R9 with the path of the engine, and the answer test checks the line of R10. Then `npm run check` and `npm run verify` pass. Last, the gate of principle 12 runs the engine of this branch on this pull request with `--branch --fix`. The gate record says if the command of step 3 ran without a prompt (R4).
+Pull request #60 holds the proposal and the implementation, from `2c345c3` to `6e89a80`. Each requirement has its own commit with its tests, and a commit that changes what a skill says is apart from a commit that changes the engine. The tests of each step failed on the code before the step and passed after it. The proposal changed one time during the work, in `32619a9` before the code of R8: a resumed run keeps the settings that it recorded, so the clone's file settles a missing check only for a new run (PD7).
+
+Two forms differ from the plan. The `allowed-tools` rule is `Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)`, with the quotes of the commands of the skill, because a Bash rule matches the command text as Claude writes it. The `argument-hint` value is in double quotes, because a YAML value that starts with `[` and has text after its `]` is not valid. R9 takes the path from the `engineEntry` that the engine already gives to the commands of its fixers. `ReportInput` requires it, so no report can leave it out.
+
+The full suite found two tests that fail by chance, and each fix has its own commit. `4b867d4` stops a test that probed the process ID of a killed engine after Windows gave the number to another process. `8bb4cf9` turns off the automatic maintenance of git in the repositories of the tests, because its lock came and went while a test compared the files of a repository. At `8bb4cf9`, `npm run check` passed (2301 tests, 20 skipped for the platform), `npm run verify` passed, and CI passed on Linux, macOS and Windows.
+
+### The skill on each host
+
+The smoke used a scratch repository with one small commit and a `.deep-review/config.toml` that sets a low `budget.usd`, so that each run stopped on its budget. Claude Code 2.1.302 ran the plugin of this branch with `claude -p "/deep-review:deep-review" --permission-mode default`, in which a command that needs an approval is refused, not asked about.
+
+In five runs, the `config show` and `review` commands of step 3 ran with no refusal, so the rule of R4 matches the command as the skill writes it. Claude Code put the path of the plugin in place of `${CLAUDE_PLUGIN_ROOT}` with forward slashes. Two calls were refused, and neither had the form of the rule. In one, the model added `; echo "EXIT: $?"` to the command, so `f2ce25b` tells the skill to run each command alone. In the other, the model used the PowerShell tool, which the rule does not name, and then used Bash.
+
+In none of four runs did the model write the `Scope:` line and the `budget.usd` line to the user before the review, with three different words in step 3. It wrote only that the review was running. In print mode the person sees only the last message, and the interactive host shows the output of `config show` on the screen. The gate then made step 3 say that the message and the review are in the same reply (`f44c5b8`). The autocomplete hint of R5 and the message of R2 in an interactive session are for the author to see, and this section does not record them.
+
+Codex 0.160.0 ran the skill of this branch with `codex exec '$deep-review'`. It ran `config show`, wrote the `Scope:` line and the `budget.usd` line as printed, said that the run only reviews, and started the review without a wait. The smoke stopped the run after its triage started and abandoned it.
+
+One run on Claude Code wrote a report with two questions. Its Decisions section names `node "C:\...\dist\claude\engine\main.mjs" answer --finding <id> --option <n>`, and that command, pasted at a terminal in the repository, recorded an answer (R9).
+
+### The gate on Claude Code
+
+The engine was the build of `8bb4cf9`, copied out of the worktree. The command was the command of the skill, with no other flag: `review --runtime claude --branch --fix`, as run `ada82721`. Claude Code 2.1.302 ran with the strong model opus and the fast model sonnet. The run took its values from the repository's file at `ec7e9e4`. `scope.exclude` left out 8 changed paths under `dist/`, and 32 files stayed in the review.
+
+Each phase line on stderr said the time since the run started and the spend against the budget, for example `phase checks: started (attempt 1); 50 min 58 s since the run started; spent 45.81 USD of the 120.00 USD run budget`. Each fixer line said its batch, for example `batch 1 of 9` in the first round and `batch 1 of 2` in the second (R7).
+
+The run found 19 findings, and it refuted 17 more at verification. The decision step decided 14 to fix, 4 to leave and 1 to ask the author, and one fix departs from a rule. The fix pass applied the 14 fixes in 11 fixer launches, with a second round of 5 findings. The checks passed before and after the fixes. The run took 56 minutes and spent 45.81 of the 120 USD that the file sets. `deep-review commit` made 15 commits, from `9df23fa` to `2c86395`, and the last commit holds the `dist/` that the build check wrote.
+
+The fixes include three changes to what this proposal says. `9478883` makes step 3 show an active run before the review continues it, because a resumed run ignores the scope flags and `config show` does not know of it. `455827d` keeps the clone's file out of the action of a run continued from a read-only review, because an abandon would lose that review; R8 and PD7 say so. `b8e2b55` names the sentence of R9 as a departure from principle 5 in "Against the vision note".
+
+An audit of the ledger found no commit that holds a path that its cluster did not own or claim: 0 of 15, with 18 claims and none late or lost. At `2c86395`, `npm run check` passed (2302 tests, 20 skipped for the platform) and `npm run verify` passed. Typecheck and lint passed at each of the 15 commits alone. Pull request #61 holds the commits of the gate, and it merged into #60 by a fast-forward after CI passed on Linux, macOS and Windows.
+
+### The answers of the author
+
+On 2026-10-18, the author accepted the departure of SCAN-1, and the tree already held it. For ALTITUDE-4, the author chose option 2: a question about why a run reviewed what it did is answered from the record of that run, `status` for the active run and the `Settings:` line and the Limitations of its report for a finished run. `config show` answers only what a run would take now. The answer pass ran one fixer for 1.60 USD, the checks passed, and `deep-review commit` made `5abc375`. The run spent 47.41 USD in all. At `5abc375`, `npm run check` and `npm run verify` passed.
