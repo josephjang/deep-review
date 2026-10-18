@@ -236,13 +236,15 @@ The scope source of `review` gives the mode and the request that the command nam
 
 A named `last-commit` or `worktree` matches a run of that mode. No scope flag matches a run of either mode whose request has no ref and no range. A named ref or range, with `--branch` among them, matches a run with the same request. The paths must be equal after the normalization of the capture. The check of the tree runs only when no such run matches, before a new run or a read-only continuation, as today.
 
-When a run matches, `findDrift` in `src/review/drift.ts` decides the next step. `HEAD` can be away from `runHead`, or a file that the run expects can differ from what the run recorded. Then the command goes on to a new run (R12). Its log names the run and each file or `HEAD` that moved.
+When a run matches, `openRun` takes the run lock and folds the run again, as it does for a continuation. Then it reads the open series of commits of the run (R9). When `HEAD` is at the head that an open series makes, the reopen completes the series in its own append. When `HEAD` is at the head that the series starts from, the reopen drops the series in the same way.
 
-When the tree is where the run left it, `openRun` takes the run lock and folds the run again, as it does for a continuation. Then it holds the run as a continuation is held. It checks the runtime (`refuseOtherRuntime`) and the spend against the budget in force. It also checks the roles digest and the executable, with `resumePinned` and the use `continue`, whose way out is `--fresh`. When the budget in force is not above the spend, `openRun` refuses with exit code 2 (R12):
+Then `findDrift` in `src/review/drift.ts` decides the next step, against the head that the settled series gives. `HEAD` can be away from that head, or a file that the run expects can differ from what the run recorded. Then the command goes on to a new run (R12), and it leaves an open series for `commit` to settle. Its log names the run and each file or `HEAD` that moved.
+
+When the tree is where the run left it, `openRun` holds the run as a continuation is held. It checks the runtime (`refuseOtherRuntime`) and the spend against the budget in force. It also checks the roles digest and the executable, with `resumePinned` and the use `continue`, whose way out is `--fresh`. When the budget in force is not above the spend, `openRun` refuses with exit code 2 (R12):
 
 `run 0d63437e stopped its fix pass at the run budget: spent 61.16 USD of the 60.00 USD run budget; run the command again with --budget-usd above 61.16 to continue it, or with --fresh to review the change again in a new run`
 
-When each check passes, `openRun` appends `fix.reopened@1` and `limits.changed@1` in one append, under the start lock and the run lock (TD8). The run is then active, and `runReview` resumes it as a found run. A later resume of the reopened run names `--budget-usd` again, as each resume does today. Without it, the pinned budget applies, and the planner records the listed units as not attempted again.
+When each check passes, `openRun` appends `fix.reopened@1`, `limits.changed@1` and the event that settles an open series in one append. It does this under the start lock and the run lock (TD8). The run is then active, and `runReview` resumes it as a found run. A refusal appends nothing, the settle of a series too, so the series stays open for the next command. A later resume of the reopened run names `--budget-usd` again, as each resume does today. Without it, the pinned budget applies, and the planner records the listed units as not attempted again.
 
 #### The event and the fold
 
@@ -451,7 +453,7 @@ A fake fixer edits a file that it owns, and the test then edits another file of 
 
 A fix run on the fakes reaches a low budget in its second round. The same command with a higher budget appends `fix.reopened@1` and `limits.changed@1` in one append. It launches only the units that the budget did not launch and the units that the rest of the fix pass plans. No worker of a read-only phase launches.
 
-A CLI test reopens a run of `--last-commit` after its fixes changed the tree, and a run of `--worktree` after `commit` cleaned the tree. Other cases give a new run with the log line: another scope, a changed expected file, and `HEAD` moved. With `--fresh`, the command creates a new run. With an active run, the command resumes it. A resume of a reopened run with no `--budget-usd` records the units as not attempted again and completes.
+A CLI test reopens a run of `--last-commit` after its fixes changed the tree, and a run of `--worktree` after `commit` cleaned the tree. Other cases give a new run with the log line: another scope, a changed expected file, and `HEAD` moved. With `--fresh`, the command creates a new run. With an active run, the command resumes it. A run whose `commit` a stop cut between `update-ref` and `commits.created` reopens, and the reopen completes the series in its append. A resume of a reopened run with no `--budget-usd` records the units as not attempted again and completes.
 
 The same run can reopen a second time, and the header names the last one and the count. A run that `commit` committed reopens, a later `commit` makes a second series, and the Changed files section names the reopened fix pass.
 
