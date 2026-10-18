@@ -2,6 +2,8 @@
 name: deep-review
 description: Deep review of one change by the deep-review engine, a Node program installed with this plugin. It writes a Markdown report with the evidence for each finding and the engine's own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project's checks, committing nothing. Use only when the user asks for deep-review by name.
 disable-model-invocation: true
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)
+argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"
 ---
 
 The deep-review engine reviews the change; you run one command, wait for

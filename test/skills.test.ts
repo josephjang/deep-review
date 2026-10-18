@@ -133,6 +133,38 @@ describe('the skill texts', () => {
     assert.doesNotMatch(read('skill/codex/agents/openai.yaml'), /not shipped/);
   });
 
+  /** The front matter of a skill: the lines between its two `---` lines. */
+  const frontMatter = (path: string): string[] => {
+    const lines = read(path).replaceAll('\r\n', '\n').split('\n');
+    assert.equal(lines[0], '---', `${path} opens with its front matter`);
+    const end = lines.indexOf('---', 1);
+    assert.ok(end > 0, `${path} closes its front matter`);
+    return lines.slice(1, end);
+  };
+
+  // R4 and PD3 of the skill surface corrections: the Claude Code skill approves the engine's command, and nothing else, for the turn the user invokes it.
+  it('approves only the engine\'s own command in the Claude skill, in the form every command of the skill takes', () => {
+    const text = read('skill/claude/skills/deep-review/SKILL.md');
+    const lines = frontMatter('skill/claude/skills/deep-review/SKILL.md').filter((line) => line.startsWith('allowed-tools:'));
+    assert.deepEqual(lines, ['allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)'], 'one line with one rule');
+    // A Bash rule matches the command text as Claude writes it, quotes included, so every command of the skill starts with the rule's text before its `*`.
+    const prefix = 'node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" ';
+    const commands = text.split('\n').filter((line) => line.trimStart().startsWith('node '));
+    assert.ok(commands.length >= 4, 'config show, review, commit and answer');
+    for (const command of commands) assert.ok(command.trimStart().startsWith(prefix), `${command.trim()} is a command the rule approves`);
+    assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}`));
+    // Codex has no such setting, so its skill has no such line.
+    assert.ok(!frontMatter('skill/codex/SKILL.md').some((line) => line.startsWith('allowed-tools:')));
+  });
+
+  // R5 of the skill surface corrections: the autocomplete of Claude Code shows what the user can type after the command.
+  it('hints the arguments of the Claude skill, quoted so YAML reads one string, and gives the Codex skill no hint', () => {
+    const lines = frontMatter('skill/claude/skills/deep-review/SKILL.md').filter((line) => line.startsWith('argument-hint:'));
+    // Unquoted, a value that starts with `[` is a YAML flow sequence, and the text after its `]` makes the front matter invalid.
+    assert.deepEqual(lines, ['argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"']);
+    assert.ok(!frontMatter('skill/codex/SKILL.md').some((line) => line.startsWith('argument-hint:')));
+  });
+
   it('tells the Codex skill that the run budget does not apply, and the Claude skill its default', () => {
     assert.match(read('skill/codex/SKILL.md'), /--budget-usd` does not apply to Codex/);
     // The default the skill names is the policy's, so a changed default cannot leave the skill behind.
@@ -158,15 +190,19 @@ describe('the skill texts', () => {
 
   /**
    * The lines each runtime words its own way (TD11 of the configuration):
-   * the description and the invocation setting of the front matter, the
-   * run budget, the Codex Windows sandbox, how to run the command and
-   * wait for it, and the path of the engine. Every other line is the same
+   * the description and the invocation setting of the front matter, and
+   * the approval of the engine's command and the argument hint that only
+   * Claude Code has (R6 of the skill surface corrections), the run budget,
+   * the Codex Windows sandbox, how to run the commands of step 3 and wait
+   * for them, and the path of the engine. Every other line is the same
    * in both skills, so a change to one that forgets the other fails here.
    */
   const ownWords: Readonly<Record<string, readonly string[]>> = {
     'skill/claude/skills/deep-review/SKILL.md': [
       'description: Deep review of one change by the deep-review engine, a Node program installed with this plugin. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for deep-review by name.\n',
       'disable-model-invocation: true\n',
+      'allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" *)\n',
+      'argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
       '   review then edits nothing and runs no check.\n',
       '   exit:\n',
