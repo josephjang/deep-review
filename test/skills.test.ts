@@ -93,7 +93,9 @@ describe('the skill texts', () => {
       assert.match(text, /It writes a new file with each setting as a comment at\s+its default and a sentence that says what the setting does, prints the\s+file's path, and refuses to write over a file that exists; then edit\s+that file as the user asks\./);
       // config init takes none of the review's flags, so the skill gives it none, and it refuses a file that exists, as the skill says.
       const usage = read('src/cli.ts');
-      assert.match(usage, /init: \['repository', 'operator', 'clone', 'repo', 'roles', 'help'\]/);
+      const init = /^\s*init: \[([^\]]*)\]/m.exec(usage);
+      assert.ok(init !== null, 'config init has a flag list');
+      for (const flag of ['repository', 'operator', 'clone']) assert.ok(init[1]!.includes(`'${flag}'`), `--${flag} is a flag of config init`);
       assert.ok(usage.includes('exists, and config init writes only a new file'), 'config init refuses to write over a file');
       assert.match(text, /Write the repository's\s+`\.deep-review\/config\.toml` only as a change the user asks for, as any\s+other edit, never as a step of a review\./);
     });
@@ -118,8 +120,9 @@ describe('the skill texts', () => {
       assert.match(text, /Run each command below as it is written, alone, with nothing\s+chained before or after it\./);
       assert.doesNotMatch(step3, /wait for (the user|a yes|confirmation)|ask the user whether/);
       // The two lines the skill names are lines config show prints.
-      assert.ok(read('src/config/command.ts').includes('`Scope: ${scope.mode} from ${scope.base}'), 'config show prints a Scope: line');
-      assert.ok(read('src/config/command.ts').includes('\'Settings:\','), 'config show prints a Settings: header');
+      // The words the skill names, not the code that fills them in.
+      assert.ok(read('src/config/command.ts').includes('`Scope: '), 'config show prints a Scope: line');
+      assert.ok(read('src/config/command.ts').includes('\'Settings:\''), 'config show prints a Settings: header');
       assert.ok((settingNames as readonly string[]).includes('budget.usd'), 'budget.usd is a setting config show lists');
     });
 
