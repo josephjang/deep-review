@@ -13,7 +13,7 @@ import { withoutVariables } from '../src/runtime/environment.ts';
 import { checkpointScratchKey } from '../src/runtime/scratch.ts';
 import { checkKinds, finderAngles } from '../src/review/vocabulary.ts';
 import { fixerAnswer } from './helpers/fake-runtime.ts';
-import { baseEnvironment, fakeClaude, fakeCodex, type Finished, isAlive, node, until } from './helpers/launcher.ts';
+import { baseEnvironment, fakeClaude, fakeCodex, type Finished, node, until } from './helpers/launcher.ts';
 import { commitAll, git, write } from './helpers/repository.ts';
 import { fakeCheckCommand, otherEngine, ReviewSandbox, sandboxConcurrency } from './helpers/review-sandbox.ts';
 
@@ -461,6 +461,8 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const before = answered();
     child.kill();
     await new Promise<void>((done) => child.once('close', () => done()));
+    // The killed engine exited, as its own status says; its pid is not probed later, since Windows can give the number to another process while the resume runs.
+    assert.ok(child.exitCode !== null || child.signalCode !== null, 'the killed engine exited');
     // The orphaned DESIGN worker, if any, waits for the marker; let it go so nothing outlives the test.
     writeFileSync(marker, '');
     const midway = box.run();
@@ -482,7 +484,6 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     }
     assert.equal(after.review!.report !== null, true);
     assert.equal(box.checkpoint.foldRuns().length, 1, 'the same run continued');
-    assert.ok(!isAlive(child.pid!));
   });
 
   it('resumes a fix run whose engine was killed while a fixer ran: the fixer\'s half-applied edit is no drift, and its replacement is told so', async (t) => {
