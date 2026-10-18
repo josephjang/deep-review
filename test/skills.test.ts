@@ -86,7 +86,14 @@ describe('the skill texts', () => {
     it(`${name}: shows the configuration with config show when asked about it, and writes the repository's file only as an edit the user asks for`, () => {
       const text = read(path);
       assert.match(text, /When the user asks how deep-review is configured, or why a run reviewed\s+what it did, run the `config show` command of step 3 with the same\s+scope flags and no `--fix`, and show all that it prints\./);
-      assert.match(text, /When the user asks to change a preference, name the file that\s+`config show` lists for it\./);
+      assert.match(text, /When the user\s+asks to change a preference, name the file that\s+`config show` lists for it\./);
+      // R3 of the skill surface corrections: a new file comes from config init, each setting commented at its default, not from TOML the model writes.
+      assert.match(text, /When the user asks for a configuration file\s+that does not exist yet, run the `main\.mjs` of step 3 with only\s+`config init --repository`, `config init --operator` or\s+`config init --clone`, for the repository's file, the operator's or\s+this clone's\./);
+      assert.match(text, /It writes a new file with each setting as a comment at\s+its default and a sentence that says what the setting does, prints the\s+file's path, and refuses to write over a file that exists; then edit\s+that file as the user asks\./);
+      // config init takes none of the review's flags, so the skill gives it none, and it refuses a file that exists, as the skill says.
+      const usage = read('src/cli.ts');
+      assert.match(usage, /init: \['repository', 'operator', 'clone', 'repo', 'roles', 'help'\]/);
+      assert.ok(usage.includes('exists, and config init writes only a new file'), 'config init refuses to write over a file');
       assert.match(text, /Write the repository's\s+`\.deep-review\/config\.toml` only as a change the user asks for, as any\s+other edit, never as a step of a review\./);
     });
 

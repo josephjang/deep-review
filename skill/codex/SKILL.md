@@ -113,8 +113,16 @@ it to exit, and relay its result. Node 26 or newer must be installed.
 
 When the user asks how deep-review is configured, or why a run reviewed
 what it did, run the `config show` command of step 3 with the same
-scope flags and no `--fix`, and show all that it prints. When the user asks to change a preference, name the file that
-`config show` lists for it. Write the repository's
+scope flags and no `--fix`, and show all that it prints. When the user
+asks to change a preference, name the file that
+`config show` lists for it. When the user asks for a configuration file
+that does not exist yet, run the `main.mjs` of step 3 with only
+`config init --repository`, `config init --operator` or
+`config init --clone`, for the repository's file, the operator's or
+this clone's. It writes a new file with each setting as a comment at
+its default and a sentence that says what the setting does, prints the
+file's path, and refuses to write over a file that exists; then edit
+that file as the user asks. Write the repository's
 `.deep-review/config.toml` only as a change the user asks for, as any
 other edit, never as a step of a review.
 
