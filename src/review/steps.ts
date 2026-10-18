@@ -203,7 +203,7 @@ export function truncated(text: string, limit: number): string {
  */
 function failureReason(state: UnitState | undefined, limit: number = maxRecordedTextLength): string {
   const reasons = (state?.failures ?? []).map((failure) => failure.reason);
-  const header = `${String(reasons.length)} attempts did not complete: `;
+  const header = `${String(reasons.length)} attempt${reasons.length === 1 ? '' : 's'} did not complete: `;
   const separator = '; ';
   const share = Math.floor((limit - header.length - separator.length * Math.max(0, reasons.length - 1)) / Math.max(1, reasons.length));
   return truncated(`${header}${reasons.map((reason) => truncated(reason, share)).join(separator)}`, limit);
@@ -347,7 +347,9 @@ const usd = (value: number): string => value.toFixed(2);
 /**
  * The blocker a phase finishes with when a unit failed twice under a
  * blocking role, or with a worker lost with its engine among its
- * failures. A survey whose role blocks instead of degrading, the survey
+ * failures, or at once when the provider's usage limit stopped one (R14
+ * of resumable runs), whose reason names the limit and its reset. A
+ * survey whose role blocks instead of degrading, the survey
  * of a fix run (`degradationOf`), names the flags that let the run go on
  * without it (R9 of the repository survey); an interrupted read-only
  * survey, which only blocks for the interruption, does not, since flags
@@ -356,7 +358,9 @@ const usd = (value: number): string => value.toFixed(2);
 export function workerFailedBlocker(review: ReviewState, unit: Unit, state: UnitState | undefined): Blocker {
   const causes = new Set(state?.failures.map((failure) => failure.cause));
   const interruption = causes.has('lost') ? ', a worker lost with its engine among the failures' : causes.has('cut') ? ', a worker a kill from outside ended with a kill mark among the failures' : causes.has('environment') ? ', an attempt whose claims directory was removed among the failures' : '';
-  const prefix = `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
+  // The provider's limit blocks at its first failure, and names the limit and its reset in the reason (R14 of resumable runs).
+  const limit = state?.failures.some((failure) => failure.cause === 'limit') ?? false;
+  const prefix = limit ? `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} stopped at the provider's usage limit: ` : `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
   const action = unit.phase === 'survey' && degradationOf(review, unit) === null ? surveyWorkerFailedAction : blockerActions['worker-failed'];
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
@@ -600,6 +604,10 @@ export function nextStep(review: ReviewState, live: Live): Step {
 
   const units = unitsOf(review, phase);
   const states = review.units[phase];
+  const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
+  // A unit the provider's usage limit stopped blocks the phase once the workers in flight end, before any unit runs out of attempts or another launches: a retry before the reset cannot pass, and the run resumes after it with fresh attempts (R14 of resumable runs).
+  const limited = units.find((unit) => !settled(review, unit) && (states[unit.key]?.failures.some((failure) => failure.cause === 'limit') ?? false));
+  if (limited !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(review, limited, states[limited.key]) };
   // The units out of attempts whose outcome is not yet on the ledger: a degrading role's are degraded, unless interrupted; the rest block the phase.
   const spent = units.filter((unit) => exhausted(review, unit, states[unit.key]) && !degraded(review, unit));
   const degradations = spent.flatMap((unit): Degradation[] => {
@@ -607,7 +615,6 @@ export function nextStep(review: ReviewState, live: Live): Step {
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
-  const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
   const blocking = spent.find((unit) => exhaustedOutcome(review, unit, states[unit.key]) === null);
   if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(review, blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));

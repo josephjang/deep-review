@@ -914,6 +914,12 @@ describe('workerVerdict', () => {
     assert.deepEqual(workerVerdict(invocation, exited(1), answer), { outcome: 'failed', error: 'The worker exited with code 1', output: null });
   });
 
+  it('fails a worker the provider\'s usage limit stopped with the cause limit, as the runtime words it (R14 of resumable runs)', () => {
+    const error = 'Claude Code reported a usage limit of the provider, which resets 1pm: the words';
+    assert.deepEqual(workerVerdict(invocation, exited(1), { kind: 'limit', error, reset: '1pm' }), { outcome: 'failed', error, output: null, cause: 'limit' });
+    assert.deepEqual(workerVerdict(invocation, exited(143), { kind: 'limit', error, reset: '1pm' }).cause, 'cut', 'a kill mark comes first');
+  });
+
   it('completes with the validated answer, and fails one the schema rejects', () => {
     assert.deepEqual(workerVerdict(invocation, exited(0), answer), { outcome: 'completed', error: null, output: { answer: 'ok' } });
     const rejected = workerVerdict(invocation, exited(0), { kind: 'answer', value: { answer: 42 } });

@@ -209,6 +209,34 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(fix.checks.runs.checks.length > 0, true);
   });
 
+  it('blocks at once when a fixer meets the provider\'s usage limit, keeping its edits and degrading nothing, and the same command after the reset finishes the run (R14 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const limit = 'You\'ve hit your session limit · resets 12:10pm (Asia/Seoul)';
+    const half = 'export function parse(text: string | null) {\n  return text?.length;\n}\n';
+    box.script({
+      ...reviewScript,
+      // The first attempt edits, then meets the limit, as run e21b026d's fixers did; the second, after the reset, answers.
+      'fixer:fixes:c1-1': [{ limit, exit: 1, edits: [{ writes: { 'src/a.ts': half } }] }, { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) }],
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+    });
+    const blocked = await box.fix('claude');
+    assert.equal(blocked.kind, 'blocked');
+    const detail = blocked.kind === 'blocked' ? blocked.blocker.detail : '';
+    assert.equal(blocked.kind === 'blocked' ? blocked.blocker.code : '', 'worker-failed');
+    assert.match(detail, /^the fixer worker for fixes:c1-1 stopped at the provider's usage limit: 1 attempt did not complete: failed: Claude Code reported a usage limit of the provider, which resets 12:10pm \(Asia\/Seoul\): /);
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(state.review!.units.fixes['c1-1']?.failures.map((failure) => failure.cause), ['limit'], 'one attempt spent, recorded as the limit');
+    assert.deepEqual(Object.keys(fix.notAttempted.fixes), [], 'no unit degrades');
+    assert.ok(fix.revisions.some((revision) => revision.source.kind === 'attempt' && revision.source.key === 'c1-1'), 'the failed fixer\'s edits are kept');
+    const text = reportText(await box.fix('claude'));
+    const done = box.run();
+    assert.equal(done.id, state.id, 'the same run resumes');
+    assert.deepEqual(Object.keys(done.review!.fix!.answers.fixes).sort(), ['c1-1', 'c2-1']);
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA);
+    assert.match(text, /^Fix pass: 2 applied,/m);
+  });
+
   it('gives a finding blocked on another cluster\'s file a second round that owns both, once the first round settled, and reports what it was first blocked on (R21)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     const guardedB = `${fixedB}// keeps the guard\n`;

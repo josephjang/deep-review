@@ -601,9 +601,8 @@ export interface ContributionContext extends RevisionContext {
 export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: ContributionContext): NewEvent[] {
   // A fixer that ran without its claims directory is not answered, whatever it returned: its edits are kept, and the failure is its environment's (R12 of commit series integrity).
   if (unit.phase === 'fixes' && context.claimsLost) return failedWithEdits(unit, receipt, 'the claims directory was removed while the unit ran', context, 'environment');
-  // Every other failure is the unit's, a runtime's usage limit included, which retrying cannot mend: https://github.com/josephjang/deep-review/issues/40
-  // A worker a kill from outside ended with a kill mark is an interruption of its unit, as a lost one is (R4 of resumable runs).
-  if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context, receipt.cause === 'cut' ? 'cut' : 'unit');
+  // A worker a kill from outside ended with a kill mark is an interruption of its unit, as a lost one is (R4 of resumable runs), and one the provider's usage limit stopped is no fault of its unit's either (R14); every other failure is the unit's. A fixer's edits are kept in each case.
+  if (receipt.outcome !== 'completed') return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`, context, receipt.cause ?? 'unit');
   const review = requireReview(context.state);
   try {
     return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review, context)];

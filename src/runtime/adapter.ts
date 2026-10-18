@@ -163,7 +163,9 @@ export type DecodedResult =
   /** The runtime stopped at the budget it was given, and why it says so. */
   | { readonly kind: 'budget'; readonly error: string }
   /** Why the outputs are not a successful answer. */
-  | { readonly kind: 'failed'; readonly error: string };
+  | { readonly kind: 'failed'; readonly error: string }
+  /** The provider's usage or session limit stopped the worker, no fault of its unit's (R14 of resumable runs): what the runtime said, and the reset it names, or null. */
+  | { readonly kind: 'limit'; readonly error: string; readonly reset: string | null };
 
 /** What an adapter read from a worker's outputs, before the launcher validates the answer and decides the outcome. */
 export interface Decoded {

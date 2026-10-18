@@ -196,6 +196,19 @@ describe('nextStep', () => {
     assert.match(step.kind === 'finish-phase' ? step.blocker?.detail ?? '' : '', /^the finder-RIPPLE worker for finders:RIPPLE failed twice, a worker a kill from outside ended with a kill mark among the failures: /);
   });
 
+  it('blocks the phase at the first failure the provider\'s usage limit caused, once the workers in flight end, launching nothing more and degrading nothing, and names the limit and its reset (R14 of resumable runs)', () => {
+    const reason = 'failed: Claude Code reported a usage limit of the provider, which resets 12:10pm (Asia/Seoul): You\'ve hit your session limit · resets 12:10pm (Asia/Seoul)';
+    const limited = triaged().start('finders').add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(3), reason, fault: 'limit' }, 7);
+    assert.deepEqual(nextStep(limited.review(), live({ running: new Set(['finders:REMOVALS']) })), { kind: 'await' }, 'the workers in flight end first, and nothing more launches');
+    const step = nextStep(limited.review(), idle);
+    assert.deepEqual(step, { kind: 'finish-phase', phase: 'finders', attempt: 1, outcome: 'blocked', blocker: { code: 'worker-failed', detail: `the finder-RIPPLE worker for finders:RIPPLE stopped at the provider's usage limit: 1 attempt did not complete: ${reason}`, action: step.kind === 'finish-phase' ? step.blocker!.action : '' } });
+    assert.match(step.kind === 'finish-phase' ? step.blocker!.action : '', /^run the command again, which gives the failed worker two fresh attempts/, 'the action of today');
+    // The next start of the phase, after the block, gives the unit fresh attempts, so the same command launches it again after the reset.
+    const resumed = limited.finish('finders', 'blocked', 1, step.kind === 'finish-phase' ? step.blocker : null).start('finders', 2).add('worktree.checked', { phase: 'finders', attempt: 2, drifted: false, files: [] });
+    const relaunch = nextStep(resumed.review(), idle);
+    assert.ok(relaunch.kind === 'launch' && relaunch.units.some((unit) => unit.key === 'RIPPLE'), JSON.stringify(relaunch));
+  });
+
   it('gives a running phase\'s units fresh attempts when a resumed engine re-enters it, so a unit lost twice launches again (R5 of resumable runs)', () => {
     const reentered = findersLostTwice().add('phase.started', { phase: 'finders', attempt: 2 }).add('worktree.checked', { phase: 'finders', attempt: 2, drifted: false, files: [] }).review();
     assert.deepEqual(reentered.units.finders.RIPPLE?.failures, []);

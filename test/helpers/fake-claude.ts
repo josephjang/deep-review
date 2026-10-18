@@ -24,13 +24,14 @@ if (argv[0] === '--version') {
     writeFileSync(environment.FAKE_CLAUDE_ENV, JSON.stringify(claude));
   }
   const session = option(argv, '--session-id') ?? option(argv, '--resume') ?? 'no-session';
-  const envelope = (output: unknown, costUsd: number): string =>
+  // At a limit, Claude Code reports is_error with the limit's words as the result, and no structured output.
+  const envelope = (output: unknown, costUsd: number, limit?: string): string =>
     JSON.stringify({
       type: 'result',
       subtype: 'success',
-      is_error: false,
+      is_error: limit !== undefined,
       session_id: session,
-      structured_output: output,
+      ...(limit === undefined ? { structured_output: output } : { result: limit }),
       permission_denials: JSON.parse(environment.FAKE_DENIALS ?? '[]') as unknown,
       usage: { input_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 2 },
       total_cost_usd: costUsd,
@@ -40,7 +41,7 @@ if (argv[0] === '--version') {
     await answer(() => envelope(JSON.parse(environment.FAKE_OUTPUT ?? '{"answer":"ok"}') as unknown, 0.001), session);
   } else {
     const exit = await beginScriptedStep(scripted.step, stdin);
-    process.stdout.write(envelope(scripted.step.malformed === true ? 'not the shape the schema describes' : scripted.step.output, scripted.step.costUsd ?? 0.001));
+    process.stdout.write(envelope(scripted.step.malformed === true ? 'not the shape the schema describes' : scripted.step.output, scripted.step.costUsd ?? 0.001, scripted.step.limit));
     process.exitCode = exit;
   }
 }

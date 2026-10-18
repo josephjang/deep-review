@@ -469,10 +469,11 @@ const undecoded = (sessionIds: readonly string[], error: string): Decoded => ({ 
 /**
  * Why a failed worker failed when it was no fault of its unit's: `cut`, a
  * kill from outside the engine that left a kill mark (R4 of resumable
- * runs). The ledger records it with the failure (`attempt.failed@7`),
- * not with the finish, whose shape does not change.
+ * runs), or `limit`, the provider's usage or session limit (R14). The
+ * ledger records it with the failure (`attempt.failed@7`), not with the
+ * finish, whose shape does not change.
  */
-export type FailureCause = 'cut';
+export type FailureCause = 'cut' | 'limit';
 
 /** How a worker ended, as the ledger records it: an answer only when completed, and a reason otherwise, with the cause of a failure that was no fault of its unit's. */
 export type Verdict =
@@ -485,7 +486,7 @@ const failedWith = (error: string): Verdict => ({ outcome: 'failed', error, outp
  * Decide the outcome (R5, TD5). What happened to the process comes first: a
  * worker that never started failed, one killed at its timeout timed out,
  * and one a kill from outside ended with a kill mark failed with the cause
- * `cut`, whatever it printed (R4 of resumable runs). Then what the runtime said: a budget stop or a failure it reported; then
+ * `cut`, whatever it printed (R4 of resumable runs). Then what the runtime said: a budget stop, the provider's limit, failed with the cause `limit` (R14), or a failure it reported; then
  * an exit that was not clean; then the answer, checked against the schema.
  * A schema whose check throws makes this throw.
  */
@@ -499,6 +500,8 @@ export function workerVerdict(invocation: Invocation, result: ProcessResult, dec
   switch (decoded.kind) {
     case 'budget':
       return { outcome: 'budget', error: decoded.error, output: null };
+    case 'limit':
+      return { outcome: 'failed', error: decoded.error, output: null, cause: 'limit' };
     case 'failed':
       return failedWith(decoded.error);
     case 'answer': {

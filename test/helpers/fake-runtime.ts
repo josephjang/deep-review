@@ -62,6 +62,8 @@ export interface ScriptStep {
   /** A file to wait for before answering, so a test can act between phases. */
   readonly waitFor?: string;
   readonly stderr?: string;
+  /** Answer as Claude Code does at a usage or session limit (Claude only): a result with `is_error` true, these words in `result`, and no structured output (R14 of resumable runs). */
+  readonly limit?: string;
 }
 
 /** The script: steps by `<role>:<phase>:<unit>`, `<role>:<unit>`, `<role>` or `*`, the most specific key winning. */

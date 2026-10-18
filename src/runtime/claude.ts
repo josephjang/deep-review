@@ -1,4 +1,5 @@
 import type { Access, DeniedTool, Effort } from '../checkpoint/events.ts';
+import { claudeLimit } from './claude-limits.ts';
 import { emptyUsageSummary, maxDecodeBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { launcherPins, pinVariables, spellingsOf, withoutVariables } from './environment.ts';
@@ -358,8 +359,10 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
     const result = typeof envelope.result === 'string' && envelope.result.length > 0 ? `: ${envelope.result}` : '';
     return { ...known, result: { kind: 'budget', error: `Claude Code stopped at its budget of ${String(invocation.budgetUsd)} USD${result}` } };
   }
-  // A usage or session limit arrives here too, as is_error with the limit in result, and fails like any other error, so the engine counts it against the unit: https://github.com/josephjang/deep-review/issues/40
   if (envelope.type !== 'result' || envelope.subtype !== 'success' || envelope.is_error !== false) {
+    // A usage or session limit arrives here too, as is_error with the limit in result: no fault of the unit's, which the planner blocks on at once (R14 of resumable runs).
+    const limit = envelope.is_error === true && typeof envelope.result === 'string' ? claudeLimit(envelope.result) : null;
+    if (limit !== null) return { ...known, result: { kind: 'limit', error: `Claude Code reported a usage limit of the provider${limit.reset === null ? '' : `, which resets ${limit.reset}`}: ${limit.text}`, reset: limit.reset } };
     const result = typeof envelope.result === 'string' && envelope.result.length > 0 ? `: ${envelope.result}` : '';
     return failed(`Claude Code reported ${String(envelope.type)}/${String(envelope.subtype)} with is_error ${String(envelope.is_error)}${result}`, known);
   }

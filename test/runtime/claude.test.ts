@@ -422,6 +422,12 @@ describe('claude decode', () => {
     assert.match(failure(decoded), /result\/error_during_execution with is_error true: boom/);
   });
 
+  it('decodes the usage or session limit of the provider as a limit, with its reset, from the words of run e21b026d (R14 of resumable runs)', () => {
+    const text = 'You\'ve hit your session limit · resets 12:10pm (Asia/Seoul)';
+    assert.deepEqual(decode(envelope({ is_error: true, result: text, structured_output: undefined })).result, { kind: 'limit', error: `Claude Code reported a usage limit of the provider, which resets 12:10pm (Asia/Seoul): ${text}`, reset: '12:10pm (Asia/Seoul)' });
+    assert.match(failure(decode(envelope({ is_error: true, result: 'boom', structured_output: undefined }))), /with is_error true: boom/, 'any other error fails as before');
+  });
+
   it('fails a success without structured output', () => {
     assert.match(failure(decode(envelope({ structured_output: undefined }))), /no structured_output/);
   });
