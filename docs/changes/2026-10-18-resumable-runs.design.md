@@ -8,7 +8,7 @@ The design has one test and nine mechanisms. The test (R2) runs a fix run on the
 
 | Mechanism | What it does | Requirements |
 |---|---|---|
-| Old and current runs of a check | A run of a check is old when a worker revised the tree after it. A phase that starts again after a stop runs again each kind whose last run of a cut attempt did not pass, and `check.ran@3` names the run that it replaces. | R3, R11, R15 |
+| Old and current runs of a check | A run of a check is old when a later revision changed the state that its phase checks, and a baseline run never grows old. A phase that starts again after a stop runs again each kind whose last run of a cut attempt did not pass, and `check.ran@3` names the run that it replaces. | R3, R11, R15 |
 | The start of a check | `check.started@1` records each start. After a check that a kill cut short, at once or at the next start of the phase, the engine writes back the files that it changed, after `tree.restored@1` records what was there. | R7 |
 | A cut child | A check or a worker whose process ended with a kill mark is cut. A cut check has no result and runs again, and a cut worker is an interruption of its unit. | R4 |
 | Attempts after a stop | A phase that starts again after a stop gives its units fresh attempts. | R5 |
@@ -133,24 +133,24 @@ The suite runs a fixed set of points. They are the first and the last append of 
 
 ### Old and current runs of a check (R3, R11)
 
-A run of a check checks the tree of its time. A revision by a worker after the run makes the run old: a fixer, the repair or an answer pass. A revision by a check does not, because a check that writes files records its own writes as part of its run. The fold keeps the ledger order of each run and each revision, so each reader can tell an old run from a current one.
+A run of a check checks the tree of its time. Each checks phase checks one state of the fix pass. A later revision makes a run old only when it changes the state that its phase checks. A revision by a check makes no run old, because a check that writes files records its own writes as part of its run. The fold keeps the ledger order of each run and each revision, so each reader can tell an old run from a current one.
 
-Each checks phase uses this rule as follows:
+| Phase | A later revision that makes its runs old | When it runs each kind again in a later attempt |
+|---|---|---|
+| `baseline-checks` | None. A baseline run checks the tree before each edit, and it stays the baseline. | Never for an old run. Only R3 below. |
+| `checks` | A revision of the fixes or of an answer pass. | In a reopened run, when its last runs are old. |
+| `repair-checks` | A revision of the fixes, of the repair or of an answer pass. | In a reopened run, when a revision of the repair came after its last runs. |
+| `answer-checks` | A revision of the fixes or of the repair. Each answer pass that revised the tree also runs each check once again (`checksFloor`). | As today: once for each answer pass that revised the tree. |
 
-| Phase | When it runs each kind again in a later attempt |
-|---|---|
-| `baseline-checks` | Never for an old run, because no edit comes before it. Only R3 below. |
-| `checks` | In a reopened run, when its last runs are old. |
-| `repair-checks` | In a reopened run, when a revision of the repair came after its last runs. |
-| `answer-checks` | As today: once for each answer pass that revised the tree (`checksFloor`). |
+A phase that runs each kind again moves its floor to its attempt at the last `fix.reopened`, so the reducer accepts the new runs. `checks` still runs only after a revision of the fixes, and `repair-checks` now runs only after a revision of the repair. The Checks table marks a column whose last runs are old with "(an earlier tree)", and its notes name the edit that came after. Thus the "After answers" column of a run that reopened after an answer pass says that a later fix changed the tree.
 
-A phase that runs each kind again moves its floor to its attempt at the last `fix.reopened`, so the reducer accepts the new runs. `checks` still runs only after a revision of the fixes, and `repair-checks` now runs only after a revision of the repair. The Checks table marks a column whose runs are old with "(an earlier tree)", and its notes name the edit that came after. Thus the "After answers" column of a run that reopened after an answer pass says that a later fix changed the tree.
+On 2026-10-19, the author chose that the "After the fixes" column takes no mark for an answer pass. The "After answers" column shows that tree.
 
 R3 is a separate rule, for a stop in the middle of a phase. The fold keeps the last finished attempt of each checks phase. A cut attempt is an attempt after it, with no `phase.finished`.
 
 `dueCheck` returns the first kind, in the order of the kinds, with a command and one of two states. The kind has no current run, or its last current run did not pass and is from a cut attempt. The skip rule reads the last current run of `build`. Thus a `build` that runs again runs first, and the kinds after it read its new outcome. A run from a completed attempt never runs again by R3.
 
-Each reader reads the last current run: `dueCheck`, the reducer, `failedAtBaseline`, `repairTargets`, the fixer's task, the Checks table and `status`. The own `failedAtBaseline` of the Checks table goes. The table then reads the last baseline run, and it keeps its mark for `not-started` as today. The notes under the table read the current runs, so a phase with no current run says why it did not run.
+Each reader reads the last current run of its phase: `dueCheck`, the reducer, `repairTargets`, the Checks table and `status`. `failedAtBaseline` and the task of a fixer read the last baseline run, which never grows old. Thus `repairTargets` reads the last baseline run and the last current run of `checks`. The own `failedAtBaseline` of the Checks table goes, and the table reads the same last baseline run, with its mark for `not-started` as today. The notes under the table read the current runs, so a phase with no current run says why it did not run.
 
 ### The record of a check: `check.started@1` and `check.ran@3` (R3, R7, R15)
 
@@ -337,7 +337,7 @@ A reducer that accepts more at version 2 stops each older engine in the reposito
 
 A floor that moves only on `fix.reopened` was the first design. A review of it showed two faults. An answer pass between the stop of the budget and the reopen revised the tree. The floor did not see it, so the repair read old runs. And a reopen after an answer pass left the "After answers" column on a tree that a later fix changed.
 
-The rule "a run is old when a worker revised the tree after it" covers each order of the edits with one comparison. The fold has that order already.
+The rule of each phase covers each order of the edits with one comparison: a run is old when a later revision changed the state that its phase checks. One rule for all phases was rejected, because a baseline run checks the tree before each edit. Under one rule, each baseline run grew old at the first fixer, and the repair then found no target. The fold has that order already.
 
 ### TD4: One list of kill marks for checks and workers, not a wait
 

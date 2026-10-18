@@ -142,7 +142,7 @@ First, the command names the scope of the run. A run of the last commit or of th
 
 Second, the tree is where the run left it: `HEAD` is at the head of the run, and each file that the run expects is as the run recorded it. Third, the run budget in force is above the spend of the run. With `--fresh`, the engine continues no run.
 
-The continuation launches no unit that settled before. It launches the units that the budget did not launch, the batches of the first round first. Then it does the rest of the fix pass. The engine plans the second round only after each batch of the first round settled. The checks after the fixes run again when the tree changed after their last runs.
+The continuation launches no unit that settled before. It launches the units that the budget did not launch, the batches of the first round first. Then it does the rest of the fix pass. The engine plans the second round only after each batch of the first round settled. The checks after the fixes run again when the fixes or an answer pass changed the tree after their last runs.
 
 When a check then fails after the fixes and the repair did not run before, the repair runs. The checks after the repair run when the repair changed the tree, in each fix run, not only in a continuation. Last, the continuation writes a new report. It reviews nothing again.
 
@@ -166,7 +166,7 @@ No unit degrades because of the limit, and each unit keeps its attempts. The sam
 
 The report and `status` name each thing that a stop caused, and what the resumed run did about it. For a check that ran again, they name each run and its outcome. For a file that the engine wrote back, they name where the earlier bytes are. They also name a series of commits that the next command completed or dropped, and a block for a usage limit. And they name a fix pass that the budget stopped or that continued.
 
-A run that the budget stopped names the command that continues it: `deep-review review --fix` with the scope flags of the run and `--budget-usd` above the spend. It names it on the last line of stderr, in the report and in `status --run <id>`. The header of the report of a continued run names when the fix pass continued and where the earlier report is. The Checks table marks a column whose runs checked a tree that a later edit changed.
+A run that the budget stopped names the command that continues it: `deep-review review --fix` with the scope flags of the run and `--budget-usd` above the spend. It names it on the last line of stderr, in the report and in `status --run <id>`. The header of the report of a continued run names when the fix pass continued and where the earlier report is. The Checks table marks a column whose runs checked a state that a later edit changed. The column after the fixes takes no mark for an answer pass, because the column after the answers shows that tree.
 
 ### R16: An older engine passes over the new records
 
