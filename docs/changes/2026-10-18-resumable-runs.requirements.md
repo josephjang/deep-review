@@ -90,7 +90,7 @@ With the fake runtimes and the fake checks of the test suite, it reaches the sam
 
 A test runs a fix run on the fakes and stops the engine at a point. Then it runs the same command again and checks R1 against a run with no stop.
 
-It stops the engine in four ways. Three of them are a handled signal, a hard kill of the engine alone and a hard kill of its process tree. In these three ways, the engine records nothing after the stop. The fourth way kills a child before the engine. That is the order of run `8dbe23ad`, where the stop killed the check and the engine stopped less than 0.4 seconds later. Thus only the fourth way can show #25, or a worker that a stop kills before the engine.
+It stops the engine in four ways. Three of them are a handled signal, a hard kill of the engine alone and a hard kill of its process tree. In these three ways, the engine records nothing after the stop. The fourth way kills a child before the engine, with a kill mark (R4). That is the order of run `8dbe23ad`, where the stop killed the check and the engine stopped less than 0.4 seconds later. Thus only the fourth way can show #25, or a worker that a stop kills before the engine.
 
 The test suite runs a fixed set of points. They are where a phase starts or ends and where a worker or a check runs. They are also where the engine edits the tree or git, and where it writes the report. A script runs each point between two appends, and the gate of R18 runs it. CI runs the suite on Linux, macOS and Windows.
 
@@ -98,9 +98,11 @@ The test suite runs a fixed set of points. They are where a phase starts or ends
 
 When the engine starts a checks phase again after a stop, it runs again each kind whose last run in the phase did not pass. It runs these kinds and the kinds with no run in the order of the kinds: build, typecheck, lint, test. A kind whose last run passed does not run again. This applies to `baseline-checks`, `checks`, `repair-checks` and `answer-checks`. The first attempt of a phase runs each kind one time, as today.
 
-### R4: A failure of a child does not become final at once
+### R4: A child that something outside ended is cut, not failed
 
-After a worker or a check fails, the engine waits 10 seconds after the end of that child before it makes the failure final. In that time it does not finish a checks phase, and it does not degrade a unit. If the stop that killed the child also stops the engine in that time, R3 and R5 do the work again. A check that passed, timed out, did not start or was skipped causes no wait.
+The engine records a check or a worker as cut when its process ended with a kill mark. A kill mark is a signal, or one of the exit codes 129, 130, 131, 137 and 143, or the exit code 3221225786. A shell gives a process that a signal ended the code 128 plus the number of the signal. Windows gives the last code to a process that Ctrl-C ended. Any other exit code that is not 0 is a failure, as today. A timeout that the engine enforced stays a timeout.
+
+A cut check has no result, so its phase does not finish while it is cut. The engine runs the check again at once, or the next command runs it (R3). The second cut of a kind in one attempt is a failure, and its error names both marks. A cut worker is an interruption of its unit, as a lost worker is. Its unit does not degrade because of it. A unit out of attempts with a cut among its failures blocks, and the next command gives it its attempts again.
 
 ### R5: A unit keeps its attempts after a stop
 
@@ -212,17 +214,31 @@ The proposal rejects a rerun of each kind of a phase that starts again. A kill c
 
 The proposal also rejects a rerun of only the last recorded run of the cut attempt. That rule reads the order of the records as a fact about the stop. But the order is not a fact when the engine stopped between two checks. The cost of the chosen rule is a real failure that runs again one time after each stop of its phase. A stop is rare compared to a check. Revisit this if a host stops runs often, for example at a time limit.
 
-### PD4: No new outcome for a check that a stop killed, and a record of each start
+### PD4: An outcome from how a child ended, and a record of each start
 
-An outcome `interrupted` needs the engine to know that a stop is in progress. The engine did not know it on run `8dbe23ad`. When a signal reaches the engine first, it records nothing for the check. When the stop reaches the check first, the check ends with an exit code that the engine cannot tell from a real failure.
+An outcome `interrupted` needs the engine to know that a stop is in progress. The engine did not know it on run `8dbe23ad`, so the proposal rejects that outcome. The outcome `cut` of R4 needs less: it reads how the child ended (PD5). When a signal reaches the engine first, the engine records nothing for the check. When the stop reaches the check first, the check ends with an exit code. That code carries a kill mark when the stop left one.
 
-The record of the start of each check (R7) closes the gap of the first order. A check that started and has no end on the ledger is a check that a stop cut. For the second order, R3 and R4 run the check again. The killed run stays on the ledger as the shell reported it, and the later run names it as the run that it replaces (R15). This is the rule of the ledger for a wrong event: a later event corrects it and says so.
+The record of the start of each check (R7) closes the gap of the first order. A check that started and has no end on the ledger is a check that a stop cut. For the second order, R4 records a marked kill as cut, not as a verdict, and R3 runs the check again. A kill with no mark stays a failure, and R3 runs it again while its phase is open. The killed run stays on the ledger, and the later run names it as the run that it replaces (R15). This is the rule of the ledger for a wrong event: a later event corrects it and says so.
 
-### PD5: A wait after a failure of a child, not a detector of stops
+### PD5: The exit status tells a cut child from a failed one
 
-The engine cannot see each stop, so it cannot know if a stop caused a failure of a child. But it knows one fact: it is still alive after the child ended. A stop that kills a child stops the engine soon after. On run `8dbe23ad`, the engine stopped less than 0.4 seconds after the killed check ended. A wait of 10 seconds is more than 25 times that gap. The cost is at most 10 seconds each time the engine makes a failure final, and failures are rare.
+On 2026-10-18, the author chose this rule over a wait of 10 seconds. The question is if a child failed by itself or something outside ended it. The engine sees two values of each end: the exit code and the signal. A signal, or a code that a shell or Windows gives a killed or interrupted process, is a kill mark. A program that fails by itself gives a small code of its own, and a test runner gives 1.
 
-The proposal rejects a wait after each failed check before the engine records it. If the engine stops in that wait, the ledger has no record of what the check wrote. The proposal also rejects a wait that the operator sets, because no run showed a stop that needs more time. Revisit this when a stop takes longer than the wait.
+A test on Windows on 2026-10-18 started a check as `runCheck` does and ended it in five ways:
+
+| How the check ended | Exit code | Signal |
+|---|---|---|
+| It failed by itself (`process.exit(1)`) | 1 | none |
+| `taskkill /F` on its process | 1 | none |
+| `taskkill /T /F` on its shell | 1 | none |
+| The `kill` of Git Bash on its process | 143 | none |
+| The `kill` of Git Bash on its shell | 143 | none |
+
+The 143 of run `8dbe23ad` is the mark of the `kill` of Git Bash: 128 plus 15, the number of SIGTERM. A kill with `taskkill` leaves no mark, because its code is the code of a real failure. Thus the list of R4 does not hold 1, and that gap is an accepted risk.
+
+The rule costs nothing for an ordinary failure. On run `f57bcc23`, the last kind, test, failed before the fixes, after the fixes and after the repair, each time with exit code 1. A rule that runs each last failure again before its phase ends costs 11.6 minutes there, or 17.7 minutes with the check after the repair. A wait of 10 seconds costs 30 seconds. This rule costs nothing, because 1 is not a mark.
+
+The proposal rejects four other rules. A wait of 10 seconds before a failure is final uses the clock as its evidence, from one stop on record. A rerun of the last failed check costs the time above on each red phase. A reopen of a finished checks phase at the next command misses the last checks phase. The report follows that phase in milliseconds, and the run ends with no command to reopen it. A parse of the output goes against the fix pass, where the engine does not parse check output (PD8 of the fix pass).
 
 ### PD6: After a stop, each unit gets its attempts again
 
@@ -314,13 +330,13 @@ A point can pass on the fakes and fail with Claude Code or Codex, for example in
 
 A check or a unit that fails for a real reason runs again after each stop of its phase. The proposal accepts this, because a stop is rare and the cost is the time of a check or one attempt (PD3, PD6).
 
-### A failure waits 10 seconds
+### A kill with no mark
 
-The engine waits up to 10 seconds each time it makes a failure final. The proposal accepts this, because a run takes tens of minutes and such failures are rare.
+A stop that ends a child with an ordinary exit code, before it ends the engine, leaves a failure, as today. `taskkill` gives such a code (PD5). The proposal accepts this, because no run showed it. A tree kill with `taskkill` from outside ended the engine first in each try, so the engine recorded nothing (Context of the design). R3 still runs such a failure again while its phase is open.
 
-### A slow stop
+### A real failure with a kill mark runs once more
 
-If the engine stops more than 10 seconds after a stop killed its child, the failure is final, and a false record can stay. The proposal accepts this, because the one stop on record took less than 0.4 seconds. The record still shows the exit code of the killed child.
+A check or a worker that a signal ends for a real reason is cut. An example is a process that the system ends for lack of memory. Such a check runs once more, and its second cut in the attempt is a failure. Such a worker uses an attempt, and its unit then blocks and does not degrade. The proposal accepts this, because such ends are rare, and the cost is one run or one block.
 
 ### A write back can replace the edit of a person
 

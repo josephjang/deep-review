@@ -10,7 +10,7 @@ The design has one test and nine mechanisms. The test (R2) runs a fix run on the
 |---|---|---|
 | Old and current runs of a check | A run of a check is old when a worker revised the tree after it. A phase that starts again after a stop runs again each kind whose last run of a cut attempt did not pass, and `check.ran@3` names the run that it replaces. | R3, R11, R15 |
 | The start of a check | `check.started@1` records each start. At the next start of the phase, the engine writes back the files that a cut check changed, after `tree.restored@1` records what was there. | R7 |
-| A wait before a failure is final | The controller waits 10 seconds after a failed child before it finishes a checks phase or degrades a unit. | R4 |
+| A cut child | A check or a worker whose process ended with a kill mark is cut. A cut check has no result and runs again, and a cut worker is an interruption of its unit. | R4 |
 | Attempts after a stop | A phase that starts again after a stop gives its units fresh attempts. | R5 |
 | One append for the end of a worker | The end of a worker and its contribution are one append. | R6 |
 | A guard for each child | A small guard process ends the tree of its child when the engine ends. | R8 |
@@ -25,7 +25,7 @@ This design calls the continuation of R11 a reopened fix pass. It is apart from 
 
 ### No native job object and no detector of stops
 
-Node gives no way to create a Windows job object, and the engine cannot see its own `TerminateProcess`. The guard (R8) and the wait (R4) do the work of a job object and of a detector.
+Node gives no way to create a Windows job object, and the engine cannot see its own `TerminateProcess`. The guard (R8) does the work of a job object. The kill mark (R4) is the part of a detector that the engine can see: how its child ended.
 
 ### No write back of a file outside the files that the run expects
 
@@ -50,6 +50,8 @@ All paths and symbols were verified at `97ecac0`.
 On POSIX, each child is detached, so it leads its own process group and lives after a SIGKILL of the engine. On Windows, libuv puts each child in a job object that ends it with the engine, but the descendants of the child leave that job. A test on Windows used a parent that started four children through `cmd.exe`, as `runCheck` does, and logged the end of each child. `taskkill /T /F` on the parent, three times, left no logged end, so a plain tree kill reaches each process before the parent can record anything.
 
 The ledger of run `8dbe23ad` gives the times of #25, in UTC. The killed typecheck ended at 11:06:37.203 with exit code 143. The engine recorded it at 11:06:37.215. The resumed engine made its first record at 11:06:37.542. Thus the first engine stopped less than 0.34 seconds after the check ended. The stop of that run was a person's stop through the session that ran the engine, and it reached the check first.
+
+A second test on Windows, on 2026-10-18, started a check as `runCheck` does and ended it in five ways. A check that failed by itself, `taskkill /F` on its process and `taskkill /T /F` on its shell each gave exit code 1. The `kill` of Git Bash on its process or on its shell gave 143. Thus the 143 of run `8dbe23ad` is the mark of the `kill` of Git Bash, and a kill with `taskkill` looks like a real failure.
 
 ### What a run appends, and what it does outside the ledger
 
@@ -113,7 +115,9 @@ A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, o
 
 The helper stops the engine in four ways. For a handled signal, the preload emits SIGINT in the process, which runs the path of `releaseOnExit` on each platform. For a hard kill of the engine alone, the helper calls `process.kill` with SIGKILL on the engine's pid, which is `TerminateProcess` on Windows. For a hard kill of the tree, it runs `taskkill /T /F` on Windows and a SIGKILL of the process group on POSIX.
 
-For a kill of a child before the engine, the fake writes its pid in the file that marks its start. The helper kills the tree of that pid, and 100 milliseconds later it kills the engine alone as above. This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. A gap of 100 milliseconds thus lets the engine of today make the failure final, and it is less than the gap of that run.
+For a kill of a child before the engine, the fake writes its pid in the file that marks its start. The helper ends that pid with a kill mark: SIGTERM on POSIX, and the `kill` of Git Bash on Windows, which the suite finds from `git --exec-path`. 100 milliseconds later, it kills the engine alone as above.
+
+This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. A gap of 100 milliseconds thus lets the engine of today make the failure final, and it is less than the gap of that run.
 
 The helper then runs the same command again with no preload, until the run writes its report or blocks. It checks R1 against a run of the same repository with no stop, in four parts.
 
@@ -162,13 +166,15 @@ For `restore-tree`, the controller freezes the bytes of each drifted file as evi
 
 A stop between the append and the writes is safe, because the next start finds the record and writes again. The log names each file and where its earlier bytes are. Then R3 runs the cut check again, because it has no current run.
 
-### The wait before a failure becomes final (R4)
+### The outcome `cut` (R4)
 
-Two steps make the failure of a child final. One is `finish-phase` of a checks phase in which a check failed. The other is `degrade` for a unit whose last failure was a failed process. Before each, the controller finds the end of the newest such failure.
+`endedByKill` in `src/runtime/process.ts` holds the one list of kill marks: a signal, or the exit code 129, 130, 131, 137, 143 or 3221225786. `checkOutcomeOf` gives `cut` for a check that exited with a mark, and `check.ran@3` permits that outcome. A check that the engine killed at its timeout stays `timeout`, because its process result is `killed`, not `exited`.
 
-For a check, that is the recorded `endedAt` of the run with the outcome `failed`, also when later kinds were recorded as skipped after it. For a unit, it is the `endedAt` of the worker of its last failure. If that end is less than `childSettleMs` before now, the controller waits for the rest of the time.
+`dueCheck` treats a cut run as no run. Thus the kind is due again, and a phase does not finish while a kind is cut. `runDueCheck` records the second cut of a kind in one attempt as `failed`, with an error that names both marks. No reader of the last current run then sees `cut` as a result: `failedAtBaseline`, `repairTargets`, the task of a fixer and the Checks table. The log says `check typecheck (baseline-checks): cut by exit code 143, a kill mark; it runs again`.
 
-`childSettleMs` is 10000. `ReviewOptions` gets an option of that name, so that the suite can set 0, and the test of R4 can set a short time. The planner stays pure (TD1 of the read-only review). The wait is a fact of the clock, so it is in the controller, as the launch of workers is. The log says `phase checks: the build check failed 1.2 s ago; the phase ends in 8.8 s`. A degradation with the cause `budget` causes no wait.
+For a worker, `workerVerdict` in `src/runtime/launcher.ts` reads the mark right after its checks for a worker that did not start or ran past its timeout. It gives such a worker the outcome `failed`, so `worker.finished` does not change, and the receipt gets the cause `cut`. `contributionOf` then records `attempt.failed@7` with the fault `cut`, a third fault of that version. The fold counts it as an interruption, as a lost worker. It uses an attempt, and `exhaustedOutcome` blocks a unit with a cut among its failures and never degrades it.
+
+The planner launches a unit with an attempt left again at once, as after each failure. A cut does not block the phase at once, as the limit of R14 does.
 
 ### Attempts after a stop (R5)
 
@@ -251,7 +257,7 @@ Figure 1. A reopened run does only the work that the budget left. The earlier ru
 
 ### The usage limit (R14)
 
-The Claude adapter returns a new kind of decoded result, `limit`, for a result with `is_error` true. That result has text that names a usage limit or a session limit. It keeps the text, with the time of the reset. `workerVerdict` gives such a worker the outcome `failed`, so `worker.finished` does not change, and the receipt gets the cause `limit`. `contributionOf` then records `attempt.failed@7` with the fault `environment` and the reason, and it keeps the edits of a failed fixer as today. `attempt.failed@7` is version 6 with the `environment` fault permitted in each phase.
+The Claude adapter returns a new kind of decoded result, `limit`, for a result with `is_error` true. That result has text that names a usage limit or a session limit. It keeps the text, with the time of the reset. `workerVerdict` gives such a worker the outcome `failed`, so `worker.finished` does not change, and the receipt gets the cause `limit`. `contributionOf` then records `attempt.failed@7` with the fault `environment` and the reason, and it keeps the edits of a failed fixer as today. `attempt.failed@7` is version 6 with the `environment` fault permitted in each phase, and with the third fault `cut` of R4.
 
 The planner blocks the phase at the first such failure, after the workers in flight end. The blocker is `worker-failed`, its detail names the limit and the reset, and its action is the action of today. The next start of the phase gives fresh attempts (R5 and the rule after a block). The words that the adapter knows are in one list beside the adapter, and a test pins them with the text of run `e21b026d`.
 
@@ -263,6 +269,8 @@ The Limitations section of the report gets one line for each case of this table.
 |---|---|
 | A check that ran again | `- Ran again after a stop: typecheck in baseline-checks, failed in 4.4 s at attempt 1, passed in 3.1 s at attempt 2.` |
 | A cut check | `- Cut by a stop: test in baseline-checks at attempt 1, with no end on record.` |
+| A check that ended with a kill mark | `- Cut: typecheck in baseline-checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.` |
+| A worker that ended with a kill mark | `- Cut: the worker of finder REMOVALS ended with exit code 143, a kill mark, and ran again.` |
 | A file that the engine wrote back | `- Written back after a cut check: src/a.ts; the bytes before are at <path>.` |
 | A fix pass that the budget stopped | `- The run budget stopped the fix pass: 3 batches and the repair did not start. node "<engine>" review --runtime claude --last-commit --fix --budget-usd 62 continues it and reviews nothing again.` |
 
@@ -291,7 +299,7 @@ Each step is its own commits, with its tests, and `npm run check` passes after e
 | 1 | The contract test with its fixed set of points and the script, on the engine as it is. Each point that fails is marked as a known failure with the requirement that closes it, which gives the baseline of the metric. A requirement for a way that no run showed leaves the proposal by an amendment before its step when no point shows its way (PD1). | R1, R2 |
 | 2 | The ledger: each new event kind and version, its reducer, and `schema-1-13`. | R16 |
 | 3 | Checks: old and current runs, the rerun and its record, `check.started`, and the write back. | R3, R7 |
-| 4 | Failures and attempts: the wait, the fresh attempts, and one append for the end of a worker. | R4, R5, R6 |
+| 4 | Failures and attempts: the outcome `cut`, the fresh attempts, and one append for the end of a worker. | R4, R5, R6 |
 | 5 | Children: the guard. | R8 |
 | 6 | Commits and lost attempts. | R9, R10 |
 | 7 | The budget: the reopened fix pass. | R11, R12, R13 |
@@ -317,9 +325,9 @@ A floor that moves only on `fix.reopened` was the first design. A review of it s
 
 The rule "a run is old when a worker revised the tree after it" covers each order of the edits with one comparison. The fold has that order already.
 
-### TD4: The wait is in the controller, from the recorded end of the child
+### TD4: One list of kill marks for checks and workers, not a wait
 
-A wait in the planner was rejected, because the planner is pure, so that a resume and a run take the same path. A wait before the record of the failed check was rejected too. A stop in that wait leaves the writes of the check in no revision. A setting in `roles/policy.json` was rejected, because no run showed a need for a value other than 10 seconds. Revisit when a gate measures a stop that takes longer.
+One list in `process.ts` serves checks and workers, so the two cannot disagree on a mark. A wait in the controller was the first design. It held a checks phase or a degradation for 10 seconds after the recorded end of a failed child. It was rejected for the reasons of PD5, and also for two faults of its own. It held back the record of the other workers in flight, and a change of the clock moved its end. The list does not hold 1, because `taskkill` gives it, and so does a program that fails.
 
 ### TD5: A guard per child, not a cleanup at the resume
 
@@ -353,9 +361,9 @@ Today `repair-checks` runs when the repair has a target, also when the repair di
 
 ## Open Questions
 
-### Is 10 seconds the right wait?
+### Do Ctrl-C and the shells of macOS and Linux leave the marks of the list?
 
-The one stop on record took less than 0.34 seconds. The gate of R18 measures the gap of its own stops. If a gap is close to the wait, the value moves before the merge.
+The test on Windows measured `taskkill` and the `kill` of Git Bash. Ctrl-C on Windows, and SIGTERM and SIGINT through `/bin/sh` on macOS and Linux, are not measured yet. The test of R4 measures SIGTERM and SIGINT on macOS and Linux in CI. Ctrl-C on Windows needs a console, so the gate measures it by hand, with the stop of Claude Code. A mark that the list lacks goes into it before the merge.
 
 ### Does a timer count the sleep of the machine?
 
@@ -375,11 +383,11 @@ A fix run on the fakes appends a few hundred events, and each point runs two com
 
 In `test/review/fix-steps.test.ts`, a cut attempt runs again a kind whose last current run failed, timed out, did not start or was skipped. It does not run again a kind that passed, or a run of a completed attempt. It runs the kinds in their order, so a `build` that runs again runs first. In `test/checkpoint/fix-fold.test.ts`, version 3 with `replaces` null folds only for a kind with no current run. With `replaces` set, it folds only when that names the last current run, which did not pass and is from a cut attempt. Versions 1 and 2 fold as before.
 
-### R4: A failure of a child does not become final at once
+### R4: A child that something outside ended is cut, not failed
 
-With `childSettleMs` at 300, the last check of the baseline fails, and the engine stops 100 milliseconds later. The phase is not finished, and the resumed run runs the check again. A failed `build` with each later kind recorded as skipped waits from the end of the build.
+In `test/review/checks/run.test.ts`, `checkOutcomeOf` gives `cut` for each mark of the list, `failed` for exit code 1 and `timeout` for a kill at the timeout. A real check that the test ends with SIGTERM and with SIGINT on POSIX is cut. On Windows, a real check that the `kill` of Git Bash ends is cut. One that `taskkill` ends is failed, which pins the gap of the accepted risk.
 
-A case with no stop finishes the phase at least 300 milliseconds after the end of the check. A second failure of a finder with no stop degrades it after the wait. With a stop in the wait, the finder runs again. A phase with no failure finishes with no wait.
+In `test/review/fix-steps.test.ts`, a kind whose last current run is cut is due again, and the phase does not finish. A second cut of a kind in one attempt is recorded as failed. A fold test records a worker with the fault `cut`: its unit gets its second attempt, and with two failures it blocks and does not degrade. The contract test kills the last baseline check first in the fourth way, and the resumed run runs it again.
 
 ### R5 and R6: Attempts and the end of a worker
 
@@ -423,7 +431,7 @@ Report tests check each line of R15, the command in the budget line, and the hea
 
 ### R18: The gate
 
-Three real runs on the pull request of this change. In the first, a script stops the engine while the baseline test runs: it kills the check first and the engine 0.3 seconds later, which is the order of #25. One more stop, with the command of Claude Code that stops a background command, measures the gap that the open question asks for. In the second, a hard kill of the engine alone stops it while fixers run, and the processes of the fixers end at once.
+Three real runs on the pull request of this change. In the first, a script stops the engine while the baseline test runs: it kills the check first with the `kill` of Git Bash, and the engine 0.3 seconds later, which is the order of #25. One more stop, with the command of Claude Code that stops a background command, shows which mark that stop leaves (Open Questions). In the second, a hard kill of the engine alone stops it while fixers run, and the processes of the fixers end at once.
 
 In the third, a budget that the fixes reach stops the fix pass, and the same command with `--budget-usd 120` continues it. After each stop, the same command resumes the run. The script of R2 runs on the same commit. Commands: `npm run check`, `npm run verify`, `npm run resume-test` and the golden command above.
 
