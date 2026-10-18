@@ -97,7 +97,7 @@ A search of the code found these nine ways in which a stop can leave work undone
 
 | Way | What the stop leaves, and what the next command does | Requirement |
 |---|---|---|
-| W1 | A worker that a stop kills before the engine is `attempt.failed` with the fault `unit`. The unit has one attempt left, and a second failure degrades it. | R4, R5 |
+| W1 | A worker that a stop kills before the engine is `attempt.failed` with the fault `unit`. The unit has one attempt left, and a second failure degrades it. A unit that a stop leaves lost at its last attempt blocks the resumed run, and only one more command gives it its attempts again. | R4, R5 |
 | W2 | On POSIX, after a SIGKILL, detached workers and checks continue. The resume records them as lost and reads their edits while they edit. | R8 |
 | W3 | On Windows, after a `TerminateProcess` of the engine alone, its direct children stop, but their descendants continue. Late writes become drift or strays. | R8 |
 | W4 | A check that writes files and that the engine did not record leaves a part of its writes. The next start of the phase blocks on drift. | R7 |
@@ -216,7 +216,7 @@ When the child ends, or when it cannot start, the guard writes a result file in 
 
 A guard that ends with no result file, when the engine did not kill it at the timeout, was killed from outside. The engine then records the run as cut (R4), with a null exit code and signal. Its error says that no result came. On POSIX, it first kills the process group of the guard, so that a child that the guard left does not run beside the rerun. On Windows, the descendants of the child leave the job of the guard, and nothing reaches them (Risks & Migration). The engine still owns the timeout: it kills the tree of the guard, which holds the tree of the child.
 
-The guard is the same file as the engine, so the build ships nothing more. A stop that kills the whole tree also kills the guard, and that case needs no guard. A stop that kills the engine alone leaves the guard, which ends the child at once.
+The guard is the same file as the engine, so the build ships nothing more. `src/cli.ts` dispatches `guard` before it loads its other modules, so a guard starts in a fraction of a second, in the tests too. A stop that kills the whole tree also kills the guard, and that case needs no guard. A stop that kills the engine alone leaves the guard, which ends the child at once.
 
 On Windows, a detached guard has no console. A Ctrl-C in the console of the engine thus reaches the engine alone, while today it reaches each child too. The engine then ends the tree of each guard, as at each end that it handles. Thus that Ctrl-C ends no child before the engine, and no check records a failure from it.
 
@@ -236,9 +236,9 @@ A worker that failed while the engine lived keeps the paths of today. Its edit o
 
 #### How the command finds the run
 
-The scope source of `review` gives the mode and the request that the command names. It gives them before the check of the tree that `scopeRequestOf` makes for `--last-commit` and `--worktree`. `openRun` compares them with each complete fix run of the worktree that has a unit not attempted because of the budget, newest first. It does this when the command has `--fix`, no `--fresh` and no active run.
+The scope source of `review` gives the mode and the request that the command names. It gives them before the check of the tree that `scopeRequestOf` makes for `--last-commit` and `--worktree`. `openRun` compares them with each complete fix run of the worktree that has a unit not attempted because of the budget, newest first. It does this when the command has `--fix`, no `--fresh` and no active run. It tries this before the continuation of a read-only run into the fix pass (`continuable`), so a fix run that the budget stopped comes first.
 
-A named `last-commit` or `worktree` matches a run of that mode. No scope flag matches a run of either mode whose request has no ref and no range. A named ref or range, with `--branch` among them, matches a run with the same request. The paths must be equal after the normalization of the capture. The check of the tree runs only when no such run matches, before a new run or a read-only continuation, as today.
+The mode and the request are those that `scopeRequestOf` resolves from the flags and from `scope.default`, before its check of the tree. A `last-commit` or `worktree` mode matches a run of that mode. The mode `auto` matches a run of either mode whose request has no ref and no range. A ref or a range, with `--branch` among them, matches a run with the same request. The paths must be equal after the normalization of the capture. The check of the tree runs only when no such run matches, before a new run or a read-only continuation, as today.
 
 When a run matches, `openRun` takes the run lock and folds the run again, as it does for a continuation. Then it reads the open series of commits of the run (R9). When `HEAD` is at the head that an open series makes, the reopen completes the series in its own append. When `HEAD` is at the head that the series starts from, the reopen drops the series in the same way.
 
@@ -311,7 +311,7 @@ The Limitations section of the report gets one line for each case of this table.
 | A check that ran again after a timeout | `- Ran again after a timeout: test in checks timed out after 20 min at its first run, and passed in 5.2 min at its second.` |
 | A fix pass that the budget stopped | `- The run budget stopped the fix pass: 3 batches and the repair did not start. node "<engine>" review --runtime claude --last-commit --fix --budget-usd 62 continues it and reviews nothing again.` |
 
-The command in the last line comes from the run. It names the entry of the engine, as the answer command of the report does (R9 of the skill surface corrections). It also names the runtime, the scope flags and the paths of the run's request, and `--budget-usd` above the spend. In a run whose first round the budget stopped, the fate of a finding that the first round blocked says `Second round not planned: the run budget stopped the first round`.
+The command in the last line comes from the run. It names the entry of the engine, as the answer command of the report does (R9 of the skill surface corrections). It also names the runtime, the scope flags and the paths of the run's request, and `--budget-usd` above the spend. It names `--roles` too, when the run did not use the default roles. In a run whose first round the budget stopped, the fate of a finding that the first round blocked says `Second round not planned: the run budget stopped the first round`.
 
 After `fix.reopened`, the header gets one line, as an answer pass does: `Reopened: the fix pass past the run budget on <time>, after the report at <path>`. A run that reopened more than one time names the last one and the count. The Changed files section names the phase of each revision after a committed series: the reopened fix pass, or an answer pass. `committedWords` and the comment of `whyNotCommittable` in `commit.ts` change with it.
 
@@ -325,7 +325,9 @@ The Codex skill does not get these lines, because Codex reports no cost and this
 
 ### Golden fixture (R16)
 
-The registry gets `check.started@1`, `check.ran@3`, `tree.restored@1`, `worktree.checked@6`, `attempt.failed@7`, `fix.reopened@1`, `commits.prepared@1` and `commits.dropped@1`. One commit adds all of them with their reducers and the new fixture, `schema-1-13`, made with `npm run golden -- --output test/fixtures/checkpoints/schema-1-13`. The fixtures from `schema-1-01` to `schema-1-12` stay, and each must still fold. An older engine passes over each run that holds one of these, as `listRuns` does for each version that it does not declare.
+The registry gets `check.started@1`, `check.ran@3`, `tree.restored@1`, `worktree.checked@6`, `attempt.failed@7`, `fix.reopened@1`, `commits.prepared@1` and `commits.dropped@1`. One commit adds all of them with their reducers and the new fixture, `schema-1-13`, made with `npm run golden -- --output test/fixtures/checkpoints/schema-1-13`. The same commit changes `phaseStarted` (R5). The golden script re-enters a phase that a stop cut while it ran, so the fixture pins that rule too. A later step that changes what the fold gives for the golden run writes `schema-1-13` again, before the merge.
+
+The fixtures from `schema-1-01` to `schema-1-12` stay, and each must still fold. An older engine passes over each run that holds one of these, as `listRuns` does for each version that it does not declare.
 
 ### Steps of the work (PD15)
 
@@ -346,6 +348,10 @@ Each step is its own commits, with its tests, and `npm run check` passes after e
 
 The comments of step 9 are these. `checkOutcomeOf` in `run.ts` and the decoder in `claude.ts` link #25 and #40 as behavior of today. `contributionOf` in `phases.ts` says that a usage limit counts against the unit. The comments in `review-fold.ts`, `fix-fold.ts` and `answer-fold.ts` say that two reducers move phases. And `whyNotCommittable` in `commit.ts` says that a later series is an answer pass's.
 
+Other comments say what the old rules do. In `process.ts`, they are the comments on `detachedChild`, `runProcess` and `LiveProcesses`. Elsewhere, they are the doc of `runWorker` in `launcher.ts`, the doc of `recordLostWorkers` in `controller.ts`, and the docs of `lastRun` and `checksFloor` in `fix-state.ts`. The comments on the reducers of runs and revisions in `fix-fold.ts` and on fresh attempts in `review-fold.ts` change too. So do the docs of `interrupted` and `dueCheck` in `steps.ts`, and the doc of `attemptRevisionEvents` in `fix-events.ts`.
+
+Two texts of the report become false as well. One is the line in `report.ts` that says that each drift blocked the run until the tree was restored. The other is the note in `fix-report.ts` that says that the check after the repair did not run because no check failed after the fixes.
+
 ## Technical Decisions
 
 ### TD1: The test stops the engine from a preload, not from a hook in the engine
@@ -360,7 +366,7 @@ A reducer that accepts more at version 2 stops each older engine in the reposito
 
 A floor that moves only on `fix.reopened` was the first design. A review of it showed two faults. An answer pass between the stop of the budget and the reopen revised the tree. The floor did not see it, so the repair read old runs. And a reopen after an answer pass left the "After answers" column on a tree that a later fix changed.
 
-The rule of each phase covers each order of the edits with one comparison: a run is old when a later revision changed the state that its phase checks. One rule for all phases was rejected, because a baseline run checks the tree before each edit. Under one rule, each baseline run grew old at the first fixer, and the repair then found no target. The fold has that order already.
+The rule of each phase covers each order of the edits with one comparison: a run is old when a later revision changed the state that its phase checks. One rule for all phases was rejected, because a baseline run checks the tree before each edit. Under one rule, each baseline run grew old at the first fixer, and the repair then found no target. The fold does not keep that order today, because the runs and the revisions are two lists. The commit of the ledger (step 2) adds the order of the ledger to each.
 
 ### TD4: One list of kill marks for checks and workers, not a wait
 

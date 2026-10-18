@@ -20,7 +20,7 @@ The skills tell the user what to do when a review command stops: "run the same c
 
 ### Where the promise holds
 
-The ledger keeps each decision and each answer, and the engine resumes a run from the last step that the ledger holds. A worker that was in flight at the stop is recorded as lost and launched again, and its loss does not count against it. On run `509e520e`, a tool stopped the engine at two hours, and the same command resumed the run to its report with no hand. On run `32c720a0`, the usage limit of the provider failed the decider twice. The decider blocks and does not degrade, so the same command resumed the run after the limit reset.
+The ledger keeps each decision and each answer, and the engine resumes a run from the last step that the ledger holds. A worker that was in flight at the stop is recorded as lost and launched again. Its loss uses an attempt, but it never degrades the unit. On run `509e520e`, a tool stopped the engine at two hours, and the same command resumed the run to its report with no hand. On run `32c720a0`, the usage limit of the provider failed the decider twice. The decider blocks and does not degrade, so the same command resumed the run after the limit reset.
 
 ### Where it breaks: three stops that runs showed
 
@@ -138,7 +138,7 @@ When the engine records the edits of a worker that a stop cut short, it records 
 
 A fix pass that the budget stopped is a complete fix run with a unit that is not attempted because of the budget. The unit is a batch of the fixes or the repair. This applies to a runtime that reports cost, because only such a runtime has a run budget. `review --fix` continues the newest such run of the worktree when no run of the checkpoint is active and three conditions are true.
 
-First, the command names the scope of the run. A run of the last commit or of the uncommitted changes matches `--last-commit`, `--worktree` or no scope flag, after the mode of the run. A run of a ref or a range matches the same `--ref`, the same range, or `--branch` with the same base. The paths must be the same. The engine compares these before it looks at the state of the tree. Thus the flags still match after the fixes or `commit` changed the tree.
+First, the command names the scope of the run. A run of the last commit or of the uncommitted changes matches `--last-commit`, `--worktree` or the default of `scope.default`, after the mode of the run. A run of a ref or a range matches the same `--ref`, the same range, or `--branch` with the same base. The paths must be the same. The engine compares these before it looks at the state of the tree. Thus the flags still match after the fixes or `commit` changed the tree.
 
 Second, the tree is where the run left it: `HEAD` is at the head of the run, and each file that the run expects is as the run recorded it. Third, the run budget in force is above the spend of the run. With `--fresh`, the engine continues no run.
 
