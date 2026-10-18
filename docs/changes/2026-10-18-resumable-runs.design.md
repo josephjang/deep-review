@@ -202,6 +202,8 @@ When the child ends, the guard writes the child's exit code and signal to a resu
 
 The guard is the same file as the engine, so the build ships nothing more. A stop that kills the whole tree also kills the guard, and that case needs no guard. A stop that kills the engine alone leaves the guard, which ends the child at once.
 
+On Windows, a detached guard has no console. A Ctrl-C in the console of the engine thus reaches the engine alone, while today it reaches each child too. The engine then ends the tree of each guard, as at each end that it handles. Thus that Ctrl-C ends no child before the engine, and no check records a failure from it.
+
 ### `commit` records its series first (R9)
 
 `commit` appends `commits.prepared@1`, with the head that it starts from, the head that it makes and each commit, before it moves the branch. After `update-ref` and `git reset -q`, it appends `commits.created@1`, as today. The fold keeps a prepared series with no `commits.created` as open, and `runHead` does not move for it.
@@ -379,7 +381,7 @@ Today `repair-checks` runs when the repair has a target, also when the repair di
 
 ### Do Ctrl-C and the shells of macOS and Linux leave the marks of the list?
 
-The test on Windows measured `taskkill` and the `kill` of Git Bash. Ctrl-C on Windows, and SIGTERM and SIGINT through `/bin/sh` on macOS and Linux, are not measured yet. The test of R4 measures SIGTERM and SIGINT on macOS and Linux in CI. Ctrl-C on Windows needs a console, so the gate measures it by hand, with the stop of Claude Code. A mark that the list lacks goes into it before the merge.
+The test on Windows measured `taskkill` and the `kill` of Git Bash. Ctrl-C on Windows, and SIGTERM and SIGINT through `/bin/sh` on macOS and Linux, are not measured yet. The test of R4 measures SIGTERM and SIGINT on macOS and Linux in CI. Ctrl-C on Windows needs a console, so the gate measures it by hand, with the stop of Claude Code. The gate also checks by hand that under the guard, such a Ctrl-C reaches the engine alone. A mark that the list lacks goes into it before the merge.
 
 ### Does a timer count the sleep of the machine?
 
