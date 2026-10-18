@@ -14,7 +14,12 @@ export interface RepositoryOptions {
   readonly autocrlf?: boolean;
 }
 
-/** A fresh repository on `main` with a deterministic identity and no commits. */
+/**
+ * A fresh repository on `main` with a deterministic identity and no
+ * commits. Git's automatic maintenance is off: a commit would otherwise
+ * start it detached, and its lock under `.git/objects` would come and go
+ * while a test compares the repository's files.
+ */
 export function createRepository(directory: string, options: RepositoryOptions = {}): string {
   mkdirSync(directory, { recursive: true });
   git(directory, 'init', '-q', '-b', 'main');
@@ -22,6 +27,8 @@ export function createRepository(directory: string, options: RepositoryOptions =
   git(directory, 'config', 'user.email', 'test@example.invalid');
   git(directory, 'config', 'commit.gpgsign', 'false');
   git(directory, 'config', 'core.autocrlf', String(options.autocrlf ?? false));
+  git(directory, 'config', 'maintenance.auto', 'false');
+  git(directory, 'config', 'gc.auto', '0');
   return realpathSync.native(directory);
 }
 
