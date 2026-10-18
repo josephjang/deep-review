@@ -796,6 +796,21 @@ version field on purpose, so `/plugin marketplace update deep-review`
 follows the latest commit. The repository is private; adding it uses the
 git credentials already on the machine.
 
+On Windows, when PowerShell 7 comes from the Microsoft Store, Claude Code
+cannot check any command of its PowerShell tool ("malformed syntax ...
+The command line is too long"), so each engine command asks for approval
+despite the skill's `allowed-tools`. The fault is in Claude Code,
+tracked in anthropics/claude-code#102430. The fix is to turn the
+PowerShell tool off, so that Claude Code uses Git Bash, which needs Git
+for Windows: add `"env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0" }` to
+`~/.claude/settings.json`. To keep PowerShell instead, install
+PowerShell 7 from the MSI or the zip and put its folder before
+`%LOCALAPPDATA%MicrosoftWindowsApps` on PATH. The plugin's
+SessionStart hook (`deep-review hook session-start`) says the same once
+at the start of a new session on such a machine, and nothing anywhere
+else; the skill runs its commands with the Bash tool once the
+PowerShell tool fails to check one.
+
 From a local checkout, the same two steps take the checkout path instead of
 the GitHub name, and the plugin then loads in place: edits under `dist/`
 show up at the next session start or `/reload-plugins`.
