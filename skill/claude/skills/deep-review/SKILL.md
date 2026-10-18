@@ -84,12 +84,19 @@ Bash tool from then on.
    engine prints its progress on stderr. If the command is interrupted,
    run the same command again: it continues from the last step its ledger
    holds and pays for no completed worker twice.
+   A fix run that the run budget stopped continues the same way: run the
+   same command with `--budget-usd` above the spend that the engine names,
+   and it reviews nothing again. A run that a usage limit blocked resumes
+   with the same command after the reset that its blocker names.
 4. Exit code 0: the last line of stdout is the report's path. Show the
    user that path and say the report is theirs to read. Do not
    summarize, quote or interpret the findings. After a run with `--fix`,
    also say that the fixes are in the working tree, uncommitted, one
    patch per finding as the report's Changed files lists them, and offer
    to commit them.
+   When stderr has a line that says the run budget stopped the fix pass,
+   show that line to the user as printed and offer to run the command it
+   names.
 5. When the user accepts, run
 
    node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" commit

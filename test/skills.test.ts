@@ -244,6 +244,20 @@ describe('the skill texts', () => {
     assert.match(read('skill/claude/skills/deep-review/SKILL.md'), new RegExp(`--budget-usd <usd>\` only when the\\s+user names a run budget; the default is ${String(runBudgetUsd)} USD\\.`));
   });
 
+  // R17 of resumable runs: the Claude skill says how a run the budget stopped or a usage limit blocked goes on, and the Codex skill, which has neither, says nothing of it.
+  it('tells the Claude skill that the same command continues a fix run the budget stopped and one a usage limit blocked, and to show and offer the engine\'s line', () => {
+    const claude = read('skill/claude/skills/deep-review/SKILL.md');
+    const step3 = claude.slice(claude.indexOf('3. '), claude.indexOf('4. Exit code 0'));
+    const step4 = claude.slice(claude.indexOf('4. Exit code 0'), claude.indexOf('5. '));
+    assert.match(step3, /A fix run that the run budget stopped continues the same way: run the\s+same command with `--budget-usd` above the spend that the engine names,\s+and it reviews nothing again\./);
+    assert.match(step3, /A run that a usage limit blocked resumes\s+with the same command after the reset that its blocker names\./);
+    assert.match(step4, /When stderr has a line that says the run budget stopped the fix pass,\s+show that line to the user as printed and offer to run the command it\s+names\./);
+    assert.doesNotMatch(read('skill/codex/SKILL.md'), /run budget stopped|usage limit/);
+    // The line the skill names is one the engine logs, and the limit's block names its reset.
+    assert.ok(read('src/review/controller.ts').includes('the run budget stopped its fix pass; ${continuing} continues it'));
+    assert.ok(read('src/review/steps.ts').includes('stopped at the provider\'s usage limit: '));
+  });
+
   it('tells a Codex fix run on Windows that its editors are unsandboxed, and offers the sandbox only when the user names it', () => {
     const codex = read('skill/codex/SKILL.md');
     // The shipped windowsSandbox is none: the editing workers run with no sandbox and network access.
@@ -282,6 +296,9 @@ describe('the skill texts', () => {
       // Step 3's first sentence ends here with `exit:`; the Codex skill goes on, on that line, with where engine/main.mjs is, so the shared text wraps apart only here.
       '   repository and wait for it to exit:\n',
       '   Run the review from the repository as a background shell command with\n   the longest timeout you can, and wait for it to exit:\n',
+      // Codex reports no cost, so it has no run budget, and this engine knows no limit of Codex (R17 of resumable runs).
+      '   A fix run that the run budget stopped continues the same way: run the\n   same command with `--budget-usd` above the spend that the engine names,\n   and it reviews nothing again. A run that a usage limit blocked resumes\n   with the same command after the reset that its blocker names.\n',
+      '   When stderr has a line that says the run budget stopped the fix pass,\n   show that line to the user as printed and offer to run the command it\n   names.\n',
     ],
     'skill/codex/SKILL.md': [
       'description: Deep review of one change by the deep-review engine, a Node program installed with this skill. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for $deep-review by name.\n',
