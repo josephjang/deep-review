@@ -202,7 +202,9 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 ### The end of a worker and its contribution in one append (R6)
 
-The launcher no longer appends `worker.finished`. It returns the payload of the finish with the receipt. The controller's `record` appends the finish and the contribution in one append. When the contribution cannot be built because of a fault of the engine, `record` appends the finish alone and throws, as today's two appends end. Each other user of the launcher appends the finish itself, through one function that the launcher exports. A worker that the ledger shows as launched and not finished is lost at the next start, as today.
+`runWorker` in the launcher appends `worker.finished` as today, if its caller does not ask for the payload of the finish instead. Only the controller asks. Thus the replay in `src/replay/run.ts`, `scripts/smoke-runtime.ts` and the helpers of the tests do not change. The controller's `record` appends the finish and the contribution in one append.
+
+`record` appends the finish alone in two cases. One is an answer that it sets aside, because the tree of a phase that only reads drifted. The worker is then not lost at the next start, and its cost stays counted. The other is a contribution that it cannot build, or that the fold refuses, and then it throws, as today's two appends end. A worker that the ledger shows as launched and not finished is lost at the next start, as today.
 
 ### Each child ends with the engine (R8)
 
@@ -427,7 +429,7 @@ In `test/review/fix-steps.test.ts`, a kind whose last current run is cut is due 
 
 ### R5 and R6: Attempts and the end of a worker
 
-A fold test starts a phase again that an engine left in progress. It checks that each unit that did not settle has no failures, and that answers and degradations stay. A test of the controller ends a worker and checks that `worker.finished` and the contribution are in one append. The contract test covers a stop between the two.
+A fold test starts a phase again that an engine left in progress. It checks that each unit that did not settle has no failures, and that answers and degradations stay. A test of the controller ends a worker and checks that `worker.finished` and the contribution are in one append. A worker whose answer a drift sets aside still has its finish on the ledger. A contribution that the fold refuses leaves the finish alone, and `record` throws. The contract test covers a stop between the two.
 
 ### R7: A cut check
 
