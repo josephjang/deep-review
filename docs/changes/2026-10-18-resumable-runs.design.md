@@ -212,7 +212,9 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 The guard starts the child and waits for it. It holds a pipe from the engine on its standard input. When the pipe closes before the child ends, the engine ended, so the guard kills the child's tree: `taskkill /T /F` on Windows, a SIGKILL of the group on POSIX. Then it exits.
 
-When the child ends, the guard writes the child's exit code and signal to a result file in its directory. Then it exits with the child's exit code. The engine reads the end of the child from that file, not from the exit of the guard. A guard that ends with no result file, when the engine did not kill it at the timeout, was killed from outside. The engine then records the run as cut (R4), whatever code the guard left. The engine still owns the timeout: it kills the tree of the guard, which holds the tree of the child.
+When the child ends, or when it cannot start, the guard writes a result file in its directory. The file holds the termination, `exited` or `not-started`, with the exit code, the signal and the error of a spawn that failed. Then the guard exits with the child's exit code. The engine reads the end of the child from that file, not from the exit of the guard. Thus a spawn that fails stays `not-started`, as today.
+
+A guard that ends with no result file, when the engine did not kill it at the timeout, was killed from outside. The engine then records the run as cut (R4), with a null exit code and signal. Its error says that no result came. On POSIX, it first kills the process group of the guard, so that a child that the guard left does not run beside the rerun. On Windows, the descendants of the child leave the job of the guard, and nothing reaches them (Risks & Migration). The engine still owns the timeout: it kills the tree of the guard, which holds the tree of the child.
 
 The guard is the same file as the engine, so the build ships nothing more. A stop that kills the whole tree also kills the guard, and that case needs no guard. A stop that kills the engine alone leaves the guard, which ends the child at once.
 
@@ -302,6 +304,7 @@ The Limitations section of the report gets one line for each case of this table.
 | A check that ran again | `- Ran again after a stop: typecheck in baseline-checks, failed in 4.4 s at attempt 1, passed in 3.1 s at attempt 2.` |
 | A cut check | `- Cut by a stop: test in baseline-checks at attempt 1, with no end on record.` |
 | A check that ended with a kill mark | `- Cut: typecheck in baseline-checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.` |
+| A check whose guard left no result | `- Cut: test in checks ended with no result from its guard, and ran again: passed in 5.2 min.` |
 | A worker that ended with a kill mark | `- Cut: the worker of finder REMOVALS ended with exit code 143, a kill mark, and ran again.` |
 | A file that the engine wrote back | `- Written back after a cut check: src/a.ts; the bytes before are at <path>.` |
 | A file written back after a timeout | `- Written back after build timed out: dist/claude/engine/main.mjs; the bytes before are at <path>.` |
@@ -441,7 +444,7 @@ A fake check writes a file of the run and then runs past its timeout. Its run re
 
 ### R8: Each child ends with the engine
 
-In `test/runtime/process.test.ts`, an engine starts a worker with a grandchild through the guard. A hard kill of the engine alone then ends both, on each system. The cases of today stay: a timeout, a crash, an exit and the signals. A kill of the guard alone, while its check runs, leaves no result file, and the engine records the check as cut.
+In `test/runtime/process.test.ts`, an engine starts a worker with a grandchild through the guard. A hard kill of the engine alone then ends both, on each system. The cases of today stay: a timeout, a crash, an exit and the signals. A kill of the guard alone, while its check runs, leaves no result file, and the engine records the check as cut. A command that cannot start gives the result `not-started` through the guard.
 
 ### R9: `commit`
 
@@ -500,6 +503,10 @@ An older engine passes over each fix run of the new engine (R16). It cannot resu
 ### The guard changes each spawn
 
 Each worker and each check now runs under the guard. A fault in the guard can break each run. The design accepts this, because the process tests of today run through the guard, and the contract test stops it in each way.
+
+### A guard that a kill ends alone on Windows
+
+A kill of the guard alone ends its child through the job of the guard, but the descendants of the child continue. The rerun can then run beside them. The design accepts this, because a stop rarely kills the guard alone: a kill of the tree of the engine reaches the descendants too.
 
 ### The fakes are not the real runtimes
 
