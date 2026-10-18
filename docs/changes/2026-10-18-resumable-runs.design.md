@@ -121,9 +121,11 @@ The run holds each case that a way needs. The first attempt of one unit fails, s
 
 The helper stops the engine in four ways. For a handled signal, the preload emits SIGINT in the process, which runs the path of `releaseOnExit` on each platform. For a hard kill of the engine alone, the helper calls `process.kill` with SIGKILL on the engine's pid, which is `TerminateProcess` on Windows. For a hard kill of the tree, it runs `taskkill /T /F` on Windows and a SIGKILL of the process group on POSIX.
 
-For a kill of a child before the engine, the fake writes its pid in the file that marks its start. The helper ends that pid with a kill mark: SIGTERM on POSIX, and the `kill` of Git Bash on Windows, which the suite finds from `git --exec-path`. 100 milliseconds later, it kills the engine alone as above.
+For a kill of a child before the engine, the fake writes its pid in the file that marks its start. The helper ends that pid with a kill mark: SIGTERM on POSIX, and the `kill` of Git Bash on Windows, which the suite finds from `git --exec-path`. The engine records the end of the child, and the preload stops it at its next append that launches a worker, starts a check or finishes a phase. Then the helper kills the engine alone as above.
 
-This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. A gap of 100 milliseconds thus lets the engine of today make the failure final, and it is less than the gap of that run.
+This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. Thus the engine of today makes the failure final before its next step, and the stop at that step lets it do so in each run.
+
+The first design waited 100 milliseconds after the kill of the child. Under the load of the suite, the engine then went one or two steps further in some runs, so one point gave different results from one run to the next. The stop at the next step gives the same result in each run.
 
 The helper then runs the same command again with no preload, until the run writes its report or blocks. It checks R1 against a run of the same repository with no stop, in four parts, and it checks R8 in a fifth.
 
