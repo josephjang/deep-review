@@ -208,7 +208,7 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 ### Each child ends with the engine (R8)
 
-`runProcess` starts each worker and each check through a guard: `node <engine entry> guard`, with the command, its directory, its environment and its files in a file that the engine writes. On Windows, the guard is detached, so it leaves the job object of libuv. On POSIX, it leads the process group of the child, as the child does today.
+`runProcess` starts each worker and each check through a guard: `node <engine entry> guard`. A file that the engine writes holds the command, its arguments and how Windows quotes them. It also holds the directory and the files of standard input and output. The environment of the child is the environment of the guard, so no secret of the environment goes to disk. On Windows, the guard is detached, so it leaves the job object of libuv. On POSIX, it leads the process group of the child, as the child does today.
 
 The guard starts the child and waits for it. It holds a pipe from the engine on its standard input. When the pipe closes before the child ends, the engine ended, so the guard kills the child's tree: `taskkill /T /F` on Windows, a SIGKILL of the group on POSIX. Then it exits.
 
