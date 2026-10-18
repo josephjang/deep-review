@@ -174,15 +174,15 @@ Before a rerun, `runDueCheck` logs `check typecheck (baseline-checks): running a
 
 ### A check that a stop cut (R7)
 
-A cut check is a `check.started` with no `check.ran` after it in the same attempt, or a `check.ran` with the outcome `cut`. When a checks phase starts again, the planner first looks for a cut check in the earlier attempt. Sometimes one exists, and the start check of the tree finds drift only in files that the run expects. The planner then returns a new step, `restore-tree`, instead of the block. Drift of `HEAD` or of a file outside the run's files still blocks, as today.
+A cut check is a `check.started` with no `check.ran` after it in the same attempt, or a `check.ran` with the outcome `cut`. When a checks phase starts again, the planner first looks in the earlier attempt for a check that a kill cut short: a cut check, or a run that timed out. Sometimes one exists, and the start check of the tree finds drift only in files that the run expects. The planner then returns a new step, `restore-tree`, instead of the block. Drift of `HEAD` or of a file outside the run's files still blocks, as today.
 
-In the same attempt, after a run that ended cut or timed out, the planner compares the files that the run expects. When one differs, it returns `restore-tree` before its next step: the rerun of the check, or the next kind after a second timeout.
+In the same attempt, the planner cannot compare the tree, because it reads only the ledger. Thus the controller does the work in the step that ran the check, after a run that a kill cut short. It compares the files that the run expects and freezes each one that differs. It appends `tree.restored@1` with `check.ran@3` in one append, with an empty list when nothing differs. Then it writes the expected bytes and checks the tree again. The planner reads the record, so the rerun or the next kind comes next, and nothing repeats.
 
 `dueCheck` also returns a kind whose last current run is its first timeout in the attempt, so the kind runs again. Its rerun names the timeout in `replaces`. A second timeout of the kind in the attempt is its result, as the readers take a timeout today.
 
-For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again.
+For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again. It records that check as `worktree.checked@6`, whose new moment `restored` follows a write back.
 
-A stop between the append and the writes is safe, because the next start finds the record and writes again. The log names each file and where its earlier bytes are. Then R3 runs the cut check again, because it has no current run.
+A stop between the append and the writes is safe, because the next start finds the drift and the record, and it writes again. The drift rule of the planner reads only the checks of the tree after the last `tree.restored` of the attempt. Thus a drift that a write back resolved does not block. The log names each file and where its earlier bytes are. Then R3 runs the cut check again, because it has no current run.
 
 ### The outcome `cut` (R4)
 
@@ -314,7 +314,7 @@ The Codex skill does not get these lines, because Codex reports no cost and this
 
 ### Golden fixture (R16)
 
-The registry gets `check.started@1`, `check.ran@3`, `tree.restored@1`, `attempt.failed@7`, `fix.reopened@1`, `commits.prepared@1` and `commits.dropped@1`. One commit adds all of them with their reducers and the new fixture, `schema-1-13`, made with `npm run golden -- --output test/fixtures/checkpoints/schema-1-13`. The fixtures from `schema-1-01` to `schema-1-12` stay, and each must still fold. An older engine passes over each run that holds one of these, as `listRuns` does for each version that it does not declare.
+The registry gets `check.started@1`, `check.ran@3`, `tree.restored@1`, `worktree.checked@6`, `attempt.failed@7`, `fix.reopened@1`, `commits.prepared@1` and `commits.dropped@1`. One commit adds all of them with their reducers and the new fixture, `schema-1-13`, made with `npm run golden -- --output test/fixtures/checkpoints/schema-1-13`. The fixtures from `schema-1-01` to `schema-1-12` stay, and each must still fold. An older engine passes over each run that holds one of these, as `listRuns` does for each version that it does not declare.
 
 ### Steps of the work (PD15)
 
@@ -427,7 +427,7 @@ A fold test starts a phase again that an engine left in progress. It checks that
 
 A fake check writes a file of the run and then hangs, and the test stops the engine. The resumed run records `tree.restored@1`, writes the expected bytes and keeps the earlier bytes as evidence. Then it runs the check again and names the file in the log and the report. A drift of `HEAD` with a cut check still blocks.
 
-A fake check writes a file of the run and then ends with a kill mark, while the engine lives. Its run records no revision. The engine records `tree.restored@1` and writes the expected bytes before it runs the check again.
+A fake check writes a file of the run and then ends with a kill mark, while the engine lives. Its run records no revision. The engine records `tree.restored@1` with the run and writes the expected bytes. Then it records the check of the tree as `restored`, and it runs the check again. A run that a kill cut short with no change of a file records an empty `tree.restored@1`, and nothing repeats. A stop between the record and the writes writes again at the next start, and the resolved drift does not block.
 
 A fake check writes a file of the run and then runs past its timeout. Its run records no revision, and the engine writes the expected bytes back. Then the check runs again. A fake that hangs again ends as `timeout`, and the repair reads the tree of the fixes, with no half rewrite in it. A fake that passes at its second run passes.
 
