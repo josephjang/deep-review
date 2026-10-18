@@ -102,7 +102,9 @@ When the engine starts a checks phase again after a stop, it runs again each kin
 
 The engine records a check or a worker as cut when its process ended with a kill mark. A kill mark is a signal, or one of the exit codes 129, 130, 131, 137 and 143, or the exit code 3221225786. A shell gives a process that a signal ended the code 128 plus the number of the signal. Windows gives the last code to a process that Ctrl-C ended. Any other exit code that is not 0 is a failure, as today. A timeout that the engine enforced stays a timeout.
 
-A cut check has no result, so its phase does not finish while it is cut. The engine runs the check again at once, or the next command runs it (R3). The second cut of a kind in one attempt is a failure, and its error names both marks. A cut worker is an interruption of its unit, as a lost worker is. Its unit does not degrade because of it. A unit out of attempts with a cut among its failures blocks, and the next command gives it its attempts again.
+A cut check has no result, so its phase does not finish while it is cut. A cut run records no revision, because its writes are not the work of a complete check. Before the check runs again, the engine writes back each file that the run expects and that differs (R7). The engine runs the check again at once, or the next command runs it (R3). The second cut of a kind in one attempt is a failure, and its error names both marks.
+
+A cut worker is an interruption of its unit, as a lost worker is. Its unit does not degrade because of it. A unit out of attempts with a cut among its failures blocks, and the next command gives it its attempts again.
 
 ### R5: A unit keeps its attempts after a stop
 
@@ -114,9 +116,9 @@ The ledger records the end of each worker and what the worker contributed, or wh
 
 ### R7: A check that a stop cut short leaves no writes that the run did not record
 
-The ledger records the start of each check. A check can then have a start and no end on the ledger.
+The ledger records the start of each check. A check can then have a start and no end on the ledger. Such a check, and a check that ended cut (R4), is a cut check.
 
-When the engine resumes its phase, it handles the files that the run expects. For each such file that differs from what the run recorded, it keeps the bytes in the tree as evidence. Then it writes back the bytes that the run recorded. The log and the report name each such file. Then R3 runs the check again.
+Before a cut check runs again, at once or at the next command, the engine handles the files that the run expects. For each such file that differs from what the run recorded, it keeps the bytes in the tree as evidence. Then it writes back the bytes that the run recorded. The log and the report name each such file. Then the check runs again (R3, R4).
 
 ### R8: No child of an ended engine continues
 
@@ -246,9 +248,11 @@ A stop can kill a worker before the engine, and the engine then records a failur
 
 ### PD7: Write back what a cut check wrote, and keep what was there
 
-A check can write files: a formatter in lint, a generator in build. When a stop cuts it, its writes are on no record, and today the next start of the phase blocks on drift. A person must then write back the bytes that the run expected. The engine knows these bytes, so it does this itself (R7). It first keeps the bytes in the tree as evidence, so nothing is lost if a person also changed one of these files.
+A check can write files: a formatter in lint, a generator in build. When a stop cuts it, its writes are on no record, and today the next start of the phase blocks on drift. A person must then write back the bytes that the run expected. The engine knows these bytes, so it does this itself (R7). It first keeps the bytes in the tree as evidence, so nothing is lost if a person also changed one of these files. On 2026-10-18, the author kept this write back, under the condition of PD1.
 
-The proposal rejects a record of these writes as a revision of the cut check. That record can take the edit of a person as the work of the check. The proposal also rejects the block of today for this case, because the engine caused the drift.
+The same holds for a check that ended cut while the engine lived (R4). Today the engine records the writes of each check that ends as its revision, and `commit` makes that revision a commit. A half rewrite of `dist/` then becomes a commit of its own. Thus a cut run records no revision, and the write back comes before the check runs again.
+
+The proposal rejects a record of these writes as a revision of the cut check. That record can take the edit of a person as the work of the check. The proposal also rejects the block of today for this case, because the engine caused the drift. And it rejects a rerun with no write back. The rerun then starts from half a rewrite. A formatter that a stop cut can leave half a file, and the lint that runs again can fail on it.
 
 ### PD8: Each child ends with the engine
 
