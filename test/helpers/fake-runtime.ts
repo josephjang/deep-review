@@ -11,10 +11,12 @@
 //   FAKE_HUGE_STREAM `stderr` to print FAKE_HUGE there; stdout by default
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 //   FAKE_SCRIPT      a JSON file scripting the answer per review role and unit; see scriptedStep
+//   FAKE_START_DIR   a directory whose `starts` file records each scripted worker's start
+//   FAKE_HOLD        the start of a scripted worker that holds there; see holdIfNamed
 // The answers to the preflight's probes are in fake-probe.ts, which lists the
 // variables they read; a fake loads this module only to act as a worker.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
@@ -280,12 +282,42 @@ export async function waitForMarker(marker: string | undefined = environment.FAK
 }
 
 /**
+ * When FAKE_START_DIR is set, record this start of the worker labelled
+ * `name` (`<role> <phase>:<unit>`, as the engine labels its launch) and,
+ * when FAKE_HOLD names it as `<name>#<n>`, the n-th start of the name,
+ * hold: start a grandchild, write both pids to `started.json` in the
+ * directory, and wait for its `release` file, with the grandchild waiting
+ * for it too. The contract test of resumable runs (resume-contract.ts)
+ * stops the engine while such a worker holds. fake-check.mjs keeps the
+ * same protocol for a check.
+ */
+async function holdIfNamed(name: string): Promise<void> {
+  const directory = environment.FAKE_START_DIR;
+  if (directory === undefined) return;
+  appendFileSync(join(directory, 'starts'), `${name}\n`);
+  const hold = environment.FAKE_HOLD;
+  const at = hold === undefined ? -1 : hold.lastIndexOf('#');
+  if (hold === undefined || at === -1 || hold.slice(0, at) !== name) return;
+  const counter = join(directory, 'held.count');
+  const count = (existsSync(counter) ? Number(readFileSync(counter, 'utf8')) : 0) + 1;
+  writeWhole(counter, String(count));
+  if (count !== Number(hold.slice(at + 1))) return;
+  const release = join(directory, 'release');
+  const wait = `const { existsSync } = require('node:fs'); setInterval(() => { if (existsSync(${JSON.stringify(release)})) process.exit(0); }, 50);`;
+  const grandchild = spawn(process.execPath, ['-e', wait], { stdio: 'ignore', windowsHide: true, detached: process.platform === 'win32' });
+  writeWhole(join(directory, 'started.json'), JSON.stringify({ pid: process.pid, grandchild: grandchild.pid }));
+  await waitForMarker(release);
+}
+
+/**
  * Do what a scripted step asks before the answer is printed: edit the
- * tree, wait, hang, or print stderr. Returns the exit code the step asks
- * for.
+ * tree, hold where FAKE_HOLD names this start, wait, hang, or print
+ * stderr. Returns the exit code the step asks for.
  */
 export async function beginScriptedStep(step: ScriptStep, prompt: string): Promise<number> {
   applyEdits(step.edits ?? [], prompt);
+  const header = readTaskHeader(prompt);
+  if (header !== null) await holdIfNamed(`${header.role} ${header.phase}:${header.unitKey}`);
   await waitForMarker(step.waitFor);
   if (step.hang === true) {
     setInterval(() => {}, 1000);

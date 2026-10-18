@@ -15,6 +15,7 @@
     "roles": "node scripts/roles.ts",
     "replay": "node scripts/replay-verifier.ts",
     "replay-score": "node scripts/score-replay.ts",
+    "resume-test": "node --import ./test/setup.ts scripts/resume-test.ts",
     "review": "node src/cli.ts",
     "test": "node --import ./test/setup.ts --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
