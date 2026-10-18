@@ -102,7 +102,7 @@ When the engine starts a checks phase again after a stop, it runs again each kin
 
 The engine records a check or a worker as cut when its process ended with a kill mark. A kill mark is a signal, or one of the exit codes 129, 130, 131, 137 and 143, or the exit code 3221225786. A shell gives a process that a signal ended the code 128 plus the number of the signal. Windows gives the last code to a process that Ctrl-C ended. Any other exit code that is not 0 is a failure, and a timeout that the engine enforced is a timeout, as today. A child whose end has no record, while the engine lives, is cut too (R8).
 
-A cut check has no result, so its phase does not finish while it is cut. A cut run records no revision, because its writes are not the work of a complete check. Before the check runs again, the engine writes back each file that the run expects and that differs (R7). The engine runs the check again at once, or the next command runs it (R3). The second cut of a kind in one attempt is a failure, and its error names both marks.
+A cut check has no result, so its phase does not finish while it is cut. A cut run records no revision, because its writes are not the work of a complete check. Before the check runs again, the engine writes back each file that the run expects and that differs (R7). The engine runs the check again at once, or the next command runs it (R3). The second cut of a kind in one attempt is a failure, and its error names both marks. It records no revision either, and the write back follows it.
 
 A cut worker is an interruption of its unit, as a lost worker is. Its unit does not degrade because of it. A unit out of attempts with a cut among its failures blocks, and the next command gives it its attempts again.
 
