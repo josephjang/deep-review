@@ -132,7 +132,7 @@ The ledger records each series of commits before the branch moves. When a stop c
 
 ### R10: A lost attempt records only its own work
 
-When the engine records the edits of a worker that a stop cut short, it records only its own files. These are the files that the snapshots of the worker name, and the files that its unit owned or claimed. Each other change is a stray file or a drift, as the next check of the tree finds it.
+When the engine records the edits of a worker that a stop cut short, it records only its own files. These are the files that the snapshots of the worker name, and the files that its unit owned or claimed. Each other change is a stray file or a drift, as the next check of the tree finds it. A worker that failed while the engine lived keeps the rule of today.
 
 ### R11: The same command with a higher budget continues a fix pass that the budget stopped
 

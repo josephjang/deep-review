@@ -224,7 +224,9 @@ Each command that reads `runHead` first settles an open series: `commit`, `answe
 
 ### A lost attempt records only its own work (R10)
 
-`attemptRevisionEvents` takes as its paths the paths that the snapshots name, the files that its unit owned and the files that its unit claimed. It no longer adds each path that git reports as changed. A change outside these files stays in the tree. The next check of the tree then finds it as a drift, for a file that the run expects, or as a stray file.
+`recordLostWorkers` asks `attemptRevisionEvents` for the narrow paths of a lost worker: the paths that the snapshots name, the files that its unit owned and the files that its unit claimed. For a lost worker, it no longer adds each path that git reports as changed. A change outside these files stays in the tree. The next check of the tree then finds it as a drift, for a file that the run expects, or as a stray file.
+
+A worker that failed while the engine lived keeps the paths of today. Its edit of a file that it did not claim is still attributed as git reports it (R5 and PD9 of commit series integrity). The edit of a person while the engine is down meets only a lost worker. On 2026-10-19, the author chose to narrow the paths for a lost worker only.
 
 ### The reopened fix pass (R11, R12, R13)
 
