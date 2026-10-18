@@ -53,14 +53,17 @@ chained before or after it.
    node "<this skill's directory>/engine/main.mjs" config show --runtime codex <scope flags> [--fix]
 
    When it exits 0, write the user a message before your next tool call,
-   in this same reply: quote its `Scope:` line and the `budget.usd` line
-   under its `Settings:` exactly as it prints them, and say whether the
-   run fixes.
+   in this same reply: copy its `Scope:` line and the `budget.usd` line
+   under its `Settings:` into a code block, character for character, and
+   below it say whether the run fixes. Do not restate them in your own
+   words: the commit after `from` is the base the change is measured
+   from, not the commit the review reads.
    When `status` prints a `Run ` line instead, that run is active and the
    review below resumes it: run no `config show`, and in that message
-   quote the `Run ` line and the `Settings:` line of `status` exactly as
-   it prints them, and say that the review continues that run with the
-   scope and the settings it recorded and ignores the scope flags.
+   copy the `Run ` line and the `Settings:` line of `status` into a code
+   block, character for character, and say that the review continues
+   that run with the scope and the settings it recorded and ignores the
+   scope flags.
    The user does not see the command's output, so this message is where
    they see the scope. Then, in the same reply, start the review at once;
    the message does not end your turn: do not ask the user to confirm,
@@ -122,7 +125,9 @@ chained before or after it.
    the answer is recorded, the same command applies it once the cause
    it names is gone.
 7. Exit code 2: the run is blocked or was refused, and stderr ends with
-   the blocker and the operator's action. Show both verbatim and stop.
+   the blocker and the operator's action. Show both verbatim in a code
+   block and stop, with no account of your own of what the run did,
+   spent or left undone.
    A `check-unavailable` blocker names a check the project defines whose
    tool this machine lacks; when the user answers it, run the same
    command again, adding `--no-check <kind>` if they choose to go
