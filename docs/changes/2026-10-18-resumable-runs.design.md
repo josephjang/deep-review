@@ -9,7 +9,7 @@ The design has one test and nine mechanisms. The test (R2) runs a fix run on the
 | Mechanism | What it does | Requirements |
 |---|---|---|
 | Old and current runs of a check | A run of a check is old when a worker revised the tree after it. A phase that starts again after a stop runs again each kind whose last run of a cut attempt did not pass, and `check.ran@3` names the run that it replaces. | R3, R11, R15 |
-| The start of a check | `check.started@1` records each start. Before a cut check runs again, at once or at the next start of the phase, the engine writes back the files that it changed, after `tree.restored@1` records what was there. | R7 |
+| The start of a check | `check.started@1` records each start. After a check that a kill cut short, at once or at the next start of the phase, the engine writes back the files that it changed, after `tree.restored@1` records what was there. | R7 |
 | A cut child | A check or a worker whose process ended with a kill mark is cut. A cut check has no result and runs again, and a cut worker is an interruption of its unit. | R4 |
 | Attempts after a stop | A phase that starts again after a stop gives its units fresh attempts. | R5 |
 | One append for the end of a worker | The end of a worker and its contribution are one append. | R6 |
@@ -164,7 +164,7 @@ Before a rerun, `runDueCheck` logs `check typecheck (baseline-checks): running a
 
 A cut check is a `check.started` with no `check.ran` after it in the same attempt, or a `check.ran` with the outcome `cut`. When a checks phase starts again, the planner first looks for a cut check in the earlier attempt. Sometimes one exists, and the start check of the tree finds drift only in files that the run expects. The planner then returns a new step, `restore-tree`, instead of the block. Drift of `HEAD` or of a file outside the run's files still blocks, as today.
 
-In the same attempt, after a run that ended cut, the planner compares the files that the run expects before the rerun. When one differs, it returns `restore-tree` first.
+In the same attempt, after a run that ended cut or timed out, the planner compares the files that the run expects. When one differs, it returns `restore-tree` before its next step: the rerun of a cut check, or the next kind after a timeout.
 
 For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again.
 
@@ -174,7 +174,7 @@ A stop between the append and the writes is safe, because the next start finds t
 
 `endedByKill` in `src/runtime/process.ts` holds the one list of kill marks: a signal, or the exit code 129, 130, 131, 137, 143 or 3221225786. `checkOutcomeOf` gives `cut` for a check that exited with a mark, and `check.ran@3` permits that outcome. A check that the engine killed at its timeout stays `timeout`, because its process result is `killed`, not `exited`.
 
-`dueCheck` treats a cut run as no run. Thus the kind is due again, and a phase does not finish while a kind is cut. `runDueCheck` records the second cut of a kind in one attempt as `failed`, with an error that names both marks. It records no revision for a cut run, because `checkRevision` runs only for another outcome. The write back of R7 then comes before the rerun.
+`dueCheck` treats a cut run as no run. Thus the kind is due again, and a phase does not finish while a kind is cut. `runDueCheck` records the second cut of a kind in one attempt as `failed`, with an error that names both marks. It records no revision for a run that ended cut or timed out, because `checkRevision` runs only for the other outcomes. The write back of R7 then comes before the next step.
 
 No reader of the last current run then sees `cut` as a result: `failedAtBaseline`, `repairTargets`, the task of a fixer and the Checks table. The log says `check typecheck (baseline-checks): cut by exit code 143, a kill mark; it runs again`.
 
@@ -278,6 +278,7 @@ The Limitations section of the report gets one line for each case of this table.
 | A check that ended with a kill mark | `- Cut: typecheck in baseline-checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.` |
 | A worker that ended with a kill mark | `- Cut: the worker of finder REMOVALS ended with exit code 143, a kill mark, and ran again.` |
 | A file that the engine wrote back | `- Written back after a cut check: src/a.ts; the bytes before are at <path>.` |
+| A file written back after a timeout | `- Written back after build timed out: dist/claude/engine/main.mjs; the bytes before are at <path>.` |
 | A fix pass that the budget stopped | `- The run budget stopped the fix pass: 3 batches and the repair did not start. node "<engine>" review --runtime claude --last-commit --fix --budget-usd 62 continues it and reviews nothing again.` |
 
 The command in the last line comes from the run. It names the entry of the engine, as the answer command of the report does (R9 of the skill surface corrections). It also names the runtime, the scope flags and the paths of the run's request, and `--budget-usd` above the spend. In a run whose first round the budget stopped, the fate of a finding that the first round blocked says `Second round not planned: the run budget stopped the first round`.
@@ -404,6 +405,8 @@ A fold test starts a phase again that an engine left in progress. It checks that
 A fake check writes a file of the run and then hangs, and the test stops the engine. The resumed run records `tree.restored@1`, writes the expected bytes and keeps the earlier bytes as evidence. Then it runs the check again and names the file in the log and the report. A drift of `HEAD` with a cut check still blocks.
 
 A fake check writes a file of the run and then ends with a kill mark, while the engine lives. Its run records no revision. The engine records `tree.restored@1` and writes the expected bytes before it runs the check again.
+
+A fake check writes a file of the run and then runs past its timeout. Its run records no revision, the engine writes the expected bytes back, and the result stays `timeout`. The repair then reads the tree of the fixes, with no half rewrite in it.
 
 ### R8: Each child ends with the engine
 
