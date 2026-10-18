@@ -118,19 +118,21 @@ describe('the skill texts', () => {
       assert.match(step3, /When it prints no line that starts with `Run `, no run is active\./);
       assert.match(step3, /When `status` prints a `Run ` line instead, that run is active and the\s+review below resumes it: run no `config show`, and in that message\s+quote the `Run ` line and the `Settings:` line of `status` exactly as\s+it prints them, and say that the review continues that run with the\s+scope and the settings it recorded and ignores the scope flags\./);
       // In the reply, not only as the command's output: the smoke on Claude Code showed a model that ran config show and told the user nothing of it.
-      assert.match(step3, /When it exits 0, your next step is a message to the user, not a tool\s+call: quote its `Scope:` line and the `budget\.usd` line under its\s+`Settings:` exactly as it prints them, and say whether the run fixes\./);
+      assert.match(step3, /When it exits 0, write the user a message before your next tool call,\s+in this same reply: quote its `Scope:` line and the `budget\.usd` line\s+under its `Settings:` exactly as it prints them, and say whether the\s+run fixes\./);
       assert.match(step3, /The user does not see the command's output, so this message is where\s+they see the scope\./);
-      assert.match(step3, /start the review at once: do not ask the user\s+to confirm, and do not wait for an answer\./);
-      assert.match(step3, /A user who sees a wrong\s+scope stops the review/);
+      // A reply with the message alone ends the turn: the allowed-tools grant lapses in Claude Code, and `codex exec` ends the session, so no review runs.
+      assert.match(step3, /Then, in the same reply, start the review at once;\s+the message does not end your turn: do not ask the user to confirm,\s+and do not wait for an answer\./);
+      assert.doesNotMatch(step3, /next step is a message|not a tool\s+call/);
+      assert.match(step3, /A user who sees a wrong scope stops the\s+review/);
       // A stopped run stays active, and the next review would resume it with the wrong scope.
-      assert.match(step3, /When the user stops it because its scope\s+is wrong, close it with `abandon --reason <text>` before you run the\s+corrected request, so that the next review starts a new run rather\s+than resume this one\./);
+      assert.match(step3, /When the user stops it because its scope is wrong,\s+close it with `abandon --reason <text>` before you run the corrected\s+request, so that the next review starts a new run rather than resume\s+this one\./);
       // The lines the skill names are lines status prints, and the resume is the one the engine logs.
       const cli = read('src/cli.ts');
       assert.ok(cli.includes('\'No active run.\\n\'') && cli.includes('\'No run: this repository has no checkpoint yet.\\n\''), 'status prints no Run line when no run is active');
       assert.ok(read('src/review/status.ts').includes('`Run ${state.id}: ${status}'), 'status opens with a Run line');
       assert.ok(read('src/review/status.ts').includes('settingsHeaderLine(review.configuration)'), 'status prints the Settings: line');
       assert.ok(read('src/review/controller.ts').includes('is active; its scope flags are ignored and the run continues'), 'a review resumes an active run and ignores its scope flags');
-      assert.match(step3, /When `config show` exits with code 2, show\s+stderr verbatim and stop, as step 7 says for a refusal\./);
+      assert.match(step3, /When `config show` exits with code 2, show stderr verbatim\s+and stop, as step 7 says for a refusal\./);
       // A command with anything chained to it is not the command the Claude Code approval names (R4).
       assert.match(text, /Run each command below as it is written, alone, with nothing\s+chained before or after it\./);
       assert.doesNotMatch(step3, /wait for (the user|a yes|confirmation)|ask the user whether/);
