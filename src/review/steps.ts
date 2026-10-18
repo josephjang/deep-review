@@ -303,8 +303,9 @@ function degraded(review: ReviewState, unit: Unit): boolean {
  * Whether a failure of the environment is among a unit's: a worker lost
  * with its engine, which nothing observed failing, an attempt that ran
  * while its claims directory was removed (R12 of commit series
- * integrity), or a worker a kill from outside ended with a kill mark (R4
- * of resumable runs). Each is an interruption, not the unit failing.
+ * integrity), a worker a kill from outside ended with a kill mark (R4
+ * of resumable runs), or one the provider's usage limit stopped (R14).
+ * Each is an interruption, not the unit failing.
  */
 const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.cause !== 'unit') ?? false;
 

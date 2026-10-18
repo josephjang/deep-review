@@ -244,9 +244,10 @@ function requirePlannedCheck(review: ReviewState, fix: FixState, event: DecodedE
 const runState = (fix: FixState, payload: CheckRan): CheckRunState => ({ ...payload, revisionsBefore: fix.revisions.length });
 
 /**
- * A version 1 or 2 run of a check, which replaces nothing: each kind runs
- * once in its phase, and in answer-checks once per answer pass (R5 of
- * answers), so the kind must have no current run there.
+ * A version 1 or 2 run of a check, which replaces nothing: the kind must
+ * have no current run in its phase, none yet or only runs a later
+ * revision made old (TD3 of resumable runs), and in answer-checks none
+ * for the current answer pass (R5 of answers).
  */
 const checkRan: Reducer<Omit<CheckRan, 'replaces'>> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);

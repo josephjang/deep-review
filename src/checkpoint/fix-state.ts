@@ -310,8 +310,10 @@ export function cutShortBefore(review: Pick<ReviewState, 'phases'> & { readonly 
  * The attempt of a checks phase past which its runs are the current ones:
  * for `answer-checks`, the attempt it was at when the current answer pass
  * opened it, so each pass runs every check once again (R5 of answers);
- * 0 for every other checks phase, which runs each check once in the run,
- * whatever attempt it is re-entered at.
+ * 0 for every other checks phase, whose runs grow old instead when a
+ * later revision changes the state it checks (`isOldRun`, TD3 of
+ * resumable runs), so it runs a kind again only then, or when its last
+ * run was cut (`runStanding`).
  */
 export function checksFloor(review: Pick<ReviewState, 'answerPasses'>, phase: CheckPhase): number {
   return phase === 'answer-checks' ? (currentPass(review)?.pass.openedAt.checks ?? 0) : 0;

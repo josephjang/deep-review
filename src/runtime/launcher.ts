@@ -109,7 +109,8 @@ export interface RunWorkerOptions {
  * Run one worker to its end and record it (R1, R3, R6). In order: refuse a
  * closed run, a malformed invocation or a missing capability; build the
  * command; qualify the executable; freeze the prompt and schema; create the
- * scratch directory; append `worker.launched`; spawn; decode; freeze every
+ * scratch directory; append `worker.launched`; spawn it under its guard
+ * (`runProcess`, R8 of resumable runs); decode; freeze every
  * output; append `worker.finished`, or with `deferFinish` hand it to the
  * caller in the receipt, to append with what the worker contributed (R6
  * of resumable runs); return the receipt.
