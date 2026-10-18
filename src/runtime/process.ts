@@ -204,7 +204,8 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
       let started = false;
       let kill: TreeKill | undefined;
       const timer = setTimeout(() => {
-        kill = killTreeNow(guard);
+        // A result already there is a child that ended on its own, and its guard is exiting. Read only now, since `taskkill /T` ends the child before its guard, which may write the child's end in between: that end is the kill's.
+        kill = existsSync(resultFile) ? { status: 'not-running' } : killTreeNow(guard);
       }, request.timeoutMs);
       guard.once('spawn', () => {
         started = true;
@@ -231,9 +232,9 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
           return;
         }
         // A child that ended on its own just as the timer fired was not killed.
-        if (result?.termination === 'exited') resolve({ termination: 'exited', exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
+        if (kill !== undefined && kill.status !== 'not-running') resolve({ termination: 'killed', exitCode: code, signal, treeKillError: kill.status === 'root-only' ? kill.error : null, startedAt, endedAt });
+        else if (result?.termination === 'exited') resolve({ termination: 'exited', exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
         else if (result?.termination === 'not-started') resolve(notStarted(result.error, startedAt, endedAt));
-        else if (kill !== undefined && kill.status !== 'not-running') resolve({ termination: 'killed', exitCode: code, signal, treeKillError: kill.status === 'root-only' ? kill.error : null, startedAt, endedAt });
         else {
           endLeftGroup(guard.pid!);
           resolve({ termination: 'exited', exitCode: null, signal: null, startedAt, endedAt });
