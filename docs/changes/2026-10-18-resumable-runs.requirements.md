@@ -60,9 +60,9 @@ When the ledger, the evidence store or the git data is lost or damaged, the engi
 
 A sleep of the machine, a failure of the network, and the limits of Codex get no recovery here. Principle 11 still applies to the environment (PD2). For the sleep, the design says what to measure first.
 
-### A killed check, told apart when it ends
+### A killed check, told apart by its output
 
-The engine reads no output of a check and no exit code other than zero (PD8 of the fix pass). An exit code of 128 plus a signal number is a convention of the shell, not a fact. A test runner that aborts can exit with code 134 alone, and that is a real failure.
+The engine reads no output of a check (PD8 of the fix pass). It reads the exit status of a check only for the kill marks of R4. A code outside that list stays a failure: a test runner that aborts can exit with code 134 alone, and that is a real failure.
 
 ### A block of the fix pass at the budget, or a part of the budget kept for the repair
 
