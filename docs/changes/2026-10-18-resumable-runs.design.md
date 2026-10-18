@@ -111,7 +111,9 @@ A search of the code found these nine ways in which a stop can leave work undone
 
 ### The contract test (R1, R2)
 
-A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. The run has one worker at a time, so a stop meets the same workers in flight in each run, and the workers end in the same order. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append` and stops the process after the append that the test names. A test names an append by the kind of its event and its unit, not by a count. The order of the appends of concurrent workers changes from one run to the next.
+A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. The run has one worker at a time. Thus a stop meets the same workers in flight in each run, and they end in the same order.
+
+The child loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append` and stops the process after the append that the test names. A test names an append by the kind of its event and its unit, not by a count. The order of the appends of concurrent workers changes from one run to the next.
 
 A point while a child runs is a point of its own kind. At an append, no child of that step runs yet: the launcher spawns a worker right after the append of `worker.launched`, and the engine starts a check right after `check.started`. Thus each fake writes a start marker with its pid, starts a grandchild, and waits for a release file.
 
@@ -121,11 +123,11 @@ The run holds each case that a way needs. The first attempt of one unit fails, s
 
 The helper stops the engine in four ways. For a handled signal, the preload emits SIGINT in the process, which runs the path of `releaseOnExit` on each platform. For a hard kill of the engine alone, the helper calls `process.kill` with SIGKILL on the engine's pid, which is `TerminateProcess` on Windows. For a hard kill of the tree, it runs `taskkill /T /F` on Windows and a SIGKILL of the process group on POSIX.
 
-For a kill of a child before the engine, the fake writes its pid in the file that marks its start. The helper ends that pid with a kill mark: SIGTERM on POSIX, and the `kill` of Git Bash on Windows, which the suite finds from `git --exec-path`. The engine records the end of the child, and the preload stops it at its next append that launches a worker, starts a check or finishes a phase. Then the helper kills the engine alone as above.
+For a kill of a child before the engine, the fake writes its pid in the file that marks its start. The helper ends that pid with a kill mark: SIGTERM on POSIX, and the `kill` of Git Bash on Windows, which the suite finds from `git --exec-path`. The engine records the end of the child. The preload then stops the engine at its next append that launches a worker, starts a check or finishes a phase. Then the helper kills the engine alone as above.
 
-This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. Thus the engine of today makes the failure final before its next step, and the stop at that step lets it do so in each run.
+This is the order of run `8dbe23ad`, and only this way can show #25 and W1. On that run, the engine recorded the end of each check 12 to 19 milliseconds after the check ended. The phase finished 5 milliseconds after its last record. Thus the engine of today makes the failure final before its next step. The stop at that step lets it do so in each run.
 
-The first design waited 100 milliseconds after the kill of the child. Under the load of the suite, the engine then went one or two steps further in some runs, so one point gave different results from one run to the next. The stop at the next step gives the same result in each run.
+The first design waited 100 milliseconds after the kill of the child. Under the load of the suite, the engine then went one or two steps further in some runs. Thus one point gave different results from one run to the next. The stop at the next step gives the same result in each run.
 
 The helper then runs the same command again with no preload, until the run writes its report or blocks. It checks R1 against a run of the same repository with no stop, in four parts, and it checks R8 in a fifth.
 
@@ -135,7 +137,9 @@ Third, nothing is false. Each current run of a check has the outcome of the run 
 
 Fourth, the report holds the same findings, decisions, fixes, check results, changed files and patches as the report of the run with no stop. The comparison leaves out what a resume changes by its nature: times, durations, paths of the evidence, run ids and the lines of R15. It also leaves out the Statistics table, the spend, the workers with no reported cost and the count of the checks of the tree.
 
-The comparison also leaves out how the patches split the edits of a fixer that the stop cut. The revision of its unfinished attempt holds what it edited (R20 of the fix pass), so the fixer of the next attempt can have no revision of its own. Thus the test compares the patches by what they change in each file, not one by one. It leaves out the notes that name the patches of a finding, the list of the patches and the name of the attempt in Changed files. The test compares the lines of Limitations as a set, because some of them follow the order in which the workers ended.
+The comparison also leaves out how the patches split the edits of a fixer that the stop cut. The revision of its unfinished attempt holds what it edited (R20 of the fix pass). Thus the fixer of the next attempt can have no revision of its own. The test compares the patches by what they change in each file. It leaves out the notes that name the patches of a finding and the list of the patches. It also leaves out the name of the attempt in Changed files.
+
+The test compares the lines of Limitations as a set, because some of them follow the order in which the workers ended.
 
 Fifth, no process that the stopped engine started is alive a short time after the stop (R8). The helper reads the pids from the start markers before it writes the release file, and then it ends each process that is still alive.
 
@@ -154,7 +158,7 @@ A run of a check checks the tree of its time. Each checks phase checks one state
 | `repair-checks` | A revision of the fixes, of the repair or of an answer pass. | In a reopened run, when a revision of the repair came after its last runs. |
 | `answer-checks` | A revision of the fixes or of the repair. Each answer pass that revised the tree also runs each check once again (`checksFloor`). | As today: once for each answer pass that revised the tree. |
 
-A phase whose last runs are old has no current run of each kind, so it runs each kind again, and the reducer accepts the new runs as first runs; no floor moves at `fix.reopened` (TD3). `checks` still runs only after a revision of the fixes, and `repair-checks` now runs only after a revision of the repair. The Checks table marks a column whose last runs are old with "(an earlier tree)", and its notes name the edit that came after. Thus the "After answers" column of a run that reopened after an answer pass says that a later fix changed the tree.
+A phase whose last runs are old has no current run of a kind. Thus it runs each kind again, and the reducer accepts the new runs as first runs. No floor moves at `fix.reopened` (TD3). `checks` still runs only after a revision of the fixes, and `repair-checks` now runs only after a revision of the repair. The Checks table marks a column whose last runs are old with "(an earlier tree)", and its notes name the edit that came after. Thus the "After answers" column of a run that reopened after an answer pass says that a later fix changed the tree.
 
 On 2026-10-19, the author chose that the "After the fixes" column takes no mark for an answer pass. The "After answers" column shows that tree.
 
@@ -212,7 +216,11 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 ### Each child ends with the engine (R8)
 
-`runProcess` starts each worker and each check through a guard: `node <engine entry> guard <request file>`. The request file, which the engine writes beside the output files of the child, holds the command, its arguments and how Windows quotes them. It also holds the directory and the file of standard input. The engine opens the output files, as it does today, and gives them to the guard as its own standard output and error, which the child inherits; an error of the guard itself thus lands in the child's standard error too. The environment of the child is the environment of the guard, so no secret of the environment goes to disk. On Windows, the guard is detached, so it leaves the job object of libuv. On POSIX, it leads the process group of the child, as the child does today. `runProcess` finds the engine entry from where its own module lies: in the bundle that is `main.mjs`, and in the sources `src/cli.ts`. Thus no caller passes it, and a test that calls `runProcess` runs the real guard.
+`runProcess` starts each worker and each check through a guard: `node <engine entry> guard <request file>`. The engine writes the request file beside the output files of the child. The file holds the command, its arguments and how Windows quotes them. It also holds the directory and the file of standard input. The environment of the child is the environment of the guard, so no secret of the environment goes to disk.
+
+The engine opens the output files, as it does today. It gives them to the guard as its own standard output and error, which the child inherits. Thus an error of the guard itself lands in the standard error of the child too. On Windows, the guard is detached, so it leaves the job object of libuv. On POSIX, it leads the process group of the child, as the child does today.
+
+`runProcess` finds the engine entry from where its own module lies: in the bundle that is `main.mjs`, and in the sources `src/cli.ts`. Thus no caller passes it, and a test that calls `runProcess` runs the real guard.
 
 The guard starts the child and waits for it. It holds a pipe from the engine on its standard input. When the pipe closes before the child ends, the engine ended, so the guard kills the child's tree: `taskkill /T /F` on Windows, a SIGKILL of the group on POSIX. Then it exits.
 
@@ -232,7 +240,11 @@ Each command that reads `runHead` first settles an open series: `commit`, `answe
 
 ### A lost attempt records only its own work (R10)
 
-`recordLostWorkers` asks `attemptRevisionEvents` for the narrow paths of a lost worker. For a lost worker, it no longer adds each path that git reports as changed. A snapshot lists each path that changed since the launch and each path that the run expects, so its listing alone does not bound the work of the worker. Each revision from a snapshot stays as it is, because a snapshot holds what the worker wrote while it ran. The revision of what the tree holds after the last snapshot takes only the files that its unit owned, the files that its unit claimed and the files that a snapshot showed it changed. A change outside these files stays in the tree. The next check of the tree then finds it as a drift, for a file that the run expects, or as a stray file. The contract test showed the first rule, the paths that the snapshots name, take the edit of a person in a file of the change that no unit owned.
+`recordLostWorkers` asks `attemptRevisionEvents` for the narrow paths of a lost worker. For a lost worker, it no longer adds each path that git reports as changed. A snapshot names each path that changed after the launch and each path that the run expects. Thus the snapshot alone does not bound the work of the worker.
+
+Each revision from a snapshot stays as it is, because a snapshot holds what the worker wrote while it ran. The revision of what the tree holds after the last snapshot takes only three kinds of file. These are the files that its unit owned, the files that its unit claimed and the files that a snapshot showed it changed. A change outside these files stays in the tree. The next check of the tree then finds it as a drift, for a file that the run expects, or as a stray file.
+
+The first rule took the paths that the snapshots name. The contract test showed that this rule takes the edit of a person in a file of the change that no unit owned.
 
 A worker that failed while the engine lived keeps the paths of today. Its edit of a file that it did not claim is still attributed as git reports it (R5 and PD9 of commit series integrity). The edit of a person while the engine is down meets only a lost worker. On 2026-10-19, the author chose to narrow the paths for a lost worker only.
 
