@@ -461,8 +461,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const before = answered();
     child.kill();
     await new Promise<void>((done) => child.once('close', () => done()));
-    // The killed engine exited, as its own status says; its pid is not probed later, since Windows can give the number to another process while the resume runs.
-    assert.ok(child.exitCode !== null || child.signalCode !== null, 'the killed engine exited');
+    // The awaited close shows the killed engine exited; its pid is not probed, since Windows can give the number to another process while the resume runs.
     // The orphaned DESIGN worker, if any, waits for the marker; let it go so nothing outlives the test.
     writeFileSync(marker, '');
     const midway = box.run();
