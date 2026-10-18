@@ -6,7 +6,7 @@ import { renderReport } from '../../src/review/report.ts';
 import { namedExcludedPaths, settingsHeaderLine, settingsLimitations } from '../../src/review/settings-report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { configuration, reported, scope as scopeV1, settingsBlock, statistics, engineEntry } from '../helpers/review-history.ts';
+import { configuration, reported, scope as scopeV1, settingsBlock, reportInput } from '../helpers/review-history.ts';
 
 const base = '1'.repeat(40);
 /** The scope as the fold holds it, with the patterns given and the paths they left out. */
@@ -102,7 +102,7 @@ describe('the settings in the report and status (R7 of the configuration)', () =
     const finished = reported().fold();
     const settings = configuredWith({ notFollowed: [{ name: 'checks.test', repository: 'npm test', value: 'make test', layer: 'operator' }] });
     const state: RunState = { ...finished, scope: scopeWith(['dist/**'], ['dist/a.js']), review: { ...finished.review!, configuration: settings } };
-    const report = renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics });
+    const report = renderReport(state, reportInput);
     assert.match(report, /^Roles digest: d{64}\nSettings: no configuration file\n/m);
     assert.match(report, /^- scope\.exclude \(dist\/\*\*\) left out 1 changed path, which no worker reviewed: dist\/a\.js\.$/m);
     assert.match(report, /^- Not followed: checks\.test: the repository's "npm test", this run's "make test" from the operator's file\.$/m);
@@ -110,6 +110,6 @@ describe('the settings in the report and status (R7 of the configuration)', () =
     assert.equal(lines[3], 'Settings: no configuration file');
     assert.deepEqual(lines.slice(4, 6), ['scope.exclude (dist/**) left out 1 changed path, which no worker reviewed: dist/a.js.', 'Not followed: checks.test: the repository\'s "npm test", this run\'s "make test" from the operator\'s file.']);
     // A run configured before the settings renders as it did, with no settings line.
-    assert.doesNotMatch(renderReport(finished, { engineEntry, engine: '0.0.0+dev', statistics }), /^Settings:/m);
+    assert.doesNotMatch(renderReport(finished, reportInput), /^Settings:/m);
   });
 });

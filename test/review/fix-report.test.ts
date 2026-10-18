@@ -7,7 +7,7 @@ import { fixLimitations } from '../../src/review/fix-report.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, engineEntry } from '../helpers/review-history.ts';
+import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/fix.md');
 const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evidence/${blob.sha256.slice(0, 8)}`;
@@ -15,7 +15,7 @@ const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evid
 const patches = ['/evidence/patch-1', '/evidence/patch-2', '/evidence/patch-3'];
 
 describe('the report of a fix run', () => {
-  const render = (state: RunState = fixRun().fold()): string => renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics: fixStatistics, fix: { evidencePath, patches } });
+  const render = (state: RunState = fixRun().fold()): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches } });
 
   it('renders exactly as the committed snapshot, which a person read once in review', () => {
     assert.equal(render(), readFileSync(snapshotPath, 'utf8'), `the report changed; if on purpose, write the new text to ${snapshotPath}`);
@@ -169,14 +169,14 @@ describe('the report of a fix run', () => {
   });
 
   it('renders a run without the fix pass with none of these sections', () => {
-    const report = renderReport(reported().fold(), { engineEntry, engine: '0.0.0+dev', statistics });
+    const report = renderReport(reported().fold(), reportInput);
     for (const heading of ['## Fixes', '## Checks', '## Changed files']) assert.ok(!report.includes(heading), heading);
     assert.doesNotMatch(report, /^Fix pass:/m);
   });
 });
 
 describe('the report of a fix run with the decision step (R8 of the decision step)', () => {
-  const render = (state: RunState): string => renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics: fixStatistics, fix: { evidencePath, patches } });
+  const render = (state: RunState): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches } });
 
   it('says of a finding no fixer saw that the decision left it, with the reason, and counts it so in the header', () => {
     const report = render(decidedOf(fixRun()).fold());

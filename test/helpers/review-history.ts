@@ -243,6 +243,9 @@ export const statistics = {
   budgetApplied: true,
 };
 
+/** The input a test renders a report with, spread with what the test changes, so a new field of the input is given here once. */
+export const reportInput = { engineEntry, engine: '0.0.0+dev', statistics };
+
 /** The run through merge and rank, before its report phase. */
 export const mergeRanked = (): History =>
   swept()

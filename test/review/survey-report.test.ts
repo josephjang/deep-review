@@ -8,7 +8,7 @@ import { renderReport } from '../../src/review/report.ts';
 import { checkUnavailableBlocker } from '../../src/review/steps.ts';
 import { checkSourceCell, conventionsReportSection, droppedByOperator, surveyLimitations, unavailableCell } from '../../src/review/survey-report.ts';
 import { emptyFixState } from '../../src/checkpoint/fix-state.ts';
-import { History, continuedRun, continuedToReport, fixRun, fixStatistics, quietSurveyedChecks, reported, statistics, surveyAnswer, surveyedCheck, withSurvey, worker, engineEntry } from '../helpers/review-history.ts';
+import { History, continuedRun, continuedToReport, fixRun, fixStatistics, quietSurveyedChecks, reported, surveyAnswer, surveyedCheck, withSurvey, worker, reportInput } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/survey.md');
 const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evidence/${blob.sha256.slice(0, 8)}`;
@@ -72,7 +72,7 @@ function withoutConventionsFinder(history: History): History {
 }
 
 describe('the report of a surveyed run', () => {
-  const render = (state: RunState = surveyedFixRun().fold()): string => renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics: surveyStatistics, fix: { evidencePath, patches } });
+  const render = (state: RunState = surveyedFixRun().fold()): string => renderReport(state, { ...reportInput, statistics: surveyStatistics, fix: { evidencePath, patches } });
 
   it('renders exactly as the committed snapshot, which a person read once in review', () => {
     assert.equal(render(), readFileSync(snapshotPath, 'utf8'), `the report changed; if on purpose, write the new text to ${snapshotPath}`);
@@ -108,12 +108,12 @@ describe('the report of a surveyed run', () => {
 
   it('says the survey failed, and that CONVENTIONS had no rule, in a read-only run without a source', () => {
     const failed = withSurvey(withoutConventionsFinder(reported()), (history) => history.start('survey').add('survey.failed', { reason: '2 attempts did not complete: timeout', conventions: [], userRules: [] }).finish('survey', 'degraded'));
-    const report = renderReport(failed.fold(), { engineEntry, engine: '0.0.0+dev', statistics });
+    const report = renderReport(failed.fold(), reportInput);
     assert.match(report, /^## Conventions\n\nThe survey failed: 2 attempts did not complete: timeout\. The run went on with no convention source\.\n\nNo user-level rules file of the reviewer's existed on this machine; the policy value was `judge`\.$/m);
     assert.match(report, /^- The survey failed: 2 attempts did not complete: timeout\. No repository convention source was known\.$/m);
     assert.match(report, /^- Angle CONVENTIONS did not run: the survey failed, so no convention source is known: 2 attempts did not complete: timeout\./m);
     const none = withSurvey(reported(), (history) => history.start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', { workerId: worker(80), conventions: [], userRules: [], checks: null, note: '' }).finish('survey'));
-    assert.match(renderReport(none.fold(), { engineEntry, engine: '0.0.0+dev', statistics }), /^## Conventions\n\nThe survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to\.$/m);
+    assert.match(renderReport(none.fold(), reportInput), /^## Conventions\n\nThe survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to\.$/m);
   });
 
   it('counts the survey\'s answers, and says it blocked on a check this machine could not run only when the ledger records that block (R10)', () => {
@@ -144,7 +144,7 @@ describe('the report of a surveyed run', () => {
   });
 
   it('renders a run configured before the survey existed with no Conventions section and no Source column, as it did', () => {
-    const older = renderReport(fixRun().fold(), { engineEntry, engine: '0.0.0+dev', statistics: fixStatistics, fix: { evidencePath, patches } });
+    const older = renderReport(fixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches } });
     assert.ok(!older.includes('## Conventions'));
     assert.match(older, /^\| Check \| Command \| Before the fixes \|/m);
   });
@@ -166,7 +166,7 @@ describe('the Conventions section of a run continued into the fix pass', () => {
 
   it('says the continuation asked for the checks alone, and shows the review\'s note on the conventions beside the note on the checks', () => {
     const state = noted(continuedToReport(), { [worker(80)]: 'AGENTS.md imports the reviewer\'s rules', [worker(81)]: 'checks only; the conventions stand' }).fold();
-    const section = conventionsOf(renderReport(state, { engineEntry, engine: '0.0.0+dev', statistics, fix: { evidencePath, patches } }));
+    const section = conventionsOf(renderReport(state, { ...reportInput, fix: { evidencePath, patches } }));
     assert.doesNotMatch(section, /answered/, 'neither a repeated survey nor a review that answered twice');
     assert.ok(section.endsWith([
       '',
