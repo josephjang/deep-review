@@ -135,14 +135,14 @@ describe('the skill texts', () => {
    */
   const ownWords: Readonly<Record<string, readonly string[]>> = {
     'skill/claude/skills/deep-review/SKILL.md': [
-      'description: Deep review of a change by the deep-review engine, a Node program installed with this plugin. It runs the SCAN triage, nine more finder angles, deduplication, verification, a gap sweep, a merge-and-rank pass and a decision pass, and writes a Markdown report; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for deep-review by name.\n',
+      'description: Deep review of one change by the deep-review engine, a Node program installed with this plugin. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for deep-review by name.\n',
       'disable-model-invocation: true\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
       '   review then edits nothing and runs no check.\n',
       '3. Run this from the repository as a background shell command with the\n   longest timeout you can, and wait for it to exit:\n',
     ],
     'skill/codex/SKILL.md': [
-      'description: Deep review of a change by the deep-review engine, a Node program installed with this skill. It runs the SCAN triage, nine more finder angles, deduplication, verification, a gap sweep, a merge-and-rank pass and a decision pass, and writes a Markdown report; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for $deep-review by name.\n',
+      'description: Deep review of one change by the deep-review engine, a Node program installed with this skill. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for $deep-review by name.\n',
       '   user limited the review to. `--budget-usd` does not apply to Codex,\n   which reports no cost; do not pass it.\n',
       '   review then edits nothing and runs no check. With `--fix` on Windows,\n   also tell the user that the workers that edit run with no sandbox and\n   with network access unless the user names\n   `--codex-windows-sandbox unelevated`, under which they cannot run most\n   build and test commands, or `--codex-windows-sandbox elevated`, which\n   needs Codex\'s elevated setup; pass that flag only when the user names\n   it.\n',
       '3. Run this from the repository, with the longest timeout you can, and\n   wait for it to exit. `engine/main.mjs` is in this skill\'s directory,\n   the one that holds this SKILL.md:\n',
@@ -166,12 +166,25 @@ describe('the skill texts', () => {
     assert.deepEqual(codex, claude);
   });
 
-  it('describes the plugin as carrying the engine, in the plugin and the marketplace alike, and no longer as editing nothing', () => {
+  // R1 of the skill surface corrections: a user who reads the description in a plugin or skill list learns what a run gives, not how the engine is built.
+  it('describes the plugin as carrying the engine and by what a run gives, in the plugin and the marketplace alike, and no longer as editing nothing', () => {
     for (const path of ['skill/claude/.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', 'skill/claude/skills/deep-review/SKILL.md', 'skill/codex/SKILL.md', 'skill/codex/agents/openai.yaml']) {
       const text = read(path);
       if (!path.endsWith('.yaml')) assert.match(text, /a Node program installed with this (plugin|skill)/, path);
       assert.doesNotMatch(text, /skeleton|no engine|editing nothing/, path);
       assert.match(text, /fixes/, `${path} says the engine can apply the fixes`);
+      assert.match(text, /the questions a person must answer/, `${path} names the questions`);
+      assert.match(text, /the fixes that depart from a rule/, `${path} names the departures`);
+      assert.match(text, /what the run did not examine/, `${path} names what the run did not examine`);
+      assert.match(text, /committing nothing/, `${path} says the run commits nothing`);
+      assert.doesNotMatch(text, /SCAN|triage|finder angles|deduplication|sweep|merge-and-rank|decision pass/, `${path} lists no phase of the engine`);
     }
+    // The installed plugin and its entry in the plugin list are one text.
+    const plugin = (JSON.parse(read('skill/claude/.claude-plugin/plugin.json')) as { description: string }).description;
+    const listed = (JSON.parse(read('.claude-plugin/marketplace.json')) as { plugins: { name: string; description: string }[] }).plugins.find((entry) => entry.name === 'deep-review');
+    assert.equal(listed?.description, plugin);
+    // The trigger sentence stays, so neither host starts the skill but on the user's word.
+    assert.match(read('skill/claude/skills/deep-review/SKILL.md'), /^description: .* Use only when the user asks for deep-review by name\.$/m);
+    assert.match(read('skill/codex/SKILL.md'), /^description: .* Use only when the user asks for \$deep-review by name\.$/m);
   });
 });
