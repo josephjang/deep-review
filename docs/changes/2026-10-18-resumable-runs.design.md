@@ -111,7 +111,7 @@ A search of the code found these nine ways in which a stop can leave work undone
 
 ### The contract test (R1, R2)
 
-A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append` and stops the process after the append that the test names. A test names an append by the kind of its event and its unit, not by a count. The order of the appends of concurrent workers changes from one run to the next.
+A helper in `test/helpers/` runs `src/cli.ts review --fix` in a child process, on a repository that the helper makes, with the fake runtimes and the fake checks. The run has one worker at a time, so a stop meets the same workers in flight in each run, and the workers end in the same order. It loads a preload with `--import`. The preload wraps `Checkpoint.prototype.append` and stops the process after the append that the test names. A test names an append by the kind of its event and its unit, not by a count. The order of the appends of concurrent workers changes from one run to the next.
 
 A point while a child runs is a point of its own kind. At an append, no child of that step runs yet: the launcher spawns a worker right after the append of `worker.launched`, and the engine starts a check right after `check.started`. Thus each fake writes a start marker with its pid, starts a grandchild, and waits for a release file.
 
@@ -132,6 +132,8 @@ First, the second command exits as the run with no stop exits, with no added fla
 Third, nothing is false. Each current run of a check has the outcome of the run with no stop. A failure of a worker that the stop killed costs its unit nothing: the unit does not degrade, and it gets its two attempts again at the next command. No revision holds a file that its unit did not touch.
 
 Fourth, the report holds the same findings, decisions, fixes, check results, changed files and patches as the report of the run with no stop. The comparison leaves out what a resume changes by its nature: times, durations, paths of the evidence, run ids and the lines of R15. It also leaves out the Statistics table, the spend, the workers with no reported cost and the count of the checks of the tree.
+
+The comparison also leaves out how the patches split the edits of a fixer that the stop cut. The revision of its unfinished attempt holds what it edited (R20 of the fix pass), so the fixer of the next attempt can have no revision of its own. Thus the test compares the patches by what they change in each file, not one by one. It leaves out the notes that name the patches of a finding, the list of the patches and the name of the attempt in Changed files. The test compares the lines of Limitations as a set, because some of them follow the order in which the workers ended.
 
 Fifth, no process that the stopped engine started is alive a short time after the stop (R8). The helper reads the pids from the start markers before it writes the release file, and then it ends each process that is still alive.
 
