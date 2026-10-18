@@ -154,7 +154,7 @@ A run of a check checks the tree of its time. Each checks phase checks one state
 | `repair-checks` | A revision of the fixes, of the repair or of an answer pass. | In a reopened run, when a revision of the repair came after its last runs. |
 | `answer-checks` | A revision of the fixes or of the repair. Each answer pass that revised the tree also runs each check once again (`checksFloor`). | As today: once for each answer pass that revised the tree. |
 
-A phase that runs each kind again moves its floor to its attempt at the last `fix.reopened`, so the reducer accepts the new runs. `checks` still runs only after a revision of the fixes, and `repair-checks` now runs only after a revision of the repair. The Checks table marks a column whose last runs are old with "(an earlier tree)", and its notes name the edit that came after. Thus the "After answers" column of a run that reopened after an answer pass says that a later fix changed the tree.
+A phase whose last runs are old has no current run of each kind, so it runs each kind again, and the reducer accepts the new runs as first runs; no floor moves at `fix.reopened` (TD3). `checks` still runs only after a revision of the fixes, and `repair-checks` now runs only after a revision of the repair. The Checks table marks a column whose last runs are old with "(an earlier tree)", and its notes name the edit that came after. Thus the "After answers" column of a run that reopened after an answer pass says that a later fix changed the tree.
 
 On 2026-10-19, the author chose that the "After the fixes" column takes no mark for an answer pass. The "After answers" column shows that tree.
 
