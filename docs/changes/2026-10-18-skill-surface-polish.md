@@ -96,6 +96,16 @@ The `Scope:` line of `config show` names the mode, the commit that the change st
 
 An interactive session showed the reason. The model read `last-commit from ee70117` as "the last commit, ee70117", and told the user the base as the commit that the run reviews. Four different words in step 3 did not stop the model from writing the line in its own words. A line that names both ends stays correct when a model or a person says it again in other words. The text of `config show` is for persons, so no record and no schema changes. The `--json` output gets the end as `scope.target`, null for the working tree.
 
+### R12: The plugin tells a Windows user how to work around the Microsoft Store PowerShell
+
+When PowerShell 7 comes from the Microsoft Store, Claude Code cannot check a command of its PowerShell tool, and each command asks for approval, the commands of the skill too. The fault is in Claude Code (https://github.com/anthropics/claude-code/issues/102430). The plugin does three things about it.
+
+First, the README names the symptom and two workarounds. The workaround that it recommends turns the PowerShell tool off with `"env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0" }` in the settings of Claude Code, so that Claude Code uses Git Bash. For a user who wants to keep PowerShell, it names a PowerShell 7 from the MSI or the zip before `%LOCALAPPDATA%MicrosoftWindowsApps` on `PATH`.
+
+Second, the Claude Code skill says that when the PowerShell tool cannot check a command of the skill, the model runs the commands of the skill with the Bash tool.
+
+Third, the plugin gets a hook that runs when a new session of Claude Code starts. On Windows, when the PowerShell tool is on and the first `pwsh.exe` on `PATH` is the alias of the Microsoft Store, the hook shows the user one warning with the two workarounds. In each other case it shows nothing. The hook runs the engine with `node` and no shell, and it never fails the start of a session.
+
 ## Product Decisions
 
 ### PD1: Show and start, not show and wait
@@ -131,6 +141,12 @@ The skill text and the output lines change together, in one proposal and one pul
 A resumed run keeps the settings that it recorded (R6 of the configuration). It names a clone's file that changed or is new since then, and it does not apply it. So a `checks.<kind>` line that the user adds after the block does not change the blocked run. A resume after that edit surveys again, pays for a new surveyor, and blocks again. Thus R8 names a new run, and the action says so.
 
 The cost is small for a run that was not continued. Its survey blocks before any other worker, so the blocked run spent only its surveyor, and the new run surveys again. A run that `review --fix` continued from a read-only review is different. Its survey asks for the checks after the whole review, and a run that is abandoned cannot be continued. So a new run in its place loses the findings, the decisions and the spend of that review, and reviews the change again. Thus the action of a continued run does not name the clone's file. The alternative reads the clone's check settings again on each resume until the checks are planned. That changes the rule of R6 of the configuration for one kind of setting, and this proposal does not change the configuration.
+
+### PD8: Advice for a fault of the host, in three places
+
+The plugin cannot set the environment of a session, so it cannot turn the PowerShell tool off for the user. It can only say how. The README reaches a person who reads before the install. The warning at the start of a session reaches the person on the machine that has the fault, at the time that it matters, and on no other machine. The line in the skill helps only when the model sees the failure, in print mode or after the user refuses a prompt, but then the run goes on with no more prompts.
+
+The hook runs at the start of each new session in each project, because an enabled plugin is part of each session. So it does nothing on other systems, nothing when the PowerShell tool is off, and it reads only `PATH`, with no process of its own. The author chose the workaround that turns the PowerShell tool off as the one to recommend, and the one that keeps PowerShell as the other choice. When Claude Code fixes the fault, the three parts come out together.
 
 ## Against the vision note
 
