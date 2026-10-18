@@ -78,6 +78,8 @@ An answer pass blocks at the budget (TD8 of answers), and the same command with 
 
 ## Requirements
 
+Some requirements are for ways that no run showed: R4 for units, R5, R6, the write back of R7, R8, R9 and R10. Each of them holds only when the test of R2 shows its way as a failure (PD1).
+
 ### R1: Resumable means five things
 
 After a stop at any point of the work of the engine, the same command does five things. It needs no other action of a person, except a higher budget after the run budget stopped the work. It does again only the work that the stop cut short. It pays for no worker that settled before the stop. It leaves no false statement on the ledger or in the report. And it reaches a report, as the same run with no stop does.
@@ -194,6 +196,8 @@ The reason is the kind of failure. The proof of concept built recovery for failu
 
 The proposal suggests new words for principle 11 in the next vision note, in three sentences. The first is "A stop of the engine at any point of its work is resumable". The second is "A test that stops the engine at that point shows the need". The third is "A failure of the environment gets its recovery when a run shows it". The proposal rejects the other choice, a separate fix for each point when a paid run meets it. The search already found nine such ways, and each fix waits for a run that costs tens of dollars.
 
+On 2026-10-18, the author accepted this departure, with one condition. A requirement for a way that no run showed holds only when the test of R2 shows that way as a failure. These are R4 for units, R5, R6, the write back of R7, R8, R9 and R10. When the test does not show a way, an amendment removes its requirement before the work builds its mechanism. Thus the analysis of the code finds the candidates, and the test shows the need, as the second of the three sentences says. R7 keeps the record of the start of each check in each case, because PD4 uses it for the killed check of #25.
+
 ### PD2: "Any reason" covers each stop of the engine and the two limits that runs showed
 
 A stop of the engine is the same event to the engine, whatever stopped it. Many things can stop it: Ctrl-C, a closed console, a signal, a hard kill, a host that stops a command, a crash and a loss of power. Each one ends the process at a point of its work. Thus one contract covers them all.
@@ -266,7 +270,7 @@ On run `e21b026d`, each fixer met the limit, failed twice in seconds, and degrad
 
 ### PD15: One contract, delivered in steps, the test first
 
-The contract is one change of the product: "a stop never needs a hand". The proposal keeps it in one proposal so that its requirements and its exceptions are in one place. The work goes in steps, each its own commits: the test, then the mechanisms for the stops of the engine, then the limits of the environment, then the record and the texts. The test comes first, because it finds the points and gives the baseline of the metric.
+The contract is one change of the product: "a stop never needs a hand". The proposal keeps it in one proposal so that its requirements and its exceptions are in one place. The work goes in steps, each its own commits: the test, then the mechanisms for the stops of the engine, then the limits of the environment, then the record and the texts. The test comes first, because it finds the points and gives the baseline of the metric. It also decides which requirements for ways that no run showed stay (PD1).
 
 ## Against the vision note
 

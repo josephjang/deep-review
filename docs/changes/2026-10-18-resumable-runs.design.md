@@ -284,7 +284,7 @@ Each step is its own commits, with its tests, and `npm run check` passes after e
 
 | Step | Work | Requirements |
 |---|---|---|
-| 1 | The contract test with its fixed set of points and the script, on the engine as it is. Each point that fails is marked as a known failure with the requirement that closes it, which gives the baseline of the metric. | R1, R2 |
+| 1 | The contract test with its fixed set of points and the script, on the engine as it is. Each point that fails is marked as a known failure with the requirement that closes it, which gives the baseline of the metric. A requirement for a way that no run showed leaves the proposal by an amendment before its step when no point shows its way (PD1). | R1, R2 |
 | 2 | The ledger: each new event kind and version, its reducer, and `schema-1-13`. | R16 |
 | 3 | Checks: old and current runs, the rerun and its record, `check.started`, and the write back. | R3, R7 |
 | 4 | Failures and attempts: the wait, the fresh attempts, and one append for the end of a worker. | R4, R5, R6 |
