@@ -1419,8 +1419,10 @@ function recordLimits(checkpoint: Checkpoint, state: RunState, limits: ReviewLim
 /**
  * Every worker still running on the ledger died with the engine that
  * launched it, or was orphaned by a hard kill: record each lost (TD5).
- * A lost fixer's work is recorded with its loss, from its snapshots and
- * the files it left (R20 of the fix pass), after the claims its round's
+ * A lost fixer's work is recorded with its loss, from its snapshots, its
+ * owned files and the files its cluster claimed, and no other file git
+ * reports changed, since a person may have edited the tree while no
+ * engine ran (R20 of the fix pass, R10 of resumable runs), after the claims its round's
  * directory holds that the ledger does not, when the directory is still
  * there (R3 of commit series integrity); one worker per append so each is
  * read against the tree the one before it left.
@@ -1431,7 +1433,7 @@ function recordLostWorkers(checkpoint: Checkpoint, state: RunState, context: Pic
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
     const lost: NewEvent = { kind: 'worker.lost', version: 5, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
-    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason) : { claims: [], revisions: [] };
+    const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason, 'lost') : { claims: [], revisions: [] };
     for (const line of edits.claims.flatMap(claimLines)) log(line);
     if (edits.revisions.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.revisions.length)} revision${edits.revisions.length === 1 ? '' : 's'}`);
     state = append(checkpoint, state, [...edits.claims, lost, ...edits.revisions]);

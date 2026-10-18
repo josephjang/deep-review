@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { FrozenFile, ScopeState } from '../../src/checkpoint/events.ts';
 import { EvidenceStore, sha256Hex } from '../../src/evidence/store.ts';
-import { compareExpected, expectedAt, expectedTree, headMoved, headStates, matchesExpected, noBase, readTreeEntry, reviseFrom, revisionsFromSnapshots, straysOf, unfinishedRevisions, worktreeReader, type ExpectedTree, type RevisedFile, type TreeEntry, type TreeReader } from '../../src/review/tree.ts';
+import { compareExpected, expectedAt, expectedTree, headMoved, headStates, matchesExpected, noBase, rawMatch, readTreeEntry, reviseFrom, revisionsFromSnapshots, straysOf, unfinishedRevisions, worktreeReader, type ExpectedTree, type RevisedFile, type TreeEntry, type TreeReader } from '../../src/review/tree.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { commitAll, git, link, repositoryWith, write } from '../helpers/repository.ts';
 
@@ -159,6 +159,16 @@ describe('reviseFrom', () => {
           [['A-3'], [['src/a.ts', 'modified', blob('three')]]],
           [[], [['test/a.test.ts', 'created', blob('t')]]],
         ]);
+      });
+
+      it('closes, for an attempt lost with its engine, with only its own paths and what its snapshots changed (R10 of resumable runs)', () => {
+        // test/a.test.ts is the attempt's own; src/a.ts its snapshot changed; src/b.ts changed only after it, as a person's edit while no engine ran.
+        const all = [...paths, 'src/b.ts'];
+        const own = (path: string): boolean => path === 'test/a.test.ts';
+        const revisions = unfinishedRevisions(evidence, sources([{ 'src/a.ts': 'one' }], { 'src/a.ts': 'two', 'src/b.ts': 'a person', 'test/a.test.ts': 't' }), tree, noBase, all, ['A-1'], rawMatch, own);
+        assert.deepEqual(revisions.map((revision) => [revision.findings, revision.files.map((entry) => entry.path)]), [[['A-1'], ['src/a.ts']], [[], ['src/a.ts', 'test/a.test.ts']]]);
+        const unbounded = unfinishedRevisions(evidence, sources([{ 'src/a.ts': 'one' }], { 'src/a.ts': 'two', 'src/b.ts': 'a person', 'test/a.test.ts': 't' }), tree, noBase, all, ['A-1']);
+        assert.deepEqual(unbounded.at(-1)!.files.map((entry) => entry.path), ['src/a.ts', 'src/b.ts', 'test/a.test.ts'], 'an attempt that failed while the engine lived keeps every path');
       });
 
       it('gives only the closing revision when it took no snapshot, or its scratch is gone', () => {

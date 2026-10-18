@@ -118,6 +118,19 @@ describe('the report of a fix run', () => {
     assert.match(render({ ...fixRun().fold(), review: { ...review, fix: claimed } }), /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \| c1 \|$/m);
   });
 
+  it('names a later check\'s rewrite of a file an unfinished attempt\'s revision holds, as for a fixer\'s answer, since a stop can leave a fixer\'s edits there (R10 of resumable runs)', () => {
+    const review = fixRun().review();
+    const fix = review.fix!;
+    const answered = fix.revisions.find((revision) => revision.source.kind === 'fix')!;
+    const check = fix.revisions.find((revision) => revision.source.kind === 'check')!;
+    const file = answered.files[0]!;
+    const attempt = { ...answered, source: { kind: 'attempt' as const, key: 'c1-1', workerId: worker(60) }, change: { ...answered.change, findings: ['SCAN-1'] } };
+    const partial = { ...attempt, change: { ...attempt.change, findings: [] } };
+    const lines = fixLimitations({ ...review, fix: { ...fix, revisions: [attempt, partial, { ...check, files: [file] }] } }).filter((line) => line.startsWith('- Rewritten by a later check'));
+    const by = `by the ${check.source.kind === 'check' ? check.source.check : ''} check in ${check.phase}; a generated file the fixer kept, or a fix the check reformatted.`;
+    assert.deepEqual(lines, [`- Rewritten by a later check: ${file.path}, in c1-1's revision of SCAN-1, ${by}`, `- Rewritten by a later check: ${file.path}, in c1-1's revision of partial edits, ${by}`]);
+  });
+
   it('names a late claim and a lost claim in Limitations, with who holds a lost claim\'s path (R6, F9 of commit series integrity)', () => {
     const review = fixRun().review();
     const fix = { ...review.fix!, claims: [{ path: 'docs/late.md', cluster: 'c1', key: 'c1-1', round: 1 as const, claimedAt: null }], lostClaims: [{ path: 'src/a.ts', claimedAt: null, reason: 'owned' as const, holder: 'c1', unit: 'c2-1', cluster: 'c2' }, { path: 'docs/x.md', claimedAt: '2026-10-09T01:00:00.000Z', reason: 'unplanned' as const, holder: null, unit: 'c9-1', cluster: 'c9' }] };

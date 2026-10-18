@@ -19,27 +19,13 @@ export interface Mark {
   readonly closedBy: string;
 }
 
-/** The posix systems CI runs the suite on. */
-const posix: readonly NodeJS.Platform[] = ['linux', 'darwin'];
-const everySystem: readonly NodeJS.Platform[] = ['win32', ...posix];
-
-/** The ways between two appends, where the engine stops on its own path or is killed with every child it has. */
-const stops: readonly StopWay[] = ['signal', 'kill', 'tree'];
-
-/** The marks of one failure: one per part it breaks, for the same points, ways, systems and requirement. */
-const failing = (points: readonly string[], ways: readonly StopWay[], systems: readonly NodeJS.Platform[], parts: readonly ContractPart[], closedBy: string): Mark[] =>
-  parts.map((part) => ({ points, ways, systems, part, closedBy }));
-
 /**
- * The known failures of the engine as it was before resumable runs, as the
- * first runs of `npm run resume-test` showed them on Windows; the ones on
- * POSIX follow from how the processes end there and wait for CI to show
- * them.
+ * The known failures of the engine, as the runs of `npm run resume-test`
+ * showed them on Windows before resumable runs and the steps that closed
+ * each removed them. None is left; a failure a later run shows, on any
+ * system, is marked here with the requirement whose work closes it.
  */
-export const marks: readonly Mark[] = [
-  // W8: the edit of a person while the engine is down goes into the revision of the lost fixer.
-  ...failing(['child fixer fixes:c1-1#1'], [...stops, 'child'], everySystem, ['nothing false', 'report'], 'R10'),
-];
+export const marks: readonly Mark[] = [];
 
 /** Whether the mark covers the case. */
 function covers(mark: Mark, point: string, way: StopWay, platform: NodeJS.Platform): boolean {

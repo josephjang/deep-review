@@ -274,9 +274,12 @@ export function revisionsFromSnapshots(evidence: Pick<EvidenceStore, 'put'>, sou
  * finding alone, since nothing says the attempt finished the ones it did
  * not snapshot; then one revision naming no finding for what the worktree
  * holds beyond the last snapshot. A snapshot that changed nothing gives no
- * revision.
+ * revision. With `ownRest`, that last revision takes only the paths it
+ * accepts and the paths a snapshot revision holds: for an attempt lost with
+ * its engine, whose tree a person may have edited since (R10 of resumable
+ * runs).
  */
-export function unfinishedRevisions(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[], match: ExpectedMatch = rawMatch): FindingRevision[] {
+export function unfinishedRevisions(evidence: Pick<EvidenceStore, 'put'>, sources: RevisionSources, expected: ExpectedTree, base: BaseReader, paths: readonly string[], findings: readonly string[], match: ExpectedMatch = rawMatch, ownRest: ((path: string) => boolean) | null = null): FindingRevision[] {
   const state = new Map(expected);
   const revisions: FindingRevision[] = [];
   findings.forEach((id, index) => {
@@ -287,7 +290,9 @@ export function unfinishedRevisions(evidence: Pick<EvidenceStore, 'put'>, source
     revisions.push({ findings: [id], files });
     applyRevision(state, files);
   });
-  const rest = reviseFrom(evidence, sources.worktree, state, base, paths, match);
+  const snapshotted = new Set(revisions.flatMap((revision) => revision.files.map((file) => file.path)));
+  const restPaths = ownRest === null ? paths : paths.filter((path) => snapshotted.has(path) || ownRest(path));
+  const rest = reviseFrom(evidence, sources.worktree, state, base, restPaths, match);
   if (rest.length > 0) revisions.push({ findings: [], files: rest });
   return revisions;
 }

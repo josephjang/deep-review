@@ -124,7 +124,7 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
   it('leaves out of a failed attempt\'s revisions a sibling\'s deletion its claim spells otherwise', () => {
     const state = stateOf(running());
     const sibling: LiveClaim = { whole: true, hash: markerHash('agents.md', true), generation: 1, path: 'agents.md', cluster: 'c2', unit: 'c2-1', claimedAt: '2026-10-09T01:00:01.000Z' };
-    const attempt = attemptRevisionEvents(contextOf(state, folding([sibling])), 'fixes', 'c1-1', worker(60), 'it died');
+    const attempt = attemptRevisionEvents(contextOf(state, folding([sibling])), 'fixes', 'c1-1', worker(60), 'it died', 'failed');
     assert.deepEqual(attempt.claims.map((event) => (event.payload as FilesClaimed).files.map((file) => file.path)), [['agents.md']]);
     assert.deepEqual(attempt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['src/a.ts'], 'the sibling\'s deletion of AGENTS.md is not this attempt\'s');
   });
@@ -144,16 +144,25 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
       mkdirSync(join(repo, 'docs'));
       writeFileSync(join(repo, 'docs', 'b.md'), 'b\n');
       const state = stateOf(settle(running().add('files.claimed', claimed('c2-1', 'c2', ['docs/b.md']))));
-      const attempt = attemptRevisionEvents(contextOf(state, folding([])), 'fixes', 'c1-1', worker(60), 'it died');
+      const attempt = attemptRevisionEvents(contextOf(state, folding([])), 'fixes', 'c1-1', worker(60), 'it died', 'failed');
       assert.deepEqual(attempt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['notes.md', 'src/a.ts'], 'the sibling\'s docs/b.md is not this attempt\'s');
     });
   }
 
+  it('records for an attempt lost with its engine only its owned and claimed files, leaving a file git reports changed to the next check of the tree, while a failed attempt takes it (R10 of resumable runs)', () => {
+    // notes.md is untracked and claimed by nobody: a person's edit while no engine ran, or a fixer's unclaimed one.
+    writeFileSync(join(repo, 'notes.md'), 'a person\'s note\n');
+    const state = stateOf(running().add('files.claimed', claimed('c1-1', 'c1', ['AGENTS.md'])));
+    const paths = (end: 'failed' | 'lost'): string[] => attemptRevisionEvents(contextOf(state, folding([])), 'fixes', 'c1-1', worker(60), 'it died', end).revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path));
+    assert.deepEqual(paths('lost'), ['AGENTS.md', 'src/a.ts']);
+    assert.deepEqual(paths('failed'), ['AGENTS.md', 'notes.md', 'src/a.ts'], 'an attempt that failed while the engine lived keeps the paths git reports (R5 of commit series integrity)');
+  });
+
   it('leaves out of a failed attempt\'s revisions a tracked file outside the change that its cluster did not claim, a tool\'s leftover, and takes it once claimed (PD9)', () => {
     // AGENTS.md is tracked, outside the scope, and deleted on disk, as a build would rewrite dist/.
-    const unclaimed = attemptRevisionEvents(contextOf(stateOf(running()), folding([])), 'fixes', 'c1-1', worker(60), 'it died');
+    const unclaimed = attemptRevisionEvents(contextOf(stateOf(running()), folding([])), 'fixes', 'c1-1', worker(60), 'it died', 'failed');
     assert.deepEqual(unclaimed.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['src/a.ts']);
-    const claimedByIt = attemptRevisionEvents(contextOf(stateOf(running().add('files.claimed', claimed('c1-1', 'c1', ['AGENTS.md']))), folding([])), 'fixes', 'c1-1', worker(60), 'it died');
+    const claimedByIt = attemptRevisionEvents(contextOf(stateOf(running().add('files.claimed', claimed('c1-1', 'c1', ['AGENTS.md']))), folding([])), 'fixes', 'c1-1', worker(60), 'it died', 'failed');
     assert.deepEqual(claimedByIt.revisions.flatMap((event) => (event.payload as TreeRevised).files.map((file) => file.path)), ['AGENTS.md', 'src/a.ts']);
   });
 });
@@ -241,7 +250,7 @@ describe('the events of an answer pass\'s fixer (R5 of answers)', () => {
 
   it('records what an attempt of the pass left as its revision, naming the pass', () => {
     write(repo, 'src/a.ts', 'a, half restored\n');
-    const attempt = attemptRevisionEvents(contextOf(passing()), 'answer', 'pass-1', worker(71), 'timeout: the worker ran past its timeout');
+    const attempt = attemptRevisionEvents(contextOf(passing()), 'answer', 'pass-1', worker(71), 'timeout: the worker ran past its timeout', 'failed');
     assert.deepEqual(attempt.claims, []);
     const revision = attempt.revisions[0]!.payload as TreeRevised;
     assert.equal(revision.phase, 'answer');

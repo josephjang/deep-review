@@ -218,6 +218,13 @@ export interface AttemptEvents {
 }
 
 /**
+ * How an attempt ended without an answer: `failed` while the engine
+ * lived, or `lost` with an engine that a stop ended, which the next
+ * engine records (R10 of resumable runs).
+ */
+export type AttemptEnd = 'failed' | 'lost';
+
+/**
  * The events of what an attempt of an editing unit left when it ended
  * without an answer (R20, TD19 of the fix pass; R3, R5 of commit series
  * integrity), to append with its `attempt.failed` or `worker.lost`: the
@@ -225,9 +232,9 @@ export interface AttemptEvents {
  * revisions, one per finding its snapshots tell apart, attributed to that
  * finding, and one naming none for what it left after its last snapshot.
  * The paths are the unit's owned files, the files its cluster claimed, and
- * every path its snapshots listed or git reports changed that no other
- * cluster of its round has held, by the plan or by a claim, settled or
- * not, nor a sibling is claiming now, less the strays the run had already
+ * every path its snapshots listed or, for an attempt that `failed`, git
+ * reports changed, that no other cluster of its round has held, by the
+ * plan or by a claim, settled or not, nor a sibling is claiming now, less the strays the run had already
  * listed, which the attempt did not make, the files git ignores, and the
  * tracked files outside the change it neither owns nor claimed: those are
  * a tool's leftovers, such as a build's `dist/`, which the tail check
@@ -243,12 +250,19 @@ export interface AttemptEvents {
  * An edit by a fixer that ignored the claim rule is still attributed as
  * git reports it only for a file in the change or a new untracked one; its
  * unclaimed edit of a tracked file outside the change is a leftover, left
- * out as above (R5), and stays in the tree as a stray. A worker with no
- * scratch, or one the operating system cleaned, gives only the last. The
+ * out as above (R5), and stays in the tree as a stray. An attempt `lost`
+ * with its engine takes no path from git, and past its last snapshot only
+ * its owned and claimed files and what its snapshots changed (R10 of
+ * resumable runs): the tree may hold a person's edits made while no engine
+ * ran, which are no attempt's work, and a snapshot lists every path the
+ * run expects, so what changed outside its own files stays in the tree
+ * for the next check of the tree to find, as a drift or a stray. A worker
+ * with no scratch, or one the operating system cleaned, gives only the
+ * last. The
  * expected tree then holds the attempt's work, so the retry's snapshots
  * attribute only its own.
  */
-export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string): AttemptEvents {
+export function attemptRevisionEvents(context: RevisionContext, phase: EditingPhase, key: string, workerId: string, reason: string, end: AttemptEnd): AttemptEvents {
   const { state, worktree, evidence } = context;
   const ids = unitIds(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
@@ -263,12 +277,15 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
   // A tracked file outside the change that nobody claimed is a leftover, a build's dist/ say, and no attempt's work (PD9).
   const tracked = new Set(gitApi.trackedFiles(worktree));
   const leftover = (path: string): boolean => tracked.has(path) && !expected.has(path);
-  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle, path) && !strays.has(path) && !leftover(path));
+  const candidates = [...new Set([...(into === null ? [] : snapshotPaths(into, ids.length)), ...(end === 'lost' ? [] : changedPaths(worktree))])].filter((path) => !others.has(keyOf(path)) && !isPending(settle, path) && !strays.has(path) && !leftover(path));
   // A snapshot lists what changed on disk, ignored files a fixer wrote included; those are no work of the run (R23).
   const ignored = new Set(gitApi.ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index: number) => (into === null ? null : readSnapshot(into, index)), worktree: worktreeReader(worktree) };
-  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...ownedFiles(state.review!, phase, key), ...claimedFiles(settle.state, phase, key), ...listed], ids, context.match);
+  const own = [...ownedFiles(state.review!, phase, key), ...claimedFiles(settle.state, phase, key)];
+  // A lost attempt's tree may hold a person's edits since: past its last snapshot it keeps only its own files and what its snapshots changed (R10).
+  const ownKeys = new Set(own.map(keyOf));
+  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...own, ...listed], ids, context.match, end === 'lost' ? (path) => ownKeys.has(keyOf(path)) : null);
   const who = attemptOwner(phase, key);
   const why = truncated(reason, 1000);
   return { claims: settle.events, revisions: revisions.map((revision): NewEvent => {

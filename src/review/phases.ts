@@ -616,7 +616,7 @@ export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: Cont
 function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, context: RevisionContext, fault: AttemptFault = 'unit'): NewEvent[] {
   const failure = failed(unit, receipt, reason, fault);
   if (!isEditingPhase(unit.phase)) return [failure];
-  const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason);
+  const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason, 'failed');
   return [...attempt.claims, failure, ...attempt.revisions];
 }
 
