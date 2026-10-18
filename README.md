@@ -780,8 +780,11 @@ runs the check commands it chose from the repository, and afterwards
 offers to commit the edits with `deep-review commit`. Asked for a
 configuration file, it writes it with `config init --repository`,
 `--operator` or `--clone`. The skill's `allowed-tools` approves the
-engine's own command, and nothing else, for the turn in which the user
-invokes it, so the run starts without a permission prompt; a later
+engine's own command with any of its arguments, and nothing else, for
+the turn in which the user invokes it, so the run starts without a
+permission prompt. Those arguments include `--check <kind>=<command>`
+and `--executable <path>`, which run what they name; the skill passes
+`--check` only for a command the user names. A later
 turn, such as one that commits or answers, prompts again. Node 26 or
 newer must be on the machine. The plugin carries no
 version field on purpose, so `/plugin marketplace update deep-review`
