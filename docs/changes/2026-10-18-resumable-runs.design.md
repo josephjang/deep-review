@@ -29,7 +29,7 @@ Node gives no way to create a Windows job object, and the engine cannot see its 
 
 ### No write back of a file outside the files that the run expects
 
-After a cut check, the engine writes back only the files that the run expects (R7). A tracked file outside them, which the cut check changed, stays a stray file, as today. The rerun of the check records it in its revision only when the rerun changes it again.
+After a cut check, the engine writes back only the files that the run expects (R7). A tracked file outside them, which the cut check changed, stays a stray file. For a check that a stop cut, this is as today. A check that the engine killed at its timeout recorded such a write in its revision before this change, and now it leaves the write a stray file too, as PD7 chose. The rerun of the check records it in its revision only when the rerun changes it again.
 
 ### No sleep detection
 
