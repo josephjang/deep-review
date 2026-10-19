@@ -18,7 +18,7 @@ import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { continueCommand } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
-import { cutWorkerLines, limitBlockLines } from './report.ts';
+import { cutWorkerLines, limitBlockLines, lostWorkerLines } from './report.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
@@ -73,7 +73,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const decisions = review?.decisions === null || review?.decisions === undefined ? null : decisionCounts(review.decisions);
   const continuing = continueLine(state, adapter, continuation);
   // What a stop did, as the report's Limitations names it (R15 of resumable runs).
-  const stops = [...cutWorkerLines(state.workers), ...(review === null ? [] : [...limitBlockLines(review), ...stopLimitations(review, evidencePath)])].map((line) => `Stop: ${line}`);
+  const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review?.fix?.revisions ?? []), ...(review === null ? [] : [...limitBlockLines(review), ...stopLimitations(review, evidencePath)])].map((line) => `Stop: ${line}`);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,

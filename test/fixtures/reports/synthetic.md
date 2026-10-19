@@ -72,3 +72,4 @@ None.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
 - Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
 - Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
+- Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.

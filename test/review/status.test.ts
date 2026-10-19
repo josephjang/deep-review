@@ -54,6 +54,8 @@ describe('describeRun', () => {
       'Budget check: 1.75 USD of 45.00 USD, 1 worker lost with an earlier engine is not counted',
       `Blocker: budget: ${blocker.detail}`,
       `Action: ${blockerActions.budget}`,
+      // What the stop did to the FOOTGUNS worker, as the report's Limitations names it (R15 of resumable runs).
+      'Stop: Lost with the engine: the worker of finder-FOOTGUNS finders:FOOTGUNS, and did not run again.',
     ]);
     assert.equal(described.json.status, 'blocked');
     assert.equal(described.json.phase, 'finders');
@@ -93,7 +95,8 @@ describe('describeRun', () => {
     const described = describeRun(state, claudeAdapter, evidencePath);
     assert.equal(described.lines[0], 'Run run-1: complete');
     assert.equal(described.lines[4], 'Phase: none running');
-    assert.equal(described.lines.at(-1), `Report: /evidence/${'e'.repeat(8)}-2048`);
+    // The report, then what a stop did: this run lost a WRAPPERS worker and ran it again (R15 of resumable runs).
+    assert.deepEqual(described.lines.slice(-2), [`Report: /evidence/${'e'.repeat(8)}-2048`, 'Stop: Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.']);
     assert.ok(!described.lines.some((line) => line.startsWith('Blocker: ')));
     assert.equal(described.json.report, `/evidence/${'e'.repeat(8)}-2048`);
     assert.ok(!described.lines.some((line) => line.startsWith('Decisions: ')), 'a run configured before the decision step decided nothing');

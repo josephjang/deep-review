@@ -133,3 +133,4 @@ None.
 - Validation of RIPPLE-1 (c1-1), old-code, test/a.test.ts: failed on the old code for the null, passed on the fix
 - Fixer c1-1 ran its own suite: pass (npm test).
 - The repair ran its own suite: pass (npm test).
+- Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.

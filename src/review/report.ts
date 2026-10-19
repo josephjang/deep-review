@@ -9,7 +9,7 @@
  * and Changed files (fix-report.ts), Refuted at verification, Statistics
  * and Limitations.
  */
-import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend } from '../checkpoint/events.ts';
+import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevised } from '../checkpoint/events.ts';
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -180,10 +180,35 @@ export function cutWorkerLines(workers: RunState['workers']): string[] {
   const all = Object.values(workers);
   return all.flatMap((worker) => {
     if (worker.status !== 'finished' || !endedByKill(worker.finish)) return [];
-    const label = worker.launch.label ?? worker.launch.workerId;
-    const again = all.some((other) => other.launch.label === worker.launch.label && other.launchedAt > worker.launchedAt);
-    return [`Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? 'ran again' : 'did not run again'}.`];
+    return [`Cut: the worker of ${workerLabel(worker)} ended with ${killMarkWords(worker.finish)}, and ${ranAgainWords(all, worker)}.`];
   });
+}
+
+/**
+ * Each worker a stop of the engine lost, whether its unit ran again, and
+ * whether its edits are in a revision of its unfinished attempt (R10, R15
+ * of resumable runs), as bare sentences that Limitations and `status` each
+ * prefix. A loss uses an attempt but never degrades its unit, so a later
+ * worker of the same label is its rerun.
+ */
+export function lostWorkerLines(workers: RunState['workers'], revisions: readonly TreeRevised[]): string[] {
+  const all = Object.values(workers);
+  return all.flatMap((worker) => {
+    if (worker.status !== 'lost') return [];
+    const kept = revisions.some((revision) => revision.source.kind === 'attempt' && revision.source.workerId === worker.launch.workerId);
+    return [`Lost with the engine: the worker of ${workerLabel(worker)}, and ${ranAgainWords(all, worker)}${kept ? '; its edits are in a revision of its unfinished attempt' : ''}.`];
+  });
+}
+
+type WorkerState = RunState['workers'][string];
+
+const workerLabel = (worker: WorkerState): string => worker.launch.label ?? worker.launch.workerId;
+
+/** Whether a later worker of the same label, its unit's rerun, was launched; a worker with no label is matched by none. */
+function ranAgainWords(all: readonly WorkerState[], worker: WorkerState): string {
+  const label = worker.launch.label;
+  const again = label !== null && all.some((other) => other.launch.label === label && other.launchedAt > worker.launchedAt);
+  return again ? 'ran again' : 'did not run again';
 }
 
 /**
@@ -235,7 +260,7 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
   lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
   // What a stop did, and what the resumed run did about it (R15 of resumable runs).
-  const stops = [...cutWorkerLines(state.workers), ...limitBlockLines(review), ...(input.fix === undefined ? [] : stopLimitations(review, input.fix.evidencePath))];
+  const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review.fix?.revisions ?? []), ...limitBlockLines(review), ...(input.fix === undefined ? [] : stopLimitations(review, input.fix.evidencePath))];
   lines.push(...stops.map((line) => `- ${line}`));
   return lines;
 }

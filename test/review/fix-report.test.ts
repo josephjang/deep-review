@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts';
-import { cutWorkerLines, limitBlockLines, renderReport } from '../../src/review/report.ts';
+import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput } from '../helpers/review-history.ts';
@@ -394,6 +394,35 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     const report = renderReport({ ...state, workers }, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
     assert.ok(report.includes(`\n- Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.\n`), report);
     assert.ok(describeRun({ ...state, workers }, claudeAdapter, evidencePath).lines.includes(`Stop: Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`));
+  });
+
+  it('names each worker a stop of the engine lost, whether its unit ran again, and whether its edits are in a revision, in the report and in status (R15 of resumable runs)', () => {
+    const [launched] = Object.values(state.workers).filter((candidate) => candidate.status === 'finished');
+    if (launched?.status !== 'finished') throw new Error('the fix run has a finished worker');
+    const label = launched.launch.label;
+    const fix = state.review!.fix!;
+    const withoutLost = (workers: RunState['workers']): RunState['workers'] => Object.fromEntries(Object.entries(workers).filter(([, candidate]) => candidate.status !== 'lost'));
+    assert.deepEqual(lostWorkerLines(withoutLost(state.workers), fix.revisions), [], 'a run that lost no worker names none');
+    const lost = { status: 'lost' as const, launch: launched.launch, launchedAt: launched.launchedAt, reason: 'the engine exited while the worker ran' };
+    const rerun = { ...launched, launchedAt: '2999-01-01T00:00:00.000Z', launch: { ...launched.launch, workerId: worker(98) } };
+    assert.deepEqual(lostWorkerLines({ [launched.launch.workerId]: lost }, fix.revisions), [`Lost with the engine: the worker of ${label}, and did not run again.`]);
+    const workers = { [launched.launch.workerId]: lost, [worker(98)]: rerun };
+    assert.deepEqual(lostWorkerLines(workers, fix.revisions), [`Lost with the engine: the worker of ${label}, and ran again.`], 'no revision of its attempt: it left no edit');
+    // A worker with no label is named by its id, and no later worker with no label counts as its rerun.
+    const unlabeled = { ...lost, launch: { ...lost.launch, label: null } };
+    const laterUnlabeled = { ...rerun, launch: { ...rerun.launch, label: null } };
+    assert.deepEqual(lostWorkerLines({ [launched.launch.workerId]: unlabeled, [worker(98)]: laterUnlabeled }, fix.revisions), [`Lost with the engine: the worker of ${launched.launch.workerId}, and did not run again.`]);
+    // The revision of the lost attempt names the worker; a revision of another worker of the same unit does not count.
+    const answered = fix.revisions.find((revision) => revision.source.kind === 'fix')!;
+    const ofAttempt = (workerId: string) => ({ ...answered, source: { kind: 'attempt' as const, key: 'c1-1', workerId }, change: { ...answered.change, findings: [] } });
+    assert.deepEqual(lostWorkerLines(workers, [...fix.revisions, ofAttempt(worker(97))]), [`Lost with the engine: the worker of ${label}, and ran again.`]);
+    const revisions = [...fix.revisions, ofAttempt(launched.launch.workerId)];
+    const sentence = `Lost with the engine: the worker of ${label}, and ran again; its edits are in a revision of its unfinished attempt.`;
+    assert.deepEqual(lostWorkerLines(workers, revisions), [sentence]);
+    const kept = { ...state, workers, review: { ...state.review!, fix: { ...fix, revisions } } };
+    const report = renderReport(kept, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+    assert.ok(report.includes(`\n- ${sentence}\n`), report);
+    assert.ok(describeRun(kept, claudeAdapter, evidencePath).lines.includes(`Stop: ${sentence}`));
   });
 
   it('names each block for the provider\'s usage limit the run resumed after, in the report and in status (R14, R15 of resumable runs)', () => {
