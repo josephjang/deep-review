@@ -172,8 +172,9 @@ function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedRe
 /**
  * Each worker a kill from outside the engine ended with a kill mark, or
  * whose guard left no result, and whether its unit ran again (R15 of
- * resumable runs): its failure costs the unit nothing, so a later worker
- * of the same label is its rerun.
+ * resumable runs), as bare sentences that Limitations and `status` each
+ * prefix: its failure costs the unit nothing, so a later worker of the
+ * same label is its rerun.
  */
 export function cutWorkerLines(workers: RunState['workers']): string[] {
   const all = Object.values(workers);
@@ -181,7 +182,7 @@ export function cutWorkerLines(workers: RunState['workers']): string[] {
     if (worker.status !== 'finished' || !endedByKill(worker.finish)) return [];
     const label = worker.launch.label ?? worker.launch.workerId;
     const again = all.some((other) => other.launch.label === worker.launch.label && other.launchedAt > worker.launchedAt);
-    return [`- Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? 'ran again' : 'did not run again'}.`];
+    return [`Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? 'ran again' : 'did not run again'}.`];
   });
 }
 
@@ -224,8 +225,8 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
   lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
   // What a stop did, and what the resumed run did about it (R15 of resumable runs).
-  lines.push(...cutWorkerLines(state.workers));
-  if (input.fix !== undefined) lines.push(...stopLimitations(review, input.fix.evidencePath));
+  const stops = [...cutWorkerLines(state.workers), ...(input.fix === undefined ? [] : stopLimitations(review, input.fix.evidencePath))];
+  lines.push(...stops.map((line) => `- ${line}`));
   return lines;
 }
 

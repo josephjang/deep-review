@@ -152,8 +152,8 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
 
 /**
  * What a stop did to the checks and to the tree, and what the resumed run
- * did about it (R15 of resumable runs), for Limitations and `status`, in
- * the order of the checks phases: each run that replaced one, with both
+ * did about it (R15 of resumable runs), as bare sentences that Limitations
+ * and `status` each prefix, in the order of the checks phases: each run that replaced one, with both
  * outcomes, by why it ran again (a cut, a first timeout, or a stop of its
  * attempt); each start with no end on record; each file written back,
  * with where the bytes it overwrote are; and a series of commits a stop
@@ -170,12 +170,12 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
       const replaced = runs.slice(0, index).findLast((earlier) => earlier.kind === run.kind && earlier.attempt === run.replaces!.attempt && earlier.outcome === run.replaces!.outcome);
       if (replaced === undefined) return;
       const now = `${run.outcome} in ${runSeconds(run)}`;
-      if (replaced.outcome === 'cut') lines.push(`- Cut: ${run.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
-      else if (replaced.outcome === 'timeout') lines.push(`- Ran again after a timeout: ${run.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
-      else lines.push(`- Ran again after a stop: ${run.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run.attempt)}.`);
+      if (replaced.outcome === 'cut') lines.push(`Cut: ${run.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
+      else if (replaced.outcome === 'timeout') lines.push(`Ran again after a timeout: ${run.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
+      else lines.push(`Ran again after a stop: ${run.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run.attempt)}.`);
     });
     for (const start of fix.checks.starts[phase]) {
-      if (openStart(fix, phase, start.kind, start.attempt) === start) lines.push(`- Cut by a stop: ${start.kind} in ${phase} at attempt ${String(start.attempt)}, with no end on record.`);
+      if (openStart(fix, phase, start.kind, start.attempt) === start) lines.push(`Cut by a stop: ${start.kind} in ${phase} at attempt ${String(start.attempt)}, with no end on record.`);
     }
   }
   fix.restorations.forEach((restoration, index) => {
@@ -186,13 +186,13 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
     const after = followed !== undefined && 'outcome' in followed && followed.outcome === 'timeout' ? `after ${kind} timed out` : `after a cut ${kind} check`;
     for (const { path, before, expected } of restoration.files) {
       // The write back leaves a file whose bytes in the tree or expected bytes were too large to keep, so writing over them would lose them (`writeBack`).
-      if (before !== null && 'oversized' in before) lines.push(`- Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its bytes in the tree were too large to keep.`);
-      else if (expected !== null && 'oversized' in expected) lines.push(`- Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its expected bytes were too large to keep.`);
-      else lines.push(`- Written back ${after} in ${restoration.phase}: ${inlineText(path)}; ${before === null ? 'it did not exist before' : `the bytes before are at ${evidencePath(before.blob)}`}.`);
+      if (before !== null && 'oversized' in before) lines.push(`Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its bytes in the tree were too large to keep.`);
+      else if (expected !== null && 'oversized' in expected) lines.push(`Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its expected bytes were too large to keep.`);
+      else lines.push(`Written back ${after} in ${restoration.phase}: ${inlineText(path)}; ${before === null ? 'it did not exist before' : `the bytes before are at ${evidencePath(before.blob)}`}.`);
     }
   });
-  if (fix.openSeries !== null) lines.push(`- A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);
-  for (const dropped of fix.droppedSeries) lines.push(`- Dropped: the series of commits from ${dropped.from} to ${dropped.to} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`);
+  if (fix.openSeries !== null) lines.push(`A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);
+  for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`);
   return lines;
 }
 

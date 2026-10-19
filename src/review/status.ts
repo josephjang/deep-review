@@ -73,7 +73,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const decisions = review?.decisions === null || review?.decisions === undefined ? null : decisionCounts(review.decisions);
   const continuing = continueLine(state, adapter, continuation);
   // What a stop did, as the report's Limitations names it (R15 of resumable runs).
-  const stops = [...cutWorkerLines(state.workers), ...(review === null ? [] : stopLimitations(review, evidencePath))].map((line) => `Stop: ${line.slice('- '.length)}`);
+  const stops = [...cutWorkerLines(state.workers), ...(review === null ? [] : stopLimitations(review, evidencePath))].map((line) => `Stop: ${line}`);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,

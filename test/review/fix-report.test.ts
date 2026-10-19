@@ -324,24 +324,24 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     ];
     const starts = [{ phase: 'checks' as const, attempt: 1, kind: 'test' as const, command: 'npm test', runsBefore: 1 }];
     assert.deepEqual(lines({ checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: runs }, starts: { ...fix.checks.starts, checks: starts } } }), [
-      '- Ran again after a stop: lint in checks, failed in 4.4 s at attempt 1, passed in 3.1 s at attempt 2.',
-      '- Cut: typecheck in checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.',
-      '- Cut: test in checks ended with no result from its guard, and ran again: passed in 5.2 s.',
-      '- Ran again after a timeout: build in checks timed out after 1200.0 s at its first run, and passed in 312.0 s at its second.',
-      '- Cut by a stop: test in checks at attempt 1, with no end on record.',
+      'Ran again after a stop: lint in checks, failed in 4.4 s at attempt 1, passed in 3.1 s at attempt 2.',
+      'Cut: typecheck in checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.',
+      'Cut: test in checks ended with no result from its guard, and ran again: passed in 5.2 s.',
+      'Ran again after a timeout: build in checks timed out after 1200.0 s at its first run, and passed in 312.0 s at its second.',
+      'Cut by a stop: test in checks at attempt 1, with no end on record.',
     ]);
   });
 
   it('names each file written back, and where the bytes it overwrote are, or that there were none', () => {
     const blob = reference('7');
     const restorations = [{ phase: 'checks' as const, attempt: 2, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: { blob }, beforeSymlink: false, expected: null, expectedSymlink: false }, { path: 'src/new.ts', before: null, beforeSymlink: false, expected: null, expectedSymlink: false }] }];
-    assert.deepEqual(lines({ restorations }), [`- Written back after a cut test check in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`, '- Written back after a cut test check in checks: src/new.ts; it did not exist before.']);
+    assert.deepEqual(lines({ restorations }), [`Written back after a cut test check in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`, 'Written back after a cut test check in checks: src/new.ts; it did not exist before.']);
   });
 
   it('names a file the write back left because its bytes in the tree or its expected bytes were too large to keep', () => {
     const oversized = { oversized: { sha256: 'f'.repeat(64), size: 9 * 1024 * 1024 } };
     const restorations = [{ phase: 'checks' as const, attempt: 1, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: oversized, beforeSymlink: false, expected: { blob: reference('a') }, expectedSymlink: false }, { path: 'src/b.ts', before: { blob: reference('7') }, beforeSymlink: false, expected: oversized, expectedSymlink: false }] }];
-    assert.deepEqual(lines({ restorations }), ['- Not written back after a cut test check in checks: src/a.ts; its bytes in the tree were too large to keep.', '- Not written back after a cut test check in checks: src/b.ts; its expected bytes were too large to keep.']);
+    assert.deepEqual(lines({ restorations }), ['Not written back after a cut test check in checks: src/a.ts; its bytes in the tree were too large to keep.', 'Not written back after a cut test check in checks: src/b.ts; its expected bytes were too large to keep.']);
   });
 
   it('names a write back made again at a later attempt by the check it followed: a timeout, or a start a stop cut after it', () => {
@@ -349,19 +349,19 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     const restoration = (at: number) => ({ phase: 'checks' as const, attempt: at, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: { blob }, beforeSymlink: false, expected: null, expectedSymlink: false }] });
     const start = (runsBefore: number) => ({ phase: 'checks' as const, attempt: 1, kind: 'test' as const, command: 'npm test', runsBefore });
     const timedOut = run({ kind: 'test', attempt: 1, outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL' }, 1200);
-    const written = (after: string): string => `- Written back ${after} in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`;
+    const written = (after: string): string => `Written back ${after} in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`;
     // A stop cut the timeout's own write back before the tree was checked again, so the next attempt wrote it back again.
     const checks = { ...fix.checks, runs: { ...fix.checks.runs, checks: [timedOut] }, starts: { ...fix.checks.starts, checks: [start(0)] } };
     assert.deepEqual(lines({ checks, restorations: [restoration(1), restoration(2)] }), [written('after test timed out'), written('after test timed out')]);
     // The timeout's second run started, and a stop cut it before its write back at the next attempt.
     const cutAgain = { ...checks, starts: { ...checks.starts, checks: [start(0), start(1)] } };
-    assert.deepEqual(lines({ checks: cutAgain, restorations: [restoration(1), restoration(2)] }), ['- Cut by a stop: test in checks at attempt 1, with no end on record.', written('after test timed out'), written('after a cut test check')]);
+    assert.deepEqual(lines({ checks: cutAgain, restorations: [restoration(1), restoration(2)] }), ['Cut by a stop: test in checks at attempt 1, with no end on record.', written('after test timed out'), written('after a cut test check')]);
   });
 
   it('names a series of commits a stop left open, and each one the next command dropped', () => {
     const series = { commits: [{ sha: 'b'.repeat(40), revision: 0, subject: 's' }], from: 'a'.repeat(40), to: 'b'.repeat(40) };
-    assert.deepEqual(lines({ openSeries: series }), [`- A stop cut \`deep-review commit\` short: its series from ${'a'.repeat(40)} to ${'b'.repeat(40)} is not recorded yet, and the next command completes it or drops it by where HEAD is.`]);
-    assert.deepEqual(lines({ droppedSeries: [series] }), [`- Dropped: the series of commits from ${'a'.repeat(40)} to ${'b'.repeat(40)} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`]);
+    assert.deepEqual(lines({ openSeries: series }), [`A stop cut \`deep-review commit\` short: its series from ${'a'.repeat(40)} to ${'b'.repeat(40)} is not recorded yet, and the next command completes it or drops it by where HEAD is.`]);
+    assert.deepEqual(lines({ droppedSeries: [series] }), [`Dropped: the series of commits from ${'a'.repeat(40)} to ${'b'.repeat(40)} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`]);
   });
 
   it('names each worker a kill from outside ended, and whether its unit ran again, in the report and in status', () => {
@@ -370,9 +370,12 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     const cut = { ...launched, finish: { ...launched.finish, exitCode: 143, signal: null, termination: 'exited' as const } };
     const rerun = { ...launched, launchedAt: '2999-01-01T00:00:00.000Z', launch: { ...launched.launch, workerId: worker(98) } };
     const label = launched.launch.label;
-    assert.deepEqual(cutWorkerLines({ [launched.launch.workerId]: cut }), [`- Cut: the worker of ${label} ended with exit code 143, a kill mark, and did not run again.`]);
+    assert.deepEqual(cutWorkerLines({ [launched.launch.workerId]: cut }), [`Cut: the worker of ${label} ended with exit code 143, a kill mark, and did not run again.`]);
     const workers = { [launched.launch.workerId]: cut, [worker(98)]: rerun };
-    assert.deepEqual(cutWorkerLines(workers), [`- Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`]);
+    assert.deepEqual(cutWorkerLines(workers), [`Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`]);
+    // Each renderer adds its own prefix to the bare sentence: a bullet in the report, `Stop: ` in status.
+    const report = renderReport({ ...state, workers }, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+    assert.ok(report.includes(`\n- Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.\n`), report);
     assert.ok(describeRun({ ...state, workers }, claudeAdapter, evidencePath).lines.includes(`Stop: Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`));
   });
 });
