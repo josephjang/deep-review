@@ -456,6 +456,18 @@ function restoreStep(review: ReviewState, phase: CheckPhase, attempt: number, dr
 const passRevised = (fix: FixState, key: string): boolean => unitRevisions(fix, 'answer', key).length > 0;
 
 /**
+ * Whether a kind with no current run in `repair-checks` is due there
+ * (TD3, TD11 of resumable runs): it has no run in the phase, or a revision
+ * of the repair came after its last one. A run made old only by a later
+ * revision of the fixes or of an answer pass is not run again, since no
+ * repair came after it.
+ */
+const repairRevisedSince = (fix: FixState, kind: CheckKind): boolean => {
+  const last = lastRecordedRun(fix, 'repair-checks', kind);
+  return last === null || fix.revisions.slice(last.revisionsBefore).some((revision) => revision.phase === 'repair');
+};
+
+/**
  * The check a checks phase runs next (R9, R10, PD7 of the fix pass), or
  * null when none is due: the first available kind in the order `build`,
  * `typecheck`, `lint`, `test` that is due, one at a time; once the last
@@ -466,7 +478,9 @@ const passRevised = (fix: FixState, key: string): boolean => unitRevisions(fix, 
  * cut (R4), or is its first timeout in the current attempt (R7), each of
  * which it runs again (`runStanding`). A run is current when no later
  * revision made it old (TD3). The `checks` phase runs only when the fixes
- * changed the tree, `repair-checks` only when the repair changed it (TD11),
+ * changed the tree, `repair-checks` only when the repair changed it, a kind
+ * there only when it has no run or the repair changed the tree after its
+ * last one (TD11, `repairRevisedSince`),
  * and `answer-checks` only when the current answer pass changed it, and
  * then every check again, its runs for an earlier pass not counting
  * (`checksFloor`; R5 of answers).
@@ -485,7 +499,7 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
   for (const check of planned.checks) {
     if (check.command === null) continue;
     const standing = runStanding(withFix, phase, check.kind);
-    if (standing === null) continue;
+    if (standing === null || (phase === 'repair-checks' && standing.kind === 'first' && !repairRevisedSince(fix, check.kind))) continue;
     // Read now, not before the loop: a build that runs again runs first, and the kinds after it read its new outcome.
     const build = lastCurrentRun(withFix, phase, 'build');
     const skip = check.kind !== 'build' && build !== null && build.outcome !== 'passed' ? `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}` : null;
