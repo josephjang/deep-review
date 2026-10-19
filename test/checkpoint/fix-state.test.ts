@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, cutShortChecks, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
-import type { CheckKind, CheckPhase } from '../../src/review/vocabulary.ts';
+import { cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
+import { checkPhases, type CheckKind, type CheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
 const revision = (phase: TreeRevised['phase'], source: TreeRevised['source']): TreeRevised => ({
@@ -69,6 +69,18 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
       const ran = run(phase, 'build', 'passed', 1, 0);
       assert.equal(isOldRun(fixOf([later]), phase, ran), old, `${phase} after ${later.phase}`);
     }
+  });
+
+  it('says a run checked an earlier tree after every revision that made it old but an answer pass\'s, naming the first such revision\'s phase', () => {
+    for (const phase of checkPhases) {
+      const ran = run(phase, 'build', 'passed', 1, 0);
+      for (const later of [fixes, repair, answer, lint]) {
+        const marked = later !== answer && isOldRun(fixOf([later]), phase, ran);
+        assert.equal(earlierTreeEdit(fixOf([later]), phase, ran), marked ? later.phase : null, `${phase} after ${later.phase}`);
+      }
+    }
+    assert.equal(earlierTreeEdit(fixOf([answer, lint, repair, fixes]), 'repair-checks', run('repair-checks', 'build', 'passed', 1, 0)), 'repair');
+    assert.equal(earlierTreeEdit(fixOf([fixes, answer]), 'checks', run('checks', 'build', 'passed', 1, 1)), null, 'a revision before the run marks nothing');
   });
 
   it('reads the repair\'s targets from the baseline and the current runs after the fixes, so an answer pass that revised the tree leaves none to repair', () => {

@@ -209,20 +209,25 @@ const stalingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = {
  * `status` say a run checked an earlier tree (R15, TD3 of resumable runs):
  * the fixes and the repair, after any phase but the baseline, which checks
  * the tree before every edit. An answer pass marks no run, since the runs
- * after answers show the tree it left.
+ * after answers show the tree it left, so each phase's set is its
+ * `stalingPhases` set without the answer pass.
  */
-const markingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = { 'baseline-checks': [], checks: ['fixes'], 'repair-checks': ['fixes', 'repair'], 'answer-checks': ['fixes', 'repair'] };
+const markingPhases = Object.fromEntries(checkPhases.map((phase) => [phase, stalingPhases[phase].filter((editing) => editing !== 'answer')])) as unknown as Readonly<Record<CheckPhase, readonly EditingPhase[]>>;
+
+/** The editing phase of the first revision the ledger holds after a run whose phase is one of `editing`, or null when none is. */
+function revisionAfter(fix: Pick<FixState, 'revisions'>, run: Pick<CheckRunState, 'revisionsBefore'>, editing: readonly EditingPhase[]): EditingPhase | null {
+  const phases: readonly string[] = editing;
+  return (fix.revisions.slice(run.revisionsBefore).find((revision) => phases.includes(revision.phase))?.phase as EditingPhase | undefined) ?? null;
+}
 
 /** The editing phase of the first revision after a run that changed the tree it checked, as the record names it, or null when none did. */
 export function earlierTreeEdit(fix: Pick<FixState, 'revisions'>, phase: CheckPhase, run: Pick<CheckRunState, 'revisionsBefore'>): EditingPhase | null {
-  const marking: readonly string[] = markingPhases[phase];
-  return (fix.revisions.slice(run.revisionsBefore).find((revision) => marking.includes(revision.phase))?.phase as EditingPhase | undefined) ?? null;
+  return revisionAfter(fix, run, markingPhases[phase]);
 }
 
 /** Whether a run of a checks phase is old: a revision the ledger holds after it changed the state its phase checks. */
 export function isOldRun(fix: Pick<FixState, 'revisions'>, phase: CheckPhase, run: Pick<CheckRunState, 'revisionsBefore'>): boolean {
-  const staling: readonly string[] = stalingPhases[phase];
-  return fix.revisions.slice(run.revisionsBefore).some((revision) => staling.includes(revision.phase));
+  return revisionAfter(fix, run, stalingPhases[phase]) !== null;
 }
 
 /** The last current run of a kind in a checks phase (TD3 of resumable runs): past the phase's floor (`checksFloor`) and made old by no later revision; null when the kind has none. */
