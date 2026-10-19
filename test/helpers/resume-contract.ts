@@ -262,9 +262,6 @@ export function normalizedReport(text: string, sandbox: string): string {
   return limitations === -1 ? lines.join('\n') : [...lines.slice(0, limitations + 1), ...lines.slice(limitations + 1).sort()].join('\n');
 }
 
-/** Whether a process exists, by pid. */
-const alive = (pid: number): boolean => isAlive(pid);
-
 /** End a process and its tree at once: `taskkill /T /F` on Windows, SIGKILL of its group on POSIX, else of the process. */
 export function killTree(pid: number): void {
   if (process.platform === 'win32') {
@@ -395,10 +392,10 @@ export async function stopAndResume(point: Point, way: StopWay): Promise<Stopped
     const orphans: string[] = [];
     if (held !== null) {
       const deadline = Date.now() + orphanGraceMs;
-      while (Date.now() < deadline && (alive(held.pid) || alive(held.grandchild))) await sleep(50);
-      if (alive(held.pid)) orphans.push('child');
-      if (alive(held.grandchild)) orphans.push('grandchild');
-      for (const pid of [held.pid, held.grandchild]) if (alive(pid)) killTree(pid);
+      while (Date.now() < deadline && (isAlive(held.pid) || isAlive(held.grandchild))) await sleep(50);
+      if (isAlive(held.pid)) orphans.push('child');
+      if (isAlive(held.grandchild)) orphans.push('grandchild');
+      for (const pid of [held.pid, held.grandchild]) if (isAlive(pid)) killTree(pid);
     }
     writeFileSync(join(sandbox.startDirectory, 'release'), '');
     if (!reached) return { point, way, reached, atStop, orphans, after: [stopped], outcome: null };
