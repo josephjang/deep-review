@@ -22,6 +22,7 @@ import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { codeSpan, inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
+import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
 
@@ -42,6 +43,8 @@ export interface ReportInput {
   readonly engineEntry: string;
   /** One row per phase the run did not skip, and the total. */
   readonly statistics: { readonly phases: readonly (Spend & { readonly phase: Phase })[]; readonly total: Spend; readonly budgetApplied: boolean };
+  /** The spend as the budget check counted it (`budgetSpendOf`), which the line of the run budget names beside the reported spend when they differ, or null when no budget check ran (R15 of resumable runs). */
+  readonly budgetCheck: BudgetSpend | null;
   /**
    * For a fix run: where a frozen blob is, for the checks' output; the
    * patch series' paths in ledger order; and the command that continues
@@ -118,10 +121,15 @@ function stoppedUnitWords(units: readonly { readonly phase: 'fixes' | 'repair' }
 }
 
 /** What bounded the run's spend: the run budget in force at the end, or why there was none. */
-function budgetLine(review: ReviewState, statistics: ReportInput['statistics']): string {
+function budgetLine(review: ReviewState, statistics: ReportInput['statistics'], budgetCheck: BudgetSpend | null): string {
   const budget = review.limits.runBudgetUsd;
   const spent = usd(statistics.total.costUsd);
-  if (statistics.budgetApplied && budget !== null) return `- Run budget: ${usd(budget)} USD, checked before every launch; spent ${spent} USD.`;
+  if (statistics.budgetApplied && budget !== null) {
+    // A worker charged at its cap or lost makes the check's spend differ from the reported one; the line then names both, as `status` does.
+    const note = budgetCheck === null || budgetCheck.usd === null ? null : budgetSpendNote(budgetCheck);
+    const checked = note === null ? '' : `; the budget check counted ${usd(budgetCheck!.usd)} USD, ${note}`;
+    return `- Run budget: ${usd(budget)} USD, checked before every launch; spent ${spent} USD${checked}.`;
+  }
   if (statistics.total.costUnreported === null) {
     return `- The run budget did not apply: runtime ${review.configuration.runtime} reports no cost in USD, so only the per-worker timeouts and the worker count bounded this run.`;
   }
@@ -236,7 +244,7 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
   const blocked = drifted.filter((entry) => !writtenBack(entry)).length;
   const fate = blocked === drifted.length ? 'each blocked the run until the tree was restored' : blocked === 0 ? 'each was written back after a check a kill cut short' : `${String(drifted.length - blocked)} ${drifted.length - blocked === 1 ? 'was' : 'were'} written back after a check a kill cut short, and each other blocked the run until the tree was restored`;
   lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? `none found a difference from ${against}` : `${String(drifted.length)} found a difference in ${drifted.map(({ check }) => `${check.phase} (attempt ${String(check.attempt)}: ${[...headMoved(check), ...check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`)].join(', ')})`).join('; ')}; ${fate}`}.`);
-  lines.push(budgetLine(review, input.statistics));
+  lines.push(budgetLine(review, input.statistics, input.budgetCheck));
   const stopped = review.fix === null ? [] : budgetStoppedUnits(review.fix);
   const command = input.fix?.continueCommand ?? null;
   if (stopped.length > 0 && command !== null) lines.push(`- The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${codeSpan(command)} continues it and reviews nothing again.`);

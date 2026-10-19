@@ -244,7 +244,8 @@ export const statistics = {
 };
 
 /** The input a test renders a report with, spread with what the test changes, so a new field of the input is given here once. */
-export const reportInput = { engineEntry, engine: '0.0.0+dev', statistics };
+// The budget check counted the reported spend alone, as for a run that charged no worker at its cap.
+export const reportInput = { engineEntry, engine: '0.0.0+dev', statistics, budgetCheck: { usd: statistics.total.costUsd, charged: 0, lost: 0 } };
 
 /** The run through merge and rank, before its report phase. */
 export const mergeRanked = (): History =>

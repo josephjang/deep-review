@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { renderReport } from '../../src/review/report.ts';
+import { renderReport, type ReportInput } from '../../src/review/report.ts';
 import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker, reportInput } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
@@ -87,6 +87,15 @@ describe('renderReport', () => {
     const report = renderReport(raised, reportInput);
     assert.match(report, /^- Run budget: 75\.50 USD, checked before every launch; spent 4\.50 USD\.$/m);
     assert.doesNotMatch(report, /30\.00 USD/);
+  });
+
+  it('names what the budget check counted beside the reported spend when the two differ, as status does (R15 of resumable runs)', () => {
+    const state = ranked().fold();
+    const line = (budgetCheck: ReportInput['budgetCheck']): string | undefined => renderReport(state, { ...reportInput, budgetCheck }).split('\n').find((entry) => entry.startsWith('- Run budget: '));
+    assert.equal(line({ usd: 4.5, charged: 0, lost: 0 }), '- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.', 'the check counted the reported spend alone');
+    assert.equal(line({ usd: 12.5, charged: 1, lost: 0 }), '- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD; the budget check counted 12.50 USD, counting 1 worker that reported no cost at its per-worker cap.');
+    assert.equal(line({ usd: 20.5, charged: 2, lost: 1 }), '- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD; the budget check counted 20.50 USD, counting 2 workers that reported no cost at their per-worker caps; 1 worker lost with an earlier engine is not counted.');
+    assert.equal(line(null), '- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.', 'no check to name');
   });
 
   it('says a runtime that reports cost ran without a run budget, rather than that it reports no cost', () => {
