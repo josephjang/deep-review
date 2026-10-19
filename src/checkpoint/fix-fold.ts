@@ -240,8 +240,8 @@ function requirePlannedCheck(review: ReviewState, fix: FixState, event: DecodedE
   if (planned.command !== payload.command) throw invalid(event, `${verb} ${JSON.stringify(payload.command)} for the ${payload.kind} check, pinned as ${JSON.stringify(planned.command)}`);
 }
 
-/** The run state of a check's run as the fold keeps it: its record, and the revisions the ledger held before it (TD3 of resumable runs). */
-const runState = (fix: FixState, payload: CheckRan): CheckRunState => ({ ...payload, revisionsBefore: fix.revisions.length });
+/** The run state of a check's run as the fold keeps it: its record, the revisions the ledger held before it (TD3 of resumable runs), and the run it replaces, if any. */
+const runState = (fix: FixState, payload: CheckRan, replaced: CheckRunState | null): CheckRunState => ({ ...payload, revisionsBefore: fix.revisions.length, replacedAt: replaced === null ? null : fix.checks.runs[payload.phase].indexOf(replaced) });
 
 /**
  * A version 1 or 2 run of a check, which replaces nothing: the kind must
@@ -253,7 +253,7 @@ const checkRan: Reducer<Omit<CheckRan, 'replaces'>> = (state, payload, event) =>
   const { current, review, fix } = requireFix(state, event);
   requirePlannedCheck(review, fix, event, payload, 'runs');
   if (lastCurrentRun({ ...review, fix }, payload.phase, payload.kind) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}${payload.phase === 'answer-checks' ? ' for one answer pass' : ''}`);
-  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null })] };
+  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null }, null)] };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);
 };
 
@@ -278,7 +278,7 @@ const checkRanV3: Reducer<CheckRan> = (state, payload, event) => {
   }
   if (secondCut(standing.kind === 'again' ? standing : null, payload.attempt, payload.outcome)) throw invalid(event, `records a second cut of the ${payload.kind} check in one attempt, which is a failure`);
   if (payload.outcome !== 'skipped' && openStart(fix, payload.phase, payload.kind, payload.attempt) === null) throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} with no start of it in attempt ${String(payload.attempt)}`);
-  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload)] };
+  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload, standing.kind === 'again' ? standing.run : null)] };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);
 };
 

@@ -4106,7 +4106,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -4129,7 +4130,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -4152,7 +4154,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 }
               ],
               "checks": [
@@ -4177,7 +4180,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 3
+                  "revisionsBefore": 3,
+                  "replacedAt": null
                 },
                 {
                   "phase": "checks",
@@ -4200,7 +4204,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 3
+                  "revisionsBefore": 3,
+                  "replacedAt": null
                 },
                 {
                   "phase": "checks",
@@ -4223,7 +4228,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 3
+                  "revisionsBefore": 3,
+                  "replacedAt": null
                 }
               ],
               "repair-checks": [
@@ -4248,7 +4254,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 4
+                  "revisionsBefore": 4,
+                  "replacedAt": null
                 },
                 {
                   "phase": "repair-checks",
@@ -4271,7 +4278,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 4
+                  "revisionsBefore": 4,
+                  "replacedAt": null
                 },
                 {
                   "phase": "repair-checks",
@@ -4294,7 +4302,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 4
+                  "revisionsBefore": 4,
+                  "replacedAt": null
                 }
               ],
               "answer-checks": []
@@ -6317,7 +6326,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -6340,7 +6350,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 }
               ],
               "checks": [],
@@ -9077,7 +9088,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -9100,7 +9112,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 }
               ],
               "checks": [
@@ -9125,7 +9138,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 },
                 {
                   "phase": "checks",
@@ -9148,7 +9162,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 }
               ],
               "repair-checks": [],
@@ -11666,7 +11681,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -11689,7 +11705,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 }
               ],
               "checks": [
@@ -11714,7 +11731,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 4
+                  "revisionsBefore": 4,
+                  "replacedAt": null
                 },
                 {
                   "phase": "checks",
@@ -11737,7 +11755,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 4
+                  "revisionsBefore": 4,
+                  "replacedAt": null
                 }
               ],
               "repair-checks": [],
@@ -14471,7 +14490,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -14494,7 +14514,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 }
               ],
               "checks": [
@@ -14519,7 +14540,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 },
                 {
                   "phase": "checks",
@@ -14542,7 +14564,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 }
               ],
               "repair-checks": [],
@@ -16814,7 +16837,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -16837,7 +16861,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 }
               ],
               "checks": [
@@ -16862,7 +16887,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 },
                 {
                   "phase": "checks",
@@ -16885,7 +16911,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 }
               ],
               "repair-checks": [],
@@ -16911,7 +16938,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 2
+                  "revisionsBefore": 2,
+                  "replacedAt": null
                 },
                 {
                   "phase": "answer-checks",
@@ -16934,7 +16962,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 2
+                  "revisionsBefore": 2,
+                  "replacedAt": null
                 }
               ]
             },
@@ -21906,7 +21935,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -21929,7 +21959,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": null
                 },
                 {
                   "phase": "baseline-checks",
@@ -21955,7 +21986,8 @@
                     "attempt": 1,
                     "outcome": "cut"
                   },
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": 1
                 },
                 {
                   "phase": "baseline-checks",
@@ -21981,7 +22013,8 @@
                     "attempt": 1,
                     "outcome": "timeout"
                   },
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": 2
                 },
                 {
                   "phase": "baseline-checks",
@@ -22007,7 +22040,8 @@
                     "attempt": 1,
                     "outcome": "failed"
                   },
-                  "revisionsBefore": 0
+                  "revisionsBefore": 0,
+                  "replacedAt": 3
                 }
               ],
               "checks": [
@@ -22032,7 +22066,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 },
                 {
                   "phase": "checks",
@@ -22055,7 +22090,8 @@
                   },
                   "error": null,
                   "replaces": null,
-                  "revisionsBefore": 1
+                  "revisionsBefore": 1,
+                  "replacedAt": null
                 }
               ],
               "repair-checks": [],

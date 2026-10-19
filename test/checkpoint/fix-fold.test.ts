@@ -754,7 +754,7 @@ describe('the records of resumable runs', () => {
     assert.deepEqual(fix.checks.starts['baseline-checks'].map((start) => [start.kind, start.attempt, start.runsBefore]), [['build', 1, 0]]);
     assert.deepEqual(fix.checks.runs['baseline-checks'].map((run) => [run.kind, run.outcome, run.replaces, run.revisionsBefore]), [['build', 'passed', null, 0]]);
     const after = fixed().review().fix!;
-    assert.deepEqual(after.checks.runs['baseline-checks'].map((run) => [run.replaces, run.revisionsBefore]), [[null, 0], [null, 0], [null, 0]], 'a version 2 run replaces nothing');
+    assert.deepEqual(after.checks.runs['baseline-checks'].map((run) => [run.replaces, run.revisionsBefore, run.replacedAt]), [[null, 0, null], [null, 0, null], [null, 0, null]], 'a version 2 run replaces nothing');
     assert.deepEqual(after.checks.finished, { 'baseline-checks': 1, checks: 0, 'repair-checks': 0, 'answer-checks': 0 }, 'the baseline finished its first attempt');
   });
 
@@ -776,7 +776,7 @@ describe('the records of resumable runs', () => {
     assert.equal(runStanding(review, 'baseline-checks', 'build'), null, 'a kind that passed stays passed');
     assert.deepEqual(runStanding(review, 'baseline-checks', 'test'), { kind: 'first' });
     const rerun = ranWithStart(cut.clone(), 'baseline-checks', 'lint', 'passed', 2, { attempt: 1, outcome: 'failed' }).review().fix!;
-    assert.deepEqual(rerun.checks.runs['baseline-checks'].map((run) => [run.kind, run.attempt, run.outcome]), [['build', 1, 'passed'], ['lint', 1, 'failed'], ['lint', 2, 'passed']]);
+    assert.deepEqual(rerun.checks.runs['baseline-checks'].map((run) => [run.kind, run.attempt, run.outcome, run.replacedAt]), [['build', 1, 'passed', null], ['lint', 1, 'failed', null], ['lint', 2, 'passed', 1]], 'the rerun keeps where the run it replaces is');
     refused(ranWithStart(cut.clone(), 'baseline-checks', 'lint', 'passed', 2), /as its first, when it has a current run there/);
     refused(ranWithStart(cut.clone(), 'baseline-checks', 'lint', 'passed', 2, { attempt: 1, outcome: 'timeout' }), /replacing a timeout run at attempt 1, which is not its last current run/);
     refused(cut.clone().add('check.started', started('baseline-checks', 'build', 2)), /whose last current run is its result/);

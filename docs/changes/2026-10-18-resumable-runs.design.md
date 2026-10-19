@@ -174,7 +174,7 @@ Each reader reads the last current run of its phase: `dueCheck`, the reducer, `r
 
 `runDueCheck` appends `check.started@1` with the phase, the attempt, the kind and the command before it starts the check. The reducer refuses a start of a kind that is not due. `check.ran@3` is `check.ran@2` with one more field, `replaces`. It is null for the first current run of a kind. Else it holds the attempt and the outcome of the run that it replaces.
 
-The reducer folds version 3 with three rules. With `replaces` null, the kind has no current run in the phase. With `replaces` set, it names the last current run of the kind by its attempt and its outcome, and one of three cases holds. In the first, that run did not pass and is from a cut attempt (R3). In the second, that run is cut (R4). In the third, it is the first timeout of the kind in the current attempt (R7).
+The reducer folds version 3 with three rules. With `replaces` null, the kind has no current run in the phase. With `replaces` set, it names the last current run of the kind by its attempt and its outcome, and one of three cases holds. In the first, that run did not pass and is from a cut attempt (R3). In the second, that run is cut (R4). In the third, it is the first timeout of the kind in the current attempt (R7). The fold keeps with the new run where the run it replaces is among the runs of its phase, so the report reads the run that the fold matched and does not search for it again.
 
 A version 3 run that ran has a start of the same kind in the same attempt, with no run after that start. A skipped run has no start, because nothing ran. Versions 1 and 2 keep their rule: the kind has no current run, and no start is necessary.
 

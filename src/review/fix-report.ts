@@ -166,15 +166,14 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
   const lines: string[] = [];
   for (const phase of checkPhases) {
     const runs = fix.checks.runs[phase];
-    runs.forEach((run, index) => {
-      if (run.replaces === null) return;
-      const replaced = runs.slice(0, index).findLast((earlier) => earlier.kind === run.kind && earlier.attempt === run.replaces!.attempt && earlier.outcome === run.replaces!.outcome);
-      if (replaced === undefined) return;
+    for (const run of runs) {
+      if (run.replacedAt === null) continue;
+      const replaced = runs[run.replacedAt]!;
       const now = `${run.outcome} in ${runSeconds(run)}`;
       if (replaced.outcome === 'cut') lines.push(`Cut: ${run.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
       else if (replaced.outcome === 'timeout') lines.push(`Ran again after a timeout: ${run.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
       else lines.push(`Ran again after a stop: ${run.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run.attempt)}.`);
-    });
+    }
     for (const start of fix.checks.starts[phase]) {
       if (openStart(fix, phase, start.kind, start.attempt) === start) lines.push(`Cut by a stop: ${start.kind} in ${phase} at attempt ${String(start.attempt)}, with no end on record.`);
     }

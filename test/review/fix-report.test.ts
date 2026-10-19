@@ -330,13 +330,13 @@ describe('the record of a stop (R15 of resumable runs)', () => {
   it('names each check that ran again with both runs, by why it ran again, and each start with no end on record', () => {
     const runs = [
       run({ kind: 'lint', attempt: 1, outcome: 'failed', exitCode: 1 }, 4.4),
-      run({ kind: 'lint', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'failed' } }, 3.1),
+      run({ kind: 'lint', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'failed' }, replacedAt: 0 }, 3.1),
       run({ kind: 'typecheck', attempt: 2, outcome: 'cut', exitCode: 143 }, 1),
-      run({ kind: 'typecheck', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'cut' } }, 3.1),
+      run({ kind: 'typecheck', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'cut' }, replacedAt: 2 }, 3.1),
       run({ kind: 'test', attempt: 2, outcome: 'cut', exitCode: null, signal: null }, 1),
-      run({ kind: 'test', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'cut' } }, 5.2),
+      run({ kind: 'test', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'cut' }, replacedAt: 4 }, 5.2),
       run({ kind: 'build', attempt: 2, outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL' }, 1200),
-      run({ kind: 'build', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'timeout' } }, 312),
+      run({ kind: 'build', attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 2, outcome: 'timeout' }, replacedAt: 6 }, 312),
     ];
     const starts = [{ phase: 'checks' as const, attempt: 1, kind: 'test' as const, command: 'npm test', runsBefore: 1 }];
     assert.deepEqual(lines({ checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: runs }, starts: { ...fix.checks.starts, checks: starts } } }), [

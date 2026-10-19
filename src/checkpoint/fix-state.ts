@@ -79,12 +79,15 @@ export interface NotAttempted {
 
 /**
  * A run of a check as the fold holds it (TD3 of resumable runs): its
- * record, a version 1 or 2 run replacing nothing, and how many revisions
- * of the tree the ledger held before it, so a reader tells a run a later
- * revision made old from a current one.
+ * record, a version 1 or 2 run replacing nothing, how many revisions of
+ * the tree the ledger held before it, so a reader tells a run a later
+ * revision made old from a current one, and the index in its phase's runs
+ * of the run its `replaces` names, as the fold resolved it (`runStanding`),
+ * or null when it replaces nothing.
  */
 export interface CheckRunState extends CheckRan {
   readonly revisionsBefore: number;
+  readonly replacedAt: number | null;
 }
 
 /** A start of a check as the fold holds it (R7 of resumable runs): its record, and how many runs of its phase the ledger held before it, so a reader finds a start no run came after. */
