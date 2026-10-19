@@ -328,6 +328,7 @@ The Limitations section of the report gets one line for each case of this table.
 | A check that ended with a kill mark | `- Cut: typecheck in baseline-checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.` |
 | A check whose guard left no result | `- Cut: test in checks ended with no result from its guard, and ran again: passed in 5.2 min.` |
 | A worker that ended with a kill mark | `- Cut: the worker of finder REMOVALS ended with exit code 143, a kill mark, and ran again.` |
+| A worker that a stop of the engine lost | `- Lost with the engine: the worker of fixer fixes:c3-1, and ran again; its edits are in a revision of its unfinished attempt.` |
 | A block for the usage limit that the run resumed after | `- Usage limit: fixes blocked at attempt 1, and the run resumed after it: the fixer worker for fixes:c1-1 stopped at the provider's usage limit: Claude Code reported a usage limit of the provider, which resets 12:10pm (Asia/Seoul): You've hit your session limit.` |
 | A file that the engine wrote back | `- Written back after a cut check: src/a.ts; the bytes before are at <path>.` |
 | A file written back after a timeout | `- Written back after build timed out: dist/claude/engine/main.mjs; the bytes before are at <path>.` |
