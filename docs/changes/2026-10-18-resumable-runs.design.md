@@ -538,6 +538,12 @@ Each worker and each check now runs under the guard. A fault in the guard can br
 
 A kill of the guard alone ends its child through the job of the guard, but the descendants of the child continue. The rerun can then run beside them. The design accepts this, because a stop rarely kills the guard alone: a kill of the tree of the engine reaches the descendants too.
 
+### A stop while the engine starts a guard on Windows
+
+libuv starts each child suspended, and it lets the child run after it sets the child up. When a stop kills the engine between these two steps, the guard stays suspended. Because the guard is detached, it is in no job of the engine, so nothing ends it. The guard never starts its child, so no child runs beside the rerun. The suspended process stays until a person kills it or Windows restarts.
+
+The gate showed three such guards, from test suites that kill an engine while it starts a child. A test killed a parent 100 times while it started children. 71 detached children stayed suspended, and no child that was not detached stayed. The design accepts this, because the time between the two steps is short. A guard that is not detached ends with the job of the engine, and then it cannot end the tree of its child (R8).
+
 ### The fakes are not the real runtimes
 
 A point can pass on the fakes and fail with Claude Code or Codex. The design accepts this, because the gate stops real runs too.
