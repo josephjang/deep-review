@@ -393,6 +393,16 @@ Other comments say what the old rules do. In `process.ts`, they are the comments
 
 Two texts of the report become false as well. One is the line in `report.ts` that says that each drift blocked the run until the tree was restored. The other is the note in `fix-report.ts` that says that the check after the repair did not run because no check failed after the fixes.
 
+### The findings of the gate (R18)
+
+The gate found faults that are older than this change, and the author decided each one on 2026-10-19. The faults that the change itself caused have their place in the sections above.
+
+#### The subject of a revision with more than one message
+
+Sometimes one revision holds the edits of more than one finding, because no snapshot of the fixer set them apart. Its commit then has the subject `Apply RIPPLE-2, DESIGN-3`, from `revisionMessage` in `fix-events.ts`, and the body holds each message of the fixer. In a repository that writes conventional commits, this subject breaks its rule. The gate made such a commit.
+
+The subject now starts with a type when each subject of the fixer starts with one. When all the types are the same, the subject takes that type, and the scope too when all the scopes are the same. When the types are different, the subject takes the type `fix`. An example: `fix(checkpoint): Apply RIPPLE-2, DESIGN-3`. When a subject of the fixer has no type, the repository does not write conventional commits, and the subject stays `Apply` with the findings.
+
 ## Technical Decisions
 
 ### TD1: The test stops the engine from a preload, not from a hook in the engine
