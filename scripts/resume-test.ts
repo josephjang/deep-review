@@ -9,7 +9,8 @@
 // or a mark whose part held. The gate runs it; the suite runs a fixed set
 // of the points (test/review/resume-contract.test.ts):
 //   npm run resume-test -- [--point <text>]... [--way signal|kill|tree|child] [--concurrency <n>] [--json <file>]
-// --point keeps the points whose name holds the text, --way one way.
+// --point keeps the points whose name holds the text, --way one way; a
+// selection that keeps no case exits with 2 before it runs anything.
 import { writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
@@ -35,6 +36,12 @@ const expected = await reference();
 const cases = everyPoint(expected)
   .filter((point) => values.point === undefined || values.point.some((text) => point.name.includes(text)))
   .flatMap((point) => waysAt(point).filter((candidate) => way === undefined || candidate === way).map((candidate) => ({ point, way: candidate })));
+if (cases.length === 0) {
+  // A selection that runs nothing proves nothing, so it must not pass as a run that kept the contract.
+  const filters = [...(values.point ?? []).map((text) => `--point ${text}`), ...(way === undefined ? [] : [`--way ${way}`])];
+  process.stderr.write(`resume-test: ${filters.length === 0 ? 'no case to run' : `no case matches ${filters.join(', ')}`}\n`);
+  process.exit(2);
+}
 process.stderr.write(`resume-test: ${String(cases.length)} cases at ${String(concurrency)} at once, on ${process.platform}\n`);
 
 /** What one case came to: the parts it broke, or the error that ended it, and what the marks say of it. */
