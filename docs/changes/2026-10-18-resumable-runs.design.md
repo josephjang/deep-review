@@ -71,7 +71,7 @@ A check has no record of its start. `runDueCheck` in `controller.ts` takes a man
 
 A unit has two attempts (`maxAttempts` in `steps.ts`). `interrupted` treats a failure with the cause `lost` or `environment` as an interruption. Thus a unit with such a failure blocks with `worker-failed` and does not degrade. `phaseStarted` in `src/checkpoint/review-fold.ts` gives the units fresh attempts when a phase starts again after a block, not after a stop. `attempt.failed@6` has a `fault`, `unit` or `environment`, and the reducer accepts `environment` only in the fixes phase, for a lost claims directory.
 
-`workerVerdict` in `launcher.ts` takes a worker that ended with a signal or an exit code other than 0 as failed. The Claude adapter in `src/runtime/claude.ts` takes a result with `is_error` true as failed. Its comment says that a usage limit arrives that way and counts against the unit (#40). On run `e21b026d`, the words were `You've hit your session limit · resets 12:10pm (Asia/Seoul)`.
+`workerVerdict` in `launcher.ts` takes a worker that ended with a signal or an exit code other than 0 as failed. The Claude adapter in `src/runtime/claude.ts` takes a result with `is_error` true as failed. Its comment says that a usage limit arrives that way and counts against the unit (#40). On run `e21b026d`, the words were `You've hit your session limit`, a middle dot (U+00B7) and `resets 12:10pm (Asia/Seoul)`.
 
 ### The edits of a lost attempt
 

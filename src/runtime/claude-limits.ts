@@ -5,8 +5,9 @@
  * true and the words in `result`; a retry before the reset cannot pass,
  * so the engine blocks the phase at the first one rather than spend the
  * unit's attempts. The list is what the adapter knows: run `e21b026d`
- * gave `You've hit your session limit · resets 12:10pm (Asia/Seoul)`, and
- * older builds `Claude AI usage limit reached|<epoch seconds>`.
+ * gave `You've hit your session limit`, a middle dot (U+00B7) and
+ * `resets 12:10pm (Asia/Seoul)`, and older builds
+ * `Claude AI usage limit reached|<epoch seconds>`.
  */
 
 /** The phrases that name a limit the provider put on the account, not a fault of the worker. */
