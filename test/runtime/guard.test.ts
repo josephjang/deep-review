@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { guardResultFile, parseGuardRequest, readGuardResult, type GuardRequest, type GuardResult } from '../../src/runtime/process.ts';
+import { guardResultFile, guardStartFile, parseGuardRequest, readGuardResult, type GuardRequest, type GuardResult } from '../../src/runtime/process.ts';
 import { isAlive, until } from '../helpers/launcher.ts';
 import { processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
 
@@ -65,6 +65,32 @@ describe('the guard', { timeout: 120_000 }, () => {
     assert.deepEqual(result(), { termination: 'exited', exitCode: 7, signal: null });
     assert.equal(readFileSync(join(directory, 'stdout'), 'utf8'), `THE PROMPT ${directory}`);
     assert.equal(existsSync(`${guardResultFile(file)}.partial`), false, 'the result is written through a rename');
+  });
+
+  it('writes when the child started, from which the engine counts its timeout, and no start for a child that cannot start', async () => {
+    const before = Date.now();
+    const { ended } = start(writeRequest({ args: ['-e', 'process.stdout.write(String(Date.now()))'] }));
+    await ended;
+    const at = Number(readFileSync(guardStartFile(requestFile()), 'utf8'));
+    assert.ok(at >= before && at <= Number(readFileSync(join(directory, 'stdout'), 'utf8')), `started at ${String(at)}`);
+    assert.equal(existsSync(`${guardStartFile(requestFile())}.partial`), false, 'the start is written through a rename');
+    rmSync(guardStartFile(requestFile()));
+    rmSync(guardResultFile(requestFile()));
+    rmSync(join(directory, 'stdout'));
+    rmSync(join(directory, 'stderr'));
+    const missing = start(writeRequest({ executable: join(directory, 'no-such-executable') }));
+    await missing.ended;
+    assert.equal(existsSync(guardStartFile(requestFile())), false);
+  });
+
+  it('records on the child\'s standard error a start it cannot write, and still runs the child to its end', async () => {
+    const file = writeRequest({ args: ['-e', 'process.exit(5)'] });
+    mkdirSync(`${guardStartFile(file)}.partial`);
+    const { ended } = start(file);
+    await ended;
+    assert.deepEqual(result(), { termination: 'exited', exitCode: 5, signal: null });
+    assert.equal(existsSync(guardStartFile(file)), false);
+    assert.match(readFileSync(join(directory, 'stderr'), 'utf8'), /^deep-review guard: could not write when the child started: EISDIR/);
   });
 
   it('gives the child its own environment, so no variable goes to the request file', async () => {

@@ -7,7 +7,9 @@
  * engine opened, and its environment is the child's, so no secret of the
  * environment goes to disk.
  *
- * When the child ends, or cannot start, the guard writes the result file
+ * Once the child has started, the guard writes when in the start file
+ * beside the request (`guardStartFile`), from which the engine counts the
+ * child's timeout. When the child ends, or cannot start, the guard writes the result file
  * beside the request (`guardResultFile`); the engine reads the end of the
  * child from that file, not from the exit of the guard. A child that ended
  * can leave processes behind. On POSIX the guard then ends its process
@@ -25,7 +27,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { guardResultFile, killGroup, killTreeNow, parseGuardRequest, type GuardRequest, type GuardResult } from './process.ts';
+import { guardResultFile, guardStartFile, killGroup, killTreeNow, parseGuardRequest, type GuardRequest, type GuardResult } from './process.ts';
 
 /** Run the guard on `argv`, the arguments after `guard`, and give its exit code. */
 export async function runGuard(argv: readonly string[]): Promise<number> {
@@ -35,6 +37,7 @@ export async function runGuard(argv: readonly string[]): Promise<number> {
   }
   const requestFile = argv[0]!;
   const resultFile = guardResultFile(requestFile);
+  const startFile = guardStartFile(requestFile);
   let request: GuardRequest;
   let stdin: number;
   try {
@@ -71,6 +74,8 @@ export async function runGuard(argv: readonly string[]): Promise<number> {
       };
       child.once('spawn', () => {
         started = true;
+        // The engine counts the child's timeout from here, not from the guard's own start.
+        writeStart(startFile);
       });
       child.on('error', (error) => {
         // After a successful spawn an error (such as a failed kill) is not the end; 'close' still follows.
@@ -130,13 +135,30 @@ function endOwnGroup(): void {
  * result, as from a guard a kill ended.
  */
 function writeResult(resultFile: string, result: GuardResult): boolean {
-  const partial = `${resultFile}.partial`;
+  const error = writeWhole(resultFile, JSON.stringify(result));
+  if (error !== null) process.stderr.write(`deep-review guard: could not write the result ${JSON.stringify(result)}: ${error}\n`);
+  return error === null;
+}
+
+/**
+ * Write when the child started, in milliseconds since the epoch, whole
+ * through a rename as the result is. A start that cannot be written goes
+ * to the guard's standard error: the engine then counts the child's
+ * timeout from the guard's start, and kills it a whole timeout late.
+ */
+function writeStart(startFile: string): void {
+  const error = writeWhole(startFile, String(Date.now()));
+  if (error !== null) process.stderr.write(`deep-review guard: could not write when the child started: ${error}\n`);
+}
+
+/** Write `text` to `file` through a rename, and give the error that stopped it, or null once it is whole on disk. */
+function writeWhole(file: string, text: string): string | null {
+  const partial = `${file}.partial`;
   try {
-    writeFileSync(partial, JSON.stringify(result));
-    renameSync(partial, resultFile);
-    return true;
+    writeFileSync(partial, text);
+    renameSync(partial, file);
+    return null;
   } catch (error) {
-    process.stderr.write(`deep-review guard: could not write the result ${JSON.stringify(result)}: ${(error as Error).message}\n`);
-    return false;
+    return (error as Error).message;
   }
 }

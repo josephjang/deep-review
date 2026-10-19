@@ -102,6 +102,19 @@ export type GuardResult =
 /** Where the guard of `requestFile` writes its result: beside the request. */
 export const guardResultFile = (requestFile: string): string => `${requestFile}.result`;
 
+/** Where the guard of `requestFile` writes when its child started, in milliseconds since the epoch: beside the request. */
+export const guardStartFile = (requestFile: string): string => `${requestFile}.started`;
+
+/** When the guard's child started, from its start file, or null while the guard has written none it finished. */
+function readChildStart(startFile: string): number | null {
+  try {
+    const at = Number(readFileSync(startFile, 'utf8'));
+    return Number.isFinite(at) && at > 0 ? at : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The request a guard reads, checked field by field, since a guard that misread it would run the wrong command. */
 export function parseGuardRequest(text: string): GuardRequest {
   const value = JSON.parse(text) as Partial<Record<keyof GuardRequest, unknown>> | null;
@@ -156,7 +169,9 @@ const resultPollMs = 25;
  * Run one process to its end through its guard (R8 of resumable runs,
  * src/runtime/guard.ts), killing it with its whole tree at the timeout
  * (PD2, TD13) once its guard has left no result `resultGraceMs` past it.
- * No shell is involved, so no argument is ever reinterpreted.
+ * The timeout counts from the child's start, which the guard writes in its
+ * start file (`guardStartFile`), so the guard's own start is not charged
+ * to the child. No shell is involved, so no argument is ever reinterpreted.
  *
  * The guard is `node <engine entry> guard <request file>`, detached on both
  * systems: on POSIX it leads a process group, which holds the child and
@@ -180,6 +195,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
   // Absolute, since the guard starts in the engine's directory, not the request's.
   const requestFile = resolve(`${request.stdoutFile}.guard.json`);
   const resultFile = guardResultFile(requestFile);
+  const startFile = guardStartFile(requestFile);
   try {
     // The guard opens the input; this fails as before when it is missing, and before an output file exists.
     closeSync(openSync(request.stdinFile, 'r'));
@@ -212,7 +228,15 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         else if (graceLeftMs > 0) timer = setTimeout(() => expire(graceLeftMs - resultPollMs), resultPollMs);
         else kill = killTreeNow(guard);
       };
-      let timer = setTimeout(() => expire(resultGraceMs), request.timeoutMs);
+      // The child's time runs from its own start, which its guard writes once it spawned the child, not from the guard's, which loads Node first. A guard that wrote no start by a whole timeout past the deadline is past its own, and is killed as it stands.
+      const guardDeadline = Date.now() + 2 * request.timeoutMs;
+      const due = (): void => {
+        const childStart = readChildStart(startFile);
+        const leftMs = childStart === null ? Math.min(resultPollMs, guardDeadline - Date.now()) : childStart + request.timeoutMs - Date.now();
+        if (leftMs > 0) timer = setTimeout(due, leftMs);
+        else expire(resultGraceMs);
+      };
+      let timer = setTimeout(due, request.timeoutMs);
       guard.once('spawn', () => {
         started = true;
       });
@@ -244,8 +268,10 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
     for (const descriptor of descriptors) closeSync(descriptor);
     rmSync(requestFile, { force: true });
     rmSync(resultFile, { force: true });
-    // What a guard ended mid-write left of its result.
+    rmSync(startFile, { force: true });
+    // What a guard ended mid-write left of its result or its start.
     rmSync(`${resultFile}.partial`, { force: true });
+    rmSync(`${startFile}.partial`, { force: true });
   }
 }
 

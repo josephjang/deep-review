@@ -166,6 +166,36 @@ describe('runProcess', () => {
     assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', 0, null], readFileSync(join(directory, 'stderr'), 'utf8'));
   });
 
+  /** A preload that holds the guard alone, not its child, `GUARD_HOLD_MS` before it loads, or for good with `forever`. */
+  const holdGuard = (): string => {
+    const preload = join(directory, 'hold-guard.cjs');
+    writeFileSync(preload, [
+      'if (process.argv[2] === "guard") {',
+      '  const until = process.env.GUARD_HOLD_MS === "forever" ? Infinity : Date.now() + Number(process.env.GUARD_HOLD_MS);',
+      '  while (Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);',
+      '}',
+      '',
+    ].join('\n'));
+    return `--require ${preload.replaceAll('\\', '/')}`;
+  };
+
+  it('counts the timeout from the child\'s start, so a guard slow to start does not take the child\'s time (R8 of resumable runs)', async () => {
+    // The guard loads 1.5 s late; the child then needs 1 s of its 2 s, and would be killed if the guard's start counted.
+    const timeoutMs = 2000;
+    const environment = { ...process.env, NODE_OPTIONS: holdGuard(), GUARD_HOLD_MS: '1500' };
+    const result = await runProcess(request(['-e', 'setTimeout(() => process.exit(0), 1000)'], { timeoutMs, environment }));
+    assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', 0, null], readFileSync(join(directory, 'stderr'), 'utf8'));
+    assert.deepEqual(readdirSync(directory).sort(), ['hold-guard.cjs', 'stderr', 'stdin', 'stdout'], 'the start file is removed with the others');
+  });
+
+  it('kills a guard that started no child by a whole timeout past the deadline', async () => {
+    const timeoutMs = 500;
+    const before = Date.now();
+    const result = await runProcess(request(['-e', ''], { timeoutMs, environment: { ...process.env, NODE_OPTIONS: holdGuard(), GUARD_HOLD_MS: 'forever' } }));
+    assert.equal(result.termination, 'killed');
+    assert.ok(Date.now() - before >= 2 * timeoutMs, `killed after ${String(Date.now() - before)} ms`);
+  });
+
   it('listens for the engine ending only while a worker is live', async () => {
     const signals = posix ? (['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) : [];
     const before = { exit: process.listenerCount('exit'), signals: signals.map((signal) => process.listenerCount(signal)) };
