@@ -4,7 +4,7 @@ Product part: [2026-10-18-resumable-runs.requirements.md](2026-10-18-resumable-r
 
 ## Summary
 
-The design has one test and nine mechanisms. The test (R2) runs a fix run on the fakes in a child process. It stops the engine at a chosen point in a chosen way. Then it runs the same command again and compares the result with a run that had no stop. A preload in the child process stops the engine, so the engine has no hook for the test. The mechanisms close each point that the test or a run showed:
+The design has one test and ten mechanisms. The test (R2) runs a fix run on the fakes in a child process. It stops the engine at a chosen point in a chosen way. Then it runs the same command again and compares the result with a run that had no stop. A preload in the child process stops the engine, so the engine has no hook for the test. The mechanisms close each point that the test or a run showed:
 
 | Mechanism | What it does | Requirements |
 |---|---|---|
@@ -18,6 +18,7 @@ The design has one test and nine mechanisms. The test (R2) runs a fix run on the
 | A bounded lost attempt | The revision of a lost attempt holds only its snapshots, its owned files and its claimed files. | R10 |
 | A reopened fix pass | `fix.reopened@1` reopens a complete fix run that the budget stopped. | R11, R12, R13 |
 | A usage limit | The Claude adapter knows the words of a usage limit. `attempt.failed@7` records the failure with the fault `limit`, and the phase blocks at once. | R14 |
+| An awake clock | The timeout of a child counts only the time that the machine is awake. | R19 |
 
 This design calls the continuation of R11 a reopened fix pass. It is apart from the continuation of a read-only run into the fix pass, which `fix.pinned` records.
 
@@ -30,10 +31,6 @@ Node gives no way to create a Windows job object, and the engine cannot see its 
 ### No write back of a file outside the files that the run expects
 
 After a cut check, the engine writes back only the files that the run expects (R7). A tracked file outside them, which the cut check changed, stays a stray file. For a check that a stop cut, this is as today. Before this change, a check that the engine killed at its timeout recorded such a write in its revision. Now that write stays a stray file too, as PD7 chose. The rerun of the check records it in its revision only when the rerun changes it again.
-
-### No sleep detection
-
-A timeout can count the time that the machine slept (W9 in Context). No run showed this in this engine, so the design does not detect a sleep. An Open Question says what to measure. A check that timed out still runs again once (R7), which also serves a timeout that a sleep caused.
 
 ### No change to the continuation into the fix pass, to #44, or to the answer pass at the budget
 
@@ -105,7 +102,7 @@ A search of the code found these nine ways in which a stop can leave work undone
 | W6 | A kill after `commit` moved the branch and before `commits.created` leaves commits that the ledger does not hold. `commit` and `answer` then refuse. | R9 |
 | W7 | An active run whose worktree a person removed refuses each review in another worktree. | Not handled: a person's change |
 | W8 | A person edits the tree while the engine is down. The revision of a lost fixer takes the edits as its own, and `commit` commits them. | R10 |
-| W9 | The timeout of a worker or a check can count the time that the machine slept. The engine then kills it at the wake and records a timeout. | R7 for a check, which runs again after a first timeout. Not handled for a worker: no run showed it |
+| W9 | The timeout of a worker or a check can count the time that the machine slept. The engine then kills it at the wake and records a timeout. | R19: the timeout counts only the time that the machine is awake. The gate showed it on Windows. |
 
 ## Design
 
@@ -247,6 +244,14 @@ A guard that ends with no result file, when the engine did not kill it at the ti
 The guard is the same file as the engine, so the build ships nothing more. `src/cli.ts` dispatches `guard` before it loads its other modules, so a guard starts in a fraction of a second, in the tests too. On Windows, a stop that kills the whole tree also kills the guard, and that case needs no guard. On POSIX, the guard leads a group of its own, which a kill of the engine's group does not reach. A stop that kills the engine alone, or the engine's group on POSIX, leaves the guard, which ends the child at once.
 
 On Windows, a detached guard has no console. A Ctrl-C in the console of the engine thus reaches the engine alone, while today it reaches each child too. The engine then ends the tree of each guard, as at each end that it handles. Thus that Ctrl-C ends no child before the engine, and no check records a failure from it.
+
+### A timeout counts only the time that the machine is awake (R19)
+
+`runProcess` in `process.ts` counts the timeout of each child on an awake clock, `awakeClock` in `src/runtime/awake-clock.ts`. The clock reads the wall clock, and it has a tick each 10 seconds, which does not keep the engine alive. Two ticks can be more than 70 seconds apart. Then the machine slept, or the engine did not run, for the time past 10 seconds, and the clock leaves that time out. A read of the clock between two ticks does the same check. Thus the order of the timers at a wake does not change the result.
+
+The deadline of a child is its start on the awake clock plus its timeout. The guard writes the start of the child in wall time, and the engine changes it to awake time when it first reads it. At each timer, the engine gets the time that is left on the awake clock, and it sets the timer again for that time. Thus after a sleep, a child has the time that it had before the sleep.
+
+The limit of 70 seconds is above the longest wait of the engine itself, a call of git, which `gitTimeoutMs` stops at 60 seconds. A longer pause of the engine counts as a sleep, and a child then gets more time than its timeout. The design accepts this, because only a machine that does not run the engine makes such a pause. A wall clock that moves forward is a gap too, and a wall clock that moves back counts as no time.
 
 ### `commit` records its series first (R9)
 
@@ -473,7 +478,7 @@ The test on Windows measured `taskkill` and the `kill` of Git Bash. Ctrl-C on Wi
 
 ### Does a timer count the sleep of the machine?
 
-W9 depends on one question: do the timers of Node count a sleep on Windows, macOS and Linux? A test with a suspended machine settles it. If a timer counts the sleep, a later change can treat a large gap between the wall clock and the timer as an interruption. This proposal does not depend on the answer.
+The gate answered this for Windows on 2026-10-19: a timer of Node counts the sleep. At a wake, four fixers were killed at once, 8820 to 9082 seconds into a timeout of 1800 seconds. On Linux, a timer of Node does not count a suspend, but the deadline of a child also reads the wall clock, which does. The awake clock of R19 does not depend on the answer, because it reads only the wall clock.
 
 ### How long does the script of R2 take?
 
@@ -546,6 +551,12 @@ Report tests check each line of R15, the command in the budget line, and the hea
 Three real runs on the pull request of this change. In the first, a script stops the engine while the baseline test runs: it kills the check first with the `kill` of Git Bash, and the engine 0.3 seconds later, which is the order of #25. One more stop, with the command of Claude Code that stops a background command, shows which mark that stop leaves (Open Questions). In the second, a hard kill of the engine alone stops it while fixers run, and the processes of the fixers end at once.
 
 In the third, a budget that the fixes reach stops the fix pass, and the same command with `--budget-usd 120` continues it. After each stop, the same command resumes the run. The script of R2 runs on the same commit. Commands: `npm run check`, `npm run verify`, `npm run resume-test` and the golden command above.
+
+### R19: The awake clock
+
+A test drives the clock with a wall clock that the test sets. Ticks 10 seconds apart keep the awake time equal to the wall time. A jump of two hours between two ticks adds 10 seconds. A read of the clock after such a jump, before the next tick, leaves the jump out too. A wall clock that moves back adds no time.
+
+A test in `test/runtime/process.test.ts` uses an awake clock that does not move. On it, a child that runs for a second and a half has a timeout of half a second. The child ends by itself, and the engine does not kill it. The tests of today keep the timeout on the real clock.
 
 ## Verification
 

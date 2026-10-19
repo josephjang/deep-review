@@ -58,7 +58,7 @@ When the ledger, the evidence store or the git data is lost or damaged, the engi
 
 ### Limits of the environment that no run showed
 
-A sleep of the machine, a failure of the network, and the limits of Codex get no recovery here. The one exception is a check that timed out, which runs again once (PD7). Principle 11 still applies to the environment (PD2). For the sleep, the design says what to measure first.
+A failure of the network and the limits of Codex get no recovery here. The one exception is a check that timed out, which runs again once (PD7). Principle 11 still applies to the environment (PD2). The gate of R18 showed the sleep of a machine, so R19 handles it.
 
 ### A killed check, told apart by its output
 
@@ -180,6 +180,10 @@ The Claude Code skill says that the same command with a higher `--budget-usd` co
 
 Real runs on the pull request of this change show the contract (principle 12). In the first run, a person stops the engine while a baseline check runs, and the stop kills the check first. In the second run, a hard kill of the engine alone stops it while fixers run. In the third run, the budget stops a fix pass, and the same command with a higher budget continues it. After each stop, the same command resumes the run, and the report says what the stop did. The script of R2 runs each point on the same commit, and CI runs the suite on the three systems.
 
+### R19: A timeout counts only the time that the machine is awake
+
+The timeout of a worker or a check counts the time that the machine is awake, and not the time that it sleeps. Before this change, a sleep of two hours ended each worker that ran at the wake, as past its timeout. Each such worker lost an attempt, and the budget check counted it at its per-worker cap. In the gate, two wakes ended eight fixers so. Two units ran out of attempts, and the budget stopped the run early. On 2026-10-19, the author chose to leave the sleep out of the timeout.
+
 ## Metrics
 
 ### Points that break the contract
@@ -212,7 +216,9 @@ On 2026-10-19, the author put the record of the start of each check under the co
 
 A stop of the engine is the same event to the engine, whatever stopped it. Many things can stop it: Ctrl-C, a closed console, a signal, a hard kill, a host that stops a command, a crash and a loss of power. Each one ends the process at a point of its work. Thus one contract covers them all.
 
-A limit of the environment is different, because each limit has its own signs and its own recovery. Runs showed two of them: the run budget (#48) and the usage limit of Claude Code (#40). The proposal handles these two. The sleep of a machine, a failure of the network and the limits of Codex wait for a run (principle 11). The one exception is a check that timed out, which runs again once (PD7). The proposal rejects a general rule that retries each failure of a worker, because a real failure then costs money again and again.
+A limit of the environment is different, because each limit has its own signs and its own recovery. Runs showed two of them: the run budget (#48) and the usage limit of Claude Code (#40). The proposal handles these two. A failure of the network and the limits of Codex wait for a run (principle 11). The one exception is a check that timed out, which runs again once (PD7).
+
+The gate of R18 showed the sleep of a machine, and on 2026-10-19 the author chose to handle it (R19). The proposal rejects a general rule that retries each failure of a worker, because a real failure then costs money again and again.
 
 ### PD3: Run again what did not pass, not each kind and not only the last record
 
@@ -258,7 +264,7 @@ The same holds for a check that ended cut while the engine lived (R4). Today the
 
 On 2026-10-18, the author chose the same for a check that the engine killed at its timeout, which today records its half rewrite too. On 2026-10-19, the author chose to run such a check again once, as a cut check runs. A timeout can come from a slow moment of the machine or from its sleep. A second run tells such a moment from a real hang. A second timeout of the kind in one attempt is its result. These choices for a timeout do not wait for the test of R2 (PD1), because a timeout is not a stop.
 
-The rerun of a timeout departs from principle 11. No run showed a timeout from a slow moment or from a sleep (W9 of the design). The author chose it on 2026-10-19 for the reason above, and the next vision note can revise the principle for it.
+The rerun of a timeout departs from principle 11. No run showed a timeout from a slow moment. The gate showed timeouts from a sleep, and R19 now leaves the sleep out of each timeout. The author chose it on 2026-10-19 for the reason above, and the next vision note can revise the principle for it.
 
 The proposal rejects a record of these writes as a revision of the cut check. That record can take the edit of a person as the work of the check. The proposal also rejects the block of today for this case, because the engine caused the drift. And it rejects a rerun with no write back. The rerun then starts from half a rewrite. A formatter that a stop cut can leave half a file, and the lint that runs again can fail on it.
 
