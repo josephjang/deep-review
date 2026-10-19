@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { FrozenFile } from '../../src/checkpoint/events.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { writeBack, type RestoredFile } from '../../src/review/drift.ts';
-import { repositoryWith, write } from '../helpers/repository.ts';
+import { commitAll, git, repositoryWith, write } from '../helpers/repository.ts';
 
 describe('writeBack', () => {
   let directory: string;
@@ -57,6 +57,46 @@ describe('writeBack', () => {
     writeFileSync(join(repo, 'out', 'nested', 'x'), 'x');
     assert.deepEqual(writeBackIn([restored('out', null, null)]), [{ path: 'out', reason: 'a directory is there' }]);
     assert.equal(lstatSync(join(repo, 'out')).isDirectory(), true);
+  });
+
+  it('writes a regular file the tree holds in place rather than recreating it', () => {
+    write(repo, 'src/a.ts', 'cut\n');
+    const { ino } = statSync(join(repo, 'src', 'a.ts'), { bigint: true });
+    assert.deepEqual(writeBackIn([restored('src/a.ts', 'cut\n', 'a\n')]), []);
+    assert.equal(read('src/a.ts'), 'a\n');
+    assert.equal(statSync(join(repo, 'src', 'a.ts'), { bigint: true }).ino, ino);
+  });
+
+  it('keeps an executable file executable, written in place or written where none was', { skip: process.platform === 'win32' && 'POSIX file modes' }, () => {
+    write(repo, 'bin/run.sh', 'run\n');
+    write(repo, 'bin/gone.sh', 'gone\n');
+    chmodSync(join(repo, 'bin', 'run.sh'), 0o755);
+    chmodSync(join(repo, 'bin', 'gone.sh'), 0o755);
+    commitAll(repo, 'scripts');
+    write(repo, 'bin/run.sh', 'cut\n');
+    rmSync(join(repo, 'bin', 'gone.sh'));
+    assert.deepEqual(writeBackIn([restored('bin/gone.sh', null, 'gone\n'), restored('bin/run.sh', 'cut\n', 'run\n'), restored('src/b.ts', 'b\n', 'b2\n')]), []);
+    assert.notEqual(statSync(join(repo, 'bin', 'gone.sh')).mode & 0o100, 0);
+    assert.notEqual(statSync(join(repo, 'bin', 'run.sh')).mode & 0o100, 0);
+    assert.equal(statSync(join(repo, 'src', 'b.ts')).mode & 0o111, 0);
+    assert.equal(git(repo, 'status', '--porcelain', '--', 'bin'), '');
+  });
+
+  it('leaves a file it cannot write, and writes back the files after it', { skip: process.getuid?.() === 0 && 'root writes a read-only file' }, () => {
+    const locked = join(repo, 'src', 'a.ts');
+    write(repo, 'src/a.ts', 'cut\n');
+    write(repo, 'src/b.ts', 'cut\n');
+    chmodSync(locked, 0o444);
+    try {
+      const [left, ...rest] = writeBackIn([restored('src/a.ts', 'cut\n', 'a\n'), restored('src/b.ts', 'cut\n', 'b\n')]);
+      assert.equal(left?.path, 'src/a.ts');
+      assert.match(left?.reason ?? '', /^writing it failed: /);
+      assert.deepEqual(rest, []);
+      assert.equal(read('src/a.ts'), 'cut\n');
+      assert.equal(read('src/b.ts'), 'b\n');
+    } finally {
+      chmodSync(locked, 0o644);
+    }
   });
 
   it('leaves a file whose expected bytes were too large to keep', () => {

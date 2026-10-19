@@ -11,7 +11,7 @@
  * replacement is told to expect; the check at the phase's end compares
  * every expected file.
  */
-import { lstatSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { maxStraysPerCheck, type TreeRestored, type WorktreeCheckV6 } from '../checkpoint/events.ts';
 import { isNotAttempted, ownedFiles, runHead } from '../checkpoint/fix-state.ts';
@@ -20,6 +20,7 @@ import { isAnswered } from '../checkpoint/review-fold.ts';
 import { unitsOf } from './steps.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { freezeBytes } from '../scope/capture.ts';
+import * as gitApi from '../scope/git.ts';
 import { compareExpected, expectedTree, headMoved, readTreeEntry, straysOf, worktreeReader, type DriftedFile, type ExpectedMatch, type ExpectedTree } from './tree.ts';
 import { isEditingPhase, type Phase } from './vocabulary.ts';
 
@@ -119,7 +120,10 @@ export interface LeftFile {
 /**
  * Write back the bytes the run expects at each file (R7 of resumable
  * runs): remove a file it expects absent, and write each other one from
- * its frozen blob, a symlink as a link to its target text. Each file is
+ * its frozen blob, a symlink as a link to its target text. A regular file
+ * the tree holds is written in place, which keeps its mode, and one
+ * written where none was takes the executable bit git's index records for
+ * it, since the frozen bytes record no mode. Each file is
  * written back on its own, and one it cannot write is left as the tree
  * holds it and returned with the reason: its expected bytes were too
  * large to keep, a directory or another entry whose bytes were not
@@ -143,34 +147,53 @@ function writeBackFile(worktree: string, file: RestoredFile, read: (reference: A
   const bytes = file.expected === null ? null : read(file.expected.blob);
   const absolute = join(worktree, ...file.path.split('/'));
   try {
-    const inTheWay = entryInTheWay(worktree, file.path);
-    if (inTheWay !== null) return inTheWay;
+    // What stands in the way had no bytes frozen, so it is never removed.
+    const parent = parentInTheWay(worktree, file.path);
+    if (parent !== null) return `${parent} is not a directory`;
+    const now = lstatSync(absolute, { throwIfNoEntry: false });
+    if (now !== undefined && !now.isFile() && !now.isSymbolicLink()) return now.isDirectory() ? 'a directory is there' : 'an entry that is neither a file nor a symlink is there';
+    // A regular file written in place keeps its mode, such as the executable bit, which the frozen bytes do not record.
+    if (bytes !== null && !file.expectedSymlink && now?.isFile() === true) {
+      writeFileSync(absolute, bytes);
+      return null;
+    }
     rmSync(absolute, { force: true });
     if (bytes === null) return null;
     mkdirSync(dirname(absolute), { recursive: true });
     if (file.expectedSymlink) symlinkSync(bytes.toString('utf8'), absolute);
-    else writeFileSync(absolute, bytes);
+    else createFile(worktree, file.path, absolute, bytes);
     return null;
   } catch (error) {
     return `writing it failed: ${(error as Error).message}`;
   }
 }
 
-/**
- * What stands where a write back would remove or create, never removed
- * since its bytes were never frozen: a parent of the path that is not a
- * directory, or an entry at the path that is neither a file nor a
- * symlink; null when nothing is in the way.
- */
-function entryInTheWay(worktree: string, path: string): string | null {
+/** The first parent of `path` that is there and is not a directory, null when none is. */
+function parentInTheWay(worktree: string, path: string): string | null {
   const segments = path.split('/');
   for (let depth = 1; depth < segments.length; depth += 1) {
     const parent = segments.slice(0, depth);
     const stat = lstatSync(join(worktree, ...parent), { throwIfNoEntry: false });
     if (stat === undefined) return null;
-    if (!stat.isDirectory()) return `${parent.join('/')} is not a directory`;
+    if (!stat.isDirectory()) return parent.join('/');
   }
-  const stat = lstatSync(join(worktree, ...segments), { throwIfNoEntry: false });
-  if (stat === undefined || stat.isFile() || stat.isSymbolicLink()) return null;
-  return stat.isDirectory() ? 'a directory is there' : 'an entry that is neither a file nor a symlink is there';
+  return null;
+}
+
+/**
+ * Create a regular file where none is, executable on POSIX where git's
+ * index records the path as `100755`: readable bits mirrored to the
+ * executable ones, as a checkout under the same umask writes it.
+ */
+function createFile(worktree: string, path: string, absolute: string, bytes: Buffer): void {
+  writeFileSync(absolute, bytes);
+  if (process.platform === 'win32' || indexMode(worktree, path) !== '100755') return;
+  const { mode } = statSync(absolute);
+  chmodSync(absolute, mode | ((mode & 0o444) >> 2));
+}
+
+/** The mode git's index records for `path`, such as `100644`, or null where it lists none. */
+function indexMode(worktree: string, path: string): string | null {
+  const [record] = gitApi.records(gitApi.gitText(worktree, ['ls-files', '--stage', '-z', '--', gitApi.literal(path)]));
+  return record === undefined ? null : record.slice(0, record.indexOf(' '));
 }
