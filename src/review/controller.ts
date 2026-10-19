@@ -466,32 +466,34 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     const name = unitName(settled.unit.phase, settled.unit.key);
     // The launcher threw instead of returning a receipt (a run abandoned meanwhile, an invocation it refused, a runtime that no longer qualifies): the review cannot go on.
     if ('error' in settled) throw settled.error;
-    const summary = adapter.summarizeUsage(settled.receipt.runtime.usage);
-    log(`worker ${settled.unit.role} ${name}: ${settled.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd(summary.costUsd)}${settled.receipt.error === null ? '' : `: ${settled.receipt.error}`}`);
+    const { receipt } = settled;
+    const summary = adapter.summarizeUsage(receipt.runtime.usage);
+    log(`worker ${settled.unit.role} ${name}: ${receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd(summary.costUsd)}${receipt.error === null ? '' : `: ${receipt.error}`}`);
     const { phase } = settled.unit;
-    const { finish } = settled.receipt;
-    const withFinish = (events: readonly NewEvent[]): NewEvent[] => [...(finish === null ? [] : [finish]), ...events];
-    // Every append below records the finish and ends the recording, so a throw before one leaves the finish unrecorded: whatever throws, a fold, a git command, a read of the tree or of the claims, or the contribution, the finish goes alone, and a failure of this append too leaves the first error to surface.
-    try {
-      state = checkpoint.fold(runId);
+    const { finish } = receipt;
+    /**
+     * What the worker contributes, from the fold as it is now, with its lines
+     * logged: nothing for an answer set aside on a drift the attempt
+     * recorded, the check of the tree for a drift found now, else what its
+     * answer records.
+     */
+    const contribution = (): NewEvent[] => {
       // An answer of a reading phase is recorded only while the tree is the one the run expects (PD10): once it drifted in this attempt, every answer settling is set aside, neither recorded nor counted as a failure, and the attempt blocks when the workers in flight have settled. An editing phase's tree changes by design, and its end check judges it instead (TD2 of the fix pass).
-      if (settled.receipt.outcome === 'completed' && !isEditingPhase(phase)) {
+      if (receipt.outcome === 'completed' && !isEditingPhase(phase)) {
         const attempt = state.review!.phases[phase].attempt;
         const recorded = state.review!.checks.find((check) => check.phase === phase && check.attempt === attempt && check.drifted);
         if (recorded !== undefined) {
           log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
-          if (finish !== null) state = append(checkpoint, state, [finish]);
-          return;
+          return [];
         }
         const found = findDrift(state, options.worktree, content.match);
         if (drifted(found)) {
           log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-          state = append(checkpoint, state, withFinish([{ kind: 'worktree.checked', version: 5, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload }]));
-          return;
+          return [{ kind: 'worktree.checked', version: 5, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload }];
         }
       }
       const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : { access: claims, lost: false };
-      const events = contributionOf(settled.unit, settled.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+      const events = contributionOf(settled.unit, receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
       for (const event of events) {
         for (const line of claimLines(event)) log(line);
         if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);
@@ -499,7 +501,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         if (event.kind === 'survey.recorded') for (const line of surveyLines(runId, event.payload as SurveyRecorded)) log(line);
         if (event.kind === 'decisions.recorded') log(`worker ${settled.unit.role} ${name}: decided ${decisionCountWords(decisionCounts((event.payload as DecisionsRecorded).decisions))}`);
       }
-      state = append(checkpoint, state, withFinish(events));
+      return events;
+    };
+    // The one append records the finish with the contribution; whatever throws before it, a fold, a git command, a read of the tree or of the claims, or the contribution, the finish goes alone, and a failure of that append too leaves the first error to surface. A set-aside answer with no finish has nothing to append.
+    try {
+      state = checkpoint.fold(runId);
+      const events = contribution();
+      if (finish !== null || events.length > 0) state = append(checkpoint, state, [...(finish === null ? [] : [finish]), ...events]);
     } catch (error) {
       if (finish !== null) {
         try {
