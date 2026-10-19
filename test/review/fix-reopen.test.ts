@@ -55,7 +55,7 @@ async function stoppedRun(t: TestContext, script: Script = budgetScript, units: 
   assert.ok(box.logs.includes(`run ${stopped.id}: the run budget stopped its fix pass; ${command} continues it`), box.logs.join('\n'));
   const batches = units.filter((unit) => unit.phase === 'fixes').length;
   const left = [...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]), ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : [])].join(' and ');
-  assert.ok(text.includes(`\n- The run budget stopped the fix pass: ${left} did not start. ${command} continues it and reviews nothing again.\n`), text);
+  assert.ok(text.includes(`\n- The run budget stopped the fix pass: ${left} did not start. \`${command}\` continues it and reviews nothing again.\n`), text);
   // status names the same command, and in place of a roles directory it is not given, a placeholder it explains.
   const status = (ownRolesDigest: string): string[] => describeRun(stopped, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference), { engineEntry: cliEntry, ownRolesDigest: () => ownRolesDigest }).lines;
   const withoutRoles = command.replace(` --roles "${box.rolesRoot}"`, '');

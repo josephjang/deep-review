@@ -19,7 +19,7 @@ import { decisionLine, decisionsSection } from './decision-report.ts';
 import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/process.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
-import { inlineText, paragraphText, tableCell } from './markdown.ts';
+import { codeSpan, inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
@@ -203,7 +203,7 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
   lines.push(budgetLine(review, input.statistics));
   const stopped = review.fix === null ? [] : budgetStoppedUnits(review.fix);
   const command = input.fix?.continueCommand ?? null;
-  if (stopped.length > 0 && command !== null) lines.push(`- The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${command} continues it and reviews nothing again.`);
+  if (stopped.length > 0 && command !== null) lines.push(`- The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${codeSpan(command)} continues it and reviews nothing again.`);
   const unreported = input.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show.${input.statistics.budgetApplied ? ' The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.' : ''}`);
