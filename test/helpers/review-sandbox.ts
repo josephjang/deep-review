@@ -83,7 +83,6 @@ export const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => v
   return { checkpoint: proxy, acted: () => acted };
 };
 
-/** The text of the report a run ended with; fails the test when the run ended otherwise. */
 /**
  * The scope a test's command names: its request, and the mode a command
  * that names it gives, a ref's or a range's, else `auto` as with no mode
@@ -114,6 +113,7 @@ export function appending(checkpoint: Checkpoint, seen: (events: readonly NewEve
   });
 }
 
+/** The text of the report a run ended with; fails the test when the run ended otherwise. */
 export const reportText = (outcome: ReviewOutcome): string => {
   assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
   return outcome.kind === 'report' ? readFileSync(outcome.reportPath, 'utf8') : '';
