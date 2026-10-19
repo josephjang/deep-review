@@ -107,14 +107,19 @@ export type RestoredFile = TreeRestored['files'][number];
  */
 export function restoredFiles(state: RunState, worktree: string, match: ExpectedMatch, evidence: Pick<EvidenceStore, 'put'>, only: ReadonlySet<string> | null = null): RestoredFile[] {
   const expected = expectedTreeOf(state);
-  // Each file is read once, so the bytes frozen are the ones compared.
+  // Each file is read once, so the bytes frozen are the ones compared; only a differing file's entry is kept, so the bytes held are those to freeze.
   const entries = new Map<string, TreeEntry | null>();
   const read: TreeReader = (path) => {
     const entry = readTreeEntry(worktree, path);
-    entries.set(path, entry);
+    if (only === null || only.has(path)) entries.set(path, entry);
     return entry;
   };
-  return compareExpected(expected, read, new Set(), match).filter((file) => only === null || only.has(file.path)).map((file): RestoredFile => {
+  const matches: ExpectedMatch = (path, want, now) => {
+    if (!match(path, want, now)) return false;
+    entries.delete(path);
+    return true;
+  };
+  return compareExpected(expected, read, new Set(), matches).filter((file) => only === null || only.has(file.path)).map((file): RestoredFile => {
     const now = entries.get(file.path) ?? null;
     const want = expected.get(file.path) ?? null;
     return { path: file.path, before: now === null ? null : freezeBytes(evidence, now.bytes), beforeSymlink: now?.symlink ?? false, expected: want?.frozen ?? null, expectedSymlink: want?.symlink ?? false };
