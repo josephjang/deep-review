@@ -285,10 +285,13 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
  * End what a guard killed from outside left of its process group, so a
  * child it no longer guards does not run beside the rerun (R8 of
  * resumable runs). On POSIX the group's id cannot name another group
- * while any member lives, so the kill is safe after the guard is reaped;
- * no group is no member left. On Windows the descendants of the child
- * leave the guard's job, and nothing reaches them, which the design
- * accepts.
+ * while any member lives, so the kill reaches only what the guard left.
+ * A group with no member left, such as that of a guard that died before
+ * its child started, frees its id once the guard is reaped, and a process
+ * that has since become a group leader under that id is killed in its
+ * place: a window from the reap to this kill, which the design accepts.
+ * On Windows the descendants of the child leave the guard's job, and
+ * nothing reaches them, which the design accepts too.
  */
 function endLeftGroup(guardPid: number): void {
   if (process.platform === 'win32') return;
