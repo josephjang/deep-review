@@ -473,6 +473,7 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
       for (const file of scope.files) trees.set(file.path, file.after === null ? null : { frozen: file.after, symlink: file.symlink });
       commit(messageOf(options.changeMessage!, '', null), 'change');
     }
+    // One commit per revision, an unfinished attempt's too, so a partial edit that does not build fails each commit until its unit's next one: https://github.com/josephjang/deep-review/issues/63
     for (const { index, revision } of series.revisions) {
       for (const file of revision.files) trees.set(file.path, file.after === null ? null : { frozen: file.after, symlink: file.symlink });
       const message = revisionMessageOf(fix, revision);

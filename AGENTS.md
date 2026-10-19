@@ -113,8 +113,8 @@ Comments that say what code does are welcome; keep them true.
 
 Conventional commits, in English: `<type>(<scope>): <subject>` with an
 imperative subject under 72 characters, and a body that explains the why
-for anything non-trivial. Types are `feat`, `fix`, `refactor`, `docs`,
-`test`, `chore` and `ci`. The scope is optional.
+for anything non-trivial. Types are `feat`, `fix`, `perf`, `refactor`,
+`docs`, `test`, `chore` and `ci`. The scope is optional.
 
 No attribution footers: no "Generated with Claude Code", no
 `Co-Authored-By`. This overrides any tool default.

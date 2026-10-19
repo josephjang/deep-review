@@ -416,6 +416,16 @@ The engine now reads the bytes of the message. If they are valid UTF-8, it uses 
 
 Else the engine reads the OEM code page of the system from the registry, with `reg query`. It does not ask the console, because a process with no console has no console code page. Then it decodes the bytes with that code page. For a code page that `TextDecoder` does not know, the engine reads the bytes as UTF-8, as today. These steps run only when a tree kill fails.
 
+#### The type `perf`
+
+A fixer of the gate gave its commit the type `perf` (`e919167`), which the list of types in `AGENTS.md` did not have. `perf` is the usual type of conventional commits for a change that makes the code faster or smaller, and that change was one. The list now has it, so a later fixer that picks it follows the rule of the repository. The commit stays as it is, because the record of the gate names its hash.
+
+#### Partial edits of an attempt in their own commit
+
+When a worker stops before its answer, its edits go into a revision of its unfinished attempt. Then `commit` gives that revision a commit of its own (R20 of the fix pass). A partial edit can leave code that does not build until the next commit of the unit. In the gate, five commits failed the typecheck so. The rule of the repository asks that `npm run check` pass at each commit.
+
+A fix puts the partial edits into the next commit of the unit. A commit then holds more than one revision, which `commits.created@1` cannot record. Thus the fix needs a new version of that event and a new golden fixture. On 2026-10-19, the author chose to leave it to an issue: <https://github.com/josephjang/deep-review/issues/63>.
+
 ## Technical Decisions
 
 ### TD1: The test stops the engine from a preload, not from a hook in the engine
