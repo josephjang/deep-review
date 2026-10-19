@@ -255,6 +255,17 @@ describe('killTree', () => {
     }
   });
 
+  it('records the message of a taskkill that failed in the words Windows wrote, decoded from its code page (the gate of resumable runs)', { skip: posix && 'taskkill is a Windows tool' }, async () => {
+    // A pid no process has: taskkill fails with its own message, localized to the system's language.
+    let killed = false;
+    const result = await killTree({ pid: 0x7ffffff0, exitCode: null, signalCode: null, kill: () => (killed = true) });
+    assert.equal(result.status, 'root-only');
+    const error = result.status === 'root-only' ? result.error : '';
+    assert.match(error, /^taskkill could not end the process tree: it exited with code \d+: \S/);
+    assert.ok(!error.includes('�'), `no letter was lost to a wrong decoding: ${error}`);
+    assert.ok(killed, 'the root was ended directly');
+  });
+
   it('does nothing for a process that never got a pid', async () => {
     assert.deepEqual(await killTree({ pid: undefined, exitCode: null, signalCode: null, kill: () => true }), { status: 'not-running' });
   });

@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { consoleText, systemOemCodePage } from './console-text.ts';
 import type { GuardEnd } from './kill-marks.ts';
 
 /** One worker process: what to run, where, and the files its standard streams are bound to. */
@@ -442,12 +443,13 @@ export function killTreeNow(child: KillableProcess): TreeKill {
   const pid = child.pid;
   if (pid === undefined || child.exitCode !== null || child.signalCode !== null) return { status: 'not-running' };
   if (process.platform === 'win32') {
-    const taskkill = spawnSync(taskkillPath(), ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000, encoding: 'utf8' });
+    // Bytes, not UTF-8: taskkill writes its message in the console's code page (`consoleText`).
+    const taskkill = spawnSync(taskkillPath(), ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 });
     if (taskkill.error === undefined && taskkill.status === 0) return { status: 'tree' };
     // taskkill could not run, or could not end every process in the tree
     // (such as a descendant running as another user: access denied).
     const how = taskkill.status === null ? `signal ${String(taskkill.signal)}` : `code ${String(taskkill.status)}`;
-    const reason = taskkill.error?.message ?? `it exited with ${how}: ${taskkill.stderr.trim()}`;
+    const reason = taskkill.error?.message ?? `it exited with ${how}: ${consoleText(taskkill.stderr, systemOemCodePage).trim()}`;
     return killRoot(child, `taskkill could not end the process tree: ${reason}`);
   }
   try {
