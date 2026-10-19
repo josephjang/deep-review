@@ -639,6 +639,33 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.equal(state.review!.units.triage.SCAN, undefined, 'and nothing of its answer');
   });
 
+  it('leaves the finish of a reading worker alone on the ledger when the check of the tree before its answer throws, so it is not lost at the next start (R6 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const marker = join(box.directory, 'triage-may-answer');
+    box.script({ triage: { waitFor: marker } });
+    const head = join(box.repo, '.git', 'HEAD');
+    const original = readFileSync(head);
+    const pending = box.review('claude');
+    // While the triage worker waits, git stops reading the repository, so the check of its head before its answer is recorded throws.
+    try {
+      await until(() => box.runningWorkers().includes('triage triage:SCAN'), 'the triage worker on the ledger', 120_000);
+      writeFileSync(head, 'not a head\n');
+    } finally {
+      writeFileSync(marker, '');
+    }
+    try {
+      await assert.rejects(pending);
+    } finally {
+      writeFileSync(head, original);
+    }
+    const state = box.run();
+    assert.deepEqual(Object.values(state.workers).filter((worker) => worker.launch.label === 'triage triage:SCAN').map((worker) => worker.status), ['finished'], 'the finish is recorded alone');
+    assert.equal(state.review!.units.triage.SCAN, undefined, 'and nothing of its answer');
+    box.script({});
+    reportText(await box.review('claude'));
+    assert.deepEqual(box.events(state.id).filter(([kind]) => kind === 'worker.lost'), [], 'no worker is recorded lost');
+  });
+
   it('records the first strays in path order up to the event\'s cap and logs how many more, so a tree with more tracked edits outside the scope is still reviewed', async (t) => {
     const box = ReviewSandbox.forTest(t);
     // One more tracked file than a check lists, committed after the change and then edited: a ref review scoped to src/ expects none of them.
