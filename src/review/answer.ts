@@ -17,7 +17,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { settleOpenSeries } from './commit.ts';
-import { budgetReached, driftList, isResumable, requirePinned, type PinnedOptions } from './controller.ts';
+import { budgetReached, driftList, isResumable, requirePinned, spendBound, type PinnedOptions } from './controller.ts';
 import { drifted, findDrift } from './drift.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
@@ -162,7 +162,7 @@ async function requirePassable(run: RunState, options: AnswerOptions, owed: read
   const adapter = options.adapter(run.review!.configuration.runtime);
   const reached = budgetReached(run, options.flags, adapter);
   if (reached !== null) {
-    throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above ${reached.spend.usd.toFixed(2)} to apply it`);
+    throw new ReviewRefusedError(`run ${run.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above ${spendBound(reached.spend.usd)} to apply it`);
   }
   const found = findDrift(run, options.worktree, options.match);
   if (drifted(found)) {
