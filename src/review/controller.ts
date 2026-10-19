@@ -1231,7 +1231,7 @@ async function reopenRun(runs: readonly RunState[], context: OpenContext): Promi
     refuseOtherRuntime(run.id, configuration, context.runtime, wayOut(run.id, 'continue'));
     const reached = budgetReached(run, context.flags, context.adapter);
     if (reached !== null) {
-      throw new ReviewRefusedError(`run ${run.id} stopped its fix pass at the run budget: ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}; run the command again with --budget-usd above ${reached.spend.usd.toFixed(2)} to continue it, or with --fresh to review the change again in a new run`);
+      throw new ReviewRefusedError(`run ${run.id} stopped its fix pass at the run budget: ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}; run the command again with --budget-usd above ${spendBound(reached.spend.usd)} to continue it, or with --fresh to review the change again in a new run`);
     }
     await resumePinned(run, configuration, context, 'continue', settingOf(configuration, 'tools.path').value ?? []);
     const units = budgetStoppedUnits(run.review!.fix!);
@@ -1497,6 +1497,14 @@ export function budgetReached(run: RunState, flags: Pick<PolicyFlags, 'budgetUsd
   const { runBudgetUsd } = limitsInForce(run.review!.configuration, flags, adapter);
   return spend.usd !== null && runBudgetUsd !== null && spend.usd >= runBudgetUsd ? { spend: { ...spend, usd: spend.usd }, runBudgetUsd } : null;
 }
+
+/**
+ * A spend in USD rounded up to the cent, the bound a refusal names for
+ * `--budget-usd above`: every value above it is above the spend, which
+ * `budgetReached` would refuse again at or below. A float's error past the
+ * cent, such as 1.1 * 100, does not round a whole cent up.
+ */
+export const spendBound = (spendUsd: number): string => (Math.ceil(spendUsd * 100 - 1e-9) / 100).toFixed(2);
 
 /** Record the limits this invocation puts in force when they differ from the ones the run has, so the planner, `status` and the report read the ones in force. */
 function recordLimits(checkpoint: Checkpoint, state: RunState, limits: ReviewLimits, log: (line: string) => void): RunState {

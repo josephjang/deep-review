@@ -12,7 +12,7 @@ import { dedicatedFlagValues } from '../../src/config/flags.ts';
 import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
 import { configurationSource } from '../../src/config/source.ts';
 import { flagCheckSettings } from '../../src/review/checks/discover.ts';
-import { claimCommandFor, presurveyRulesFiles, snapshotCommandFor } from '../../src/review/controller.ts';
+import { claimCommandFor, presurveyRulesFiles, snapshotCommandFor, spendBound } from '../../src/review/controller.ts';
 import { claimPathPlaceholder } from '../../src/review/tasks.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -1136,5 +1136,20 @@ describe('the fixer\'s commands', () => {
 
   it('quotes the snapshot command\'s directory beside its index placeholder', () => {
     assert.equal(snapshotCommandFor('/engine/main.mjs', '/scratch/w1/snapshots'), 'node "/engine/main.mjs" snapshot --finding <index> --into "/scratch/w1/snapshots"');
+  });
+});
+
+describe('the bound a budget refusal names', () => {
+  it('rounds the spend up to the cent, so a value above the bound is above the spend', () => {
+    assert.equal(spendBound(3.994), '4.00', 'not 3.99, which 3.991 is above and the budget check refuses again');
+    assert.equal(spendBound(3.991), '4.00');
+    assert.equal(spendBound(3.99), '3.99');
+    assert.equal(spendBound(10), '10.00');
+    assert.equal(spendBound(0), '0.00');
+  });
+
+  it('does not round a whole cent up for a float\'s error past it', () => {
+    assert.equal(spendBound(1.1), '1.10', '1.1 * 100 is 110.00000000000001');
+    assert.equal(spendBound(0.1 + 0.2), '0.30');
   });
 });
