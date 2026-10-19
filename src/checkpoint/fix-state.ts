@@ -331,13 +331,17 @@ export function failedAtBaseline(fix: FixState, kind: CheckKind): boolean {
  * may hide a failure the fixes added. The repair worker reads which
  * failures are new; a kind that did not start at baseline, its tool
  * missing, is never one. It reads the last baseline run and the last
- * current run after the fixes (TD3 of resumable runs).
+ * current run after the fixes (TD3 of resumable runs); the report, which
+ * says why the repair ran or not, reads the last run after the fixes
+ * whatever revision came later (`recorded`), since an answer pass after
+ * the repair makes those runs old without changing what the repair read.
  */
-export function repairTargets(fix: FixState): CheckKind[] {
+export function repairTargets(fix: FixState, read: 'current' | 'recorded' = 'current'): CheckKind[] {
   const planned = fix.checks.planned?.checks ?? [];
+  const afterFixes = (kind: CheckKind): CheckRunState | null => (read === 'current' ? lastRun(fix, 'checks', kind) : lastRecordedRun(fix, 'checks', kind));
   return planned
     .map((check) => check.kind)
-    .filter((kind) => (lastRun(fix, 'baseline-checks', kind)?.outcome === 'passed' || failedAtBaseline(fix, kind)) && ['failed', 'timeout'].includes(lastRun(fix, 'checks', kind)?.outcome ?? ''));
+    .filter((kind) => (lastRun(fix, 'baseline-checks', kind)?.outcome === 'passed' || failedAtBaseline(fix, kind)) && ['failed', 'timeout'].includes(afterFixes(kind)?.outcome ?? ''));
 }
 
 export type PlannedCluster = FixesPlanned['clusters'][number];

@@ -201,6 +201,10 @@ describe('the report of a fix run', () => {
     assert.match(without({}), /^- After the repair: not run, since the repair changed no file\.$/m);
     assert.match(without({ notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the repair: not run, since the repair was not attempted\.$/m);
     assert.match(without({ checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: fix.checks.runs.checks.map((run) => ({ ...run, outcome: 'passed' as const })), 'repair-checks': [] } } }), /^- After the repair: not run, since no check failed after the fixes\.$/m);
+    // An answer pass's later revision makes the runs after the fixes old, but they are still the ones the repair read.
+    const answerRevision = { ...fix.revisions.at(-1)!, phase: 'answer' as const };
+    assert.match(without({ revisions: [...fix.revisions, answerRevision] }), /^- After the repair: not run, since the repair changed no file\.$/m);
+    assert.match(without({ revisions: [...fix.revisions, answerRevision], notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the repair: not run, since the repair was not attempted\.$/m);
   });
 
   it('renders a run without the fix pass with none of these sections', () => {

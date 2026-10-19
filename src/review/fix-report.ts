@@ -291,7 +291,7 @@ function checksSection(fix: FixState, survey: SurveyState | null, answered: bool
     return `| ${[check.kind, tableCell(check.command), ...sourceCell(check), ...cells].join(' | ')} |`;
   });
   // Why a checks phase ran nothing: with no kind given a command, none ever runs, whatever the fixes did; otherwise the phase's own condition.
-  const repairWhy = repairTargets(fix).length === 0 ? 'no check failed after the fixes' : isNotAttempted(fix, 'repair', repairUnitKey) ? 'the repair was not attempted' : 'the repair changed no file';
+  const repairWhy = repairTargets(fix, 'recorded').length === 0 ? 'no check failed after the fixes' : isNotAttempted(fix, 'repair', repairUnitKey) ? 'the repair was not attempted' : 'the repair changed no file';
   const notRun = planned.every((check) => check.command === null)
     ? ['- No check ran in any phase, since no kind has a command.']
     : [
