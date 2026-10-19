@@ -181,17 +181,31 @@ export type ReviewOutcome =
   | { readonly kind: 'blocked'; readonly runId: string; readonly blocker: Blocker & { readonly phase: Phase } };
 
 /** How a launched worker settles: with its receipt, or with the error the launcher threw instead of one. */
-type Settled = { readonly unit: Unit; readonly receipt: WorkerReceipt } | { readonly unit: Unit; readonly error: unknown };
+export type Settled = { readonly unit: Unit; readonly receipt: WorkerReceipt } | { readonly unit: Unit; readonly error: unknown };
 
 /**
- * How a running worker is remembered until it settles. The promise never
- * rejects, so a launcher error is handled when the controller awaits it
- * and is never an unhandled rejection while another worker is awaited.
+ * How a running worker is remembered until it is recorded. The promise
+ * never rejects, so a launcher error is handled when the controller awaits
+ * it and is never an unhandled rejection while another worker is awaited.
+ * `settled` gives what the worker settled with from the moment it did, or
+ * null before, so a worker that settled while another was awaited is seen
+ * without awaiting it.
  */
-interface InFlight {
+export interface InFlight {
   readonly unit: Unit;
   readonly startedAt: number;
   readonly promise: Promise<Settled>;
+  readonly settled: () => Settled | null;
+}
+
+/** A launched worker in flight, which `running` settles; it is marked settled before its promise resolves. */
+export function inFlightOf(unit: Unit, startedAt: number, running: Promise<Settled>): InFlight {
+  let settled: Settled | null = null;
+  const promise = running.then((value) => {
+    settled = value;
+    return value;
+  });
+  return { unit, startedAt, promise, settled: () => settled };
 }
 
 /** Whether a review may resume the run: it is active and has no report. A run created by another tool has no review; one that crashed before its scope or configuration is resumed by completing them. */
@@ -760,7 +774,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             if (invocation.scratch !== undefined) prepareSnapshots(join(invocation.scratch, snapshotsDirectoryName), options.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started${batchWords(state, unit)}`);
             const startedAt = Date.now();
-            const promise: Promise<Settled> = runWorker(checkpoint, runId, invocation, {
+            const running: Promise<Settled> = runWorker(checkpoint, runId, invocation, {
               // The finish is appended with the worker's contribution, in record (R6 of resumable runs).
               deferFinish: true,
               runtimes: options.runtimes,
@@ -772,15 +786,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
               ...(options.preflightOptions === undefined ? {} : { preflightOptions: options.preflightOptions }),
             })
               .then((receipt): Settled => ({ unit, receipt }), (error: unknown): Settled => ({ unit, error }));
-            inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise });
+            inFlight.set(unitName(unit.phase, unit.key), inFlightOf(unit, startedAt, running));
           }
           break;
         }
-        case 'await': {
-          const { settled, startedAt } = await nextSettled(inFlight);
-          record(settled, startedAt);
+        case 'await':
+          await recordSettled(inFlight, record);
           break;
-        }
         case 'finish-phase':
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? '' : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
           state = append(checkpoint, state, [{ kind: 'phase.finished', version: 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
@@ -853,6 +865,31 @@ async function nextSettled(inFlight: Map<string, InFlight>): Promise<{ settled: 
   const entry = inFlight.get(name)!;
   inFlight.delete(name);
   return { settled, startedAt: entry.startedAt };
+}
+
+/** A worker in flight that has already settled, taken off the map, with the time it started, or null when none has. */
+function settledNow(inFlight: Map<string, InFlight>): { settled: Settled; startedAt: number } | null {
+  for (const [name, entry] of inFlight) {
+    const settled = entry.settled();
+    if (settled === null) continue;
+    inFlight.delete(name);
+    return { settled, startedAt: entry.startedAt };
+  }
+  return null;
+}
+
+/**
+ * Record the first worker in flight to settle, awaited, then every other
+ * one already settled, each taken off the map just before it is recorded,
+ * so a throw leaves the rest in flight for the final wait. A worker's
+ * finish, and with it its cost, reaches the ledger only when it is
+ * recorded, and the budget a launch checks reads the ledger alone, so two
+ * workers that settled together are both counted before the next launch.
+ */
+export async function recordSettled(inFlight: Map<string, InFlight>, record: (settled: Settled, startedAt: number) => void): Promise<void> {
+  const first = await nextSettled(inFlight);
+  record(first.settled, first.startedAt);
+  for (let next = settledNow(inFlight); next !== null; next = settledNow(inFlight)) record(next.settled, next.startedAt);
 }
 
 /**

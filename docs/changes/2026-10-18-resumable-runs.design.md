@@ -214,6 +214,8 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 `record` appends the finish alone in two cases. One is an answer that it sets aside, because the tree of a phase that only reads drifted. The worker is then not lost at the next start, and its cost stays counted. The other is a contribution that it cannot build, or that the fold refuses, and then it throws, as today's two appends end. A worker that the ledger shows as launched and not finished is lost at the next start, as today.
 
+The cost of a worker thus reaches the ledger only in `record`, and the budget check before a launch reads the ledger alone. So `recordSettled` in the controller records the first worker that settles, then each other worker that has settled meanwhile, before the planner plans the next step. Otherwise a worker that settled with the one just recorded would be missing from the spend that the next launch checks.
+
 ### Each child ends with the engine (R8)
 
 `runProcess` starts each worker and each check through a guard: `node <engine entry> guard <request file>`. The engine writes the request file beside the output files of the child. The file holds the command, its arguments and how Windows quotes them. It also holds the directory and the file of standard input. The environment of the child is the environment of the guard, so no secret of the environment goes to disk.

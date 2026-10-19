@@ -12,7 +12,8 @@ import { dedicatedFlagValues } from '../../src/config/flags.ts';
 import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
 import { configurationSource } from '../../src/config/source.ts';
 import { flagCheckSettings } from '../../src/review/checks/discover.ts';
-import { claimCommandFor, presurveyRulesFiles, snapshotCommandFor, spendBound } from '../../src/review/controller.ts';
+import { claimCommandFor, inFlightOf, presurveyRulesFiles, recordSettled, snapshotCommandFor, spendBound, type InFlight, type Settled } from '../../src/review/controller.ts';
+import type { Unit } from '../../src/review/steps.ts';
 import { claimPathPlaceholder } from '../../src/review/tasks.ts';
 import { captureScope } from '../../src/scope/capture.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -23,7 +24,7 @@ import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { policyWords } from '../../src/review/survey.ts';
-import { answerPhases, fixPhases, phases } from '../../src/review/vocabulary.ts';
+import { answerPhases, fixPhases, phases, type FinderRole } from '../../src/review/vocabulary.ts';
 import { paddedVersionBytes } from '../helpers/fake-probe.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { afterFind, cliEntry, fakeCheckCommand, loadedRunnerTimeoutMs, otherEngine, appending, reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
@@ -1136,6 +1137,43 @@ describe('the fixer\'s commands', () => {
 
   it('quotes the snapshot command\'s directory beside its index placeholder', () => {
     assert.equal(snapshotCommandFor('/engine/main.mjs', '/scratch/w1/snapshots'), 'node "/engine/main.mjs" snapshot --finding <index> --into "/scratch/w1/snapshots"');
+  });
+});
+
+describe('recording the workers that settled', () => {
+  const finder = (angle: string): Unit => ({ phase: 'finders', key: angle, role: `finder-${angle}` as FinderRole });
+  const settledWith = (angle: string): Promise<Settled> => Promise.resolve({ unit: finder(angle), error: new Error(angle) });
+  /** Workers in flight by unit name, launched in this order, each started at its position. */
+  const inFlightFor = (...entries: [string, Promise<Settled>][]): Map<string, InFlight> => new Map(entries.map(([angle, running], index) => [`finders:${angle}`, inFlightOf(finder(angle), index, running)]));
+
+  // A worker's finish, with its cost, reaches the ledger only when it is recorded, and a launch checks the budget against the ledger alone: at concurrency 2, two finders that settled together must both be counted before the next launch.
+  it('records every worker already settled with the first, before the next step, and leaves one still running in flight', async () => {
+    const inFlight = inFlightFor(['REMOVALS', settledWith('REMOVALS')], ['SCAN', settledWith('SCAN')], ['DESIGN', new Promise<Settled>(() => {})]);
+    const recorded: string[] = [];
+    await recordSettled(inFlight, (settled, startedAt) => recorded.push(`${settled.unit.key} started at ${String(startedAt)}`));
+    assert.deepEqual(recorded, ['REMOVALS started at 0', 'SCAN started at 1']);
+    assert.deepEqual([...inFlight.keys()], ['finders:DESIGN']);
+  });
+
+  it('awaits the first to settle when none has yet', async () => {
+    let settle!: (settled: Settled) => void;
+    const inFlight = inFlightFor(['REMOVALS', new Promise<Settled>((resolve) => (settle = resolve))]);
+    assert.equal(inFlight.get('finders:REMOVALS')!.settled(), null, 'not settled before its worker is');
+    const recording = recordSettled(inFlight, () => {});
+    settle({ unit: finder('REMOVALS'), error: new Error('REMOVALS') });
+    await recording;
+    assert.equal(inFlight.size, 0);
+  });
+
+  it('leaves the workers not yet recorded in flight when recording one throws, for the final wait to record', async () => {
+    const inFlight = inFlightFor(['REMOVALS', settledWith('REMOVALS')], ['SCAN', settledWith('SCAN')]);
+    await assert.rejects(
+      recordSettled(inFlight, (settled) => {
+        throw settled.unit.key === 'REMOVALS' ? new Error('not recorded') : new Error('recorded after a throw');
+      }),
+      /^Error: not recorded$/,
+    );
+    assert.deepEqual([...inFlight.keys()], ['finders:SCAN']);
   });
 });
 
