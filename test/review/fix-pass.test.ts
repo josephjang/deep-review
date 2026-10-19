@@ -6,6 +6,7 @@ import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
+import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { fixedA, fixedB, found, noLeads, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { until } from '../helpers/launcher.ts';
@@ -541,6 +542,20 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), fixedA);
     assert.match(box.logs.join('\n'), /check lint \(checks\): cut, it ended with exit code 143, a kill mark; it runs again/);
     assert.deepEqual(fix.checks.runs['repair-checks'], [], 'a cut is no failure for the repair');
+  });
+
+  it('leaves a file a cut check left too large to keep as evidence, logs it as not written back, and blocks on it (R7 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const big = 'x'.repeat(freezeLimitBytes + 1);
+    box.checks({ lint: ['pass', { write: { 'src/a.ts': big }, exit: 143 }, 'pass'] });
+    box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) } });
+    const blocked = await box.fix('claude');
+    assert.ok(blocked.kind === 'blocked' && blocked.blocker.code === 'drift' && blocked.blocker.detail.includes('src/a.ts'), JSON.stringify(blocked));
+    assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), big, 'the bytes no evidence holds are not written over');
+    const fix = box.run().review!.fix!;
+    assert.deepEqual(fix.restorations.map((restoration) => restoration.files.map((file) => [file.path, file.before !== null && 'oversized' in file.before])), [[['src/a.ts', true]]]);
+    assert.match(box.logs.join('\n'), /check lint \(checks\): did not write back src\/a\.ts, which it changed before a kill cut it short in attempt 1: its bytes in the tree were too large to have been kept; the bytes in the tree are [0-9a-f]{64}, too large to have been kept/);
+    assert.doesNotMatch(box.logs.join('\n'), /wrote back src\/a\.ts/);
   });
 
   it('records the second cut of a check in one attempt as its failure, naming both marks, and writes back after it too (R4 of resumable runs)', async (t) => {

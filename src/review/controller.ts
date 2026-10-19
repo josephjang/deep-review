@@ -586,15 +586,22 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      * Write back what a check a kill cut short left changed in the files the
      * run expects (R7, TD7 of resumable runs): `tree.restored` first, after
      * the events `before` gives, in one append, with what the tree held
-     * frozen as evidence, then the expected bytes. The check of the tree
-     * after it, with the moment `restored`, is the planner's next step, as
-     * after a write back a stop interrupted. A stop between the record and
-     * the writes leaves the drift, which the next start writes back again.
+     * frozen as evidence, then the expected bytes. A file the write back
+     * leaves as the tree holds it is logged with the reason, and the check
+     * of the tree after it, with the moment `restored`, which is the
+     * planner's next step as after a write back a stop interrupted, finds it
+     * drifted and blocks. A stop between the record and the writes leaves
+     * the drift, which the next start writes back again.
      */
     const restore = (phase: CheckPhase, attempt: number, check: CutShortCheck, files: readonly RestoredFile[], before: readonly NewEvent[] = []): void => {
       state = append(checkpoint, state, [...before, { kind: 'tree.restored', version: 1, payload: { phase, attempt, check, files: [...files] } satisfies TreeRestored }]);
-      writeBack(options.worktree, files, (reference) => checkpoint.evidence.read(reference));
-      for (const file of files) log(`check ${check.kind} (${phase}): wrote back ${file.path}, which it changed before a kill cut it short in attempt ${String(check.attempt)}; the bytes before are ${file.before === null ? 'none, the file was absent' : 'blob' in file.before ? `at ${checkpoint.evidence.pathOf(file.before.blob)}` : `${file.before.oversized.sha256}, too large to have been kept`}`);
+      const left = new Map(writeBack(options.worktree, files, (reference) => checkpoint.evidence.read(reference)).map((file) => [file.path, file.reason]));
+      for (const file of files) {
+        const changed = `which it changed before a kill cut it short in attempt ${String(check.attempt)}`;
+        const reason = left.get(file.path);
+        const bytes = file.before === null ? 'none, the file was absent' : 'blob' in file.before ? `at ${checkpoint.evidence.pathOf(file.before.blob)}` : `${file.before.oversized.sha256}, too large to have been kept`;
+        log(reason === undefined ? `check ${check.kind} (${phase}): wrote back ${file.path}, ${changed}; the bytes before are ${bytes}` : `check ${check.kind} (${phase}): did not write back ${file.path}, ${changed}: ${reason}; the bytes in the tree are ${bytes}`);
+      }
     };
     /**
      * Run one due check, or record it skipped, and append what it did: its
