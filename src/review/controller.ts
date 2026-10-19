@@ -65,7 +65,7 @@ import { passedOverLine, readableRuns } from './runs.ts';
 import { shellQuoted } from './shell.ts';
 import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
 import { budgetSpendOf, progressWords, spendWords, statisticsOf, type BudgetSpend } from './spend.ts';
-import { currentPhase, reviewStatus } from './state.ts';
+import { budgetStoppedRun, currentPhase, reviewStatus } from './state.ts';
 import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { checkSettingWords, resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
@@ -1226,9 +1226,8 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
   return null;
 }
 
-/** Whether a run is a fix pass the run budget stopped, in this worktree: complete, fixing, with a unit the budget left not attempted (R11 of resumable runs). */
-const budgetStopped = (run: RunState, worktree: string): boolean =>
-  reviewStatus(run) === 'complete' && run.review?.fix !== null && run.review?.fix !== undefined && sameDirectory(run.worktree, worktree) && budgetStoppedUnits(run.review.fix).length > 0;
+/** Whether a run is a fix pass the run budget stopped, in this worktree (R11 of resumable runs). */
+const budgetStopped = (run: RunState, worktree: string): boolean => budgetStoppedRun(run) && sameDirectory(run.worktree, worktree);
 
 /**
  * Reopen the fix pass of a fix run the run budget stopped (R11, R12, TD8,

@@ -6,6 +6,7 @@
  * findings.
  */
 import type { RankedFinding } from '../checkpoint/events.ts';
+import { budgetStoppedUnits } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { angleClasses, phases, severities, type DeduplicationPhase, type Phase, type Verdict, type VerificationPhase } from './vocabulary.ts';
@@ -18,6 +19,12 @@ export function reviewStatus(state: RunState): ReviewStatus {
   if (state.review?.report !== null && state.review?.report !== undefined) return 'complete';
   if (state.review?.blocker !== null && state.review?.blocker !== undefined) return 'blocked';
   return 'active';
+}
+
+/** Whether a run is a fix pass the run budget stopped: complete, fixing, with a unit the budget left not attempted; what a reopen and the `status` continue line both offer to continue (R11, R15 of resumable runs). */
+export function budgetStoppedRun(state: RunState): boolean {
+  const fix = state.review?.fix ?? null;
+  return reviewStatus(state) === 'complete' && fix !== null && budgetStoppedUnits(fix).length > 0;
 }
 
 /** The phase that is running or blocked, or null when none is. */

@@ -12,7 +12,7 @@
  * answers and answer passes (R10 of answers), as text lines and as JSON.
  */
 import { answerWords, standingAnswers } from '../checkpoint/answer-state.ts';
-import { allBatches, allClusters, budgetStoppedUnits, earlierTreeEdit, isNotAttempted, lastRecordedRun } from '../checkpoint/fix-state.ts';
+import { allBatches, allClusters, earlierTreeEdit, isNotAttempted, lastRecordedRun } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -22,7 +22,7 @@ import { cutWorkerLines, limitBlockLines } from './report.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
-import { currentPhase, reviewStatus } from './state.ts';
+import { budgetStoppedRun, currentPhase, reviewStatus } from './state.ts';
 import { checkPhases, decisionCounts, decisionCountWords } from './vocabulary.ts';
 
 /**
@@ -42,7 +42,7 @@ export const rolesPlaceholder = '<roles>';
 /** The line that names how to continue a fix pass the run budget stopped, or none for any other run. */
 function continueLine(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, continuation: StatusContinuation | null): { line: string; command: string } | null {
   const review = state.review;
-  if (continuation === null || review === null || review.fix === null || reviewStatus(state) !== 'complete' || budgetStoppedUnits(review.fix).length === 0) return null;
+  if (continuation === null || review === null || !budgetStoppedRun(state)) return null;
   const spend = budgetSpendOf(state, adapter).usd;
   if (spend === null) return null;
   const own = review.configuration.rolesDigest === continuation.ownRolesDigest();

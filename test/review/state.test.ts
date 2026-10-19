@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { FixState } from '../../src/checkpoint/fix-state.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { compareFindings, currentPhase, mergeRankInput, mergedResolution, nextPendingPhase, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
-import { configured, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
+import { budgetStoppedRun, compareFindings, currentPhase, mergeRankInput, mergedResolution, nextPendingPhase, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
+import { baselined, configured, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
   id, angle, file: 'a.ts', line: 1, located: true, inScope: true, rawFile: 'a.ts', rawLine: 1, summary: 's', detail: 'd', phase: 'finders', workerId: worker(1), duplicateOf: null, verdict: null, unverified: false, ...change,
@@ -19,6 +21,28 @@ describe('reviewStatus', () => {
     const blocked = configured().start('triage').finish('triage', 'blocked', 1, { code: 'budget', detail: 'd', action: 'a' }).fold();
     assert.equal(reviewStatus(blocked), 'blocked');
     assert.equal(reviewStatus(configured().events.length > 0 ? { ...configured().fold(), review: null } : configured().fold()), 'active');
+  });
+});
+
+describe('budgetStoppedRun', () => {
+  const fixing = baselined().fold();
+  const report = reported().fold().review!.report;
+  const run = (notAttempted: Omit<FixState['notAttempted'], 'answer'>, change: { report?: boolean; fix?: boolean } = {}): RunState => ({
+    ...fixing, review: { ...fixing.review!, report: change.report === false ? null : report, fix: change.fix === false ? null : { ...fixing.review!.fix!, notAttempted: { ...notAttempted, answer: {} } } },
+  });
+  const spent = { cause: 'budget', reason: 'spent' } as const;
+
+  it('holds for a complete fix run the budget left a batch or the repair of', () => {
+    assert.equal(budgetStoppedRun(run({ fixes: { 'c1-2': spent }, repair: {} })), true);
+    assert.equal(budgetStoppedRun(run({ fixes: {}, repair: { repair: spent } })), true);
+  });
+
+  it('holds for none that is not complete, not fixing, or left nothing for the budget', () => {
+    assert.equal(budgetStoppedRun(run({ fixes: { 'c1-2': spent }, repair: {} }, { report: false })), false, 'no report yet');
+    assert.equal(budgetStoppedRun(run({ fixes: { 'c1-2': spent }, repair: {} }, { fix: false })), false, 'a read-only run');
+    assert.equal(budgetStoppedRun(run({ fixes: { 'c1-2': { cause: 'failures', reason: 'failed twice' } }, repair: {} })), false, 'left after failures, not the budget');
+    assert.equal(budgetStoppedRun(run({ fixes: {}, repair: {} })), false);
+    assert.equal(budgetStoppedRun({ ...run({ fixes: { 'c1-2': spent }, repair: {} }), status: 'abandoned' }), false, 'abandoned');
   });
 });
 
