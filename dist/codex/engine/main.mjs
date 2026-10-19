@@ -252,9 +252,9 @@ async function runGuard(argv) {
     }
     return await new Promise((resolve13) => {
       let started = false;
-      let settled2 = false;
+      let settled3 = false;
       const settle4 = (code) => {
-        settled2 = true;
+        settled3 = true;
         process.stdin.destroy();
         resolve13(code);
       };
@@ -262,18 +262,18 @@ async function runGuard(argv) {
         started = true;
       });
       child.on("error", (error62) => {
-        if (started || settled2) return;
+        if (started || settled3) return;
         writeResult(resultFile, { termination: "not-started", error: error62.message });
         settle4(1);
       });
       child.once("close", (exitCode, signal) => {
-        if (!started || settled2) return;
+        if (!started || settled3) return;
         const written = writeResult(resultFile, { termination: "exited", exitCode, signal });
         if (process.platform !== "win32") endOwnGroup();
         settle4(written ? exitCode ?? 1 : 1);
       });
       const engineGone = () => {
-        if (settled2) return;
+        if (settled3) return;
         killGuardedTree(child);
         settle4(1);
       };
@@ -22569,10 +22569,11 @@ function openStart(fix, phase, kind, attempt) {
 function cutShortChecks(fix, phase) {
   const starts = fix.checks.starts[phase];
   const started = (run2, index2) => starts.some((start) => start.kind === run2.kind && start.attempt === run2.attempt && start.runsBefore <= index2);
+  const order = { start: 0, run: 1 };
   return [
-    ...fix.checks.runs[phase].flatMap((run2, index2) => killedRun(run2) && started(run2, index2) ? [{ check: run2, at: index2 + 0.5 }] : []),
-    ...starts.flatMap((start) => openStart(fix, phase, start.kind, start.attempt) === start ? [{ check: start, at: start.runsBefore }] : [])
-  ].sort((a, b) => a.at - b.at).map((candidate) => candidate.check);
+    ...fix.checks.runs[phase].flatMap((run2, index2) => killedRun(run2) && started(run2, index2) ? [{ check: run2, runsBefore: index2, order: order.run }] : []),
+    ...starts.flatMap((start) => openStart(fix, phase, start.kind, start.attempt) === start ? [{ check: start, runsBefore: start.runsBefore, order: order.start }] : [])
+  ].sort((a, b) => a.runsBefore - b.runsBefore || a.order - b.order).map((candidate) => candidate.check);
 }
 function cutShortBefore(review2, phase) {
   const { fix } = review2;
@@ -22581,7 +22582,8 @@ function cutShortBefore(review2, phase) {
     const last2 = fix.restorations.findLast((restoration) => restoration.phase === phase && restoration.check.kind === kind && restoration.check.attempt === attempt);
     return last2 !== void 0 && review2.checks.slice(last2.checksBefore).some((check2) => check2.phase === phase && check2.attempt === last2.attempt && check2.moment === "restored");
   };
-  const last = cutShortChecks(fix, phase).findLast((check2) => check2.attempt < current && !writtenBack(check2.kind, check2.attempt));
+  const foundClean = (attempt) => review2.checks.some((check2) => check2.phase === phase && check2.attempt > attempt && check2.attempt < current && !check2.drifted);
+  const last = cutShortChecks(fix, phase).findLast((check2) => check2.attempt < current && !writtenBack(check2.kind, check2.attempt) && !foundClean(check2.attempt));
   return last === void 0 ? null : { kind: last.kind, attempt: last.attempt };
 }
 function lastRestorationAt(fix, phase, attempt) {
@@ -22642,10 +22644,10 @@ function holdersKeyedBy(fix, round, keyOf) {
   for (const claim3 of claimsOfRound(fix, round)) if (holders.get(keyOf(claim3.path))?.by !== "plan") holders.set(keyOf(claim3.path), { path: claim3.path, cluster: claim3.cluster, by: "claim" });
   return holders;
 }
-function claimRefusal(holder, cluster, settled2) {
+function claimRefusal(holder, cluster, settled3) {
   if (holder === void 0) return null;
   if (holder.by === "plan") return "owned";
-  return holder.cluster === cluster || !settled2.has(holder.cluster) ? "held" : null;
+  return holder.cluster === cluster || !settled3.has(holder.cluster) ? "held" : null;
 }
 function clusterClaims(fix, round, cluster) {
   return pathsClaimedBy(claimsOfRound(fix, round), cluster);
@@ -22792,12 +22794,12 @@ function revisionMessageOf(fix, revision) {
   return answer2?.findings.find((finding) => finding.id === id)?.message ?? revision.change.message;
 }
 function notAttemptedNote(fix, phase, key) {
-  const settled2 = fix.notAttempted[phase][key];
-  if (settled2 === void 0) return null;
-  return settled2.cause === "budget" ? `the run budget was reached first: ${settled2.reason}` : settled2.reason;
+  const settled3 = fix.notAttempted[phase][key];
+  if (settled3 === void 0) return null;
+  return settled3.cause === "budget" ? `the run budget was reached first: ${settled3.reason}` : settled3.reason;
 }
 function budgetStoppedUnits(fix) {
-  return ["fixes", "repair"].flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled2]) => settled2.cause === "budget").map(([key]) => ({ phase, key })));
+  return ["fixes", "repair"].flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled3]) => settled3.cause === "budget").map(([key]) => ({ phase, key })));
 }
 function isNotAttempted(fix, phase, key) {
   return Object.hasOwn(fix.notAttempted[phase], key);
@@ -23670,11 +23672,11 @@ var init_fix_fold = __esm({
       if (batch.cluster !== payload.cluster) throw invalid(event, `claims files for ${payload.key} under cluster ${payload.cluster}, not its cluster ${batch.cluster}`);
       const round = roundOf(fix, payload.key);
       const holders = holdersKeyedBy(fix, round, exactPath);
-      const settled2 = settledClusters(fix, round);
+      const settled3 = settledClusters(fix, round);
       for (const file2 of payload.files) {
         const holder = holders.get(file2.path);
         if (holder === void 0) continue;
-        const refusal = claimRefusal(holder, payload.cluster, settled2);
+        const refusal = claimRefusal(holder, payload.cluster, settled3);
         if (refusal === null) continue;
         const why = refusal === "owned" ? `which cluster ${holder.cluster} owns` : holder.cluster === payload.cluster ? "which its cluster holds already" : `which cluster ${holder.cluster} holds and has not settled`;
         throw invalid(event, `claims ${file2.path} for ${payload.key}, ${why}`);
@@ -28220,7 +28222,7 @@ function settleClaims(state, key, live2, worktree) {
     ...fix.lostClaims.map((claim3) => marked(claim3.path, claim3.cluster, claim3.unit, claim3.claimedAt))
   ]);
   const holders = holdersKeyedBy(fix, round, keyOf);
-  const settled2 = settledClusters(fix, round);
+  const settled3 = settledClusters(fix, round);
   const lookup = holderSpelled(worktreeLookup(worktree), holders, keyOf);
   const accepted = [];
   const lost = [];
@@ -28235,7 +28237,7 @@ function settleClaims(state, key, live2, worktree) {
       continue;
     }
     const holder = holders.get(keyOf(path));
-    const refusal = claimRefusal(holder, marker.cluster, settled2);
+    const refusal = claimRefusal(holder, marker.cluster, settled3);
     if (refusal !== null) lost.push({ ...claim3, reason: refusal, holder: holder.cluster });
     else {
       accepted.push(claim3);
@@ -28255,8 +28257,8 @@ function lateClaim(settle4, key, named) {
   const round = roundOf(fix, key);
   const keyOf = (path) => pathKey(path, settle4.caseInsensitive);
   const holders = holdersKeyedBy(fix, round, keyOf);
-  const settled2 = settledClusters(fix, round);
-  const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle4, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled2) === null).sort();
+  const settled3 = settledClusters(fix, round);
+  const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle4, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled3) === null).sort();
   return perEvent(free).map((paths) => ({ kind: "files.claimed", version: 1, payload: { phase: "fixes", key, cluster: batch.cluster, files: paths.map((path) => ({ path, claimedAt: null })) } }));
 }
 var settledNothing, madeOrder;
@@ -28383,8 +28385,8 @@ function checkChecks(output2, context) {
   if (answered2 === null) throw new StructuralCheckError("The answer chooses no checks, and this run fixes");
   requireOnce(answered2.map((check2) => check2.kind), "The check kind");
   const wanted = unsettledKinds(context.inputs.checkSettings);
-  const settled2 = answered2.filter((check2) => isSettled(context.inputs.checkSettings, check2.kind)).map((check2) => check2.kind);
-  if (settled2.length > 0) throw new StructuralCheckError(`The answer chooses ${settled2.join(", ")}, which a flag settles`);
+  const settled3 = answered2.filter((check2) => isSettled(context.inputs.checkSettings, check2.kind)).map((check2) => check2.kind);
+  if (settled3.length > 0) throw new StructuralCheckError(`The answer chooses ${settled3.join(", ")}, which a flag settles`);
   const missing = wanted.filter((kind) => !answered2.some((check2) => check2.kind === kind));
   if (missing.length > 0) throw new StructuralCheckError(`The answer chooses nothing for ${missing.join(", ")}`);
   return checkKinds.flatMap((kind) => answered2.filter((check2) => check2.kind === kind)).map((check2) => checkSurveyedCheck(check2, context));
@@ -28655,8 +28657,8 @@ function spendOf(workers, adapter) {
 }
 function budgetSpendOf(state, adapter) {
   if (!adapter.capabilities.costInUsd) return { usd: null, charged: 0, lost: 0 };
-  const settled2 = settledWorkers(state);
-  const finished = settled2.filter(isFinished);
+  const settled3 = settledWorkers(state);
+  const finished = settled3.filter(isFinished);
   let usd4 = 0;
   let charged = 0;
   for (const worker of finished) {
@@ -28668,7 +28670,7 @@ function budgetSpendOf(state, adapter) {
       charged += 1;
     }
   }
-  return { usd: cents(usd4), charged, lost: settled2.length - finished.length };
+  return { usd: cents(usd4), charged, lost: settled3.length - finished.length };
 }
 function spendWords(spentUsd, budgetUsd) {
   if (spentUsd === null) return "no cost reported";
@@ -28695,13 +28697,13 @@ function checkSeconds(state, phase) {
   return Math.round(total / 100) / 10;
 }
 function statisticsOf(state, adapter) {
-  const settled2 = settledWorkers(state);
+  const settled3 = settledWorkers(state);
   const listed = phases.filter((phase) => state.review?.phases[phase].status !== "skipped");
   const byPhase = listed.map((phase) => {
-    const spend = spendOf(settled2.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter);
+    const spend = spendOf(settled3.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter);
     return { phase, ...spend, ...isCheckPhase(phase) ? { seconds: checkSeconds(state, phase) } : {} };
   });
-  return { phases: byPhase, total: spendOf(settled2, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
+  return { phases: byPhase, total: spendOf(settled3, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
 }
 var isFinished, cents, counted;
 var init_spend = __esm({
@@ -30515,21 +30517,21 @@ function resetSettledIndex(run2, series, worktree) {
   return staged;
 }
 function settle2(checkpoint, run2, worktree, log) {
-  const settled2 = seriesSettleOf(run2, headOf(worktree));
-  if (settled2 === null) return { run: run2, completed: null, unstaged: [] };
-  if (settled2.kind === "elsewhere") {
-    const { series, head: head2 } = settled2;
+  const settled3 = seriesSettleOf(run2, headOf(worktree));
+  if (settled3 === null) return { run: run2, completed: null, unstaged: [] };
+  if (settled3.kind === "elsewhere") {
+    const { series, head: head2 } = settled3;
     throw new ReviewRefusedError(`a commit of run ${run2.id} that a stop cut short was moving HEAD from ${series.from} to ${series.to}, and HEAD is ${head2}, at neither; move HEAD to ${series.to} to keep those commits, or to ${series.from} to drop them, and run the command again`);
   }
-  const unstaged = settled2.kind === "complete" ? resetSettledIndex(run2, settled2.series, worktree) : [];
-  const state = checkpoint.append(run2.id, run2.lastSequence, [settled2.event]);
-  log(settled2.line);
-  return { run: state, completed: settled2.kind === "complete" ? settled2.series : null, unstaged };
+  const unstaged = settled3.kind === "complete" ? resetSettledIndex(run2, settled3.series, worktree) : [];
+  const state = checkpoint.append(run2.id, run2.lastSequence, [settled3.event]);
+  log(settled3.line);
+  return { run: state, completed: settled3.kind === "complete" ? settled3.series : null, unstaged };
 }
 function settleOpenSeries(checkpoint, run2, worktree, log) {
-  const { unstaged, ...settled2 } = settle2(checkpoint, run2, worktree, log);
+  const { unstaged, ...settled3 } = settle2(checkpoint, run2, worktree, log);
   if (unstaged.length > 0) log(unstagedLine(run2.id, unstaged));
-  return settled2;
+  return settled3;
 }
 function commitRun(options2) {
   const { checkpoint, worktree } = options2;
@@ -30801,10 +30803,10 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
     const stdout = [];
     const stderr = [];
     let printed = 0;
-    let settled2 = false;
+    let settled3 = false;
     const stop = (reason) => {
-      if (settled2) return;
-      settled2 = true;
+      if (settled3) return;
+      settled3 = true;
       clearTimeout(timer);
       child.stdout?.destroy();
       child.stderr?.destroy();
@@ -30813,7 +30815,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
       });
     };
     const collect = (into) => (chunk2) => {
-      if (settled2) return;
+      if (settled3) return;
       printed += chunk2.length;
       if (printed > maxOutputBytes2) {
         stop(`it printed more than ${String(maxOutputBytes2)} bytes`);
@@ -30827,14 +30829,14 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
     child.stdout?.on("data", collect(stdout));
     child.stderr?.on("data", collect(stderr));
     child.on("error", (error62) => {
-      if (settled2 || child.pid !== void 0) return;
-      settled2 = true;
+      if (settled3 || child.pid !== void 0) return;
+      settled3 = true;
       clearTimeout(timer);
       reject(error62);
     });
     child.once("close", (code, signal) => {
-      if (settled2) return;
-      settled2 = true;
+      if (settled3) return;
+      settled3 = true;
       clearTimeout(timer);
       if (code === 0) {
         resolve13(Buffer.concat(stdout).toString("utf8"));
@@ -31350,23 +31352,23 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     result = notStarted(`the launcher could not start it: ${describeError(error62)}`, now, now);
   }
-  const settled2 = settle3(checkpoint, adapter, invocation, plan, result, io, emptyReference);
-  const finish = { workerId, ...settled2.finish, sessionIds: withPinnedSession(plan.sessionId, settled2.observedSessionIds) };
+  const settled3 = settle3(checkpoint, adapter, invocation, plan, result, io, emptyReference);
+  const finish = { workerId, ...settled3.finish, sessionIds: withPinnedSession(plan.sessionId, settled3.observedSessionIds) };
   const finished = { kind: "worker.finished", version: 1, payload: finish };
   try {
     if (options2.deferFinish !== true) appendFresh(checkpoint, runId, finished);
   } finally {
-    if (!settled2.keepProcessFiles) rmSync7(io, { recursive: true, force: true });
+    if (!settled3.keepProcessFiles) rmSync7(io, { recursive: true, force: true });
   }
   return {
     workerId,
     outcome: finish.outcome,
     error: finish.error,
     process: { exitCode: finish.exitCode, signal: finish.signal, termination: finish.termination, startedAt: finish.startedAt, endedAt: finish.endedAt },
-    runtime: { name: adapter.name, version: version2, sessionIds: finish.sessionIds, usage: settled2.usage },
+    runtime: { name: adapter.name, version: version2, sessionIds: finish.sessionIds, usage: settled3.usage },
     denials: finish.denials,
-    output: settled2.output,
-    cause: settled2.cause,
+    output: settled3.output,
+    cause: settled3.cause,
     finish: options2.deferFinish === true ? finished : null,
     evidence: { prompt: promptReference, schema: schemaReference, stdout: finish.stdout, stderr: finish.stderr, finalMessage: finish.finalMessage, output: finish.output }
   };
@@ -31725,12 +31727,12 @@ function executableOf(resolved) {
   const names = runtimeSettingNames(resolved.runtime);
   return { executable: resolved.values[names.executable].value, args: resolved.values[names.args].value ?? [] };
 }
-function checkSettingsFrom(settled2) {
+function checkSettingsFrom(settled3) {
   const commands = {};
   const dropped = [];
   const layers2 = {};
   for (const kind of checkKinds) {
-    const check2 = settled2(kind);
+    const check2 = settled3(kind);
     if (check2 === null) continue;
     if (check2.value === false) dropped.push(kind);
     else commands[kind] = check2.value;
@@ -32219,17 +32221,17 @@ function fixChecks(input2) {
     if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
     return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
   };
-  const settled2 = input2.settled.length === 0 ? [] : [
+  const settled3 = input2.settled.length === 0 ? [] : [
     byFlags ? "Settled by the operator's flags, which you leave out of `checks`:" : "Settled by the operator's flags and the configuration, which you leave out of `checks`:",
     ...input2.settled.map(settledLine),
     ""
   ];
-  if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled2, "Every kind is settled, so return `checks` empty."];
+  if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled3, "Every kind is settled, so return `checks` empty."];
   const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
   return [
     kindsToChooseLine(input2),
     "",
-    ...settled2,
+    ...settled3,
     `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look up what each command starts as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. A tool the command runs through something that provides it, such as \`uv run\` with a dependency group or \`npx\` with a project dependency, needs only that to resolve. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
     "",
     "Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository's CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:",
@@ -34005,39 +34007,39 @@ async function runReview(options2) {
   const directories = claimsDirectories({ scratchBase, runId, worktree: options2.worktree, state: () => state, caseInsensitive, command: (key, directory) => claimCommandFor(engineEntry, key, directory), log });
   const { claims } = directories;
   const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match, claims });
-  const record2 = (settled2, startedAt) => {
-    const name = unitName(settled2.unit.phase, settled2.unit.key);
-    if ("error" in settled2) throw settled2.error;
-    const summary = adapter.summarizeUsage(settled2.receipt.runtime.usage);
-    log(`worker ${settled2.unit.role} ${name}: ${settled2.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled2.receipt.error === null ? "" : `: ${settled2.receipt.error}`}`);
-    const { phase } = settled2.unit;
-    const { finish } = settled2.receipt;
+  const record2 = (settled3, startedAt) => {
+    const name = unitName(settled3.unit.phase, settled3.unit.key);
+    if ("error" in settled3) throw settled3.error;
+    const summary = adapter.summarizeUsage(settled3.receipt.runtime.usage);
+    log(`worker ${settled3.unit.role} ${name}: ${settled3.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled3.receipt.error === null ? "" : `: ${settled3.receipt.error}`}`);
+    const { phase } = settled3.unit;
+    const { finish } = settled3.receipt;
     const withFinish = (events) => [...finish === null ? [] : [finish], ...events];
     try {
       state = checkpoint.fold(runId);
-      if (settled2.receipt.outcome === "completed" && !isEditingPhase(phase)) {
+      if (settled3.receipt.outcome === "completed" && !isEditingPhase(phase)) {
         const attempt = state.review.phases[phase].attempt;
         const recorded = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
         if (recorded !== void 0) {
-          log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
+          log(`worker ${settled3.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
           if (finish !== null) state = append(checkpoint, state, [finish]);
           return;
         }
         const found = findDrift(state, options2.worktree, content.match);
         if (drifted(found)) {
-          log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
+          log(`worker ${settled3.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
           state = append(checkpoint, state, withFinish([{ kind: "worktree.checked", version: 5, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload }]));
           return;
         }
       }
-      const settling = phase === "fixes" ? directories.settleReading(settled2.unit.key) : { access: claims, lost: false };
-      const events = contributionOf(settled2.unit, settled2.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+      const settling = phase === "fixes" ? directories.settleReading(settled3.unit.key) : { access: claims, lost: false };
+      const events = contributionOf(settled3.unit, settled3.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
       for (const event of events) {
         for (const line of claimLines(event)) log(line);
-        if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
-        if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: ${revisionSummary(event.payload)}`);
+        if (event.kind === "attempt.failed") log(`worker ${settled3.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
+        if (event.kind === "tree.revised") log(`worker ${settled3.unit.role} ${name}: ${revisionSummary(event.payload)}`);
         if (event.kind === "survey.recorded") for (const line of surveyLines(runId, event.payload)) log(line);
-        if (event.kind === "decisions.recorded") log(`worker ${settled2.unit.role} ${name}: decided ${decisionCountWords(decisionCounts(event.payload.decisions))}`);
+        if (event.kind === "decisions.recorded") log(`worker ${settled3.unit.role} ${name}: decided ${decisionCountWords(decisionCounts(event.payload.decisions))}`);
       }
       state = append(checkpoint, state, withFinish(events));
     } catch (error62) {
@@ -34045,12 +34047,12 @@ async function runReview(options2) {
         try {
           state = append(checkpoint, state, [finish]);
         } catch (alone) {
-          log(`worker ${settled2.unit.role} ${name}: its finish is not recorded either: ${alone instanceof Error ? alone.message : String(alone)}`);
+          log(`worker ${settled3.unit.role} ${name}: its finish is not recorded either: ${alone instanceof Error ? alone.message : String(alone)}`);
         }
       }
       throw error62;
     }
-    if (phase === "fixes" && directories.lost() === null) directories.prepare(settled2.unit.key);
+    if (phase === "fixes" && directories.lost() === null) directories.prepare(settled3.unit.key);
   };
   try {
     if (capture !== null) {
@@ -34247,8 +34249,8 @@ async function runReview(options2) {
           break;
         }
         case "await": {
-          const { settled: settled2, startedAt } = await nextSettled(inFlight);
-          record2(settled2, startedAt);
+          const { settled: settled3, startedAt } = await nextSettled(inFlight);
+          record2(settled3, startedAt);
           break;
         }
         case "finish-phase":
@@ -34280,11 +34282,11 @@ async function runReview(options2) {
   } finally {
     if (inFlight.size > 0) log(`run ${runId}: waiting for ${String(inFlight.size)} worker${inFlight.size === 1 ? "" : "s"} in flight`);
     while (inFlight.size > 0) {
-      const { settled: settled2, startedAt } = await nextSettled(inFlight);
+      const { settled: settled3, startedAt } = await nextSettled(inFlight);
       try {
-        record2(settled2, startedAt);
+        record2(settled3, startedAt);
       } catch (error62) {
-        log(`worker ${settled2.unit.role} ${unitName(settled2.unit.phase, settled2.unit.key)}: not recorded: ${error62 instanceof Error ? error62.message : String(error62)}`);
+        log(`worker ${settled3.unit.role} ${unitName(settled3.unit.phase, settled3.unit.key)}: not recorded: ${error62 instanceof Error ? error62.message : String(error62)}`);
       }
     }
     release();
@@ -34296,11 +34298,11 @@ function refusalOf(error62, pinned) {
   return new ReviewRefusedError(`${error62.message}; ${action}`, "runtime-unqualified");
 }
 async function nextSettled(inFlight) {
-  const settled2 = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
-  const name = unitName(settled2.unit.phase, settled2.unit.key);
+  const settled3 = await Promise.race([...inFlight.values()].map((entry2) => entry2.promise));
+  const name = unitName(settled3.unit.phase, settled3.unit.key);
   const entry = inFlight.get(name);
   inFlight.delete(name);
-  return { settled: settled2, startedAt: entry.startedAt };
+  return { settled: settled3, startedAt: entry.startedAt };
 }
 function unelevatedEditorsWarning(runId) {
   return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
@@ -34522,6 +34524,8 @@ async function reopenRun(runs, context) {
     if (settle4 !== null && settle4.kind !== "elsewhere") log(settle4.line);
     if (unstaged.length > 0) log(unstagedLine(run2.id, unstaged));
     log(`run ${run2.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => attemptOwner(unit.phase, unit.key)).join(", ")}; ${spendWords(budgetSpendOf(run2, context.adapter).usd, limits.runBudgetUsd)}`);
+    resumedFixFlags(run2, configuration, context);
+    unappliedSettings(run2, configuration, { ...context, source: context.configuration });
     return { kind: "reopened", state, release };
   } catch (error62) {
     release();
@@ -34543,8 +34547,8 @@ async function continuationOf(run2, context) {
   const resolved = withChangedPaths(context.source.resolve({ base: scope.base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd }), [...scope.files.map((file2) => file2.path), ...scope.excluded.paths]);
   const toolsPath = resolvedValue(resolved, "tools.path") ?? [];
   refuseOldNode(toolsPath, process.platform);
-  const settled2 = checkSettingsOfResolved(resolved);
-  const unsettled2 = unsettledKinds(settled2);
+  const settled3 = checkSettingsOfResolved(resolved);
+  const unsettled2 = unsettledKinds(settled3);
   if ((review2.survey?.failure ?? null) !== null && unsettled2.length > 0) {
     throw new ReviewRefusedError(`run ${run2.id} went on without its survey, so a continuation needs every check settled: give --check <kind>=<command> or --no-check <kind>, or set checks.<kind>, for ${unsettled2.join(", ")}, or ${wayOut(run2.id, "continue")}`);
   }
@@ -34554,7 +34558,7 @@ async function continuationOf(run2, context) {
     throw new ReviewRefusedError(`run ${run2.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; nothing to continue; run it again with --budget-usd above ${reached.spend.usd.toFixed(2)}, or ${wayOut(run2.id, "continue")}`);
   }
   await resumePinned(run2, review2.configuration, context, "continue", toolsPath);
-  const plannedChecks = unsettled2.length === 0 ? [...resolveChecks(null, settled2).checks] : null;
+  const plannedChecks = unsettled2.length === 0 ? [...resolveChecks(null, settled3).checks] : null;
   return {
     pin: { checks: { timeoutMs: policyOverridesOf(resolved).checksTimeoutMs ?? policy.checks.timeoutMs }, fixes: { batchSize: policy.fixes.batchSize }, plannedChecks, settings: fixSettingsRecordOf(resolved) },
     report: context.checkpoint.evidence.pathOf(review2.report.report)
@@ -34821,6 +34825,14 @@ async function requirePassable(run2, options2, owed) {
   }
   await requirePinned(run2, { ...options2, adapter });
 }
+function settled2(checkpoint, run2, worktree, log) {
+  try {
+    return settleOpenSeries(checkpoint, run2, worktree, log).run;
+  } catch (error62) {
+    if (error62 instanceof ReviewRefusedError) throw new ReviewRefusedError(`${error62.message}; the answer is recorded; run deep-review answer again with the same answer to apply it`, error62.code);
+    throw error62;
+  }
+}
 async function answerRun(options2) {
   const { checkpoint, worktree } = options2;
   const releaseStart = acquireStartLock(checkpoint.root);
@@ -34849,7 +34861,7 @@ async function answerRun(options2) {
       const order = rankedFindings(run2.review).map((entry) => entry.finding.id);
       const ids = owed.map((answer2) => answer2.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
       if (ids.length === 0) return outcome("nothing-owed", run2);
-      run2 = settleOpenSeries(checkpoint, run2, worktree, options2.log).run;
+      run2 = settled2(checkpoint, run2, worktree, options2.log);
       await requirePassable(run2, options2, owed);
       return outcome("pass", checkpoint.append(run2.id, run2.lastSequence, [{ kind: "answer.pass", version: 1, payload: { ids } }]));
     } finally {
