@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
+import { cutShortBefore, cutShortChecks, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import type { CheckKind, CheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
@@ -113,6 +113,14 @@ describe('the check a kill cut short before the current attempt (R7 of resumable
       const startedAfter = { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('test', 1, 1)] }, runs: { ...fix.checks.runs, 'baseline-checks': [legacy, run('baseline-checks', 'test', 'passed', 1, 0)] } } };
       assert.equal(cutShortBefore(review(startedAfter, 2), 'baseline-checks'), null, `${legacy.outcome}, started after`);
     }
+  });
+
+  it('holds the cut checks in ledger order, a start before the run recorded after it at the same count of runs', () => {
+    // lint@1 is cut at its start; then test@2 starts and the engine kills it at its timeout, the phase's first run.
+    const fix = emptyFixState();
+    const timedOut = run('baseline-checks', 'test', 'timeout', 2, 0);
+    const cut = { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('lint', 1, 0), start('test', 2, 0)] }, runs: { ...fix.checks.runs, 'baseline-checks': [timedOut] } } };
+    assert.deepEqual(cutShortChecks(cut, 'baseline-checks'), [start('lint', 1, 0), timedOut]);
   });
 
   it('retires a cut check once a later attempt found the tree clean, so a drift after it is a person\'s edit that blocks', () => {
