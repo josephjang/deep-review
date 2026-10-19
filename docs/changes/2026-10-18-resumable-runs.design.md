@@ -272,7 +272,7 @@ When each check passes, `openRun` appends `fix.reopened@1`, `limits.changed@1` a
 
 `fix.reopened@1` has one field, `units`: each unit as its phase, `fixes` or `repair`, and its key. The reducer refuses the event if the run is not active with its report written, or if the run does not fix. Each listed unit must be not attempted because of the budget, and the list must hold each such unit of the run one time. The list must not be empty.
 
-The reducer removes each listed unit from `notAttempted`, so the unit can launch again, and the failures of the unit stay. It keeps the event with its time, its units, the report that it replaces, and the attempts of `checks` and `repair-checks`. It sets the report to null. It sets `checks`, `repair`, `repair-checks` and `report` to `pending` at their attempts, and `fixes` too when a unit of the fixes is listed. `checks` opens again in each case, because an answer pass can revise the tree after its last runs.
+The reducer removes each listed unit from `notAttempted`, so the unit can launch again, and the failures of the unit stay. It keeps the event with its time, its units and the report that it replaces. It sets the report to null. It sets `checks`, `repair`, `repair-checks` and `report` to `pending` at their attempts, and `fixes` too when a unit of the fixes is listed. `checks` opens again in each case, because an answer pass can revise the tree after its last runs.
 
 With `fix.pinned` and `answer.pass`, this is the third reducer that moves a phase out of `completed`, `degraded` or `skipped`. `limits.changed` after it is accepted, because the report is null.
 
