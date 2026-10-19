@@ -371,7 +371,7 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
     const run = lastRun(fix, 'checks', kind)!;
     const before = failedAtBaseline(fix, kind) ? lastRun(fix, 'baseline-checks', kind)! : null;
     return {
-      kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr),
+      kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, signal: run.signal, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr),
       baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) },
     };
   });

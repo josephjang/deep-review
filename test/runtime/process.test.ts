@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { killMarkWords, killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
+import { endedByKill, guardLeftNoResult, killMarkWords, killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
 import { isAlive, until } from '../helpers/launcher.ts';
 import { probeGrandchildPidFile, processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
 
@@ -163,6 +163,19 @@ describe('runProcess', () => {
     writeFileSync(join(directory, 'stdout'), 'earlier');
     await assert.rejects(runProcess(request(['-e', ''])), /EEXIST/);
     assert.equal(readFileSync(join(directory, 'stdout'), 'utf8'), 'earlier');
+  });
+});
+
+describe('guardLeftNoResult', () => {
+  it('reads the two nulls of an exit alone as a guard that left no result, and a kill mark (R8 of resumable runs)', () => {
+    assert.equal(guardLeftNoResult({ termination: 'exited', exitCode: null, signal: null }), true);
+    assert.equal(endedByKill({ termination: 'exited', exitCode: null, signal: null }), true);
+    for (const termination of ['not-started', 'killed', null] as const) {
+      assert.equal(guardLeftNoResult({ termination, exitCode: null, signal: null }), false, String(termination));
+      assert.equal(endedByKill({ termination, exitCode: null, signal: null }), false, String(termination));
+    }
+    assert.equal(guardLeftNoResult({ termination: 'exited', exitCode: null, signal: 'SIGTERM' }), false);
+    assert.equal(guardLeftNoResult({ termination: 'exited', exitCode: 143, signal: null }), false);
   });
 });
 

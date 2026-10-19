@@ -13,6 +13,7 @@ import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import type { Layer } from '../config/settings.ts';
+import { endedByKill, killMarkWords } from '../runtime/process.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
 
@@ -654,6 +655,7 @@ export interface RepairTaskCheck {
   readonly command: string;
   readonly outcome: 'failed' | 'timeout';
   readonly exitCode: number | null;
+  readonly signal: string | null;
   /** The output's last `repairTailBytes` bytes, and the path of the whole, frozen. */
   readonly stdout: { readonly tail: Buffer; readonly path: string };
   readonly stderr: { readonly tail: Buffer; readonly path: string };
@@ -684,12 +686,20 @@ function outputTail(name: string, tail: Buffer, path: string): string {
   return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text.endsWith('\n') ? text.slice(0, -1) : text, fence].join('\n');
 }
 
+/** How a failing check ended, for its repair: killed at its timeout, ended by a kill mark or a guard that left no result, which only a second cut fails with, or its exit code. */
+function repairCheckEnd(check: RepairTaskCheck): string {
+  if (check.outcome === 'timeout') return 'ran past its timeout and was killed';
+  // A failed check exited: a skipped one is no repair target, and one that did not start is not failed.
+  const end = { termination: 'exited', exitCode: check.exitCode, signal: check.signal } as const;
+  return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check.exitCode)}`;
+}
+
 /** The repair worker's task (R11, R24 of the fix pass): every check failing after the fixes with its output, and its output before them when it failed then too, the files it owns, what each fixer did, and the same answer as a fixer's with the checks as its findings. */
 export function repairTask(input: RepairTaskInput): string {
   const count = input.checks.length;
   const checks = input.checks.map((check, index) => [
     `[${String(index)}] ${check.kind}: ${check.command}`,
-    `    ${check.outcome === 'timeout' ? 'ran past its timeout and was killed' : `exited with code ${check.exitCode === null ? 'none (ended by a signal)' : String(check.exitCode)}`}`,
+    `    ${repairCheckEnd(check)}`,
     outputTail('stdout', check.stdout.tail, check.stdout.path),
     outputTail('stderr', check.stderr.tail, check.stderr.path),
     ...(check.baseline === null

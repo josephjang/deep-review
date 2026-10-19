@@ -97,7 +97,17 @@ type ChildEnd = { readonly termination: ProcessResult['termination'] | null; rea
  */
 export function endedByKill(end: ChildEnd): boolean {
   if (end.termination !== 'exited') return false;
-  return end.signal !== null || end.exitCode === null || killMarkCodes.includes(end.exitCode);
+  return guardLeftNoResult(end) || end.signal !== null || (end.exitCode !== null && killMarkCodes.includes(end.exitCode));
+}
+
+/**
+ * Whether a child that exited has no end of its own because its guard left
+ * no result (R8 of resumable runs): an exit code and a signal both null,
+ * which Node never reports for an exit, so the ledger keeps it without a
+ * value of its own. Every reader decodes the two nulls here.
+ */
+export function guardLeftNoResult(end: ChildEnd): boolean {
+  return end.termination === 'exited' && end.exitCode === null && end.signal === null;
 }
 
 /**
@@ -106,8 +116,8 @@ export function endedByKill(end: ChildEnd): boolean {
  * with how the guard ended when the live result knows it.
  */
 export function killMarkWords(end: ChildEnd): string {
+  if (guardLeftNoResult(end)) return end.guardEnd === undefined ? 'no result from its guard' : `no result from its guard, which ${guardEndWords(end.guardEnd)}`;
   if (end.signal !== null) return `signal ${end.signal}, a kill mark`;
-  if (end.exitCode === null) return end.guardEnd === undefined ? 'no result from its guard' : `no result from its guard, which ${guardEndWords(end.guardEnd)}`;
   return `exit code ${String(end.exitCode)}, a kill mark`;
 }
 

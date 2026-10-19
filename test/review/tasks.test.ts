@@ -507,6 +507,7 @@ describe('the repair task', () => {
     command: 'npm run test',
     outcome: 'failed' as const,
     exitCode: 1,
+    signal: null,
     stdout: { tail: Buffer.from('```\n1 failing\n'), path: '/evidence/out' },
     stderr: { tail: Buffer.alloc(0), path: '/evidence/err' },
     baseline: null,
@@ -534,6 +535,23 @@ describe('the repair task', () => {
     assert.match(task, /The message in an applied check's `edits` describes what the repair changed\./);
     assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied` with `edits` naming the files that hold its edits and the `message` its commit will carry, as for an applied check\./);
     assert.match(task, /the `edits` for it, null when you made no edit for it and no earlier attempt left any, otherwise the `files` you edited or created for it, or that hold an earlier attempt's edits for it, and their `message`/);
+  });
+
+  it('says how a check cut twice ended: no result from its guard, a signal or an exit code with a kill mark (R8 of resumable runs)', () => {
+    const task = repairTask({
+      checks: [{ ...failing, exitCode: null }, { ...failing, kind: 'lint', exitCode: null, signal: 'SIGTERM' }, { ...failing, kind: 'build', exitCode: 143 }],
+      owned: ['src/a.ts'],
+      answers: [],
+      allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
+      snapshotCommand: 'snap',
+      mayHoldWork: false,
+      unfinished: [],
+      unelevatedSandbox: false,
+    });
+    assert.match(task, /^\[0\] test: npm run test\n {4}ended with no result from its guard$/m);
+    assert.match(task, /^\[1\] lint: npm run test\n {4}ended with signal SIGTERM, a kill mark$/m);
+    assert.match(task, /^\[2\] build: npm run test\n {4}ended with exit code 143, a kill mark$/m);
+    assert.doesNotMatch(task, /ended by a signal/);
   });
 
   it('gives a check that failed before the fixes too its output then, and tells the worker to fix only the failures it does not show (R24)', () => {
