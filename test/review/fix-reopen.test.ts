@@ -163,6 +163,24 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     assert.equal(git(box.repo, 'rev-parse', `${later.commits[0]!.sha}^`), open.to);
   });
 
+  it('names a staged path the series it completes does not hold, which the reopen\'s index reset unstaged, and leaves its bytes in the tree (R9 of resumable runs)', async (t) => {
+    const { box, stopped } = await stoppedRun(t);
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, beforeMove: () => {
+      throw new Error('stopped');
+    } }), /stopped/);
+    const open = box.checkpoint.fold(stopped.id).review!.fix!.openSeries!;
+    git(box.repo, 'update-ref', 'refs/heads/main', open.to, open.from);
+    // A person stages a file of their own before the command that reopens the run.
+    write(box.repo, 'notes.txt', 'mine\n');
+    git(box.repo, 'add', 'notes.txt');
+    reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
+    const completed = box.logs.indexOf(`run ${stopped.id}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the 1 commit it made is recorded now`);
+    assert.ok(completed >= 0, box.logs.join('\n'));
+    assert.equal(box.logs[completed + 1], `run ${stopped.id}: staged paths no commit holds were unstaged and are unchanged in the tree: notes.txt`);
+    assert.equal(git(box.repo, 'diff', '--cached', '--name-only'), '', 'nothing stays staged');
+    assert.equal(readFileSync(join(box.repo, 'notes.txt'), 'utf8'), 'mine\n');
+  });
+
   it('is resumed, not reopened again nor joined by a new run, when another engine reopened it between the find and the lock', async (t) => {
     const { box, stopped } = await stoppedRun(t);
     const { checkpoint, acted } = afterFind(box.checkpoint, (target) => {

@@ -238,7 +238,7 @@ On Windows, a detached guard has no console. A Ctrl-C in the console of the engi
 
 `commit` appends `commits.prepared@1`, with the head that it starts from, the head that it makes and each commit, before it moves the branch. After `update-ref` and `git reset -q`, it appends `commits.created@1`, as today. The fold keeps a prepared series with no `commits.created` as open, and `runHead` does not move for it.
 
-Each command that reads `runHead` first settles an open series: `commit`, `answer`, and a `review --fix` that reopens the run. If `HEAD` is at the head that the series makes, the command runs `git reset -q` and appends `commits.created@1`. If `HEAD` is at the head that it starts from, the command appends `commits.dropped@1`, and the series can be built again. If `HEAD` is at another commit, the command refuses, and it names both heads.
+Each command that reads `runHead` first settles an open series: `commit`, `answer`, and a `review --fix` that reopens the run. If `HEAD` is at the head that the series makes, the command runs `git reset -q` and appends `commits.created@1`. It names each staged path that no commit of the series holds, which the reset unstaged and left as it is in the tree, as `commit` names them for a series that it completes itself. If `HEAD` is at the head that it starts from, the command appends `commits.dropped@1`, and the series can be built again. If `HEAD` is at another commit, the command refuses, and it names both heads.
 
 ### A lost attempt records only its own work (R10)
 

@@ -52,7 +52,7 @@ import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { foldedWith } from './claim-events.ts';
 import { continueCommand, namedRoles } from './continue-command.ts';
-import { headOf, resetIndex, seriesSettleOf } from './commit.ts';
+import { headOf, resetSettledIndex, seriesSettleOf, unstagedLine } from './commit.ts';
 import { attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
@@ -1242,9 +1242,10 @@ async function reopenRun(runs: readonly RunState[], context: OpenContext): Promi
     const limits = limitsInForce(configuration, context.flags, context.adapter);
     const current = run.review!.limits;
     const changed = current.concurrency !== limits.concurrency || current.runBudgetUsd !== limits.runBudgetUsd;
-    if (settle !== null && settle.kind === 'complete') resetIndex(context.worktree);
+    const unstaged = settle !== null && settle.kind === 'complete' ? resetSettledIndex(run, settle.series, context.worktree) : [];
     const state = append(checkpoint, run, [...settling, { kind: 'fix.reopened', version: 1, payload: { units } satisfies FixReopened }, ...(changed ? [{ kind: 'limits.changed', version: 1, payload: limits }] : [])]);
     if (settle !== null && settle.kind !== 'elsewhere') log(settle.line);
+    if (unstaged.length > 0) log(unstagedLine(run.id, unstaged));
     log(`run ${run.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => unit.phase === 'repair' ? 'the repair' : `batch ${unit.key}`).join(', ')}; ${spendWords(budgetSpendOf(run, context.adapter).usd, limits.runBudgetUsd)}`);
     return { kind: 'reopened', state, release };
   } catch (error) {
