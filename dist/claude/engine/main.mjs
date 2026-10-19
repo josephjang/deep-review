@@ -262,6 +262,7 @@ async function runGuard(argv) {
       child.once("close", (exitCode, signal) => {
         if (!started || settled2) return;
         writeResult(resultFile, { termination: "exited", exitCode, signal });
+        if (process.platform !== "win32") endOwnGroup();
         settle3(exitCode ?? 1);
       });
       const engineGone = () => {
@@ -287,6 +288,12 @@ function killGuardedTree(child) {
     process.kill(-process.pid, "SIGKILL");
   } catch {
     killTreeNow(child);
+  }
+}
+function endOwnGroup() {
+  try {
+    process.kill(-process.pid, "SIGKILL");
+  } catch {
   }
 }
 function writeResult(resultFile, result) {
