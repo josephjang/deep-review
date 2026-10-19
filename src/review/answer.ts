@@ -171,6 +171,16 @@ async function requirePassable(run: RunState, options: AnswerOptions, owed: read
   await requirePinned(run, { ...options, adapter });
 }
 
+/** The run once a series of commits a stop left open is settled (`settleOpenSeries`), its refusal saying, as every refusal after the append does, that the answer is recorded. */
+function settled(checkpoint: Checkpoint, run: RunState, worktree: string, log: (line: string) => void): RunState {
+  try {
+    return settleOpenSeries(checkpoint, run, worktree, log).run;
+  } catch (error) {
+    if (error instanceof ReviewRefusedError) throw new ReviewRefusedError(`${error.message}; the answer is recorded; run deep-review answer again with the same answer to apply it`, error.code);
+    throw error;
+  }
+}
+
 /**
  * Record a person's answer, and on a run that fixed open the answer pass
  * that applies every answer owing an edit (R1 to R6 of answers): under
@@ -223,7 +233,7 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       const ids = owed.map((answer) => answer.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
       if (ids.length === 0) return outcome('nothing-owed', run);
       // The pass is held to the run's head, which a series of commits a stop left open has not moved yet (R9 of resumable runs).
-      run = settleOpenSeries(checkpoint, run, worktree, options.log).run;
+      run = settled(checkpoint, run, worktree, options.log);
       await requirePassable(run, options, owed);
       return outcome('pass', checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.pass', version: 1, payload: { ids } }]));
     } finally {

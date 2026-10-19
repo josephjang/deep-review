@@ -257,8 +257,27 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const recorded = await answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { recordOnly: true }));
     assert.equal(recorded.next, 'record-only', 'recording reads no head');
     assert.deepEqual(box.run().review!.fix!.openSeries, open, 'the series stays open for the command that reads the head');
-    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^a commit of run ${finished.id} that a stop cut short was moving HEAD from ${open.from} to ${open.to}, and HEAD is [0-9a-f]+, at neither; `)));
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^a commit of run ${finished.id} that a stop cut short was moving HEAD from ${open.from} to ${open.to}, and HEAD is [0-9a-f]+, at neither; [^\\n]*; the answer is recorded; run deep-review answer again with the same answer to apply it$`)));
     assert.equal(box.run().review!.answerPasses.length, 0);
+  });
+
+  it('says a first answer is recorded when HEAD at neither head of a series a stop cut short refuses its pass (R9 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t, answerable);
+    reportText(await box.fix('claude'));
+    const finished = box.run();
+    const { question } = findingsOf(finished);
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, beforeMove: () => {
+      throw new Error('stopped');
+    } }), /stopped/);
+    const open = box.run().review!.fix!.openSeries!;
+    write(box.repo, 'notes.md', 'a note\n');
+    commitAll(box.repo, 'docs: Add a note');
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { note: 'b needs the import' })), refused(new RegExp(`^a commit of run ${finished.id} that a stop cut short was moving HEAD from ${open.from} to ${open.to}, and HEAD is [0-9a-f]+, at neither; [^\\n]*; the answer is recorded; run deep-review answer again with the same answer to apply it$`)));
+    const after = box.run();
+    assert.equal(after.review!.answers.length, 1, 'the answer is recorded');
+    assert.equal(after.review!.answers[0]!.note, 'b needs the import');
+    assert.equal(after.review!.answerPasses.length, 0);
+    assert.deepEqual(after.review!.fix!.openSeries, open, 'the series stays open');
   });
 
   it('refuses the pass at the run budget before anything opens, naming --budget-usd, and blocks the pass\'s fixer on two failures until review completes it (R5, R6, TD8)', async (t) => {
