@@ -324,7 +324,7 @@ export function seriesSettleOf(run: RunState, head: string): SeriesSettle | null
 /** The commit `HEAD` names in `worktree`. */
 export const headOf = (worktree: string): string => git(worktree, ['rev-parse', 'HEAD']).trim();
 
-/** Reset the index to `HEAD`, as `commit` does once the branch moved; not cut short, since the ledger must then record what the branch holds. */
+/** Reset the index to `HEAD` once a series moved the branch; not cut short, since the ledger must then record what the branch holds, and it waits on neither a lock nor a remote. */
 export function resetIndex(worktree: string): void {
   git(worktree, ['reset', '-q'], { timeout: 0 });
 }
@@ -498,8 +498,7 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
       if (failure instanceof ReviewRefusedError) checkpoint.append(run.id, prepared.lastSequence, [{ kind: 'commits.dropped', version: 1, payload: { from: payload.from, to: payload.to } }]);
       throw failure;
     }
-    // The ref has moved and the ledger must still record the commits, so the reset is not cut short; it waits on neither a lock nor a remote.
-    git(worktree, ['reset', '-q'], { timeout: 0 });
+    resetIndex(worktree);
     checkpoint.append(run.id, prepared.lastSequence, [{ kind: 'commits.created', version: 1, payload }]);
     return { runId: run.id, commits: made.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: staged };
   } finally {
