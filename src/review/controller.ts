@@ -586,18 +586,15 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      * Write back what a check a kill cut short left changed in the files the
      * run expects (R7, TD7 of resumable runs): `tree.restored` first, after
      * the events `before` gives, in one append, with what the tree held
-     * frozen as evidence, then the expected bytes, then the check of the
-     * tree, recorded with the moment `restored`. A stop between the record
-     * and the writes leaves the drift, which the next start writes back
-     * again.
+     * frozen as evidence, then the expected bytes. The check of the tree
+     * after it, with the moment `restored`, is the planner's next step, as
+     * after a write back a stop interrupted. A stop between the record and
+     * the writes leaves the drift, which the next start writes back again.
      */
     const restore = (phase: CheckPhase, attempt: number, check: CutShortCheck, files: readonly RestoredFile[], before: readonly NewEvent[] = []): void => {
       state = append(checkpoint, state, [...before, { kind: 'tree.restored', version: 1, payload: { phase, attempt, check, files: [...files] } satisfies TreeRestored }]);
       writeBack(options.worktree, files, (reference) => checkpoint.evidence.read(reference));
       for (const file of files) log(`check ${check.kind} (${phase}): wrote back ${file.path}, which it changed before a kill cut it short in attempt ${String(check.attempt)}; the bytes before are ${file.before === null ? 'none, the file was absent' : 'blob' in file.before ? `at ${checkpoint.evidence.pathOf(file.before.blob)}` : `${file.before.oversized.sha256}, too large to have been kept`}`);
-      const { payload } = phaseCheck(state, options.worktree, phase, attempt, 'restored', content.match);
-      if (payload.drifted) log(`phase ${phase}: the worktree still differs from what the run expects after the write back: ${driftList(payload)}`);
-      state = append(checkpoint, state, [{ kind: 'worktree.checked', version: 6, payload }]);
     };
     /**
      * Run one due check, or record it skipped, and append what it did: its
@@ -667,7 +664,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         case 'check-worktree': {
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
           const { payload: check, unlisted } = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
-          if (check.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check)}`);
+          if (check.drifted) log(`phase ${step.phase}: the worktree ${step.moment === 'restored' ? 'still differs from what the run expects after the write back' : 'drifted from what the run expects'}: ${driftList(check)}`);
           if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}${unlisted === 0 ? '' : `, and ${String(unlisted)} more the check does not list`}`);
           // Only version 6 records the check after a write back; every other check stays at version 5, which a read-only run's older reader declares.
           state = append(checkpoint, state, [{ kind: 'worktree.checked', version: step.moment === 'restored' ? 6 : 5, payload: check }]);
