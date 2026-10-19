@@ -11,7 +11,7 @@
  * replacement is told to expect; the check at the phase's end compares
  * every expected file.
  */
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { maxStraysPerCheck, type TreeRestored, type WorktreeCheckV6 } from '../checkpoint/events.ts';
 import { isNotAttempted, ownedFiles, runHead } from '../checkpoint/fix-state.ts';
@@ -110,22 +110,67 @@ export function restoredFiles(state: RunState, worktree: string, match: Expected
   });
 }
 
+/** A file the write back left as the tree holds it, and why. */
+export interface LeftFile {
+  readonly path: string;
+  readonly reason: string;
+}
+
 /**
  * Write back the bytes the run expects at each file (R7 of resumable
  * runs): remove a file it expects absent, and write each other one from
- * its frozen blob, a symlink as a link to its target text. A file whose
- * expected bytes were too large to keep is not written: the check of the
- * tree after the write back then finds it drifted, and the run blocks.
+ * its frozen blob, a symlink as a link to its target text. Each file is
+ * written back on its own, and one it cannot write is left as the tree
+ * holds it and returned with the reason: its expected bytes were too
+ * large to keep, a directory or another entry whose bytes were not
+ * frozen is where the file is expected, a file is where a parent
+ * directory is expected, or the write failed, such as a symlink on
+ * Windows without the privilege. The check of the tree after the write
+ * back then finds each one drifted, and the run blocks naming it.
  */
-export function writeBack(worktree: string, files: readonly RestoredFile[], read: (reference: ArtifactReference) => Buffer): void {
+export function writeBack(worktree: string, files: readonly RestoredFile[], read: (reference: ArtifactReference) => Buffer): LeftFile[] {
+  const left: LeftFile[] = [];
   for (const file of files) {
-    const absolute = join(worktree, ...file.path.split('/'));
-    if (file.expected !== null && !('blob' in file.expected)) continue;
+    const reason = writeBackFile(worktree, file, read);
+    if (reason !== null) left.push({ path: file.path, reason });
+  }
+  return left;
+}
+
+/** Write back one file, or say why it is left as the tree holds it. */
+function writeBackFile(worktree: string, file: RestoredFile, read: (reference: ArtifactReference) => Buffer): string | null {
+  if (file.expected !== null && !('blob' in file.expected)) return 'its expected bytes were too large to have been kept';
+  const bytes = file.expected === null ? null : read(file.expected.blob);
+  const absolute = join(worktree, ...file.path.split('/'));
+  try {
+    const inTheWay = entryInTheWay(worktree, file.path);
+    if (inTheWay !== null) return inTheWay;
     rmSync(absolute, { force: true });
-    if (file.expected === null) continue;
-    const bytes = read(file.expected.blob);
+    if (bytes === null) return null;
     mkdirSync(dirname(absolute), { recursive: true });
     if (file.expectedSymlink) symlinkSync(bytes.toString('utf8'), absolute);
     else writeFileSync(absolute, bytes);
+    return null;
+  } catch (error) {
+    return `writing it failed: ${(error as Error).message}`;
   }
+}
+
+/**
+ * What stands where a write back would remove or create, never removed
+ * since its bytes were never frozen: a parent of the path that is not a
+ * directory, or an entry at the path that is neither a file nor a
+ * symlink; null when nothing is in the way.
+ */
+function entryInTheWay(worktree: string, path: string): string | null {
+  const segments = path.split('/');
+  for (let depth = 1; depth < segments.length; depth += 1) {
+    const parent = segments.slice(0, depth);
+    const stat = lstatSync(join(worktree, ...parent), { throwIfNoEntry: false });
+    if (stat === undefined) return null;
+    if (!stat.isDirectory()) return `${parent.join('/')} is not a directory`;
+  }
+  const stat = lstatSync(join(worktree, ...segments), { throwIfNoEntry: false });
+  if (stat === undefined || stat.isFile() || stat.isSymbolicLink()) return null;
+  return stat.isDirectory() ? 'a directory is there' : 'an entry that is neither a file nor a symlink is there';
 }
