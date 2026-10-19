@@ -199,9 +199,21 @@ export function readGuardResult(resultFile: string): GuardResult | null {
 const guardEntry = import.meta.filename.endsWith('.ts') ? join(import.meta.dirname, '..', 'cli.ts') : import.meta.filename;
 
 /**
+ * How long past its timeout a child's guard may take to write the end of a
+ * child that ended by then, before the kill: the guard writes and renames
+ * its result only after its child closes, and a child that ended at its
+ * deadline is not a timeout. A child still running gets only this more.
+ */
+const resultGraceMs = 250;
+
+/** How often the result file is looked for during `resultGraceMs`. */
+const resultPollMs = 25;
+
+/**
  * Run one process to its end through its guard (R8 of resumable runs,
  * src/runtime/guard.ts), killing it with its whole tree at the timeout
- * (PD2, TD13). No shell is involved, so no argument is ever reinterpreted.
+ * (PD2, TD13) once its guard has left no result `resultGraceMs` past it.
+ * No shell is involved, so no argument is ever reinterpreted.
  *
  * The guard is `node <engine entry> guard <request file>`, detached on both
  * systems: on POSIX it leads a process group, which holds the child and
@@ -251,10 +263,13 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
     return await new Promise<ProcessResult>((resolve) => {
       let started = false;
       let kill: TreeKill | undefined;
-      const timer = setTimeout(() => {
-        // A result already there is a child that ended on its own, and its guard is exiting. Read only now, since `taskkill /T` ends the child before its guard, which may write the child's end in between: that end is the kill's.
-        kill = existsSync(resultFile) ? { status: 'not-running' } : killTreeNow(guard);
-      }, request.timeoutMs);
+      // A result there is a child that ended on its own, and its guard is exiting. Read only before the kill, since `taskkill /T` ends the child before its guard, which may write the child's end in between: that end is the kill's.
+      const expire = (graceLeftMs: number): void => {
+        if (existsSync(resultFile)) kill = { status: 'not-running' };
+        else if (graceLeftMs > 0) timer = setTimeout(() => expire(graceLeftMs - resultPollMs), resultPollMs);
+        else kill = killTreeNow(guard);
+      };
+      let timer = setTimeout(() => expire(resultGraceMs), request.timeoutMs);
       guard.once('spawn', () => {
         started = true;
       });

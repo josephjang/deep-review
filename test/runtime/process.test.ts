@@ -146,6 +146,25 @@ describe('runProcess', () => {
     }
   });
 
+  it('records a child that ended before its timeout as exited when its guard writes the result only after the deadline', async () => {
+    // The preload holds the guard's rename of its result until 100 ms past the deadline, long after the child ended, and within the grace.
+    const preload = join(directory, 'late-result.cjs');
+    writeFileSync(preload, [
+      'const fs = require("fs");',
+      'const rename = fs.renameSync;',
+      'fs.renameSync = (from, to) => {',
+      '  if (String(to).endsWith(".result")) while (Date.now() < Number(process.env.LATE_RESULT_AT)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);',
+      '  return rename(from, to);',
+      '};',
+      'require("module").syncBuiltinESMExports();',
+      '',
+    ].join('\n'));
+    const timeoutMs = 2000;
+    const environment = { ...process.env, NODE_OPTIONS: `--require ${preload.replaceAll('\\', '/')}`, LATE_RESULT_AT: String(Date.now() + timeoutMs + 100) };
+    const result = await runProcess(request(['-e', 'process.exit(0)'], { timeoutMs, environment }));
+    assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', 0, null], readFileSync(join(directory, 'stderr'), 'utf8'));
+  });
+
   it('listens for the engine ending only while a worker is live', async () => {
     const signals = posix ? (['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) : [];
     const before = { exit: process.listenerCount('exit'), signals: signals.map((signal) => process.listenerCount(signal)) };
