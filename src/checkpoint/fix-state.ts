@@ -296,7 +296,9 @@ export const killedRun = (run: Pick<CheckRunState, 'outcome' | 'termination' | '
  * tree was checked again after its record (the moment `restored`); one a
  * stop cut between its record and its writes is made again. After a
  * finished one, a drift is no longer the check's, but an edit of a person
- * while no engine ran, which blocks as any drift does.
+ * while no engine ran, which blocks as any drift does. A run by an engine
+ * from before `check.started` is never one: it has no start before it, and
+ * it recorded its writes as a revision, so it explains no later drift.
  */
 export function cutShortBefore(review: Pick<ReviewState, 'phases' | 'checks'> & { readonly fix: FixState }, phase: CheckPhase): CutShortCheck | null {
   const { fix } = review;
@@ -306,9 +308,11 @@ export function cutShortBefore(review: Pick<ReviewState, 'phases' | 'checks'> & 
     const last = fix.restorations.findLast((restoration) => restoration.phase === phase && restoration.check.kind === kind && restoration.check.attempt === attempt);
     return last !== undefined && review.checks.slice(last.checksBefore).some((check) => check.phase === phase && check.attempt === last.attempt && check.moment === 'restored');
   };
+  // A start of the run's kind in its attempt recorded before it, which only a version 3 run has.
+  const started = (run: CheckRunState, index: number): boolean => fix.checks.starts[phase].some((start) => start.kind === run.kind && start.attempt === run.attempt && start.runsBefore <= index);
   // Ledger order, by the count of runs before each start, so the last one wins whatever its kind.
   const candidates = [
-    ...fix.checks.runs[phase].map((run, index) => ({ check: run, at: index + 0.5, cut: killedRun(run) })),
+    ...fix.checks.runs[phase].map((run, index) => ({ check: run, at: index + 0.5, cut: killedRun(run) && started(run, index) })),
     ...fix.checks.starts[phase].map((start) => ({ check: start, at: start.runsBefore, cut: openStart(fix, phase, start.kind, start.attempt) === start })),
   ].filter((candidate) => candidate.cut && candidate.check.attempt < current && !writtenBack(candidate.check.kind, candidate.check.attempt)).sort((a, b) => a.at - b.at);
   const last = candidates.at(-1);

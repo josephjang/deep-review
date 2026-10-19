@@ -88,9 +88,20 @@ describe('the check a kill cut short before the current attempt (R7 of resumable
     const fix = emptyFixState();
     const cutStart = { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('build', 1, 0), start('lint', 1, 1)] }, runs: { ...fix.checks.runs, 'baseline-checks': [run('baseline-checks', 'build', 'passed', 1, 0)] } } };
     assert.deepEqual(cutShortBefore(review(cutStart, 2), 'baseline-checks'), { kind: 'lint', attempt: 1 });
-    const timedOut = withRuns(fix, { 'baseline-checks': [run('baseline-checks', 'test', 'timeout', 1, 0)] });
+    const timedOut = { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('test', 1, 0)] }, runs: { ...fix.checks.runs, 'baseline-checks': [run('baseline-checks', 'test', 'timeout', 1, 0)] } } };
     assert.deepEqual(cutShortBefore(review(timedOut, 2), 'baseline-checks'), { kind: 'test', attempt: 1 });
     assert.equal(cutShortBefore(review(timedOut, 1), 'baseline-checks'), null, 'the step that ran a check of the current attempt writes it back itself');
     assert.equal(cutShortBefore(review(withRuns(fix, { 'baseline-checks': [run('baseline-checks', 'test', 'failed', 1, 0)] }), 2), 'baseline-checks'), null, 'a failure that exited is no kill');
+  });
+
+  it('never finds a run that a kill ended with no start before it, which an engine from before check.started recorded with its writes as a revision', () => {
+    const fix = emptyFixState();
+    const killed = { ...run('baseline-checks', 'test', 'failed', 1, 0), exitCode: 137 };
+    for (const legacy of [run('baseline-checks', 'test', 'timeout', 1, 0), killed]) {
+      assert.equal(cutShortBefore(review(withRuns(fix, { 'baseline-checks': [legacy] }), 2), 'baseline-checks'), null, legacy.outcome);
+      // A start of the kind in the attempt that came after the run is no start of it.
+      const startedAfter = { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('test', 1, 1)] }, runs: { ...fix.checks.runs, 'baseline-checks': [legacy, run('baseline-checks', 'test', 'passed', 1, 0)] } } };
+      assert.equal(cutShortBefore(review(startedAfter, 2), 'baseline-checks'), null, `${legacy.outcome}, started after`);
+    }
   });
 });

@@ -420,6 +420,15 @@ describe('nextStep in the checks after a stop (R3, R7, TD11 of resumable runs)',
     assert.ok(blocked(nextStep(restart(timedOut, 'baseline-checks', 2, [drifted]).review(), idle)), JSON.stringify(nextStep(timedOut.review(), idle)));
   });
 
+  it('blocks on a drift at a later start after a check a version 2 run recorded as killed, whose writes its revision holds', () => {
+    const blocked = (step: Step): boolean => step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'drift';
+    for (const run of [checkRun('baseline-checks', 'lint', 'timeout', 1), { ...checkRun('baseline-checks', 'lint', 'failed', 1), exitCode: 137 }]) {
+      const legacy = inBaseline().add('check.ran', run, 2);
+      const step = nextStep(restart(legacy, 'baseline-checks', 2, [drifted]).review(), idle);
+      assert.ok(blocked(step), JSON.stringify(step));
+    }
+  });
+
   it('still blocks on a drift of HEAD, on one no cut check explains, on one whose bytes were too large to keep, and on one left after a write back', () => {
     const blocked = (step: Step): boolean => step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'drift';
     const cut = (): History => inBaseline().add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'lint', command: 'npm run lint' });
