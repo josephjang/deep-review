@@ -136,13 +136,25 @@ export function parseGuardRequest(text: string): GuardRequest {
   return { executable: value.executable, args: value.args, cwd: value.cwd, stdinFile: value.stdinFile, verbatimArguments: value.verbatimArguments };
 }
 
-/** The guard's result, read once its process closed, or null when it left none. */
-function readGuardResult(resultFile: string): GuardResult | null {
+/**
+ * The guard's result, read once its process closed, or null when it left
+ * none it could finish: no file, or one that holds no end of its child.
+ * The guard writes the file whole through a rename, so only a guard ended
+ * mid-write leaves a part of one, under another name; a result read as
+ * none is a guard a kill from outside ended, whose child ran, which the
+ * caller records as cut rather than as a process that never started.
+ */
+export function readGuardResult(resultFile: string): GuardResult | null {
   if (!existsSync(resultFile)) return null;
-  const value = JSON.parse(readFileSync(resultFile, 'utf8')) as Partial<GuardResult> | null;
-  if (value?.termination === 'exited') return { termination: 'exited', exitCode: value.exitCode ?? null, signal: value.signal ?? null };
+  let value: Partial<GuardResult> | null;
+  try {
+    value = JSON.parse(readFileSync(resultFile, 'utf8')) as Partial<GuardResult> | null;
+  } catch {
+    return null;
+  }
+  if (value?.termination === 'exited' && (typeof value.exitCode === 'number' || value.exitCode === null) && (typeof value.signal === 'string' || value.signal === null)) return { termination: 'exited', exitCode: value.exitCode, signal: value.signal };
   if (value?.termination === 'not-started' && typeof value.error === 'string') return { termination: 'not-started', error: value.error };
-  throw new Error(`The guard's result file ${resultFile} holds no end of its child`);
+  return null;
 }
 
 /**
@@ -200,7 +212,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
       return notStarted((error as Error).message, startedAt);
     }
     superviseChild(guard);
-    return await new Promise<ProcessResult>((resolve, reject) => {
+    return await new Promise<ProcessResult>((resolve) => {
       let started = false;
       let kill: TreeKill | undefined;
       const timer = setTimeout(() => {
@@ -223,14 +235,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         clearTimeout(timer);
         guard.stdin?.destroy();
         const endedAt = new Date().toISOString();
-        let result: GuardResult | null;
-        try {
-          result = readGuardResult(resultFile);
-        } catch (error) {
-          // A result the guard wrote whole but the engine cannot read is the engine's own fault, as an output file it cannot open is.
-          reject(error as Error);
-          return;
-        }
+        const result = readGuardResult(resultFile);
         // A child that ended on its own just as the timer fired was not killed.
         if (kill !== undefined && kill.status !== 'not-running') resolve({ termination: 'killed', exitCode: code, signal, treeKillError: kill.status === 'root-only' ? kill.error : null, startedAt, endedAt });
         else if (result?.termination === 'exited') resolve({ termination: 'exited', exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
@@ -245,6 +250,8 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
     for (const descriptor of descriptors) closeSync(descriptor);
     rmSync(requestFile, { force: true });
     rmSync(resultFile, { force: true });
+    // What a guard ended mid-write left of its result.
+    rmSync(`${resultFile}.partial`, { force: true });
   }
 }
 

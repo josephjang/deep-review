@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, wri
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { guardResultFile, parseGuardRequest, type GuardRequest, type GuardResult } from '../../src/runtime/process.ts';
+import { guardResultFile, parseGuardRequest, readGuardResult, type GuardRequest, type GuardResult } from '../../src/runtime/process.ts';
 import { isAlive, until } from '../helpers/launcher.ts';
 import { processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
 
@@ -131,5 +131,32 @@ describe('parseGuardRequest', () => {
       assert.throws(() => parseGuardRequest(JSON.stringify(broken)), /the guard request does not hold/, JSON.stringify(broken));
     }
     assert.throws(() => parseGuardRequest('not json'), SyntaxError);
+  });
+});
+
+describe('readGuardResult', () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'deep-review-guard-result-'));
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('reads how the child ended, or that it never started', () => {
+    const file = join(directory, 'result');
+    writeFileSync(file, JSON.stringify({ termination: 'exited', exitCode: 3, signal: null }));
+    assert.deepEqual(readGuardResult(file), { termination: 'exited', exitCode: 3, signal: null });
+    writeFileSync(file, JSON.stringify({ termination: 'not-started', error: 'spawn ENOENT' }));
+    assert.deepEqual(readGuardResult(file), { termination: 'not-started', error: 'spawn ENOENT' });
+  });
+
+  it('reads no result, as a guard a kill ended, from no file or one that holds no end of a child, rather than throw', () => {
+    assert.equal(readGuardResult(join(directory, 'absent')), null);
+    const file = join(directory, 'result');
+    for (const text of ['', '{"termination":"exi', 'null', '[]', '{"termination":"exited"}', '{"termination":"exited","exitCode":"3","signal":null}', '{"termination":"not-started"}', '{"termination":"killed","exitCode":1,"signal":null}']) {
+      writeFileSync(file, text);
+      assert.equal(readGuardResult(file), null, text);
+    }
   });
 });
