@@ -298,12 +298,11 @@ export function cutShortChecks(fix: FixState, phase: CheckPhase): readonly (Chec
   const starts = fix.checks.starts[phase];
   // A start of the run's kind in its attempt recorded before it, which only a version 3 run has.
   const started = (run: CheckRunState, index: number): boolean => starts.some((start) => start.kind === run.kind && start.attempt === run.attempt && start.runsBefore <= index);
-  // Ledger order, by the count of runs before each check, a run's index or a start's `runsBefore`, and then a start first: a start with k runs before it came before the run at index k.
-  const order = { start: 0, run: 1 } as const;
+  // Ledger order, by the count of runs before each start, so a start sorts between the runs either side of it.
   return [
-    ...fix.checks.runs[phase].flatMap((run, index) => (killedRun(run) && started(run, index) ? [{ check: run, runsBefore: index, order: order.run }] : [])),
-    ...starts.flatMap((start) => (openStart(fix, phase, start.kind, start.attempt) === start ? [{ check: start, runsBefore: start.runsBefore, order: order.start }] : [])),
-  ].sort((a, b) => a.runsBefore - b.runsBefore || a.order - b.order).map((candidate) => candidate.check);
+    ...fix.checks.runs[phase].flatMap((run, index) => (killedRun(run) && started(run, index) ? [{ check: run, at: index + 0.5 }] : [])),
+    ...starts.flatMap((start) => (openStart(fix, phase, start.kind, start.attempt) === start ? [{ check: start, at: start.runsBefore }] : [])),
+  ].sort((a, b) => a.at - b.at).map((candidate) => candidate.check);
 }
 
 /**
