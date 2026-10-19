@@ -914,6 +914,13 @@ describe('workerVerdict', () => {
     assert.deepEqual(workerVerdict(invocation, exited(1), answer), { outcome: 'failed', error: 'The worker exited with code 1', output: null });
   });
 
+  it('names how a guard that left no result ended in the error of the cut (R8 of resumable runs)', () => {
+    const crashed: ProcessResult = { termination: 'exited', exitCode: null, signal: null, guardEnd: { exitCode: 1, signal: null }, startedAt: at, endedAt: at };
+    const killed: ProcessResult = { ...crashed, guardEnd: { exitCode: null, signal: 'SIGKILL' } };
+    assert.deepEqual(workerVerdict(invocation, crashed, answer), { outcome: 'failed', error: 'The worker ended with no result from its guard, which exited with code 1: a kill from outside the engine', output: null, cause: 'cut' });
+    assert.deepEqual(workerVerdict(invocation, killed, answer), { outcome: 'failed', error: 'The worker ended with no result from its guard, which ended by signal SIGKILL: a kill from outside the engine', output: null, cause: 'cut' });
+  });
+
   it('fails a worker the provider\'s usage limit stopped with the cause limit, as the runtime words it (R14 of resumable runs)', () => {
     const error = 'Claude Code reported a usage limit of the provider, which resets 1pm: the words';
     assert.deepEqual(workerVerdict(invocation, exited(1), { kind: 'limit', error, reset: '1pm' }), { outcome: 'failed', error, output: null, cause: 'limit' });

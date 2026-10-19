@@ -37,6 +37,13 @@ export type ProcessResult =
        */
       readonly exitCode: number | null;
       readonly signal: string | null;
+      /**
+       * How the guard itself ended when it left no result: the exit code
+       * or the signal Node reported for it, so an error can say whether a
+       * kill ended it or it exited by itself. Absent when the guard left a
+       * result, and in a ledger record, which never holds it.
+       */
+      readonly guardEnd?: GuardEnd;
       readonly startedAt: string;
       readonly endedAt: string;
     }
@@ -72,8 +79,14 @@ export type ProcessResult =
  */
 export const killMarkCodes: readonly number[] = [129, 130, 131, 137, 143, 3221225786];
 
-/** The end of a child as a kill mark reads it, live or as the ledger recorded it. */
-type ChildEnd = { readonly termination: ProcessResult['termination'] | null; readonly exitCode: number | null; readonly signal: string | null };
+/** How a guard that left no result ended, as Node reported its exit. */
+export interface GuardEnd {
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+}
+
+/** The end of a child as a kill mark reads it, live or as the ledger recorded it, with how its guard ended when that is known. */
+type ChildEnd = { readonly termination: ProcessResult['termination'] | null; readonly exitCode: number | null; readonly signal: string | null; readonly guardEnd?: GuardEnd };
 
 /**
  * Whether a child that exited was ended by a kill from outside the engine:
@@ -87,11 +100,21 @@ export function endedByKill(end: ChildEnd): boolean {
   return end.signal !== null || end.exitCode === null || killMarkCodes.includes(end.exitCode);
 }
 
-/** How a child a kill from outside ended, as a log line or an error names it: the signal or the exit code it left, or no result from its guard. */
+/**
+ * How a child a kill from outside ended, as a log line or an error names
+ * it: the signal or the exit code it left, or no result from its guard,
+ * with how the guard ended when the live result knows it.
+ */
 export function killMarkWords(end: ChildEnd): string {
   if (end.signal !== null) return `signal ${end.signal}, a kill mark`;
-  if (end.exitCode === null) return 'no result from its guard';
+  if (end.exitCode === null) return end.guardEnd === undefined ? 'no result from its guard' : `no result from its guard, which ${guardEndWords(end.guardEnd)}`;
   return `exit code ${String(end.exitCode)}, a kill mark`;
+}
+
+/** How a guard that left no result ended, as words: by a signal, or by an exit of its own with a code. */
+function guardEndWords(end: GuardEnd): string {
+  if (end.signal !== null) return `ended by signal ${end.signal}`;
+  return end.exitCode === null ? 'ended with no exit code and no signal' : `exited with code ${String(end.exitCode)}`;
 }
 
 /** The result for a process that never existed, and why; it ended when the attempt did, `endedAt` by default now. */
@@ -178,7 +201,9 @@ const guardEntry = import.meta.filename.endsWith('.ts') ? join(import.meta.dirna
  * when that pipe closes, so a child does not outlive an engine killed
  * outright. The end of the child comes from the guard's result file; a
  * guard that left none, and that the engine did not kill, was killed from
- * outside, and the result says so with an exit code and a signal both null.
+ * outside, and the result says so with an exit code and a signal both null,
+ * and keeps how the guard itself ended in `guardEnd`, since a guard that
+ * crashed or could not load leaves no result either.
  *
  * While it runs it is also killed with its tree if the engine exits or,
  * on POSIX, is interrupted by a signal: its own process group keeps a
@@ -242,7 +267,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         else if (result?.termination === 'not-started') resolve(notStarted(result.error, startedAt, endedAt));
         else {
           endLeftGroup(guard.pid!);
-          resolve({ termination: 'exited', exitCode: null, signal: null, startedAt, endedAt });
+          resolve({ termination: 'exited', exitCode: null, signal: null, guardEnd: { exitCode: code, signal }, startedAt, endedAt });
         }
       });
     });

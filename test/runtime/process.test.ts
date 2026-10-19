@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
+import { killMarkWords, killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
 import { isAlive, until } from '../helpers/launcher.ts';
 import { probeGrandchildPidFile, processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
 
@@ -89,6 +89,9 @@ describe('runProcess', () => {
       process.kill(pids.parent, 'SIGKILL');
       const result = await running;
       assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', null, null]);
+      // Windows ends a process killed by its pid with exit code 1, and reports no signal.
+      assert.deepEqual(result.termination === 'exited' ? result.guardEnd : 'not exited', posix ? { exitCode: null, signal: 'SIGKILL' } : { exitCode: 1, signal: null });
+      assert.equal(killMarkWords(result), posix ? 'no result from its guard, which ended by signal SIGKILL' : 'no result from its guard, which exited with code 1');
       // The guard's job ends the worker on Windows; on POSIX the engine kills the group the guard led, the grandchild with it.
       await until(() => !isAlive(pids.worker), `worker ${String(pids.worker)} to die`, 10_000);
       if (posix) await until(() => !isAlive(pids.grandchild), `grandchild ${String(pids.grandchild)} to die`, 10_000);
@@ -97,6 +100,21 @@ describe('runProcess', () => {
       reap(pids.worker);
       reap(pids.grandchild);
     }
+  });
+
+  it('keeps the exit of a guard that exited by itself with no result, such as one whose preload cannot load (R8 of resumable runs)', async () => {
+    const missing = join(directory, 'no-such-preload.cjs').replaceAll('\\', '/');
+    const result = await runProcess(request(['-e', ''], { environment: { ...process.env, NODE_OPTIONS: `--require ${missing}` } }));
+    assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', null, null], 'still read as no result from its guard');
+    assert.deepEqual(result.termination === 'exited' ? result.guardEnd : 'not exited', { exitCode: 1, signal: null });
+    assert.equal(killMarkWords(result), 'no result from its guard, which exited with code 1');
+    assert.match(readFileSync(join(directory, 'stderr'), 'utf8'), /no-such-preload\.cjs/);
+  });
+
+  it('records no guard end for a process whose guard left a result', async () => {
+    const result = await runProcess(request(['-e', 'process.exit(143)']));
+    assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', 143, null]);
+    assert.equal(result.termination === 'exited' ? result.guardEnd : 'not exited', undefined);
   });
 
   it('kills the process with its whole tree at the timeout and says the whole tree was reached', async () => {

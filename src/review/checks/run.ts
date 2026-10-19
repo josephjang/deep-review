@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceStore, ArtifactReference } from '../../evidence/store.ts';
 import { pinVariables, workerEnvironment } from '../../runtime/environment.ts';
-import { endedByKill, notStarted, runProcess, type ProcessResult } from '../../runtime/process.ts';
+import { endedByKill, killMarkWords, notStarted, runProcess, type ProcessResult } from '../../runtime/process.ts';
 import type { CheckOutcome } from '../vocabulary.ts';
 
 /** How a check that ran ended: its command exited 0, a kill from outside ended it, it exited otherwise, ran past its timeout, or never started. `skipped` is recorded for a check the planner never ran. */
@@ -118,7 +118,7 @@ function checkError(result: ProcessResult, timeoutMs: number): string | null {
   if (result.termination === 'killed') {
     return result.treeKillError === null ? null : `The check ran past its timeout of ${String(timeoutMs)} ms and was killed, but only its root: ${result.treeKillError}; descendants may still run`;
   }
-  if (result.exitCode === null && result.signal === null) return 'The check ended with no result from its guard: a kill from outside the engine ended the guard';
+  if (result.exitCode === null && result.signal === null) return `The check ended with ${killMarkWords(result)}, read as a kill from outside the engine`;
   return null;
 }
 

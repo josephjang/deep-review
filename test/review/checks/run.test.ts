@@ -132,6 +132,13 @@ describe('runCheck', { timeout: 120_000 }, () => {
     assert.notEqual(missing.exitCode, 0);
   });
 
+  it('cuts a check whose guard exited by itself with no result, and names how the guard ended in its error (R8 of resumable runs)', async () => {
+    const missing = join(directory, 'no-such-preload.cjs').replaceAll('\\', '/');
+    const result = await runCheck(evidence, request(node(script('pass.mjs', 'process.exit(0);\n')), { environment: { ...baseEnvironment, NODE_OPTIONS: `--require ${missing}` } }));
+    assert.deepEqual([result.outcome, result.termination, result.exitCode, result.signal], ['cut', 'exited', null, null]);
+    assert.equal(result.error, 'The check ended with no result from its guard, which exited with code 1, read as a kill from outside the engine');
+  });
+
   it('runs a shell command line whole: an argument with spaces and a chain of two commands', async () => {
     const path = script('args.mjs', "process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n');\n");
     const result = await runCheck(evidence, request(`${node(path, 'one arg', 'two')} && ${node(path, 'again')}`));
