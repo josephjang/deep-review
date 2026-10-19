@@ -9,7 +9,7 @@
  */
 import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterOf, committedRevisions, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { killMarkWords } from '../runtime/process.ts';
@@ -179,11 +179,11 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
     }
   }
   fix.restorations.forEach((restoration, index) => {
-    // A write back in the step of the run a kill ended follows that run, the kinds' killed runs of the attempt in order; one at a later attempt follows a check a stop cut.
+    // A write back in the step of the run a kill ended follows that run, the kind's killed runs of the attempt in order; one at a later attempt follows the last check of its kind and attempt a kill cut short, a run or a start no run came after, as `cutShortBefore` found it.
     const { kind, attempt } = restoration.check;
     const same = (other: (typeof fix.restorations)[number]): boolean => other.phase === restoration.phase && other.check.kind === kind && other.check.attempt === attempt && other.attempt === attempt;
-    const ran = restoration.attempt !== attempt ? undefined : fix.checks.runs[restoration.phase].filter((run) => run.kind === kind && run.attempt === attempt && killedRun(run))[fix.restorations.slice(0, index).filter(same).length];
-    const after = ran?.outcome === 'timeout' ? `after ${kind} timed out` : `after a cut ${kind} check`;
+    const followed = restoration.attempt === attempt ? fix.checks.runs[restoration.phase].filter((run) => run.kind === kind && run.attempt === attempt && killedRun(run))[fix.restorations.slice(0, index).filter(same).length] : cutShortChecks(fix, restoration.phase).findLast((check) => check.kind === kind && check.attempt === attempt);
+    const after = followed !== undefined && 'outcome' in followed && followed.outcome === 'timeout' ? `after ${kind} timed out` : `after a cut ${kind} check`;
     for (const file of restoration.files) {
       const before = file.before === null ? 'it did not exist before' : 'oversized' in file.before ? 'the bytes before were too large to keep' : `the bytes before are at ${evidencePath(file.before.blob)}`;
       lines.push(`- Written back ${after} in ${restoration.phase}: ${inlineText(file.path)}; ${before}.`);

@@ -338,6 +338,20 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     assert.deepEqual(lines({ restorations }), [`- Written back after a cut test check in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`, '- Written back after a cut test check in checks: src/new.ts; it did not exist before.']);
   });
 
+  it('names a write back made again at a later attempt by the check it followed: a timeout, or a start a stop cut after it', () => {
+    const blob = reference('7');
+    const restoration = (at: number) => ({ phase: 'checks' as const, attempt: at, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: { blob }, beforeSymlink: false, expected: null, expectedSymlink: false }] });
+    const start = (runsBefore: number) => ({ phase: 'checks' as const, attempt: 1, kind: 'test' as const, command: 'npm test', runsBefore });
+    const timedOut = run({ kind: 'test', attempt: 1, outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL' }, 1200);
+    const written = (after: string): string => `- Written back ${after} in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`;
+    // A stop cut the timeout's own write back before the tree was checked again, so the next attempt wrote it back again.
+    const checks = { ...fix.checks, runs: { ...fix.checks.runs, checks: [timedOut] }, starts: { ...fix.checks.starts, checks: [start(0)] } };
+    assert.deepEqual(lines({ checks, restorations: [restoration(1), restoration(2)] }), [written('after test timed out'), written('after test timed out')]);
+    // The timeout's second run started, and a stop cut it before its write back at the next attempt.
+    const cutAgain = { ...checks, starts: { ...checks.starts, checks: [start(0), start(1)] } };
+    assert.deepEqual(lines({ checks: cutAgain, restorations: [restoration(1), restoration(2)] }), ['- Cut by a stop: test in checks at attempt 1, with no end on record.', written('after test timed out'), written('after a cut test check')]);
+  });
+
   it('names a series of commits a stop left open, and each one the next command dropped', () => {
     const series = { commits: [{ sha: 'b'.repeat(40), revision: 0, subject: 's' }], from: 'a'.repeat(40), to: 'b'.repeat(40) };
     assert.deepEqual(lines({ openSeries: series }), [`- A stop cut \`deep-review commit\` short: its series from ${'a'.repeat(40)} to ${'b'.repeat(40)} is not recorded yet, and the next command completes it or drops it by where HEAD is.`]);
