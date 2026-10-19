@@ -586,7 +586,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'test')?.outcome, 'failed');
     assert.deepEqual(fix.checks.runs['repair-checks'], []);
     assert.equal(box.run().review!.phases['repair-checks'].status, 'completed');
-    assert.match(text, /^| test | .* | failed, [d.]+ s; output .*|$/m);
+    assert.match(text, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \|$/m);
+    assert.match(text, /^\| test \| .* \| passed, [\d.]+ s \| failed, [\d.]+ s; output [^|]+, [^|]+ \|$/m);
     assert.match(text, /^- After the repair: not run, since the repair changed no file.$/m);
   });
 
