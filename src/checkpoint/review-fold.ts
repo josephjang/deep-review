@@ -107,6 +107,18 @@ export interface UnitFailure {
   readonly cause: FailureCause;
 }
 
+/**
+ * A block for the provider's usage limit that the run resumed after (R14,
+ * R15 of resumable runs): the phase, the attempt it blocked and the
+ * blocker's detail, which names the limit and its reset. The re-entry that
+ * resumes the phase clears the failures and the blocker that said so.
+ */
+export interface LimitBlock {
+  readonly phase: Phase;
+  readonly attempt: number;
+  readonly detail: string;
+}
+
 /** A candidate as recorded, with the phase and worker it came from and what later phases decided about it. */
 export interface CandidateState extends RecordedCandidate {
   readonly phase: CandidatePhase;
@@ -157,6 +169,8 @@ export interface ReviewState extends AnswerState {
   readonly phases: Readonly<Record<Phase, PhaseState>>;
   /** Why the run is blocked and in which phase, or null; cleared by the next `phase.started`. */
   readonly blocker: (Blocker & { readonly phase: Phase }) | null;
+  /** Every block for the provider's usage limit the run resumed after, in order; the blocker of one still blocking is `blocker`. */
+  readonly limitBlocks: readonly LimitBlock[];
   readonly checks: readonly WorktreeCheckState[];
   /** The triage's one lead per finder angle, or null until the triage answers. */
   readonly leads: readonly Lead[] | null;
@@ -299,6 +313,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? 'skipped' : 'pending', attempt: 0 }])) as Record<Phase, PhaseState>,
     blocker: null,
+    limitBlocks: [],
     checks: [],
     leads: null,
     candidates: {},
@@ -404,11 +419,14 @@ const phaseStarted: Reducer<PhaseStarted> = (state, payload, event, drafts) => {
     if (status !== 'completed' && status !== 'degraded' && status !== 'skipped') throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status}`);
   }
   // A re-entry after a block gives the phase's units fresh attempts: the operator's action for worker-failed is to run again. So does a re-entry after a stop, which left the phase running (R5 of resumable runs): a failure the stop caused, a worker it killed before the engine, cannot be told from a real one, and a unit that did not settle gets its two attempts again.
+  // A block for the provider's usage limit is kept before the fresh attempts clear the failure that caused it, so the report and `status` still name it (R15 of resumable runs).
+  const limited = phase.status === 'blocked' && review.blocker?.code === 'worker-failed' && Object.values(review.units[payload.phase]).some((unit) => unit.failures.some((failure) => failure.cause === 'limit'));
+  const limitBlocks = limited ? [...review.limitBlocks, { phase: payload.phase, attempt: phase.attempt, detail: review.blocker!.detail }] : review.limitBlocks;
   let units = phase.status === 'blocked' || phase.status === 'running' ? withFreshAttempts(review, drafts, payload.phase) : review.units;
   // A re-entered survey opens its unit again, so its unit is answered only by a surveyor of the invocation that started the attempt, whose flags it was told (R6, R15, TD6, TD7 of the repository survey). Its last answer stays the run's survey, and the planner surveys again only when that answer does not settle this invocation's checks.
   if (payload.phase === 'survey' && payload.attempt > 1 && (review.fix?.checks.planned ?? null) === null) units = reopened({ ...review, units }, drafts, payload.phase, singleUnitKey(payload.phase));
   const phaseStates = { ...review.phases, [payload.phase]: { status: 'running' as const, attempt: payload.attempt } };
-  return withReview(current, { ...review, phases: phaseStates, blocker: null, units }, event);
+  return withReview(current, { ...review, phases: phaseStates, blocker: null, limitBlocks, units }, event);
 };
 
 const phaseFinished: Reducer<PhaseFinished> = (state, payload, event) => {

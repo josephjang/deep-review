@@ -1468,6 +1468,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "triage",
@@ -3398,6 +3399,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "triage",
@@ -5800,6 +5802,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -6752,6 +6755,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -7015,6 +7019,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [],
         "leads": null,
         "candidates": {},
@@ -8350,6 +8355,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -10890,6 +10896,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -13659,6 +13666,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -16065,6 +16073,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -17847,6 +17856,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -19282,6 +19292,7 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [],
         "checks": [
           {
             "phase": "survey",
@@ -21171,6 +21182,13 @@
           }
         },
         "blocker": null,
+        "limitBlocks": [
+          {
+            "phase": "fixes",
+            "attempt": 1,
+            "detail": "the fixer worker for fixes:c1-1 met the usage limit of Claude Code, which resets 12:10pm (Asia/Seoul)"
+          }
+        ],
         "checks": [
           {
             "phase": "survey",

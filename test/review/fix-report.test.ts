@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts';
-import { cutWorkerLines, renderReport } from '../../src/review/report.ts';
+import { cutWorkerLines, limitBlockLines, renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput } from '../helpers/review-history.ts';
@@ -394,5 +394,18 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     const report = renderReport({ ...state, workers }, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
     assert.ok(report.includes(`\n- Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.\n`), report);
     assert.ok(describeRun({ ...state, workers }, claudeAdapter, evidencePath).lines.includes(`Stop: Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`));
+  });
+
+  it('names each block for the provider\'s usage limit the run resumed after, in the report and in status (R14, R15 of resumable runs)', () => {
+    assert.deepEqual(limitBlockLines(state.review!), [], 'a run no limit blocked names none');
+    const detail = 'the fixer worker for fixes:c1-1 stopped at the provider\'s usage limit: resets 12:10pm\n(Asia/Seoul)';
+    const limitBlocks = [{ phase: 'fixes' as const, attempt: 1, detail }, { phase: 'fixes' as const, attempt: 2, detail: 'resets 6pm' }];
+    const blocked = { ...state, review: { ...state.review!, limitBlocks } };
+    const sentences = ['Usage limit: fixes blocked at attempt 1, and the run resumed after it: the fixer worker for fixes:c1-1 stopped at the provider\'s usage limit: resets 12:10pm (Asia/Seoul).', 'Usage limit: fixes blocked at attempt 2, and the run resumed after it: resets 6pm.'];
+    assert.deepEqual(limitBlockLines(blocked.review), sentences, 'one per block, in order, its detail on one line');
+    const report = renderReport(blocked, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+    assert.ok(report.includes(`\n- ${sentences[0]!}\n- ${sentences[1]!}\n`), report);
+    const lines = describeRun(blocked, claudeAdapter, evidencePath).lines;
+    assert.deepEqual(lines.filter((line) => line.startsWith('Stop: Usage limit: ')), sentences.map((sentence) => `Stop: ${sentence}`));
   });
 });

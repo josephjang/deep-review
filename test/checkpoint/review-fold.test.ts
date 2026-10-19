@@ -282,6 +282,26 @@ describe('the review fold', () => {
     assert.equal(review.blocker, null);
     assert.deepEqual(review.phases.triage, { status: 'running', attempt: 2 });
     assert.deepEqual(review.units.triage.SCAN, { answeredBy: null, failures: [] });
+    assert.deepEqual(review.limitBlocks, [], 'a block no usage limit caused is not kept');
+  });
+
+  it('keeps a block for the provider\'s usage limit once the run resumes past it, which clears its failure and its blocker (R14, R15 of resumable runs)', () => {
+    const blocker = { code: 'worker-failed', detail: 'the triage worker for triage:SCAN stopped at the provider\'s usage limit: resets 5pm', action: 'run again' };
+    const blocked = configured()
+      .start('triage')
+      .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(1), reason: 'session limit', fault: 'limit' }, 7)
+      .finish('triage', 'blocked', 1, blocker);
+    assert.deepEqual(blocked.review().limitBlocks, [], 'a block still blocking is the blocker, not a kept one');
+    const resumed = blocked.start('triage', 2).review();
+    assert.equal(resumed.blocker, null);
+    assert.deepEqual(resumed.units.triage.SCAN, { answeredBy: null, failures: [] });
+    assert.deepEqual(resumed.limitBlocks, [{ phase: 'triage', attempt: 1, detail: blocker.detail }]);
+    const again = blocked
+      .add('attempt.failed', { phase: 'triage', key: 'SCAN', workerId: worker(2), reason: 'session limit', fault: 'limit' }, 7)
+      .finish('triage', 'blocked', 2, { ...blocker, detail: 'resets 6pm' })
+      .start('triage', 3)
+      .review();
+    assert.deepEqual(again.limitBlocks, [{ phase: 'triage', attempt: 1, detail: blocker.detail }, { phase: 'triage', attempt: 2, detail: 'resets 6pm' }], 'each block is kept, in order');
   });
 
   it('forgets only the re-entered phase\'s failures, and keeps every other phase\'s and every answer', () => {

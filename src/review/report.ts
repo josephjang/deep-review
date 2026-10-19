@@ -186,6 +186,16 @@ export function cutWorkerLines(workers: RunState['workers']): string[] {
   });
 }
 
+/**
+ * Each block for the provider's usage limit that the run resumed after
+ * (R14, R15 of resumable runs), as bare sentences that Limitations and
+ * `status` each prefix: the re-entry that resumed the phase cleared the
+ * failure and the blocker that named it, so only these lines still do.
+ */
+export function limitBlockLines(review: Pick<ReviewState, 'limitBlocks'>): string[] {
+  return review.limitBlocks.map((block) => `Usage limit: ${block.phase} blocked at attempt ${String(block.attempt)}, and the run resumed after it: ${inlineText(block.detail)}.`);
+}
+
 function limitations(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
   for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
@@ -225,7 +235,7 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
   lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
   // What a stop did, and what the resumed run did about it (R15 of resumable runs).
-  const stops = [...cutWorkerLines(state.workers), ...(input.fix === undefined ? [] : stopLimitations(review, input.fix.evidencePath))];
+  const stops = [...cutWorkerLines(state.workers), ...limitBlockLines(review), ...(input.fix === undefined ? [] : stopLimitations(review, input.fix.evidencePath))];
   lines.push(...stops.map((line) => `- ${line}`));
   return lines;
 }

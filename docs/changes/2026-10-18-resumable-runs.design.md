@@ -206,7 +206,7 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 ### Attempts after a stop (R5)
 
-`phaseStarted` gives the units of a phase fresh attempts when the phase was `running`, as it does when the phase was `blocked`. A phase is `running` at a start only when an earlier engine stopped while the phase ran. A unit keeps each answer that it gave, and a degraded unit stays degraded. The event does not change, so this is not a new version. An older engine that folds the same ledger only keeps more failures, and it refuses nothing.
+`phaseStarted` gives the units of a phase fresh attempts when the phase was `running`, as it does when the phase was `blocked`. A phase is `running` at a start only when an earlier engine stopped while the phase ran. A unit keeps each answer that it gave, and a degraded unit stays degraded. The event does not change, so this is not a new version. An older engine that folds the same ledger only keeps more failures, and it refuses nothing. When the phase was blocked by `worker-failed` with a failure of the fault `limit` among its units, `phaseStarted` first keeps the phase, the attempt and the detail of the blocker in `limitBlocks`, since the fresh attempts clear the failure and the start clears the blocker; the report and `status` name each such block (R15).
 
 ### The end of a worker and its contribution in one append (R6)
 
@@ -326,6 +326,7 @@ The Limitations section of the report gets one line for each case of this table.
 | A check that ended with a kill mark | `- Cut: typecheck in baseline-checks ended with exit code 143, a kill mark, and ran again: passed in 3.1 s.` |
 | A check whose guard left no result | `- Cut: test in checks ended with no result from its guard, and ran again: passed in 5.2 min.` |
 | A worker that ended with a kill mark | `- Cut: the worker of finder REMOVALS ended with exit code 143, a kill mark, and ran again.` |
+| A block for the usage limit that the run resumed after | `- Usage limit: fixes blocked at attempt 1, and the run resumed after it: the fixer worker for fixes:c1-1 stopped at the provider's usage limit: Claude Code reported a usage limit of the provider, which resets 12:10pm (Asia/Seoul): You've hit your session limit.` |
 | A file that the engine wrote back | `- Written back after a cut check: src/a.ts; the bytes before are at <path>.` |
 | A file written back after a timeout | `- Written back after build timed out: dist/claude/engine/main.mjs; the bytes before are at <path>.` |
 | A file the write back left, its bytes too large to keep | `- Not written back after a cut check: assets/model.bin; its bytes in the tree were too large to keep.` |
