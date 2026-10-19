@@ -14,8 +14,14 @@ import { engineRolesRoot } from '../engine.ts';
 import { sameDirectory } from '../paths.ts';
 import { terminalQuoted } from './shell.ts';
 
-/** A word of the command as typed: bare when the terminal takes it as it is, quoted otherwise. */
-const word = (text: string): string => (/^[A-Za-z0-9._/:@^~=+-]+$/.test(text) ? text : terminalQuoted(text));
+/**
+ * A word of the command as typed: bare when cmd.exe, bash and PowerShell
+ * all take it as it is, quoted otherwise. A `^` is cmd.exe's escape, a
+ * leading `@` PowerShell's splat, a leading `~`, or one after `=` or `:`,
+ * bash's home directory, and a leading `=` zsh's command path, so a bare
+ * word holds no `^` and starts with a letter, a digit, `.`, `_` or `/`.
+ */
+const word = (text: string): string => (/^[A-Za-z0-9._/][A-Za-z0-9._/:@~=+-]*$/.test(text) && !/[=:]~/.test(text) ? text : terminalQuoted(text));
 
 /** The flags that name a captured scope as `namesScope` matches them: its mode, its ref or range, and each path. */
 function scopeFlags(scope: Pick<ScopeState, 'mode' | 'request'>): string[] {

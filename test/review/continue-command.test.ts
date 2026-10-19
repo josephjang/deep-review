@@ -19,6 +19,16 @@ describe('continueCommand (R11, R15 of resumable runs)', () => {
     assert.equal(continueCommand(withScope('range', { range: { from: 'v1', to: 'v2', mergeBase: false } }), engine, null, 1), `node "${engine}" review --runtime claude --from v1 --to v2 --fix --budget-usd 2`);
   });
 
+  it('quotes a word a terminal would read specially: a `^`, which cmd.exe drops, and a leading `@`, `~`, `=` or `-`', () => {
+    assert.equal(continueCommand(withScope('ref', { ref: 'HEAD^2' }), engine, null, 1), `node "${engine}" review --runtime claude --ref "HEAD^2" --fix --budget-usd 2`);
+    assert.equal(continueCommand(withScope('ref', { ref: '@' }), engine, null, 1), `node "${engine}" review --runtime claude --ref "@" --fix --budget-usd 2`);
+    assert.equal(continueCommand(withScope('range', { range: { from: 'HEAD~3^', to: '@', mergeBase: false } }), engine, null, 1), `node "${engine}" review --runtime claude --from "HEAD~3^" --to "@" --fix --budget-usd 2`);
+    assert.equal(
+      continueCommand(withScope('worktree', { paths: ['~/x', '~backup/notes.md', '=foo', '-x', 'a=~/b', 'src/@scope/pkg'] }), engine, null, 1),
+      `node "${engine}" review --runtime claude --worktree --path "~/x" --path "~backup/notes.md" --path "=foo" --path "-x" --path "a=~/b" --path src/@scope/pkg --fix --budget-usd 2`,
+    );
+  });
+
   it('names --roles for roles other than the engine\'s own, quoted as a terminal takes them', () => {
     assert.equal(continueCommand(withScope('last-commit'), engine, '/home/me/$roles', 1), `node "${engine}" review --runtime claude --last-commit --fix --budget-usd 2 --roles '/home/me/$roles'`);
     assert.equal(namedRoles(engineRolesRoot()), null);
