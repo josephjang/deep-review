@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -109,6 +109,22 @@ describe('runProcess', () => {
     assert.deepEqual(result.termination === 'exited' ? result.guardEnd : 'not exited', { exitCode: 1, signal: null });
     assert.equal(killMarkWords(result), 'no result from its guard, which exited with code 1');
     assert.match(readFileSync(join(directory, 'stderr'), 'utf8'), /no-such-preload\.cjs/);
+  });
+
+  it('starts the guard in the engine\'s directory, so a relative preload of NODE_OPTIONS resolves for it as for the engine', async () => {
+    const engineDirectory = join(directory, 'engine');
+    mkdirSync(engineDirectory);
+    writeFileSync(join(engineDirectory, 'preload.cjs'), 'globalThis.preloaded = true;\n');
+    const before = process.cwd();
+    process.chdir(engineDirectory);
+    try {
+      // The child runs in the same directory, so the preload resolves for it too; only the guard's directory is under test.
+      const result = await runProcess(request(['-e', 'process.stdout.write(String(globalThis.preloaded))'], { cwd: engineDirectory, environment: { ...process.env, NODE_OPTIONS: '--require ./preload.cjs' } }));
+      assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', 0, null], readFileSync(join(directory, 'stderr'), 'utf8'));
+      assert.equal(readFileSync(join(directory, 'stdout'), 'utf8'), 'true');
+    } finally {
+      process.chdir(before);
+    }
   });
 
   it('records no guard end for a process whose guard left a result', async () => {

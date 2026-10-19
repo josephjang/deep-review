@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** One worker process: what to run, where, and the files its standard streams are bound to. */
 export interface ProcessRequest {
@@ -212,7 +212,8 @@ const guardEntry = import.meta.filename.endsWith('.ts') ? join(import.meta.dirna
 export async function runProcess(request: ProcessRequest): Promise<ProcessResult> {
   const descriptors: number[] = [];
   const startedAt = new Date().toISOString();
-  const requestFile = `${request.stdoutFile}.guard.json`;
+  // Absolute, since the guard starts in the engine's directory, not the request's.
+  const requestFile = resolve(`${request.stdoutFile}.guard.json`);
   const resultFile = guardResultFile(requestFile);
   try {
     // The guard opens the input; this fails as before when it is missing, and before an output file exists.
@@ -224,8 +225,8 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
     let guard: ChildProcess;
     try {
       guard = spawn(process.execPath, [guardEntry, 'guard', requestFile], {
-        // The request's directory exists, so a missing working directory is the child's spawn error, which the guard reports.
-        cwd: dirname(requestFile),
+        // The engine's own directory, so a relative path the environment gives Node, such as a NODE_OPTIONS preload, resolves for the guard as it did for the engine. A missing working directory of the child is its spawn error, which the guard reports.
+        cwd: process.cwd(),
         env: request.environment,
         stdio: ['pipe', descriptors[0]!, descriptors[1]!],
         shell: false,
