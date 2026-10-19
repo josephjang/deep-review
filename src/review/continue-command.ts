@@ -23,19 +23,26 @@ import { terminalQuoted } from './shell.ts';
  */
 const word = (text: string): string => (/^[A-Za-z0-9._/][A-Za-z0-9._/:@~=+-]*$/.test(text) && !/[=:]~/.test(text) ? text : terminalQuoted(text));
 
+/**
+ * A flag and its value as typed: two words, or one `--flag=value` word
+ * for a value that starts with `-`, which the engine's strict parseArgs
+ * refuses as ambiguous when it follows its flag as a word of its own.
+ */
+const flagWords = (flag: string, value: string): string[] => (value.startsWith('-') ? [word(`${flag}=${value}`)] : [flag, word(value)]);
+
 /** The flags that name a captured scope as `namesScope` matches them: its mode, its ref or range, and each path. */
 function scopeFlags(scope: Pick<ScopeState, 'mode' | 'request'>): string[] {
   const { request } = scope;
-  const paths = request.paths.flatMap((path) => ['--path', word(path)]);
+  const paths = request.paths.flatMap((path) => flagWords('--path', path));
   switch (scope.mode) {
     case 'last-commit':
       return ['--last-commit', ...paths];
     case 'worktree':
       return ['--worktree', ...paths];
     case 'ref':
-      return ['--ref', word(request.ref!), ...paths];
+      return [...flagWords('--ref', request.ref!), ...paths];
     case 'range':
-      return ['--from', word(request.range!.from), '--to', word(request.range!.to), ...(request.range!.mergeBase ? ['--merge-base'] : []), ...paths];
+      return [...flagWords('--from', request.range!.from), ...flagWords('--to', request.range!.to), ...(request.range!.mergeBase ? ['--merge-base'] : []), ...paths];
   }
 }
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { parseArgs } from 'node:util';
 import type { ScopeState } from '../../src/checkpoint/events.ts';
 import { engineRolesRoot } from '../../src/engine.ts';
 import { budgetAbove, continueCommand, namedRoles } from '../../src/review/continue-command.ts';
@@ -25,8 +26,26 @@ describe('continueCommand (R11, R15 of resumable runs)', () => {
     assert.equal(continueCommand(withScope('range', { range: { from: 'HEAD~3^', to: '@', mergeBase: false } }), engine, null, 1), `node "${engine}" review --repo "/work/my repo" --runtime claude --from "HEAD~3^" --to "@" --fix --budget-usd 2`);
     assert.equal(
       continueCommand(withScope('worktree', { paths: ['~/x', '~backup/notes.md', '=foo', '-x', 'a=~/b', 'src/@scope/pkg'] }), engine, null, 1),
-      `node "${engine}" review --repo "/work/my repo" --runtime claude --worktree --path "~/x" --path "~backup/notes.md" --path "=foo" --path "-x" --path "a=~/b" --path src/@scope/pkg --fix --budget-usd 2`,
+      `node "${engine}" review --repo "/work/my repo" --runtime claude --worktree --path "~/x" --path "~backup/notes.md" --path "=foo" "--path=-x" --path "a=~/b" --path src/@scope/pkg --fix --budget-usd 2`,
     );
+  });
+
+  it('joins a value that starts with `-` to its flag, so the engine\'s strict parseArgs takes it rather than refusing it as ambiguous', () => {
+    // The words as a shell passes them on: each quoted word without its quotes.
+    const argv = (command: string): string[] => [...command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((match) => match[1] ?? match[2] ?? match[3]!).slice(2);
+    const parse = (command: string) =>
+      parseArgs({
+        args: argv(command),
+        options: { repo: { type: 'string' }, runtime: { type: 'string' }, worktree: { type: 'boolean' }, ref: { type: 'string' }, from: { type: 'string' }, to: { type: 'string' }, path: { type: 'string', multiple: true }, fix: { type: 'boolean' }, 'budget-usd': { type: 'string' } },
+        allowPositionals: true,
+        strict: true,
+      }).values;
+    const paths = continueCommand(withScope('worktree', { paths: ['-notes.md', 'src', '--x y'] }), engine, null, 1);
+    assert.equal(paths, `node "${engine}" review --repo "/work/my repo" --runtime claude --worktree "--path=-notes.md" --path src "--path=--x y" --fix --budget-usd 2`);
+    assert.deepEqual(parse(paths).path, ['-notes.md', 'src', '--x y']);
+    assert.equal(parse(continueCommand(withScope('ref', { ref: '-r' }), engine, null, 1)).ref, '-r');
+    const range = parse(continueCommand(withScope('range', { range: { from: '-a', to: '-b', mergeBase: false } }), engine, null, 1));
+    assert.deepEqual([range.from, range.to], ['-a', '-b']);
   });
 
   it('names the run\'s worktree with --repo, so the command reopens the run from any directory, quoted as a terminal takes it', () => {
