@@ -616,7 +616,11 @@ The gate found eight findings that its fixers did not see. The section "The find
 
 At `17e9906`, the suite had 2549 tests: 2525 passed, 0 failed, and 24 were skipped. `npm run verify` passed, and typecheck and lint passed at each of the 15 commits alone.
 
-CI passed at `17e9906` on the three systems: Linux in 595 seconds, macOS in 956 seconds and Windows in 1460 seconds. Then `feat/resumable-runs` moved to `17e9906` by a fast-forward, which merged #64 with the same hashes.
+CI passed at `17e9906` on the three systems, in the run of #64: Linux in 595 seconds, macOS in 956 seconds and Windows in 1460 seconds. Then `feat/resumable-runs` moved to `17e9906` by a fast-forward, which merged #64 with the same hashes.
+
+The fast-forward started a second CI run at `17e9906`, the run of #62. It failed on Windows in one test. The test kills a check at its timeout and expects the kill to reach the whole tree. `taskkill /T /F` exited with code 255, and it said `There is no running instance of the task` for one process of the tree. Thus the engine recorded a kill of the root only, and the test failed. The cause is not known yet.
+
+CI passed at `0bfa8e6` on the three systems: Linux in 378 seconds, macOS in 867 seconds and Windows in 1431 seconds.
 
 ## Risks & Migration
 
