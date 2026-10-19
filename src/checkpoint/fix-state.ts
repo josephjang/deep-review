@@ -10,7 +10,7 @@
  * below are answered from this state alone, or with the review state
  * beside it where an answer pass is concerned.
  */
-import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason } from '../review/vocabulary.ts';
+import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ClaimsLost, CommitsCreated, CommitsPrepared, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, FixReopened, PlannedCheckV2, PlannedCheckV3, RecordedDecision, ReportWritten, ScopeMode, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
 import { endedByKill } from '../runtime/process.ts';
@@ -326,6 +326,17 @@ export function cutShortBefore(review: Pick<ReviewState, 'phases' | 'checks'> & 
   };
   const last = cutShortChecks(fix, phase).findLast((check) => check.attempt < current && !writtenBack(check.kind, check.attempt));
   return last === undefined ? null : { kind: last.kind, attempt: last.attempt };
+}
+
+/**
+ * How many worktree checks the run held before the last write back of a
+ * phase's attempt (R7 of resumable runs), or -1 when the attempt has none.
+ * A write back resolves the drift of every check of its attempt indexed
+ * before it, so the planner's drift rule and the report's fate of a drift
+ * both read it here.
+ */
+export function lastRestorationAt(fix: FixState | null, phase: Phase, attempt: number): number {
+  return fix?.restorations.findLast((restoration) => restoration.phase === phase && restoration.attempt === attempt)?.checksBefore ?? -1;
 }
 
 /**

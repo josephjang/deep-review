@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -595,15 +595,14 @@ export function nextStep(review: ReviewState, live: Live): Step {
   const ofAttempt = review.checks.map((check, index) => ({ check, index })).filter(({ check }) => check.phase === phase && check.attempt === attempt);
   if (ofAttempt.length === 0) return { kind: 'check-worktree', phase, attempt, moment: 'start' };
   // A write back resolves the drift the checks before it found (R7 of resumable runs), so the drift rule reads only the checks after the attempt's last one; the tree is checked again after it.
-  const restorations = review.fix?.restorations.filter((restoration) => restoration.phase === phase && restoration.attempt === attempt) ?? [];
-  const restoredAt = restorations.at(-1)?.checksBefore ?? -1;
+  const restoredAt = lastRestorationAt(review.fix, phase, attempt);
   const checks = ofAttempt.filter(({ index }) => index >= restoredAt).map(({ check }) => check);
   if (checks.length === 0) return { kind: 'check-worktree', phase, attempt, moment: 'restored' };
   // A drift found at the attempt's start, before an answer was recorded, or at its end, blocks the attempt once every worker in flight has settled; nothing more is launched.
   const drift = checks.find((check) => check.drifted);
   if (drift !== undefined) {
     if (live.running.size > 0) return { kind: 'await' };
-    const restore = isCheckPhase(phase) && restorations.length === 0 ? restoreStep(review, phase, attempt, drift) : null;
+    const restore = isCheckPhase(phase) && restoredAt === -1 ? restoreStep(review, phase, attempt, drift) : null;
     return restore ?? { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: driftBlocker(drift, live.evidencePath) };
   }
   // A claims directory removed while the fixes phase edits stops it the same way: the units in flight are recorded as failed attempts as they end, and the phase blocks with the action that seeds the directory again (R12 of commit series integrity).

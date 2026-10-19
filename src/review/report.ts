@@ -11,7 +11,7 @@
  */
 import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend } from '../checkpoint/events.ts';
 import { standingAnswers } from '../checkpoint/answer-state.ts';
-import { budgetStoppedUnits } from '../checkpoint/fix-state.ts';
+import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
@@ -197,7 +197,7 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
   const against = review.fix === null ? 'the reviewed change' : 'what the run expected';
   const headMoved = (check: (typeof review.checks)[number]): string[] => (check.head === null ? [] : [`HEAD moved to ${check.head.actual}`]);
   // A drift a later write back of its attempt resolved came from a check a kill cut short (R7 of resumable runs); every other one blocked the run.
-  const writtenBack = ({ check, index }: (typeof drifted)[number]): boolean => review.fix?.restorations.some((restoration) => restoration.phase === check.phase && restoration.attempt === check.attempt && restoration.checksBefore > index) ?? false;
+  const writtenBack = ({ check, index }: (typeof drifted)[number]): boolean => index < lastRestorationAt(review.fix, check.phase, check.attempt);
   const blocked = drifted.filter((entry) => !writtenBack(entry)).length;
   const fate = blocked === drifted.length ? 'each blocked the run until the tree was restored' : blocked === 0 ? 'each was written back after a check a kill cut short' : `${String(drifted.length - blocked)} ${drifted.length - blocked === 1 ? 'was' : 'were'} written back after a check a kill cut short, and each other blocked the run until the tree was restored`;
   lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? `none found a difference from ${against}` : `${String(drifted.length)} found a difference in ${drifted.map(({ check }) => `${check.phase} (attempt ${String(check.attempt)}: ${[...headMoved(check), ...check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`)].join(', ')})`).join('; ')}; ${fate}`}.`);

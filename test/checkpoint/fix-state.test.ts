@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRun, repairTargets, unitRevisions, type CheckRunState, type FixState } from '../../src/checkpoint/fix-state.ts';
+import { cutShortBefore, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import type { CheckKind, CheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
@@ -103,5 +103,19 @@ describe('the check a kill cut short before the current attempt (R7 of resumable
       const startedAfter = { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('test', 1, 1)] }, runs: { ...fix.checks.runs, 'baseline-checks': [legacy, run('baseline-checks', 'test', 'passed', 1, 0)] } } };
       assert.equal(cutShortBefore(review(startedAfter, 2), 'baseline-checks'), null, `${legacy.outcome}, started after`);
     }
+  });
+});
+
+describe('the last write back of an attempt (R7 of resumable runs)', () => {
+  const restoration = (phase: CheckPhase, attempt: number, checksBefore: number): RestorationState => ({ phase, attempt, check: { kind: 'test', attempt: attempt - 1 }, files: [], checksBefore });
+
+  it('reads the checks before the attempt\'s last write back, leaving out another attempt\'s and another phase\'s', () => {
+    const fix = { ...emptyFixState(), restorations: [restoration('baseline-checks', 2, 1), restoration('baseline-checks', 2, 3), restoration('baseline-checks', 3, 5), restoration('checks', 2, 7)] };
+    assert.equal(lastRestorationAt(fix, 'baseline-checks', 2), 3);
+  });
+
+  it('holds -1 for an attempt with no write back, and for a read-only run', () => {
+    assert.equal(lastRestorationAt({ ...emptyFixState(), restorations: [restoration('baseline-checks', 2, 1)] }, 'baseline-checks', 1), -1);
+    assert.equal(lastRestorationAt(null, 'survey', 1), -1);
   });
 });

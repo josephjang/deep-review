@@ -76,6 +76,22 @@ describe('the report of a fix run', () => {
     assert.match(report, /^- Worktree checks: \d+, none found a difference from what the run expected\.$/m);
   });
 
+  it('says which drifts a later write back of their attempt resolved and which blocked the run (R7 of resumable runs)', () => {
+    const state = fixRun().fold();
+    const review = state.review!;
+    const [first, second, ...rest] = review.checks;
+    const drifted = (check: typeof first) => ({ ...check!, phase: 'baseline-checks' as const, attempt: 1, drifted: true, files: [{ path: 'src/a.ts', outcome: 'modified' as const }] });
+    const checks = [drifted(first), drifted(second), ...rest];
+    // A write back after the first check of its attempt resolves that check alone; the second came after it.
+    const fate = (checksBefore: number[]): string => {
+      const restorations = checksBefore.map((before) => ({ phase: 'baseline-checks' as const, attempt: 1, check: { kind: 'test' as const, attempt: 1 }, files: [], checksBefore: before }));
+      return render({ ...state, review: { ...review, checks, fix: { ...review.fix!, restorations } } }).split('\n').find((line) => line.startsWith('- Worktree checks: '))!;
+    };
+    assert.match(fate([]), /; each blocked the run until the tree was restored\.$/);
+    assert.match(fate([1]), /; 1 was written back after a check a kill cut short, and each other blocked the run until the tree was restored\.$/);
+    assert.match(fate([1, 2]), /; each was written back after a check a kill cut short\.$/, 'the attempt\'s last write back resolves every check before it');
+  });
+
   it('adds every editing phase\'s suite line to Limitations in phase order, naming an answer pass\'s fixer as such (R10 of answers)', () => {
     const history = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1);
     const suites = fixLimitations(history.review()).filter((line) => line.includes(' ran its own suite: '));
