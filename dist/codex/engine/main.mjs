@@ -33774,10 +33774,21 @@ function cutWorkerLines(workers) {
   const all = Object.values(workers);
   return all.flatMap((worker) => {
     if (worker.status !== "finished" || !endedByKill(worker.finish)) return [];
-    const label = worker.launch.label ?? worker.launch.workerId;
-    const again = all.some((other) => other.launch.label === worker.launch.label && other.launchedAt > worker.launchedAt);
-    return [`Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? "ran again" : "did not run again"}.`];
+    return [`Cut: the worker of ${workerLabel(worker)} ended with ${killMarkWords(worker.finish)}, and ${ranAgainWords(all, worker)}.`];
   });
+}
+function lostWorkerLines(workers, revisions) {
+  const all = Object.values(workers);
+  return all.flatMap((worker) => {
+    if (worker.status !== "lost") return [];
+    const kept = revisions.some((revision) => revision.source.kind === "attempt" && revision.source.workerId === worker.launch.workerId);
+    return [`Lost with the engine: the worker of ${workerLabel(worker)}, and ${ranAgainWords(all, worker)}${kept ? "; its edits are in a revision of its unfinished attempt" : ""}.`];
+  });
+}
+function ranAgainWords(all, worker) {
+  const label = worker.launch.label;
+  const again = label !== null && all.some((other) => other.launch.label === label && other.launchedAt > worker.launchedAt);
+  return again ? "ran again" : "did not run again";
 }
 function limitBlockLines(review2) {
   return review2.limitBlocks.map((block) => `Usage limit: ${block.phase} blocked at attempt ${String(block.attempt)}, and the run resumed after it: ${inlineText(block.detail)}.`);
@@ -33818,7 +33829,7 @@ function limitations(state, scope, review2, input2) {
   lines.push(...settingsLimitations(review2.configuration, scope).map((line) => `- ${inlineText(line)}`));
   lines.push(...surveyLimitations(review2));
   lines.push(...fixLimitations(review2));
-  const stops = [...cutWorkerLines(state.workers), ...limitBlockLines(review2), ...input2.fix === void 0 ? [] : stopLimitations(review2, input2.fix.evidencePath)];
+  const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review2.fix?.revisions ?? []), ...limitBlockLines(review2), ...input2.fix === void 0 ? [] : stopLimitations(review2, input2.fix.evidencePath)];
   lines.push(...stops.map((line) => `- ${line}`));
   return lines;
 }
@@ -33896,7 +33907,7 @@ function renderReport(state, input2) {
   const fixed = input2.fix === void 0 ? [] : fixSections(state, input2.fix.evidencePath, input2.fix.patches);
   return [header, ...decisions === null ? [] : [decisions], anglesSection, ...conventions === null ? [] : [conventions], findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join("\n").replace(/\n+$/, "")).join("\n\n") + "\n";
 }
-var codexSandboxWords, usd2, count, workersCount, costCell, rawAt, outsideChange, shortLocation, unlocatedReasons, unlocatedWording, holdsNoPath, holdsEveryPath;
+var codexSandboxWords, usd2, count, workersCount, costCell, rawAt, outsideChange, shortLocation, unlocatedReasons, unlocatedWording, holdsNoPath, holdsEveryPath, workerLabel;
 var init_report = __esm({
   "src/review/report.ts"() {
     "use strict";
@@ -33933,6 +33944,7 @@ var init_report = __esm({
     };
     holdsNoPath = () => [];
     holdsEveryPath = (path) => [path];
+    workerLabel = (worker) => worker.launch.label ?? worker.launch.workerId;
   }
 });
 
@@ -35056,7 +35068,7 @@ function describeRun(state, adapter, evidencePath, continuation = null) {
   const fix = review2 === null ? null : fixStatus(state, review2);
   const decisions = review2?.decisions === null || review2?.decisions === void 0 ? null : decisionCounts(review2.decisions);
   const continuing = continueLine(state, adapter, continuation);
-  const stops = [...cutWorkerLines(state.workers), ...review2 === null ? [] : [...limitBlockLines(review2), ...stopLimitations(review2, evidencePath)]].map((line) => `Stop: ${line}`);
+  const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review2?.fix?.revisions ?? []), ...review2 === null ? [] : [...limitBlockLines(review2), ...stopLimitations(review2, evidencePath)]].map((line) => `Stop: ${line}`);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
