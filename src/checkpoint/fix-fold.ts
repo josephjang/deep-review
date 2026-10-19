@@ -21,7 +21,7 @@
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
+import { batchOf, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { recordedSetting } from './settings-state.ts';
@@ -276,7 +276,7 @@ const checkRanV3: Reducer<CheckRan> = (state, payload, event) => {
   if (payload.replaces !== null && (standing.kind !== 'again' || standing.run.attempt !== payload.replaces.attempt || standing.run.outcome !== payload.replaces.outcome)) {
     throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} as replacing a ${payload.replaces.outcome} run at attempt ${String(payload.replaces.attempt)}, which is not its last current run`);
   }
-  if (payload.outcome === 'cut' && standing.kind === 'again' && standing.why === 'cut' && standing.run.attempt === payload.attempt) throw invalid(event, `records a second cut of the ${payload.kind} check in one attempt, which is a failure`);
+  if (secondCut(standing.kind === 'again' ? standing : null, payload.attempt, payload.outcome)) throw invalid(event, `records a second cut of the ${payload.kind} check in one attempt, which is a failure`);
   if (payload.outcome !== 'skipped' && openStart(fix, payload.phase, payload.kind, payload.attempt) === null) throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} with no start of it in attempt ${String(payload.attempt)}`);
   const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload)] };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);

@@ -269,6 +269,17 @@ export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'>
   return null;
 }
 
+/**
+ * Whether a run of a kind ending with `outcome` in `attempt` is the second
+ * cut of the kind in one attempt, which is a failure (R4 of resumable
+ * runs): it is cut, and the run it replaces (`runStanding`) was cut in the
+ * same attempt. The engine records such a run failed, and `check.ran@3`
+ * refuses one recorded cut, both by this rule.
+ */
+export function secondCut(replaces: { readonly run: Pick<CheckRunState, 'attempt'>; readonly why: Extract<RunStanding, { kind: 'again' }>['why'] } | null, attempt: number, outcome: CheckRunState['outcome']): boolean {
+  return outcome === 'cut' && replaces?.why === 'cut' && replaces.run.attempt === attempt;
+}
+
 /** The start of a kind's check at an attempt that no run of the kind at that attempt came after, or null: a check a stop cut, or one running now (R7 of resumable runs). */
 export function openStart(fix: FixState, phase: CheckPhase, kind: CheckKind, attempt: number): CheckStartState | null {
   const start = fix.checks.starts[phase].findLast((candidate) => candidate.kind === kind && candidate.attempt === attempt) ?? null;

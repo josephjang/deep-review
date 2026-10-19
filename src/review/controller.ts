@@ -22,7 +22,7 @@ import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../confi
 import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
-import { batchPosition, budgetStoppedUnits, killedRun, revisionMessageOf, routeOf, type CutShortCheck } from '../checkpoint/fix-state.ts';
+import { batchPosition, budgetStoppedUnits, killedRun, revisionMessageOf, routeOf, secondCut, type CutShortCheck } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -655,7 +655,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       const manifest = prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree);
       const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options.worktree, environment, toolsPath, timeoutMs, ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`) });
       // The second cut of a kind in one attempt is its result, a failure that names both marks (R4 of resumable runs).
-      const cutAgain = result.outcome === 'cut' && due.replaces?.why === 'cut' && due.replaces.run.attempt === attempt;
+      const cutAgain = secondCut(due.replaces, attempt, result.outcome);
       const outcome = cutAgain ? 'failed' : result.outcome;
       const error = cutAgain ? `cut twice in attempt ${String(attempt)}: it ended first with ${killMarkWords(due.replaces!.run)}, then with ${killMarkWords(result)}` : result.error;
       log(`check ${due.kind} (${phase}): ${outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${error === null ? '' : `: ${error}`}`);

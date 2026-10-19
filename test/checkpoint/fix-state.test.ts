@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
+import { cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import { checkPhases, type CheckKind, type CheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
@@ -152,6 +152,18 @@ describe('the check a kill cut short before the current attempt (R7 of resumable
     const fix = { ...cutThenPassed, restorations: [restoration] };
     assert.equal(cutShortBefore(review(fix, 3, [worktreeCheck(2, 'start', true), worktreeCheck(2, 'restored', false)]), 'baseline-checks'), null);
     assert.deepEqual(cutShortBefore(review(fix, 3, [worktreeCheck(2, 'start', true)]), 'baseline-checks'), { kind: 'test', attempt: 1 });
+  });
+});
+
+describe('the second cut of a kind in one attempt (R4 of resumable runs)', () => {
+  it('is a cut that replaces a cut of its own attempt, and nothing else', () => {
+    const cutAt = (attempt: number) => ({ run: { attempt }, why: 'cut' as const });
+    assert.equal(secondCut(cutAt(2), 2, 'cut'), true);
+    assert.equal(secondCut(cutAt(1), 2, 'cut'), false, 'a cut of an earlier attempt runs again');
+    assert.equal(secondCut(cutAt(2), 2, 'failed'), false, 'only a cut is a second cut');
+    assert.equal(secondCut({ run: { attempt: 2 }, why: 'timeout' }, 2, 'cut'), false, 'a cut after a timeout is the first cut');
+    assert.equal(secondCut({ run: { attempt: 2 }, why: 'cut-attempt' }, 2, 'cut'), false);
+    assert.equal(secondCut(null, 2, 'cut'), false, 'a first run replaces nothing');
   });
 });
 
