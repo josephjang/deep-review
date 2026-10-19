@@ -8,7 +8,6 @@ import type { Answer } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { sameDirectory } from '../../src/paths.ts';
 import { answerRun, type AnswerOptions } from '../../src/review/answer.ts';
-import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { gitContent } from '../../src/review/content.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
@@ -101,15 +100,6 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     assert.ok(text.includes(`\nReopened: the fix pass past the run budget on ${reopening.at}, after the report at ${box.checkpoint.evidence.pathOf(stopped.review!.report!.report)}\n`), text);
     assert.doesNotMatch(text, /The run budget stopped the fix pass/, 'nothing is left for the budget');
     assert.ok(!describeRun(state, claudeAdapter, () => '', { engineEntry: cliEntry, ownRolesDigest: () => '' }).lines.some((line) => line.startsWith('Continue: ')));
-  });
-
-  it('names the --check and --no-check it is given as ignored, since it keeps the checks it pinned, as a resume names them', async (t) => {
-    const { box, stopped } = await stoppedRun(t);
-    const ignored = `run ${stopped.id} keeps the checks it pinned; --check and --no-check are ignored`;
-    reportText(await box.fix('claude', { flags: { budgetUsd: 100 }, fix: flagCheckSettings({ test: 'echo other' }, ['lint']) }));
-    assert.equal(box.checkpoint.fold(stopped.id).review!.fix!.reopenings.length, 1, 'the run was reopened');
-    assert.ok(box.logs.includes(ignored), box.logs.join('\n'));
-    assert.deepEqual(box.checkpoint.fold(stopped.id).review!.fix!.checks.planned, stopped.review!.fix!.checks.planned, 'the pinned checks are kept');
   });
 
   it('refuses the same command with a budget not above the spend, or the pinned one, naming --budget-usd and --fresh, and appends nothing (R12 of resumable runs)', async (t) => {

@@ -1201,9 +1201,7 @@ const budgetStopped = (run: RunState, worktree: string): boolean =>
  * runtime, a budget in force above its spend, else a refusal that names
  * `--budget-usd` and `--fresh`, its roles digest and its executable. Only
  * then is anything written: the settle, `fix.reopened` and the limits in
- * force, in one append, so a refusal appends nothing. The reopened pass
- * keeps the checks and settings the run pinned, so the log names the
- * check flags and settings it ignores as a resume names them. A run another
+ * force, in one append, so a refusal appends nothing. A run another
  * engine reopened between the find and the lock is given as `active`,
  * for the command to resume as it resumes any active run.
  */
@@ -1249,9 +1247,6 @@ async function reopenRun(runs: readonly RunState[], context: OpenContext): Promi
     if (settle !== null && settle.kind !== 'elsewhere') log(settle.line);
     if (unstaged.length > 0) log(unstagedLine(run.id, unstaged));
     log(`run ${run.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => attemptOwner(unit.phase, unit.key)).join(', ')}; ${spendWords(budgetSpendOf(run, context.adapter).usd, limits.runBudgetUsd)}`);
-    // The reopened pass keeps the checks and settings the run pinned, as a resume does, so it names the flags and settings it does not apply as a resume names them.
-    resumedFixFlags(run, configuration, context);
-    unappliedSettings(run, configuration, { ...context, source: context.configuration });
     return { kind: 'reopened', state, release };
   } catch (error) {
     release();
@@ -1386,7 +1381,7 @@ function modelFlagsWords(runtime: string, source: ConfigurationSource | undefine
 }
 
 /**
- * What a resumed or reopened run says of `--fix`, `--check` and `--no-check`: whether
+ * What a resumed run says of `--fix`, `--check` and `--no-check`: whether
  * the run fixes is pinned at configuration (R1 of the fix pass), so a
  * read-only run names `--fix` ignored and, when it was configured with the
  * decision step and so can be continued (`continuable`), how it is
@@ -1418,8 +1413,8 @@ function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: Pi
 }
 
 /**
- * What a resumed or reopened run says of the settings as they are now
- * (R6 of the configuration): it keeps the ones it recorded, so the files are read
+ * What a resumed run says of the settings as they are now (R6 of the
+ * configuration): it keeps the ones it recorded, so the files are read
  * again only to name what changed and is not applied. A file the engine
  * cannot read now is named the same way and does not stop the resume.
  * The executable setting is resolved as a new run's would be, to compare
