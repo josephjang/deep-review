@@ -116,12 +116,34 @@ function claimedFiles(state: RunState, phase: EditingPhase, key: string): string
   return clusterClaims(fix, roundOf(fix, key), batchOfUnit(state, key).cluster);
 }
 
+/** A conventional commit subject's type and optional scope, with an optional breaking mark before the colon. */
+const conventionalSubject = /^([a-z]+)(?:\(([^()\s]+)\))?!?: \S/;
+
+/**
+ * The conventional prefix of a subject that applies several findings (the
+ * gate of resumable runs): the type every one of the fixer's subjects has,
+ * with their scope when they share it, or `fix` when their types differ,
+ * and none when a subject has no type, since the repository then writes no
+ * conventional commits.
+ */
+function sharedTypePrefix(subjects: readonly string[]): string {
+  const parsed = subjects.map((subject) => conventionalSubject.exec(subject));
+  if (parsed.some((match) => match === null)) return '';
+  const types = new Set(parsed.map((match) => match![1]!));
+  const scopes = new Set(parsed.map((match) => match![2] ?? null));
+  if (types.size > 1) return 'fix: ';
+  const [type] = types;
+  const [scope] = scopes;
+  return scopes.size === 1 && scope !== null ? `${type!}(${scope!}): ` : `${type!}: `;
+}
+
 /**
  * The message of one revision of an answer (R6, PD14 of the fix pass; R11
  * of commit series integrity): the fixer's own for the one finding with a
  * message it holds, whatever that finding's status, noting any finding
  * folded into it for want of a snapshot; one that names each such
- * finding's message when it holds several; and one the engine composes
+ * finding's message when it holds several, under a subject with the type
+ * their subjects share (`sharedTypePrefix`); and one the engine composes
  * from the notes when none of its findings carries a message.
  */
 export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, findings: readonly FixedFinding[]): TreeRevised['change']['message'] {
@@ -135,7 +157,7 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
   }
   if (applied.length > 1) {
     return {
-      subject: truncated(`Apply ${held.map((finding) => finding.id).join(', ')}`, subjectLength),
+      subject: truncated(`${sharedTypePrefix(applied.map((finding) => finding.message!.subject))}Apply ${held.map((finding) => finding.id).join(', ')}`, subjectLength),
       body: truncated(applied.map((finding) => `${finding.message!.subject}\n\n${finding.message!.body.trimEnd()}`.trimEnd()).join('\n\n'), bodyLength),
     };
   }

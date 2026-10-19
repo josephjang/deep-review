@@ -35,7 +35,17 @@ describe('revisionMessage', () => {
 
   it('holds every applied finding\'s message when it holds several, under a subject that names them', () => {
     const message = revisionMessage({ findings: ['A-1', 'A-2'] }, [finding('A-1', 'applied', 'fix: One'), finding('A-2', 'applied', 'fix: Two')]);
-    assert.deepEqual(message, { subject: 'Apply A-1, A-2', body: 'fix: One\n\nfix: One, because.\n\nfix: Two\n\nfix: Two, because.' });
+    assert.deepEqual(message, { subject: 'fix: Apply A-1, A-2', body: 'fix: One\n\nfix: One, because.\n\nfix: Two\n\nfix: Two, because.' });
+  });
+
+  it('gives that subject the conventional type its messages share, else fix, and none when a message has no type (the gate of resumable runs)', () => {
+    const subject = (...subjects: string[]): string => revisionMessage({ findings: subjects.map((_, index) => `A-${String(index + 1)}`) }, subjects.map((text, index) => finding(`A-${String(index + 1)}`, 'applied', text))).subject;
+    assert.equal(subject('fix(checkpoint): One', 'fix(checkpoint): Two'), 'fix(checkpoint): Apply A-1, A-2', 'one type and one scope');
+    assert.equal(subject('refactor(review): One', 'refactor(checkpoint): Two'), 'refactor: Apply A-1, A-2', 'one type, two scopes');
+    assert.equal(subject('refactor(review): One', 'fix(review): Two', 'refactor: Three'), 'fix: Apply A-1, A-2, A-3', 'types that differ');
+    assert.equal(subject('feat!: One', 'feat: Two'), 'feat: Apply A-1, A-2', 'a breaking mark is not a type of its own');
+    assert.equal(subject('fix: One', 'Guard the null in parse'), 'Apply A-1, A-2', 'a repository that writes no conventional commits');
+    assert.equal(subject('Fix: One', 'Fix: Two'), 'Apply A-1, A-2', 'a capitalized word before a colon is not a type');
   });
 
   it('is composed from the notes for a revision that holds no applied finding, such as a deferred finding\'s partial edit', () => {

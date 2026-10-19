@@ -136,7 +136,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.deepEqual(revisions.map((revision) => [revision.change.findings, revision.change.message.subject, revision.files.map((file) => file.path)]), [
       [['SCAN-1'], 'fix: First', ['src/a.ts']],
       // The second finding took no snapshot, so its edits fold into the third's revision, which names both.
-      [['SCAN-2', 'SCAN-3'], 'Apply SCAN-2, SCAN-3', ['src/a.ts', 'test/a.test.ts']],
+      [['SCAN-2', 'SCAN-3'], 'fix: Apply SCAN-2, SCAN-3', ['src/a.ts', 'test/a.test.ts']],
     ]);
     assert.match(revisions[1]!.change.message.body, /^fix: Second\n\nWhy finding 1 changed\.\n\nfix: Third\n\nWhy finding 2 changed\.$/);
     // The series applies in order to a checkout at the scope's head and reconstructs the tree the fixer left.
@@ -152,7 +152,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     });
     git(clone, 'am', '--keep-cr', '-q', ...patches);
     for (const path of ['src/a.ts', 'test/a.test.ts']) assert.equal(readFileSync(join(clone, ...path.split('/')), 'utf8'), readFileSync(join(box.repo, ...path.split('/')), 'utf8'), path);
-    assert.deepEqual(git(clone, 'log', '--format=%s', '-2').split('\n'), ['Apply SCAN-2, SCAN-3', 'fix: First']);
+    assert.deepEqual(git(clone, 'log', '--format=%s', '-2').split('\n'), ['fix: Apply SCAN-2, SCAN-3', 'fix: First']);
   });
 
   it('fixes a cluster in batches of the policy\'s size, one after another, each told what the batches before it did', async (t) => {
