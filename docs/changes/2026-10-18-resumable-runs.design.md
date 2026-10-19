@@ -224,7 +224,9 @@ The engine opens the output files, as it does today. It gives them to the guard 
 
 The guard starts the child and waits for it. It holds a pipe from the engine on its standard input. When the pipe closes before the child ends, the engine ended, so the guard kills the child's tree: `taskkill /T /F` on Windows, a SIGKILL of the group on POSIX. Then it exits.
 
-When the child ends, or when it cannot start, the guard writes a result file in its directory. The file holds the termination, `exited` or `not-started`, with the exit code, the signal and the error of a spawn that failed. Then the guard exits with the child's exit code. The engine reads the end of the child from that file, not from the exit of the guard. Thus a spawn that fails stays `not-started`, as today.
+When the child ends, or when it cannot start, the guard writes a result file in its directory. The file holds the termination, `exited` or `not-started`, with the exit code, the signal and the error of a spawn that failed. The engine reads the end of the child from that file, not from the exit of the guard. Thus a spawn that fails stays `not-started`, as today.
+
+A child can leave processes behind when it ends, such as the grandchild of a check that a kill ended. On Windows, the guard then exits with the child's exit code, and its job object ends what the child left. On POSIX, the guard then ends its process group with SIGKILL, and it ends with the group. The first CI run of this change showed the gap: on Linux and macOS, the grandchild of a killed child outlived the engine.
 
 A guard that ends with no result file, when the engine did not kill it at the timeout, was killed from outside. The engine then records the run as cut (R4), with a null exit code and signal. Its error says that no result came. On POSIX, it first kills the process group of the guard, so that a child that the guard left does not run beside the rerun. On Windows, the descendants of the child leave the job of the guard, and nothing reaches them (Risks & Migration). The engine still owns the timeout: it kills the tree of the guard, which holds the tree of the child.
 
