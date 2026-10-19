@@ -157,7 +157,8 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
  * outcomes, by why it ran again (a cut, a first timeout, or a stop of its
  * attempt); each start with no end on record; each file written back,
  * with where the bytes it overwrote are; and a series of commits a stop
- * left open, or that the next command dropped.
+ * left open, or that was dropped, by the next command or by a refused move
+ * of the branch.
  */
 export function stopLimitations(review: ReviewState, evidencePath: (reference: ArtifactReference) => string): string[] {
   const fix = review.fix;
@@ -192,7 +193,8 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
     }
   });
   if (fix.openSeries !== null) lines.push(`A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);
-  for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`);
+  // The next command drops a series a stop left open with HEAD at its start, and `deep-review commit` drops its own when git refused to move the branch; the line holds for both.
+  for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to}, which the branch never moved to, after a stop or a refused move; a later \`deep-review commit\` builds it again.`);
   return lines;
 }
 

@@ -374,10 +374,11 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     assert.deepEqual(lines({ checks: cutAgain, restorations: [restoration(1), restoration(2)] }), ['Cut by a stop: test in checks at attempt 1, with no end on record.', written('after test timed out'), written('after a cut test check')]);
   });
 
-  it('names a series of commits a stop left open, and each one the next command dropped', () => {
+  it('names a series of commits a stop left open, and each one dropped, without blaming a stop for a refused move', () => {
     const series = { commits: [{ sha: 'b'.repeat(40), revision: 0, subject: 's' }], from: 'a'.repeat(40), to: 'b'.repeat(40) };
     assert.deepEqual(lines({ openSeries: series }), [`A stop cut \`deep-review commit\` short: its series from ${'a'.repeat(40)} to ${'b'.repeat(40)} is not recorded yet, and the next command completes it or drops it by where HEAD is.`]);
-    assert.deepEqual(lines({ droppedSeries: [series] }), [`Dropped: the series of commits from ${'a'.repeat(40)} to ${'b'.repeat(40)} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`]);
+    // `deep-review commit` drops its own series when git refused to move the branch, with no stop involved, so the line names both causes.
+    assert.deepEqual(lines({ droppedSeries: [series] }), [`Dropped: the series of commits from ${'a'.repeat(40)} to ${'b'.repeat(40)}, which the branch never moved to, after a stop or a refused move; a later \`deep-review commit\` builds it again.`]);
   });
 
   it('names each worker a kill from outside ended, and whether its unit ran again, in the report and in status', () => {
