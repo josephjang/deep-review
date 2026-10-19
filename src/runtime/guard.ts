@@ -10,12 +10,15 @@
  * When the child ends, or cannot start, the guard writes the result file
  * beside the request (`guardResultFile`); the engine reads the end of the
  * child from that file, not from the exit of the guard. A child that ended
- * can leave processes behind. On Windows the guard then exits with the
- * child's code, and its job object ends them; on POSIX it ends its process
- * group, which holds them, and itself with it. When its standard input closes first, the engine ended
- * without ending it, and the guard kills the child's tree and exits with
- * no result file: on POSIX the process group it leads, which holds the
- * child, on Windows the tree `taskkill /T` walks from the child.
+ * can leave processes behind. On POSIX the guard then ends its process
+ * group, which holds them, and itself with it. On Windows it exits with the
+ * child's code, and nothing ends them: the job of libuv permits silent
+ * breakaway, so the child's descendants leave the guard's job, and once the
+ * child is gone no handle reaches them (Risks & Migration of the design).
+ * When its standard input closes first, the engine ended without ending it,
+ * and the guard kills the child's tree and exits with no result file: on
+ * POSIX the process group it leads, which holds the child, on Windows the
+ * tree `taskkill /T` walks from the child.
  *
  * Its only import is `process.ts`, so it starts in a fraction of a second:
  * `src/cli.ts` dispatches it before it loads the command.
@@ -119,8 +122,8 @@ function killGuardedTree(child: ChildProcess): void {
 
 /**
  * End the process group the guard leads on POSIX, which holds whatever its
- * child left behind, and the guard with it, as the job object of a guard
- * ends them on Windows when it exits.
+ * child left behind, and the guard with it. Windows has no counterpart: the
+ * child's descendants left the guard's job, and nothing reaches them.
  */
 function endOwnGroup(): void {
   try {

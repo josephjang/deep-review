@@ -113,9 +113,9 @@ describe('the guard', { timeout: 120_000 }, () => {
     }
   });
 
-  it('ends what the child left behind once the child ends, with its job object on Windows and its process group on POSIX (R8 of resumable runs)', async () => {
+  it('ends what the child left behind once the child ends, on POSIX with its process group (R8 of resumable runs)', async () => {
     const pidFile = join(directory, 'grandchild.pid');
-    // The child starts a grandchild in its own job or group, as a test runner does, and exits.
+    // The child starts a grandchild in its own job or group, as a test runner does, and exits. On Windows the guard ends nothing: the child's own libuv job ends this attached grandchild, and one that broke away would live on.
     const leave = `const { spawn } = require("child_process"); const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }); require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid)); grandchild.unref();`;
     const { ended } = start(writeRequest({ args: ['-e', leave] }));
     await ended;
