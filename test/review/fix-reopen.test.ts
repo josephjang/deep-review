@@ -6,6 +6,7 @@ import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
 import { budgetStoppedUnits } from '../../src/checkpoint/fix-state.ts';
 import type { Answer } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { sameDirectory } from '../../src/paths.ts';
 import { answerRun, type AnswerOptions } from '../../src/review/answer.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { gitContent } from '../../src/review/content.ts';
@@ -51,7 +52,9 @@ async function stoppedRun(t: TestContext, script: Script = budgetScript, units: 
   const stopped = box.run();
   assert.deepEqual(budgetStoppedUnits(stopped.review!.fix!), units);
   const spend = budgetSpendOf(stopped, claudeAdapter).usd!;
-  const command = `node "${cliEntry}" review --runtime claude --last-commit --fix --budget-usd ${String(Math.floor(spend) + 1)} --roles "${box.rolesRoot}"`;
+  // It names the run's worktree, since only a command over it reopens the run, wherever the command runs.
+  assert.ok(sameDirectory(stopped.worktree, box.repo));
+  const command = `node "${cliEntry}" review --repo "${stopped.worktree}" --runtime claude --last-commit --fix --budget-usd ${String(Math.floor(spend) + 1)} --roles "${box.rolesRoot}"`;
   assert.ok(box.logs.includes(`run ${stopped.id}: the run budget stopped its fix pass; ${command} continues it`), box.logs.join('\n'));
   const batches = units.filter((unit) => unit.phase === 'fixes').length;
   const left = [...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]), ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : [])].join(' and ');
@@ -384,5 +387,19 @@ describe('the deep-review command reopening a fix pass the run budget stopped (T
     const refused = await review(box, '--worktree', '--budget-usd', '100');
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /--worktree reviews uncommitted changes, and this tree has none/);
+  });
+
+  it('reopens the run from another directory with --repo naming its worktree, as the continue command names it', async (t) => {
+    const box = sandbox(t);
+    const first = await review(box, '--last-commit', '--budget-usd', '1');
+    assert.equal(first.status, 0, first.stderr);
+    const stopped = box.run();
+    assert.ok(first.stderr.includes(` review --repo "${stopped.worktree}" --runtime claude --last-commit --fix `), first.stderr);
+    const elsewhere = join(box.scratchRoot, 'elsewhere');
+    mkdirSync(elsewhere, { recursive: true });
+    const second = await node([cli, 'review', '--repo', stopped.worktree, '--runtime', 'claude', '--executable', process.execPath, '--executable-arg', fakeClaude, '--roles', box.rolesRoot, '--last-commit', '--fix', '--budget-usd', '100'], { cwd: elsewhere, env: environment(box) });
+    assert.equal(second.status, 0, second.stderr);
+    assert.match(second.stderr, new RegExp(`run ${stopped.id}: reopened its fix pass, which the run budget stopped, for batch c1-2; `));
+    assert.equal(box.checkpoint.foldRuns().length, 1, 'no new run');
   });
 });

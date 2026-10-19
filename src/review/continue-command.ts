@@ -1,8 +1,8 @@
 /**
  * The command that continues a fix pass the run budget stopped (R11, R15
  * of resumable runs), as the end of the run logs it and its report and
- * `status` print it: the same `review --fix` with the run's runtime, the
- * scope flags and paths of the run's request, and `--budget-usd` above
+ * `status` print it: the same `review --fix` over the run's worktree with
+ * the run's runtime, the scope flags and paths of the run's request, and `--budget-usd` above
  * its spend, run with the engine that wrote the line, named by its path
  * as the answer command of the report names it (R9 of the skill surface
  * corrections). It names `--roles` too, when the run's roles are not the
@@ -49,10 +49,12 @@ export const budgetAbove = (spendUsd: number): number => Math.floor(spendUsd) + 
  * The command that continues `run`, a fix pass the run budget stopped:
  * `engineEntry` is the engine that writes the line, and `rolesRoot` the
  * roles the run reviewed with when they are not the engine's own, else
- * null.
+ * null. It names the run's worktree with `--repo`, since only a command
+ * over that worktree reopens the run, and the checkpoint, which the linked
+ * worktrees of a repository share, lets `status` print the line in another.
  */
-export function continueCommand(run: Pick<RunState, 'scope' | 'review'>, engineEntry: string, rolesRoot: string | null, spendUsd: number): string {
+export function continueCommand(run: Pick<RunState, 'scope' | 'review' | 'worktree'>, engineEntry: string, rolesRoot: string | null, spendUsd: number): string {
   if (run.scope === null || run.review === null) throw new Error('A run continues only with its scope and its configuration');
-  const args = ['review', '--runtime', run.review.configuration.runtime, ...scopeFlags(run.scope), '--fix', '--budget-usd', String(budgetAbove(spendUsd)), ...(rolesRoot === null ? [] : ['--roles', terminalQuoted(rolesRoot)])];
+  const args = ['review', '--repo', terminalQuoted(run.worktree), '--runtime', run.review.configuration.runtime, ...scopeFlags(run.scope), '--fix', '--budget-usd', String(budgetAbove(spendUsd)), ...(rolesRoot === null ? [] : ['--roles', terminalQuoted(rolesRoot)])];
   return `node ${terminalQuoted(engineEntry)} ${args.join(' ')}`;
 }
