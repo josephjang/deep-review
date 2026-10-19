@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { awakeClock, type AwakeClock } from './awake-clock.ts';
 import { consoleText, systemOemCodePage } from './console-text.ts';
 import type { GuardEnd } from './kill-marks.ts';
 
@@ -16,7 +17,10 @@ export interface ProcessRequest {
   readonly stdoutFile: string;
   /** Created for stderr; must not exist yet. */
   readonly stderrFile: string;
+  /** Counted on `clock`, from the child's own start. */
   readonly timeoutMs: number;
+  /** The clock the timeout counts on: the engine's awake clock, which leaves out the time the machine slept (R19 of resumable runs), unless a test gives another. */
+  readonly clock?: AwakeClock;
   /**
    * On Windows, pass `args` to the process exactly as given, joined with
    * spaces and without Node's quoting, for an executable that parses its
@@ -166,13 +170,17 @@ const resultGraceMs = 250;
 /** How often the result file is looked for during `resultGraceMs`. */
 const resultPollMs = 25;
 
+/** How often the start file is looked for until the guard writes it, which it does once its child spawned, a fraction of a second after its own start. */
+const startPollMs = 100;
+
 /**
  * Run one process to its end through its guard (R8 of resumable runs,
  * src/runtime/guard.ts), killing it with its whole tree at the timeout
  * (PD2, TD13) once its guard has left no result `resultGraceMs` past it.
  * The timeout counts from the child's start, which the guard writes in its
  * start file (`guardStartFile`), so the guard's own start is not charged
- * to the child. No shell is involved, so no argument is ever reinterpreted.
+ * to the child, and on the awake clock, so the time the machine slept is
+ * not charged either (R19 of resumable runs). No shell is involved, so no argument is ever reinterpreted.
  *
  * The guard is `node <engine entry> guard <request file>`, detached on both
  * systems: on POSIX it leads a process group, which holds the child and
@@ -230,14 +238,21 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
         else kill = killTreeNow(guard);
       };
       // The child's time runs from its own start, which its guard writes once it spawned the child, not from the guard's, which loads Node first. A guard that wrote no start by a whole timeout past the deadline is past its own, and is killed as it stands.
-      const guardDeadline = Date.now() + 2 * request.timeoutMs;
+      // Every deadline is on the awake clock (R19 of resumable runs). The guard writes the start in wall time, which is read as soon as it is there and changed to awake time at once, so no sleep falls between the two.
+      const clock = request.clock ?? awakeClock;
+      const guardDeadline = clock.now() + 2 * request.timeoutMs;
+      let childStart: number | null = null;
       const due = (): void => {
-        const childStart = readChildStart(startFile);
-        const leftMs = childStart === null ? Math.min(resultPollMs, guardDeadline - Date.now()) : childStart + request.timeoutMs - Date.now();
+        if (childStart === null) {
+          const wallStart = readChildStart(startFile);
+          if (wallStart !== null) childStart = clock.now() - Math.max(0, Date.now() - wallStart);
+        }
+        // Each timer sets the next for the time left on the awake clock, so after a sleep the child has the time it had before it.
+        const leftMs = childStart === null ? Math.min(startPollMs, guardDeadline - clock.now()) : childStart + request.timeoutMs - clock.now();
         if (leftMs > 0) timer = setTimeout(due, leftMs);
         else expire(resultGraceMs);
       };
-      let timer = setTimeout(due, request.timeoutMs);
+      let timer = setTimeout(due, Math.min(startPollMs, request.timeoutMs));
       guard.once('spawn', () => {
         started = true;
       });

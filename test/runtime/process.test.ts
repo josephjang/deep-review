@@ -196,6 +196,13 @@ describe('runProcess', () => {
     assert.ok(Date.now() - before >= 2 * timeoutMs, `killed after ${String(Date.now() - before)} ms`);
   });
 
+  it('counts the timeout on the awake clock, so time the machine slept does not end the child (R19 of resumable runs)', async () => {
+    // A clock that does not move is a machine asleep the whole time: the child's 1.5 s pass on the wall clock alone, past its 0.5 s timeout.
+    const asleep = { now: (): number => 0 };
+    const result = await runProcess(request(['-e', 'setTimeout(() => process.exit(0), 1500)'], { timeoutMs: 500, clock: asleep }));
+    assert.deepEqual([result.termination, result.exitCode, result.signal], ['exited', 0, null], readFileSync(join(directory, 'stderr'), 'utf8'));
+  });
+
   it('listens for the engine ending only while a worker is live', async () => {
     const signals = posix ? (['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) : [];
     const before = { exit: process.listenerCount('exit'), signals: signals.map((signal) => process.listenerCount(signal)) };
