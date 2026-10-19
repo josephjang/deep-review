@@ -6,7 +6,7 @@
 // point and way, with each part of the contract the stop broke, and exits
 // with 1 on a result the marks of the known failures
 // (test/helpers/resume-marks.ts) do not expect: a broken part with no mark,
-// or a mark whose part held. The gate runs it; the suite runs a fixed set
+// a mark whose part held, or a point the run did not reach. The gate runs it; the suite runs a fixed set
 // of the points (test/review/resume-contract.test.ts):
 //   npm run resume-test -- [--point <text>]... [--way signal|kill|tree|child] [--concurrency <n>] [--json <file>]
 // --point keeps the points whose name holds the text, --way one way; a
@@ -59,8 +59,10 @@ async function runCase(point: Point, stopWay: StopWay): Promise<Row> {
   const at = Date.now();
   try {
     const stopped = await stopAndResume(point, stopWay);
-    const broken = stopped.reached ? brokenParts(stopped, expected) : new Map<ContractPart, string>();
-    return { point: point.name, way: stopWay, reached: stopped.reached, broken: Object.fromEntries(broken), error: null, unexpected: stopped.reached ? unexpected(point.name, stopWay, process.platform, broken) : [], seconds: (Date.now() - at) / 1000 };
+    // A point the run did not reach stopped nothing, so it fails as the suite fails it, rather than pass as kept.
+    if (!stopped.reached) return { point: point.name, way: stopWay, reached: false, broken: {}, error: null, unexpected: ['not reached'], seconds: (Date.now() - at) / 1000 };
+    const broken = brokenParts(stopped, expected);
+    return { point: point.name, way: stopWay, reached: true, broken: Object.fromEntries(broken), error: null, unexpected: unexpected(point.name, stopWay, process.platform, broken), seconds: (Date.now() - at) / 1000 };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { point: point.name, way: stopWay, reached: false, broken: {}, error: message, unexpected: [`error: ${message}`], seconds: (Date.now() - at) / 1000 };
