@@ -183,9 +183,12 @@ async function requirePassable(run: RunState, options: AnswerOptions, owed: read
  * for the tree or the budget. Such a retry keeps the note the answer was
  * recorded with, so one giving another note is refused. The answer is
  * appended first; then, unless `recordOnly`, the run only reviewed, or
- * nothing is owed, the spend, the tree, the checkpoint's other runs and
- * what the run pinned are checked (`requirePassable`) and `answer.pass` is
- * appended.
+ * nothing is owed, a series of commits a stop left open is settled
+ * (`settleOpenSeries`), since the pass reads the run's head, the spend,
+ * the tree, the checkpoint's other runs and what the run pinned are
+ * checked (`requirePassable`) and `answer.pass` is appended. A refused
+ * answer, or one recorded only, reads no head, so it leaves an open series
+ * and the index as they were.
  */
 export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> {
   const { checkpoint, worktree } = options;
@@ -198,8 +201,6 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       let run = checkpoint.fold(chosen.id);
       const reason = whyNotAnswerable(run, worktree);
       if (reason !== null) throw new ReviewRefusedError(reason);
-      // The pass is held to the run's head, which a series of commits a stop left open has not moved yet (R9 of resumable runs).
-      run = settleOpenSeries(checkpoint, run, worktree, options.log).run;
       requireAdmitted(run, options.finding, options.answer);
       const fixes = run.review!.fix !== null;
       const standing = standingAnswer(run.review!, options.finding);
@@ -221,6 +222,8 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       const order = rankedFindings(run.review!).map((entry) => entry.finding.id);
       const ids = owed.map((answer) => answer.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
       if (ids.length === 0) return outcome('nothing-owed', run);
+      // The pass is held to the run's head, which a series of commits a stop left open has not moved yet (R9 of resumable runs).
+      run = settleOpenSeries(checkpoint, run, worktree, options.log).run;
       await requirePassable(run, options, owed);
       return outcome('pass', checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.pass', version: 1, payload: { ids } }]));
     } finally {

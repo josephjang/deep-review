@@ -223,6 +223,44 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(git(box.repo, 'status', '--porcelain'), '');
   });
 
+  it('leaves a series a stop cut short open, the ledger and the index as they were, when it refuses an answer (R9 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t, answerable);
+    reportText(await box.fix('claude'));
+    const { question } = findingsOf(box.run());
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, beforeMove: () => {
+      throw new Error('stopped');
+    } }), /stopped/);
+    const open = box.run().review!.fix!.openSeries!;
+    git(box.repo, 'update-ref', 'refs/heads/main', open.to, open.from);
+    const before = box.run();
+    const staged = git(box.repo, 'status', '--porcelain');
+    assert.notEqual(staged, '', 'the index still holds the head the series starts from');
+    const logs: string[] = [];
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 2 }, { log: (line) => logs.push(line) })), refused(/which admits an --option from 1 to 2, not --option 3$/));
+    assert.equal(box.run().lastSequence, before.lastSequence, 'a refusal appends nothing, the settle of a series too');
+    assert.deepEqual(box.run().review!.fix!.openSeries, open);
+    assert.equal(git(box.repo, 'status', '--porcelain'), staged, 'the index is not reset');
+    assert.deepEqual(logs, []);
+  });
+
+  it('records an answer only with HEAD at neither head of a series a stop cut short, and refuses the pass, naming both (R9 of resumable runs)', async (t) => {
+    const box = ReviewSandbox.forTest(t, answerable);
+    reportText(await box.fix('claude'));
+    const finished = box.run();
+    const { question } = findingsOf(finished);
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, beforeMove: () => {
+      throw new Error('stopped');
+    } }), /stopped/);
+    const open = box.run().review!.fix!.openSeries!;
+    write(box.repo, 'notes.md', 'a note\n');
+    commitAll(box.repo, 'docs: Add a note');
+    const recorded = await answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { recordOnly: true }));
+    assert.equal(recorded.next, 'record-only', 'recording reads no head');
+    assert.deepEqual(box.run().review!.fix!.openSeries, open, 'the series stays open for the command that reads the head');
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^a commit of run ${finished.id} that a stop cut short was moving HEAD from ${open.from} to ${open.to}, and HEAD is [0-9a-f]+, at neither; `)));
+    assert.equal(box.run().review!.answerPasses.length, 0);
+  });
+
   it('refuses the pass at the run budget before anything opens, naming --budget-usd, and blocks the pass\'s fixer on two failures until review completes it (R5, R6, TD8)', async (t) => {
     const box = ReviewSandbox.forTest(t, { ...answerable, '*': { costUsd: 0.5 } });
     reportText(await box.fix('claude'));
