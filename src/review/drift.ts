@@ -142,9 +142,10 @@ export interface LeftFile {
  * its own, and one it cannot write is left as the tree holds it and
  * returned with the reason: its bytes in the tree were too large to keep
  * as evidence, so writing over them would lose them; its expected bytes
- * were too large to keep; a directory, or another entry whose bytes were
- * never frozen, is where the file is expected; a file is where a parent
- * directory is expected; or the write failed, as a symlink does on
+ * were too large to keep, or reading them from the evidence failed; a
+ * directory, or another entry whose bytes were never frozen, is where the
+ * file is expected; a file is where a parent directory is expected; or
+ * the write failed, as a symlink does on
  * Windows without the privilege. The check of the tree after the write
  * back then finds each one drifted, and the run blocks naming it.
  */
@@ -161,7 +162,12 @@ export function writeBack(worktree: string, files: readonly RestoredFile[], read
 function writeBackFile(worktree: string, file: RestoredFile, read: (reference: ArtifactReference) => Buffer): string | null {
   if (file.before !== null && !('blob' in file.before)) return 'its bytes in the tree were too large to have been kept';
   if (file.expected !== null && !('blob' in file.expected)) return 'its expected bytes were too large to have been kept';
-  const bytes = file.expected === null ? null : read(file.expected.blob);
+  let bytes: Buffer | null;
+  try {
+    bytes = file.expected === null ? null : read(file.expected.blob);
+  } catch (error) {
+    return `reading its expected bytes failed: ${(error as Error).message}`;
+  }
   const absolute = join(worktree, ...file.path.split('/'));
   try {
     // What stands in the way had no bytes frozen, so it is never removed.

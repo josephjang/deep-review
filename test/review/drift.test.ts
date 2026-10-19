@@ -115,4 +115,16 @@ describe('writeBack', () => {
     assert.deepEqual(writeBackIn([file]), [{ path: 'src/a.ts', reason: 'its expected bytes were too large to have been kept' }]);
     assert.equal(read('src/a.ts'), 'cut\n');
   });
+
+  it('leaves a file whose expected bytes the evidence no longer holds, and writes back the files after it', () => {
+    write(repo, 'src/a.ts', 'cut\n');
+    write(repo, 'src/b.ts', 'cut\n');
+    const missing: FrozenFile = { blob: { sha256: 'f'.repeat(64), bytes: 2 } };
+    const [left, ...rest] = writeBackIn([{ ...restored('src/a.ts', 'cut\n', null), expected: missing }, restored('src/b.ts', 'cut\n', 'b\n')]);
+    assert.equal(left?.path, 'src/a.ts');
+    assert.equal(left?.reason, `reading its expected bytes failed: Evidence is missing: ${'f'.repeat(64)}`);
+    assert.deepEqual(rest, []);
+    assert.equal(read('src/a.ts'), 'cut\n');
+    assert.equal(read('src/b.ts'), 'b\n');
+  });
 });
