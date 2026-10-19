@@ -29,7 +29,7 @@ Node gives no way to create a Windows job object, and the engine cannot see its 
 
 ### No write back of a file outside the files that the run expects
 
-After a cut check, the engine writes back only the files that the run expects (R7). A tracked file outside them, which the cut check changed, stays a stray file. For a check that a stop cut, this is as today. A check that the engine killed at its timeout recorded such a write in its revision before this change, and now it leaves the write a stray file too, as PD7 chose. The rerun of the check records it in its revision only when the rerun changes it again.
+After a cut check, the engine writes back only the files that the run expects (R7). A tracked file outside them, which the cut check changed, stays a stray file. For a check that a stop cut, this is as today. Before this change, a check that the engine killed at its timeout recorded such a write in its revision. Now that write stays a stray file too, as PD7 chose. The rerun of the check records it in its revision only when the rerun changes it again.
 
 ### No sleep detection
 
@@ -174,7 +174,9 @@ Each reader reads the last current run of its phase: `dueCheck`, the reducer, `r
 
 `runDueCheck` appends `check.started@1` with the phase, the attempt, the kind and the command before it starts the check. The reducer refuses a start of a kind that is not due. `check.ran@3` is `check.ran@2` with one more field, `replaces`. It is null for the first current run of a kind. Else it holds the attempt and the outcome of the run that it replaces.
 
-The reducer folds version 3 with three rules. With `replaces` null, the kind has no current run in the phase. With `replaces` set, it names the last current run of the kind by its attempt and its outcome, and one of three cases holds. In the first, that run did not pass and is from a cut attempt (R3). In the second, that run is cut (R4). In the third, it is the first timeout of the kind in the current attempt (R7). The fold keeps with the new run where the run it replaces is among the runs of its phase, so the report reads the run that the fold matched and does not search for it again.
+The reducer folds version 3 with three rules. With `replaces` null, the kind has no current run in the phase. With `replaces` set, it names the last current run of the kind by its attempt and its outcome, and one of three cases holds. In the first, that run did not pass and is from a cut attempt (R3). In the second, that run is cut (R4). In the third, it is the first timeout of the kind in the current attempt (R7).
+
+The fold keeps, with the new run, the place of the run that it replaces among the runs of its phase. Thus the report reads the run that the fold matched, and it does not search for that run again.
 
 A version 3 run that ran has a start of the same kind in the same attempt, with no run after that start. A skipped run has no start, because nothing ran. Versions 1 and 2 keep their rule: the kind has no current run, and no start is necessary.
 
@@ -188,7 +190,13 @@ In the same attempt, the planner cannot compare the tree, because it reads only 
 
 `dueCheck` also returns a kind whose last current run is its first timeout in the attempt, so the kind runs again. Its rerun names the timeout in `replaces`. A second timeout of the kind in the attempt is its result, as the readers take a timeout today.
 
-For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again. It records that check as `worktree.checked@6`, whose new moment `restored` follows a write back. The write back leaves a file as the tree holds it, and logs it with the reason, when writing it could lose bytes or cannot succeed: its bytes in the tree or its expected bytes were too large to keep, a directory stands where the file is expected, a file stands where a parent directory is expected, or the write fails. The check after the write back then finds that file drifted, and the run blocks naming it.
+For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again. It records that check as `worktree.checked@6`, whose new moment `restored` follows a write back.
+
+Sometimes a write of a file can lose bytes, or it cannot succeed. Then the write back leaves the file as the tree holds it, and it logs the file with the reason.
+
+The reason can be one of four. The bytes of the file in the tree, or its expected bytes, were too large to keep. A directory is where the file must be. A file is where a parent directory must be. Or the write fails.
+
+The check after the write back then finds that the file drifted, and the run blocks. The blocker names the file.
 
 A stop between the append and the writes is safe, because the next start finds the drift and the record, and it writes again. The drift rule of the planner reads only the checks of the tree after the last `tree.restored` of the attempt. Thus a drift that a write back resolved does not block. The log names each file and where its earlier bytes are. Then R3 runs the cut check again, because it has no current run.
 
@@ -206,7 +214,9 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 ### Attempts after a stop (R5)
 
-`phaseStarted` gives the units of a phase fresh attempts when the phase was `running`, as it does when the phase was `blocked`. A phase is `running` at a start only when an earlier engine stopped while the phase ran. A unit keeps each answer that it gave, and a degraded unit stays degraded. The event does not change, so this is not a new version. An older engine that folds the same ledger only keeps more failures, and it refuses nothing. When the phase was blocked by `worker-failed` with a failure of the fault `limit` among its units, `phaseStarted` first keeps the phase, the attempt and the detail of the blocker in `limitBlocks`, since the fresh attempts clear the failure and the start clears the blocker; the report and `status` name each such block (R15).
+`phaseStarted` gives the units of a phase fresh attempts when the phase was `running`, as it does when the phase was `blocked`. A phase is `running` at a start only when an earlier engine stopped while the phase ran. A unit keeps each answer that it gave, and a degraded unit stays degraded. The event does not change, so this is not a new version. An older engine that folds the same ledger only keeps more failures, and it refuses nothing.
+
+A phase can be blocked by `worker-failed` with a failure of the fault `limit` among its units. Then `phaseStarted` first keeps the phase, the attempt and the detail of the blocker in `limitBlocks`. It keeps them because the fresh attempts clear the failure, and the start clears the blocker. The report and `status` name each such block (R15).
 
 ### The end of a worker and its contribution in one append (R6)
 
@@ -214,7 +224,7 @@ The planner launches a unit with an attempt left again at once, as after each fa
 
 `record` appends the finish alone in two cases. One is an answer that it sets aside, because the tree of a phase that only reads drifted. The worker is then not lost at the next start, and its cost stays counted. The other is a contribution that it cannot build, or that the fold refuses, and then it throws, as today's two appends end. A worker that the ledger shows as launched and not finished is lost at the next start, as today.
 
-The cost of a worker thus reaches the ledger only in `record`, and the budget check before a launch reads the ledger alone. So `recordSettled` in the controller records the first worker that settles, then each other worker that has settled meanwhile, before the planner plans the next step. Otherwise a worker that settled with the one just recorded would be missing from the spend that the next launch checks.
+The cost of a worker thus reaches the ledger only in `record`, and the budget check before a launch reads the ledger alone. Thus `recordSettled` in the controller records the first worker that settles. Then it records each other worker that settled at the same time, before the planner plans the next step. If it did not, the spend that the next launch checks can omit a worker that settled with the one that it recorded.
 
 ### Each child ends with the engine (R8)
 
@@ -228,7 +238,7 @@ The guard starts the child and waits for it. It holds a pipe from the engine on 
 
 When the child ends, or when it cannot start, the guard writes a result file in its directory. The file holds the termination, `exited` or `not-started`, with the exit code, the signal and the error of a spawn that failed. The engine reads the end of the child from that file, not from the exit of the guard. Thus a spawn that fails stays `not-started`, as today.
 
-Once the child has started, the guard writes the time in a start file beside the result. The engine counts the timeout from that time, as it counted it from the child's spawn before the guard, so the start of the guard is not charged to the child. When the timeout ends before the guard wrote the file, the engine waits for it. A guard that wrote none a whole timeout past the deadline is killed as it stands.
+When the child starts, the guard writes the time in a start file beside the result. The engine counts the timeout from that time. Before the guard, it counted the timeout from the spawn of the child. Thus the time that the guard takes to start does not go into the timeout of the child. When the timeout ends before the guard wrote the file, the engine waits for it. A guard that wrote none a whole timeout past the deadline is killed as it stands.
 
 A child can leave processes behind when it ends, such as the grandchild of a check that a kill ended. On Windows, the guard then exits with the child's exit code, and nothing ends what the child left: the descendants of the child leave the job of the guard, and once the child is gone no handle reaches them (Risks & Migration). On POSIX, the guard then ends its process group with SIGKILL, and it ends with the group. The first CI run of this change showed the gap: on Linux and macOS, the grandchild of a killed child outlived the engine.
 
@@ -242,7 +252,7 @@ On Windows, a detached guard has no console. A Ctrl-C in the console of the engi
 
 `commit` appends `commits.prepared@1`, with the head that it starts from, the head that it makes and each commit, before it moves the branch. After `update-ref` and `git reset -q`, it appends `commits.created@1`, as today. The fold keeps a prepared series with no `commits.created` as open, and `runHead` does not move for it.
 
-Each command that reads `runHead` first settles an open series: `commit`, `answer`, and a `review --fix` that reopens the run. If `HEAD` is at the head that the series makes, the command runs `git reset -q` and appends `commits.created@1`. It names each staged path that no commit of the series holds, which the reset unstaged and left as it is in the tree, as `commit` names them for a series that it completes itself. If `HEAD` is at the head that it starts from, the command appends `commits.dropped@1`, and the series can be built again. If `HEAD` is at another commit, the command refuses, and it names both heads.
+Each command that reads `runHead` first settles an open series: `commit`, `answer`, and a `review --fix` that reopens the run. If `HEAD` is at the head that the series makes, the command runs `git reset -q` and appends `commits.created@1`. The reset unstages each staged path that no commit of the series holds, and it leaves the path as it is in the tree. The command names each such path, as `commit` does for a series that it completes itself. If `HEAD` is at the head that it starts from, the command appends `commits.dropped@1`, and the series can be built again. If `HEAD` is at another commit, the command refuses, and it names both heads.
 
 ### A lost attempt records only its own work (R10)
 
@@ -315,7 +325,9 @@ The Claude adapter returns a new kind of decoded result, `limit`, for a result w
 
 `attempt.failed@7` is version 6 with two more faults: `cut` (R4) and `limit` (R14). The fault `environment` stays as it is, in its phase: an attempt of the fixes whose claims directory was removed.
 
-The planner blocks the phase at the first failure with the fault `limit`, after the workers in flight end. This rule comes before the rule for a unit out of attempts. The blocker is `worker-failed`, and `workerFailedBlocker` gets its own words for `limit` and for `cut`: the detail names the limit and the reset, or the kill mark. Its action is the action of today, except for the survey of a fix run: a block for the limit takes the generic action of `worker-failed`, not the one that promises that flags settling every kind let the run go on without the survey. The survey reads only that promise as a survey that failed, so flags that settle every kind survey it afresh after the reset, and no unit degrades for the limit. The next start of the phase gives fresh attempts (R5 and the rule after a block). The words that the adapter knows are in one list beside the adapter, and a test pins them with the text of run `e21b026d`.
+The planner blocks the phase at the first failure with the fault `limit`, after the workers in flight end. This rule comes before the rule for a unit out of attempts. The blocker is `worker-failed`, and `workerFailedBlocker` gets its own words for `limit` and for `cut`: the detail names the limit and the reset, or the kill mark. Its action is the action of today, except for the survey of a fix run.
+
+For the survey of a fix run, a block for the limit takes the general action of `worker-failed`. It does not take the action that says the run can go on without the survey when flags give each kind. The survey reads only that action as a survey that failed. Thus, after the reset, flags that give each kind make the survey run again, and no unit degrades because of the limit. The next start of the phase gives fresh attempts (R5 and the rule after a block). The words that the adapter knows are in one list beside the adapter, and a test pins them with the text of run `e21b026d`.
 
 ### The record of a stop (R15)
 
@@ -336,7 +348,9 @@ The Limitations section of the report gets one line for each case of this table.
 | A check that ran again after a timeout | `- Ran again after a timeout: test in checks timed out after 20 min at its first run, and passed in 5.2 min at its second.` |
 | A fix pass that the budget stopped | `- The run budget stopped the fix pass: 3 batches and the repair did not start. node "<engine>" review --repo "<worktree>" --runtime claude --last-commit --fix --budget-usd 62 continues it and reviews nothing again.` |
 
-The command in the last line comes from the run. It names the entry of the engine, as the answer command of the report does (R9 of the skill surface corrections). It also names the run's worktree with `--repo`, the runtime, the scope flags and the paths of the run's request, and `--budget-usd` above the spend. Only a command over the run's worktree reopens the run, and the linked worktrees of a repository share the checkpoint, so `status` can print the line in another worktree; `--repo` makes the command reopen the run wherever it runs. It names `--roles` too, when the run did not use the default roles. In a run whose first round the budget stopped, the fate of a finding that the first round blocked says `Second round not planned: the run budget stopped the first round`.
+The command in the last line comes from the run. It names the entry of the engine, as the answer command of the report does (R9 of the skill surface corrections). It also names the run's worktree with `--repo`, the runtime, the scope flags and the paths of the run's request, and `--budget-usd` above the spend. Only a command over the run's worktree reopens the run. The linked worktrees of a repository share the checkpoint, so `status` can print the line in another worktree. With `--repo`, the command reopens the run from each directory.
+
+The command names `--roles` too, when the run did not use the default roles. In a run whose first round the budget stopped, the fate of a finding that the first round blocked says `Second round not planned: the run budget stopped the first round`.
 
 After `fix.reopened`, the header gets one line, as an answer pass does: `Reopened: the fix pass past the run budget on <time>, after the report at <path>`. A run that reopened more than one time names the last one and the count. The Changed files section names the phase of each revision after a committed series: the reopened fix pass, or an answer pass. `committedWords` and the comment of `whyNotCommittable` in `commit.ts` change with it.
 
@@ -373,7 +387,7 @@ Each step is its own commits, with its tests, and `npm run check` passes after e
 
 The comments of step 9 are these. `checkOutcomeOf` in `run.ts` and the decoder in `claude.ts` link #25 and #40 as behavior of today. `contributionOf` in `phases.ts` says that a usage limit counts against the unit. The comments in `review-fold.ts`, `fix-fold.ts` and `answer-fold.ts` say that two reducers move phases. And `whyNotCommittable` in `commit.ts` says that a later series is an answer pass's.
 
-Other comments say what the old rules do. In `process.ts`, they are the comments on `detachedChild`, `runProcess` and `LiveProcesses`. Elsewhere, they are the doc of `runWorker` in `launcher.ts`, the doc of `recordLostWorkers` in `controller.ts`, and the docs of `lastRun`, renamed `lastFreshRun`, and `checksFloor` in `fix-state.ts`. The comments on the reducers of runs and revisions in `fix-fold.ts` and on fresh attempts in `review-fold.ts` change too. So do the docs of `interrupted` and `dueCheck` in `steps.ts`, and the doc of `attemptRevisionEvents` in `fix-events.ts`.
+Other comments say what the old rules do. In `process.ts`, they are the comments on `detachedChild`, `runProcess` and `LiveProcesses`. Elsewhere, they are the doc of `runWorker` in `launcher.ts` and the doc of `recordLostWorkers` in `controller.ts`. In `fix-state.ts`, they are the docs of `lastRun`, now `lastFreshRun`, and of `checksFloor`. The comments on the reducers of runs and revisions in `fix-fold.ts` and on fresh attempts in `review-fold.ts` change too. So do the docs of `interrupted` and `dueCheck` in `steps.ts`, and the doc of `attemptRevisionEvents` in `fix-events.ts`.
 
 Two texts of the report become false as well. One is the line in `report.ts` that says that each drift blocked the run until the tree was restored. The other is the note in `fix-report.ts` that says that the check after the repair did not run because no check failed after the fixes.
 
@@ -475,7 +489,9 @@ A fake check writes a file of the run and then runs past its timeout. Its run re
 
 ### R8: Each child ends with the engine
 
-In `test/runtime/process.test.ts`, an engine starts a worker with a grandchild through the guard. A hard kill of the engine alone then ends both, on each system. The cases of today stay: a timeout, a crash, an exit and the signals. A kill of the guard alone, while its check runs, leaves no result file, and the engine records the check as cut. A command that cannot start gives the result `not-started` through the guard. A guard that starts late leaves its child the whole timeout, and one that never starts its child is killed a whole timeout past the deadline.
+In `test/runtime/process.test.ts`, an engine starts a worker with a grandchild through the guard. A hard kill of the engine alone then ends both, on each system. The cases of today stay: a timeout, a crash, an exit and the signals. A kill of the guard alone, while its check runs, leaves no result file, and the engine records the check as cut.
+
+A command that cannot start gives the result `not-started` through the guard. A guard that starts late gives its child the whole timeout. A guard that never starts its child is killed one whole timeout after the deadline.
 
 ### R9: `commit`
 
