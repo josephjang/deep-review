@@ -17,24 +17,16 @@ var __export = (target, all) => {
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-function endedByKill(end) {
-  if (end.termination !== "exited") return false;
-  return guardLeftNoResult(end) || end.signal !== null || end.exitCode !== null && killMarkCodes.includes(end.exitCode);
-}
-function guardLeftNoResult(end) {
-  return end.termination === "exited" && end.exitCode === null && end.signal === null;
-}
-function killMarkWords(end) {
-  if (guardLeftNoResult(end)) return end.guardEnd === void 0 ? "no result from its guard" : `no result from its guard, which ${guardEndWords(end.guardEnd)}`;
-  if (end.signal !== null) return `signal ${end.signal}, a kill mark`;
-  return `exit code ${String(end.exitCode)}, a kill mark`;
-}
-function guardEndWords(end) {
-  if (end.signal !== null) return `ended by signal ${end.signal}`;
-  return end.exitCode === null ? "ended with no exit code and no signal" : `exited with code ${String(end.exitCode)}`;
-}
 function notStarted(error62, startedAt, endedAt = (/* @__PURE__ */ new Date()).toISOString()) {
   return { termination: "not-started", exitCode: null, signal: null, error: error62, startedAt, endedAt };
+}
+function readChildStart(startFile) {
+  try {
+    const at = Number(readFileSync(startFile, "utf8"));
+    return Number.isFinite(at) && at > 0 ? at : null;
+  } catch {
+    return null;
+  }
 }
 function parseGuardRequest(text2) {
   const value = JSON.parse(text2);
@@ -61,6 +53,7 @@ async function runProcess(request) {
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
   const requestFile = resolve(`${request.stdoutFile}.guard.json`);
   const resultFile = guardResultFile(requestFile);
+  const startFile = guardStartFile(requestFile);
   try {
     closeSync(openSync(request.stdinFile, "r"));
     descriptors.push(openSync(request.stdoutFile, "wx"));
@@ -90,7 +83,14 @@ async function runProcess(request) {
         else if (graceLeftMs > 0) timer = setTimeout(() => expire(graceLeftMs - resultPollMs), resultPollMs);
         else kill = killTreeNow(guard2);
       };
-      let timer = setTimeout(() => expire(resultGraceMs), request.timeoutMs);
+      const guardDeadline = Date.now() + 2 * request.timeoutMs;
+      const due = () => {
+        const childStart = readChildStart(startFile);
+        const leftMs = childStart === null ? Math.min(resultPollMs, guardDeadline - Date.now()) : childStart + request.timeoutMs - Date.now();
+        if (leftMs > 0) timer = setTimeout(due, leftMs);
+        else expire(resultGraceMs);
+      };
+      let timer = setTimeout(due, request.timeoutMs);
       guard2.once("spawn", () => {
         started = true;
       });
@@ -120,14 +120,21 @@ async function runProcess(request) {
     for (const descriptor of descriptors) closeSync(descriptor);
     rmSync(requestFile, { force: true });
     rmSync(resultFile, { force: true });
+    rmSync(startFile, { force: true });
     rmSync(`${resultFile}.partial`, { force: true });
+    rmSync(`${startFile}.partial`, { force: true });
   }
 }
 function endLeftGroup(guardPid) {
   if (process.platform === "win32") return;
+  killGroup(guardPid);
+}
+function killGroup(pid) {
   try {
-    process.kill(-guardPid, "SIGKILL");
+    process.kill(-pid, "SIGKILL");
+    return true;
   } catch {
+    return false;
   }
 }
 function superviseChild(child) {
@@ -167,13 +174,13 @@ function killRoot(child, error62) {
   child.kill("SIGKILL");
   return { status: "root-only", error: error62 };
 }
-var killMarkCodes, detachedChild, guardResultFile, guardEntry, resultGraceMs, resultPollMs, interruptions, LiveProcesses, live;
+var detachedChild, guardResultFile, guardStartFile, guardEntry, resultGraceMs, resultPollMs, interruptions, LiveProcesses, live;
 var init_process = __esm({
   "src/runtime/process.ts"() {
     "use strict";
-    killMarkCodes = [129, 130, 131, 137, 143, 3221225786];
     detachedChild = process.platform !== "win32";
     guardResultFile = (requestFile) => `${requestFile}.result`;
+    guardStartFile = (requestFile) => `${requestFile}.started`;
     guardEntry = import.meta.filename.endsWith(".ts") ? join(import.meta.dirname, "..", "cli.ts") : import.meta.filename;
     resultGraceMs = 250;
     resultPollMs = 25;
@@ -231,6 +238,7 @@ async function runGuard(argv) {
   }
   const requestFile = argv[0];
   const resultFile = guardResultFile(requestFile);
+  const startFile = guardStartFile(requestFile);
   let request;
   let stdin;
   try {
@@ -265,6 +273,7 @@ async function runGuard(argv) {
       };
       child.once("spawn", () => {
         started = true;
+        writeStart(startFile);
       });
       child.on("error", (error62) => {
         if (started || settled3) return;
@@ -292,32 +301,30 @@ async function runGuard(argv) {
   }
 }
 function killGuardedTree(child) {
-  if (process.platform === "win32") {
-    killTreeNow(child);
-    return;
-  }
-  try {
-    process.kill(-process.pid, "SIGKILL");
-  } catch {
-    killTreeNow(child);
-  }
+  if (process.platform === "win32" || !killGroup(process.pid)) killTreeNow(child);
 }
 function endOwnGroup() {
-  try {
-    process.kill(-process.pid, "SIGKILL");
-  } catch {
-  }
+  killGroup(process.pid);
 }
 function writeResult(resultFile, result) {
-  const partial2 = `${resultFile}.partial`;
-  try {
-    writeFileSync2(partial2, JSON.stringify(result));
-    renameSync(partial2, resultFile);
-    return true;
-  } catch (error62) {
-    process.stderr.write(`deep-review guard: could not write the result ${JSON.stringify(result)}: ${error62.message}
+  const error62 = writeWhole(resultFile, JSON.stringify(result));
+  if (error62 !== null) process.stderr.write(`deep-review guard: could not write the result ${JSON.stringify(result)}: ${error62}
 `);
-    return false;
+  return error62 === null;
+}
+function writeStart(startFile) {
+  const error62 = writeWhole(startFile, String(Date.now()));
+  if (error62 !== null) process.stderr.write(`deep-review guard: could not write when the child started: ${error62}
+`);
+}
+function writeWhole(file2, text2) {
+  const partial2 = `${file2}.partial`;
+  try {
+    writeFileSync2(partial2, text2);
+    renameSync(partial2, file2);
+    return null;
+  } catch (error62) {
+    return error62.message;
   }
 }
 var init_guard = __esm({
@@ -22516,6 +22523,31 @@ var init_answer_state = __esm({
   }
 });
 
+// src/runtime/kill-marks.ts
+function endedByKill(end) {
+  if (end.termination !== "exited") return false;
+  return guardLeftNoResult(end) || end.signal !== null || end.exitCode !== null && killMarkCodes.includes(end.exitCode);
+}
+function guardLeftNoResult(end) {
+  return end.termination === "exited" && end.exitCode === null && end.signal === null;
+}
+function killMarkWords(end) {
+  if (guardLeftNoResult(end)) return end.guardEnd === void 0 ? "no result from its guard" : `no result from its guard, which ${guardEndWords(end.guardEnd)}`;
+  if (end.signal !== null) return `signal ${end.signal}, a kill mark`;
+  return `exit code ${String(end.exitCode)}, a kill mark`;
+}
+function guardEndWords(end) {
+  if (end.signal !== null) return `ended by signal ${end.signal}`;
+  return end.exitCode === null ? "ended with no exit code and no signal" : `exited with code ${String(end.exitCode)}`;
+}
+var killMarkCodes;
+var init_kill_marks = __esm({
+  "src/runtime/kill-marks.ts"() {
+    "use strict";
+    killMarkCodes = [129, 130, 131, 137, 143, 3221225786];
+  }
+});
+
 // src/checkpoint/fix-state.ts
 function emptyFixState() {
   return {
@@ -22540,7 +22572,7 @@ function emptyFixState() {
     reopenings: []
   };
 }
-function lastRun(fix, phase, kind, after = 0) {
+function lastFreshRun(fix, phase, kind, after = 0) {
   return fix.checks.runs[phase].findLast((run2) => run2.kind === kind && run2.attempt > after && !isOldRun(fix, phase, run2)) ?? null;
 }
 function lastRecordedRun(fix, phase, kind, after = 0) {
@@ -22557,7 +22589,7 @@ function isOldRun(fix, phase, run2) {
   return revisionAfter(fix, run2, stalingPhases[phase]) !== null;
 }
 function lastCurrentRun(review2, phase, kind) {
-  return lastRun(review2.fix, phase, kind, checksFloor(review2, phase));
+  return lastFreshRun(review2.fix, phase, kind, checksFloor(review2, phase));
 }
 function isCutAttempt(review2, phase, attempt) {
   return attempt > review2.fix.checks.finished[phase] && attempt < review2.phases[phase].attempt;
@@ -22571,6 +22603,9 @@ function runStanding(review2, phase, kind) {
   if (last.outcome === "timeout" && last.attempt === current && firstTimeout === last) return { kind: "again", run: last, why: "timeout" };
   if (last.outcome !== "passed" && isCutAttempt(review2, phase, last.attempt)) return { kind: "again", run: last, why: "cut-attempt" };
   return null;
+}
+function secondCut(replaces, attempt, outcome) {
+  return outcome === "cut" && replaces?.why === "cut" && replaces.run.attempt === attempt;
 }
 function openStart(fix, phase, kind, attempt) {
   const start = fix.checks.starts[phase].findLast((candidate) => candidate.kind === kind && candidate.attempt === attempt) ?? null;
@@ -22604,12 +22639,12 @@ function checksFloor(review2, phase) {
   return phase === "answer-checks" ? currentPass(review2)?.pass.openedAt.checks ?? 0 : 0;
 }
 function failedAtBaseline(fix, kind) {
-  return ["failed", "timeout"].includes(lastRun(fix, "baseline-checks", kind)?.outcome ?? "");
+  return ["failed", "timeout"].includes(lastFreshRun(fix, "baseline-checks", kind)?.outcome ?? "");
 }
 function repairTargets(fix, read = "current") {
   const planned = fix.checks.planned?.checks ?? [];
-  const afterFixes = (kind) => read === "current" ? lastRun(fix, "checks", kind) : lastRecordedRun(fix, "checks", kind);
-  return planned.map((check2) => check2.kind).filter((kind) => (lastRun(fix, "baseline-checks", kind)?.outcome === "passed" || failedAtBaseline(fix, kind)) && ["failed", "timeout"].includes(afterFixes(kind)?.outcome ?? ""));
+  const afterFixes = (kind) => read === "current" ? lastFreshRun(fix, "checks", kind) : lastRecordedRun(fix, "checks", kind);
+  return planned.map((check2) => check2.kind).filter((kind) => (lastFreshRun(fix, "baseline-checks", kind)?.outcome === "passed" || failedAtBaseline(fix, kind)) && ["failed", "timeout"].includes(afterFixes(kind)?.outcome ?? ""));
 }
 function allClusters(fix) {
   return [...fix.plan?.clusters ?? [], ...fix.secondRound?.clusters ?? []];
@@ -22839,7 +22874,7 @@ var init_fix_state = __esm({
     "use strict";
     init_vocabulary();
     init_answer_state();
-    init_process();
+    init_kill_marks();
     plannedCheckOfV2 = (check2) => check2.origin === "flag" ? { ...check2, origin: "setting", layer: "flag" } : { ...check2, layer: null };
     stalingPhases = {
       "baseline-checks": [],
@@ -22951,6 +22986,7 @@ function configure(state, payload, event, surveyed, decided) {
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? "skipped" : "pending", attempt: 0 }])),
     blocker: null,
+    limitBlocks: [],
     checks: [],
     leads: null,
     candidates: {},
@@ -23054,10 +23090,12 @@ var init_review_fold = __esm({
         const status3 = review2.phases[earlier].status;
         if (status3 !== "completed" && status3 !== "degraded" && status3 !== "skipped") throw invalid(event, `starts phase ${payload.phase} while phase ${earlier} is ${status3}`);
       }
+      const limited = phase.status === "blocked" && review2.blocker?.code === "worker-failed" && Object.values(review2.units[payload.phase]).some((unit) => unit.failures.some((failure2) => failure2.cause === "limit"));
+      const limitBlocks = limited ? [...review2.limitBlocks, { phase: payload.phase, attempt: phase.attempt, detail: review2.blocker.detail }] : review2.limitBlocks;
       let units = phase.status === "blocked" || phase.status === "running" ? withFreshAttempts(review2, drafts, payload.phase) : review2.units;
       if (payload.phase === "survey" && payload.attempt > 1 && (review2.fix?.checks.planned ?? null) === null) units = reopened({ ...review2, units }, drafts, payload.phase, singleUnitKey(payload.phase));
       const phaseStates = { ...review2.phases, [payload.phase]: { status: "running", attempt: payload.attempt } };
-      return withReview(current, { ...review2, phases: phaseStates, blocker: null, units }, event);
+      return withReview(current, { ...review2, phases: phaseStates, blocker: null, limitBlocks, units }, event);
     };
     phaseFinished = (state, payload, event) => {
       const { current, review: review2 } = requireReview(state, event);
@@ -23572,12 +23610,12 @@ var init_fix_fold = __esm({
       requireBatches(event, plan.routes, payload.clusters, payload.batches, review2.configuration.fixes?.batchSize ?? null);
       return withFix(current, review2, { ...fix, secondRound: payload }, event);
     };
-    runState = (fix, payload) => ({ ...payload, revisionsBefore: fix.revisions.length });
+    runState = (fix, payload, replaced) => ({ ...payload, revisionsBefore: fix.revisions.length, replacedAt: replaced === null ? null : fix.checks.runs[payload.phase].indexOf(replaced) });
     checkRan = (state, payload, event) => {
       const { current, review: review2, fix } = requireFix(state, event);
       requirePlannedCheck(review2, fix, event, payload, "runs");
       if (lastCurrentRun({ ...review2, fix }, payload.phase, payload.kind) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}${payload.phase === "answer-checks" ? " for one answer pass" : ""}`);
-      const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null })] };
+      const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null }, null)] };
       return withFix(current, review2, { ...fix, checks: { ...fix.checks, runs } }, event);
     };
     checkRanV32 = (state, payload, event) => {
@@ -23589,9 +23627,9 @@ var init_fix_fold = __esm({
       if (payload.replaces !== null && (standing.kind !== "again" || standing.run.attempt !== payload.replaces.attempt || standing.run.outcome !== payload.replaces.outcome)) {
         throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} as replacing a ${payload.replaces.outcome} run at attempt ${String(payload.replaces.attempt)}, which is not its last current run`);
       }
-      if (payload.outcome === "cut" && standing.kind === "again" && standing.why === "cut" && standing.run.attempt === payload.attempt) throw invalid(event, `records a second cut of the ${payload.kind} check in one attempt, which is a failure`);
+      if (secondCut(standing.kind === "again" ? standing : null, payload.attempt, payload.outcome)) throw invalid(event, `records a second cut of the ${payload.kind} check in one attempt, which is a failure`);
       if (payload.outcome !== "skipped" && openStart(fix, payload.phase, payload.kind, payload.attempt) === null) throw invalid(event, `runs the ${payload.kind} check in ${payload.phase} with no start of it in attempt ${String(payload.attempt)}`);
-      const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload)] };
+      const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload, standing.kind === "again" ? standing.run : null)] };
       return withFix(current, review2, { ...fix, checks: { ...fix.checks, runs } }, event);
     };
     checkStarted = (state, payload, event) => {
@@ -23654,7 +23692,7 @@ var init_fix_fold = __esm({
         }
         case "check": {
           if (!isCheckPhase(payload.phase)) throw invalid(event, `revises the tree for the ${source.check} check in ${payload.phase}, which runs no check`);
-          const run2 = lastRun(fix, payload.phase, source.check);
+          const run2 = lastFreshRun(fix, payload.phase, source.check);
           if (run2 === null || run2.outcome === "skipped") throw invalid(event, `revises the tree for the ${source.check} check, which did not run in ${payload.phase}`);
           break;
         }
@@ -31619,6 +31657,7 @@ var init_launcher = __esm({
     init_environment();
     init_errors7();
     init_preflight();
+    init_kill_marks();
     init_process();
     init_runtimes();
     init_scratch();
@@ -31967,6 +32006,7 @@ var init_run = __esm({
   "src/review/checks/run.ts"() {
     "use strict";
     init_environment();
+    init_kill_marks();
     init_process();
     checkPins = {
       CI: "true",
@@ -32568,7 +32608,7 @@ var init_tasks = __esm({
     init_review_fold();
     init_markdown();
     init_prompts();
-    init_process();
+    init_kill_marks();
     init_survey();
     init_vocabulary();
     kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
@@ -32773,7 +32813,7 @@ function baselineFailuresOf(review2, evidence) {
   const fix = review2.fix;
   if (fix === null) return [];
   return (fix.checks.planned?.checks ?? []).flatMap((check2) => {
-    const run2 = failedAtBaseline(fix, check2.kind) ? lastRun(fix, "baseline-checks", check2.kind) : null;
+    const run2 = failedAtBaseline(fix, check2.kind) ? lastFreshRun(fix, "baseline-checks", check2.kind) : null;
     return run2 === null ? [] : [{ kind: check2.kind, stdout: run2.stdout === null ? "none" : evidence.pathOf(run2.stdout), stderr: run2.stderr === null ? "none" : evidence.pathOf(run2.stderr) }];
   });
 }
@@ -32786,8 +32826,8 @@ function repairTaskOf(review2, editing, evidence) {
   const fix = review2.fix;
   if (fix === null) throw new Error("The repair runs only in a run with the fix pass");
   const checks = repairTargets(fix).map((kind) => {
-    const run2 = lastRun(fix, "checks", kind);
-    const before = failedAtBaseline(fix, kind) ? lastRun(fix, "baseline-checks", kind) : null;
+    const run2 = lastFreshRun(fix, "checks", kind);
+    const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, "baseline-checks", kind) : null;
     return {
       kind,
       command: run2.command,
@@ -33356,15 +33396,14 @@ function stopLimitations(review2, evidencePath) {
   const lines = [];
   for (const phase of checkPhases) {
     const runs = fix.checks.runs[phase];
-    runs.forEach((run2, index2) => {
-      if (run2.replaces === null) return;
-      const replaced = runs.slice(0, index2).findLast((earlier) => earlier.kind === run2.kind && earlier.attempt === run2.replaces.attempt && earlier.outcome === run2.replaces.outcome);
-      if (replaced === void 0) return;
+    for (const run2 of runs) {
+      if (run2.replacedAt === null) continue;
+      const replaced = runs[run2.replacedAt];
       const now = `${run2.outcome} in ${runSeconds(run2)}`;
       if (replaced.outcome === "cut") lines.push(`Cut: ${run2.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
       else if (replaced.outcome === "timeout") lines.push(`Ran again after a timeout: ${run2.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
       else lines.push(`Ran again after a stop: ${run2.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run2.attempt)}.`);
-    });
+    }
     for (const start of fix.checks.starts[phase]) {
       if (openStart(fix, phase, start.kind, start.attempt) === start) lines.push(`Cut by a stop: ${start.kind} in ${phase} at attempt ${String(start.attempt)}, with no end on record.`);
     }
@@ -33436,7 +33475,7 @@ function checkCell(run2, evidencePath, failedBefore) {
 function checksSection(fix, survey, answered2, evidencePath) {
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
-  const failedAtBaseline2 = (kind) => ["failed", "timeout", "not-started"].includes(lastRun(fix, "baseline-checks", kind)?.outcome ?? "");
+  const failedAtBaseline2 = (kind) => ["failed", "timeout", "not-started"].includes(lastFreshRun(fix, "baseline-checks", kind)?.outcome ?? "");
   const sourceCell = (check2) => survey === null ? [] : [checkSourceCell(survey, check2)];
   const shown = (phase, kind) => lastRecordedRun(fix, phase, kind);
   const edits = new Map(ran.map((phase) => [phase, planned.map((check2) => shown(phase, check2.kind)).flatMap((run2) => run2 === null ? [] : [earlierTreeEdit(fix, phase, run2)]).find((edit) => edit !== null) ?? null]));
@@ -33596,7 +33635,7 @@ var init_fix_report = __esm({
     "use strict";
     init_answer_state();
     init_fix_state();
-    init_process();
+    init_kill_marks();
     init_review_fold();
     init_decision_report();
     init_markdown();
@@ -33735,6 +33774,9 @@ function cutWorkerLines(workers) {
     return [`Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? "ran again" : "did not run again"}.`];
   });
 }
+function limitBlockLines(review2) {
+  return review2.limitBlocks.map((block) => `Usage limit: ${block.phase} blocked at attempt ${String(block.attempt)}, and the run resumed after it: ${inlineText(block.detail)}.`);
+}
 function limitations(state, scope, review2, input2) {
   const lines = [];
   for (const [angle, reason] of Object.entries(review2.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
@@ -33771,7 +33813,7 @@ function limitations(state, scope, review2, input2) {
   lines.push(...settingsLimitations(review2.configuration, scope).map((line) => `- ${inlineText(line)}`));
   lines.push(...surveyLimitations(review2));
   lines.push(...fixLimitations(review2));
-  const stops = [...cutWorkerLines(state.workers), ...input2.fix === void 0 ? [] : stopLimitations(review2, input2.fix.evidencePath)];
+  const stops = [...cutWorkerLines(state.workers), ...limitBlockLines(review2), ...input2.fix === void 0 ? [] : stopLimitations(review2, input2.fix.evidencePath)];
   lines.push(...stops.map((line) => `- ${line}`));
   return lines;
 }
@@ -33858,7 +33900,7 @@ var init_report = __esm({
     init_review_fold();
     init_decision_report();
     init_fix_report();
-    init_process();
+    init_kill_marks();
     init_locations();
     init_markdown();
     init_state();
@@ -33892,6 +33934,14 @@ var init_report = __esm({
 // src/review/controller.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
 import { join as join28 } from "node:path";
+function inFlightOf(unit, startedAt, running) {
+  let settled3 = null;
+  const promise2 = running.then((value) => {
+    settled3 = value;
+    return value;
+  });
+  return { unit, startedAt, promise: promise2, settled: () => settled3 };
+}
 function isResumable(run2) {
   return run2.status === "active" && (run2.review === null || run2.review.report === null);
 }
@@ -34148,7 +34198,7 @@ async function runReview(options2) {
       state = append(checkpoint, state, [{ kind: "check.started", version: 1, payload: { phase, attempt, kind: due.kind, command: due.command } }]);
       const manifest = prepareCheckManifest(join28(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree);
       const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, toolsPath, timeoutMs, ioDirectory: join28(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
-      const cutAgain = result.outcome === "cut" && due.replaces?.why === "cut" && due.replaces.run.attempt === attempt;
+      const cutAgain = secondCut(due.replaces, attempt, result.outcome);
       const outcome = cutAgain ? "failed" : result.outcome;
       const error62 = cutAgain ? `cut twice in attempt ${String(attempt)}: it ended first with ${killMarkWords(due.replaces.run)}, then with ${killMarkWords(result)}` : result.error;
       log(`check ${due.kind} (${phase}): ${outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${error62 === null ? "" : `: ${error62}`}`);
@@ -34257,7 +34307,7 @@ async function runReview(options2) {
             if (invocation.scratch !== void 0) prepareSnapshots(join28(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started${batchWords(state, unit)}`);
             const startedAt = Date.now();
-            const promise2 = runWorker(checkpoint, runId, invocation, {
+            const running = runWorker(checkpoint, runId, invocation, {
               // The finish is appended with the worker's contribution, in record (R6 of resumable runs).
               deferFinish: true,
               runtimes: options2.runtimes,
@@ -34268,15 +34318,13 @@ async function runReview(options2) {
               ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot },
               ...options2.preflightOptions === void 0 ? {} : { preflightOptions: options2.preflightOptions }
             }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
-            inFlight.set(unitName(unit.phase, unit.key), { unit, startedAt, promise: promise2 });
+            inFlight.set(unitName(unit.phase, unit.key), inFlightOf(unit, startedAt, running));
           }
           break;
         }
-        case "await": {
-          const { settled: settled3, startedAt } = await nextSettled(inFlight);
-          record2(settled3, startedAt);
+        case "await":
+          await recordSettled(inFlight, record2);
           break;
-        }
         case "finish-phase":
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? "" : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
           state = append(checkpoint, state, [{ kind: "phase.finished", version: 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
@@ -34327,6 +34375,20 @@ async function nextSettled(inFlight) {
   const entry = inFlight.get(name);
   inFlight.delete(name);
   return { settled: settled3, startedAt: entry.startedAt };
+}
+function settledNow(inFlight) {
+  for (const [name, entry] of inFlight) {
+    const settled3 = entry.settled();
+    if (settled3 === null) continue;
+    inFlight.delete(name);
+    return { settled: settled3, startedAt: entry.startedAt };
+  }
+  return null;
+}
+async function recordSettled(inFlight, record2) {
+  const first = await nextSettled(inFlight);
+  record2(first.settled, first.startedAt);
+  for (let next = settledNow(inFlight); next !== null; next = settledNow(inFlight)) record2(next.settled, next.startedAt);
 }
 function unelevatedEditorsWarning(runId) {
   return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
@@ -34723,7 +34785,7 @@ var init_controller = __esm({
     init_environment();
     init_errors7();
     init_launcher();
-    init_process();
+    init_kill_marks();
     init_preflight();
     init_scratch();
     init_capture();
@@ -34841,7 +34903,7 @@ async function requirePassable(run2, options2, owed) {
   const adapter = options2.adapter(run2.review.configuration.runtime);
   const reached = budgetReached(run2, options2.flags, adapter);
   if (reached !== null) {
-    throw new ReviewRefusedError(`run ${run2.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above ${reached.spend.usd.toFixed(2)} to apply it`);
+    throw new ReviewRefusedError(`run ${run2.id} ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}, so no fixer could launch; the answer is recorded; run deep-review answer again with the same answer and --budget-usd above ${spendBound(reached.spend.usd)} to apply it`);
   }
   const found = findDrift(run2, options2.worktree, options2.match);
   if (drifted(found)) {
@@ -34989,7 +35051,7 @@ function describeRun(state, adapter, evidencePath, continuation = null) {
   const fix = review2 === null ? null : fixStatus(state, review2);
   const decisions = review2?.decisions === null || review2?.decisions === void 0 ? null : decisionCounts(review2.decisions);
   const continuing = continueLine(state, adapter, continuation);
-  const stops = [...cutWorkerLines(state.workers), ...review2 === null ? [] : stopLimitations(review2, evidencePath)].map((line) => `Stop: ${line}`);
+  const stops = [...cutWorkerLines(state.workers), ...review2 === null ? [] : [...limitBlockLines(review2), ...stopLimitations(review2, evidencePath)]].map((line) => `Stop: ${line}`);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
