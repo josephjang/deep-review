@@ -6,7 +6,7 @@ import type { ReviewState, UnitState } from '../../src/checkpoint/review-fold.ts
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
 import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step, type Unit } from '../../src/review/steps.ts';
 import { finderAngles, phases, unitName, type Phase } from '../../src/review/vocabulary.ts';
-import { candidate, configured, decidedOf, type History, finding, found, leads, mergeRanked, ranked, ranking, reported, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { baselined, candidate, checkRun, configured, decidedOf, endCheck, type History, finding, fixAnswer, fixRevision, found, leads, mergeRanked, noSecondRound, ranked, ranking, reference, reported, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 /** What the budget check counted: `usd`, with `charged` workers at their caps and `lost` ones named. */
 const counted = (usd: number, charged = 0, lost = 0): { usd: number; charged: number; lost: number } => ({ usd, charged, lost });
@@ -427,6 +427,70 @@ describe('nextStep', () => {
       if (step.kind === 'launch' && step.units.some((unit) => unit.phase === 'decision')) launched.push(step);
     }
     assert.deepEqual(launched.at(-1), { kind: 'launch', units: [{ phase: 'decision', key: 'decision', role: 'decider' }] });
+  });
+});
+
+describe('the checks after the repair of a reopened fix pass (TD3, TD11 of resumable runs)', () => {
+  const plan = {
+    routes: [{ id: 'RIPPLE-1', route: 'fixer' }, { id: 'SWEEP-1', route: 'fixer' }],
+    clusters: [{ id: 'c1', findingIds: ['RIPPLE-1', 'SWEEP-1'], files: ['src/a.ts'] }],
+    batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['RIPPLE-1'] }, { key: 'c1-2', cluster: 'c1', findingIds: ['SWEEP-1'] }],
+  };
+  const repairAnswer = (workerId: string): Record<string, unknown> => ({ ...fixAnswer(workerId), phase: 'repair', key: 'repair', findings: [{ id: 'test', status: 'applied', file: 'src/a.ts', line: 1, note: 'n', message: { subject: 's', body: 'b' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }] });
+  const repairRevision = (workerId: string, after: string): Record<string, unknown> => ({ phase: 'repair', source: { kind: 'fix', key: 'repair', workerId }, change: { findings: ['test'], message: { subject: 's', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('f') }, beforeSymlink: false, symlink: false, after: { blob: reference(after) } }] });
+  const ran = (history: History, phase: string, attempt: number, outcomes: Readonly<Record<string, string>> = {}): History => {
+    for (const kind of ['build', 'lint', 'test']) history.add('check.ran', checkRun(phase, kind, outcomes[kind] ?? 'passed', attempt));
+    return history;
+  };
+  const spent = 'spent 30.50 USD of the 30.00 USD run budget';
+  /**
+   * A fix run whose budget left c1-2 after c1-1 revised src/a.ts, whose test
+   * failed after the fixes, and whose repair revised the tree before the
+   * checks after it passed, reopened: c1-2 revised the tree, and the checks
+   * after it ran with `test` as given. The repair answered, or, when
+   * `repairLeft`, its attempt failed after its revision and the budget left
+   * it, so the reopen runs it again.
+   */
+  const reopened = (test: string, repairLeft = false): History => {
+    const first = baselined()
+      .start('fixes')
+      .add('fixes.planned', plan)
+      .worker(50, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(50)))
+      .add('tree.revised', fixRevision(worker(50)))
+      .add('unit.unattempted', { phase: 'fixes', key: 'c1-2', cause: 'budget', reason: spent })
+      .add('fixes.replanned', noSecondRound)
+      .add('worktree.checked', endCheck('fixes'), 2)
+      .finish('fixes', 'degraded');
+    ran(first.start('checks'), 'checks', 1, { test: 'failed' }).finish('checks').start('repair').worker(60, 'fixer repair:repair');
+    if (repairLeft) first.add('attempt.failed', { phase: 'repair', key: 'repair', workerId: worker(60), reason: 'failed' }, 2).add('tree.revised', { ...repairRevision(worker(60), '8'), source: { kind: 'attempt', key: 'repair', workerId: worker(60) } }).add('unit.unattempted', { phase: 'repair', key: 'repair', cause: 'budget', reason: spent });
+    else first.add('fix.recorded', repairAnswer(worker(60))).add('tree.revised', repairRevision(worker(60), '8'));
+    first.add('worktree.checked', endCheck('repair'), 2).finish('repair', repairLeft ? 'degraded' : 'completed');
+    ran(first.start('repair-checks'), 'repair-checks', 1).finish('repair-checks')
+      .start('report').add('report.written', { report: reference('e', 2048), statistics, patches: [reference('1'), reference('2')] }, 2).finish('report')
+      .add('fix.reopened', { units: [{ phase: 'fixes', key: 'c1-2' }, ...(repairLeft ? [{ phase: 'repair', key: 'repair' }] : [])] })
+      .start('fixes', 2)
+      .worker(51, 'fixer fixes:c1-2')
+      .add('fix.recorded', fixAnswer(worker(51), { key: 'c1-2', findings: [{ id: 'SWEEP-1', status: 'applied', file: 'src/a.ts', line: 6, note: 'n', message: { subject: 'fix: Pass the text', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }] }))
+      .add('tree.revised', { ...fixRevision(worker(51), reference('b')), source: { kind: 'fix', key: 'c1-2', workerId: worker(51) }, change: { findings: ['SWEEP-1'], message: { subject: 'fix: Pass the text', body: 'Why.' } } })
+      .add('worktree.checked', endCheck('fixes', 2), 2)
+      .finish('fixes', 'completed', 2);
+    return ran(first.start('checks', 2), 'checks', 2, { test }).finish('checks', 'completed', 2);
+  };
+
+  it('runs no check again when the reopened fixes made its runs old but no repair came after them', () => {
+    const repair = reopened('passed').start('repair', 2);
+    assert.deepEqual(nextStep(repair.review(), idle), { kind: 'finish-phase', phase: 'repair', attempt: 2, outcome: 'completed', blocker: null }, 'no check failed after the fixes, so nothing is repaired');
+    const repairChecks = repair.finish('repair', 'completed', 2).start('repair-checks', 2);
+    assert.deepEqual(nextStep(repairChecks.review(), idle), { kind: 'finish-phase', phase: 'repair-checks', attempt: 2, outcome: 'completed', blocker: null });
+  });
+
+  it('runs every check again once the reopened pass\'s repair revised the tree after their runs', () => {
+    const repaired = reopened('failed', true).start('repair', 2).worker(61, 'fixer repair:repair').add('fix.recorded', repairAnswer(worker(61))).add('tree.revised', repairRevision(worker(61), '9')).add('worktree.checked', endCheck('repair', 2), 2).finish('repair', 'completed', 2).start('repair-checks', 2);
+    const step = nextStep(repaired.review(), idle);
+    assert.deepEqual(step, { kind: 'run-check', phase: 'repair-checks', attempt: 2, check: { kind: 'build', command: 'npm run build', skip: null, replaces: null } });
+    repaired.add('check.ran', checkRun('repair-checks', 'build', 'passed', 2));
+    assert.deepEqual(nextStep(repaired.review(), idle), { kind: 'run-check', phase: 'repair-checks', attempt: 2, check: { kind: 'lint', command: 'npm run lint', skip: null, replaces: null } }, 'each kind whose run the repair made old');
   });
 });
 
