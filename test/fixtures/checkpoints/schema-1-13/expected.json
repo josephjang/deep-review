@@ -22507,10 +22507,6 @@
                   "budgetApplied": true
                 },
                 "patches": []
-              },
-              "attempts": {
-                "checks": 1,
-                "repair-checks": 1
               }
             }
           ]

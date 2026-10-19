@@ -99,14 +99,13 @@ export interface RestorationState extends TreeRestored {
 
 /**
  * A reopening of a fix pass the run budget stopped (R11 of resumable
- * runs): when it was recorded, the units it reopened, the report it
- * replaces, and the attempts `checks` and `repair-checks` were at.
+ * runs): when it was recorded, the units it reopened, and the report it
+ * replaces.
  */
 export interface ReopeningState {
   readonly at: string;
   readonly units: FixReopened['units'];
   readonly reportBefore: ReportWritten;
-  readonly attempts: Readonly<Record<'checks' | 'repair-checks', number>>;
 }
 
 export interface FixState {

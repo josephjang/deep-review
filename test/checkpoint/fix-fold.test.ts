@@ -858,7 +858,7 @@ describe('the records of resumable runs', () => {
     const review = reopened.review();
     assert.deepEqual(review.fix!.notAttempted.fixes, {});
     assert.equal(review.report, null);
-    assert.deepEqual(review.fix!.reopenings.map((reopening) => [reopening.units, reopening.reportBefore, reopening.attempts]), [[[{ phase: 'fixes', key: 'c1-1' }], before.report, { checks: 1, 'repair-checks': 1 }]]);
+    assert.deepEqual(review.fix!.reopenings.map((reopening) => [reopening.units, reopening.reportBefore]), [[[{ phase: 'fixes', key: 'c1-1' }], before.report]]);
     for (const phase of ['fixes', 'checks', 'repair', 'repair-checks', 'report'] as const) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: before.phases[phase].attempt }, phase);
     assert.equal(review.phases['merge-rank'].status, 'completed', 'no read-only phase opens again');
     assert.equal(reviewStatus(reopened.fold()), 'active');

@@ -562,7 +562,7 @@ const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   if (listed.length !== stopped.length || !stopped.every((unit) => listed.includes(unit))) throw invalid(event, `reopens [${listed.join(', ')}], not each unit the run budget left not attempted [${stopped.join(', ')}]`);
   const notAttempted = { ...fix.notAttempted };
   for (const unit of payload.units) notAttempted[unit.phase] = Object.fromEntries(Object.entries(notAttempted[unit.phase]).filter(([key]) => key !== unit.key));
-  const reopening: ReopeningState = { at: event.recordedAt, units: payload.units, reportBefore: report, attempts: { checks: review.phases.checks.attempt, 'repair-checks': review.phases['repair-checks'].attempt } };
+  const reopening: ReopeningState = { at: event.recordedAt, units: payload.units, reportBefore: report };
   const phaseStates = { ...review.phases };
   const reopenedPhases: Phase[] = [...(payload.units.some((unit) => unit.phase === 'fixes') ? ['fixes' as const] : []), 'checks', 'repair', 'repair-checks', 'report'];
   for (const phase of reopenedPhases) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
