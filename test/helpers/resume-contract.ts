@@ -262,11 +262,7 @@ export function normalizedReport(text: string, sandbox: string): string {
   return limitations === -1 ? lines.join('\n') : [...lines.slice(0, limitations + 1), ...lines.slice(limitations + 1).sort()].join('\n');
 }
 
-/**
- * End a process and its tree at once: `taskkill /T /F` on Windows, SIGKILL of its group on POSIX, else of the process.
- * It does not reuse `killTreeNow` of `src/runtime/process.ts` on purpose: it is the outside stop that the contract
- * test (R8) checks the engine against, so a defect in the engine's own tree kill cannot hide itself.
- */
+/** End a process and its tree at once: `taskkill /T /F` on Windows, SIGKILL of its group on POSIX, else of the process. */
 export function killTree(pid: number): void {
   if (process.platform === 'win32') {
     spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
