@@ -16,15 +16,22 @@ var __export = (target, all) => {
 // src/runtime/process.ts
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join, resolve } from "node:path";
 function endedByKill(end) {
   if (end.termination !== "exited") return false;
-  return end.signal !== null || end.exitCode === null || killMarkCodes.includes(end.exitCode);
+  return guardLeftNoResult(end) || end.signal !== null || end.exitCode !== null && killMarkCodes.includes(end.exitCode);
+}
+function guardLeftNoResult(end) {
+  return end.termination === "exited" && end.exitCode === null && end.signal === null;
 }
 function killMarkWords(end) {
+  if (guardLeftNoResult(end)) return end.guardEnd === void 0 ? "no result from its guard" : `no result from its guard, which ${guardEndWords(end.guardEnd)}`;
   if (end.signal !== null) return `signal ${end.signal}, a kill mark`;
-  if (end.exitCode === null) return "no result from its guard";
   return `exit code ${String(end.exitCode)}, a kill mark`;
+}
+function guardEndWords(end) {
+  if (end.signal !== null) return `ended by signal ${end.signal}`;
+  return end.exitCode === null ? "ended with no exit code and no signal" : `exited with code ${String(end.exitCode)}`;
 }
 function notStarted(error62, startedAt, endedAt = (/* @__PURE__ */ new Date()).toISOString()) {
   return { termination: "not-started", exitCode: null, signal: null, error: error62, startedAt, endedAt };
@@ -52,7 +59,7 @@ function readGuardResult(resultFile) {
 async function runProcess(request) {
   const descriptors = [];
   const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const requestFile = `${request.stdoutFile}.guard.json`;
+  const requestFile = resolve(`${request.stdoutFile}.guard.json`);
   const resultFile = guardResultFile(requestFile);
   try {
     closeSync(openSync(request.stdinFile, "r"));
@@ -63,8 +70,8 @@ async function runProcess(request) {
     let guard2;
     try {
       guard2 = spawn(process.execPath, [guardEntry, "guard", requestFile], {
-        // The request's directory exists, so a missing working directory is the child's spawn error, which the guard reports.
-        cwd: dirname(requestFile),
+        // The engine's own directory, so a relative path the environment gives Node, such as a NODE_OPTIONS preload, resolves for the guard as it did for the engine. A missing working directory of the child is its spawn error, which the guard reports.
+        cwd: process.cwd(),
         env: request.environment,
         stdio: ["pipe", descriptors[0], descriptors[1]],
         shell: false,
@@ -75,7 +82,7 @@ async function runProcess(request) {
       return notStarted(error62.message, startedAt);
     }
     superviseChild(guard2);
-    return await new Promise((resolve12) => {
+    return await new Promise((resolve13) => {
       let started = false;
       let kill;
       const timer = setTimeout(() => {
@@ -87,7 +94,7 @@ async function runProcess(request) {
       guard2.on("error", (error62) => {
         if (started) return;
         clearTimeout(timer);
-        resolve12(notStarted(`the guard did not start: ${error62.message}`, startedAt));
+        resolve13(notStarted(`the guard did not start: ${error62.message}`, startedAt));
       });
       guard2.stdin?.on("error", () => {
       });
@@ -97,12 +104,12 @@ async function runProcess(request) {
         guard2.stdin?.destroy();
         const endedAt = (/* @__PURE__ */ new Date()).toISOString();
         const result = readGuardResult(resultFile);
-        if (kill !== void 0 && kill.status !== "not-running") resolve12({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
-        else if (result?.termination === "exited") resolve12({ termination: "exited", exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
-        else if (result?.termination === "not-started") resolve12(notStarted(result.error, startedAt, endedAt));
+        if (kill !== void 0 && kill.status !== "not-running") resolve13({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
+        else if (result?.termination === "exited") resolve13({ termination: "exited", exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
+        else if (result?.termination === "not-started") resolve13(notStarted(result.error, startedAt, endedAt));
         else {
           endLeftGroup(guard2.pid);
-          resolve12({ termination: "exited", exitCode: null, signal: null, startedAt, endedAt });
+          resolve13({ termination: "exited", exitCode: null, signal: null, guardEnd: { exitCode: code, signal }, startedAt, endedAt });
         }
       });
     });
@@ -243,13 +250,13 @@ async function runGuard(argv) {
       writeResult(resultFile, { termination: "not-started", error: error62.message });
       return 1;
     }
-    return await new Promise((resolve12) => {
+    return await new Promise((resolve13) => {
       let started = false;
       let settled2 = false;
-      const settle3 = (code) => {
+      const settle4 = (code) => {
         settled2 = true;
         process.stdin.destroy();
-        resolve12(code);
+        resolve13(code);
       };
       child.once("spawn", () => {
         started = true;
@@ -257,18 +264,18 @@ async function runGuard(argv) {
       child.on("error", (error62) => {
         if (started || settled2) return;
         writeResult(resultFile, { termination: "not-started", error: error62.message });
-        settle3(1);
+        settle4(1);
       });
       child.once("close", (exitCode, signal) => {
         if (!started || settled2) return;
-        writeResult(resultFile, { termination: "exited", exitCode, signal });
+        const written = writeResult(resultFile, { termination: "exited", exitCode, signal });
         if (process.platform !== "win32") endOwnGroup();
-        settle3(exitCode ?? 1);
+        settle4(written ? exitCode ?? 1 : 1);
       });
       const engineGone = () => {
         if (settled2) return;
         killGuardedTree(child);
-        settle3(1);
+        settle4(1);
       };
       process.stdin.once("end", engineGone);
       process.stdin.once("close", engineGone);
@@ -298,8 +305,15 @@ function endOwnGroup() {
 }
 function writeResult(resultFile, result) {
   const partial2 = `${resultFile}.partial`;
-  writeFileSync2(partial2, JSON.stringify(result));
-  renameSync(partial2, resultFile);
+  try {
+    writeFileSync2(partial2, JSON.stringify(result));
+    renameSync(partial2, resultFile);
+    return true;
+  } catch (error62) {
+    process.stderr.write(`deep-review guard: could not write the result ${JSON.stringify(result)}: ${error62.message}
+`);
+    return false;
+  }
 }
 var init_guard = __esm({
   "src/runtime/guard.ts"() {
@@ -4804,7 +4818,7 @@ function isRef(value) {
 function cloneIssues(issues) {
   return issues.map((iss) => iss.path ? { ...iss, path: iss.path.slice() } : { ...iss });
 }
-function isRecursive(inst, stack, resolve12) {
+function isRecursive(inst, stack, resolve13) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -4814,7 +4828,7 @@ function isRecursive(inst, stack, resolve12) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer2 = isRecursive(child, stack, resolve12);
+      const answer2 = isRecursive(child, stack, resolve13);
       if (answer2 > result)
         result = answer2;
     }
@@ -4825,7 +4839,7 @@ function isRecursive(inst, stack, resolve12) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve12) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve13) : NONE;
       if (child > answer2)
         answer2 = child;
     }
@@ -4889,7 +4903,7 @@ function isRecursive(inst, stack, resolve12) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve12 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve13 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -20850,7 +20864,7 @@ import {
   unlinkSync,
   writeSync
 } from "node:fs";
-import { join as join2, resolve } from "node:path";
+import { join as join2, resolve as resolve2 } from "node:path";
 var artifactReferenceSchema, sha256Hex, EvidenceStore;
 var init_store = __esm({
   "src/evidence/store.ts"() {
@@ -20867,7 +20881,7 @@ var init_store = __esm({
       root;
       #link;
       constructor(root, options2 = {}) {
-        this.root = resolve(root);
+        this.root = resolve2(root);
         this.#link = options2.link ?? linkSync2;
         mkdirSync(this.root, { recursive: true });
         const stat = lstatSync(this.root);
@@ -22552,6 +22566,14 @@ function openStart(fix, phase, kind, attempt) {
   if (start === null) return null;
   return fix.checks.runs[phase].slice(start.runsBefore).some((run2) => run2.kind === kind && run2.attempt === attempt) ? null : start;
 }
+function cutShortChecks(fix, phase) {
+  const starts = fix.checks.starts[phase];
+  const started = (run2, index2) => starts.some((start) => start.kind === run2.kind && start.attempt === run2.attempt && start.runsBefore <= index2);
+  return [
+    ...fix.checks.runs[phase].flatMap((run2, index2) => killedRun(run2) && started(run2, index2) ? [{ check: run2, at: index2 + 0.5 }] : []),
+    ...starts.flatMap((start) => openStart(fix, phase, start.kind, start.attempt) === start ? [{ check: start, at: start.runsBefore }] : [])
+  ].sort((a, b) => a.at - b.at).map((candidate) => candidate.check);
+}
 function cutShortBefore(review2, phase) {
   const { fix } = review2;
   const current = review2.phases[phase].attempt;
@@ -22559,12 +22581,11 @@ function cutShortBefore(review2, phase) {
     const last2 = fix.restorations.findLast((restoration) => restoration.phase === phase && restoration.check.kind === kind && restoration.check.attempt === attempt);
     return last2 !== void 0 && review2.checks.slice(last2.checksBefore).some((check2) => check2.phase === phase && check2.attempt === last2.attempt && check2.moment === "restored");
   };
-  const candidates = [
-    ...fix.checks.runs[phase].map((run2, index2) => ({ check: run2, at: index2 + 0.5, cut: killedRun(run2) })),
-    ...fix.checks.starts[phase].map((start) => ({ check: start, at: start.runsBefore, cut: openStart(fix, phase, start.kind, start.attempt) === start }))
-  ].filter((candidate) => candidate.cut && candidate.check.attempt < current && !writtenBack(candidate.check.kind, candidate.check.attempt)).sort((a, b) => a.at - b.at);
-  const last = candidates.at(-1);
-  return last === void 0 ? null : { kind: last.check.kind, attempt: last.check.attempt };
+  const last = cutShortChecks(fix, phase).findLast((check2) => check2.attempt < current && !writtenBack(check2.kind, check2.attempt));
+  return last === void 0 ? null : { kind: last.kind, attempt: last.attempt };
+}
+function lastRestorationAt(fix, phase, attempt) {
+  return fix?.restorations.findLast((restoration) => restoration.phase === phase && restoration.attempt === attempt)?.checksBefore ?? -1;
 }
 function checksFloor(review2, phase) {
   return phase === "answer-checks" ? currentPass(review2)?.pass.openedAt.checks ?? 0 : 0;
@@ -23706,7 +23727,7 @@ var init_fix_fold = __esm({
       if (listed.length !== stopped.length || !stopped.every((unit) => listed.includes(unit))) throw invalid(event, `reopens [${listed.join(", ")}], not each unit the run budget left not attempted [${stopped.join(", ")}]`);
       const notAttempted = { ...fix.notAttempted };
       for (const unit of payload.units) notAttempted[unit.phase] = Object.fromEntries(Object.entries(notAttempted[unit.phase]).filter(([key]) => key !== unit.key));
-      const reopening = { at: event.recordedAt, units: payload.units, reportBefore: report, attempts: { checks: review2.phases.checks.attempt, "repair-checks": review2.phases["repair-checks"].attempt } };
+      const reopening = { at: event.recordedAt, units: payload.units, reportBefore: report };
       const phaseStates = { ...review2.phases };
       const reopenedPhases = [...payload.units.some((unit) => unit.phase === "fixes") ? ["fixes"] : [], "checks", "repair", "repair-checks", "report"];
       for (const phase of reopenedPhases) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
@@ -23936,7 +23957,7 @@ var init_fold = __esm({
 
 // src/checkpoint/ledger.ts
 import { mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join3, resolve as resolve2 } from "node:path";
+import { join as join3, resolve as resolve3 } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 function userVersion(db) {
   return db.prepare("PRAGMA user_version").get().user_version;
@@ -24041,7 +24062,7 @@ CREATE TRIGGER runs_are_permanent_delete BEFORE DELETE ON runs
       }
       static open(root, options2 = {}) {
         const schema = options2.schema ?? currentSchema;
-        const directory = resolve2(root);
+        const directory = resolve3(root);
         mkdirSync2(directory, { recursive: true });
         const path = join3(directory, ledgerFileName);
         const db = new DatabaseSync(path, { timeout: busyTimeoutMs });
@@ -24124,7 +24145,7 @@ CREATE TRIGGER runs_are_permanent_delete BEFORE DELETE ON runs
 
 // src/checkpoint/checkpoint.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { join as join4, resolve as resolve3 } from "node:path";
+import { join as join4, resolve as resolve4 } from "node:path";
 function decode3(row) {
   return { ...row, payload: JSON.parse(row.payload) };
 }
@@ -24158,7 +24179,7 @@ var init_checkpoint = __esm({
         this.#ids = options2.ids ?? randomUUID2;
       }
       static open(root, options2) {
-        const directory = resolve3(root);
+        const directory = resolve4(root);
         const ledger = Ledger.open(directory, options2);
         try {
           const evidence = new EvidenceStore(join4(directory, evidenceDirectoryName));
@@ -24349,11 +24370,11 @@ function realGit(run2 = execFileSync, exists = existsSync3) {
   const binary = win322.join(execPath, "git.exe");
   return exists(binary) ? binary : "git";
 }
-function gitLocator(resolve12 = realGit) {
+function gitLocator(resolve13 = realGit) {
   let resolved;
   return (platform = process.platform) => {
     if (platform !== "win32") return "git";
-    resolved ??= resolve12();
+    resolved ??= resolve13();
     return resolved;
   };
 }
@@ -24386,9 +24407,9 @@ var init_git_sync = __esm({
 
 // src/checkpoint/locate.ts
 import { realpathSync } from "node:fs";
-import { join as join5, resolve as resolve4 } from "node:path";
+import { join as join5, resolve as resolve5 } from "node:path";
 function locateCheckpoint(directory) {
-  const cwd = resolve4(directory);
+  const cwd = resolve5(directory);
   let output2;
   try {
     output2 = runGitSync(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], {
@@ -24487,9 +24508,9 @@ var init_manifest = __esm({
 
 // src/roles/assemble.ts
 import { lstatSync as lstatSync3, readdirSync, readFileSync as readFileSync4 } from "node:fs";
-import { join as join6, resolve as resolve5 } from "node:path";
+import { join as join6, resolve as resolve6 } from "node:path";
 function repositoryRolesRoot() {
-  return resolve5(import.meta.dirname, "..", "..", "roles");
+  return resolve6(import.meta.dirname, "..", "..", "roles");
 }
 function repeatedJsonKey(text2) {
   const open2 = [];
@@ -26552,18 +26573,18 @@ var init_policy = __esm({
 
 // src/paths.ts
 import { readlinkSync, realpathSync as realpathSync2, statSync } from "node:fs";
-import { basename, dirname as dirname2, isAbsolute as isAbsolute2, join as join9, relative, resolve as resolve6, sep } from "node:path";
+import { basename, dirname, isAbsolute as isAbsolute2, join as join9, relative, resolve as resolve7, sep } from "node:path";
 function canonicalPath(path) {
-  const absolute = resolve6(path);
+  const absolute = resolve7(path);
   const rest = [];
-  for (let current = absolute; ; current = dirname2(current)) {
+  for (let current = absolute; ; current = dirname(current)) {
     try {
       return join9(realpathSync2.native(current), ...rest);
     } catch (error62) {
       const code = error62.code;
       if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
     }
-    if (dirname2(current) === current) return absolute;
+    if (dirname(current) === current) return absolute;
     rest.unshift(basename(current));
   }
 }
@@ -26572,7 +26593,7 @@ function isInside(parent, child) {
   return path === "" || !(path === ".." || path.startsWith(`..${sep}`) || isAbsolute2(path));
 }
 function sameDirectory(a, b) {
-  const [left, right] = [resolve6(a), resolve6(b)];
+  const [left, right] = [resolve7(a), resolve7(b)];
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 function linkTargetText(target, platform = process.platform) {
@@ -26824,8 +26845,8 @@ function namesScope(named, scope) {
   const request = normalizeRequest(named.request);
   const recorded = scope.request;
   const paths = [...request.paths].sort();
-  const recordedPaths = [...recorded.paths].sort();
-  if (paths.length !== recordedPaths.length || paths.some((path, index2) => path !== recordedPaths[index2])) return false;
+  const recordedPaths2 = [...recorded.paths].sort();
+  if (paths.length !== recordedPaths2.length || paths.some((path, index2) => path !== recordedPaths2[index2])) return false;
   switch (named.mode) {
     case "last-commit":
     case "worktree":
@@ -26864,7 +26885,7 @@ var init_capture = __esm({
 });
 
 // src/config/settings.ts
-import { delimiter, resolve as resolve7 } from "node:path";
+import { delimiter, resolve as resolve8 } from "node:path";
 function checkTimeoutMs(minutes) {
   return Math.round(minutes * 6e4);
 }
@@ -27002,7 +27023,7 @@ var init_settings = __esm({
         example: [".venv/bin"],
         flag: null,
         describe: "Directories that go first on PATH for each check and each worker; a relative one is relative to the root of the worktree.",
-        normalize: (directories, worktree) => directories.map((directory) => resolve7(worktree, directory))
+        normalize: (directories, worktree) => directories.map((directory) => resolve8(worktree, directory))
       }),
       "conventions.user_rules": declare({
         owner: "repository-first",
@@ -27687,7 +27708,7 @@ var init_source = __esm({
 // src/review/claims.ts
 import { createHash as createHash5 } from "node:crypto";
 import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync3, readFileSync as readFileSync10, statSync as statSync4 } from "node:fs";
-import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute4, join as join13, relative as relative2, sep as sep2 } from "node:path";
+import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute4, join as join13, relative as relative2, sep as sep2 } from "node:path";
 function claimsDirectoryFor(scratchBase, runId, round) {
   return join13(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
 }
@@ -27737,7 +27758,7 @@ function readableListing(fs, directory) {
 function caseInsensitiveFileSystem(worktree, fs = caseProbeFileSystem) {
   const name = basename2(worktree);
   if (flipCase(name) !== name) {
-    const parent = dirname3(worktree);
+    const parent = dirname2(worktree);
     const siblings = readableListing(fs, parent);
     if (siblings !== void 0) return foldsCase(fs, parent, siblings, name);
   }
@@ -28083,11 +28104,11 @@ function resolveReportedPath(worktree, lookup, raw, wording = fixerWording) {
   return held.length === 1 ? held[0] : name;
 }
 function resolveFixerAnswer(output2, context) {
-  const resolve12 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
+  const resolve13 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
   const own2 = /* @__PURE__ */ new Set([...context.owned, ...context.claimed]);
   const findings = output2.findings.map(({ edits, ...finding }) => {
-    const files = [...new Set((edits?.files ?? []).map(resolve12))];
-    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve12))];
+    const files = [...new Set((edits?.files ?? []).map(resolve13))];
+    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve13))];
     const held = requiredFiles.filter((path) => own2.has(path));
     if (held.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${held.join(", ")}, which its own cluster owns or claimed`);
     return { ...finding, files, message: edits?.message ?? null, requiredFiles };
@@ -28225,17 +28246,17 @@ function settleClaims(state, key, live2, worktree) {
   const pending = new Set(live2.markers.filter((marker) => !marker.whole).map((marker) => marker.hash));
   return { events, state: foldedWith(state, events), pending, caseInsensitive };
 }
-function isPending(settle3, path) {
-  return settle3.pending.size > 0 && settle3.pending.has(markerHash(path, settle3.caseInsensitive));
+function isPending(settle4, path) {
+  return settle4.pending.size > 0 && settle4.pending.has(markerHash(path, settle4.caseInsensitive));
 }
-function lateClaim(settle3, key, named) {
-  const fix = requireFix2(settle3.state);
-  const batch = batchOfUnit(settle3.state, key);
+function lateClaim(settle4, key, named) {
+  const fix = requireFix2(settle4.state);
+  const batch = batchOfUnit(settle4.state, key);
   const round = roundOf(fix, key);
-  const keyOf = (path) => pathKey(path, settle3.caseInsensitive);
+  const keyOf = (path) => pathKey(path, settle4.caseInsensitive);
   const holders = holdersKeyedBy(fix, round, keyOf);
   const settled2 = settledClusters(fix, round);
-  const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle3, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled2) === null).sort();
+  const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle4, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled2) === null).sort();
   return perEvent(free).map((paths) => ({ kind: "files.claimed", version: 1, payload: { phase: "fixes", key, cluster: batch.cluster, files: paths.map((path) => ({ path, claimedAt: null })) } }));
 }
 var settledNothing, madeOrder;
@@ -28910,7 +28931,7 @@ function workerFailedBlocker(review2, unit, state) {
   const interruption = causes.has("lost") ? ", a worker lost with its engine among the failures" : causes.has("cut") ? ", a worker a kill from outside ended with a kill mark among the failures" : causes.has("environment") ? ", an attempt whose claims directory was removed among the failures" : "";
   const limit = state?.failures.some((failure2) => failure2.cause === "limit") ?? false;
   const prefix = limit ? `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} stopped at the provider's usage limit: ` : `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
-  const action = unit.phase === "survey" && degradationOf(review2, unit) === null ? surveyWorkerFailedAction : blockerActions["worker-failed"];
+  const action = !limit && unit.phase === "survey" && degradationOf(review2, unit) === null ? surveyWorkerFailedAction : blockerActions["worker-failed"];
   return { code: "worker-failed", detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
 function checkUnavailableBlocker(unavailable, continued) {
@@ -28968,7 +28989,7 @@ function dueCheck(review2, phase) {
   for (const check2 of planned.checks) {
     if (check2.command === null) continue;
     const standing = runStanding(withFix2, phase, check2.kind);
-    if (standing === null) continue;
+    if (standing === null || phase === "repair-checks" && standing.kind === "first" && !repairRevisedSince(fix, check2.kind)) continue;
     const build2 = lastCurrentRun(withFix2, phase, "build");
     const skip = check2.kind !== "build" && build2 !== null && build2.outcome !== "passed" ? `build ${build2.outcome === "failed" ? "failed" : build2.outcome === "timeout" ? "timed out" : "did not start"}` : null;
     return { kind: check2.kind, command: check2.command, skip, replaces: standing.kind === "first" ? null : { run: standing.run, why: standing.why } };
@@ -28997,7 +29018,7 @@ function surveyStep(review2, live2, attempt) {
   if (unsettledKinds(live2.checkSettings).length > 0) return null;
   const unit = { phase: "survey", key, role: "surveyor" };
   const state = review2.units.survey[key];
-  const failed2 = survey.lastBlock?.code === "worker-failed" ? `the survey blocked, ${survey.lastBlock.detail}` : exhausted(review2, unit, state) && !interrupted(state) ? workerFailedBlocker(review2, unit, state).detail : null;
+  const failed2 = survey.lastBlock?.code === "worker-failed" && survey.lastBlock.action === surveyWorkerFailedAction ? `the survey blocked, ${survey.lastBlock.detail}` : exhausted(review2, unit, state) && !interrupted(state) ? workerFailedBlocker(review2, unit, state).detail : null;
   if (failed2 === null) return null;
   const settledBy = settledByFlagsOnly(live2.checkSettings) ? "the --check and --no-check flags settle" : "the check settings settle";
   const without = truncated(`${failed2}; ${settledBy} every check, so the run goes on without it`, maxRecordedTextLength);
@@ -29015,14 +29036,13 @@ function nextStep(review2, live2) {
   const attempt = review2.phases[phase].attempt;
   const ofAttempt = review2.checks.map((check2, index2) => ({ check: check2, index: index2 })).filter(({ check: check2 }) => check2.phase === phase && check2.attempt === attempt);
   if (ofAttempt.length === 0) return { kind: "check-worktree", phase, attempt, moment: "start" };
-  const restorations = review2.fix?.restorations.filter((restoration) => restoration.phase === phase && restoration.attempt === attempt) ?? [];
-  const restoredAt = restorations.at(-1)?.checksBefore ?? -1;
+  const restoredAt = lastRestorationAt(review2.fix, phase, attempt);
   const checks = ofAttempt.filter(({ index: index2 }) => index2 >= restoredAt).map(({ check: check2 }) => check2);
   if (checks.length === 0) return { kind: "check-worktree", phase, attempt, moment: "restored" };
   const drift = checks.find((check2) => check2.drifted);
   if (drift !== void 0) {
     if (live2.running.size > 0) return { kind: "await" };
-    const restore = isCheckPhase(phase) && restorations.length === 0 ? restoreStep(review2, phase, attempt, drift) : null;
+    const restore = isCheckPhase(phase) && restoredAt === -1 ? restoreStep(review2, phase, attempt, drift) : null;
     return restore ?? { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: driftBlocker(drift, live2.evidencePath) };
   }
   if (phase === "fixes" && live2.claimsLost !== null) return live2.running.size > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: claimsLostBlocker(live2.claimsLost) };
@@ -29068,7 +29088,7 @@ function nextStep(review2, live2) {
   const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
   return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
 }
-var maxAttempts, exhausted, truncationMark, interrupted, settled, launchableUnit, usd, passRevised;
+var maxAttempts, exhausted, truncationMark, interrupted, settled, launchableUnit, usd, passRevised, repairRevisedSince;
 var init_steps = __esm({
   "src/review/steps.ts"() {
     "use strict";
@@ -29091,6 +29111,10 @@ var init_steps = __esm({
     launchableUnit = (review2, unit, state) => !settled(review2, unit) && !exhausted(review2, unit, state) && !waitsForItsCluster(review2, unit);
     usd = (value) => value.toFixed(2);
     passRevised = (fix, key) => unitRevisions(fix, "answer", key).length > 0;
+    repairRevisedSince = (fix, kind) => {
+      const last = lastRecordedRun(fix, "repair-checks", kind);
+      return last === null || fix.revisions.slice(last.revisionsBefore).some((revision) => revision.phase === "repair");
+    };
   }
 });
 
@@ -29257,8 +29281,8 @@ var init_tree = __esm({
 });
 
 // src/review/drift.ts
-import { mkdirSync as mkdirSync4, rmSync as rmSync3, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname4, join as join17 } from "node:path";
+import { chmodSync, lstatSync as lstatSync7, mkdirSync as mkdirSync4, rmSync as rmSync3, statSync as statSync5, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname3, join as join17 } from "node:path";
 function expectedTreeOf(state) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
   return expectedTree(state.scope, state.review?.fix?.revisions ?? []);
@@ -29296,23 +29320,69 @@ function phaseCheck(state, worktree, phase, attempt, moment, match) {
 }
 function restoredFiles(state, worktree, match, evidence, only = null) {
   const expected = expectedTreeOf(state);
-  return findDrift(state, worktree, match).files.filter((file2) => only === null || only.has(file2.path)).map((file2) => {
-    const now = readTreeEntry(worktree, file2.path);
+  const entries = /* @__PURE__ */ new Map();
+  const read = (path) => {
+    const entry = readTreeEntry(worktree, path);
+    entries.set(path, entry);
+    return entry;
+  };
+  return compareExpected(expected, read, /* @__PURE__ */ new Set(), match).filter((file2) => only === null || only.has(file2.path)).map((file2) => {
+    const now = entries.get(file2.path) ?? null;
     const want = expected.get(file2.path) ?? null;
     return { path: file2.path, before: now === null ? null : freezeBytes(evidence, now.bytes), beforeSymlink: now?.symlink ?? false, expected: want?.frozen ?? null, expectedSymlink: want?.symlink ?? false };
   });
 }
 function writeBack(worktree, files, read) {
+  const left = [];
   for (const file2 of files) {
-    const absolute = join17(worktree, ...file2.path.split("/"));
-    if (file2.expected !== null && !("blob" in file2.expected)) continue;
-    rmSync3(absolute, { force: true });
-    if (file2.expected === null) continue;
-    const bytes = read(file2.expected.blob);
-    mkdirSync4(dirname4(absolute), { recursive: true });
-    if (file2.expectedSymlink) symlinkSync(bytes.toString("utf8"), absolute);
-    else writeFileSync4(absolute, bytes);
+    const reason = writeBackFile(worktree, file2, read);
+    if (reason !== null) left.push({ path: file2.path, reason });
   }
+  return left;
+}
+function writeBackFile(worktree, file2, read) {
+  if (file2.before !== null && !("blob" in file2.before)) return "its bytes in the tree were too large to have been kept";
+  if (file2.expected !== null && !("blob" in file2.expected)) return "its expected bytes were too large to have been kept";
+  const bytes = file2.expected === null ? null : read(file2.expected.blob);
+  const absolute = join17(worktree, ...file2.path.split("/"));
+  try {
+    const parent = parentInTheWay(worktree, file2.path);
+    if (parent !== null) return `${parent} is not a directory`;
+    const now = lstatSync7(absolute, { throwIfNoEntry: false });
+    if (now !== void 0 && !now.isFile() && !now.isSymbolicLink()) return now.isDirectory() ? "a directory is there" : "an entry that is neither a file nor a symlink is there";
+    if (bytes !== null && !file2.expectedSymlink && now?.isFile() === true) {
+      writeFileSync4(absolute, bytes);
+      return null;
+    }
+    rmSync3(absolute, { force: true });
+    if (bytes === null) return null;
+    mkdirSync4(dirname3(absolute), { recursive: true });
+    if (file2.expectedSymlink) symlinkSync(bytes.toString("utf8"), absolute);
+    else createFile(worktree, file2.path, absolute, bytes);
+    return null;
+  } catch (error62) {
+    return `writing it failed: ${error62.message}`;
+  }
+}
+function parentInTheWay(worktree, path) {
+  const segments = path.split("/");
+  for (let depth = 1; depth < segments.length; depth += 1) {
+    const parent = segments.slice(0, depth);
+    const stat = lstatSync7(join17(worktree, ...parent), { throwIfNoEntry: false });
+    if (stat === void 0) return null;
+    if (!stat.isDirectory()) return parent.join("/");
+  }
+  return null;
+}
+function createFile(worktree, path, absolute, bytes) {
+  writeFileSync4(absolute, bytes);
+  if (process.platform === "win32" || indexMode(worktree, path) !== "100755") return;
+  const { mode } = statSync5(absolute);
+  chmodSync(absolute, mode | (mode & 292) >> 2);
+}
+function indexMode(worktree, path) {
+  const [record2] = records(gitText(worktree, ["ls-files", "--stage", "-z", "--", literal2(path)]));
+  return record2 === void 0 ? null : record2.slice(0, record2.indexOf(" "));
 }
 var drifted;
 var init_drift = __esm({
@@ -29323,6 +29393,7 @@ var init_drift = __esm({
     init_review_fold();
     init_steps();
     init_capture();
+    init_git();
     init_tree();
     init_vocabulary();
     drifted = (found) => found.files.length > 0 || found.head !== null;
@@ -29567,8 +29638,8 @@ var init_schemas3 = __esm({
 
 // src/review/snapshot.ts
 import { createHash as createHash6 } from "node:crypto";
-import { existsSync as existsSync6, lstatSync as lstatSync7, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync12, renameSync as renameSync4, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname5, join as join18 } from "node:path";
+import { existsSync as existsSync6, lstatSync as lstatSync8, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync12, renameSync as renameSync4, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname4, join as join18 } from "node:path";
 function safePath(path) {
   try {
     validateScopePath(path);
@@ -29588,7 +29659,7 @@ function readManifest(into) {
 function statOf(worktree, path) {
   let stat;
   try {
-    stat = lstatSync7(join18(worktree, ...path.split("/")), { throwIfNoEntry: false });
+    stat = lstatSync8(join18(worktree, ...path.split("/")), { throwIfNoEntry: false });
   } catch (error62) {
     if (error62.code === "ENOTDIR") return null;
     throw error62;
@@ -29637,7 +29708,7 @@ function takeSnapshot(request) {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, "absent"];
     const copy = join18(copies, ...path.split("/"));
-    mkdirSync5(dirname5(copy), { recursive: true });
+    mkdirSync5(dirname4(copy), { recursive: true });
     writeFileSync5(copy, entry.bytes);
     return [path, { sha256: sha2562(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
   });
@@ -29772,11 +29843,11 @@ function othersHeld(state, phase, key) {
 function othersHeldInRound(state, phase, key, keyOf) {
   return isClaimingPhase(phase) ? heldInRoundByOthers(requireFix2(state), key, keyOf) : /* @__PURE__ */ new Map();
 }
-function answerLookup(settle3, phase, key, worktree) {
+function answerLookup(settle4, phase, key, worktree) {
   const lookup = worktreeLookup(worktree);
   if (!isClaimingPhase(phase)) return lookup;
-  const fix = requireFix2(settle3.state);
-  const keyOf = keyOfSettle(settle3);
+  const fix = requireFix2(settle4.state);
+  const keyOf = keyOfSettle(settle4);
   return holderSpelled(lookup, holdersKeyedBy(fix, roundOf(fix, key), keyOf), keyOf);
 }
 function claimedFiles(state, phase, key) {
@@ -29815,11 +29886,11 @@ function fixAnswerEvents(unit, receipt, context) {
   const ids = unitIds(state, phase, unit.key);
   checkFixerAnswer(output2, ids.length);
   const owned = ownedFiles(state.review, phase, unit.key);
-  const settle3 = settleOf(context, phase, unit.key);
-  const resolved = resolveFixerAnswer(output2, { worktree, lookup: answerLookup(settle3, phase, unit.key, worktree), owned, claimed: claimedFiles(settle3.state, phase, unit.key), othersHeld: othersHeld(settle3.state, phase, unit.key) });
-  const late = isClaimingPhase(phase) ? lateClaim(settle3, unit.key, resolved.named) : [];
-  const claims = [...settle3.events, ...late];
-  const claimed = claimedFiles(foldedWith(settle3.state, late), phase, unit.key);
+  const settle4 = settleOf(context, phase, unit.key);
+  const resolved = resolveFixerAnswer(output2, { worktree, lookup: answerLookup(settle4, phase, unit.key, worktree), owned, claimed: claimedFiles(settle4.state, phase, unit.key), othersHeld: othersHeld(settle4.state, phase, unit.key) });
+  const late = isClaimingPhase(phase) ? lateClaim(settle4, unit.key, resolved.named) : [];
+  const claims = [...settle4.events, ...late];
+  const claimed = claimedFiles(foldedWith(settle4.state, late), phase, unit.key);
   const expected = expectedTreeOf(state);
   const read = worktreeReader(worktree);
   const base = baseOf(context);
@@ -29855,23 +29926,23 @@ function attemptRevisionEvents(context, phase, key, workerId, reason, end) {
   const ids = unitIds(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
   const into = scratch === null ? null : join19(scratch, snapshotsDirectoryName);
-  const settle3 = settleOf(context, phase, key);
-  const keyOf = keyOfSettle(settle3);
-  const others = othersHeldInRound(settle3.state, phase, key, keyOf);
+  const settle4 = settleOf(context, phase, key);
+  const keyOf = keyOfSettle(settle4);
+  const others = othersHeldInRound(settle4.state, phase, key, keyOf);
   const strays = new Set(state.review.checks.flatMap((check2) => check2.strays));
   const expected = expectedTreeOf(state);
   const tracked = new Set(trackedFiles(worktree));
   const leftover = (path) => tracked.has(path) && !expected.has(path);
-  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...end === "lost" ? [] : changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle3, path) && !strays.has(path) && !leftover(path));
+  const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids.length), ...end === "lost" ? [] : changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle4, path) && !strays.has(path) && !leftover(path));
   const ignored = new Set(ignoredPaths(worktree, candidates));
   const listed = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
-  const own2 = [...ownedFiles(state.review, phase, key), ...claimedFiles(settle3.state, phase, key)];
+  const own2 = [...ownedFiles(state.review, phase, key), ...claimedFiles(settle4.state, phase, key)];
   const ownKeys = new Set(own2.map(keyOf));
   const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...own2, ...listed], ids, context.match, end === "lost" ? (path) => ownKeys.has(keyOf(path)) : null);
   const who = attemptOwner(phase, key);
   const why = truncated(reason, 1e3);
-  return { claims: settle3.events, revisions: revisions.map((revision) => {
+  return { claims: settle4.events, revisions: revisions.map((revision) => {
     const id = revision.findings[0];
     const message = id === void 0 ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}
 
@@ -29916,7 +29987,7 @@ var init_fix_events = __esm({
     init_vocabulary();
     subjectLength = 72;
     bodyLength = 4e3;
-    keyOfSettle = (settle3) => (path) => pathKey(path, settle3.caseInsensitive);
+    keyOfSettle = (settle4) => (path) => pathKey(path, settle4.caseInsensitive);
   }
 });
 
@@ -30388,10 +30459,18 @@ function currentBranch(worktree) {
   }
 }
 function seriesOf(run2) {
-  const scope = run2.scope;
-  const { change, revisions } = nextSeries(run2.review.fix, scope.mode);
-  const paths = /* @__PURE__ */ new Set([...change ? scope.files.map((file2) => file2.path) : [], ...revisions.flatMap(({ revision }) => revision.files.map((file2) => file2.path))]);
-  return { head: runHead(run2), change, revisions, paths };
+  const { change, revisions } = nextSeries(run2.review.fix, run2.scope.mode);
+  return { head: runHead(run2), change, revisions, paths: pathsSet(run2, change, revisions.map(({ revision }) => revision)) };
+}
+function pathsSet(run2, change, revisions) {
+  return /* @__PURE__ */ new Set([...change ? run2.scope.files.map((file2) => file2.path) : [], ...revisions.flatMap((revision) => revision.files.map((file2) => file2.path))]);
+}
+function recordedPaths(run2, series) {
+  const { revisions } = run2.review.fix;
+  return pathsSet(run2, series.commits.some((commit2) => commit2.revision === "change"), series.commits.flatMap((commit2) => commit2.revision === "change" ? [] : [revisions[commit2.revision]]));
+}
+function stagedOutside(worktree, paths) {
+  return git2(worktree, ["diff", "--cached", "--name-only", "-z", "HEAD"]).split("\0").filter((path) => path.length > 0 && !paths.has(path));
 }
 function refuse(run2, worktree, changeMessage, match) {
   const scope = run2.scope;
@@ -30430,17 +30509,27 @@ function seriesSettleOf(run2, head2) {
 function resetIndex(worktree) {
   git2(worktree, ["reset", "-q"], { timeout: 0 });
 }
-function settleOpenSeries(checkpoint, run2, worktree, log) {
-  const settle3 = seriesSettleOf(run2, headOf(worktree));
-  if (settle3 === null) return { run: run2, completed: null };
-  if (settle3.kind === "elsewhere") {
-    const { series, head: head2 } = settle3;
+function resetSettledIndex(run2, series, worktree) {
+  const staged = stagedOutside(worktree, recordedPaths(run2, series));
+  resetIndex(worktree);
+  return staged;
+}
+function settle2(checkpoint, run2, worktree, log) {
+  const settled2 = seriesSettleOf(run2, headOf(worktree));
+  if (settled2 === null) return { run: run2, completed: null, unstaged: [] };
+  if (settled2.kind === "elsewhere") {
+    const { series, head: head2 } = settled2;
     throw new ReviewRefusedError(`a commit of run ${run2.id} that a stop cut short was moving HEAD from ${series.from} to ${series.to}, and HEAD is ${head2}, at neither; move HEAD to ${series.to} to keep those commits, or to ${series.from} to drop them, and run the command again`);
   }
-  if (settle3.kind === "complete") resetIndex(worktree);
-  const state = checkpoint.append(run2.id, run2.lastSequence, [settle3.event]);
-  log(settle3.line);
-  return { run: state, completed: settle3.kind === "complete" ? settle3.series : null };
+  const unstaged = settled2.kind === "complete" ? resetSettledIndex(run2, settled2.series, worktree) : [];
+  const state = checkpoint.append(run2.id, run2.lastSequence, [settled2.event]);
+  log(settled2.line);
+  return { run: state, completed: settled2.kind === "complete" ? settled2.series : null, unstaged };
+}
+function settleOpenSeries(checkpoint, run2, worktree, log) {
+  const { unstaged, ...settled2 } = settle2(checkpoint, run2, worktree, log);
+  if (unstaged.length > 0) log(unstagedLine(run2.id, unstaged));
+  return settled2;
 }
 function commitRun(options2) {
   const { checkpoint, worktree } = options2;
@@ -30455,11 +30544,17 @@ function commitRun(options2) {
     try {
       const folded = requireCommittable(checkpoint.fold(chosen.id));
       if (!sameDirectory(folded.worktree, worktree)) throw new ReviewRefusedError(`run ${folded.id} was reviewed in worktree ${folded.worktree}, not ${worktree}; run the command there`);
-      const { run: run2, completed } = settleOpenSeries(checkpoint, folded, worktree, log);
-      if (completed !== null && whyNotCommittable(run2) !== null) return { runId: run2.id, commits: completed.commits.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: [] };
-      requireCommittable(run2);
-      refuse(run2, worktree, options2.changeMessage, gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match);
-      return build(run2, options2);
+      const { run: run2, completed, unstaged } = settle2(checkpoint, folded, worktree, log);
+      if (completed !== null && whyNotCommittable(run2) !== null) return { runId: run2.id, commits: completed.commits.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged };
+      try {
+        requireCommittable(run2);
+        refuse(run2, worktree, options2.changeMessage, gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match);
+        const built = build(run2, options2);
+        return { ...built, unstaged: [...unstaged, ...built.unstaged] };
+      } catch (error62) {
+        if (unstaged.length > 0) log(unstagedLine(run2.id, unstaged));
+        throw error62;
+      }
     } finally {
       release();
     }
@@ -30499,7 +30594,7 @@ function build(run2, options2) {
       const message = revisionMessageOf(fix, revision);
       commit2(messageOf(message.subject, message.body, trailer(run2, revision)), index2);
     }
-    const staged = git2(worktree, ["diff", "--cached", "--name-only", "-z", "HEAD"]).split("\0").filter((path) => path.length > 0 && !series.paths.has(path));
+    const staged = stagedOutside(worktree, series.paths);
     const last = parent;
     const payload = { commits: made, from: series.head, to: last };
     const prepared = checkpoint.append(run2.id, checkpoint.fold(run2.id).lastSequence, [{ kind: "commits.prepared", version: 1, payload }]);
@@ -30520,7 +30615,7 @@ function build(run2, options2) {
     rmSync6(temporary, { recursive: true, force: true });
   }
 }
-var messageOf, subjectOf, TreeBuilder, headOf, commitCount;
+var messageOf, subjectOf, TreeBuilder, headOf, unstagedLine, commitCount;
 var init_commit = __esm({
   "src/review/commit.ts"() {
     "use strict";
@@ -30569,6 +30664,7 @@ var init_commit = __esm({
       }
     };
     headOf = (worktree) => git2(worktree, ["rev-parse", "HEAD"]).trim();
+    unstagedLine = (runId, paths) => `run ${runId}: staged paths no commit holds were unstaged and are unchanged in the tree: ${paths.join(", ")}`;
     commitCount = (count2) => `${String(count2)} commit${count2 === 1 ? "" : "s"}`;
   }
 });
@@ -30687,7 +30783,7 @@ function positiveLimit(name, value) {
   return value;
 }
 function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
-  return new Promise((resolve12, reject) => {
+  return new Promise((resolve13, reject) => {
     let child;
     try {
       child = spawn3(executable, [...args], {
@@ -30741,7 +30837,7 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
       settled2 = true;
       clearTimeout(timer);
       if (code === 0) {
-        resolve12(Buffer.concat(stdout).toString("utf8"));
+        resolve13(Buffer.concat(stdout).toString("utf8"));
         return;
       }
       const printedError = Buffer.concat(stderr).toString("utf8").trim();
@@ -31130,7 +31226,7 @@ var init_runtimes = __esm({
 
 // src/runtime/scratch.ts
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join22, resolve as resolve8 } from "node:path";
+import { join as join22, resolve as resolve9 } from "node:path";
 function defaultScratchRoot() {
   return join22(tmpdir2(), "deep-review-scratch");
 }
@@ -31140,12 +31236,12 @@ function checkpointScratchKey(checkpoint) {
 function chooseScratch(checkpoint, state, adapter, invocation, continued, fallback) {
   if (continued !== null) return continued.launch.scratch;
   if (invocation.access === "read-only" && !adapter.capabilities.readOnlyScratch) return null;
-  return requireOutsideRun("scratch directory", resolve8(invocation.scratch ?? fallback), state, checkpoint);
+  return requireOutsideRun("scratch directory", resolve9(invocation.scratch ?? fallback), state, checkpoint);
 }
 function chooseShared(checkpoint, state, invocation) {
   if (invocation.shared === void 0) return null;
   if (invocation.access === "read-only") throw new InvalidInvocationError(`A read-only worker writes nowhere, so it is given no shared directory, not ${invocation.shared}`);
-  return requireOutsideRun("shared directory", resolve8(invocation.shared), state, checkpoint);
+  return requireOutsideRun("shared directory", resolve9(invocation.shared), state, checkpoint);
 }
 function requireOutsideRun(what, directory, state, checkpoint) {
   if (isInside(state.worktree, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the reviewed tree ${state.worktree}`);
@@ -31163,8 +31259,8 @@ var init_scratch = __esm({
 
 // src/runtime/launcher.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { existsSync as existsSync7, mkdirSync as mkdirSync7, readFileSync as readFileSync14, rmSync as rmSync7, statSync as statSync5, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join23, resolve as resolve9 } from "node:path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync7, readFileSync as readFileSync14, rmSync as rmSync7, statSync as statSync6, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join23, resolve as resolve10 } from "node:path";
 async function runWorker(checkpoint, runId, input2, options2 = {}) {
   const invocation = parseInvocation(input2);
   const state = checkpoint.fold(runId);
@@ -31254,7 +31350,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     result = notStarted(`the launcher could not start it: ${describeError(error62)}`, now, now);
   }
-  const settled2 = settle2(checkpoint, adapter, invocation, plan, result, io, emptyReference);
+  const settled2 = settle3(checkpoint, adapter, invocation, plan, result, io, emptyReference);
   const finish = { workerId, ...settled2.finish, sessionIds: withPinnedSession(plan.sessionId, settled2.observedSessionIds) };
   const finished = { kind: "worker.finished", version: 1, payload: finish };
   try {
@@ -31321,7 +31417,7 @@ function continuedWorker(state, invocation, schemaDigest) {
   return previous;
 }
 function requireDirectory(worktree) {
-  const stat = statSync5(worktree, { throwIfNoEntry: false });
+  const stat = statSync6(worktree, { throwIfNoEntry: false });
   if (stat === void 0 || !stat.isDirectory()) throw new InvalidInvocationError(`The run's worktree ${worktree} is not a directory`);
 }
 function composePrompt(prompt, scratch) {
@@ -31386,7 +31482,7 @@ function withUnrecordableSessions(verdict, unrecordable) {
   const note = `the runtime reported session ids the ledger cannot hold: ${JSON.stringify(unrecordable).slice(0, 500)}`;
   return verdict.outcome === "completed" ? failedWith(`The answer is not recorded because ${note}`) : { ...verdict, error: `${verdict.error}; ${note}` };
 }
-function settle2(checkpoint, adapter, invocation, plan, result, io, empty) {
+function settle3(checkpoint, adapter, invocation, plan, result, io, empty) {
   const known = { stdout: empty, stderr: empty, finalMessage: null, frozen: false, sessionIds: [] };
   try {
     return settleOutputs(checkpoint, adapter, invocation, plan, result, io, known);
@@ -31514,7 +31610,7 @@ var init_launcher = __esm({
       shell: { name: "shell", requested: (invocation) => invocation.shell },
       schema: { name: "output schema digest", requested: (_invocation, schemaDigest) => schemaDigest, recorded: (launch) => launch.schema.sha256 },
       // The ledger holds the resolved path chooseScratch recorded; the caller's is compared in the same spelling, and may be left out.
-      scratch: { name: "scratch directory", requested: (invocation) => invocation.scratch === void 0 ? void 0 : resolve9(invocation.scratch) },
+      scratch: { name: "scratch directory", requested: (invocation) => invocation.scratch === void 0 ? void 0 : resolve10(invocation.scratch) },
       // A new process: its own id, label, prompt, spend and time, under the session it resumes.
       workerId: "own",
       label: "own",
@@ -31781,7 +31877,7 @@ function checkError(result, timeoutMs) {
   if (result.termination === "killed") {
     return result.treeKillError === null ? null : `The check ran past its timeout of ${String(timeoutMs)} ms and was killed, but only its root: ${result.treeKillError}; descendants may still run`;
   }
-  if (result.exitCode === null && result.signal === null) return "The check ended with no result from its guard: a kill from outside the engine ended the guard";
+  if (guardLeftNoResult(result)) return `The check ended with ${killMarkWords(result)}, read as a kill from outside the engine`;
   return null;
 }
 async function runCheck(evidence, request) {
@@ -31923,7 +32019,7 @@ function scopeFlags(scope) {
 }
 function continueCommand(run2, engineEntry, rolesRoot, spendUsd) {
   if (run2.scope === null || run2.review === null) throw new Error("A run continues only with its scope and its configuration");
-  const args = ["review", "--runtime", run2.review.configuration.runtime, ...scopeFlags(run2.scope), "--fix", "--budget-usd", String(budgetAbove(spendUsd)), ...rolesRoot === null ? [] : ["--roles", terminalQuoted(rolesRoot)]];
+  const args = ["review", "--repo", terminalQuoted(run2.worktree), "--runtime", run2.review.configuration.runtime, ...scopeFlags(run2.scope), "--fix", "--budget-usd", String(budgetAbove(spendUsd)), ...rolesRoot === null ? [] : ["--roles", terminalQuoted(rolesRoot)]];
   return `node ${terminalQuoted(engineEntry)} ${args.join(" ")}`;
 }
 var word, namedRoles, budgetAbove;
@@ -31933,7 +32029,7 @@ var init_continue_command = __esm({
     init_engine();
     init_paths();
     init_shell();
-    word = (text2) => /^[A-Za-z0-9._/:@^~=+-]+$/.test(text2) ? text2 : terminalQuoted(text2);
+    word = (text2) => /^[A-Za-z0-9._/][A-Za-z0-9._/:@~=+-]*$/.test(text2) && !/[=:]~/.test(text2) ? text2 : terminalQuoted(text2);
     namedRoles = (rolesRoot) => sameDirectory(rolesRoot, engineRolesRoot()) ? null : rolesRoot;
     budgetAbove = (spendUsd) => Math.floor(spendUsd) + 1;
   }
@@ -32373,11 +32469,16 @@ function outputTail(name, tail, path) {
   const fence = fenceFor(text2);
   return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text2.endsWith("\n") ? text2.slice(0, -1) : text2, fence].join("\n");
 }
+function repairCheckEnd(check2) {
+  if (check2.outcome === "timeout") return "ran past its timeout and was killed";
+  const end = { termination: "exited", exitCode: check2.exitCode, signal: check2.signal };
+  return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check2.exitCode)}`;
+}
 function repairTask(input2) {
   const count2 = input2.checks.length;
   const checks = input2.checks.map((check2, index2) => [
     `[${String(index2)}] ${check2.kind}: ${check2.command}`,
-    `    ${check2.outcome === "timeout" ? "ran past its timeout and was killed" : `exited with code ${check2.exitCode === null ? "none (ended by a signal)" : String(check2.exitCode)}`}`,
+    `    ${repairCheckEnd(check2)}`,
     outputTail("stdout", check2.stdout.tail, check2.stdout.path),
     outputTail("stderr", check2.stderr.tail, check2.stderr.path),
     ...check2.baseline === null ? ["    It passed before any fixer edited the tree."] : [
@@ -32443,6 +32544,7 @@ var init_tasks = __esm({
     init_review_fold();
     init_markdown();
     init_prompts();
+    init_process();
     init_survey();
     init_vocabulary();
     kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
@@ -32667,6 +32769,7 @@ function repairTaskOf(review2, editing, evidence) {
       command: run2.command,
       outcome: run2.outcome === "timeout" ? "timeout" : "failed",
       exitCode: run2.exitCode,
+      signal: run2.signal,
       stdout: tailOf(evidence, run2.stdout),
       stderr: tailOf(evidence, run2.stderr),
       baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) }
@@ -33234,26 +33337,27 @@ function stopLimitations(review2, evidencePath) {
       const replaced = runs.slice(0, index2).findLast((earlier) => earlier.kind === run2.kind && earlier.attempt === run2.replaces.attempt && earlier.outcome === run2.replaces.outcome);
       if (replaced === void 0) return;
       const now = `${run2.outcome} in ${runSeconds(run2)}`;
-      if (replaced.outcome === "cut") lines.push(`- Cut: ${run2.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
-      else if (replaced.outcome === "timeout") lines.push(`- Ran again after a timeout: ${run2.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
-      else lines.push(`- Ran again after a stop: ${run2.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run2.attempt)}.`);
+      if (replaced.outcome === "cut") lines.push(`Cut: ${run2.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
+      else if (replaced.outcome === "timeout") lines.push(`Ran again after a timeout: ${run2.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
+      else lines.push(`Ran again after a stop: ${run2.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run2.attempt)}.`);
     });
     for (const start of fix.checks.starts[phase]) {
-      if (openStart(fix, phase, start.kind, start.attempt) === start) lines.push(`- Cut by a stop: ${start.kind} in ${phase} at attempt ${String(start.attempt)}, with no end on record.`);
+      if (openStart(fix, phase, start.kind, start.attempt) === start) lines.push(`Cut by a stop: ${start.kind} in ${phase} at attempt ${String(start.attempt)}, with no end on record.`);
     }
   }
   fix.restorations.forEach((restoration, index2) => {
     const { kind, attempt } = restoration.check;
     const same = (other) => other.phase === restoration.phase && other.check.kind === kind && other.check.attempt === attempt && other.attempt === attempt;
-    const ran = restoration.attempt !== attempt ? void 0 : fix.checks.runs[restoration.phase].filter((run2) => run2.kind === kind && run2.attempt === attempt && killedRun(run2))[fix.restorations.slice(0, index2).filter(same).length];
-    const after = ran?.outcome === "timeout" ? `after ${kind} timed out` : `after a cut ${kind} check`;
-    for (const file2 of restoration.files) {
-      const before = file2.before === null ? "it did not exist before" : "oversized" in file2.before ? "the bytes before were too large to keep" : `the bytes before are at ${evidencePath(file2.before.blob)}`;
-      lines.push(`- Written back ${after} in ${restoration.phase}: ${inlineText(file2.path)}; ${before}.`);
+    const followed = restoration.attempt === attempt ? fix.checks.runs[restoration.phase].filter((run2) => run2.kind === kind && run2.attempt === attempt && killedRun(run2))[fix.restorations.slice(0, index2).filter(same).length] : cutShortChecks(fix, restoration.phase).findLast((check2) => check2.kind === kind && check2.attempt === attempt);
+    const after = followed !== void 0 && "outcome" in followed && followed.outcome === "timeout" ? `after ${kind} timed out` : `after a cut ${kind} check`;
+    for (const { path, before, expected } of restoration.files) {
+      if (before !== null && "oversized" in before) lines.push(`Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its bytes in the tree were too large to keep.`);
+      else if (expected !== null && "oversized" in expected) lines.push(`Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its expected bytes were too large to keep.`);
+      else lines.push(`Written back ${after} in ${restoration.phase}: ${inlineText(path)}; ${before === null ? "it did not exist before" : `the bytes before are at ${evidencePath(before.blob)}`}.`);
     }
   });
-  if (fix.openSeries !== null) lines.push(`- A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);
-  for (const dropped of fix.droppedSeries) lines.push(`- Dropped: the series of commits from ${dropped.from} to ${dropped.to} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`);
+  if (fix.openSeries !== null) lines.push(`A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);
+  for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`);
   return lines;
 }
 function answerLines(fix) {
@@ -33604,7 +33708,7 @@ function cutWorkerLines(workers) {
     if (worker.status !== "finished" || !endedByKill(worker.finish)) return [];
     const label = worker.launch.label ?? worker.launch.workerId;
     const again = all.some((other) => other.launch.label === worker.launch.label && other.launchedAt > worker.launchedAt);
-    return [`- Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? "ran again" : "did not run again"}.`];
+    return [`Cut: the worker of ${label} ended with ${killMarkWords(worker.finish)}, and ${again ? "ran again" : "did not run again"}.`];
   });
 }
 function limitations(state, scope, review2, input2) {
@@ -33616,14 +33720,14 @@ function limitations(state, scope, review2, input2) {
   const drifted2 = review2.checks.map((check2, index2) => ({ check: check2, index: index2 })).filter(({ check: check2 }) => check2.drifted);
   const against = review2.fix === null ? "the reviewed change" : "what the run expected";
   const headMoved2 = (check2) => check2.head === null ? [] : [`HEAD moved to ${check2.head.actual}`];
-  const writtenBack = ({ check: check2, index: index2 }) => review2.fix?.restorations.some((restoration) => restoration.phase === check2.phase && restoration.attempt === check2.attempt && restoration.checksBefore > index2) ?? false;
+  const writtenBack = ({ check: check2, index: index2 }) => index2 < lastRestorationAt(review2.fix, check2.phase, check2.attempt);
   const blocked = drifted2.filter((entry) => !writtenBack(entry)).length;
   const fate = blocked === drifted2.length ? "each blocked the run until the tree was restored" : blocked === 0 ? "each was written back after a check a kill cut short" : `${String(drifted2.length - blocked)} ${drifted2.length - blocked === 1 ? "was" : "were"} written back after a check a kill cut short, and each other blocked the run until the tree was restored`;
   lines.push(`- Worktree checks: ${String(review2.checks.length)}, ${drifted2.length === 0 ? `none found a difference from ${against}` : `${String(drifted2.length)} found a difference in ${drifted2.map(({ check: check2 }) => `${check2.phase} (attempt ${String(check2.attempt)}: ${[...headMoved2(check2), ...check2.files.map((file2) => `${inlineText(file2.path)} ${file2.outcome}`)].join(", ")})`).join("; ")}; ${fate}`}.`);
   lines.push(budgetLine(review2, input2.statistics));
   const stopped = review2.fix === null ? [] : budgetStoppedUnits(review2.fix);
   const command = input2.fix?.continueCommand ?? null;
-  if (stopped.length > 0 && command !== null) lines.push(`- The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${command} continues it and reviews nothing again.`);
+  if (stopped.length > 0 && command !== null) lines.push(`- The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${codeSpan(command)} continues it and reviews nothing again.`);
   const unreported = input2.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show.${input2.statistics.budgetApplied ? " The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out." : ""}`);
@@ -33643,8 +33747,8 @@ function limitations(state, scope, review2, input2) {
   lines.push(...settingsLimitations(review2.configuration, scope).map((line) => `- ${inlineText(line)}`));
   lines.push(...surveyLimitations(review2));
   lines.push(...fixLimitations(review2));
-  lines.push(...cutWorkerLines(state.workers));
-  if (input2.fix !== void 0) lines.push(...stopLimitations(review2, input2.fix.evidencePath));
+  const stops = [...cutWorkerLines(state.workers), ...input2.fix === void 0 ? [] : stopLimitations(review2, input2.fix.evidencePath)];
+  lines.push(...stops.map((line) => `- ${line}`));
   return lines;
 }
 function continuedLine(review2, input2) {
@@ -33825,9 +33929,9 @@ function claimLines(event) {
   }
   return [];
 }
-function refusingEmptyChange(resolve12) {
+function refusingEmptyChange(resolve13) {
   try {
-    return resolve12();
+    return resolve13();
   } catch (error62) {
     if (error62 instanceof EmptyChangeError) throw new ReviewRefusedError(`${error62.message}; nothing to review`);
     throw error62;
@@ -33906,52 +34010,44 @@ async function runReview(options2) {
     if ("error" in settled2) throw settled2.error;
     const summary = adapter.summarizeUsage(settled2.receipt.runtime.usage);
     log(`worker ${settled2.unit.role} ${name}: ${settled2.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled2.receipt.error === null ? "" : `: ${settled2.receipt.error}`}`);
-    state = checkpoint.fold(runId);
     const { phase } = settled2.unit;
     const { finish } = settled2.receipt;
-    const withFinish = (events2) => [...finish === null ? [] : [finish], ...events2];
-    const finishAlone = () => {
-      if (finish === null) return;
-      try {
-        state = append(checkpoint, state, [finish]);
-      } catch (error62) {
-        log(`worker ${settled2.unit.role} ${name}: its finish is not recorded either: ${error62 instanceof Error ? error62.message : String(error62)}`);
-      }
-    };
-    if (settled2.receipt.outcome === "completed" && !isEditingPhase(phase)) {
-      const attempt = state.review.phases[phase].attempt;
-      const recorded = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
-      if (recorded !== void 0) {
-        log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
-        if (finish !== null) state = append(checkpoint, state, [finish]);
-        return;
-      }
-      const found = findDrift(state, options2.worktree, content.match);
-      if (drifted(found)) {
-        log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-        state = append(checkpoint, state, withFinish([{ kind: "worktree.checked", version: 5, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload }]));
-        return;
-      }
-    }
-    const settling = phase === "fixes" ? directories.settleReading(settled2.unit.key) : { access: claims, lost: false };
-    let events;
+    const withFinish = (events) => [...finish === null ? [] : [finish], ...events];
     try {
-      events = contributionOf(settled2.unit, settled2.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
-    } catch (error62) {
-      finishAlone();
-      throw error62;
-    }
-    for (const event of events) {
-      for (const line of claimLines(event)) log(line);
-      if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
-      if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: ${revisionSummary(event.payload)}`);
-      if (event.kind === "survey.recorded") for (const line of surveyLines(runId, event.payload)) log(line);
-      if (event.kind === "decisions.recorded") log(`worker ${settled2.unit.role} ${name}: decided ${decisionCountWords(decisionCounts(event.payload.decisions))}`);
-    }
-    try {
+      state = checkpoint.fold(runId);
+      if (settled2.receipt.outcome === "completed" && !isEditingPhase(phase)) {
+        const attempt = state.review.phases[phase].attempt;
+        const recorded = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
+        if (recorded !== void 0) {
+          log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
+          if (finish !== null) state = append(checkpoint, state, [finish]);
+          return;
+        }
+        const found = findDrift(state, options2.worktree, content.match);
+        if (drifted(found)) {
+          log(`worker ${settled2.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
+          state = append(checkpoint, state, withFinish([{ kind: "worktree.checked", version: 5, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload }]));
+          return;
+        }
+      }
+      const settling = phase === "fixes" ? directories.settleReading(settled2.unit.key) : { access: claims, lost: false };
+      const events = contributionOf(settled2.unit, settled2.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+      for (const event of events) {
+        for (const line of claimLines(event)) log(line);
+        if (event.kind === "attempt.failed") log(`worker ${settled2.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
+        if (event.kind === "tree.revised") log(`worker ${settled2.unit.role} ${name}: ${revisionSummary(event.payload)}`);
+        if (event.kind === "survey.recorded") for (const line of surveyLines(runId, event.payload)) log(line);
+        if (event.kind === "decisions.recorded") log(`worker ${settled2.unit.role} ${name}: decided ${decisionCountWords(decisionCounts(event.payload.decisions))}`);
+      }
       state = append(checkpoint, state, withFinish(events));
     } catch (error62) {
-      finishAlone();
+      if (finish !== null) {
+        try {
+          state = append(checkpoint, state, [finish]);
+        } catch (alone) {
+          log(`worker ${settled2.unit.role} ${name}: its finish is not recorded either: ${alone instanceof Error ? alone.message : String(alone)}`);
+        }
+      }
       throw error62;
     }
     if (phase === "fixes" && directories.lost() === null) directories.prepare(settled2.unit.key);
@@ -34002,11 +34098,13 @@ async function runReview(options2) {
     };
     const restore = (phase, attempt, check2, files, before = []) => {
       state = append(checkpoint, state, [...before, { kind: "tree.restored", version: 1, payload: { phase, attempt, check: check2, files: [...files] } }]);
-      writeBack(options2.worktree, files, (reference) => checkpoint.evidence.read(reference));
-      for (const file2 of files) log(`check ${check2.kind} (${phase}): wrote back ${file2.path}, which it changed before a kill cut it short in attempt ${String(check2.attempt)}; the bytes before are ${file2.before === null ? "none, the file was absent" : "blob" in file2.before ? `at ${checkpoint.evidence.pathOf(file2.before.blob)}` : `${file2.before.oversized.sha256}, too large to have been kept`}`);
-      const { payload } = phaseCheck(state, options2.worktree, phase, attempt, "restored", content.match);
-      if (payload.drifted) log(`phase ${phase}: the worktree still differs from what the run expects after the write back: ${driftList(payload)}`);
-      state = append(checkpoint, state, [{ kind: "worktree.checked", version: 6, payload }]);
+      const left = new Map(writeBack(options2.worktree, files, (reference) => checkpoint.evidence.read(reference)).map((file2) => [file2.path, file2.reason]));
+      for (const file2 of files) {
+        const changed = `which it changed before a kill cut it short in attempt ${String(check2.attempt)}`;
+        const reason = left.get(file2.path);
+        const bytes = file2.before === null ? "none, the file was absent" : "blob" in file2.before ? `at ${checkpoint.evidence.pathOf(file2.before.blob)}` : `${file2.before.oversized.sha256}, too large to have been kept`;
+        log(reason === void 0 ? `check ${check2.kind} (${phase}): wrote back ${file2.path}, ${changed}; the bytes before are ${bytes}` : `check ${check2.kind} (${phase}): did not write back ${file2.path}, ${changed}: ${reason}; the bytes in the tree are ${bytes}`);
+      }
     };
     const runDueCheck = async (phase, attempt, due) => {
       const replaces = due.replaces === null ? null : { attempt: due.replaces.run.attempt, outcome: due.replaces.run.outcome };
@@ -34031,7 +34129,7 @@ async function runReview(options2) {
       if (outcome === "cut") log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
       const ran = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error62 === null ? null : truncated(error62, maxRecordedTextLength), replaces };
       const recorded = { kind: "check.ran", version: 3, payload: ran };
-      if (result.termination === "killed" || endedByKill(result)) {
+      if (killedRun(ran)) {
         restore(phase, attempt, { kind: due.kind, attempt }, restoredFiles(state, options2.worktree, content.match, checkpoint.evidence), [recorded]);
         return;
       }
@@ -34059,7 +34157,7 @@ async function runReview(options2) {
           break;
         case "check-worktree": {
           const { payload: check2, unlisted } = phaseCheck(state, options2.worktree, step.phase, step.attempt, step.moment, content.match);
-          if (check2.drifted) log(`phase ${step.phase}: the worktree drifted from what the run expects: ${driftList(check2)}`);
+          if (check2.drifted) log(`phase ${step.phase}: the worktree ${step.moment === "restored" ? "still differs from what the run expects after the write back" : "drifted from what the run expects"}: ${driftList(check2)}`);
           if (check2.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check2.strays.join(", ")}${unlisted === 0 ? "" : `, and ${String(unlisted)} more the check does not list`}`);
           state = append(checkpoint, state, [{ kind: "worktree.checked", version: step.moment === "restored" ? 6 : 5, payload: check2 }]);
           break;
@@ -34400,8 +34498,8 @@ async function reopenRun(runs, context) {
       release();
       return null;
     }
-    const settle3 = seriesSettleOf(run2, headOf(context.worktree));
-    const settling = settle3 === null || settle3.kind === "elsewhere" ? [] : [settle3.event];
+    const settle4 = seriesSettleOf(run2, headOf(context.worktree));
+    const settling = settle4 === null || settle4.kind === "elsewhere" ? [] : [settle4.event];
     const drift = findDrift(foldedWith(run2, settling), context.worktree, context.match);
     if (drifted(drift)) {
       log(`run ${run2.id}: its fix pass, which the run budget stopped, is not reopened: the tree is not where the run left it: ${driftList(drift)}; restore them to reopen it`);
@@ -34412,17 +34510,18 @@ async function reopenRun(runs, context) {
     refuseOtherRuntime(run2.id, configuration, context.runtime, wayOut(run2.id, "continue"));
     const reached = budgetReached(run2, context.flags, context.adapter);
     if (reached !== null) {
-      throw new ReviewRefusedError(`run ${run2.id} stopped its fix pass at the run budget: ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}; run the command again with --budget-usd above ${reached.spend.usd.toFixed(2)} to continue it, or with --fresh to review the change again in a new run`);
+      throw new ReviewRefusedError(`run ${run2.id} stopped its fix pass at the run budget: ${budgetBlocker(reached.spend, reached.runBudgetUsd).detail}; run the command again with --budget-usd above ${spendBound(reached.spend.usd)} to continue it, or with --fresh to review the change again in a new run`);
     }
     await resumePinned(run2, configuration, context, "continue", settingOf(configuration, "tools.path").value ?? []);
     const units = budgetStoppedUnits(run2.review.fix);
     const limits = limitsInForce(configuration, context.flags, context.adapter);
     const current = run2.review.limits;
     const changed = current.concurrency !== limits.concurrency || current.runBudgetUsd !== limits.runBudgetUsd;
-    if (settle3 !== null && settle3.kind === "complete") resetIndex(context.worktree);
+    const unstaged = settle4 !== null && settle4.kind === "complete" ? resetSettledIndex(run2, settle4.series, context.worktree) : [];
     const state = append(checkpoint, run2, [...settling, { kind: "fix.reopened", version: 1, payload: { units } }, ...changed ? [{ kind: "limits.changed", version: 1, payload: limits }] : []]);
-    if (settle3 !== null && settle3.kind !== "elsewhere") log(settle3.line);
-    log(`run ${run2.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => unit.phase === "repair" ? "the repair" : `batch ${unit.key}`).join(", ")}; ${spendWords(budgetSpendOf(run2, context.adapter).usd, limits.runBudgetUsd)}`);
+    if (settle4 !== null && settle4.kind !== "elsewhere") log(settle4.line);
+    if (unstaged.length > 0) log(unstagedLine(run2.id, unstaged));
+    log(`run ${run2.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => attemptOwner(unit.phase, unit.key)).join(", ")}; ${spendWords(budgetSpendOf(run2, context.adapter).usd, limits.runBudgetUsd)}`);
     return { kind: "reopened", state, release };
   } catch (error62) {
     release();
@@ -34580,7 +34679,7 @@ function reenterPhase(checkpoint, state, adapter, log) {
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
   return append(checkpoint, state, [{ kind: "phase.started", version: 5, payload: { phase, attempt } }]);
 }
-var seconds, usd3, fileCount, revisionSummary, checkLine, presurveyRulesFileNames, driftList, budgetStopped;
+var seconds, usd3, fileCount, revisionSummary, checkLine, presurveyRulesFileNames, driftList, budgetStopped, spendBound;
 var init_controller = __esm({
   "src/review/controller.ts"() {
     "use strict";
@@ -34647,6 +34746,7 @@ var init_controller = __esm({
     presurveyRulesFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
     driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
     budgetStopped = (run2, worktree) => reviewStatus(run2) === "complete" && run2.review?.fix !== null && run2.review?.fix !== void 0 && sameDirectory(run2.worktree, worktree) && budgetStoppedUnits(run2.review.fix).length > 0;
+    spendBound = (spendUsd) => (Math.ceil(spendUsd * 100 - 1e-9) / 100).toFixed(2);
   }
 });
 
@@ -34731,7 +34831,6 @@ async function answerRun(options2) {
       let run2 = checkpoint.fold(chosen.id);
       const reason = whyNotAnswerable(run2, worktree);
       if (reason !== null) throw new ReviewRefusedError(reason);
-      run2 = settleOpenSeries(checkpoint, run2, worktree, options2.log).run;
       requireAdmitted(run2, options2.finding, options2.answer);
       const fixes = run2.review.fix !== null;
       const standing = standingAnswer(run2.review, options2.finding);
@@ -34750,6 +34849,7 @@ async function answerRun(options2) {
       const order = rankedFindings(run2.review).map((entry) => entry.finding.id);
       const ids = owed.map((answer2) => answer2.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
       if (ids.length === 0) return outcome("nothing-owed", run2);
+      run2 = settleOpenSeries(checkpoint, run2, worktree, options2.log).run;
       await requirePassable(run2, options2, owed);
       return outcome("pass", checkpoint.append(run2.id, run2.lastSequence, [{ kind: "answer.pass", version: 1, payload: { ids } }]));
     } finally {
@@ -34780,7 +34880,7 @@ var init_answer = __esm({
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter as delimiter2, extname, isAbsolute as isAbsolute8, join as join29, posix as posix2, resolve as resolve10, win32 as win323 } from "node:path";
+import { delimiter as delimiter2, extname, isAbsolute as isAbsolute8, join as join29, posix as posix2, resolve as resolve11, win32 as win323 } from "node:path";
 function refuseShim(executable, platform = process.platform) {
   const extension = (platform === "win32" ? win323 : posix2).extname(executable);
   if (shellShims.has(extension.toLowerCase())) {
@@ -34793,7 +34893,7 @@ function refuseShim(executable, platform = process.platform) {
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
   if (isAbsolute8(name) || name.includes("/") || name.includes("\\")) {
-    const absolute = resolve10(cwd, name);
+    const absolute = resolve11(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute), platform);
   }
@@ -34853,7 +34953,7 @@ function describeRun(state, adapter, evidencePath, continuation = null) {
   const fix = review2 === null ? null : fixStatus(state, review2);
   const decisions = review2?.decisions === null || review2?.decisions === void 0 ? null : decisionCounts(review2.decisions);
   const continuing = continueLine(state, adapter, continuation);
-  const stops = [...cutWorkerLines(state.workers), ...review2 === null ? [] : stopLimitations(review2, evidencePath)].map((line) => `Stop: ${line.slice("- ".length)}`);
+  const stops = [...cutWorkerLines(state.workers), ...review2 === null ? [] : stopLimitations(review2, evidencePath)].map((line) => `Stop: ${line}`);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
@@ -34954,7 +35054,7 @@ __export(command_exports, {
   usage: () => usage
 });
 import { existsSync as existsSync9, mkdirSync as mkdirSync9, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname6, join as join30, relative as relative4, resolve as resolve11 } from "node:path";
+import { dirname as dirname5, join as join30, relative as relative4, resolve as resolve12 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 function number4(flag, text2) {
@@ -35090,7 +35190,7 @@ async function run(argv, io) {
   }
   if (command === "snapshot") return snapshot(values, io);
   if (command === "claim") return claim2(values, io);
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve11(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve12(io.cwd, values.repo));
   switch (command) {
     case "review":
       return review(values, io, location.root, location.worktree, location.commonDir);
@@ -35250,8 +35350,8 @@ function snapshot(values, io) {
   const finding = values.finding;
   if (finding === void 0 || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? "")}`);
   if (values.into === void 0 || values.into.trim() === "") throw new UsageError("--into <dir> is required");
-  const into = resolve11(io.cwd, values.into);
-  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === void 0 ? io.cwd : resolve11(io.cwd, values.repo)).worktree;
+  const into = resolve12(io.cwd, values.into);
+  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === void 0 ? io.cwd : resolve12(io.cwd, values.repo)).worktree;
   const listing = takeSnapshot({ worktree, finding: Number(finding), into });
   io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}
 `);
@@ -35262,7 +35362,7 @@ function claim2(values, io) {
   if (paths.length !== 1 || paths[0].trim() === "") throw new UsageError("--path <path> is required, once");
   if (values.unit === void 0 || values.unit.trim() === "") throw new UsageError("--unit <key> is required");
   if (values.in === void 0 || values.in.trim() === "") throw new UsageError("--in <dir> is required");
-  const dir = resolve11(io.cwd, values.in);
+  const dir = resolve12(io.cwd, values.in);
   const { worktree } = readHeld(dir);
   if (isInside(worktree, io.cwd) && canonicalPath(io.cwd) !== canonicalPath(worktree)) {
     throw new UsageError(`run the claim command from the repository root ${worktree}, not from ${relative4(worktree, io.cwd)}, so the path names the file the repository does`);
@@ -35301,11 +35401,11 @@ async function configCommand(values, rest, io) {
 `);
     return 0;
   }
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve11(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve12(io.cwd, values.repo));
   if (subcommand === "validate") {
     const layer = values.layer ?? "repository";
     if (!fileLayers.includes(layer)) throw new UsageError(`--layer must be one of ${fileLayers.join(", ")}, not ${JSON.stringify(layer)}`);
-    const path = argument === void 0 ? repositoryConfigFile(location.worktree) : resolve11(io.cwd, argument);
+    const path = argument === void 0 ? repositoryConfigFile(location.worktree) : resolve12(io.cwd, argument);
     const read = readConfigBytes(layer, path);
     if (read === null) throw new ReviewRefusedError(`${path} is not a file to validate`);
     if ("problem" in read) throw new ReviewRefusedError(read.problem);
@@ -35321,7 +35421,7 @@ async function configCommand(values, rest, io) {
     const path = layer === "repository" ? repositoryConfigFile(location.worktree) : layer === "clone" ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
     if (path === null) throw new ReviewRefusedError("the operator's file is under APPDATA, which has no value here; set it, or write the file by hand");
     if (existsSync9(path)) throw new ReviewRefusedError(`${path} exists, and config init writes only a new file; edit it, or remove it first`);
-    mkdirSync9(dirname6(path), { recursive: true });
+    mkdirSync9(dirname5(path), { recursive: true });
     writeFileSync9(path, initText(layer, readPolicy(values.roles ?? engineRolesRoot())), { flag: "wx" });
     io.stdout(`${path}
 `);
@@ -35381,7 +35481,7 @@ function invocationOf(values, io, worktree, commonDir) {
   if (setOther !== void 0) throw new UsageError(`${setOther.flag} applies only to runtime ${setOther.name.split(".")[1]}, not ${runtime}`);
   const source = configurationSource({
     worktree,
-    locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === void 0 ? null : resolve11(io.cwd, values.config) },
+    locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === void 0 ? null : resolve12(io.cwd, values.config) },
     repositoryConfig: values["no-repository-config"] !== true,
     flags: layer
   });
