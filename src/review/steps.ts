@@ -30,6 +30,7 @@ import {
   roleOfAngle,
   singleUnitKey,
   surveyWorkerFailedAction,
+  surveyWorkerFailedActions,
   unitName,
   type CheckKind,
   type CheckPhase,
@@ -557,9 +558,9 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   if (unsettledKinds(live.checkSettings).length > 0) return null;
   const unit: Unit = { phase: 'survey', key, role: 'surveyor' };
   const state = review.units.survey[key];
-  // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action promised these flags would let the run go on. A block for the provider's limit promised no such thing, so the survey runs afresh after it (R14 of resumable runs).
+  // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action, in any wording an engine recorded it in, promised these flags would let the run go on. A block for the provider's limit promised no such thing, so the survey runs afresh after it (R14 of resumable runs).
   // Or it failed twice in this attempt, no worker lost among the failures: blocking would only ask for check settings the run already has.
-  const failed = survey.lastBlock?.code === 'worker-failed' && survey.lastBlock.action === surveyWorkerFailedAction
+  const failed = survey.lastBlock?.code === 'worker-failed' && surveyWorkerFailedActions.includes(survey.lastBlock.action)
     ? `the survey blocked, ${survey.lastBlock.detail}`
     : exhausted(review, unit, state) && !interrupted(state) ? workerFailedBlocker(review, unit, state).detail : null;
   if (failed === null) return null;

@@ -241,6 +241,18 @@ export const continuedCheckUnavailableAction = 'install the missing tool and run
  */
 export const surveyWorkerFailedAction = 'run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without surveying again, with the convention sources of an earlier survey of this run if one answered, and with none otherwise, or abandon the run';
 
+/**
+ * Every wording `surveyWorkerFailedAction` has had, the current one first:
+ * a ledger keeps the action its block recorded, and a block under an
+ * earlier wording made the same promise, so the survey reads each of them
+ * as a survey that failed (R9 of the repository survey). A rewording adds the
+ * old text here.
+ */
+export const surveyWorkerFailedActions: readonly string[] = [
+  surveyWorkerFailedAction,
+  'run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without the survey and its convention sources, or abandon the run',
+];
+
 /** How a configured run is held to what it pinned: resumed, continued into the fix pass, or reopened by an answer pass, the last two of whose refusals name another way out (TD6 of fix pass continuation, R6 of answers). */
 export type PinnedUse = 'resume' | 'continue' | 'answer';
 

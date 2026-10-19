@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { conventionsKnown } from '../../src/checkpoint/survey-state.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from '../../src/review/checks/discover.ts';
 import { checkUnavailableBlocker, nextStep, unitsOf, workerFailedBlocker, type Live } from '../../src/review/steps.ts';
-import { blockerActions, surveyWorkerFailedAction } from '../../src/review/vocabulary.ts';
+import { blockerActions, surveyWorkerFailedAction, surveyWorkerFailedActions } from '../../src/review/vocabulary.ts';
 import { continuedRun, continuedSurvey, flagPlan, launch, pin, readOnlyReported, surveyAnswer, surveyConfigured, surveyConfiguredFix, surveyedCheck, worker, type History } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };
@@ -166,6 +166,20 @@ describe('nextStep in the survey', () => {
     assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: /);
     // Without the flags, the operator's other choice: a fresh surveyor.
     assert.deepEqual(nextStep(restored.review(), idle), { kind: 'launch', units: [surveyor] });
+  });
+
+  it('goes on without the survey once the flags settle all four kinds after a block an earlier engine recorded in an older wording of its action (R9)', () => {
+    const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
+    const failed = workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey);
+    assert.equal(surveyWorkerFailedActions[0], surveyWorkerFailedAction, 'the current wording comes first');
+    for (const action of surveyWorkerFailedActions.slice(1)) {
+      const reentered = twice.clone().finish('survey', 'blocked', 1, { ...failed, action }).start('survey', 2);
+      assert.deepEqual(reentered.review().units.survey.survey?.failures, [], 'the re-entry cleared the failures, so only the recorded block can say the survey failed');
+      const plan = nextStep(reentered.review(), live({ checkSettings: allFour }));
+      assert.ok(plan.kind === 'plan-checks' && plan.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'), JSON.stringify(plan));
+      assert.match(plan.kind === 'plan-checks' ? plan.without ?? '' : '', /^the survey blocked, the surveyor worker for survey:survey failed twice: /);
+    }
+    assert.ok(surveyWorkerFailedActions.length > 1, 'an earlier wording is on the list');
   });
 
   it('goes on without the survey once the flags settle all four kinds, though a stopped engine left a failure in the re-entered attempt (R9)', () => {
