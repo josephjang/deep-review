@@ -173,8 +173,8 @@ function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedRe
  * Each worker a kill from outside the engine ended with a kill mark, or
  * whose guard left no result, and whether its unit ran again (R15 of
  * resumable runs), as bare sentences that Limitations and `status` each
- * prefix: its failure costs the unit nothing, so a later worker of the
- * same label is its rerun.
+ * prefix: its failure uses an attempt but never degrades its unit, so a
+ * later worker of the same label is its rerun.
  */
 export function cutWorkerLines(workers: RunState['workers']): string[] {
   const all = Object.values(workers);
