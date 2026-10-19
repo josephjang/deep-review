@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -351,7 +351,7 @@ function baselineFailuresOf(review: ReviewState, evidence: Pick<EvidenceStore, '
   const fix = review.fix;
   if (fix === null) return [];
   return (fix.checks.planned?.checks ?? []).flatMap((check): BaselineFailure[] => {
-    const run = failedAtBaseline(fix, check.kind) ? lastRun(fix, 'baseline-checks', check.kind) : null;
+    const run = failedAtBaseline(fix, check.kind) ? lastFreshRun(fix, 'baseline-checks', check.kind) : null;
     return run === null ? [] : [{ kind: check.kind, stdout: run.stdout === null ? 'none' : evidence.pathOf(run.stdout), stderr: run.stderr === null ? 'none' : evidence.pathOf(run.stderr) }];
   });
 }
@@ -368,8 +368,8 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   const fix = review.fix;
   if (fix === null) throw new Error('The repair runs only in a run with the fix pass');
   const checks = repairTargets(fix).map((kind): RepairTaskCheck => {
-    const run = lastRun(fix, 'checks', kind)!;
-    const before = failedAtBaseline(fix, kind) ? lastRun(fix, 'baseline-checks', kind)! : null;
+    const run = lastFreshRun(fix, 'checks', kind)!;
+    const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, 'baseline-checks', kind)! : null;
     return {
       kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, signal: run.signal, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr),
       baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) },

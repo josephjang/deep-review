@@ -173,17 +173,18 @@ export function emptyFixState(): FixState {
 }
 
 /**
- * The last current run of a kind's check in a checks phase at an attempt
+ * The last fresh run of a kind's check in a checks phase at an attempt
  * past `after`, any attempt by default (TD3 of resumable runs): one no
- * later revision made old (`isOldRun`), or null when the kind has none. A
- * baseline run never grows old, so the last baseline run is always its
- * current one.
+ * later revision made old (`isOldRun`), whatever the phase's floor, or
+ * null when the kind has none. A baseline run never grows old, so the last
+ * baseline run is always its fresh one. `lastRecordedRun` keeps old runs,
+ * and `lastCurrentRun` adds the floor.
  */
-export function lastRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRunState | null {
+export function lastFreshRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRunState | null {
   return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > after && !isOldRun(fix, phase, run)) ?? null;
 }
 
-/** The last run of a kind's check in a checks phase at an attempt past `after`, current or old, or null when it has none: what the Checks table shows of a phase that did not run again. */
+/** The last recorded run of a kind's check in a checks phase at an attempt past `after`, fresh or old, or null when it has none: what the Checks table shows of a phase that did not run again. */
 export function lastRecordedRun(fix: FixState, phase: CheckPhase, kind: CheckKind, after = 0): CheckRunState | null {
   return fix.checks.runs[phase].findLast((run) => run.kind === kind && run.attempt > after) ?? null;
 }
@@ -230,9 +231,9 @@ export function isOldRun(fix: Pick<FixState, 'revisions'>, phase: CheckPhase, ru
   return revisionAfter(fix, run, stalingPhases[phase]) !== null;
 }
 
-/** The last current run of a kind in a checks phase (TD3 of resumable runs): past the phase's floor (`checksFloor`) and made old by no later revision; null when the kind has none. */
+/** The last current run of a kind in a checks phase (TD3 of resumable runs): a fresh run (`lastFreshRun`) past the phase's floor (`checksFloor`); null when the kind has none. */
 export function lastCurrentRun(review: Pick<ReviewState, 'answerPasses'> & { readonly fix: FixState }, phase: CheckPhase, kind: CheckKind): CheckRunState | null {
-  return lastRun(review.fix, phase, kind, checksFloor(review, phase));
+  return lastFreshRun(review.fix, phase, kind, checksFloor(review, phase));
 }
 
 /**
@@ -375,7 +376,7 @@ export function checksFloor(review: Pick<ReviewState, 'answerPasses'>, phase: Ch
 
 /** Whether a kind's check failed or timed out before any edit (R10, R24 of the fix pass), by its last baseline run, which never grows old. */
 export function failedAtBaseline(fix: FixState, kind: CheckKind): boolean {
-  return ['failed', 'timeout'].includes(lastRun(fix, 'baseline-checks', kind)?.outcome ?? '');
+  return ['failed', 'timeout'].includes(lastFreshRun(fix, 'baseline-checks', kind)?.outcome ?? '');
 }
 
 /**
@@ -385,17 +386,17 @@ export function failedAtBaseline(fix: FixState, kind: CheckKind): boolean {
  * may hide a failure the fixes added. The repair worker reads which
  * failures are new; a kind that did not start at baseline, its tool
  * missing, is never one. It reads the last baseline run and the last
- * current run after the fixes (TD3 of resumable runs); the report, which
+ * fresh run after the fixes (`lastFreshRun`, TD3 of resumable runs); the report, which
  * says why the repair ran or not, reads the last run after the fixes
  * whatever revision came later (`recorded`), since an answer pass after
  * the repair makes those runs old without changing what the repair read.
  */
 export function repairTargets(fix: FixState, read: 'current' | 'recorded' = 'current'): CheckKind[] {
   const planned = fix.checks.planned?.checks ?? [];
-  const afterFixes = (kind: CheckKind): CheckRunState | null => (read === 'current' ? lastRun(fix, 'checks', kind) : lastRecordedRun(fix, 'checks', kind));
+  const afterFixes = (kind: CheckKind): CheckRunState | null => (read === 'current' ? lastFreshRun(fix, 'checks', kind) : lastRecordedRun(fix, 'checks', kind));
   return planned
     .map((check) => check.kind)
-    .filter((kind) => (lastRun(fix, 'baseline-checks', kind)?.outcome === 'passed' || failedAtBaseline(fix, kind)) && ['failed', 'timeout'].includes(afterFixes(kind)?.outcome ?? ''));
+    .filter((kind) => (lastFreshRun(fix, 'baseline-checks', kind)?.outcome === 'passed' || failedAtBaseline(fix, kind)) && ['failed', 'timeout'].includes(afterFixes(kind)?.outcome ?? ''));
 }
 
 export type PlannedCluster = FixesPlanned['clusters'][number];

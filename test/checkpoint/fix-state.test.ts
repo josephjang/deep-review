@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, failedAtBaseline, isOldRun, lastRecordedRun, lastRestorationAt, lastRun, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
+import { cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, failedAtBaseline, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import { checkPhases, type CheckKind, type CheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
@@ -50,7 +50,7 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
 
   it('keeps a baseline run current after every edit, so the baseline failures stay what the fixers are told', () => {
     const fix = withRuns(fixOf([fixes, repair, answer]), { 'baseline-checks': [run('baseline-checks', 'test', 'failed', 1, 0)] });
-    assert.equal(lastRun(fix, 'baseline-checks', 'test')?.outcome, 'failed');
+    assert.equal(lastFreshRun(fix, 'baseline-checks', 'test')?.outcome, 'failed');
     assert.equal(failedAtBaseline(fix, 'test'), true);
   });
 
@@ -59,7 +59,7 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
     for (const [later, old] of [[fixes, true], [answer, true], [repair, false], [lint, false]] as const) {
       const fix = withRuns(fixOf([fixes, later]), { checks: [checks] });
       assert.equal(isOldRun(fix, 'checks', checks), old, later.phase);
-      assert.equal(lastRun(fix, 'checks', 'test'), old ? null : checks, later.phase);
+      assert.equal(lastFreshRun(fix, 'checks', 'test'), old ? null : checks, later.phase);
       assert.equal(lastRecordedRun(fix, 'checks', 'test'), checks, `${later.phase}: the table still shows it`);
     }
   });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastRun, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
+import { clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
 import type { TreeRevised } from '../../src/checkpoint/events.ts';
 import { standingAnswer } from '../../src/checkpoint/answer-state.ts';
 import { firstUnknownEvent, foldRun } from '../../src/checkpoint/fold.ts';
@@ -71,9 +71,9 @@ describe('the fix fold', () => {
     const review = history.review();
     const fix = review.fix!;
     assert.deepEqual(fix.plan, fixPlan);
-    assert.equal(lastRun(fix, 'baseline-checks', 'test')?.outcome, 'passed');
-    assert.equal(lastRun(fix, 'checks', 'test')?.outcome, 'failed');
-    assert.equal(lastRun(fix, 'checks', 'typecheck'), null, 'a kind with no command never runs');
+    assert.equal(lastFreshRun(fix, 'baseline-checks', 'test')?.outcome, 'passed');
+    assert.equal(lastFreshRun(fix, 'checks', 'test')?.outcome, 'failed');
+    assert.equal(lastFreshRun(fix, 'checks', 'typecheck'), null, 'a kind with no command never runs');
     assert.deepEqual(repairTargets(fix), ['test'], 'passed before the fixes, failed after');
     assert.equal(isAnswered(review, 'fixes', 'c1-1'), true);
     assert.deepEqual(fix.answers.fixes['c1-1'], fixAnswer(worker(50)));
