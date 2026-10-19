@@ -80,10 +80,10 @@ export async function runGuard(argv: readonly string[]): Promise<number> {
       });
       child.once('close', (exitCode, signal) => {
         if (!started || settled) return;
-        writeResult(resultFile, { termination: 'exited', exitCode, signal });
-        // What the child left in the group ends with the guard, once the result is whole on disk (R8 of resumable runs).
+        const written = writeResult(resultFile, { termination: 'exited', exitCode, signal });
+        // What the child left in the group ends with the guard, once the result is whole on disk or cannot be (R8 of resumable runs).
         if (process.platform !== 'win32') endOwnGroup();
-        settle(exitCode ?? 1);
+        settle(written ? (exitCode ?? 1) : 1);
       });
       const engineGone = (): void => {
         if (settled) return;
@@ -133,9 +133,21 @@ function endOwnGroup(): void {
   }
 }
 
-/** Write the result whole, through a rename, so the engine never reads half of one. */
-function writeResult(resultFile: string, result: GuardResult): void {
+/**
+ * Write the result whole, through a rename, so the engine never reads half
+ * of one, and tell whether it was written. A result that cannot be written,
+ * as on a full disk, goes to the guard's standard error, the child's file,
+ * rather than throw past the guard's own end: the engine then reads no
+ * result, as from a guard a kill ended.
+ */
+function writeResult(resultFile: string, result: GuardResult): boolean {
   const partial = `${resultFile}.partial`;
-  writeFileSync(partial, JSON.stringify(result));
-  renameSync(partial, resultFile);
+  try {
+    writeFileSync(partial, JSON.stringify(result));
+    renameSync(partial, resultFile);
+    return true;
+  } catch (error) {
+    process.stderr.write(`deep-review guard: could not write the result ${JSON.stringify(result)}: ${(error as Error).message}\n`);
+    return false;
+  }
 }

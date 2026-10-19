@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, openSync, closeSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -126,6 +126,18 @@ describe('the guard', { timeout: 120_000 }, () => {
     } finally {
       reap(grandchild);
     }
+  });
+
+  it('records on the child\'s standard error a result it cannot write, and ends as a guard with no result, or on POSIX with its process group', async () => {
+    const file = writeRequest({ args: ['-e', 'process.exit(0)'] });
+    // A directory where the partial result goes refuses the write, as a full disk would.
+    mkdirSync(`${guardResultFile(file)}.partial`);
+    const { end } = start(file);
+    assert.deepEqual(await end, process.platform === 'win32' ? { code: 1, signal: null } : { code: null, signal: 'SIGKILL' });
+    assert.equal(existsSync(guardResultFile(file)), false);
+    const stderr = readFileSync(join(directory, 'stderr'), 'utf8');
+    assert.match(stderr, /^deep-review guard: could not write the result \{"termination":"exited","exitCode":0,"signal":null\}: EISDIR/);
+    assert.doesNotMatch(stderr, /at writeResult/, 'the failure is reported, not thrown');
   });
 
   it('refuses to run with anything but one request file', () => {
