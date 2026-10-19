@@ -623,16 +623,17 @@ export function nextStep(review: ReviewState, live: Live): Step {
   const units = unitsOf(review, phase);
   const states = review.units[phase];
   const running = units.filter((unit) => live.running.has(unitName(phase, unit.key)));
-  // A unit the provider's usage limit stopped blocks the phase once the workers in flight end, before any unit runs out of attempts or another launches: a retry before the reset cannot pass, and the run resumes after it with fresh attempts (R14 of resumable runs).
-  const limited = units.find((unit) => !settled(review, unit) && (states[unit.key]?.failures.some((failure) => failure.cause === 'limit') ?? false));
-  if (limited !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(review, limited, states[limited.key]) };
   // The units out of attempts whose outcome is not yet on the ledger: a degrading role's are degraded, unless interrupted; the rest block the phase.
+  // A unit its own failures exhausted degrades even while another is stopped at the provider's usage limit: degrading launches nothing, and the fresh attempts after the limit's block would only pay for two more of its workers (R14 of resumable runs).
   const spent = units.filter((unit) => exhausted(review, unit, states[unit.key]) && !degraded(review, unit));
   const degradations = spent.flatMap((unit): Degradation[] => {
     const target = exhaustedOutcome(review, unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
+  // A unit the provider's usage limit stopped, which never degrades since the limit is an interruption, blocks the phase once the workers in flight end, before any other unit out of attempts blocks it or another launches: a retry before the reset cannot pass, and the run resumes after it with fresh attempts (R14 of resumable runs).
+  const limited = units.find((unit) => !settled(review, unit) && (states[unit.key]?.failures.some((failure) => failure.cause === 'limit') ?? false));
+  if (limited !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(review, limited, states[limited.key]) };
   const blocking = spent.find((unit) => exhaustedOutcome(review, unit, states[unit.key]) === null);
   if (blocking !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(review, blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review, unit, states[unit.key]) && !live.running.has(unitName(phase, unit.key)));

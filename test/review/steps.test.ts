@@ -209,6 +209,29 @@ describe('nextStep', () => {
     assert.ok(relaunch.kind === 'launch' && relaunch.units.some((unit) => unit.key === 'RIPPLE'), JSON.stringify(relaunch));
   });
 
+  it('degrades a unit its own failures exhausted before the provider\'s usage limit blocks the phase, so the re-entry after the reset gives it no fresh attempts (R14 of resumable runs)', () => {
+    const reason = 'failed: Claude Code reported a usage limit of the provider, which resets 12:10pm (Asia/Seoul): You\'ve hit your session limit · resets 12:10pm (Asia/Seoul)';
+    const history = triaged().start('finders')
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), reason: 'first' })
+      .add('attempt.failed', { phase: 'finders', key: 'REMOVALS', workerId: worker(3), reason, fault: 'limit' }, 7)
+      .add('attempt.failed', { phase: 'finders', key: 'RIPPLE', workerId: worker(4), reason: 'second' });
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'degrade', phase: 'finders', degradations: [{ kind: 'angle.failed', angle: 'RIPPLE', reason: '2 attempts did not complete: first; second' }] }, 'the limited unit is not degraded');
+    history.add('angle.failed', { angle: 'RIPPLE', reason: '2 attempts did not complete: first; second' });
+    const step = nextStep(history.review(), idle);
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && /^the finder-REMOVALS worker for finders:REMOVALS stopped at the provider's usage limit: /.test(step.blocker?.detail ?? ''), JSON.stringify(step));
+    // The next start of the phase gives fresh attempts to the limited unit, not to the one already given up.
+    const resumed = history.finish('finders', 'blocked', 1, step.kind === 'finish-phase' ? step.blocker : null).start('finders', 2).add('worktree.checked', { phase: 'finders', attempt: 2, drifted: false, files: [] });
+    const relaunch = nextStep(limited(resumed.review(), { concurrency: 16 }), idle);
+    assert.ok(relaunch.kind === 'launch' && relaunch.units.some((unit) => unit.key === 'REMOVALS') && !relaunch.units.some((unit) => unit.key === 'RIPPLE'), JSON.stringify(relaunch));
+  });
+
+  it('blocks on the provider\'s usage limit, rather than on a unit out of attempts whose role blocks, when both are in the phase (R14 of resumable runs)', () => {
+    const reason = 'failed: Claude Code reported a usage limit of the provider, which resets 12:10pm (Asia/Seoul): You\'ve hit your session limit · resets 12:10pm (Asia/Seoul)';
+    const lostTwiceThenLimited = findersLostTwice().add('attempt.failed', { phase: 'finders', key: 'REMOVALS', workerId: worker(5), reason, fault: 'limit' }, 7).review();
+    const step = nextStep(lostTwiceThenLimited, idle);
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && /^the finder-REMOVALS worker for finders:REMOVALS stopped at the provider's usage limit: /.test(step.blocker?.detail ?? ''), JSON.stringify(step));
+  });
+
   it('gives a running phase\'s units fresh attempts when a resumed engine re-enters it, so a unit lost twice launches again (R5 of resumable runs)', () => {
     const reentered = findersLostTwice().add('phase.started', { phase: 'finders', attempt: 2 }).add('worktree.checked', { phase: 'finders', attempt: 2, drifted: false, files: [] }).review();
     assert.deepEqual(reentered.units.finders.RIPPLE?.failures, []);
