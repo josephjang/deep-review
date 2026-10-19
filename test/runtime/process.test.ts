@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { endedByKill, guardLeftNoResult, killMarkWords } from '../../src/runtime/kill-marks.ts';
-import { killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
+import { killGroup, killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
 import { isAlive, until } from '../helpers/launcher.ts';
 import { probeGrandchildPidFile, processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
 
@@ -248,6 +248,32 @@ describe('killTree', () => {
     } finally {
       if (!posix) process.env.SystemRoot = systemRoot;
       rmSync(empty, { recursive: true, force: true });
+      reap(root.pid);
+    }
+  });
+});
+
+describe('killGroup', () => {
+  it('kills the process group a process leads, and tells it could', { skip: !posix && 'POSIX process groups only' }, async () => {
+    const leader = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true });
+    try {
+      await new Promise((resolve) => leader.once('spawn', resolve));
+      const closed = new Promise<NodeJS.Signals | null>((resolve) => leader.once('close', (_code, signal) => resolve(signal)));
+      assert.equal(killGroup(leader.pid!), true);
+      assert.equal(await closed, 'SIGKILL');
+    } finally {
+      reap(leader.pid);
+    }
+  });
+
+  it('tells it could not when no group has the id, and signals nothing', { skip: !posix && 'POSIX process groups only' }, async () => {
+    // The victim is in the test's own group, so no group has its pid as id.
+    const root = victim();
+    try {
+      await new Promise((resolve) => root.once('spawn', resolve));
+      assert.equal(killGroup(root.pid!), false);
+      assert.equal(isAlive(root.pid!), true);
+    } finally {
       reap(root.pid);
     }
   });

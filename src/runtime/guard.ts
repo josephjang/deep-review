@@ -25,7 +25,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { guardResultFile, killTreeNow, parseGuardRequest, type GuardRequest, type GuardResult } from './process.ts';
+import { guardResultFile, killGroup, killTreeNow, parseGuardRequest, type GuardRequest, type GuardResult } from './process.ts';
 
 /** Run the guard on `argv`, the arguments after `guard`, and give its exit code. */
 export async function runGuard(argv: readonly string[]): Promise<number> {
@@ -108,16 +108,8 @@ export async function runGuard(argv: readonly string[]): Promise<number> {
  * `taskkill /T` walks the tree from the child.
  */
 function killGuardedTree(child: ChildProcess): void {
-  if (process.platform === 'win32') {
-    killTreeNow(child);
-    return;
-  }
-  try {
-    process.kill(-process.pid, 'SIGKILL');
-  } catch {
-    // The group could not be addressed; end at least the child.
-    killTreeNow(child);
-  }
+  // `taskkill /T` on Windows; on POSIX, a group that could not be addressed ends at least the child.
+  if (process.platform === 'win32' || !killGroup(process.pid)) killTreeNow(child);
 }
 
 /**
@@ -126,11 +118,8 @@ function killGuardedTree(child: ChildProcess): void {
  * child's descendants left the guard's job, and nothing reaches them.
  */
 function endOwnGroup(): void {
-  try {
-    process.kill(-process.pid, 'SIGKILL');
-  } catch {
-    // No group to address, so nothing the child left is in one; the guard exits as on Windows.
-  }
+  // No group to address, so nothing the child left is in one; the guard exits as on Windows.
+  killGroup(process.pid);
 }
 
 /**

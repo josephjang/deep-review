@@ -263,10 +263,21 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
  */
 function endLeftGroup(guardPid: number): void {
   if (process.platform === 'win32') return;
+  // False is ESRCH: no member of the group is left.
+  killGroup(guardPid);
+}
+
+/**
+ * Kill the POSIX process group `pid` leads, and tell whether it could be
+ * addressed: false when no member of it is left (ESRCH) or the signal was
+ * refused, which each caller answers in its own way.
+ */
+export function killGroup(pid: number): boolean {
   try {
-    process.kill(-guardPid, 'SIGKILL');
+    process.kill(-pid, 'SIGKILL');
+    return true;
   } catch {
-    // ESRCH: no member of the group is left.
+    return false;
   }
 }
 
