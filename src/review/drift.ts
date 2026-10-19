@@ -9,7 +9,9 @@
  * answer and has not failed, since a fixer editing its own files is the
  * phase's purpose and a lost fixer's half-applied edits are what its
  * replacement is told to expect; the check at the phase's end compares
- * every expected file.
+ * every expected file. It also writes back the expected files a check a
+ * kill cut short left changed (R7 of resumable runs), with what the tree
+ * held there frozen first as evidence.
  */
 import { chmodSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -21,7 +23,7 @@ import { unitsOf } from './steps.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { freezeBytes } from '../scope/capture.ts';
 import * as gitApi from '../scope/git.ts';
-import { compareExpected, expectedTree, headMoved, readTreeEntry, straysOf, worktreeReader, type DriftedFile, type ExpectedMatch, type ExpectedTree } from './tree.ts';
+import { compareExpected, expectedTree, headMoved, readTreeEntry, straysOf, worktreeReader, type DriftedFile, type ExpectedMatch, type ExpectedTree, type TreeEntry, type TreeReader } from './tree.ts';
 import { isEditingPhase, type Phase } from './vocabulary.ts';
 
 /** The tree the run expects of a configured run: its scope overlaid by its revisions. */
@@ -105,8 +107,15 @@ export type RestoredFile = TreeRestored['files'][number];
  */
 export function restoredFiles(state: RunState, worktree: string, match: ExpectedMatch, evidence: Pick<EvidenceStore, 'put'>, only: ReadonlySet<string> | null = null): RestoredFile[] {
   const expected = expectedTreeOf(state);
-  return findDrift(state, worktree, match).files.filter((file) => only === null || only.has(file.path)).map((file): RestoredFile => {
-    const now = readTreeEntry(worktree, file.path);
+  // Each file is read once, so the bytes frozen are the ones compared.
+  const entries = new Map<string, TreeEntry | null>();
+  const read: TreeReader = (path) => {
+    const entry = readTreeEntry(worktree, path);
+    entries.set(path, entry);
+    return entry;
+  };
+  return compareExpected(expected, read, new Set(), match).filter((file) => only === null || only.has(file.path)).map((file): RestoredFile => {
+    const now = entries.get(file.path) ?? null;
     const want = expected.get(file.path) ?? null;
     return { path: file.path, before: now === null ? null : freezeBytes(evidence, now.bytes), beforeSymlink: now?.symlink ?? false, expected: want?.frozen ?? null, expectedSymlink: want?.symlink ?? false };
   });
@@ -124,13 +133,13 @@ export interface LeftFile {
  * its frozen blob, a symlink as a link to its target text. A regular file
  * the tree holds is written in place, which keeps its mode, and one
  * written where none was takes the executable bit git's index records for
- * it, since the frozen bytes record no mode. Each file is
- * written back on its own, and one it cannot write is left as the tree
- * holds it and returned with the reason: its bytes in the tree were too
- * large to keep as evidence, so writing over them would lose them, its
- * expected bytes were too large to keep, a directory or another entry whose bytes were not
- * frozen is where the file is expected, a file is where a parent
- * directory is expected, or the write failed, such as a symlink on
+ * it, since the frozen bytes record no mode. Each file is written back on
+ * its own, and one it cannot write is left as the tree holds it and
+ * returned with the reason: its bytes in the tree were too large to keep
+ * as evidence, so writing over them would lose them; its expected bytes
+ * were too large to keep; a directory, or another entry whose bytes were
+ * never frozen, is where the file is expected; a file is where a parent
+ * directory is expected; or the write failed, as a symlink does on
  * Windows without the privilege. The check of the tree after the write
  * back then finds each one drifted, and the run blocks naming it.
  */
