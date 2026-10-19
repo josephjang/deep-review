@@ -235,10 +235,24 @@ interface Series extends NextSeries {
 }
 
 function seriesOf(run: RunState): Series {
-  const scope = run.scope!;
-  const { change, revisions } = nextSeries(run.review!.fix!, scope.mode);
-  const paths = new Set([...(change ? scope.files.map((file) => file.path) : []), ...revisions.flatMap(({ revision }) => revision.files.map((file) => file.path))]);
-  return { head: runHead(run), change, revisions, paths };
+  const { change, revisions } = nextSeries(run.review!.fix!, run.scope!.mode);
+  return { head: runHead(run), change, revisions, paths: pathsSet(run, change, revisions.map(({ revision }) => revision)) };
+}
+
+/** Every path a series' commits set: the change's when it commits the change, and each revision's. */
+function pathsSet(run: RunState, change: boolean, revisions: readonly TreeRevised[]): ReadonlySet<string> {
+  return new Set([...(change ? run.scope!.files.map((file) => file.path) : []), ...revisions.flatMap((revision) => revision.files.map((file) => file.path))]);
+}
+
+/** Every path a recorded series' commits set, from the revision each commits. */
+function recordedPaths(run: RunState, series: CommitsCreated): ReadonlySet<string> {
+  const { revisions } = run.review!.fix!;
+  return pathsSet(run, series.commits.some((commit) => commit.revision === 'change'), series.commits.flatMap((commit) => (commit.revision === 'change' ? [] : [revisions[commit.revision]!])));
+}
+
+/** The paths the user staged that differ from `HEAD` and that no commit of a series sets, which an index reset unstages and leaves as they are in the tree. */
+function stagedOutside(worktree: string, paths: ReadonlySet<string>): string[] {
+  return git(worktree, ['diff', '--cached', '--name-only', '-z', 'HEAD']).split('\0').filter((path) => path.length > 0 && !paths.has(path));
 }
 
 /**
@@ -316,24 +330,52 @@ export function resetIndex(worktree: string): void {
 }
 
 /**
- * Settle the series of commits a stop left open (`seriesSettleOf`) before
- * a command reads the run's head: a completed series resets the index to
- * the head the branch moved to, and is recorded as created; a dropped one
- * is recorded as dropped; with `HEAD` at neither of its heads the command
- * refuses, naming both. The caller holds the run's lock and has checked
- * that `worktree` is the run's.
+ * Reset the index to the head a completed series moved the branch to
+ * (`resetIndex`), giving the paths the user staged that none of its
+ * commits sets, which the reset unstaged and left as they are in the
+ * tree, as `commit` names them for a series it completes itself.
  */
-export function settleOpenSeries(checkpoint: Checkpoint, run: RunState, worktree: string, log: (line: string) => void): SettledSeries {
-  const settle = seriesSettleOf(run, headOf(worktree));
-  if (settle === null) return { run, completed: null };
-  if (settle.kind === 'elsewhere') {
-    const { series, head } = settle;
+export function resetSettledIndex(run: RunState, series: CommitsPrepared, worktree: string): readonly string[] {
+  const staged = stagedOutside(worktree, recordedPaths(run, series));
+  resetIndex(worktree);
+  return staged;
+}
+
+/** The line that names the staged paths a settle's index reset unstaged. */
+export const unstagedLine = (runId: string, paths: readonly string[]): string => `run ${runId}: staged paths no commit holds were unstaged and are unchanged in the tree: ${paths.join(', ')}`;
+
+/** What `settle` did: the settled series, and the paths a completed series' index reset unstaged. */
+interface Settled extends SettledSeries {
+  readonly unstaged: readonly string[];
+}
+
+/** `settleOpenSeries`, giving the paths the index reset unstaged rather than naming them. */
+function settle(checkpoint: Checkpoint, run: RunState, worktree: string, log: (line: string) => void): Settled {
+  const settled = seriesSettleOf(run, headOf(worktree));
+  if (settled === null) return { run, completed: null, unstaged: [] };
+  if (settled.kind === 'elsewhere') {
+    const { series, head } = settled;
     throw new ReviewRefusedError(`a commit of run ${run.id} that a stop cut short was moving HEAD from ${series.from} to ${series.to}, and HEAD is ${head}, at neither; move HEAD to ${series.to} to keep those commits, or to ${series.from} to drop them, and run the command again`);
   }
-  if (settle.kind === 'complete') resetIndex(worktree);
-  const state = checkpoint.append(run.id, run.lastSequence, [settle.event]);
-  log(settle.line);
-  return { run: state, completed: settle.kind === 'complete' ? settle.series : null };
+  const unstaged = settled.kind === 'complete' ? resetSettledIndex(run, settled.series, worktree) : [];
+  const state = checkpoint.append(run.id, run.lastSequence, [settled.event]);
+  log(settled.line);
+  return { run: state, completed: settled.kind === 'complete' ? settled.series : null, unstaged };
+}
+
+/**
+ * Settle the series of commits a stop left open (`seriesSettleOf`) before
+ * a command reads the run's head: a completed series resets the index to
+ * the head the branch moved to, naming the staged paths its commits do
+ * not hold, which the reset unstaged, and is recorded as created; a
+ * dropped one is recorded as dropped; with `HEAD` at neither of its heads
+ * the command refuses, naming both. The caller holds the run's lock and
+ * has checked that `worktree` is the run's.
+ */
+export function settleOpenSeries(checkpoint: Checkpoint, run: RunState, worktree: string, log: (line: string) => void): SettledSeries {
+  const { unstaged, ...settled } = settle(checkpoint, run, worktree, log);
+  if (unstaged.length > 0) log(unstagedLine(run.id, unstaged));
+  return settled;
 }
 
 /** A count of commits, as a log line names it. */
@@ -347,7 +389,9 @@ const commitCount = (count: number): string => `${String(count)} commit${count =
  * compare-and-swap, reset the index to the new head, and record the
  * commits as created on the run's ledger. A run whose open series the
  * settle completed and that has nothing left to commit gives that series
- * as what the command made.
+ * as what the command made. The staged paths the settle's index reset
+ * unstaged are given with the outcome's, or logged when the command then
+ * refuses.
  */
 export function commitRun(options: CommitOptions): CommitOutcome {
   const { checkpoint, worktree } = options;
@@ -362,11 +406,18 @@ export function commitRun(options: CommitOptions): CommitOutcome {
       // Read again under the run's lock, as every writer does: another command may have committed it since it was chosen.
       const folded = requireCommittable(checkpoint.fold(chosen.id));
       if (!sameDirectory(folded.worktree, worktree)) throw new ReviewRefusedError(`run ${folded.id} was reviewed in worktree ${folded.worktree}, not ${worktree}; run the command there`);
-      const { run, completed } = settleOpenSeries(checkpoint, folded, worktree, log);
-      if (completed !== null && whyNotCommittable(run) !== null) return { runId: run.id, commits: completed.commits.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: [] };
-      requireCommittable(run);
-      refuse(run, worktree, options.changeMessage, gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match);
-      return build(run, options);
+      const { run, completed, unstaged } = settle(checkpoint, folded, worktree, log);
+      if (completed !== null && whyNotCommittable(run) !== null) return { runId: run.id, commits: completed.commits.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged };
+      try {
+        requireCommittable(run);
+        refuse(run, worktree, options.changeMessage, gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match);
+        const built = build(run, options);
+        return { ...built, unstaged: [...unstaged, ...built.unstaged] };
+      } catch (error) {
+        // The settle's reset has unstaged them whatever follows, so a refusal still names them.
+        if (unstaged.length > 0) log(unstagedLine(run.id, unstaged));
+        throw error;
+      }
     } finally {
       release();
     }
@@ -429,7 +480,7 @@ function build(run: RunState, options: CommitOptions): CommitOutcome {
     }
 
     // What the user had staged that no commit holds is unstaged by the reset below, and named; nothing is lost from the tree.
-    const staged = git(worktree, ['diff', '--cached', '--name-only', '-z', 'HEAD']).split('\0').filter((path) => path.length > 0 && !series.paths.has(path));
+    const staged = stagedOutside(worktree, series.paths);
 
     const last = parent;
     const payload: CommitsCreated = { commits: made, from: series.head, to: last };

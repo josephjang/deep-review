@@ -6,7 +6,7 @@ import { after, before, beforeEach, describe, it, type TestContext } from 'node:
 import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
 import type { CommitsPrepared } from '../../src/checkpoint/events.ts';
 import { runHead } from '../../src/checkpoint/fix-state.ts';
-import { commitRun, currentBranch, moveFailure } from '../../src/review/commit.ts';
+import { commitRun, currentBranch, moveFailure, settleOpenSeries } from '../../src/review/commit.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
@@ -314,6 +314,37 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       assert.equal(git(box.repo, 'rev-parse', 'HEAD'), open.to);
       assert.equal(git(box.repo, 'status', '--porcelain'), '', 'the index is reset to the new head');
       assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId }), refused(/commits were already created/));
+    });
+
+    /** Cut a commit after its ref moved and before the index reset, then stage `notes.txt`, as a person may before the next command; give the series. */
+    const cutAfterMoveAndStage = (): CommitsPrepared => {
+      const open = cutBeforeMove();
+      git(box.repo, 'update-ref', 'refs/heads/main', open.to, open.from);
+      write(box.repo, 'notes.txt', 'mine\n');
+      git(box.repo, 'add', 'notes.txt');
+      return open;
+    };
+
+    it('names a staged path the completed series does not hold, which its index reset unstaged, and leaves its bytes in the tree (R9 of resumable runs)', () => {
+      const open = cutAfterMoveAndStage();
+      const logs: string[] = [];
+      const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo, log: (line) => logs.push(line) });
+      assert.deepEqual(outcome.unstaged, ['notes.txt'], 'the series\' own paths, which the index held at the old head, are not named');
+      assert.deepEqual(logs, [`run ${runId}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the 2 commits it made are recorded now`], 'the outcome names the path, so the log does not twice');
+      assert.equal(git(box.repo, 'status', '--porcelain'), '?? notes.txt');
+      assert.equal(readFileSync(join(box.repo, 'notes.txt'), 'utf8'), 'mine\n');
+    });
+
+    it('logs the staged paths a settle unstaged for a command other than commit (R9 of resumable runs)', () => {
+      const open = cutAfterMoveAndStage();
+      const logs: string[] = [];
+      const settled = settleOpenSeries(box.checkpoint, box.run(), box.repo, (line) => logs.push(line));
+      assert.deepEqual(settled.completed, open);
+      assert.deepEqual(logs, [
+        `run ${runId}: a commit a stop cut short had moved HEAD to ${open.to.slice(0, 12)}; the 2 commits it made are recorded now`,
+        `run ${runId}: staged paths no commit holds were unstaged and are unchanged in the tree: notes.txt`,
+      ]);
+      assert.equal(git(box.repo, 'status', '--porcelain'), '?? notes.txt');
     });
 
     it('refuses a series a stop cut short when HEAD is at neither of its heads, naming both, and records nothing (R9 of resumable runs)', () => {
