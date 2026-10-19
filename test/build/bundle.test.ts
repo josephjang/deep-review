@@ -74,8 +74,9 @@ describe('bundleEngine', { timeout: 300_000 }, () => {
     const stdout = openSync(join(sandbox, 'stdout'), 'wx');
     const guard = spawn(process.execPath, [main, 'guard', request], { stdio: ['pipe', stdout, 'ignore'], windowsHide: true, detached: true });
     closeSync(stdout);
-    const code = await new Promise((done) => guard.once('close', done));
-    assert.equal(code, 5);
+    const end = await new Promise((done) => guard.once('close', (code, signal) => done({ code, signal })));
+    // On POSIX the guard ends with its process group once the result is written (R8 of resumable runs).
+    assert.deepEqual(end, process.platform === 'win32' ? { code: 5, signal: null } : { code: null, signal: 'SIGKILL' });
     assert.equal(readFileSync(join(sandbox, 'stdout'), 'utf8'), 'input');
     assert.deepEqual(JSON.parse(readFileSync(guardResultFile(request), 'utf8')), { termination: 'exited', exitCode: 5, signal: null });
   });

@@ -8,9 +8,11 @@
  * environment goes to disk.
  *
  * When the child ends, or cannot start, the guard writes the result file
- * beside the request (`guardResultFile`) and exits with the child's code;
- * the engine reads the end of the child from that file, not from the exit
- * of the guard. When its standard input closes first, the engine ended
+ * beside the request (`guardResultFile`); the engine reads the end of the
+ * child from that file, not from the exit of the guard. A child that ended
+ * can leave processes behind. On Windows the guard then exits with the
+ * child's code, and its job object ends them; on POSIX it ends its process
+ * group, which holds them, and itself with it. When its standard input closes first, the engine ended
  * without ending it, and the guard kills the child's tree and exits with
  * no result file: on POSIX the process group it leads, which holds the
  * child, on Windows the tree `taskkill /T` walks from the child.
@@ -76,6 +78,8 @@ export async function runGuard(argv: readonly string[]): Promise<number> {
       child.once('close', (exitCode, signal) => {
         if (!started || settled) return;
         writeResult(resultFile, { termination: 'exited', exitCode, signal });
+        // What the child left in the group ends with the guard, once the result is whole on disk (R8 of resumable runs).
+        if (process.platform !== 'win32') endOwnGroup();
         settle(exitCode ?? 1);
       });
       const engineGone = (): void => {
@@ -110,6 +114,19 @@ function killGuardedTree(child: ChildProcess): void {
   } catch {
     // The group could not be addressed; end at least the child.
     killTreeNow(child);
+  }
+}
+
+/**
+ * End the process group the guard leads on POSIX, which holds whatever its
+ * child left behind, and the guard with it, as the job object of a guard
+ * ends them on Windows when it exits.
+ */
+function endOwnGroup(): void {
+  try {
+    process.kill(-process.pid, 'SIGKILL');
+  } catch {
+    // No group to address, so nothing the child left is in one; the guard exits as on Windows.
   }
 }
 

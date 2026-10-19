@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, openSync, closeSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -24,13 +24,13 @@ function reap(pid: number | undefined): void {
  * Start `node <entry> guard <request>` as `runProcess` does: detached, its
  * standard input a pipe the test holds and its output the files given.
  */
-function startGuard(entry: string, requestFile: string, stdoutFile: string, stderrFile: string): { guard: ChildProcess; ended: Promise<number | null> } {
+function startGuard(entry: string, requestFile: string, stdoutFile: string, stderrFile: string): { guard: ChildProcess; ended: Promise<number | null>; end: Promise<{ code: number | null; signal: NodeJS.Signals | null }> } {
   const stdout = openSync(stdoutFile, 'wx');
   const stderr = openSync(stderrFile, 'wx');
   try {
     const guard = spawn(process.execPath, [entry, 'guard', requestFile], { stdio: ['pipe', stdout, stderr], windowsHide: true, detached: true });
-    const ended = new Promise<number | null>((done) => guard.once('close', (code) => done(code)));
-    return { guard, ended };
+    const end = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => guard.once('close', (code, signal) => done({ code, signal })));
+    return { guard, ended: end.then(({ code }) => code), end };
   } finally {
     closeSync(stdout);
     closeSync(stderr);
@@ -40,7 +40,8 @@ function startGuard(entry: string, requestFile: string, stdoutFile: string, stde
 describe('the guard', { timeout: 120_000 }, () => {
   let directory: string;
   beforeEach(() => {
-    directory = mkdtempSync(join(tmpdir(), 'deep-review-guard-'));
+    // Real, so a child's working directory reads as the test spells it where the temp directory is a link, as on macOS.
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-guard-')));
     writeFileSync(join(directory, 'stdin'), 'the prompt');
   });
   afterEach(() => {
@@ -55,12 +56,12 @@ describe('the guard', { timeout: 120_000 }, () => {
     return file;
   };
   const result = (): GuardResult => JSON.parse(readFileSync(guardResultFile(requestFile()), 'utf8')) as GuardResult;
-  const start = (file: string): { guard: ChildProcess; ended: Promise<number | null> } => startGuard(cli, file, join(directory, 'stdout'), join(directory, 'stderr'));
+  const start = (file: string): ReturnType<typeof startGuard> => startGuard(cli, file, join(directory, 'stdout'), join(directory, 'stderr'));
 
-  it('runs the child with the request\'s input, writes how it ended, and exits with its code', async () => {
+  it('runs the child with the request\'s input, writes how it ended, and exits with its code, or on POSIX ends with its process group', async () => {
     const file = writeRequest({ args: ['-e', 'process.stdout.write(require("fs").readFileSync(0, "utf8").toUpperCase() + " " + process.cwd()); process.exit(7)'] });
-    const { ended } = start(file);
-    assert.equal(await ended, 7);
+    const { end } = start(file);
+    assert.deepEqual(await end, process.platform === 'win32' ? { code: 7, signal: null } : { code: null, signal: 'SIGKILL' });
     assert.deepEqual(result(), { termination: 'exited', exitCode: 7, signal: null });
     assert.equal(readFileSync(join(directory, 'stdout'), 'utf8'), `THE PROMPT ${directory}`);
     assert.equal(existsSync(`${guardResultFile(file)}.partial`), false, 'the result is written through a rename');
@@ -109,6 +110,21 @@ describe('the guard', { timeout: 120_000 }, () => {
     } finally {
       reap(pids.worker);
       reap(pids.grandchild);
+    }
+  });
+
+  it('ends what the child left behind once the child ends, with its job object on Windows and its process group on POSIX (R8 of resumable runs)', async () => {
+    const pidFile = join(directory, 'grandchild.pid');
+    // The child starts a grandchild in its own job or group, as a test runner does, and exits.
+    const leave = `const { spawn } = require("child_process"); const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }); require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid)); grandchild.unref();`;
+    const { ended } = start(writeRequest({ args: ['-e', leave] }));
+    await ended;
+    const grandchild = Number(readFileSync(pidFile, 'utf8'));
+    try {
+      assert.deepEqual(result(), { termination: 'exited', exitCode: 0, signal: null });
+      await until(() => !isAlive(grandchild), `grandchild ${String(grandchild)} to die`, 10_000);
+    } finally {
+      reap(grandchild);
     }
   });
 
