@@ -184,9 +184,11 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
     const same = (other: (typeof fix.restorations)[number]): boolean => other.phase === restoration.phase && other.check.kind === kind && other.check.attempt === attempt && other.attempt === attempt;
     const followed = restoration.attempt === attempt ? fix.checks.runs[restoration.phase].filter((run) => run.kind === kind && run.attempt === attempt && killedRun(run))[fix.restorations.slice(0, index).filter(same).length] : cutShortChecks(fix, restoration.phase).findLast((check) => check.kind === kind && check.attempt === attempt);
     const after = followed !== undefined && 'outcome' in followed && followed.outcome === 'timeout' ? `after ${kind} timed out` : `after a cut ${kind} check`;
-    for (const file of restoration.files) {
-      const before = file.before === null ? 'it did not exist before' : 'oversized' in file.before ? 'the bytes before were too large to keep' : `the bytes before are at ${evidencePath(file.before.blob)}`;
-      lines.push(`- Written back ${after} in ${restoration.phase}: ${inlineText(file.path)}; ${before}.`);
+    for (const { path, before, expected } of restoration.files) {
+      // The write back leaves a file whose bytes in the tree or expected bytes were too large to keep, so writing over them would lose them (`writeBack`).
+      if (before !== null && 'oversized' in before) lines.push(`- Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its bytes in the tree were too large to keep.`);
+      else if (expected !== null && 'oversized' in expected) lines.push(`- Not written back ${after} in ${restoration.phase}: ${inlineText(path)}; its expected bytes were too large to keep.`);
+      else lines.push(`- Written back ${after} in ${restoration.phase}: ${inlineText(path)}; ${before === null ? 'it did not exist before' : `the bytes before are at ${evidencePath(before.blob)}`}.`);
     }
   });
   if (fix.openSeries !== null) lines.push(`- A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);

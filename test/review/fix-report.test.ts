@@ -338,6 +338,12 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     assert.deepEqual(lines({ restorations }), [`- Written back after a cut test check in checks: src/a.ts; the bytes before are at ${evidencePath(blob)}.`, '- Written back after a cut test check in checks: src/new.ts; it did not exist before.']);
   });
 
+  it('names a file the write back left because its bytes in the tree or its expected bytes were too large to keep', () => {
+    const oversized = { oversized: { sha256: 'f'.repeat(64), size: 9 * 1024 * 1024 } };
+    const restorations = [{ phase: 'checks' as const, attempt: 1, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: oversized, beforeSymlink: false, expected: { blob: reference('a') }, expectedSymlink: false }, { path: 'src/b.ts', before: { blob: reference('7') }, beforeSymlink: false, expected: oversized, expectedSymlink: false }] }];
+    assert.deepEqual(lines({ restorations }), ['- Not written back after a cut test check in checks: src/a.ts; its bytes in the tree were too large to keep.', '- Not written back after a cut test check in checks: src/b.ts; its expected bytes were too large to keep.']);
+  });
+
   it('names a write back made again at a later attempt by the check it followed: a timeout, or a start a stop cut after it', () => {
     const blob = reference('7');
     const restoration = (at: number) => ({ phase: 'checks' as const, attempt: at, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: { blob }, beforeSymlink: false, expected: null, expectedSymlink: false }] });

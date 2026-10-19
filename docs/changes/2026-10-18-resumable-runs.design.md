@@ -188,7 +188,7 @@ In the same attempt, the planner cannot compare the tree, because it reads only 
 
 `dueCheck` also returns a kind whose last current run is its first timeout in the attempt, so the kind runs again. Its rerun names the timeout in `replaces`. A second timeout of the kind in the attempt is its result, as the readers take a timeout today.
 
-For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again. It records that check as `worktree.checked@6`, whose new moment `restored` follows a write back.
+For `restore-tree`, the controller freezes the bytes of each drifted file as evidence, or records that the file is absent. It then appends `tree.restored@1`, with the phase, the attempt, the cut check, and each file with its frozen bytes and its expected state. Then it writes the expected bytes, and it checks the tree again. It records that check as `worktree.checked@6`, whose new moment `restored` follows a write back. The write back leaves a file as the tree holds it, and logs it with the reason, when writing it could lose bytes or cannot succeed: its bytes in the tree or its expected bytes were too large to keep, a directory stands where the file is expected, a file stands where a parent directory is expected, or the write fails. The check after the write back then finds that file drifted, and the run blocks naming it.
 
 A stop between the append and the writes is safe, because the next start finds the drift and the record, and it writes again. The drift rule of the planner reads only the checks of the tree after the last `tree.restored` of the attempt. Thus a drift that a write back resolved does not block. The log names each file and where its earlier bytes are. Then R3 runs the cut check again, because it has no current run.
 
@@ -326,6 +326,7 @@ The Limitations section of the report gets one line for each case of this table.
 | A worker that ended with a kill mark | `- Cut: the worker of finder REMOVALS ended with exit code 143, a kill mark, and ran again.` |
 | A file that the engine wrote back | `- Written back after a cut check: src/a.ts; the bytes before are at <path>.` |
 | A file written back after a timeout | `- Written back after build timed out: dist/claude/engine/main.mjs; the bytes before are at <path>.` |
+| A file the write back left, its bytes too large to keep | `- Not written back after a cut check: assets/model.bin; its bytes in the tree were too large to keep.` |
 | A check that ran again after a timeout | `- Ran again after a timeout: test in checks timed out after 20 min at its first run, and passed in 5.2 min at its second.` |
 | A fix pass that the budget stopped | `- The run budget stopped the fix pass: 3 batches and the repair did not start. node "<engine>" review --runtime claude --last-commit --fix --budget-usd 62 continues it and reviews nothing again.` |
 
