@@ -28774,6 +28774,10 @@ function reviewStatus(state) {
   if (state.review?.blocker !== null && state.review?.blocker !== void 0) return "blocked";
   return "active";
 }
+function budgetStoppedRun(state) {
+  const fix = state.review?.fix ?? null;
+  return reviewStatus(state) === "complete" && fix !== null && budgetStoppedUnits(fix).length > 0;
+}
 function currentPhase(review2) {
   return phases.find((phase) => review2.phases[phase].status === "running" || review2.phases[phase].status === "blocked") ?? null;
 }
@@ -28831,6 +28835,7 @@ var idParts;
 var init_state = __esm({
   "src/review/state.ts"() {
     "use strict";
+    init_fix_state();
     init_review_fold();
     init_vocabulary();
     idParts = (id) => {
@@ -34835,7 +34840,7 @@ var init_controller = __esm({
     };
     presurveyRulesFileNames = ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"];
     driftList = (found) => [...found.head === null ? [] : [`HEAD (${found.head.actual}, expected ${found.head.expected})`], ...found.files.map((file2) => `${file2.path} (${file2.outcome})`)].join(", ");
-    budgetStopped = (run2, worktree) => reviewStatus(run2) === "complete" && run2.review?.fix !== null && run2.review?.fix !== void 0 && sameDirectory(run2.worktree, worktree) && budgetStoppedUnits(run2.review.fix).length > 0;
+    budgetStopped = (run2, worktree) => budgetStoppedRun(run2) && sameDirectory(run2.worktree, worktree);
     spendBound = (spendUsd) => (Math.ceil(spendUsd * 100 - 1e-9) / 100).toFixed(2);
   }
 });
@@ -35026,7 +35031,7 @@ var init_executable = __esm({
 // src/review/status.ts
 function continueLine(state, adapter, continuation) {
   const review2 = state.review;
-  if (continuation === null || review2 === null || review2.fix === null || reviewStatus(state) !== "complete" || budgetStoppedUnits(review2.fix).length === 0) return null;
+  if (continuation === null || review2 === null || !budgetStoppedRun(state)) return null;
   const spend = budgetSpendOf(state, adapter).usd;
   if (spend === null) return null;
   const own2 = review2.configuration.rolesDigest === continuation.ownRolesDigest();
