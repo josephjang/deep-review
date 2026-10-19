@@ -12,7 +12,8 @@ import { compileOutputSchema, parseInvocation, type Invocation, type InvocationI
 import { withPathFirst, workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
 import { preflight, type PreflightOptions } from './preflight.ts';
-import { endedByKill, killMarkWords, notStarted, runProcess, type ProcessResult } from './process.ts';
+import { endedByKill, killMarkWords } from './kill-marks.ts';
+import { notStarted, runProcess, type ProcessResult } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes, type PinnedRuntimeOptions } from './runtimes.ts';
 import { checkpointScratchKey, chooseScratch, chooseShared, defaultScratchRoot } from './scratch.ts';

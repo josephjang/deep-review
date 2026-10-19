@@ -31,7 +31,7 @@ import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { withPathFirst } from '../runtime/environment.ts';
 import { PreflightError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
-import { killMarkWords } from '../runtime/process.ts';
+import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';

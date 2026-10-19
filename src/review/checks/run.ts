@@ -11,7 +11,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceStore, ArtifactReference } from '../../evidence/store.ts';
 import { pinVariables, workerEnvironment } from '../../runtime/environment.ts';
-import { endedByKill, guardLeftNoResult, killMarkWords, notStarted, runProcess, type ProcessResult } from '../../runtime/process.ts';
+import { endedByKill, guardLeftNoResult, killMarkWords } from '../../runtime/kill-marks.ts';
+import { notStarted, runProcess, type ProcessResult } from '../../runtime/process.ts';
 import type { CheckOutcome } from '../vocabulary.ts';
 
 /** How a check that ran ended: its command exited 0, a kill from outside ended it, it exited otherwise, ran past its timeout, or never started. `skipped` is recorded for a check the planner never ran. */

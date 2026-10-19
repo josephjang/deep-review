@@ -13,7 +13,7 @@
 import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ClaimsLost, CommitsCreated, CommitsPrepared, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, FixReopened, PlannedCheckV2, PlannedCheckV3, RecordedDecision, ReportWritten, ScopeMode, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
-import { endedByKill } from '../runtime/process.ts';
+import { endedByKill } from '../runtime/kill-marks.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
 

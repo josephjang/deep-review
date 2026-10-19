@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { endedByKill, guardLeftNoResult, killMarkWords, killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
+import { endedByKill, guardLeftNoResult, killMarkWords } from '../../src/runtime/kill-marks.ts';
+import { killTree, notStarted, runProcess, type ProcessRequest } from '../../src/runtime/process.ts';
 import { isAlive, until } from '../helpers/launcher.ts';
 import { probeGrandchildPidFile, processEngine, workerPidFile, type WorkerPids } from '../helpers/process-engine.ts';
 

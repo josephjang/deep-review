@@ -12,7 +12,7 @@ import { passOf } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
-import { killMarkWords } from '../runtime/process.ts';
+import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { leftAs } from './decision-report.ts';

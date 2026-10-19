@@ -13,7 +13,7 @@ import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import type { Layer } from '../config/settings.ts';
-import { endedByKill, killMarkWords } from '../runtime/process.ts';
+import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
 

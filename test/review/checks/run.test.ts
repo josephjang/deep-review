@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { EvidenceStore } from '../../../src/evidence/store.ts';
 import { spawnSync } from 'node:child_process';
 import { checkEnvironment, checkOutcomeOf, checkPins, runCheck, shellInvocation, type CheckRequest } from '../../../src/review/checks/run.ts';
-import { killMarkCodes } from '../../../src/runtime/process.ts';
+import { killMarkCodes } from '../../../src/runtime/kill-marks.ts';
 import { killWithMark } from '../../helpers/resume-contract.ts';
 import { buildServerPins } from '../../../src/runtime/environment.ts';
 import { baseEnvironment, isAlive, until, waitForPid } from '../../helpers/launcher.ts';

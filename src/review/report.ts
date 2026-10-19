@@ -17,7 +17,7 @@ import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type C
 import type { ArtifactReference } from '../evidence/store.ts';
 import { decisionLine, decisionsSection } from './decision-report.ts';
 import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
-import { endedByKill, killMarkWords } from '../runtime/process.ts';
+import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { codeSpan, inlineText, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';

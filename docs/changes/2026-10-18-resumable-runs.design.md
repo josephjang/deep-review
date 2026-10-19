@@ -194,7 +194,7 @@ A stop between the append and the writes is safe, because the next start finds t
 
 ### The outcome `cut` (R4)
 
-`endedByKill` in `src/runtime/process.ts` holds the one list of kill marks: a signal, or the exit code 129, 130, 131, 137, 143 or 3221225786. `checkOutcomeOf` gives `cut` for a check that exited with a mark, and `check.ran@3` permits that outcome. A check that the engine killed at its timeout stays `timeout`, because its process result is `killed`, not `exited`. Under the guard of R8, the exit code and the signal come from the result file of the guard. A guard with no result file is a mark too.
+`endedByKill` in `src/runtime/kill-marks.ts`, a pure module that the spawn code, the fold and the report all import, holds the one list of kill marks: a signal, or the exit code 129, 130, 131, 137, 143 or 3221225786. `checkOutcomeOf` gives `cut` for a check that exited with a mark, and `check.ran@3` permits that outcome. A check that the engine killed at its timeout stays `timeout`, because its process result is `killed`, not `exited`. Under the guard of R8, the exit code and the signal come from the result file of the guard. A guard with no result file is a mark too.
 
 `dueCheck` treats a cut run as a run with no result. Thus the kind is due again, its rerun names the cut run in `replaces`, and a phase does not finish while a kind is cut. `runDueCheck` records the second cut of a kind in one attempt as `failed`, with an error that names both marks. It records no revision for a run that a kill ended, and it reads that from the process result, not from the recorded outcome. A kill mark, a guard with no result file and the engine's own kill at the timeout each end a run so. Thus a second cut, which the run records as `failed`, records no revision either, and the write back of R7 follows it.
 
@@ -392,7 +392,7 @@ The rule of each phase covers each order of the edits with one comparison: a run
 
 ### TD4: One list of kill marks for checks and workers, not a wait
 
-One list in `process.ts` serves checks and workers, so the two cannot disagree on a mark. A wait in the controller was the first design. It held a checks phase or a degradation for 10 seconds after the recorded end of a failed child. It was rejected for the reasons of PD5, and also for two faults of its own. It held back the record of the other workers in flight, and a change of the clock moved its end. The list does not hold 1, because `taskkill` gives it, and so does a program that fails.
+One list in `kill-marks.ts` serves checks and workers, so the two cannot disagree on a mark. A wait in the controller was the first design. It held a checks phase or a degradation for 10 seconds after the recorded end of a failed child. It was rejected for the reasons of PD5, and also for two faults of its own. It held back the record of the other workers in flight, and a change of the clock moved its end. The list does not hold 1, because `taskkill` gives it, and so does a program that fails.
 
 ### TD5: A guard per child, not a cleanup at the resume or the means of each system
 
