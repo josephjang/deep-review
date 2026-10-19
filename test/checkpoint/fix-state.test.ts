@@ -81,7 +81,7 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
 });
 
 describe('the check a kill cut short before the current attempt (R7 of resumable runs)', () => {
-  const review = (fix: FixState, attempt: number): Parameters<typeof cutShortBefore>[0] => ({ phases: { 'baseline-checks': { status: 'running', attempt } } as never, fix });
+  const review = (fix: FixState, attempt: number): Parameters<typeof cutShortBefore>[0] => ({ phases: { 'baseline-checks': { status: 'running', attempt } } as never, checks: [], fix });
   const start = (kind: CheckKind, attempt: number, runsBefore: number) => ({ phase: 'baseline-checks' as const, attempt, kind, command: `npm run ${kind}`, runsBefore });
 
   it('finds a start no run came after, a cut run, or one killed at its timeout, in an earlier attempt, the last of them', () => {

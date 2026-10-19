@@ -290,18 +290,27 @@ export const killedRun = (run: Pick<CheckRunState, 'outcome' | 'termination' | '
 /**
  * The last check of a checks phase that a kill cut short in an attempt
  * before the current one (R7 of resumable runs): a start no run came
- * after, which a stop cut, or a run that a kill ended (`killedRun`); null
- * when there is none. A drift its writes explain is written back, not
- * blocked on.
+ * after, which a stop cut, or a run that a kill ended (`killedRun`), whose
+ * write back did not finish; null when there is none. A drift its writes
+ * explain is written back, not blocked on. A write back finished once the
+ * tree was checked again after its record (the moment `restored`); one a
+ * stop cut between its record and its writes is made again. After a
+ * finished one, a drift is no longer the check's, but an edit of a person
+ * while no engine ran, which blocks as any drift does.
  */
-export function cutShortBefore(review: Pick<ReviewState, 'phases'> & { readonly fix: FixState }, phase: CheckPhase): CutShortCheck | null {
+export function cutShortBefore(review: Pick<ReviewState, 'phases' | 'checks'> & { readonly fix: FixState }, phase: CheckPhase): CutShortCheck | null {
   const { fix } = review;
   const current = review.phases[phase].attempt;
+  // The last write back of a kind's run at an attempt decides, since a second cut of the kind in that attempt is written back after the first.
+  const writtenBack = (kind: CheckKind, attempt: number): boolean => {
+    const last = fix.restorations.findLast((restoration) => restoration.phase === phase && restoration.check.kind === kind && restoration.check.attempt === attempt);
+    return last !== undefined && review.checks.slice(last.checksBefore).some((check) => check.phase === phase && check.attempt === last.attempt && check.moment === 'restored');
+  };
   // Ledger order, by the count of runs before each start, so the last one wins whatever its kind.
   const candidates = [
     ...fix.checks.runs[phase].map((run, index) => ({ check: run, at: index + 0.5, cut: killedRun(run) })),
     ...fix.checks.starts[phase].map((start) => ({ check: start, at: start.runsBefore, cut: openStart(fix, phase, start.kind, start.attempt) === start })),
-  ].filter((candidate) => candidate.cut && candidate.check.attempt < current).sort((a, b) => a.at - b.at);
+  ].filter((candidate) => candidate.cut && candidate.check.attempt < current && !writtenBack(candidate.check.kind, candidate.check.attempt)).sort((a, b) => a.at - b.at);
   const last = candidates.at(-1);
   return last === undefined ? null : { kind: last.check.kind, attempt: last.check.attempt };
 }

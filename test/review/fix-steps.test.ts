@@ -404,6 +404,22 @@ describe('nextStep in the checks after a stop (R3, R7, TD11 of resumable runs)',
     assert.deepEqual(nextStep(cut.review(), idle), { kind: 'restore-tree', phase: 'baseline-checks', attempt: 3, check: { kind: 'lint', attempt: 1 }, files: [drifted] });
   });
 
+  it('blocks on a drift at a later start when the check a kill cut short was written back already, as a person\'s edit while no engine ran is', () => {
+    const blocked = (step: Step): boolean => step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'drift';
+    // A check a stop cut, written back at the next start and checked again: a drift at a start after it is no longer its.
+    const stopped = inBaseline().add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'lint', command: 'npm run lint' });
+    restart(stopped, 'baseline-checks', 2, [drifted])
+      .add('tree.restored', { phase: 'baseline-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [] })
+      .add('worktree.checked', { phase: 'baseline-checks', attempt: 2, moment: 'restored', drifted: false, head: null, files: [], strays: [] }, 6);
+    assert.ok(blocked(nextStep(restart(stopped, 'baseline-checks', 3, [drifted]).review(), idle)), JSON.stringify(nextStep(stopped.review(), idle)));
+    // A check that timed out, written back in its own step and checked again, then run once more.
+    const timedOut = inBaseline();
+    ranV3(timedOut, 'baseline-checks', 'lint', 'timeout', 1)
+      .add('tree.restored', { phase: 'baseline-checks', attempt: 1, check: { kind: 'lint', attempt: 1 }, files: [] })
+      .add('worktree.checked', { phase: 'baseline-checks', attempt: 1, moment: 'restored', drifted: false, head: null, files: [], strays: [] }, 6);
+    assert.ok(blocked(nextStep(restart(timedOut, 'baseline-checks', 2, [drifted]).review(), idle)), JSON.stringify(nextStep(timedOut.review(), idle)));
+  });
+
   it('still blocks on a drift of HEAD, on one no cut check explains, on one whose bytes were too large to keep, and on one left after a write back', () => {
     const blocked = (step: Step): boolean => step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'drift';
     const cut = (): History => inBaseline().add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'lint', command: 'npm run lint' });
